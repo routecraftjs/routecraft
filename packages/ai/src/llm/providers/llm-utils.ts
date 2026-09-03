@@ -1,21 +1,20 @@
 import type {
   LlmModelConfig,
-  LlmOptionsMerged,
+  LlmProviderType,
+  LlmSamplingOptionsMerged,
   LlmToolCallSummary,
   LlmUsage,
 } from "../types.ts";
+import { mergeProviderOptions, reasoningProviderOptions } from "./reasoning.ts";
 
 export interface CallLlmParams {
   config: LlmModelConfig;
   modelId: string;
-  options: Pick<
-    LlmOptionsMerged,
-    | "temperature"
-    | "maxTokens"
-    | "topP"
-    | "frequencyPenalty"
-    | "presencePenalty"
-  >;
+  /**
+   * The whole sampling block, not a subset of it. A `Pick` here was one of the
+   * two places a new option could typecheck and reach nothing.
+   */
+  options: LlmSamplingOptionsMerged;
   system: string;
   /**
    * User-side conversation. When a string, it is sent as a single
@@ -226,20 +225,39 @@ export function buildExtras(
   return out;
 }
 
-export function buildSdkParams(
-  model: unknown,
-  options: Pick<
-    LlmOptionsMerged,
-    | "temperature"
-    | "maxTokens"
-    | "topP"
-    | "frequencyPenalty"
-    | "presencePenalty"
-  >,
-  system: string,
-  user: string | unknown[],
-  extras: ProviderExtras,
-): Record<string, unknown> {
+/**
+ * Everything one dispatch hands the SDK. A named bag rather than a positional
+ * list because the first slot is an opaque model handle and several of the
+ * rest are strings, so a shuffled argument would not reliably be a type error.
+ */
+export interface SdkParamsInput {
+  /** Resolved language model handle; opaque to the framework. */
+  model: unknown;
+  /**
+   * Needed because the reasoning mapping is per provider and the resolved
+   * model handle carries no provider identity by the time it gets here.
+   */
+  provider: LlmProviderType;
+  options: LlmSamplingOptionsMerged;
+  system: string;
+  user: string | unknown[];
+  extras: ProviderExtras;
+}
+
+/**
+ * Assemble the arguments for `generateText` / `streamText`. The one place
+ * where an authored option becomes an SDK parameter, for both the sync and
+ * streaming paths, so `reasoning` is mapped here and the authored
+ * `providerOptions` folded over the result.
+ */
+export function buildSdkParams({
+  model,
+  provider,
+  options,
+  system,
+  user,
+  extras,
+}: SdkParamsInput): Record<string, unknown> {
   const params: Record<string, unknown> = {
     model,
     prompt: user,
@@ -254,6 +272,15 @@ export function buildSdkParams(
   }
   if (options.presencePenalty !== undefined) {
     params["presencePenalty"] = options.presencePenalty;
+  }
+  const providerOptions = mergeProviderOptions(
+    options.reasoning === undefined
+      ? undefined
+      : reasoningProviderOptions(provider, options.reasoning),
+    options.providerOptions,
+  );
+  if (providerOptions !== undefined) {
+    params["providerOptions"] = providerOptions;
   }
   return { ...params, ...extras };
 }

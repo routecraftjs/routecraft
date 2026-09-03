@@ -166,6 +166,7 @@ const EXAMPLE_EXCLUDED_DIRECTORIES = new Set(["node_modules", ".git"]);
  */
 const EXAMPLE_EXCLUDED_FILES = new Set([
   "package-lock.json",
+  "npm-shrinkwrap.json",
   "yarn.lock",
   "pnpm-lock.yaml",
   "bun.lock",
@@ -178,7 +179,7 @@ const EXAMPLE_EXCLUDED_FILES = new Set([
  * @param relativePath Path relative to the example root, `""` for the root
  */
 export function isExcludedExamplePath(relativePath: string): boolean {
-  const segments = relativePath.split(sep).filter(Boolean);
+  const segments = relativePath.split(/[\\/]/).filter(Boolean);
   if (segments.length === 0) return false;
   if (segments.some((segment) => EXAMPLE_EXCLUDED_DIRECTORIES.has(segment))) {
     return true;
@@ -254,14 +255,18 @@ export interface GitHubExampleRef {
  *   escapes the repository
  */
 export function parseGitHubExampleUrl(url: string): GitHubExampleRef {
-  const match = url.match(
-    /^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?(?:\/tree\/([^/]+?)(?:\/(.+?))?)?\/?$/,
-  );
+  // A URL copied from the browser carries `?plain=1` or a `#L20` anchor, and
+  // neither is part of the path being asked for.
+  const match = url
+    .replace(/[?#].*$/, "")
+    .match(
+      /^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?(?:\/tree\/([^/]+?)(?:\/(.+?))?)?\/?$/,
+    );
   if (!match) {
     throw new Error(`Invalid GitHub URL format: ${url}`);
   }
   const [, owner, repo, branch = "main", subPath = ""] = match;
-  if (subPath.split("/").some((segment) => segment === "..")) {
+  if (subPath.split(/[\\/]/).some((segment) => segment === "..")) {
     throw new Error(
       `Invalid example path "${subPath}": a path inside the repository cannot contain "..".`,
     );
@@ -302,6 +307,17 @@ async function downloadGitHubExample(url: string): Promise<string> {
     }
 
     const sourceDir = subPath ? join(tempDir, subPath) : tempDir;
+    // The parser refuses ".." already. This is the check that does not
+    // depend on the parser being right, because what follows copies this
+    // directory wholesale into the user's new project.
+    if (
+      sourceDir !== tempDir &&
+      !resolve(sourceDir).startsWith(resolve(tempDir) + sep)
+    ) {
+      throw new Error(
+        `Invalid example path "${subPath}": it resolves outside the repository.`,
+      );
+    }
 
     if (!existsSync(sourceDir)) {
       throw new Error(`Path ${subPath} not found in repository`);
@@ -674,6 +690,32 @@ function skipFromUrlExample(relativePath: string): boolean {
 const PROJECT_OWNED_PACKAGE_FIELDS = ["name", "packageManager"] as const;
 
 /**
+ * Read one of a manifest's string-keyed map fields, refusing anything else.
+ *
+ * Spreading is forgiving in the wrong direction: `scripts: "run"` spreads to
+ * `{ 0: "r", 1: "u", 2: "n" }` and writes a `package.json` no package
+ * manager can read, with nothing in the output to say where it came from.
+ *
+ * A plain object test rather than a schema: this package deliberately ships
+ * no runtime dependency, and the question here is one shape, not a contract.
+ *
+ * @throws Error naming the field and the source when the value is not a map
+ */
+function mapFieldOrThrow(
+  value: unknown,
+  field: string,
+  source: "example" | "scaffold",
+): Record<string, string> | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    throw new Error(
+      `The ${source} package.json declares "${field}" as ${Array.isArray(value) ? "an array" : typeof value}, but it must be an object mapping names to strings.`,
+    );
+  }
+  return value as Record<string, string>;
+}
+
+/**
  * Merge a URL example's `package.json` into the scaffolded one.
  *
  * The example wins on every field it declares (its scripts, its engines,
@@ -715,13 +757,10 @@ export async function mergeExamplePackageJson(
     "peerDependencies",
     "scripts",
   ] as const) {
-    const base = pkg[field];
-    const overlay = example[field];
+    const base = mapFieldOrThrow(pkg[field], field, "scaffold");
+    const overlay = mapFieldOrThrow(example[field], field, "example");
     if (base === undefined && overlay === undefined) continue;
-    merged[field] = {
-      ...(base as Record<string, string> | undefined),
-      ...(overlay as Record<string, string> | undefined),
-    };
+    merged[field] = { ...base, ...overlay };
   }
 
   await writeFile(pkgPath, JSON.stringify(merged, null, 2) + "\n");

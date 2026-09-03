@@ -1,6 +1,9 @@
 import { logger, rcError } from "@routecraft/routecraft";
 import {
   optionalBoolean,
+  optionalEnum,
+  optionalNestedRecord,
+  optionalNumber,
   optionalPositiveInt,
   optionalStringArray,
   readMarkdownSource,
@@ -9,7 +12,7 @@ import {
 } from "../block/markdown.ts";
 import { tools } from "./tools/index.ts";
 import type { ToolSelection } from "./tools/selection.ts";
-import type { LlmModelId } from "../llm/types.ts";
+import type { LlmModelId, LlmReasoningEffort } from "../llm/types.ts";
 import type { AgentRegisteredOptions } from "./types.ts";
 
 /**
@@ -32,6 +35,35 @@ export const AGENT_BUNDLE_FILENAME = "AGENT.md";
 export const AGENT_RESERVED_DIRECTORIES = ["skills"] as const;
 
 /**
+ * The sampling block as frontmatter. Every one of these is a scalar or a
+ * plain map, so YAML expresses them directly and there is no reason a
+ * markdown-authored agent should be the one surface that cannot set them:
+ * `reasoning` in particular is per-agent by nature, and markdown is where the
+ * many-small-agents-on-one-model population lives.
+ *
+ * Listed as literals rather than derived from `SAMPLING_OPTION_KEYS` because
+ * each needs its own validator below, so a new sampling option has to be
+ * considered here rather than silently admitted as unvalidated YAML.
+ */
+const SAMPLING_FRONTMATTER_KEYS = [
+  "temperature",
+  "maxTokens",
+  "topP",
+  "frequencyPenalty",
+  "presencePenalty",
+  "reasoning",
+  "providerOptions",
+] as const;
+
+/** The levels {@link LlmReasoningEffort} admits, for frontmatter validation. */
+const REASONING_LEVELS: readonly LlmReasoningEffort[] = [
+  "none",
+  "low",
+  "medium",
+  "high",
+];
+
+/**
  * Frontmatter fields this loader maps. Claude's subagent schema covers
  * more (`permissionMode`, `mcpServers`, `hooks`, `memory`,
  * `background`, `effort`, `isolation`, `color`, `initialPrompt`, ...)
@@ -50,6 +82,7 @@ const SUPPORTED_AGENT_KEYS = new Set([
   "disallowedTools",
   "principal",
   "skills",
+  ...SAMPLING_FRONTMATTER_KEYS,
 ]);
 
 /**
@@ -72,10 +105,12 @@ const MODEL_ALIASES: Record<string, LlmModelId> = {
  * is still a hard error, because that is a typo or a missing
  * registration rather than a known gap.
  *
- * The check runs against the live catalog, so the moment Routecraft
- * registers a fn under one of these names (`WebFetch` in #341,
- * `WebSearch` in #342, `Bash` in #343) it resolves normally and no
- * entry has to be removed from this list.
+ * The check runs against the live catalog, so the moment an app, or
+ * the `craft-harness` template (#588), registers a route under one of
+ * these names it resolves normally and no entry has to be removed
+ * from this list. Routecraft ships none of them itself: a tool an
+ * agent reaches for is composed per `.standards/package-boundaries.md`
+ * section 6.1, not built into the framework.
  */
 const CLAUDE_BUILTIN_TOOLS = new Set([
   "Bash",
@@ -307,6 +342,59 @@ function resolveModel(value: unknown, source: string): LlmModelId | undefined {
 }
 
 /**
+ * Read the sampling block off frontmatter onto the agent. Each field is
+ * validated for its own shape, so a typo lands as an RC5003 naming the field
+ * at load rather than as a value the provider refuses mid-dispatch.
+ */
+function applySampling(
+  agent: AgentRegisteredOptions,
+  frontmatter: Record<string, unknown>,
+  source: string,
+): void {
+  const temperature = optionalNumber(
+    frontmatter["temperature"],
+    "temperature",
+    source,
+  );
+  if (temperature !== undefined) agent.temperature = temperature;
+  const maxTokens = optionalPositiveInt(
+    frontmatter["maxTokens"],
+    "maxTokens",
+    source,
+  );
+  if (maxTokens !== undefined) agent.maxTokens = maxTokens;
+  const topP = optionalNumber(frontmatter["topP"], "topP", source);
+  if (topP !== undefined) agent.topP = topP;
+  const frequencyPenalty = optionalNumber(
+    frontmatter["frequencyPenalty"],
+    "frequencyPenalty",
+    source,
+  );
+  if (frequencyPenalty !== undefined) {
+    agent.frequencyPenalty = frequencyPenalty;
+  }
+  const presencePenalty = optionalNumber(
+    frontmatter["presencePenalty"],
+    "presencePenalty",
+    source,
+  );
+  if (presencePenalty !== undefined) agent.presencePenalty = presencePenalty;
+  const reasoning = optionalEnum(
+    frontmatter["reasoning"],
+    "reasoning",
+    source,
+    REASONING_LEVELS,
+  );
+  if (reasoning !== undefined) agent.reasoning = reasoning;
+  const providerOptions = optionalNestedRecord(
+    frontmatter["providerOptions"],
+    "providerOptions",
+    source,
+  );
+  if (providerOptions !== undefined) agent.providerOptions = providerOptions;
+}
+
+/**
  * Convert a parsed markdown file into an `AgentRegisteredOptions`.
  * Identity comes from the frontmatter `name` field alone: the filename
  * and the directory path are grouping, not identity, which is what
@@ -393,6 +481,7 @@ function toAgent(doc: ParsedMarkdown): LoadedAgentFile {
   };
   if (model !== undefined) agent.model = model;
   if (maxTurns !== undefined) agent.maxTurns = maxTurns;
+  applySampling(agent, frontmatter, source);
   if (toolRefs !== undefined)
     agent.tools = toolSelection(toolRefs, disallowed, source);
   if (principal !== undefined) agent.principal = principal;

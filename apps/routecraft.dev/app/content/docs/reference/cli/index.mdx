@@ -107,11 +107,17 @@ The URL form accepts a whole repository or a subdirectory of one
 `main`; templates are not tagged, so what you get is the template's current state rather
 than a pinned release. Pass a `/tree/<branch>/` URL when you need a specific one.
 
+A branch is read as one path segment. `/tree/feature/login` is understood as branch
+`feature` with subpath `login`, because nothing in the URL says which slash is the boundary
+and deciding would take a call to GitHub. Scaffold from a single-segment branch, or from the
+repository root.
+
 The template's files win over the base scaffold, except for two the base keeps: the project
 name you passed and the package manager you chose. Its `dependencies`, `devDependencies` and
 `scripts` merge into the base manifest rather than replacing it, so the template declares
-only its own additions. Lockfiles, `node_modules` and `.git` are never copied; the scaffolded
-project resolves its own dependency tree.
+only its own additions. `node_modules`, `.git` and the lockfiles (`package-lock.json`,
+`npm-shrinkwrap.json`, `yarn.lock`, `pnpm-lock.yaml`, `bun.lock`, `bun.lockb`) are never
+copied; the scaffolded project resolves its own dependency tree.
 
 ## Commands
 

@@ -185,18 +185,76 @@ export type LlmProviderOptionsMap = Required<LlmPluginProviders>;
 
 /**
  * Resolve system or user prompt from exchange (string or function).
+ *
+ * @template T - Body type available to the prompt callback
  */
-export type LlmPromptSource =
-  string | ((exchange: Exchange<unknown>) => string);
+export type LlmPromptSource<T = unknown> =
+  string | ((exchange: Exchange<T>) => string);
 
-export interface LlmOptions {
-  system?: LlmPromptSource;
-  user?: LlmPromptSource;
+/**
+ * Normalised reasoning effort, the portable way to ask a model to think more
+ * or less about one call. Mapped to each provider's own control at dispatch
+ * (see `providers/reasoning.ts` for the table, and the llm adapter reference
+ * for the user-facing version of it).
+ *
+ * A level a provider cannot express maps to the nearest level it supports
+ * rather than throwing, because an option that refuses on some providers is
+ * not portable and portability is the whole point. Where that matters, the
+ * mapping table says so: Gemini has no way to turn thinking off, so `"none"`
+ * reaches it as its lowest level, and Ollama's control is a boolean, so the
+ * three non-zero levels are indistinguishable there.
+ */
+export type LlmReasoningEffort = "none" | "low" | "medium" | "high";
+
+/**
+ * Raw provider settings, forwarded to the SDK verbatim as its
+ * `providerOptions`. The labelled escape hatch for anything the normalised
+ * options cannot express (Anthropic's thinking token budget, Gemini's
+ * `thinkingBudget`, a provider setting the framework has no opinion about).
+ *
+ * Keyed by the SDK's provider namespace, which is not always the Routecraft
+ * provider id: `gemini` reaches the SDK as `google`.
+ *
+ * Unportable by construction, which is why it sits beside the normalised
+ * options rather than replacing them. It wins over {@link LlmReasoningEffort}
+ * for the keys it names, so a route can take the mapping for everything else
+ * and still hand one provider a value of its own.
+ */
+export type LlmRawProviderOptions = Record<string, Record<string, unknown>>;
+
+/**
+ * Sampling and reasoning controls. Shared verbatim by `llm()` and `agent()`
+ * so the same dial means the same thing wherever a model is called.
+ */
+export interface LlmSamplingOptions {
   temperature?: number;
   maxTokens?: number;
   topP?: number;
   frequencyPenalty?: number;
   presencePenalty?: number;
+  /**
+   * How much the model should reason about this call, normalised across
+   * providers. Omitted means the provider's own default applies; nothing is
+   * sent. See {@link LlmReasoningEffort} for what each level maps to.
+   */
+  reasoning?: LlmReasoningEffort;
+  /**
+   * Raw provider settings forwarded to the SDK. Merged over whatever
+   * `reasoning` mapped to, per provider namespace and per setting within it,
+   * so naming a setting here replaces the mapped one and leaves the rest.
+   * See {@link LlmRawProviderOptions}.
+   */
+  providerOptions?: LlmRawProviderOptions;
+}
+
+/**
+ * Options for an LLM call.
+ *
+ * @template T - Body type available to system and user prompt callbacks.
+ */
+export interface LlmOptions<T = unknown> extends LlmSamplingOptions {
+  system?: LlmPromptSource<T>;
+  user?: LlmPromptSource<T>;
   /**
    * Optional output schema (Standard Schema). When set, the adapter requests
    * provider-level structured output and validates the result. Supported by
@@ -209,11 +267,19 @@ export interface LlmOptions {
   output?: StandardSchemaV1;
 }
 
-/** Internal merged type for adapter and store. */
-export type LlmOptionsMerged = Required<
-  Pick<LlmOptions, "temperature" | "maxTokens">
+/**
+ * The sampling block after defaults are applied: `temperature` and
+ * `maxTokens` always have a value, everything else is present only when the
+ * author asked for it. This is what reaches the provider call.
+ */
+export type LlmSamplingOptionsMerged = Required<
+  Pick<LlmSamplingOptions, "temperature" | "maxTokens">
 > &
-  Omit<LlmOptions, "temperature" | "maxTokens">;
+  Omit<LlmSamplingOptions, "temperature" | "maxTokens">;
+
+/** Internal merged type for adapter and store. */
+export type LlmOptionsMerged<T = unknown> = LlmSamplingOptionsMerged &
+  Omit<LlmOptions<T>, keyof LlmSamplingOptions>;
 
 /**
  * Token usage reported by the provider. Mirrors the Vercel AI SDK
@@ -357,7 +423,8 @@ export type LlmModelId =
   | "openrouter:deepseek/deepseek-v3.2"
   | "openrouter:deepseek/deepseek-r1"
   | "openrouter:meta-llama/llama-3.3-70b-instruct"
-  // Gemini (2026: 2.5 + 3.x preview)
+  // Gemini (2026: 2.5 + 3.x)
+  | "gemini:gemini-3.7-flash"
   | "gemini:gemini-2.5-pro"
   | "gemini:gemini-2.5-flash"
   | "gemini:gemini-2.5-flash-lite"

@@ -122,6 +122,22 @@ describe("assertResumableThread", () => {
   });
 
   /**
+   * @case A result placed before its call is refused
+   * @preconditions Every id still pairs, but the tool message precedes the assistant message that produced it
+   * @expectedResult AI1008, because a provider reads the thread in order and a set comparison alone would pass this
+   */
+  test("refuses a tool result that precedes its call", () => {
+    const [user, assistant, tool] = thread() as [
+      ThreadMessage,
+      ThreadMessage,
+      ThreadMessage,
+    ];
+    expect(() =>
+      assertResumableThread([user, tool, assistant], "call-1"),
+    ).toThrow(expect.objectContaining({ rc: "AI1008" }));
+  });
+
+  /**
    * @case A thread that dropped the suspended call is refused
    * @preconditions A well-formed thread for a different call id
    * @expectedResult AI1008 at compaction time, rather than AI1007 on resume after the approval is spent
@@ -214,11 +230,17 @@ describe("replaceParkedThread", () => {
   });
 
   /**
-   * @case Two compactions of the same read produce one winner
-   * @preconditions Both rewrites are based on the same stored state
-   * @expectedResult The second loses on the fingerprint compare and the first one's thread stands, rather than the second silently discarding it
+   * @case A compaction based on a stale read loses to one that already landed
+   * @preconditions Two replacements built from the same fingerprint, the second standing in for a caller that read before the first wrote
+   * @expectedResult The second loses the compare and the first one's thread stands, rather than the second silently discarding it
+   *
+   *   The second call goes through the store rather than the helper on
+   *   purpose: `replaceParkedThread` takes its own read, so two calls to it
+   *   are two independent compactions and cannot hold the same read. The
+   *   fingerprint is what protects a caller that did, and this is where it
+   *   is proven.
    */
-  test("lets exactly one of two racing compactions win", async () => {
+  test("refuses a compaction built on a stale read", async () => {
     const store = new MemorySuspensionStore();
     await store.create(parked());
     const before = (await store.get("sus-1"))?.stepState;
@@ -262,6 +284,28 @@ describe("replaceParkedThread", () => {
     expect(
       (result.suspension?.stepState as { messages: ThreadMessage[] }).messages,
     ).toHaveLength(2);
+  });
+
+  /**
+   * @case A rewrite that mutates and then fails validation leaves the record intact
+   * @preconditions The rewrite empties the array it was handed in place, which AI1008 then refuses
+   * @expectedResult The stored thread is untouched, so a failed compaction costs nothing even against a store that hands back its own record
+   */
+  test("keeps the stored thread when a mutating rewrite is refused", async () => {
+    const store = new MemorySuspensionStore();
+    await store.create(parked());
+
+    await expect(
+      replaceParkedThread(store, "sus-1", (messages) => {
+        (messages as ThreadMessage[]).length = 0;
+        return messages;
+      }),
+    ).rejects.toMatchObject({ rc: "AI1008" });
+
+    const after = (await store.get("sus-1"))?.stepState as {
+      messages: ThreadMessage[];
+    };
+    expect(after.messages).toHaveLength(3);
   });
 
   /**

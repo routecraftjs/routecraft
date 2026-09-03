@@ -97,19 +97,22 @@ const result = await replaceParkedThread(store, suspensionId, async (messages) =
 );
 ```
 
-Two things are checked before the store is touched. The rewrite is put through
+Two things happen before the store is written. The rewrite is put through
 `assertResumableThread`, which refuses a thread that broke tool-call /
-tool-result pairing, duplicated a call id, emptied itself, or dropped the
-suspended call the approver's answer lands on, with
-[`AI1008`](/docs/reference/errors#ai-1008). A summariser asked to shorten a
-conversation will happily drop half a pair, and a broken thread is not
-discovered at compaction time: it is discovered when the approver clicks, by
-which point the approval is spent. Then the write goes through the store's
-[`replaceStepState`](/docs/reference/configuration#suspension) compare-and-swap
+tool-result pairing, reordered a result before its call, duplicated a call id,
+emptied itself, or dropped the suspended call the approver's answer lands on,
+with [`AI1008`](/docs/reference/errors#ai-1008). This guard is the point: a
+summariser asked to shorten a conversation will happily drop half a pair, and
+without the check the damage surfaces only when the approver clicks, by which
+point the approval is spent and the run is unrecoverable. Refused here instead,
+it costs nothing.
+
+Then the write goes through the store's `replaceStepState` compare-and-swap
 against the state the rewrite was based on, so a resume, a sweep, or a second
 rewrite that got there first wins and this one reports `won: false` rather than
-overwriting it. Losing is an ordinary outcome, not an error: the run resumes
-uncompacted.
+overwriting it. Losing is an ordinary outcome, not an error. What the loser
+should do next is in the returned `suspension`: another compaction may have
+won, or the record may have left the parked state entirely.
 
 Only `messages` changes. `turnsUsed` in particular is left alone, because
 shrinking the conversation does not give the run its budget back.

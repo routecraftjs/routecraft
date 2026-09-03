@@ -34,7 +34,7 @@ export const craftConfig: CraftConfig = {
 | Option | Type | Required | Description |
 |--------|------|----------|-------------|
 | `providers` | `LlmPluginProviders` | Yes | Provider credentials (at least one required) |
-| `defaultOptions` | `Partial<LlmOptions>` | No | Default options applied to all `llm()` calls |
+| `defaultOptions` | `Partial<LlmOptions>` | No | Default options applied to all `llm()` calls, including the sampling block (`temperature`, `maxTokens`, `topP`, the penalties, [`reasoning`](/docs/reference/adapters/llm#reasoning-effort) and `providerOptions`). A per-call value wins per key |
 
 **Providers:**
 

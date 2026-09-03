@@ -52,6 +52,123 @@ describe("agents() markdown loader", () => {
   }
 
   /**
+   * @case A markdown agent can declare the whole sampling block in frontmatter
+   * @preconditions One agent file carrying temperature, maxTokens, topP, both penalties, reasoning and providerOptions
+   * @expectedResult Every value lands on the loaded agent and nothing is warned away, so a markdown-authored agent can ask for a reasoning effort the same way an inline one can
+   */
+  test("loads the sampling block from frontmatter", async () => {
+    const dir = makeDir({
+      "judge.md": `---
+name: judge
+description: Classifies one thing.
+model: anthropic:claude-sonnet-4-6
+temperature: 0.7
+maxTokens: 256
+topP: 0.9
+frequencyPenalty: -0.5
+presencePenalty: 0.25
+reasoning: none
+providerOptions:
+  anthropic:
+    effort: max
+---
+
+Decide.
+`,
+    });
+    const loaded = await loadAgentFiles(dir);
+    expect(loaded).toHaveLength(1);
+    expect(loaded[0]?.agent).toMatchObject({
+      temperature: 0.7,
+      maxTokens: 256,
+      topP: 0.9,
+      frequencyPenalty: -0.5,
+      presencePenalty: 0.25,
+      reasoning: "none",
+      providerOptions: { anthropic: { effort: "max" } },
+    });
+    expect(warn).not.toHaveBeenCalled();
+  });
+
+  /**
+   * @case An agent that declares no sampling gets none
+   * @preconditions An agent file with only the pre-existing fields
+   * @expectedResult No sampling keys are set, so the framework defaults still apply at dispatch
+   */
+  test("leaves the sampling block unset when frontmatter omits it", async () => {
+    const dir = makeDir({
+      "plain.md": `---
+name: plain
+description: Does a thing.
+---
+
+Do it.
+`,
+    });
+    const loaded = await loadAgentFiles(dir);
+    expect(loaded[0]?.agent.temperature).toBeUndefined();
+    expect(loaded[0]?.agent.reasoning).toBeUndefined();
+    expect(loaded[0]?.agent.providerOptions).toBeUndefined();
+  });
+
+  /**
+   * @case A misspelled reasoning level fails at load rather than at the provider
+   * @preconditions Frontmatter carrying reasoning: maximum, which is not one of the four levels
+   * @expectedResult Loading rejects with RC5003 naming the accepted levels
+   */
+  test("rejects a reasoning level outside the four", async () => {
+    const dir = makeDir({
+      "bad.md": `---
+name: bad
+description: Does a thing.
+reasoning: maximum
+---
+
+Do it.
+`,
+    });
+    await expect(loadAgentFiles(dir)).rejects.toThrow(
+      /"reasoning" must be one of: none, low, medium, high/i,
+    );
+  });
+
+  /**
+   * @case A sampling value of the wrong shape fails at load
+   * @preconditions Frontmatter carrying a string temperature and, separately, a providerOptions that is not a map of maps
+   * @expectedResult Each rejects with RC5003 naming the field
+   */
+  test("rejects malformed sampling values", async () => {
+    const hot = makeDir({
+      "hot.md": `---
+name: hot
+description: Does a thing.
+temperature: warm
+---
+
+Do it.
+`,
+    });
+    await expect(loadAgentFiles(hot)).rejects.toThrow(
+      /"temperature" must be a number/i,
+    );
+
+    const flat = makeDir({
+      "flat.md": `---
+name: flat
+description: Does a thing.
+providerOptions:
+  anthropic: max
+---
+
+Do it.
+`,
+    });
+    await expect(loadAgentFiles(flat)).rejects.toThrow(
+      /"providerOptions" must be a map of provider namespace/i,
+    );
+  });
+
+  /**
    * @case Loads a directory of agent markdown files into a Record keyed by name
    * @preconditions Two agents with description, model, and body
    * @expectedResult Both agents loaded; body becomes system; provider:model passed through

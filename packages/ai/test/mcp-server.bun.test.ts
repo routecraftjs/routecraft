@@ -1169,16 +1169,18 @@ describe("McpServer", () => {
 
           const msg =
             "Auth rejected: missing or malformed Authorization header";
-          const debugCall = t.logger.debug.mock.calls.find((c) => c[1] === msg);
+          const debugCall = t.contextLogger.debug.mock.calls.find(
+            (c) => c[1] === msg,
+          );
           expect(debugCall).toBeDefined();
           expect(debugCall?.[0]).toMatchObject({
             reason: "missing_header",
             scheme: "bearer",
             source: "mcp",
           });
-          expect(t.logger.warn.mock.calls.some((c) => c[1] === msg)).toBe(
-            false,
-          );
+          expect(
+            t.contextLogger.warn.mock.calls.some((c) => c[1] === msg),
+          ).toBe(false);
           expect(rejections.some((r) => r["reason"] === "missing_header")).toBe(
             true,
           );
@@ -1213,14 +1215,16 @@ describe("McpServer", () => {
           expect(res.statusCode).toBe(401);
 
           const msg = "Auth rejected: unsupported authorization scheme";
-          const debugCall = t.logger.debug.mock.calls.find((c) => c[1] === msg);
+          const debugCall = t.contextLogger.debug.mock.calls.find(
+            (c) => c[1] === msg,
+          );
           expect(debugCall).toBeDefined();
           expect(debugCall?.[0]).toMatchObject({
             reason: "unsupported_scheme",
           });
-          expect(t.logger.warn.mock.calls.some((c) => c[1] === msg)).toBe(
-            false,
-          );
+          expect(
+            t.contextLogger.warn.mock.calls.some((c) => c[1] === msg),
+          ).toBe(false);
         });
 
         /**
@@ -1251,7 +1255,7 @@ describe("McpServer", () => {
           expect(res.statusCode).toBe(401);
 
           const expiredMsg = "Auth rejected: token expired";
-          const debugCall = t.logger.debug.mock.calls.find(
+          const debugCall = t.contextLogger.debug.mock.calls.find(
             (c) => c[1] === expiredMsg,
           );
           expect(debugCall).toBeDefined();
@@ -1261,7 +1265,7 @@ describe("McpServer", () => {
             source: "mcp",
           });
           expect(
-            t.logger.warn.mock.calls.some(
+            t.contextLogger.warn.mock.calls.some(
               (c) => c[1] === "Auth rejected: token validation failed",
             ),
           ).toBe(false);
@@ -1292,7 +1296,7 @@ describe("McpServer", () => {
           expect(res.statusCode).toBe(401);
 
           const failedMsg = "Auth rejected: token validation failed";
-          const warnCall = t.logger.warn.mock.calls.find(
+          const warnCall = t.contextLogger.warn.mock.calls.find(
             (c) => c[1] === failedMsg,
           );
           expect(warnCall).toBeDefined();
@@ -1302,7 +1306,7 @@ describe("McpServer", () => {
             source: "mcp",
           });
           expect(
-            t.logger.debug.mock.calls.some(
+            t.contextLogger.debug.mock.calls.some(
               (c) => c[1] === "Auth rejected: token expired",
             ),
           ).toBe(false);
@@ -2991,7 +2995,7 @@ describe("McpServer", () => {
           );
 
           const expiredMsg = "Auth rejected: token expired";
-          const debugCall = t.logger.debug.mock.calls.find(
+          const debugCall = t.contextLogger.debug.mock.calls.find(
             (c) => c[1] === expiredMsg,
           );
           expect(debugCall).toBeDefined();
@@ -2999,7 +3003,7 @@ describe("McpServer", () => {
             reason: "expired",
           });
           expect(
-            t.logger.warn.mock.calls.some(
+            t.contextLogger.warn.mock.calls.some(
               (c) => c[1] === "Auth rejected: token validation failed",
             ),
           ).toBe(false);
@@ -3031,7 +3035,7 @@ describe("McpServer", () => {
           );
 
           const failedMsg = "Auth rejected: token validation failed";
-          const warnCall = t.logger.warn.mock.calls.find(
+          const warnCall = t.contextLogger.warn.mock.calls.find(
             (c) => c[1] === failedMsg,
           );
           expect(warnCall).toBeDefined();
@@ -3039,7 +3043,7 @@ describe("McpServer", () => {
             reason: "invalid_token",
           });
           expect(
-            t.logger.debug.mock.calls.some(
+            t.contextLogger.debug.mock.calls.some(
               (c) => c[1] === "Auth rejected: token expired",
             ),
           ).toBe(false);
@@ -3078,7 +3082,7 @@ describe("McpServer", () => {
           expect(res.statusCode).toBe(500);
           expect(res.headers["www-authenticate"]).toBeUndefined();
           expect(
-            t.logger.warn.mock.calls.some(
+            t.contextLogger.warn.mock.calls.some(
               (c) => c[1] === "Auth rejected: token validation failed",
             ),
           ).toBe(true);
@@ -3925,7 +3929,7 @@ describe("McpServer", () => {
       expect(String(declined[0]!["reason"])).toContain("declined the request");
       expect(failed).toHaveLength(0);
       expect(completed).toHaveLength(0);
-      expect(t.logger.error.mock.calls).toHaveLength(0);
+      expect(t.contextLogger.error.mock.calls).toHaveLength(0);
     });
 
     /**
@@ -4053,7 +4057,7 @@ describe("McpServer", () => {
       expect(failed).toHaveLength(1);
       expect(failed[0]).toMatchObject({ tool: "unchecked" });
       expect(String(failed[0]!["error"])).toContain("output schema");
-      expect(t.logger.error.mock.calls.length).toBeGreaterThan(0);
+      expect(t.contextLogger.error.mock.calls.length).toBeGreaterThan(0);
     });
 
     /**

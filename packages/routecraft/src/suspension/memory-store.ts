@@ -153,6 +153,12 @@ export class MemorySuspensionStore implements SuspensionStore {
     expected: string,
     stepState: unknown,
   ): Promise<SuspensionCasResult> {
+    // Before the compare, matching the sqlite backend, so an unpersistable
+    // replacement is RC5042 on both rather than RC5042 on one and a quiet
+    // `won: false` on the other. The slot is free-form, so a caller can hand
+    // back a value the durable backend would refuse, and finding that out
+    // only after a failover is the bug this avoids.
+    const encoded = encodePersistable(stepState, "stepState");
     const record = this.#records.get(id);
     if (!record) return { won: false, suspension: undefined };
     if (
@@ -161,10 +167,6 @@ export class MemorySuspensionStore implements SuspensionStore {
     ) {
       return { won: false, suspension: clone(record) };
     }
-    // Encoded through the same gate `create` uses. The slot is free-form,
-    // so a caller can hand back a value the durable backend would refuse,
-    // and finding that out only after a failover is the bug this avoids.
-    const encoded = encodePersistable(stepState, "stepState");
     // Deleted rather than held as an undefined-valued key, so a cleared slot
     // reads back the same way it does from the durable backend, where the
     // column is NULL.

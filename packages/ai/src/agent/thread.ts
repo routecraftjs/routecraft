@@ -91,6 +91,30 @@ function pairingOf(messages: readonly ThreadMessage[]): ThreadPairing {
 }
 
 /**
+ * The first tool-call id whose result appears before the call that produced
+ * it, or `undefined` when every pair is in order.
+ *
+ * The set comparisons below prove a call and a result exist for each id; a
+ * provider additionally reads the thread in order, so a summariser that
+ * reordered messages produces a thread that passes the pairing check and is
+ * still refused at dispatch.
+ */
+function firstResultBeforeItsCall(
+  messages: readonly ThreadMessage[],
+): string | undefined {
+  const seenCalls = new Set<string>();
+  for (const message of messages) {
+    for (const id of idsOf([message], "assistant", "tool-call")) {
+      seenCalls.add(id);
+    }
+    for (const id of idsOf([message], "tool", "tool-result")) {
+      if (!seenCalls.has(id)) return id;
+    }
+  }
+  return undefined;
+}
+
+/**
  * Refuse a rewritten thread a parked run could not be resumed from.
  *
  * The rules are the ones that make a resume possible at all, not a taste
@@ -146,6 +170,13 @@ export function assertResumableThread(
     throw rcError("AI1008", undefined, {
       message:
         "The rewritten thread records the same tool-result id more than once.",
+    });
+  }
+
+  const misordered = firstResultBeforeItsCall(messages);
+  if (misordered) {
+    throw rcError("AI1008", undefined, {
+      message: `The rewritten thread places the result for "${misordered}" before the call that produced it. A provider reads the thread in order, so a reordered pair is as unresumable as a missing one.`,
     });
   }
 
@@ -212,7 +243,11 @@ export async function replaceParkedThread(
   // its own edit, and the compare would ask whether nothing had changed
   // since it changed it.
   const expected = stepStateFingerprint(record.stepState);
-  const messages = await rewrite(state.messages);
+  // A copy, because the rewrite is allowed to edit in place and a custom
+  // store may have handed back its own record rather than a detached one.
+  // Without this, a rewrite that then fails validation, or loses the swap,
+  // would still have corrupted the parked thread.
+  const messages = await rewrite(structuredClone(state.messages));
   assertResumableThread(messages, state.suspendedToolCallId);
 
   return store.replaceStepState(suspensionId, expected, { ...state, messages });

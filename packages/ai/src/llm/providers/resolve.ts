@@ -1,5 +1,6 @@
 import { loadOptionalPeer } from "@routecraft/routecraft";
 import { assertLanguageModelShape, PROVIDER_DEFAULTS } from "./llm-utils.ts";
+import { LMSTUDIO_PROVIDER_NAME } from "./reasoning.ts";
 import type { LlmModelConfig } from "../types.ts";
 
 /**
@@ -171,7 +172,10 @@ async function resolveLmStudio(
     apiKey?: string;
     includeUsage: boolean;
   } = {
-    name: "lmstudio",
+    // The openai-compatible provider derives the namespace it reads
+    // `providerOptions` from off this name, so it is shared with the
+    // reasoning mapping rather than written twice.
+    name: LMSTUDIO_PROVIDER_NAME,
     baseURL: config.baseURL ?? PROVIDER_DEFAULTS.lmstudio.baseURL,
     includeUsage: true,
   };

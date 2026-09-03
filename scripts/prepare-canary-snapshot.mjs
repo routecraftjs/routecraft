@@ -44,6 +44,8 @@ import {
 import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
+import { pendingBumps as readPendingBumps } from "./lib/changeset-bumps.mjs";
+
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const changesetDir = join(rootDir, ".changeset");
 
@@ -57,11 +59,6 @@ function setOutput(line) {
   if (process.env.GITHUB_OUTPUT) {
     appendFileSync(process.env.GITHUB_OUTPUT, `${line}\n`);
   }
-}
-
-const BUMP_ORDER = ["patch", "minor", "major"];
-function maxBump(a, b) {
-  return BUMP_ORDER.indexOf(a) >= BUMP_ORDER.indexOf(b) ? a : b;
 }
 
 // Public workspace packages, keyed by name.
@@ -94,24 +91,9 @@ const keep = new Set(
 
 // 2. Record the highest pending bump per package, then drop the pending
 // changesets so only the synthetic one below drives the snapshot.
-const pendingBump = new Map();
+const pendingBump = readPendingBumps(changesetDir);
 for (const file of readdirSync(changesetDir)) {
   if (!file.endsWith(".md") || file === "README.md") continue;
-  const text = readFileSync(join(changesetDir, file), "utf8");
-  const frontMatter = text.match(/^---\r?\n([\s\S]*?)\r?\n---/);
-  if (frontMatter) {
-    for (const line of frontMatter[1].split(/\r?\n/)) {
-      const release = line.match(
-        /^\s*["']?([^"':\s]+)["']?\s*:\s*(patch|minor|major)\s*$/,
-      );
-      if (release) {
-        pendingBump.set(
-          release[1],
-          maxBump(release[2], pendingBump.get(release[1]) ?? "patch"),
-        );
-      }
-    }
-  }
   unlinkSync(join(changesetDir, file));
 }
 

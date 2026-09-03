@@ -612,6 +612,38 @@ describe("mergeExamplePackageJson", () => {
   });
 
   /**
+   * @case A manifest map field that is not a map is refused
+   * @preconditions A template whose "scripts" is a string rather than an object
+   * @expectedResult Throws naming the field, rather than spreading it into indexed properties and writing a package.json no package manager can read
+   */
+  test("refuses a manifest field that is not a map", async () => {
+    await writeFile(
+      join(source, "package.json"),
+      JSON.stringify({ scripts: "craft start" }),
+    );
+
+    await expect(mergeExamplePackageJson(source, target)).rejects.toThrow(
+      /"scripts"/,
+    );
+  });
+
+  /**
+   * @case An array in a manifest map field is refused
+   * @preconditions A template declaring dependencies as an array
+   * @expectedResult Throws, because an array spreads to numeric keys just as a string does
+   */
+  test("refuses an array in a manifest map field", async () => {
+    await writeFile(
+      join(source, "package.json"),
+      JSON.stringify({ dependencies: ["zod"] }),
+    );
+
+    await expect(mergeExamplePackageJson(source, target)).rejects.toThrow(
+      /an array/,
+    );
+  });
+
+  /**
    * @case Dependency maps and scripts merge key by key
    * @preconditions A template declaring one extra dependency and one extra script
    * @expectedResult The base entries survive alongside the template's, and the
@@ -737,6 +769,32 @@ describe("parseGitHubExampleUrl", () => {
       parseGitHubExampleUrl("https://example.com/owner/repo"),
     ).toThrow();
     expect(() => parseGitHubExampleUrl("https://github.com/owner")).toThrow();
+  });
+
+  /**
+   * @case A backslash-separated climb is refused too
+   * @preconditions A subpath using Windows separators, which a "/"-only split would miss
+   * @expectedResult Throws, because join() on Windows treats both separators alike
+   */
+  test("refuses a subpath that escapes using backslashes", () => {
+    expect(() =>
+      parseGitHubExampleUrl(
+        "https://github.com/owner/repo/tree/main/..\\..\\outside",
+      ),
+    ).toThrow(/cannot contain/);
+  });
+
+  /**
+   * @case A query string or fragment is not part of the path
+   * @preconditions A URL copied from the GitHub file view, carrying ?plain=1 and an anchor
+   * @expectedResult The subpath is the path alone, so the clone finds it
+   */
+  test("ignores a query string and a fragment", () => {
+    expect(
+      parseGitHubExampleUrl(
+        "https://github.com/owner/repo/tree/main/examples/app?plain=1#L20",
+      ),
+    ).toMatchObject({ branch: "main", subPath: "examples/app" });
   });
 
   /**

@@ -26,6 +26,7 @@ import {
   ADAPTER_AGENT_DEFAULT_OPTIONS,
   ADAPTER_AGENT_REGISTRY,
   ADAPTER_AGENT_TOOL_POLICIES,
+  AGENT_DEFAULT_OPTION_KEYS,
 } from "./store.ts";
 import { isGovernableToolKind, policiesAdmit } from "./tools/policy.ts";
 import type {
@@ -67,8 +68,8 @@ export interface AgentByNameOverrides {
  * Discriminated state: inline options or a registry name.
  * @internal
  */
-export type AgentBinding =
-  | { kind: "inline"; options: AgentOptions }
+export type AgentBinding<T = unknown> =
+  | { kind: "inline"; options: AgentOptions<T> }
   | {
       kind: "by-name";
       name: string;
@@ -91,13 +92,13 @@ export type AgentBinding =
  * store (`ADAPTER_AGENT_REGISTRY`) at dispatch time, throwing a clear
  * error if the name is unknown.
  */
-export class AgentEnricherAdapter implements Enricher<
-  unknown,
+export class AgentEnricherAdapter<T = unknown> implements Enricher<
+  T,
   AgentResult | AgentStream
 > {
   readonly adapterId = "routecraft.adapter.agent";
 
-  constructor(public readonly binding: AgentBinding) {
+  constructor(public readonly binding: AgentBinding<T>) {
     // A tool handler may park the run (ctx.suspend / SuspendError), so the
     // suspend-site walk assigns this adapter's hosting step a re-entrant
     // site at build time. Routes that never suspend pay nothing for it.
@@ -105,7 +106,7 @@ export class AgentEnricherAdapter implements Enricher<
   }
 
   async fetch(
-    exchange: Exchange<unknown>,
+    exchange: Exchange<T>,
     stepCtx?: StepSignalContext,
   ): Promise<AgentResult | AgentStream> {
     const context = getExchangeContext(exchange);
@@ -209,7 +210,7 @@ export class AgentEnricherAdapter implements Enricher<
       exchange,
     );
 
-    const session = new AgentSession({
+    const session = new AgentSession<T>({
       options: merged,
       modelConfig: config,
       modelName,
@@ -267,7 +268,7 @@ export class AgentEnricherAdapter implements Enricher<
   /** Pull the agent options for this dispatch, either inline or from the registry. */
   private resolveOptions(
     context: CraftContext | undefined,
-  ): AgentOptions | AgentRegisteredOptions {
+  ): AgentOptions<T> | AgentRegisteredOptions<T> {
     if (this.binding.kind === "inline") return this.binding.options;
 
     if (!context) {
@@ -293,7 +294,7 @@ export class AgentEnricherAdapter implements Enricher<
         message: `Agent "${this.binding.name}" not found in registry. Known agents: ${known}.`,
       });
     }
-    return found;
+    return found as AgentRegisteredOptions<T>;
   }
 
   /**
@@ -326,24 +327,17 @@ export class AgentEnricherAdapter implements Enricher<
  *
  * @internal
  */
-function mergeWithDefaults(
-  base: AgentOptions | AgentRegisteredOptions,
+function mergeWithDefaults<T>(
+  base: AgentOptions<T> | AgentRegisteredOptions<T>,
   context: CraftContext | undefined,
-): AgentOptions | AgentRegisteredOptions {
+): AgentOptions<T> | AgentRegisteredOptions<T> {
   const defaults = context?.getStore(ADAPTER_AGENT_DEFAULT_OPTIONS);
   if (!defaults) return base;
-  const out = { ...base } as AgentOptions | AgentRegisteredOptions;
-  if (out.model === undefined && defaults.model !== undefined) {
-    out.model = defaults.model;
-  }
-  if (out.tools === undefined && defaults.tools !== undefined) {
-    out.tools = defaults.tools;
-  }
-  if (out.maxTurns === undefined && defaults.maxTurns !== undefined) {
-    out.maxTurns = defaults.maxTurns;
-  }
-  if (out.principal === undefined && defaults.principal !== undefined) {
-    out.principal = defaults.principal;
+  const out = { ...base };
+  for (const key of AGENT_DEFAULT_OPTION_KEYS) {
+    if (out[key] !== undefined) continue;
+    const value = defaults[key];
+    if (value !== undefined) Object.assign(out, { [key]: value });
   }
   if (defaults.blocks !== undefined) {
     out.blocks = mergeBlocks(defaults.blocks, base.blocks);
@@ -438,8 +432,8 @@ function mergeUserAndLoaderTools(
  *
  * @internal
  */
-function resolveAgentTools(
-  options: AgentOptions | AgentRegisteredOptions,
+function resolveAgentTools<T>(
+  options: AgentOptions<T> | AgentRegisteredOptions<T>,
   context: CraftContext | undefined,
   agentId: string | undefined,
   dispatchIdentity: AgentDispatchIdentity | undefined,
@@ -675,11 +669,11 @@ function toDescriptor(tool: ResolvedTool): AgentToolDescriptor | undefined {
  *
  * @internal
  */
-function appendPrincipalToSystem(
+function appendPrincipalToSystem<T>(
   baseSystem: string,
-  principalOption: boolean | AgentPrincipalRenderer | undefined,
+  principalOption: boolean | AgentPrincipalRenderer<T> | undefined,
   principal: Principal | undefined,
-  exchange: Exchange<unknown>,
+  exchange: Exchange<T>,
 ): string {
   if (principalOption === undefined || principalOption === false) {
     return baseSystem;

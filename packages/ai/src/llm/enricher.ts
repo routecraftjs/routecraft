@@ -10,9 +10,12 @@ import {
 } from "@routecraft/routecraft";
 import { callLlm } from "./providers/index.ts";
 import {
+  DEFAULT_MAX_TOKENS,
+  DEFAULT_TEMPERATURE,
   parseProviderModel,
   resolveModel,
   resolvePrompt,
+  resolveSampling,
   resolveUserPromptDefault,
 } from "./shared.ts";
 import { toAiOutputSpec } from "./structured-output.ts";
@@ -48,45 +51,44 @@ async function parseStructuredTextFallback(
   return result.ok ? result.value : undefined;
 }
 
-const DEFAULT_TEMPERATURE = 0;
-const DEFAULT_MAX_TOKENS = 1024;
-
 /**
  * LLM destination adapter. Expects model id as "providerId:modelName" (e.g. ollama:lfm2.5-thinking),
  * resolves the provider from the plugin store, merges options, and calls the provider with the model name.
  * Use with .enrich(llm("providerId:modelName", options)) or .to(llm(...)).
  *
+ * @template T - Body type available to prompt callbacks.
  * @template S - Output schema type when an `output` schema is provided; narrows result.output for downstream typing.
  */
 export class LlmEnricherAdapter<
   S extends StandardSchemaV1 | undefined = undefined,
+  T = unknown,
 >
   implements
-    Enricher<unknown, LlmResultWithOutput<S>>,
-    MergedOptions<LlmOptionsMerged>
+    Enricher<T, LlmResultWithOutput<S>>,
+    MergedOptions<LlmOptionsMerged<T>>
 {
   readonly adapterId = "routecraft.adapter.llm";
 
   constructor(
     private readonly modelId: string,
-    options: LlmOptions = {},
+    options: LlmOptions<T> = {},
   ) {
-    this.options = options as Partial<LlmOptionsMerged>;
+    this.options = options as Partial<LlmOptionsMerged<T>>;
   }
 
-  public options: Partial<LlmOptionsMerged>;
+  public options: Partial<LlmOptionsMerged<T>>;
 
-  mergedOptions(context: CraftContext): LlmOptionsMerged {
+  mergedOptions(context: CraftContext): LlmOptionsMerged<T> {
     const store = context.getStore(ADAPTER_LLM_OPTIONS);
     return {
       temperature: DEFAULT_TEMPERATURE,
       maxTokens: DEFAULT_MAX_TOKENS,
       ...store,
       ...this.options,
-    } as LlmOptionsMerged;
+    } as LlmOptionsMerged<T>;
   }
 
-  async fetch(exchange: Exchange<unknown>): Promise<LlmResultWithOutput<S>> {
+  async fetch(exchange: Exchange<T>): Promise<LlmResultWithOutput<S>> {
     const context = getExchangeContext(exchange);
     const { config, modelName } = resolveModel(this.modelId, context);
     const merged = this.mergedOptions(context!);
@@ -96,23 +98,13 @@ export class LlmEnricherAdapter<
       resolvePrompt(merged.user, exchange) ||
       resolveUserPromptDefault(exchange);
 
-    const opts: Parameters<typeof callLlm>[0]["options"] = {
-      temperature: merged.temperature,
-      maxTokens: merged.maxTokens,
-    };
-    if (merged.topP !== undefined) opts.topP = merged.topP;
-    if (merged.frequencyPenalty !== undefined)
-      opts.frequencyPenalty = merged.frequencyPenalty;
-    if (merged.presencePenalty !== undefined)
-      opts.presencePenalty = merged.presencePenalty;
-
     const output =
       merged.output !== undefined ? toAiOutputSpec(merged.output) : undefined;
 
     const result = await callLlm({
       config,
       modelId: modelName,
-      options: opts,
+      options: resolveSampling(merged),
       system,
       user,
       output,

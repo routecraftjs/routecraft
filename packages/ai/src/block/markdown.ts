@@ -432,6 +432,75 @@ export function optionalBoolean(
  *
  * @internal
  */
+/**
+ * Read an optional finite number from frontmatter. Unlike
+ * {@link optionalPositiveInt} this admits zero and negatives, which the
+ * sampling controls need: `temperature: 0` is the framework default and the
+ * penalties are legitimately negative.
+ *
+ * @internal
+ */
+export function optionalNumber(
+  value: unknown,
+  field: string,
+  source: string,
+): number | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "number" || !Number.isFinite(value)) {
+    throw rcError("RC5003", undefined, {
+      message: `Markdown file "${source}": frontmatter field "${field}" must be a number.`,
+    });
+  }
+  return value;
+}
+
+/**
+ * Read an optional string from frontmatter constrained to a known set. The
+ * error names the accepted values, so a typo in a level or a mode is a
+ * pointed failure at load rather than a value forwarded to a provider that
+ * refuses it mid-dispatch.
+ *
+ * @internal
+ */
+export function optionalEnum<T extends string>(
+  value: unknown,
+  field: string,
+  source: string,
+  allowed: readonly T[],
+): T | undefined {
+  if (value === undefined) return undefined;
+  if (typeof value !== "string" || !allowed.includes(value as T)) {
+    throw rcError("RC5003", undefined, {
+      message: `Markdown file "${source}": frontmatter field "${field}" must be one of: ${allowed.join(", ")}.`,
+    });
+  }
+  return value as T;
+}
+
+/**
+ * Read an optional two-level map from frontmatter (a record of records), the
+ * shape a raw provider-settings passthrough takes. The values inside the
+ * second level are deliberately unchecked: they belong to the provider SDK,
+ * which is what validates them.
+ *
+ * @internal
+ */
+export function optionalNestedRecord(
+  value: unknown,
+  field: string,
+  source: string,
+): Record<string, Record<string, unknown>> | undefined {
+  if (value === undefined) return undefined;
+  const isPlainObject = (v: unknown): v is Record<string, unknown> =>
+    typeof v === "object" && v !== null && !Array.isArray(v);
+  if (!isPlainObject(value) || !Object.values(value).every(isPlainObject)) {
+    throw rcError("RC5003", undefined, {
+      message: `Markdown file "${source}": frontmatter field "${field}" must be a map of provider namespace to a map of settings.`,
+    });
+  }
+  return value as Record<string, Record<string, unknown>>;
+}
+
 export function optionalPositiveInt(
   value: unknown,
   field: string,

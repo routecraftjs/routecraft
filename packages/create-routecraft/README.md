@@ -38,11 +38,15 @@ ordinary route you own.
 bunx create-routecraft my-agent --example https://github.com/routecraftjs/craft-harness
 ```
 
-A plain repository URL always takes `main`; add `/tree/<branch>/<subpath>` for a specific
-branch or a subdirectory. The template's files win over the base scaffold, except for the
-project name you passed and the package manager you chose, and its `dependencies`,
-`devDependencies` and `scripts` merge into the base manifest rather than replacing it.
-Lockfiles, `node_modules` and `.git` are never copied.
+A plain repository URL always takes `main`; add `/tree/<branch>` or
+`/tree/<branch>/<subpath>` for a specific branch or a subdirectory. A branch is read as one
+path segment, so a name containing `/` (`feature/login`) cannot be expressed this way:
+nothing in the URL says which slash divides the branch from the path. The template's files
+win over the base scaffold, except for the project name you passed and the package manager
+you chose, and its `dependencies`, `devDependencies`, `peerDependencies` and `scripts` merge
+into the base manifest rather than replacing it. `node_modules`, `.git` and the lockfiles
+(`package-lock.json`, `npm-shrinkwrap.json`, `yarn.lock`, `pnpm-lock.yaml`, `bun.lock`,
+`bun.lockb`) are never copied.
 
 ## Interactive Prompts
 

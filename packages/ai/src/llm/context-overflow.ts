@@ -73,15 +73,37 @@ function textOf(error: unknown, depth = 0): string[] {
  * endpoints return are checked.
  */
 function codesOf(error: unknown, depth = 0): string[] {
-  if (error === null || typeof error !== "object" || depth > 4) return [];
+  if (depth > 4) return [];
+  // The SDK attaches the provider's body as an unparsed string, and for an
+  // OpenAI-compatible endpoint that string is where the machine-readable
+  // code lives. Reading it as prose misses it: `context_length_exceeded`
+  // does not match the phrasings, which are written with spaces.
+  if (typeof error === "string") {
+    const parsed = parseJson(error);
+    return parsed === undefined ? [] : codesOf(parsed, depth + 1);
+  }
+  if (error === null || typeof error !== "object") return [];
   const record = error as Record<string, unknown>;
   const codes: string[] = [];
   if (typeof record["code"] === "string") codes.push(record["code"]);
-  for (const key of ["cause", "data", "error"]) {
+  for (const key of ["cause", "data", "error", "responseBody"]) {
     if (record[key] !== undefined)
       codes.push(...codesOf(record[key], depth + 1));
   }
   return codes;
+}
+
+/**
+ * `JSON.parse` that answers `undefined` rather than throwing. A response
+ * body is not always JSON, and a body that is not is simply not a source of
+ * codes.
+ */
+function parseJson(text: string): unknown {
+  try {
+    return JSON.parse(text);
+  } catch {
+    return undefined;
+  }
 }
 
 /**

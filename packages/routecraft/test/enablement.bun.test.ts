@@ -821,7 +821,7 @@ describe("route enablement", () => {
       .build();
     await t.startAndWaitReady();
 
-    const logged = t.logger.error.mock.calls.some(
+    const logged = t.contextLogger.error.mock.calls.some(
       (call: unknown[]) =>
         typeof call[0] === "object" &&
         call[0] !== null &&

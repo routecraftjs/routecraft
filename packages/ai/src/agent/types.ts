@@ -5,7 +5,12 @@ import type {
   BlockBody,
   Blocks,
 } from "../block/types.ts";
-import type { LlmModelId, LlmPromptSource, LlmUsage } from "../llm/types.ts";
+import type {
+  LlmModelId,
+  LlmPromptSource,
+  LlmSamplingOptions,
+  LlmUsage,
+} from "../llm/types.ts";
 import type { AgentDeltaListener } from "./events.ts";
 import type { ToolSelection } from "./tools/selection.ts";
 
@@ -18,8 +23,10 @@ import type { ToolSelection } from "./tools/selection.ts";
  * applies to both the `agent` and `llm` destinations: pass a static
  * string for fixed prompts, or a function that derives the prompt from
  * the incoming exchange.
+ *
+ * @template T - Body type available to the prompt callback
  */
-export type AgentUserPromptSource = LlmPromptSource;
+export type AgentUserPromptSource<T = unknown> = LlmPromptSource<T>;
 
 /**
  * Custom renderer for the agent's `## Caller` section. Receives the
@@ -32,10 +39,12 @@ export type AgentUserPromptSource = LlmPromptSource;
  * renderer owns its own escaping and MUST NOT surface `claims`,
  * `userinfoClaims`, or anything bearer-derived (see
  * `.standards/security.md` § 3a).
+ *
+ * @template T - Body type available to the renderer
  */
-export type AgentPrincipalRenderer = (
+export type AgentPrincipalRenderer<T = unknown> = (
   principal: Principal | undefined,
-  exchange: Exchange<unknown>,
+  exchange: Exchange<T>,
 ) => string;
 
 /**
@@ -44,9 +53,11 @@ export type AgentPrincipalRenderer = (
  * win over these.
  *
  * Mirrors the `llmPlugin({ defaultOptions })` shape so the same mental
- * model carries across.
+ * model carries across, including the sampling block it inherits from
+ * {@link LlmSamplingOptions}: a context can set `temperature` or `reasoning`
+ * once for every agent it hosts, and an agent that sets its own wins per key.
  */
-export interface AgentDefaultOptions {
+export interface AgentDefaultOptions extends LlmSamplingOptions {
   /**
    * Default model reference. Format: "providerId:modelName". The
    * provider must be registered via `llmPlugin({ providers })`.
@@ -121,8 +132,15 @@ export interface AgentDefaultOptions {
  * `.id()` is the agent's callable identity and `.description()` is its
  * human-readable description. `AgentOptions` only carries LLM-specific
  * config.
+ *
+ * The sampling block ({@link LlmSamplingOptions}: `temperature`, `maxTokens`,
+ * `topP`, the penalties and `reasoning`) is the same one `llm()` takes and
+ * means the same thing here. Unset, it resolves to the framework defaults an
+ * `llm()` step gets, so an agent that says nothing behaves as it always has.
+ *
+ * @template T - Body type available to callbacks in this option object
  */
-export interface AgentOptions {
+export interface AgentOptions<T = unknown> extends LlmSamplingOptions {
   /**
    * Model reference of the form "providerId:modelName". The provider
    * must be registered via `llmPlugin({ providers })`. Optional when
@@ -138,7 +156,7 @@ export interface AgentOptions {
    * Load from disk yourself when you want to source the static form
    * from a file (e.g. `readFileSync("./prompt.md", "utf-8")`).
    */
-  system: LlmPromptSource;
+  system: LlmPromptSource<T>;
 
   /**
    * Optional override for the user prompt. Either a static string or
@@ -146,7 +164,7 @@ export interface AgentOptions {
    * (mirrors `llm({ user })`). Defaults to the exchange body (string
    * as-is, JSON for objects, `String()` otherwise) when omitted.
    */
-  user?: LlmPromptSource;
+  user?: LlmPromptSource<T>;
 
   /**
    * Tools the agent is allowed to call. Build via
@@ -222,7 +240,7 @@ export interface AgentOptions {
    * still enforced by `.authorize()` and guards; this block is
    * informational context for the model, not an authorization gate.
    */
-  principal?: boolean | AgentPrincipalRenderer;
+  principal?: boolean | AgentPrincipalRenderer<T>;
 
   /**
    * Cap on tool-calling turns for the Vercel AI SDK loop. Each turn
@@ -271,7 +289,7 @@ export interface AgentOptions {
    */
   validate?: (
     result: AgentResult,
-    ctx: { exchange: Exchange<unknown>; turnsUsed: number },
+    ctx: { exchange: Exchange<T>; turnsUsed: number },
   ) => void | string | Promise<void | string>;
 
   /**
@@ -341,7 +359,7 @@ export interface AgentOptions {
  * by-name reuse. Registered agents carry their own description because they
  * are not backed by a route. The id is the record key in the plugin config.
  */
-export interface AgentRegisteredOptions extends AgentOptions {
+export interface AgentRegisteredOptions<T = unknown> extends AgentOptions<T> {
   /**
    * Human-readable description. Surfaces in observability and is used as the
    * tool description when the agent is exposed to other agents.

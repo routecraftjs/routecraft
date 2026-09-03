@@ -8,6 +8,7 @@ import {
   ADAPTER_AGENT_DEFAULT_OPTIONS,
   ADAPTER_AGENT_REGISTRY,
   ADAPTER_AGENT_TOOL_POLICIES,
+  AGENT_DEFAULT_OPTION_KEYS,
 } from "./store.ts";
 import { AGENT_TOOL_POLICY_KINDS } from "./tools/policy.ts";
 import type {
@@ -504,10 +505,18 @@ function mergePluginDefaults(
       }
     }
   }
-  return {
-    ...existing,
-    ...(next.model !== undefined ? { model: next.model } : {}),
-    ...(next.tools !== undefined ? { tools: next.tools } : {}),
-    ...(mergedBlocks !== undefined ? { blocks: mergedBlocks } : {}),
-  };
+  const merged: AgentDefaultOptions = { ...existing };
+  for (const key of AGENT_DEFAULT_OPTION_KEYS) {
+    const value = next[key];
+    if (value === undefined) continue;
+    // `model` and `tools` already threw above with their own wording.
+    if (existing[key] !== undefined) {
+      throw rcError("RC5003", undefined, {
+        message: `agentPlugin: "defaultOptions.${key}" is already set on this context. A context can have only one default for it.`,
+      });
+    }
+    Object.assign(merged, { [key]: value });
+  }
+  if (mergedBlocks !== undefined) merged.blocks = mergedBlocks;
+  return merged;
 }

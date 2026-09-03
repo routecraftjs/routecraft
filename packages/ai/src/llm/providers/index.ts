@@ -7,7 +7,7 @@ import {
   readReasoning,
   toLlmUsage,
   type CallLlmParams,
-  type ProviderExtras,
+  type SdkParamsInput,
 } from "./llm-utils.ts";
 import { rethrowContextOverflow } from "../context-overflow.ts";
 import { resolveLanguageModel } from "./resolve.ts";
@@ -38,18 +38,19 @@ export async function streamLlm(
 export async function callLlm(params: CallLlmParams): Promise<LlmResult> {
   const { config, modelId, options, system, user } = params;
   const model = await resolveLanguageModel(config, modelId);
-  return runGenerate(model, options, system, user, buildExtras(params));
+  return runGenerate({
+    model,
+    provider: config.provider,
+    options,
+    system,
+    user,
+    extras: buildExtras(params),
+  });
 }
 
-async function runGenerate(
-  model: unknown,
-  options: CallLlmParams["options"],
-  system: string,
-  user: string | unknown[],
-  extras: ProviderExtras,
-): Promise<LlmResult> {
+async function runGenerate(input: SdkParamsInput): Promise<LlmResult> {
   const { generateText } = await import("ai");
-  const params = buildSdkParams(model, options, system, user, extras);
+  const params = buildSdkParams(input);
   // Only the dispatch is guarded. Reading the result below cannot fail for
   // a full context window, and widening the catch would relabel unrelated
   // decoding bugs as AI1009.

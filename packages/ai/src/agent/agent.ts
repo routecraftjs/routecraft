@@ -28,7 +28,7 @@ import type { AgentOptions, AgentResult } from "./types.ts";
  *
  * @internal
  */
-export function validateAgentOptions(options: AgentOptions): void {
+export function validateAgentOptions<T>(options: AgentOptions<T>): void {
   // `system` accepts the same string-or-function shape as `llm({ system })`.
   // For the static form, require non-empty so misconfiguration ("" or
   // missing) surfaces at construction. The function form is validated at
@@ -343,26 +343,26 @@ function validateBlocksLevel(
  *   .to(direct("reply"));
  * ```
  */
-export function agent(
-  options: AgentOptions & { stream: true },
-): Enricher<unknown, AgentStream>;
+export function agent<T = unknown>(
+  options: AgentOptions<T> & { stream: true },
+): Enricher<T, AgentStream>;
 // `{ stream?: false }` rather than a bare `AgentOptions`, matching the
 // `chunked` precedent on the file-family adapters: the option law admits
 // exactly two overloads, literal `true` and absent-or-`false`, so a widened
 // `stream: someBoolean` is a compile error instead of a call that claims
 // `AgentResult` and hands back an iterable.
-export function agent(
-  options: AgentOptions & { stream?: false },
-): Enricher<unknown, AgentResult>;
+export function agent<T = unknown>(
+  options: AgentOptions<T> & { stream?: false },
+): Enricher<T, AgentResult>;
 export function agent(name: string): Enricher<unknown, AgentResult>;
 export function agent(
   name: string,
   perCall: AgentByNameOverrides,
 ): Enricher<unknown, AgentResult>;
-export function agent(
-  arg: AgentOptions | string,
+export function agent<T = unknown>(
+  arg: AgentOptions<T> | string,
   perCall?: AgentByNameOverrides,
-): Enricher<unknown, AgentResult | AgentStream> {
+): Enricher<T, AgentResult | AgentStream> {
   if (typeof arg === "string") {
     if (arg.trim() === "") {
       throw rcError("RC5003", undefined, {
@@ -370,7 +370,7 @@ export function agent(
       });
     }
     return tagAdapter(
-      new AgentEnricherAdapter({
+      new AgentEnricherAdapter<T>({
         kind: "by-name",
         name: arg,
         ...(perCall ? { perCall } : {}),
@@ -384,7 +384,7 @@ export function agent(
   }
   validateAgentOptions(arg);
   return tagAdapter(
-    new AgentEnricherAdapter({ kind: "inline", options: arg }),
+    new AgentEnricherAdapter<T>({ kind: "inline", options: arg }),
     agent,
     factoryArgs(arg),
   );

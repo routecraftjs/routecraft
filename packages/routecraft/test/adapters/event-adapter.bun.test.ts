@@ -294,7 +294,7 @@ describe("Event Source Adapter", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(
-      t.logger.warn.mock.calls.some(
+      t.contextLogger.warn.mock.calls.some(
         ([fields, message]) =>
           message === "Handler error" &&
           (fields as { adapter?: string; err?: { message?: string } })
@@ -304,7 +304,7 @@ describe("Event Source Adapter", () => {
       ),
     ).toBe(true);
     expect(
-      t.logger.error.mock.calls.some(
+      t.contextLogger.error.mock.calls.some(
         ([, message]) => message === "Handler error",
       ),
     ).toBe(false);
@@ -340,7 +340,7 @@ describe("Event Source Adapter", () => {
     await new Promise((resolve) => setTimeout(resolve, 0));
 
     expect(
-      t.logger.warn.mock.calls.some(
+      t.contextLogger.warn.mock.calls.some(
         ([fields, message]) =>
           message === "Routecraft handler error" &&
           (

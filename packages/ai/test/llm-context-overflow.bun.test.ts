@@ -84,6 +84,30 @@ describe("isContextOverflow", () => {
   });
 
   /**
+   * @case A machine-readable code inside an unparsed response body is found
+   * @preconditions The provider sent only `{"error":{"code":"context_length_exceeded"}}` as the body, with no prose to match
+   * @expectedResult Classified, because the underscored code never matches the phrasings, which are written with spaces
+   */
+  test("parses a JSON response body for the provider code", () => {
+    const error = new Error("Bad Request") as Error & Record<string, unknown>;
+    error["responseBody"] = JSON.stringify({
+      error: { code: "context_length_exceeded" },
+    });
+    expect(isContextOverflow(error)).toBe(true);
+  });
+
+  /**
+   * @case A response body that is not JSON is not a source of codes
+   * @preconditions A body of plain text
+   * @expectedResult No throw, and no classification from the body alone
+   */
+  test("tolerates a response body that is not JSON", () => {
+    const error = new Error("Bad Gateway") as Error & Record<string, unknown>;
+    error["responseBody"] = "<html>502</html>";
+    expect(isContextOverflow(error)).toBe(false);
+  });
+
+  /**
    * @case An ordinary provider failure is not classified as overflow
    * @preconditions A rate-limit error
    * @expectedResult false, because a false positive tells a caller to shorten a prompt that was never too long and hides the real failure
@@ -118,7 +142,7 @@ describe("rethrowContextOverflow", () => {
       message: "prompt is too long: 9 tokens > 8 maximum",
     });
     expect(() => rethrowContextOverflow(cause)).toThrow(
-      expect.objectContaining({ rc: "AI1009" }),
+      expect.objectContaining({ rc: "AI1009", cause }),
     );
   });
 
@@ -129,6 +153,14 @@ describe("rethrowContextOverflow", () => {
    */
   test("rethrows an unrelated failure unchanged", () => {
     const cause = apiError({ message: "Rate limit reached for requests" });
-    expect(() => rethrowContextOverflow(cause)).toThrow(cause);
+    // toBe, not toThrow: the contract is that the original object comes back,
+    // not merely one that matches it.
+    let thrown: unknown;
+    try {
+      rethrowContextOverflow(cause);
+    } catch (error) {
+      thrown = error;
+    }
+    expect(thrown).toBe(cause);
   });
 });
