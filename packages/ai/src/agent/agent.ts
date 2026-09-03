@@ -25,16 +25,28 @@ import type { AgentOptions, AgentResult } from "./types.ts";
 /** What a file part's `data` or an image part's `image` may hold. */
 const PART_PAYLOAD_TYPES = "a string, Uint8Array, ArrayBuffer or URL";
 
+/** Built-in types the SDK's payload union admits, by their internal tag. */
+const PART_PAYLOAD_TAGS = new Set([
+  "[object Uint8Array]",
+  "[object ArrayBuffer]",
+  "[object URL]",
+]);
+
 /**
  * The payload union the SDK declares for a file or image part. `Buffer`
- * passes as a `Uint8Array` subclass, which is what the SDK accepts too.
+ * passes as a `Uint8Array`, which is what the SDK accepts too.
+ *
+ * Matched on the internal tag rather than `instanceof`, which is realm
+ * sensitive: a `Uint8Array` built in a worker thread or a `vm` context fails
+ * an `instanceof` check against this realm's constructor, and refusing a
+ * payload the SDK would have accepted is worse than not checking at all.
+ * `ArrayBuffer.isView` is not the answer either, since it admits every typed
+ * array, and a `Float32Array` is not `DataContent`.
  */
 function isPartPayload(value: unknown): boolean {
   return (
     typeof value === "string" ||
-    value instanceof Uint8Array ||
-    value instanceof ArrayBuffer ||
-    value instanceof URL
+    PART_PAYLOAD_TAGS.has(Object.prototype.toString.call(value))
   );
 }
 

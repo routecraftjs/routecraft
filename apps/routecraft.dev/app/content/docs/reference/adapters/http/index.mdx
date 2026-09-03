@@ -569,7 +569,7 @@ export const birdHook = craft()
       secret: process.env.BIRD_WEBHOOK_SECRET!,
     },
   }))
-  .transform((ex) => toInboundMessage(ex.body))
+  .transform((event) => toInboundMessage(event))
   .to(direct('agent'))
 ```
 

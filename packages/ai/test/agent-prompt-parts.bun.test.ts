@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
+import { runInNewContext } from "node:vm";
 import {
   MemorySuspensionStore,
   craft,
@@ -192,6 +193,26 @@ describe("content parts on the user prompt", () => {
     expect(() => build([{ type: "image", image: { nested: true } }])).toThrow(
       /is an image part and its "image" must be/,
     );
+
+    // A payload built in another realm is still a payload: instanceof would
+    // refuse it against this realm's constructor, and a guard that rejects
+    // what the SDK accepts is worse than no guard.
+    const otherRealm = runInNewContext(
+      "({ bytes: new Uint8Array([1]), buffer: new ArrayBuffer(1) })",
+    ) as { bytes: Uint8Array; buffer: ArrayBuffer };
+    expect(otherRealm.bytes instanceof Uint8Array).toBe(false);
+    expect(() =>
+      build([
+        { type: "file", data: otherRealm.bytes, mediaType: "audio/ogg" },
+        { type: "file", data: otherRealm.buffer, mediaType: "audio/ogg" },
+      ]),
+    ).not.toThrow();
+
+    // Precision is not traded away for realm safety: a Float32Array is a
+    // typed-array view but is not one of the SDK's payload types.
+    expect(() =>
+      build([{ type: "file", data: new Float32Array(1), mediaType: "x/y" }]),
+    ).toThrow(/is a file part and its "data" must be/);
 
     // The reporter must survive the values least likely to render. A BigInt
     // and a circular object both make JSON.stringify throw, which would
