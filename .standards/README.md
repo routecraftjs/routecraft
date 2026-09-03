@@ -8,7 +8,7 @@ Internal development standards for Routecraft contributors (human and AI). These
 
 | Document | Scope |
 |----------|-------|
-| [Positioning](./positioning.md) | What Routecraft is for: the connective layer between agents, MCP servers and systems, never a reimplementation of what it connects. The three questions any addition answers first, and the instruction to raise a misplaced feature before building it |
+| [Positioning](./positioning.md) | What Routecraft is for: the connective layer between agents, MCP servers and systems, never a reimplementation of what it connects. Protocol, operation or product as the fast test; the three questions behind it; and the instruction to raise a misplaced feature before building it |
 | [Adapter Architecture](./adapter-architecture.md) | Patterns, file structure, facade, authoring guide, skeletons, and anti-patterns for adapters |
 | [Exchange State Model](./exchange-state-model.md) | Where state lives on an exchange (`body`/`headers` vs derivations like `id`/`principal`/`logger`), halt/continue serialization contract, getter pattern for cross-cutting concerns |
 | [Naming Policy](./naming-policy.md) | Source/Destination vs Server/Client naming, schema field names (`input`/`output`), prompt-source field names |

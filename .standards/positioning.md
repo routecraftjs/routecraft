@@ -18,7 +18,19 @@ The reason is not purity. Anything rebuilt here is a worse version of the produc
 
 The practical form of the rule: **if a capability could plausibly be bought, rented, or installed as its own product, it does not belong inside a `@routecraft/*` package.** It belongs behind `mcp()`, behind `http()`, or behind an adapter that wraps somebody else's client.
 
-## 3. The three questions
+## 3. Protocol, operation, or product
+
+The fast test, and the one to reach for first. Everything falls into one of three kinds, and the kind decides the answer before any further reasoning:
+
+- **A protocol** (HTTP, MCP, WebSocket, AMQP, MQTT, SSE, OAuth, a codec). **Build it.** A protocol reaches every system that speaks it, so the work pays off across every integration that will ever exist. This is why protocol-level work outranks everything else in the framework.
+- **A cross-cutting operation** (retry, cache, throttle, timeout, circuit breaker, split, dedupe, error handling). **Build it.** Every connector benefits from it, and the framework is the only place it can sit where an author reading a route can see it and change it.
+- **A product or a vendor** (a chat platform, a memory store, a mail provider, a search API, a CRM). **Connect it.** Somebody sells it, maintains it, and employs people to make it better than we can. Our contribution is the adapter or the MCP pointer, an example, and the routes that compose it.
+
+The default when a thing does not obviously sort: **if it has an HTTP API or an MCP server, the answer is connect.**
+
+A worked non-example. A Telegram connector looks like framework work and is not: Telegram publishes an API, anyone can integrate with it in an afternoon, and building it here buys reach with one vendor's users at the cost of maintaining their surface forever. It is legitimate work, and it is low priority next to any protocol or operation. The same reasoning retires most requests of the form "Routecraft should support X".
+
+## 4. The three questions
 
 Before any addition to a `@routecraft/*` package, in order:
 
@@ -28,7 +40,9 @@ Before any addition to a `@routecraft/*` package, in order:
 
 A no to question 1, or a no to both halves of question 2, ends it. Question 3 governs how a yes gets built.
 
-## 4. Where a capability lands
+The questions and the three kinds agree, and are two views of the same rule. When they seem to disagree, the kind is usually being misread: a capability that feels like an operation but names a vendor is a product.
+
+## 5. Where a capability lands
 
 Three homes, in order of preference:
 
@@ -38,7 +52,7 @@ Three homes, in order of preference:
 
 Preferring the first is not modesty. A framework that reaches more systems is worth more than one that owns more code.
 
-## 5. Raise it during development, not at review
+## 6. Raise it during development, not at review
 
 This is a live check rather than a document to cite afterwards. A contributor or agent building something that fails question 1 or 2 should say so **before writing the code**, name which question fails, and propose the composed-route or third-party shape instead. A feature that arrives at review already built is one that costs a rewrite to place correctly, and the rewrite usually does not happen.
 
