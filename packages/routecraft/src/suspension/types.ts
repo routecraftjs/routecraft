@@ -405,7 +405,8 @@ export interface SuspensionStore {
    * @param expected - Fingerprint of the step state the caller based its
    *   replacement on, from `stepStateFingerprint`
    * @param stepState - The replacement. Subject to the same plain-JSON rule
-   *   as every other free-form slot (`RC5042`).
+   *   as every other free-form slot (`RC5042`). `undefined` clears the slot
+   *   on every backend.
    */
   replaceStepState(
     id: string,

@@ -75,3 +75,5 @@ Model ID format: `"provider:model-name"` (e.g., `"ollama:llama3.2"`, `"anthropic
 | `usage.totalTokens` | `number` | Total token count |
 
 Provider credentials are configured once in `llmPlugin()` and shared across all `llm()` calls. See [Plugins reference](/docs/reference/plugins).
+
+**A prompt that does not fit** the model's context window fails with [`AI1009`](/docs/reference/errors#ai-1009) rather than the provider's own error, on both the buffered and the streaming path. It is the one dispatch failure no retry of the same input can fix, so it is marked non-retryable and [`.retry()`](/docs/reference/operations/retry) leaves it alone; every other provider failure is rethrown untouched with its retryability intact. To test an error yourself, use `isContextOverflow()` from `@routecraft/ai`.

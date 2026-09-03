@@ -4,7 +4,11 @@ import {
   type SuspensionCasResult,
   type SuspensionStore,
 } from "@routecraft/routecraft";
-import { parseStepState, type ThreadMessage } from "./suspension-state.ts";
+import {
+  contentPartsOf,
+  parseStepState,
+  type ThreadMessage,
+} from "./suspension-state.ts";
 // Registers AI1008, thrown from the integrity checks below.
 import "../errors.ts";
 
@@ -42,29 +46,22 @@ interface ThreadPairing {
 }
 
 /**
- * Read the tool-call / tool-result ids out of a thread.
+ * The tool-call ids one role contributes to a thread.
  *
- * Uses the same known-but-external ModelMessage shape the rest of the agent
- * tier decodes: `role: "assistant"` messages hold `{ type: "tool-call",
- * toolCallId }` parts, `role: "tool"` messages hold `{ type: "tool-result",
- * toolCallId }` parts. A part that is neither is not this function's
- * business.
+ * Reads through `contentPartsOf`, which `suspension-state.ts` documents as
+ * the single decoder for the SDK's known-but-external message shape, so an
+ * SDK representation change is fixed there rather than here. The id policy
+ * stays here, because it is this module's: an unpairable part is AI1008,
+ * where the other walks tolerate one.
  */
-function pairingOf(messages: readonly ThreadMessage[]): ThreadPairing {
-  const calls: string[] = [];
-  const results: string[] = [];
+function idsOf(
+  messages: readonly ThreadMessage[],
+  role: "assistant" | "tool",
+  wanted: "tool-call" | "tool-result",
+): string[] {
+  const ids: string[] = [];
   for (const message of messages) {
-    const content = message?.content;
-    if (!Array.isArray(content)) continue;
-    const sink =
-      message.role === "assistant"
-        ? calls
-        : message.role === "tool"
-          ? results
-          : undefined;
-    if (!sink) continue;
-    const wanted = message.role === "assistant" ? "tool-call" : "tool-result";
-    for (const part of content) {
+    for (const part of contentPartsOf(message, role) ?? []) {
       if (part === null || typeof part !== "object") continue;
       const typed = part as { type?: unknown; toolCallId?: unknown };
       if (typed.type !== wanted) continue;
@@ -73,10 +70,24 @@ function pairingOf(messages: readonly ThreadMessage[]): ThreadPairing {
           message: `A ${wanted} part in the rewritten thread carries no toolCallId, so it can never be paired.`,
         });
       }
-      sink.push(typed.toolCallId);
+      ids.push(typed.toolCallId);
     }
   }
-  return { calls, results };
+  return ids;
+}
+
+/**
+ * Read the tool-call / tool-result ids out of a thread.
+ *
+ * `role: "assistant"` messages hold `{ type: "tool-call", toolCallId }`
+ * parts, `role: "tool"` messages hold `{ type: "tool-result", toolCallId }`
+ * parts. A part that is neither is not this function's business.
+ */
+function pairingOf(messages: readonly ThreadMessage[]): ThreadPairing {
+  return {
+    calls: idsOf(messages, "assistant", "tool-call"),
+    results: idsOf(messages, "tool", "tool-result"),
+  };
 }
 
 /**
@@ -195,12 +206,14 @@ export async function replaceParkedThread(
   }
 
   const state = parseStepState(record.stepState);
+  // Taken before the rewrite runs. `parseStepState` hands back the object it
+  // was given, so a rewrite that edits the thread in place (a splice is the
+  // obvious way to drop old turns) would otherwise be fingerprinted after
+  // its own edit, and the compare would ask whether nothing had changed
+  // since it changed it.
+  const expected = stepStateFingerprint(record.stepState);
   const messages = await rewrite(state.messages);
   assertResumableThread(messages, state.suspendedToolCallId);
 
-  return store.replaceStepState(
-    suspensionId,
-    stepStateFingerprint(record.stepState),
-    { ...state, messages },
-  );
+  return store.replaceStepState(suspensionId, expected, { ...state, messages });
 }

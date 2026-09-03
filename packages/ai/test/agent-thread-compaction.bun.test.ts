@@ -245,6 +245,26 @@ describe("replaceParkedThread", () => {
   });
 
   /**
+   * @case A rewrite that edits the thread in place still wins the swap
+   * @preconditions The rewrite mutates the array it was handed, which is the stored object, rather than returning a new one
+   * @expectedResult The compare is against the state the rewrite was based on, so the swap wins instead of losing to the rewrite's own edit
+   */
+  test("compares against the pre-rewrite state, not the rewritten one", async () => {
+    const store = new MemorySuspensionStore();
+    await store.create(parked());
+
+    const result = await replaceParkedThread(store, "sus-1", (messages) => {
+      (messages as ThreadMessage[]).splice(0, 1);
+      return messages;
+    });
+
+    expect(result.won).toBe(true);
+    expect(
+      (result.suspension?.stepState as { messages: ThreadMessage[] }).messages,
+    ).toHaveLength(2);
+  });
+
+  /**
    * @case An unknown suspension reports a loss
    * @preconditions An empty store
    * @expectedResult won: false with no record, matching the store's own contract

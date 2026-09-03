@@ -246,7 +246,12 @@ export interface GitHubExampleRef {
  * slash is the boundary and resolving it would need a call to GitHub. Use
  * the default branch, or a single-segment one, for URL examples.
  *
- * @throws Error when the URL is not a GitHub repository URL
+ * The subpath is a location inside the clone, so it may not leave it: the
+ * directory it names is copied wholesale into the new project, and a `..`
+ * segment would copy whatever sits beside the temporary clone instead.
+ *
+ * @throws Error when the URL is not a GitHub repository URL, or the subpath
+ *   escapes the repository
  */
 export function parseGitHubExampleUrl(url: string): GitHubExampleRef {
   const match = url.match(
@@ -256,6 +261,11 @@ export function parseGitHubExampleUrl(url: string): GitHubExampleRef {
     throw new Error(`Invalid GitHub URL format: ${url}`);
   }
   const [, owner, repo, branch = "main", subPath = ""] = match;
+  if (subPath.split("/").some((segment) => segment === "..")) {
+    throw new Error(
+      `Invalid example path "${subPath}": a path inside the repository cannot contain "..".`,
+    );
+  }
   return { owner: owner!, repo: repo!, branch, subPath };
 }
 
@@ -279,8 +289,15 @@ async function downloadGitHubExample(url: string): Promise<string> {
       args.push(repoUrl, tempDir);
       execFileSync("git", args, { stdio: "inherit" });
     } catch {
+      // A multi-segment branch reaches here rather than the not-found branch
+      // below, because the clone is what rejects the guessed branch name.
+      // Without this the user is told to check the repository's visibility,
+      // which is not the problem.
+      const ambiguity = subPath
+        ? ` The branch was read as "${branch}" and "${subPath}" as a path inside it; if "${branch}/${subPath}" is one branch name, scaffold from the repository root instead and copy the folder yourself.`
+        : "";
       throw new Error(
-        `Failed to clone repository. Make sure the repository is public and accessible: ${repoUrl}`,
+        `Failed to clone ${repoUrl} at branch "${branch}". Make sure the repository is public and the branch exists.${ambiguity}`,
       );
     }
 

@@ -738,4 +738,34 @@ describe("parseGitHubExampleUrl", () => {
     ).toThrow();
     expect(() => parseGitHubExampleUrl("https://github.com/owner")).toThrow();
   });
+
+  /**
+   * @case A subpath that climbs out of the repository is refused
+   * @preconditions A /tree/ URL whose path contains a ".." segment
+   * @expectedResult Throws, so nothing outside the clone is ever copied into
+   *   the new project
+   */
+  test("refuses a subpath that escapes the repository", () => {
+    expect(() =>
+      parseGitHubExampleUrl(
+        "https://github.com/owner/repo/tree/main/../../../etc",
+      ),
+    ).toThrow(/cannot contain/);
+    expect(() =>
+      parseGitHubExampleUrl(
+        "https://github.com/owner/repo/tree/main/a/../../b",
+      ),
+    ).toThrow(/cannot contain/);
+  });
+
+  /**
+   * @case A path that merely contains two dots is kept
+   * @preconditions A subpath whose segments contain dots but are not ".."
+   * @expectedResult Parses, because the guard is per segment
+   */
+  test("keeps a subpath whose segments merely contain dots", () => {
+    expect(
+      parseGitHubExampleUrl("https://github.com/owner/repo/tree/main/v1..2/x"),
+    ).toMatchObject({ subPath: "v1..2/x" });
+  });
 });

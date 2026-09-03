@@ -44,6 +44,22 @@ export async function streamLlm(
 }
 
 /**
+ * Whether a `fullStream` part is the SDK's error part.
+ *
+ * The part is the only place a provider refusal keeps its own wording, so it
+ * is read here rather than left to `normalizeStreamDelta`, which is a
+ * token-level mapper and answers `null` for everything that is not a text or
+ * reasoning delta.
+ */
+function isStreamErrorPart(part: unknown): part is { error: unknown } {
+  return (
+    typeof part === "object" &&
+    part !== null &&
+    (part as { type?: unknown }).type === "error"
+  );
+}
+
+/**
  * Shared `streamText` invocation. Iterates the SDK's `fullStream`,
  * forwards each token-level delta to `onDelta`, then awaits the
  * consolidated values once the stream drains.
@@ -62,13 +78,21 @@ export async function runStreamGenerate(
   const params = buildSdkParams(model, options, system, user, extras);
   const result = streamText(params as Parameters<typeof streamText>[0]);
 
-  // A stream rejects where it is drained rather than where it is created,
-  // so the guard covers the drain and the text it settles into. The
-  // optional accessors below are read through `safeAwait`, which reports a
-  // rejection as absent, so a provider refusal cannot reach them first.
+  // The SDK does not reject the stream on a provider refusal: it enqueues an
+  // `{ type: "error" }` part and, because no step ever finished, settles the
+  // consolidated promises with a generic NoOutputGeneratedError that carries
+  // none of the provider's wording. Classifying that tells us nothing, so the
+  // part is captured off the drain and the provider's own error is what
+  // reaches the classifier. The surrounding catch still covers a genuine
+  // transport-level rejection.
   let text: string | undefined;
+  let streamError: unknown;
   try {
     for await (const part of result.fullStream) {
+      if (isStreamErrorPart(part)) {
+        streamError ??= part.error;
+        continue;
+      }
       const delta = normalizeStreamDelta(part);
       if (delta === null) continue;
       try {
@@ -80,10 +104,14 @@ export async function runStreamGenerate(
         );
       }
     }
-    text = await result.text;
+    // Left unread when the stream carried an error: the consolidated
+    // promises settle with the SDK's own generic failure, and awaiting it
+    // would replace the provider's wording with it.
+    if (streamError === undefined) text = await result.text;
   } catch (cause) {
     rethrowContextOverflow(cause);
   }
+  if (streamError !== undefined) rethrowContextOverflow(streamError);
 
   const out: LlmResult = { text: text ?? "", raw: result };
   const usage = await safeAwait<{

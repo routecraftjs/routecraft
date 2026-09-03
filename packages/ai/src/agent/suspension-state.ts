@@ -253,7 +253,7 @@ export function replaceToolResultOutput(
  *
  * @internal
  */
-function contentPartsOf(
+export function contentPartsOf(
   message: ThreadMessage,
   role: "tool" | "assistant",
 ): unknown[] | undefined {

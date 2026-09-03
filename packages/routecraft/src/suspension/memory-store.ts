@@ -164,10 +164,13 @@ export class MemorySuspensionStore implements SuspensionStore {
     // Encoded through the same gate `create` uses. The slot is free-form,
     // so a caller can hand back a value the durable backend would refuse,
     // and finding that out only after a failover is the bug this avoids.
-    const stored = clone({
-      ...record,
-      stepState: encodePersistable(stepState, "stepState"),
-    });
+    const encoded = encodePersistable(stepState, "stepState");
+    // Deleted rather than held as an undefined-valued key, so a cleared slot
+    // reads back the same way it does from the durable backend, where the
+    // column is NULL.
+    const next = { ...record, stepState: encoded };
+    if (encoded === undefined) delete next.stepState;
+    const stored = clone(next);
     this.#records.set(id, stored);
     return { won: true, suspension: clone(stored) };
   }

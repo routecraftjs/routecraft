@@ -351,7 +351,10 @@ export class SqliteSuspensionStore implements SuspensionStore {
             `UPDATE suspensions SET step_state = ?
              WHERE id = ? AND status = 'suspended'`,
           )
-          .run(JSON.stringify(encoded), id);
+          // `create` guards the same way. `bun:sqlite` binds an undefined
+          // parameter as NULL and `better-sqlite3` rejects it, so the branch
+          // is what keeps the two drivers substitutable.
+          .run(encoded === undefined ? null : JSON.stringify(encoded), id);
         won =
           (
             this.#db.prepare("SELECT changes() AS changed").get() as {

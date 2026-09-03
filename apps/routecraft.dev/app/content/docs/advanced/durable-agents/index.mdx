@@ -79,6 +79,45 @@ Identity is restored, not re-verified: execution two's principal came back from 
 
 The resumed loop therefore runs as the principal that PARKED it, never as the resuming one. The resuming route's hook gates who may inject the payload; that principal is recorded as `resumedBy` and gains none of the run's authority. Post-approval authorization that needs a live credential belongs on the resume ingress route, where the resuming principal is verified.
 
+## Rewriting a parked thread
+
+A run that parks for a human approval can wait days, and a thread that was
+comfortably inside the model's context window when it parked may not be when
+the approver finally clicks. The only moment to shrink it is while the run is
+still parked, because a resume lands on the thread as it stands and has
+nowhere else to go.
+
+`replaceParkedThread` does that swap safely:
+
+```ts
+import { replaceParkedThread } from "@routecraft/ai";
+
+const result = await replaceParkedThread(store, suspensionId, async (messages) =>
+  summariseOldTurns(messages),
+);
+```
+
+Two things are checked before the store is touched. The rewrite is put through
+`assertResumableThread`, which refuses a thread that broke tool-call /
+tool-result pairing, duplicated a call id, emptied itself, or dropped the
+suspended call the approver's answer lands on, with
+[`AI1008`](/docs/reference/errors#ai-1008). A summariser asked to shorten a
+conversation will happily drop half a pair, and a broken thread is not
+discovered at compaction time: it is discovered when the approver clicks, by
+which point the approval is spent. Then the write goes through the store's
+[`replaceStepState`](/docs/reference/configuration#suspension) compare-and-swap
+against the state the rewrite was based on, so a resume, a sweep, or a second
+rewrite that got there first wins and this one reports `won: false` rather than
+overwriting it. Losing is an ordinary outcome, not an error: the run resumes
+uncompacted.
+
+Only `messages` changes. `turnsUsed` in particular is left alone, because
+shrinking the conversation does not give the run its budget back.
+
+To decide whether a compaction is needed at all, catch
+[`AI1009`](/docs/reference/errors#ai-1009), or test an error with
+`isContextOverflow()` from `@routecraft/ai`.
+
 ## Where suspension is refused
 
 - **Outside an agent dispatch on a route-bound exchange** ([`AI1006`](/docs/reference/errors#ai-1006)): a proxied MCP tool guard, `testFn`, or an agent invoked over a synthetic exchange. The refusal happens at the `ctx.suspend()` call; nothing is written.
