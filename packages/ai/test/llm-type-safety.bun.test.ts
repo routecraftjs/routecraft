@@ -90,4 +90,43 @@ describe("LLM adapter type safety", () => {
         }),
       );
   });
+
+  /**
+   * @case A route input type flows into AI callbacks through `.enrich()`
+   * @preconditions `.input({ body })` precedes llm(), agent(), and embedding() without type arguments
+   * @expectedResult Each callback can read the declared body fields without a cast
+   */
+  test("route input type flows into enrich callbacks without generics", () => {
+    const body = z.object({ content: z.string(), text: z.string() });
+    const source = simple({ content: "hello", text: "hello" });
+
+    craft()
+      .input({ body })
+      .from(source)
+      .enrich(
+        llm("ollama:my-model", {
+          user: (exchange) => exchange.body.content,
+        }),
+      );
+
+    craft()
+      .input({ body })
+      .from(source)
+      .enrich(
+        agent({
+          model: "ollama:my-model",
+          system: (exchange) => `Summarise ${exchange.body.text}`,
+          user: (exchange) => exchange.body.content,
+        }),
+      );
+
+    craft()
+      .input({ body })
+      .from(source)
+      .enrich(
+        embedding("openai:text-embedding-3-small", {
+          using: (exchange) => exchange.body.content,
+        }),
+      );
+  });
 });

@@ -21,7 +21,7 @@ type Document = { content: string; text: string }
 craft()
   .id('summarise')
   .from<Document>(source)
-  .enrich(llm<undefined, Document>('anthropic:claude-haiku-4-5-20251001', {
+  .enrich(llm('anthropic:claude-haiku-4-5-20251001', {
     system: 'Summarise the following in one sentence.',
     user: (ex) => ex.body.content,
   }))
@@ -40,7 +40,7 @@ const sentimentSchema = z.object({
 craft()
   .id('classify')
   .from<Document>(source)
-  .enrich(llm<undefined, Document>('openai:gpt-4o', {
+  .enrich(llm('openai:gpt-4o', {
     system: 'Classify the sentiment of the text.',
     user: (ex) => ex.body.text,
     output: sentimentSchema,

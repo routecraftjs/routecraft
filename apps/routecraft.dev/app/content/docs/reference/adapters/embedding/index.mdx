@@ -20,7 +20,7 @@ type Document = { content: string; title: string; description: string }
 craft()
   .id('embed-document')
   .from<Document>(source)
-  .enrich(embedding<Document>('openai:text-embedding-3-small', {
+  .enrich(embedding('openai:text-embedding-3-small', {
     using: (ex) => ex.body.content,
   }))
   .to(vectorStore)
@@ -28,7 +28,7 @@ craft()
 // (use only() to keep the document, e.g. only((r) => r.embedding, 'embedding'))
 
 // Embed a combination of fields
-.enrich(embedding<Document>('ollama:nomic-embed-text', {
+.enrich(embedding('ollama:nomic-embed-text', {
   using: (ex) => `${ex.body.title} ${ex.body.description}`,
 }))
 ```
