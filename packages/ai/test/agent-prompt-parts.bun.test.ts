@@ -181,15 +181,33 @@ describe("content parts on the user prompt", () => {
       /"user"\[1\] must be a content part object/,
     );
     expect(() => build([{ type: "image" }])).toThrow(
-      /"user"\[0\] is an image part and must carry "image"/,
+      /"user"\[0\] is an image part and its "image" must be/,
     );
+
+    // A payload of the wrong type is refused too: the SDK's own union takes a
+    // string, bytes or a URL, and anything else fails at the provider.
+    expect(() =>
+      build([{ type: "file", data: 42, mediaType: "audio/ogg" }]),
+    ).toThrow(/is a file part and its "data" must be/);
+    expect(() => build([{ type: "image", image: { nested: true } }])).toThrow(
+      /is an image part and its "image" must be/,
+    );
+
+    // The reporter must survive the values least likely to render. A BigInt
+    // and a circular object both make JSON.stringify throw, which would
+    // replace the RC5003 with a native TypeError.
+    const circular: Record<string, unknown> = {};
+    circular["self"] = circular;
+    expect(() => build([{ type: 10n }])).toThrow(/has unknown type 10/);
+    expect(() => build([{ type: circular }])).toThrow(/has unknown type/);
 
     // The valid forms still build.
     expect(() =>
       build([
         { type: "text", text: "ok" },
         { type: "file", data: "AQID", mediaType: "audio/ogg" },
-        { type: "image", image: "AQID" },
+        { type: "file", data: new Uint8Array([1]), mediaType: "audio/ogg" },
+        { type: "image", image: new URL("https://example.com/cat.png") },
       ]),
     ).not.toThrow();
   });

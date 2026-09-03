@@ -22,6 +22,40 @@ import { AgentEnricherAdapter, type AgentByNameOverrides } from "./enricher.ts";
 import { isToolSelection } from "./tools/selection.ts";
 import type { AgentOptions, AgentResult } from "./types.ts";
 
+/** What a file part's `data` or an image part's `image` may hold. */
+const PART_PAYLOAD_TYPES = "a string, Uint8Array, ArrayBuffer or URL";
+
+/**
+ * The payload union the SDK declares for a file or image part. `Buffer`
+ * passes as a `Uint8Array` subclass, which is what the SDK accepts too.
+ */
+function isPartPayload(value: unknown): boolean {
+  return (
+    typeof value === "string" ||
+    value instanceof Uint8Array ||
+    value instanceof ArrayBuffer ||
+    value instanceof URL
+  );
+}
+
+/**
+ * Render an untrusted config value for an error message without letting the
+ * renderer itself throw. `JSON.stringify` rejects a BigInt and a circular
+ * object, which are exactly the malformed inputs being reported, so using it
+ * bare would replace the intended RC5003 with a native TypeError.
+ */
+function describeValue(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    try {
+      return String(value);
+    } catch {
+      return "<unrepresentable value>";
+    }
+  }
+}
+
 /**
  * Check a statically supplied parts array at the `agent({...})` call site.
  * The type already rejects a malformed part for a TypeScript caller, but a
@@ -51,17 +85,17 @@ function invalidPromptPartReason(parts: readonly unknown[]): string | null {
         if (typeof p["mediaType"] !== "string" || p["mediaType"] === "") {
           return `${at} is a file part and must carry a non-empty "mediaType".`;
         }
-        if (p["data"] === undefined || p["data"] === null) {
-          return `${at} is a file part and must carry "data".`;
+        if (!isPartPayload(p["data"])) {
+          return `${at} is a file part and its "data" must be ${PART_PAYLOAD_TYPES}, got ${describeValue(p["data"])}.`;
         }
         break;
       case "image":
-        if (p["image"] === undefined || p["image"] === null) {
-          return `${at} is an image part and must carry "image".`;
+        if (!isPartPayload(p["image"])) {
+          return `${at} is an image part and its "image" must be ${PART_PAYLOAD_TYPES}, got ${describeValue(p["image"])}.`;
         }
         break;
       default:
-        return `${at} has unknown type ${JSON.stringify(p["type"])}. Allowed: "text", "file", "image".`;
+        return `${at} has unknown type ${describeValue(p["type"])}. Allowed: "text", "file", "image".`;
     }
   }
   return null;
