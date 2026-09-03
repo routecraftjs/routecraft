@@ -58,7 +58,7 @@ Model ID format: `"provider:model-name"` (e.g., `"ollama:llama3.2"`, `"anthropic
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `system` | `string \| (exchange) => string` | -- | System prompt (static or derived from exchange) |
-| `user` | `string \| (exchange) => string` | -- | User prompt (static or derived from exchange) |
+| `user` | `string \| LlmPromptPart[] \| (exchange) => string \| LlmPromptPart[]` | -- | User prompt (static or derived from exchange). The array form sends content parts: audio, images, files. See [Content parts](#content-parts) |
 | `output` | `StandardSchemaV1` | -- | Zod/Valibot/ArkType schema for structured output |
 | `temperature` | `number` | `0` | Sampling temperature |
 | `maxTokens` | `number` | `1024` | Maximum tokens to generate |
@@ -79,6 +79,40 @@ Model ID format: `"provider:model-name"` (e.g., `"ollama:llama3.2"`, `"anthropic
 | `usage.totalTokens` | `number` | Total token count |
 
 Provider credentials are configured once in `llmPlugin()` and shared across all `llm()` calls. See [Plugins reference](/docs/reference/plugins).
+
+#### Content parts
+
+A user prompt can be an array of content parts instead of a string, so a route that receives a voice note or an image hands it to the model directly rather than transcribing it first.
+
+```ts
+craft()
+  .id('answer-voice-note')
+  .from<{ audio: string; caption: string }>(source)
+  .enrich(llm('gemini:gemini-3-flash-preview', {
+    user: (ex) => [
+      { type: 'file', data: ex.body.audio, mediaType: 'audio/ogg' },
+      { type: 'text', text: 'Answer the question in the recording.' },
+    ],
+  }))
+  .to(log())
+```
+
+| Part | Fields | Notes |
+|------|--------|-------|
+| `text` | `text` | Plain text, mixable with any other part |
+| `file` | `data`, `mediaType`, `filename?` | `mediaType` is required: it is what tells the provider how to read the bytes |
+| `image` | `image`, `mediaType?` | `mediaType` is optional; providers sniff image bytes |
+
+`data` and `image` take bytes (`Uint8Array`, `ArrayBuffer`), a base64 string, or a `URL`.
+
+`system` stays string-only. No provider accepts content parts there.
+
+**Which providers accept what is theirs to say, not ours.** Nothing is pre-validated per provider: the parts are forwarded, and a provider that cannot read one fails through its own error rather than a framework guard that would go stale. The AI SDK's own [prompts documentation](https://ai-sdk.dev/docs/foundations/prompts) is the current list, and at the time of writing names Google Generative AI, Google Vertex AI, Anthropic, and OpenAI (PDFs, plus wav and mp3 on the audio-preview models) as the providers taking file parts. Image parts are broadly supported. Support is per model as well as per provider, so check the model you are actually calling.
+
+Two behaviours worth knowing before you reach for a `URL`:
+
+- **A URL part is downloaded by the SDK unless the provider declares it can fetch it itself.** The bytes then travel in the request, from your process. A provider that advertises URL support gets the URL verbatim instead.
+- **Raw bytes cannot cross a suspension boundary.** An agent that parks (a suspending tool, a human approval) persists its thread as JSON data, so a `Uint8Array` in a part is refused at park time with a message naming the exact part. Pass base64 or a URL on any route that can park. See [suspension](/docs/reference/plugins).
 
 #### Reasoning effort
 

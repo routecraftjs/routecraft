@@ -62,7 +62,7 @@ Model ID format: `"provider:model-name"` (same as `llm()`). The provider must be
 |--------|------|---------|----------|-------------|
 | `model` | `LlmModelId` | -- | No\* | `"provider:model"` string resolved via `llmPlugin`. Required unless `defaultOptions.model` supplies a fallback; otherwise dispatch throws `RC5003` |
 | `system` | `string` | -- | Yes | System prompt. Load from disk yourself when sourcing from a file |
-| `user` | `(exchange) => string` | body as-is / JSON | No | Override for deriving the user prompt. Defaults to body (string as-is, JSON for objects) |
+| `user` | `string \| LlmPromptPart[] \| (exchange) => string \| LlmPromptPart[]` | body as-is / JSON | No | Override for deriving the user prompt. Defaults to body (string as-is, JSON for objects). The array form sends content parts, so an agent can take a recording or an image directly: see [content parts](/docs/reference/adapters/llm#content-parts) |
 | `tools` | `ToolSelection` | -- | No | Tool whitelist built via `tools([...])`. Inherits `defaultOptions.tools` when omitted; an explicit value replaces the default entirely |
 | `principal` | `boolean \| (principal, exchange) => string` | `false` | No | When `true`, append a built-in `## Caller` section to the system prompt describing `exchange.principal` (identity + roles), or stating the request is unauthenticated. Pass a function to render the section yourself. See [Telling the agent who the caller is](#telling-the-agent-who-the-caller-is) |
 | `output` | `StandardSchemaV1` | -- | No | Schema for structured output. The agent requests provider-level structured output, validates the response, and parses it onto `AgentResult.output` |

@@ -16,7 +16,9 @@ import {
   resolveModel,
   resolvePrompt,
   resolveSampling,
+  resolveUserPrompt,
   resolveUserPromptDefault,
+  toPromptInput,
 } from "./shared.ts";
 import { toAiOutputSpec } from "./structured-output.ts";
 import type {
@@ -94,9 +96,9 @@ export class LlmEnricherAdapter<
     const merged = this.mergedOptions(context!);
 
     const system = resolvePrompt(merged.system, exchange);
+    const resolvedUser = resolveUserPrompt(merged.user, exchange);
     const user =
-      resolvePrompt(merged.user, exchange) ||
-      resolveUserPromptDefault(exchange);
+      resolvedUser === "" ? resolveUserPromptDefault(exchange) : resolvedUser;
 
     const output =
       merged.output !== undefined ? toAiOutputSpec(merged.output) : undefined;
@@ -106,7 +108,7 @@ export class LlmEnricherAdapter<
       modelId: modelName,
       options: resolveSampling(merged),
       system,
-      user,
+      user: toPromptInput(user),
       output,
     });
 

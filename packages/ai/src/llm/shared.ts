@@ -5,9 +5,11 @@ import {
 } from "@routecraft/routecraft";
 import type {
   LlmModelConfig,
+  LlmPromptPart,
   LlmPromptSource,
   LlmSamplingOptions,
   LlmSamplingOptionsMerged,
+  LlmUserPromptSource,
 } from "./types.ts";
 import { ADAPTER_LLM_PROVIDERS } from "./types.ts";
 
@@ -145,6 +147,51 @@ export function resolvePrompt<T = unknown>(
   if (source === undefined || source === "") return "";
   if (typeof source === "function") return source(exchange);
   return source;
+}
+
+/**
+ * Resolves a user prompt source against an exchange. Same contract as
+ * {@link resolvePrompt}, widened to the parts array. An empty source (absent,
+ * `""`, or `[]`) returns `""`, which is what the callers treat as "the author
+ * said nothing, derive the prompt from the body".
+ */
+export function resolveUserPrompt<T = unknown>(
+  source: LlmUserPromptSource<T> | undefined,
+  exchange: Exchange<T>,
+): string | LlmPromptPart[] {
+  if (source === undefined || source === "") return "";
+  const resolved = typeof source === "function" ? source(exchange) : source;
+  return Array.isArray(resolved) && resolved.length === 0 ? "" : resolved;
+}
+
+/**
+ * One user message, in the shape the SDK's `prompt` array carries. Structural
+ * on purpose: the agent tier threads these through its own `ThreadMessage`,
+ * and the llm tier must not depend on the agent tier to say so.
+ */
+export interface LlmUserMessage {
+  readonly role: "user";
+  readonly content: string | LlmPromptPart[];
+}
+
+/**
+ * The user side as the SDK's `prompt` argument. A plain string stays a
+ * string, exactly as it always has; a parts array becomes the one user
+ * message that carries them.
+ *
+ * This is the single place a parts array turns into a message, and it sits
+ * here rather than inside `buildSdkParams` because by the time the params are
+ * assembled the user side is `string | unknown[]`, and that array already
+ * means something else: the running thread of a resumed or retried dispatch.
+ * Wrapping at resolution keeps the two array forms from ever having to be
+ * told apart by shape.
+ *
+ * @internal
+ */
+export function toPromptInput(
+  user: string | LlmPromptPart[],
+): string | LlmUserMessage[] {
+  return typeof user === "string" ? user : [{ role: "user", content: user }];
 }
 
 /** Default user-prompt derivation: string body as-is, JSON for objects, String() otherwise. */

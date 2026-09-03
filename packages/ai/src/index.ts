@@ -45,16 +45,21 @@ export type {
   LlmOpenAIProviderOptions,
   LlmOpenRouterProviderOptions,
   LlmOptions,
+  LlmFilePart,
+  LlmImagePart,
   LlmPluginOptions,
   LlmPluginProviders,
+  LlmPromptPart,
   LlmPromptSource,
   LlmProviderType,
   LlmRawProviderOptions,
   LlmReasoningEffort,
   LlmResult,
   LlmSamplingOptions,
+  LlmTextPart,
   LlmToolCallSummary,
   LlmUsage,
+  LlmUserPromptSource,
 } from "./llm/index.ts";
 
 // Auth primitives re-exported from core for convenience.
