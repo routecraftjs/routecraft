@@ -68,6 +68,16 @@ function overdue(
   };
 }
 
+type LogCall = readonly unknown[];
+
+const said = (
+  calls: readonly LogCall[],
+  fragment: string,
+): LogCall | undefined =>
+  calls.find(
+    ([, message]) => typeof message === "string" && message.includes(fragment),
+  );
+
 /**
  * The expiry sweeper.
  *
@@ -283,12 +293,11 @@ describe("the suspension sweeper", () => {
 
     expect(reasked).toHaveLength(150);
     expect(
-      t.contextLogger.info.mock.calls.some(
-        ([, message]) =>
-          typeof message === "string" &&
-          message.includes("Still retiring expired suspensions"),
+      said(
+        t.contextLogger.info.mock.calls,
+        "Still retiring expired suspensions",
       ),
-    ).toBe(true);
+    ).toBeDefined();
     expect(await store.findExpired(new Date(), 100)).toHaveLength(0);
   });
 
@@ -377,9 +386,9 @@ describe("the suspension sweeper", () => {
     expect((await store.get("sus-a"))?.status).toBe("expired");
     expect((await store.get("sus-b"))?.status).toBe("suspended");
     expect((await store.get("sus-c"))?.status).toBe("expired");
-    const failedRetirement = t.contextLogger.error.mock.calls.find(
-      ([, message]) =>
-        typeof message === "string" && message.includes("Failed to retire"),
+    const failedRetirement = said(
+      t.contextLogger.error.mock.calls,
+      "Failed to retire",
     );
     expect(failedRetirement?.[0]).toMatchObject({ suspensionId: "sus-b" });
   });
@@ -410,10 +419,9 @@ describe("the suspension sweeper", () => {
     expect(await sweeper.sweep()).toBe(0);
 
     expect((await store.get("sus-ghost"))?.status).toBe("suspended");
-    const missingRoute = t.contextLogger.warn.mock.calls.find(
-      ([, message]) =>
-        typeof message === "string" &&
-        message.includes("which this context does not have"),
+    const missingRoute = said(
+      t.contextLogger.warn.mock.calls,
+      "which this context does not have",
     );
     expect(missingRoute?.[0]).toMatchObject({ routeId: "retired-route" });
   });
@@ -496,10 +504,9 @@ describe("the suspension sweeper", () => {
     expect((await store.get("sus-a"))?.status).toBe("expired");
     expect((await store.get("sus-b"))?.status).toBe("expired");
     expect(reasked).toHaveLength(2);
-    const startupScan = t.contextLogger.info.mock.calls.find(
-      ([, message]) =>
-        typeof message === "string" &&
-        message.includes("Suspension store scanned"),
+    const startupScan = said(
+      t.contextLogger.info.mock.calls,
+      "Suspension store scanned",
     );
     expect(startupScan?.[0]).toMatchObject({ retiredOnStart: 2 });
   });
@@ -528,19 +535,14 @@ describe("the suspension sweeper", () => {
       .build();
     await t.startAndWaitReady();
 
-    const startupScan = t.contextLogger.info.mock.calls.find(
-      ([, message]) =>
-        typeof message === "string" &&
-        message.includes("Suspension store scanned"),
+    const startupScan = said(
+      t.contextLogger.info.mock.calls,
+      "Suspension store scanned",
     );
     expect(startupScan?.[0]).toMatchObject({ stranded: 1 });
     expect(
-      t.contextLogger.warn.mock.calls.some(
-        ([, message]) =>
-          typeof message === "string" &&
-          message.includes("nothing will retry them"),
-      ),
-    ).toBe(true);
+      said(t.contextLogger.warn.mock.calls, "nothing will retry them"),
+    ).toBeDefined();
     expect((await store.get("sus-stranded"))?.status).toBe("resumed");
   });
 

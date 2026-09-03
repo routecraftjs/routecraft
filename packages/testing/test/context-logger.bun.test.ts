@@ -48,6 +48,7 @@ describe("context logger spy", () => {
    * @expectedResult logger.child returns a framework logger rather than a test spy after teardown
    */
   test("restores logger.child after teardown", async () => {
+    const originalChild = logger.child;
     t = await testContext()
       .routes(
         craft().id("context-logger-restore").from(simple("hello")).to(noop()),
@@ -56,6 +57,6 @@ describe("context logger spy", () => {
 
     await t.stop();
 
-    expect(logger.child).not.toBe(t.logger.child);
+    expect(logger.child).toBe(originalChild);
   });
 });

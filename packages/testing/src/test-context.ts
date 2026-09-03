@@ -435,7 +435,7 @@ export class TestContextBuilder {
   async build(): Promise<TestContext> {
     const spyLogger = createSpyLogger(this.spyFactory);
     const contextLogger = createSpyLogger(this.spyFactory);
-    const originalChild = logger.child.bind(logger);
+    const originalChild = logger.child;
     const childSpy = this.spyFactory();
     childSpy.mockImplementation((bindings) => {
       const isRouteLogger =
