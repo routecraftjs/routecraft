@@ -40,6 +40,11 @@ export const LMSTUDIO_PROVIDER_NAME = "lmstudio";
  * - LM Studio forwards the string to whatever server is behind it, so the
  *   level is only meaningful when the loaded model reads it.
  *
+ * The table says what is sent, not what every model behind a provider id
+ * accepts. Each level is forwarded as that provider's own reasoning setting
+ * and the API is what refuses an unsupported one, which applies to `none`
+ * where it is forwarded verbatim as much as to Anthropic's `effort`.
+ *
  * Anthropic's `effort` is an `output_config` field, so it needs a model new
  * enough to accept one; the SDK sends it either way and the API is what
  * refuses. That is the one row here not established by executing the path,
