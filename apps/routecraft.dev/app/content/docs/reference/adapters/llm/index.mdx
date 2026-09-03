@@ -114,7 +114,7 @@ An empty parts array reads as "the author said nothing", exactly as an empty str
 Two behaviours worth knowing before you reach for a `URL`:
 
 - **A URL part is downloaded by the SDK unless the provider declares it can fetch it itself.** The bytes then travel in the request, from your process. A provider that advertises URL support gets the URL verbatim instead. The framework does not bound that fetch: no size cap, no timeout of its own, no scheme allow-list, unlike the `http()` client which bounds the responses it accepts. A URL derived from an inbound body is therefore an outbound request a stranger chose, and deciding whether a URL is acceptable belongs in the route, where a reader can see it.
-- **Raw bytes cannot cross a suspension boundary.** An agent that parks (a suspending tool, a human approval) persists its thread as JSON data, so a `Uint8Array` in a part is refused at park time with a message naming the exact part. Pass base64 or a URL on any route that can park. See [suspension](/docs/reference/plugins).
+- **Neither raw bytes nor a `URL` object can cross a suspension boundary.** An agent that parks (a suspending tool, a human approval) persists its thread as JSON data, so a `Uint8Array` or a `URL` instance in a part is refused at park time with a message naming the exact part. On any route that can park, pass a base64 string, or the URL as a plain string: the SDK reads a URL-shaped string as a URL, and a string survives the store. See [suspension](/docs/reference/plugins).
 
 #### Reasoning effort
 

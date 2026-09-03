@@ -24,7 +24,7 @@ bun run test:vitest    # vitest files only (`*.test.{ts,tsx}` excluding `*.bun.t
 
 ### 1.2. Choosing a runner
 
-Default to `bun:test`. No current unit test uses vitest; a new vitest file is justified only when the test hits a known bun:test gap:
+Default to `bun:test`. One unit test uses vitest, for the last row of the table below; a new vitest file is justified only when the test hits a known bun:test gap:
 
 | Reason | Workaround / Status |
 |---|---|

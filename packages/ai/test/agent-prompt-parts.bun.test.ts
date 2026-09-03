@@ -158,6 +158,43 @@ describe("content parts on the user prompt", () => {
   });
 
   /**
+   * @case A malformed static parts array is refused at the agent({...}) call site
+   * @preconditions Arrays reaching the guard past the type system, as a JavaScript caller or a cast config would: an unknown part type, a file part with no media type, and a non-object element
+   * @expectedResult RC5003 naming the offending index and what it needs, rather than an opaque provider error at dispatch. Which media types a provider accepts is still the provider's answer, not this guard's.
+   */
+  test("a malformed static parts array throws RC5003 at construction", () => {
+    const build = (user: unknown): void => {
+      agent({
+        model: MODEL,
+        system: "s",
+        user: user as LlmPromptPart[],
+      });
+    };
+
+    expect(() => build([{ type: "audio", data: "AQID" }])).toThrow(
+      /"user"\[0\] has unknown type "audio"/,
+    );
+    expect(() => build([{ type: "file", data: "AQID" }])).toThrow(
+      /"user"\[0\] is a file part and must carry a non-empty "mediaType"/,
+    );
+    expect(() => build([{ type: "text", text: "ok" }, "not a part"])).toThrow(
+      /"user"\[1\] must be a content part object/,
+    );
+    expect(() => build([{ type: "image" }])).toThrow(
+      /"user"\[0\] is an image part and must carry "image"/,
+    );
+
+    // The valid forms still build.
+    expect(() =>
+      build([
+        { type: "text", text: "ok" },
+        { type: "file", data: "AQID", mediaType: "audio/ogg" },
+        { type: "image", image: "AQID" },
+      ]),
+    ).not.toThrow();
+  });
+
+  /**
    * @case The llm() step accepts the same parts shape as agent()
    * @preconditions llm({ user: [image part, text part] }) as a static array
    * @expectedResult callLlm receives the same single user message, so the two destinations stay interchangeable
@@ -258,9 +295,40 @@ describe("content parts on the user prompt", () => {
   });
 
   /**
+   * @case A URL instance in a parts prompt cannot cross the suspension boundary either
+   * @preconditions The same parked agent, prompted with a file part whose data is a `URL` object
+   * @expectedResult The park is refused naming that part, because the store persists JSON data and a `URL` is a class instance. This is why the reference page tells a parking route to pass the URL as a plain string, which the SDK still reads as a URL.
+   */
+  test("a URL instance part refuses to park, naming the offending part", async () => {
+    const store = new MemorySuspensionStore();
+    const sink = spy();
+    scripted.script.push({
+      toolCalls: [{ toolName: "ask", input: { question: "send it?" } }],
+    });
+
+    t = await parkingContext(
+      store,
+      parkingRoutes("urlpart", sink, () => [
+        {
+          type: "file",
+          data: new URL("https://example.com/note.ogg"),
+          mediaType: "audio/ogg",
+        },
+      ]),
+    ).build();
+    await t.startAndWaitReady();
+
+    await expect(
+      t.client.sendDirect("urlpart-assistant", "go"),
+    ).rejects.toThrow(
+      /stepState\.messages\[0\]\.content\[0\]\.data holds an instance of URL/,
+    );
+  });
+
+  /**
    * @case Raw bytes in a parts prompt cannot cross the suspension boundary, and say so loudly
    * @preconditions The same parked agent, prompted with a Uint8Array file part instead of base64
-   * @expectedResult The park is refused, naming the exact part that cannot be persisted, rather than resuming with a corrupted one. The suspension store carries JSON data only (`suspension/serialize.ts`), so bytes have to reach a suspending agent as base64 or a URL.
+   * @expectedResult The park is refused, naming the exact part that cannot be persisted, rather than resuming with a corrupted one. The suspension store carries JSON data only (`suspension/serialize.ts`), which refuses a `URL` instance for the same reason, so a part reaching a suspending agent has to carry a base64 string or a URL-shaped string.
    */
   test("a Uint8Array part refuses to park, naming the offending part", async () => {
     const store = new MemorySuspensionStore();

@@ -23,6 +23,51 @@ import { isToolSelection } from "./tools/selection.ts";
 import type { AgentOptions, AgentResult } from "./types.ts";
 
 /**
+ * Check a statically supplied parts array at the `agent({...})` call site.
+ * The type already rejects a malformed part for a TypeScript caller, but a
+ * JavaScript one, or a config object cast on the way in, would otherwise
+ * reach the provider and fail there as an opaque dispatch error rather than
+ * as a route that refused to build.
+ *
+ * Shallow by design: it checks the discriminator and the fields the SDK
+ * requires, never which media types a given provider will accept. That stays
+ * the provider's answer to give. A callback form cannot be checked here at
+ * all, since its parts do not exist until dispatch.
+ */
+function invalidPromptPartReason(parts: readonly unknown[]): string | null {
+  for (const [index, part] of parts.entries()) {
+    const at = `Agent: "user"[${index}]`;
+    if (typeof part !== "object" || part === null) {
+      return `${at} must be a content part object, got ${typeof part}.`;
+    }
+    const p = part as Record<string, unknown>;
+    switch (p["type"]) {
+      case "text":
+        if (typeof p["text"] !== "string") {
+          return `${at} is a text part and must carry a string "text".`;
+        }
+        break;
+      case "file":
+        if (typeof p["mediaType"] !== "string" || p["mediaType"] === "") {
+          return `${at} is a file part and must carry a non-empty "mediaType".`;
+        }
+        if (p["data"] === undefined || p["data"] === null) {
+          return `${at} is a file part and must carry "data".`;
+        }
+        break;
+      case "image":
+        if (p["image"] === undefined || p["image"] === null) {
+          return `${at} is an image part and must carry "image".`;
+        }
+        break;
+      default:
+        return `${at} has unknown type ${JSON.stringify(p["type"])}. Allowed: "text", "file", "image".`;
+    }
+  }
+  return null;
+}
+
+/**
  * Validate the LLM-config shape of agent options. Run at construction so
  * misconfiguration surfaces immediately rather than at first dispatch.
  *
@@ -44,15 +89,18 @@ export function validateAgentOptions<T>(options: AgentOptions<T>): void {
       message: `Agent: "system" must be a string or a function (exchange) => string.`,
     });
   }
-  if (
-    options.user !== undefined &&
-    typeof options.user !== "string" &&
-    typeof options.user !== "function" &&
-    !Array.isArray(options.user)
-  ) {
-    throw rcError("RC5003", undefined, {
-      message: `Agent: "user" must be a string, an array of content parts, or a function (exchange) => string | LlmPromptPart[] when present.`,
-    });
+  if (options.user !== undefined) {
+    if (Array.isArray(options.user)) {
+      const bad = invalidPromptPartReason(options.user);
+      if (bad !== null) throw rcError("RC5003", undefined, { message: bad });
+    } else if (
+      typeof options.user !== "string" &&
+      typeof options.user !== "function"
+    ) {
+      throw rcError("RC5003", undefined, {
+        message: `Agent: "user" must be a string, an array of content parts, or a function (exchange) => string | LlmPromptPart[] when present.`,
+      });
+    }
   }
   // `model` is optional: inheritable from agentPlugin({ defaultOptions:
   // { model } }) at dispatch time. Validate the shape only when present.

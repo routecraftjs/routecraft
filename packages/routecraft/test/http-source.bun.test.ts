@@ -3204,7 +3204,10 @@ describe("HTTP Source Adapter: raw body and webhook signatures", () => {
     const url = `http://127.0.0.1:${bound.port}/hooks/sw-stale`;
     const nowSec = Math.floor(Date.now() / 1000);
 
-    for (const timestamp of [nowSec - 301, nowSec + 301]) {
+    // Well outside the 300s window in both directions: a margin of exactly
+    // 301 lands on the boundary if a second ticks over before verification,
+    // and the tolerance check is a strict greater-than.
+    for (const timestamp of [nowSec - 3600, nowSec + 3600]) {
       const res = await fetch(url, {
         method: "POST",
         headers: signStandardWebhooks(body, { timestamp }),
@@ -3301,8 +3304,8 @@ describe("HTTP Source Adapter: raw body and webhook signatures", () => {
    */
   test("an unpadded base64 secret is the same key", async () => {
     const body = '{"event":"unpadded"}';
-    // 24 random bytes encode to 32 padded characters, so pick a secret whose
-    // encoding actually carries padding to strip.
+    // 22 bytes encode to 32 characters ending in "==", so this fixture
+    // actually carries padding to strip; 24 bytes would encode without any.
     const padded = Buffer.from(new Uint8Array(22).fill(7)).toString("base64");
     expect(padded.endsWith("=")).toBe(true);
     const unpadded = padded.replace(/=+$/, "");

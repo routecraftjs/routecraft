@@ -71,6 +71,11 @@ export interface HttpWebhookSignatureHeaderOptions extends HttpWebhookSignatureO
  */
 export interface HttpStandardWebhooksSignatureOptions extends HttpWebhookSignatureOptionsBase {
   scheme: "standard-webhooks";
+  /**
+   * Never set. Declared so the refusal survives a config object that is not
+   * an object literal, where excess-property checking does not apply.
+   */
+  header?: never;
 }
 
 /**
@@ -146,10 +151,10 @@ const BASE64_SHA256_PATTERN = /^[A-Za-z0-9+/]{43}=$/;
 const BASE64_SECRET_PATTERN = /^[A-Za-z0-9+/\-_]+$/;
 
 /**
- * Header names the Standard Webhooks specification fixes. Only the signature
- * header is configurable, and only for a sender that brands it differently;
- * the other two have no override because a sender that renamed them would
- * not be sending Standard Webhooks.
+ * The three header names the Standard Webhooks specification fixes. None is
+ * configurable: a sender that renamed them would not be sending Standard
+ * Webhooks, and renaming only one of the three would build a route that
+ * constructs cleanly and then rejects every live delivery.
  */
 const STANDARD_WEBHOOKS_SIGNATURE_HEADER = "webhook-signature";
 const STANDARD_WEBHOOKS_ID_HEADER = "webhook-id";
