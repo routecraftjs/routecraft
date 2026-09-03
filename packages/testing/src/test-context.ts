@@ -97,7 +97,8 @@ export interface TestOptions {
 /**
  * Test-friendly wrapper around CraftContext. Runs the real context but manages
  * lifecycle (start, wait routes ready, drain, stop) and collects errors.
- * t.logger is a spy logger for asserting on log calls.
+ * t.logger is a route-scoped spy logger and t.contextLogger captures logs made
+ * directly by the context.
  */
 export class TestContext {
   readonly ctx: CraftContext;
@@ -105,6 +106,8 @@ export class TestContext {
   readonly client: CraftClient;
   /** Spy logger; e.g. t.logger.info.mock.calls, or expect(t.logger.info).toHaveBeenCalledWith(...) with an injected runner mock factory */
   readonly logger: SpyLogger;
+  /** Spy logger for calls made directly on the context logger. */
+  readonly contextLogger: SpyLogger;
   readonly errors: RoutecraftError[] = [];
   private readonly routesReadyTimeoutMs: number;
 
@@ -117,12 +120,14 @@ export class TestContext {
     client: CraftClient,
     options?: TestContextOptions & {
       spyLogger?: SpyLogger;
+      contextLogger?: SpyLogger;
       restoreLoggerChild?: () => void;
     },
   ) {
     this.ctx = ctx;
     this.client = client;
     this.logger = options?.spyLogger ?? createNoopSpyLogger();
+    this.contextLogger = options?.contextLogger ?? createNoopSpyLogger();
     if (options?.restoreLoggerChild)
       this.restoreLoggerChild = options.restoreLoggerChild;
     rejectStaleOptions(options, "testContext");
@@ -429,11 +434,18 @@ export class TestContextBuilder {
 
   async build(): Promise<TestContext> {
     const spyLogger = createSpyLogger(this.spyFactory);
+    const contextLogger = createSpyLogger(this.spyFactory);
     const originalChild = logger.child.bind(logger);
     const childSpy = this.spyFactory();
-    childSpy.mockImplementation(
-      () => spyLogger as unknown as ReturnType<typeof logger.child>,
-    );
+    childSpy.mockImplementation((bindings) => {
+      const isRouteLogger =
+        bindings !== null &&
+        typeof bindings === "object" &&
+        "route" in bindings;
+      return (isRouteLogger
+        ? spyLogger
+        : contextLogger) as unknown as ReturnType<typeof logger.child>;
+    });
     logger.child = childSpy as unknown as typeof logger.child;
     // Restore the patched child on build failure: the restore hook is only
     // handed to TestContext after a successful build, so without this a
@@ -460,12 +472,14 @@ export class TestContextBuilder {
 
     const options: TestContextOptions & {
       spyLogger: SpyLogger;
+      contextLogger: SpyLogger;
       restoreLoggerChild: () => void;
     } = {
       ...(this.routesReadyTimeoutMs !== undefined
         ? { routesReadyTimeout: this.routesReadyTimeoutMs }
         : {}),
       spyLogger,
+      contextLogger,
       restoreLoggerChild: () => {
         logger.child = originalChild;
       },
@@ -481,6 +495,7 @@ export class TestContextBuilder {
  * calls in the jest-compatible `mock.calls` shape. Pass `{ fn }` with your
  * runner's mock factory (`vi.fn` from Vitest, `mock` from bun:test) when you
  * want `expect(t.logger.info).toHaveBeenCalledWith(...)` matcher support.
+ * Use `t.contextLogger` for calls made directly by the context logger.
  *
  * @example
  * const builder = testContext();

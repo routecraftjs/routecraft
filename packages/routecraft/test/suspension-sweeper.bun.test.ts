@@ -8,7 +8,6 @@ import {
   direct,
   noop,
   type CraftConfig,
-  type CraftContext,
   type EventName,
   type NewSuspension,
   type SuspensionCasResult,
@@ -68,36 +67,6 @@ function overdue(
     ...overrides,
   };
 }
-
-interface LogLine {
-  readonly bindings: Record<string, unknown>;
-  readonly message: string;
-}
-
-type CapturedLogs = Record<"info" | "warn" | "error", LogLine[]>;
-
-/**
- * Record the context logger's output.
- *
- * The sweeper reports through `context.logger` rather than a route logger,
- * so the spy logger the harness installs for route-scoped assertions does
- * not see it.
- */
-function captureLogs(context: CraftContext): CapturedLogs {
-  const lines: CapturedLogs = { info: [], warn: [], error: [] };
-  for (const level of ["info", "warn", "error"] as const) {
-    context.logger[level] = ((
-      bindings: Record<string, unknown>,
-      message: string,
-    ) => {
-      lines[level].push({ bindings, message });
-    }) as unknown as (typeof context.logger)[typeof level];
-  }
-  return lines;
-}
-
-const said = (lines: LogLine[], fragment: string): LogLine | undefined =>
-  lines.find((line) => line.message.includes(fragment));
 
 /**
  * The expiry sweeper.
@@ -303,7 +272,6 @@ describe("the suspension sweeper", () => {
           .to(noop()),
       ])
       .build();
-    const logs = captureLogs(t.ctx);
     await t.startAndWaitReady();
 
     for (let index = 0; index < 150; index++) {
@@ -314,7 +282,13 @@ describe("the suspension sweeper", () => {
     expect(await sweeper.sweep()).toBe(150);
 
     expect(reasked).toHaveLength(150);
-    expect(said(logs.info, "Still retiring expired suspensions")).toBeDefined();
+    expect(
+      t.contextLogger.info.mock.calls.some(
+        ([, message]) =>
+          typeof message === "string" &&
+          message.includes("Still retiring expired suspensions"),
+      ),
+    ).toBe(true);
     expect(await store.findExpired(new Date(), 100)).toHaveLength(0);
   });
 
@@ -391,7 +365,6 @@ describe("the suspension sweeper", () => {
           .to(noop()),
       ])
       .build();
-    const logs = captureLogs(t.ctx);
     await t.startAndWaitReady();
 
     for (const id of ["sus-a", "sus-b", "sus-c"]) {
@@ -404,9 +377,11 @@ describe("the suspension sweeper", () => {
     expect((await store.get("sus-a"))?.status).toBe("expired");
     expect((await store.get("sus-b"))?.status).toBe("suspended");
     expect((await store.get("sus-c"))?.status).toBe("expired");
-    expect(said(logs.error, "Failed to retire")?.bindings).toMatchObject({
-      suspensionId: "sus-b",
-    });
+    const failedRetirement = t.contextLogger.error.mock.calls.find(
+      ([, message]) =>
+        typeof message === "string" && message.includes("Failed to retire"),
+    );
+    expect(failedRetirement?.[0]).toMatchObject({ suspensionId: "sus-b" });
   });
 
   /**
@@ -427,7 +402,6 @@ describe("the suspension sweeper", () => {
           .to(noop()),
       ])
       .build();
-    const logs = captureLogs(t.ctx);
     await t.startAndWaitReady();
 
     await store.create(overdue("sus-ghost", { routeId: "retired-route" }));
@@ -436,9 +410,12 @@ describe("the suspension sweeper", () => {
     expect(await sweeper.sweep()).toBe(0);
 
     expect((await store.get("sus-ghost"))?.status).toBe("suspended");
-    expect(
-      said(logs.warn, "which this context does not have")?.bindings,
-    ).toMatchObject({ routeId: "retired-route" });
+    const missingRoute = t.contextLogger.warn.mock.calls.find(
+      ([, message]) =>
+        typeof message === "string" &&
+        message.includes("which this context does not have"),
+    );
+    expect(missingRoute?.[0]).toMatchObject({ routeId: "retired-route" });
   });
 
   /**
@@ -514,15 +491,17 @@ describe("the suspension sweeper", () => {
           .to(noop()),
       ])
       .build();
-    const logs = captureLogs(t.ctx);
     await t.startAndWaitReady();
 
     expect((await store.get("sus-a"))?.status).toBe("expired");
     expect((await store.get("sus-b"))?.status).toBe("expired");
     expect(reasked).toHaveLength(2);
-    expect(said(logs.info, "Suspension store scanned")?.bindings).toMatchObject(
-      { retiredOnStart: 2 },
+    const startupScan = t.contextLogger.info.mock.calls.find(
+      ([, message]) =>
+        typeof message === "string" &&
+        message.includes("Suspension store scanned"),
     );
+    expect(startupScan?.[0]).toMatchObject({ retiredOnStart: 2 });
   });
 
   /**
@@ -547,13 +526,21 @@ describe("the suspension sweeper", () => {
           .to(noop()),
       ])
       .build();
-    const logs = captureLogs(t.ctx);
     await t.startAndWaitReady();
 
-    expect(said(logs.info, "Suspension store scanned")?.bindings).toMatchObject(
-      { stranded: 1 },
+    const startupScan = t.contextLogger.info.mock.calls.find(
+      ([, message]) =>
+        typeof message === "string" &&
+        message.includes("Suspension store scanned"),
     );
-    expect(said(logs.warn, "nothing will retry them")).toBeDefined();
+    expect(startupScan?.[0]).toMatchObject({ stranded: 1 });
+    expect(
+      t.contextLogger.warn.mock.calls.some(
+        ([, message]) =>
+          typeof message === "string" &&
+          message.includes("nothing will retry them"),
+      ),
+    ).toBe(true);
     expect((await store.get("sus-stranded"))?.status).toBe("resumed");
   });
 
