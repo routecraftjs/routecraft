@@ -64,16 +64,13 @@ export interface HttpWebhookSignatureHeaderOptions extends HttpWebhookSignatureO
 
 /**
  * Standard Webhooks. The specification fixes all three header names, so a
- * route configures a secret and nothing else.
+ * route configures a secret and nothing else. There is deliberately no
+ * per-header override: the id and timestamp names are read from the
+ * specification, so renaming only the signature header would build a route
+ * that constructs cleanly and then rejects every live delivery.
  */
 export interface HttpStandardWebhooksSignatureOptions extends HttpWebhookSignatureOptionsBase {
   scheme: "standard-webhooks";
-  /**
-   * Request header carrying the signature. Defaults to `"webhook-signature"`,
-   * the name the specification fixes; override it only for a sender that
-   * brands the header differently.
-   */
-  header?: string;
 }
 
 /**
@@ -85,8 +82,6 @@ export interface HttpStandardWebhooksSignatureOptions extends HttpWebhookSignatu
  * For providers whose scheme is not covered here, opt in to
  * `http({ rawBody: true })` instead and verify in a route step against
  * `routecraft.http.rawBody`.
- *
- * @experimental
  */
 export type HttpWebhookSignatureOptions =
   HttpWebhookSignatureHeaderOptions | HttpStandardWebhooksSignatureOptions;
@@ -103,6 +98,24 @@ export type HttpWebhookSignatureResult =
   { ok: true } | { ok: false; reason: HttpWebhookSignatureRejection };
 
 const DEFAULT_TOLERANCE_SEC = 300;
+
+/** Unix seconds as the sender wrote them; never a re-serialised parse. */
+const UNIX_SECONDS = /^\d+$/;
+
+/**
+ * The replay bound every timestamped scheme applies: true when the signed
+ * timestamp sits further from the server clock than the tolerance allows.
+ * Shared rather than copied because the schemes are documented as bounding
+ * replay the same way, so they have one reason to change.
+ */
+function outsideTolerance(
+  rawTimestamp: string,
+  toleranceSec: number | undefined,
+): boolean {
+  const tolerance = toleranceSec ?? DEFAULT_TOLERANCE_SEC;
+  const nowSec = Math.floor(Date.now() / 1000);
+  return Math.abs(nowSec - parseInt(rawTimestamp, 10)) > tolerance;
+}
 
 /**
  * RFC 7230 header-name token. `Headers.get()` throws a TypeError on names
@@ -125,8 +138,12 @@ const HEX_DIGEST_PATTERN = {
 /** Base64 of a 32-byte digest: 43 symbols and one pad character. */
 const BASE64_SHA256_PATTERN = /^[A-Za-z0-9+/]{43}=$/;
 
-/** Padded standard base64, the encoding Standard Webhooks secrets arrive in. */
-const BASE64_SECRET_PATTERN = /^[A-Za-z0-9+/]+={0,2}$/;
+/**
+ * The base64 alphabet a Standard Webhooks secret may use, padding already
+ * stripped. Both the standard and the URL-safe alphabet are accepted because
+ * `Buffer.from(x, "base64")` decodes either.
+ */
+const BASE64_SECRET_PATTERN = /^[A-Za-z0-9+/\-_]+$/;
 
 /**
  * Header names the Standard Webhooks specification fixes. Only the signature
@@ -185,14 +202,9 @@ export function invalidSignatureOptionsReason(
   if (!SCHEMES.includes(options.scheme)) {
     return `invalid signature.scheme ${describeValue(options.scheme)}. Allowed: ${SCHEMES.map((s) => `"${s}"`).join(", ")}.`;
   }
-  // `header` is optional for standard-webhooks (the specification fixes the
-  // name) and required for every other scheme, which fixes nothing.
-  const headerOptional = options.scheme === "standard-webhooks";
-  if (
-    options.header === undefined
-      ? !headerOptional
-      : !isHeaderName(options.header)
-  ) {
+  // Every scheme but standard-webhooks needs a header name, because none of
+  // their formats fixes one. Standard Webhooks takes no header at all.
+  if (options.scheme !== "standard-webhooks" && !isHeaderName(options.header)) {
     return `invalid signature.header ${describeValue(options.header)}. Pass a legal HTTP header name (RFC 7230 token, e.g. "x-hub-signature-256").`;
   }
   if (typeof options.secret !== "string" || options.secret === "") {
@@ -202,10 +214,14 @@ export function invalidSignatureOptionsReason(
     // Decoded here rather than at the first delivery: a secret that cannot
     // be decoded would otherwise reject every delivery as an invalid
     // signature, which reads as the sender's fault rather than the config's.
-    const body = standardWebhooksSecretBody(options.secret);
+    const body = standardWebhooksSecretBody(options.secret).replace(/=+$/, "");
+    // Padding is not required: `Buffer.from(x, "base64")` decodes an unpadded
+    // secret, and a dashboard or an env pipeline that trimmed the "=" would
+    // otherwise be told its correct secret is malformed. A length of 1 more
+    // than a multiple of 4 encodes no whole byte, so it is still refused.
     if (
       body === "" ||
-      body.length % 4 !== 0 ||
+      body.length % 4 === 1 ||
       !BASE64_SECRET_PATTERN.test(body)
     ) {
       return `invalid signature.secret. A "standard-webhooks" secret is base64, optionally prefixed with "${STANDARD_WEBHOOKS_SECRET_PREFIX}" (e.g. "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw").`;
@@ -246,24 +262,15 @@ export function verifyWebhookSignature(
   headers: Headers,
   options: HttpWebhookSignatureOptions,
 ): HttpWebhookSignatureResult {
-  const headerName =
-    options.header ??
-    (options.scheme === "standard-webhooks"
-      ? STANDARD_WEBHOOKS_SIGNATURE_HEADER
-      : undefined);
-  // Unreachable through `http({...})`, which rejects a missing `header` at
-  // construction for every scheme that needs one.
-  if (headerName === undefined) {
-    return { ok: false, reason: "missing signature header" };
+  // Dispatched on the scheme before any header is read, so each scheme reads
+  // the headers it fixes and the union stays narrowed.
+  if (options.scheme === "standard-webhooks") {
+    return verifyStandardWebhooks(rawBody, headers, options);
   }
 
-  const headerValue = headers.get(headerName);
+  const headerValue = headers.get(options.header);
   if (headerValue === null || headerValue.trim() === "") {
     return { ok: false, reason: "missing signature header" };
-  }
-
-  if (options.scheme === "standard-webhooks") {
-    return verifyStandardWebhooks(rawBody, headerValue, headers, options);
   }
 
   if (options.scheme === "stripe-timestamped") {
@@ -322,7 +329,7 @@ function verifyStripeTimestamped(
 
   if (
     rawTimestamp === undefined ||
-    !/^\d+$/.test(rawTimestamp) ||
+    !UNIX_SECONDS.test(rawTimestamp) ||
     candidates.length === 0
   ) {
     return { ok: false, reason: "invalid signature" };
@@ -338,9 +345,7 @@ function verifyStripeTimestamped(
     return { ok: false, reason: "invalid signature" };
   }
 
-  const toleranceSec = options.toleranceSec ?? DEFAULT_TOLERANCE_SEC;
-  const nowSec = Math.floor(Date.now() / 1000);
-  if (Math.abs(nowSec - parseInt(rawTimestamp, 10)) > toleranceSec) {
+  if (outsideTolerance(rawTimestamp, options.toleranceSec)) {
     return { ok: false, reason: "signature expired" };
   }
 
@@ -378,10 +383,13 @@ function verifyStripeTimestamped(
  */
 function verifyStandardWebhooks(
   rawBody: Uint8Array,
-  headerValue: string,
   headers: Headers,
   options: HttpStandardWebhooksSignatureOptions,
 ): HttpWebhookSignatureResult {
+  const headerValue = headers.get(STANDARD_WEBHOOKS_SIGNATURE_HEADER);
+  if (headerValue === null || headerValue.trim() === "") {
+    return { ok: false, reason: "missing signature header" };
+  }
   const id = headers.get(STANDARD_WEBHOOKS_ID_HEADER);
   const rawTimestamp = headers.get(STANDARD_WEBHOOKS_TIMESTAMP_HEADER);
   if (
@@ -392,7 +400,7 @@ function verifyStandardWebhooks(
   ) {
     return { ok: false, reason: "missing signature header" };
   }
-  if (!/^\d+$/.test(rawTimestamp)) {
+  if (!UNIX_SECONDS.test(rawTimestamp)) {
     return { ok: false, reason: "invalid signature" };
   }
 
@@ -410,9 +418,7 @@ function verifyStandardWebhooks(
     return { ok: false, reason: "invalid signature" };
   }
 
-  const toleranceSec = options.toleranceSec ?? DEFAULT_TOLERANCE_SEC;
-  const nowSec = Math.floor(Date.now() / 1000);
-  if (Math.abs(nowSec - parseInt(rawTimestamp, 10)) > toleranceSec) {
+  if (outsideTolerance(rawTimestamp, options.toleranceSec)) {
     return { ok: false, reason: "signature expired" };
   }
 

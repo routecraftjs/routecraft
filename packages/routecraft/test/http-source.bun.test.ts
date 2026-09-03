@@ -12,6 +12,7 @@ import {
   type CraftConfig,
   type EventName,
   type HttpPluginOptions,
+  type HttpWebhookSignatureOptions,
   type ValidatorAuthOptions,
 } from "@routecraft/routecraft";
 import { createHmac } from "node:crypto";
@@ -3019,27 +3020,19 @@ describe("HTTP Source Adapter: raw body and webhook signatures", () => {
     };
   }
 
-  async function bootStandardWebhooks(
+  /**
+   * Boot one signature-gated route. Scheme-neutral so the next scheme added
+   * to this module does not write another copy of the same eight lines.
+   */
+  async function bootSignedHook(
     path: string,
-    signature: Partial<{ secret: string; toleranceSec: number }> = {},
+    signature: HttpWebhookSignatureOptions,
     onRun?: () => void,
   ): Promise<{ ctx: TestContext; port: number }> {
     return bootHttp({
       routes: craft()
-        .id(`sw${path.replace(/\W/g, "-")}`)
-        .from(
-          http({
-            path,
-            method: "POST",
-            signature: {
-              scheme: "standard-webhooks",
-              secret: signature.secret ?? SW_VECTOR.secret,
-              ...(signature.toleranceSec !== undefined
-                ? { toleranceSec: signature.toleranceSec }
-                : {}),
-            },
-          }),
-        )
+        .id(`hook${path.replace(/\W/g, "-")}`)
+        .from(http({ path, method: "POST", signature }))
         .transform(() => {
           onRun?.();
           return { received: true };
@@ -3049,15 +3042,29 @@ describe("HTTP Source Adapter: raw body and webhook signatures", () => {
     });
   }
 
+  /** The Standard Webhooks gate, with the reference vector's secret. */
+  function standardWebhooks(
+    overrides: { secret?: string; toleranceSec?: number } = {},
+  ): HttpWebhookSignatureOptions {
+    return {
+      scheme: "standard-webhooks",
+      secret: overrides.secret ?? SW_VECTOR.secret,
+      ...(overrides.toleranceSec !== undefined
+        ? { toleranceSec: overrides.toleranceSec }
+        : {}),
+    };
+  }
+
   /**
    * @case The Standard Webhooks reference vector verifies with secret only
    * @preconditions signature: { scheme: "standard-webhooks", secret } and no header names configured; the specification's published id, timestamp, payload and signature
    * @expectedResult 200, proving the header defaults, the whsec_ decode and the <id>.<timestamp>.<body> payload all match the reference implementation
    */
   test("the specification's own reference vector verifies", async () => {
-    const bound = await bootStandardWebhooks("/hooks/sw-vector", {
-      toleranceSec: IGNORE_FRESHNESS_SEC,
-    });
+    const bound = await bootSignedHook(
+      "/hooks/sw-vector",
+      standardWebhooks({ toleranceSec: IGNORE_FRESHNESS_SEC }),
+    );
     t = bound.ctx;
 
     const res = await fetch(`http://127.0.0.1:${bound.port}/hooks/sw-vector`, {
@@ -3081,7 +3088,7 @@ describe("HTTP Source Adapter: raw body and webhook signatures", () => {
    */
   test("a freshly signed delivery verifies with the default tolerance", async () => {
     const body = '{"event":"message.received"}';
-    const bound = await bootStandardWebhooks("/hooks/sw-fresh");
+    const bound = await bootSignedHook("/hooks/sw-fresh", standardWebhooks());
     t = bound.ctx;
 
     const res = await fetch(`http://127.0.0.1:${bound.port}/hooks/sw-fresh`, {
@@ -3102,7 +3109,7 @@ describe("HTTP Source Adapter: raw body and webhook signatures", () => {
    */
   test("either signature of a rotated pair admits, neither rejects", async () => {
     const body = '{"event":"rotated"}';
-    const bound = await bootStandardWebhooks("/hooks/sw-rotate");
+    const bound = await bootSignedHook("/hooks/sw-rotate", standardWebhooks());
     t = bound.ctx;
 
     const url = `http://127.0.0.1:${bound.port}/hooks/sw-rotate`;
@@ -3150,7 +3157,10 @@ describe("HTTP Source Adapter: raw body and webhook signatures", () => {
    */
   test("non-v1 entries are skipped, not treated as failures", async () => {
     const body = '{"event":"mixed-versions"}';
-    const bound = await bootStandardWebhooks("/hooks/sw-versions");
+    const bound = await bootSignedHook(
+      "/hooks/sw-versions",
+      standardWebhooks(),
+    );
     t = bound.ctx;
 
     const url = `http://127.0.0.1:${bound.port}/hooks/sw-versions`;
@@ -3185,9 +3195,10 @@ describe("HTTP Source Adapter: raw body and webhook signatures", () => {
    */
   test("a timestamp outside the tolerance rejects signature expired", async () => {
     const body = '{"event":"stale"}';
-    const bound = await bootStandardWebhooks("/hooks/sw-stale", {
-      toleranceSec: 300,
-    });
+    const bound = await bootSignedHook(
+      "/hooks/sw-stale",
+      standardWebhooks({ toleranceSec: 300 }),
+    );
     t = bound.ctx;
 
     const url = `http://127.0.0.1:${bound.port}/hooks/sw-stale`;
@@ -3213,7 +3224,7 @@ describe("HTTP Source Adapter: raw body and webhook signatures", () => {
    */
   test("a missing id, timestamp or signature header rejects as missing", async () => {
     const body = '{"event":"incomplete"}';
-    const bound = await bootStandardWebhooks("/hooks/sw-missing");
+    const bound = await bootSignedHook("/hooks/sw-missing", standardWebhooks());
     t = bound.ctx;
 
     const url = `http://127.0.0.1:${bound.port}/hooks/sw-missing`;
@@ -3239,9 +3250,9 @@ describe("HTTP Source Adapter: raw body and webhook signatures", () => {
    */
   test("a tampered body rejects 401 and the route never runs", async () => {
     let routeRan = false;
-    const bound = await bootStandardWebhooks(
+    const bound = await bootSignedHook(
       "/hooks/sw-tamper",
-      {},
+      standardWebhooks(),
       () => void (routeRan = true),
     );
     t = bound.ctx;
@@ -3269,9 +3280,10 @@ describe("HTTP Source Adapter: raw body and webhook signatures", () => {
   test("the secret verifies with the whsec_ prefix stripped", async () => {
     const body = '{"event":"bare-secret"}';
     const bare = SW_VECTOR.secret.slice("whsec_".length);
-    const bound = await bootStandardWebhooks("/hooks/sw-bare", {
-      secret: bare,
-    });
+    const bound = await bootSignedHook(
+      "/hooks/sw-bare",
+      standardWebhooks({ secret: bare }),
+    );
     t = bound.ctx;
 
     const res = await fetch(`http://127.0.0.1:${bound.port}/hooks/sw-bare`, {
@@ -3279,6 +3291,35 @@ describe("HTTP Source Adapter: raw body and webhook signatures", () => {
       headers: signStandardWebhooks(body, { secret: bare }),
       body,
     });
+    expect(res.status).toBe(200);
+  });
+
+  /**
+   * @case A correct secret whose base64 padding was trimmed still verifies
+   * @preconditions The reference secret with its trailing "=" padding stripped, as a dashboard or an env pipeline may hand it over
+   * @expectedResult 200, because `Buffer.from(x, "base64")` decodes it to the same key; a padding rule would have rejected a correct secret at construction
+   */
+  test("an unpadded base64 secret is the same key", async () => {
+    const body = '{"event":"unpadded"}';
+    // 24 random bytes encode to 32 padded characters, so pick a secret whose
+    // encoding actually carries padding to strip.
+    const padded = Buffer.from(new Uint8Array(22).fill(7)).toString("base64");
+    expect(padded.endsWith("=")).toBe(true);
+    const unpadded = padded.replace(/=+$/, "");
+    const bound = await bootSignedHook(
+      "/hooks/sw-unpadded",
+      standardWebhooks({ secret: unpadded }),
+    );
+    t = bound.ctx;
+
+    const res = await fetch(
+      `http://127.0.0.1:${bound.port}/hooks/sw-unpadded`,
+      {
+        method: "POST",
+        headers: signStandardWebhooks(body, { secret: padded }),
+        body,
+      },
+    );
     expect(res.status).toBe(200);
   });
 
@@ -3308,6 +3349,28 @@ describe("HTTP Source Adapter: raw body and webhook signatures", () => {
         signature: { scheme: "standard-webhooks", secret: "whsec_" },
       }),
     ).toThrow(/signature\.secret/);
+  });
+
+  /**
+   * @case A construction refusal never echoes the signing secret
+   * @preconditions http({ signature }) with a malformed standard-webhooks secret whose text is recognisable
+   * @expectedResult The RC5003 message names the field and the expected shape but contains no fragment of the supplied value, because RoutecraftError serialises its cause into logs
+   */
+  test("a rejected secret is never echoed in the error", () => {
+    const supplied = "whsec_SUPER SECRET VALUE!";
+    let message = "";
+    try {
+      http({
+        path: "/hooks/sw-leak",
+        method: "POST",
+        signature: { scheme: "standard-webhooks", secret: supplied },
+      });
+    } catch (err) {
+      message = String((err as Error).message);
+    }
+    expect(message).toMatch(/signature\.secret/);
+    expect(message).not.toContain("SUPER");
+    expect(message).not.toContain(supplied);
   });
 
   /**

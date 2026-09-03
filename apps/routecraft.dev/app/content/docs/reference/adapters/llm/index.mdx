@@ -107,11 +107,13 @@ craft()
 
 `system` stays string-only. No provider accepts content parts there.
 
+An empty parts array reads as "the author said nothing", exactly as an empty string does. The two destinations then differ, as they already did for strings: `llm()` falls back to the body-derived prompt, while `agent()` sends the empty prompt as given. A callback that maps attachments to parts returns `[]` on an exchange that carries none, so give it an explicit fallback rather than relying on the destination's.
+
 **Which providers accept what is theirs to say, not ours.** Nothing is pre-validated per provider: the parts are forwarded, and a provider that cannot read one fails through its own error rather than a framework guard that would go stale. The AI SDK's own [prompts documentation](https://ai-sdk.dev/docs/foundations/prompts) is the current list, and at the time of writing names Google Generative AI, Google Vertex AI, Anthropic, and OpenAI (PDFs, plus wav and mp3 on the audio-preview models) as the providers taking file parts. Image parts are broadly supported. Support is per model as well as per provider, so check the model you are actually calling.
 
 Two behaviours worth knowing before you reach for a `URL`:
 
-- **A URL part is downloaded by the SDK unless the provider declares it can fetch it itself.** The bytes then travel in the request, from your process. A provider that advertises URL support gets the URL verbatim instead.
+- **A URL part is downloaded by the SDK unless the provider declares it can fetch it itself.** The bytes then travel in the request, from your process. A provider that advertises URL support gets the URL verbatim instead. The framework does not bound that fetch: no size cap, no timeout of its own, no scheme allow-list, unlike the `http()` client which bounds the responses it accepts. A URL derived from an inbound body is therefore an outbound request a stranger chose, and deciding whether a URL is acceptable belongs in the route, where a reader can see it.
 - **Raw bytes cannot cross a suspension boundary.** An agent that parks (a suspending tool, a human approval) persists its thread as JSON data, so a `Uint8Array` in a part is refused at park time with a message naming the exact part. Pass base64 or a URL on any route that can park. See [suspension](/docs/reference/plugins).
 
 #### Reasoning effort

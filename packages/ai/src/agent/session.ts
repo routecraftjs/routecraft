@@ -803,17 +803,8 @@ function buildRetryPrompt(
   lastResult: LlmResult,
   validatorMsg: string,
 ): ThreadMessage[] {
-  const userMsgs: ThreadMessage[] =
-    typeof currentUser === "string"
-      ? [{ role: "user", content: currentUser }]
-      : currentUser;
-  // Same SDK-boundary cast as historyMessages: ModelMessage narrowed to
-  // the structural slice this module threads through.
-  const responseMessages = (lastResult.responseMessages ??
-    []) as ThreadMessage[];
   return [
-    ...userMsgs,
-    ...responseMessages,
+    ...historyMessages(currentUser, lastResult),
     { role: "user", content: `Validator: ${validatorMsg}` },
   ];
 }

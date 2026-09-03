@@ -47,10 +47,11 @@ export function validateAgentOptions<T>(options: AgentOptions<T>): void {
   if (
     options.user !== undefined &&
     typeof options.user !== "string" &&
-    typeof options.user !== "function"
+    typeof options.user !== "function" &&
+    !Array.isArray(options.user)
   ) {
     throw rcError("RC5003", undefined, {
-      message: `Agent: "user" must be a string or a function (exchange) => string when present.`,
+      message: `Agent: "user" must be a string, an array of content parts, or a function (exchange) => string | LlmPromptPart[] when present.`,
     });
   }
   // `model` is optional: inheritable from agentPlugin({ defaultOptions:

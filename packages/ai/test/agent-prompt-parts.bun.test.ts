@@ -30,6 +30,50 @@ function firstPrompt(): unknown {
   return scripted.calls[0]!.user;
 }
 
+const providers = (): ReturnType<typeof llmPlugin> =>
+  llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } });
+
+/** An agent prompted with `user` that parks on `ask`, plus its resume route. */
+function parkingRoutes(
+  id: string,
+  sink: ReturnType<typeof spy>,
+  user: () => LlmPromptPart[],
+): RouteDefinition[] {
+  return [
+    ...craft()
+      .id(`${id}-assistant`)
+      .from(direct())
+      .to(
+        agent({
+          model: MODEL,
+          system: "be useful",
+          tools: tools(["ask"]),
+          user,
+        }),
+      )
+      .to(sink)
+      .build(),
+    ...craft().id(`${id}-answers`).from(direct()).resume().build(),
+  ];
+}
+
+/**
+ * The suspension wiring both park tests share. The store, the secret and the
+ * plugin list all have to agree for a park to be resumable, so they are
+ * written once rather than per test.
+ */
+function parkingContext(
+  store: MemorySuspensionStore,
+  routes: RouteDefinition[],
+): ReturnType<ReturnType<typeof testContext>["routes"]> {
+  return testContext()
+    .with({
+      suspension: { store, secret: SECRET },
+      plugins: [providers(), agentPlugin({ functions: { ask: askFn } })],
+    })
+    .routes(routes);
+}
+
 describe("content parts on the user prompt", () => {
   let t: TestContext | undefined;
 
@@ -51,10 +95,7 @@ describe("content parts on the user prompt", () => {
     scripted.script.push({ text: "heard it" });
     t = await testContext()
       .with({
-        plugins: [
-          llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
-          agentPlugin({}),
-        ],
+        plugins: [providers(), agentPlugin({})],
       })
       .routes(
         craft()
@@ -88,6 +129,32 @@ describe("content parts on the user prompt", () => {
         ],
       },
     ]);
+  });
+
+  /**
+   * @case A static parts array is accepted by agent() as well as by llm()
+   * @preconditions agent({ user: [file part, text part] }) with no callback, the form the reference table advertises
+   * @expectedResult The route builds and the same user message is dispatched, so the option's construction guard agrees with its declared type
+   */
+  test("agent({ user }) accepts a static parts array", async () => {
+    scripted.script.push({ text: "heard it" });
+    const parts: LlmPromptPart[] = [
+      { type: "file", data: "AQID", mediaType: "audio/ogg" },
+      { type: "text", text: "Answer the question in the recording." },
+    ];
+    t = await testContext()
+      .with({ plugins: [providers(), agentPlugin({})] })
+      .routes(
+        craft()
+          .id("static-parts")
+          .from(simple("ignored"))
+          .to(agent({ model: MODEL, system: "answer", user: parts })),
+      )
+      .build();
+
+    await t.test();
+
+    expect(firstPrompt()).toEqual([{ role: "user", content: parts }]);
   });
 
   /**
@@ -158,36 +225,13 @@ describe("content parts on the user prompt", () => {
       toolCalls: [{ toolName: "ask", input: { question: "send it?" } }],
     });
 
-    const routes: RouteDefinition[] = [
-      ...craft()
-        .id("parts-assistant")
-        .from(direct())
-        .to(
-          agent({
-            model: MODEL,
-            system: "be useful",
-            tools: tools(["ask"]),
-            user: () => [
-              { type: "file", data: "AQID", mediaType: "audio/ogg" },
-              { type: "text", text: "Answer the question in the recording." },
-            ],
-          }),
-        )
-        .to(sink)
-        .build(),
-      ...craft().id("parts-answers").from(direct()).resume().build(),
-    ];
-
-    t = await testContext()
-      .with({
-        suspension: { store, secret: SECRET },
-        plugins: [
-          llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
-          agentPlugin({ functions: { ask: askFn } }),
-        ],
-      })
-      .routes(routes)
-      .build();
+    t = await parkingContext(
+      store,
+      parkingRoutes("parts", sink, () => [
+        { type: "file", data: "AQID", mediaType: "audio/ogg" },
+        { type: "text", text: "Answer the question in the recording." },
+      ]),
+    ).build();
     await t.startAndWaitReady();
 
     const parked = asSuspended(
@@ -225,39 +269,16 @@ describe("content parts on the user prompt", () => {
       toolCalls: [{ toolName: "ask", input: { question: "send it?" } }],
     });
 
-    const routes: RouteDefinition[] = [
-      ...craft()
-        .id("bytes-assistant")
-        .from(direct())
-        .to(
-          agent({
-            model: MODEL,
-            system: "be useful",
-            tools: tools(["ask"]),
-            user: () => [
-              {
-                type: "file",
-                data: new Uint8Array([1, 2, 3]),
-                mediaType: "audio/ogg",
-              },
-            ],
-          }),
-        )
-        .to(sink)
-        .build(),
-      ...craft().id("bytes-answers").from(direct()).resume().build(),
-    ];
-
-    t = await testContext()
-      .with({
-        suspension: { store, secret: SECRET },
-        plugins: [
-          llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
-          agentPlugin({ functions: { ask: askFn } }),
-        ],
-      })
-      .routes(routes)
-      .build();
+    t = await parkingContext(
+      store,
+      parkingRoutes("bytes", sink, () => [
+        {
+          type: "file",
+          data: new Uint8Array([1, 2, 3]),
+          mediaType: "audio/ogg",
+        },
+      ]),
+    ).build();
     await t.startAndWaitReady();
 
     await expect(t.client.sendDirect("bytes-assistant", "go")).rejects.toThrow(
