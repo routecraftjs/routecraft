@@ -138,7 +138,9 @@ Note on determinism: MCP is a thin protocol over HTTP and is usable from any rou
 
 ## 6. AI and the MCP client: `@routecraft/ai`
 
-`@routecraft/ai` holds the genuinely AI parts: `llm()`, `agent()`, embeddings, the provider seam (OpenAI, Anthropic, Gemini, OpenRouter, Ollama, custom, plus future Mistral/Cohere/DeepSeek/Bedrock/Vertex via the Vercel AI SDK), and the agent tools (`WebFetch`, `WebSearch`, `Bash`). It is an ecosystem package, not core, and depends on the Vercel AI SDK; docs must not present it as core.
+`@routecraft/ai` holds the genuinely AI parts: `llm()`, `agent()`, embeddings, and the provider seam (OpenAI, Anthropic, Gemini, OpenRouter, Ollama, custom, plus future Mistral/Cohere/DeepSeek/Bedrock/Vertex via the Vercel AI SDK). It is an ecosystem package, not core, and depends on the Vercel AI SDK; docs must not present it as core.
+
+It does NOT hold the agent tools. `WebFetch`, `WebSearch` and `Bash` are Claude Code's tool names, and the agent loader only tolerates them: a reference to one this runtime does not provide is dropped with a warning so an agent file written for a coding harness still boots, where a genuinely unknown name stays a hard error (`CLAUDE_BUILTIN_TOOLS` in `packages/ai/src/agent/loader.ts`). The one host primitive among them that does ship is `shell()` in `@routecraft/os`, which is there because isolated subprocess execution carries an invariant nothing else can carry, not because an agent wants a tool. Everything else an agent reaches for is a route the app composes and registers under that name, per 6.1. The reference `WebFetch` and `WebSearch` routes ship in the `craft-harness` template (#588), with the domain allowlist as a must-set placeholder so no scaffold carries silent default egress.
 
 **Open decision:** the `mcp()` client is a transport over a protocol, not an AI feature. By the section 2 rule (standards live in core), the MCP client transport arguably belongs in **core**, so a plain non-AI route can use `mcp()` without importing the AI module, leaving only the AI-specific pieces in `@routecraft/ai`. Recorded here as undecided; resolve before v1.
 
