@@ -57,8 +57,12 @@ export type HttpRedirectMode = "follow" | "manual" | "error";
  * values the client serialises to JSON for you.
  *
  * `object` is deliberately broad. Narrowing it to `Record<string, unknown>`
- * would make a callback's return type checked, but it also refuses arrays,
- * class instances and Maps, all of which the client serialises correctly, and
+ * would make a callback's return type checked, but it also refuses an
+ * interface-typed body, which is the ordinary case: an `interface` has no
+ * implicit index signature where an otherwise identical `type` alias does, so
+ * the two spellings of the same shape would stop behaving alike. It refuses
+ * arrays, class instances and Maps too, all of which the client serialises
+ * correctly, and
  * `object & { call?: never }` refuses a plain object literal because the
  * intersection triggers excess-property checking. So the value arm admits
  * functions and a callback's return goes unchecked; the contextual parameter
