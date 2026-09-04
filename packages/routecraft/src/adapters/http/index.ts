@@ -40,6 +40,22 @@ function isSourceOptions(
  */
 export function http(options: HttpServerOptions): Source<HttpRequestBody>;
 /**
+ * Create an HTTP client enricher that hands the route the response bytes.
+ *
+ * Selected by `responseBody: "bytes"` on the options, so the result type says
+ * `Uint8Array` without the call site repeating it as a type argument. Use it
+ * for anything that is not text: the default mode decodes as UTF-8, which
+ * silently corrupts a body that is not valid UTF-8.
+ *
+ * @example
+ * ```typescript
+ * .enrich(http({ url: (ex) => ex.body.mediaUrl, responseBody: 'bytes' }), only((r) => r.body, 'media'))
+ * ```
+ */
+export function http<T = unknown>(
+  options: HttpClientOptions<T> & { responseBody: "bytes" },
+): Enricher<T, HttpResult<Uint8Array>>;
+/**
  * Create an HTTP client enricher (a pull-in). Use with `.enrich()`, `.to()`
  * (the result replaces the body), or `.tap()` (fire-and-forget). Supports
  * dynamic url, headers, query, and body from the exchange.
@@ -79,6 +95,8 @@ export { HttpSourceAdapter } from "./source";
 export type {
   HttpMethod,
   HttpRedirectMode,
+  HttpRequestPayload,
+  HttpResponseBodyMode,
   QueryParams,
   HttpClientOptions,
   HttpResult,

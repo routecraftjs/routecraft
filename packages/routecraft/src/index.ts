@@ -520,6 +520,8 @@ export {
   type HttpResult,
   type HttpMethod,
   type HttpRedirectMode,
+  type HttpRequestPayload,
+  type HttpResponseBodyMode,
   type QueryParams,
   type HttpServerOptions,
   type HttpPluginOptions,

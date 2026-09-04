@@ -12,6 +12,7 @@ import { isRedirect } from "./redirect";
 import type {
   HttpClientOptions,
   HttpRedirectMode,
+  HttpResponseBodyMode,
   HttpResult,
   QueryParams,
 } from "./types";
@@ -45,6 +46,7 @@ export class HttpEnricherAdapter<T = unknown, R = unknown> implements Enricher<
 
   private readonly maxBodySize: number;
   private readonly redirect: HttpRedirectMode;
+  private readonly responseBody: HttpResponseBodyMode;
 
   constructor(private readonly options: HttpClientOptions<T>) {
     this.maxBodySize = resolveMaxBodySize(
@@ -53,6 +55,7 @@ export class HttpEnricherAdapter<T = unknown, R = unknown> implements Enricher<
       { allowUnbounded: true },
     );
     this.redirect = normalizeRedirect(options.redirect);
+    this.responseBody = normalizeResponseBody(options.responseBody);
   }
 
   fetch = async (
@@ -113,7 +116,10 @@ export class HttpEnricherAdapter<T = unknown, R = unknown> implements Enricher<
       ) {
         body = resolvedBody as BodyInit;
       } else {
-        if (!headers["Content-Type"])
+        // Looked up case-insensitively: a route that set `content-type`
+        // itself would otherwise get the header twice, since fetch keeps
+        // both spellings.
+        if (!hasHeader(headers, "content-type"))
           headers["Content-Type"] = "application/json";
         body = JSON.stringify(resolvedBody);
       }
@@ -142,24 +148,32 @@ export class HttpEnricherAdapter<T = unknown, R = unknown> implements Enricher<
         headersRecord[key] = value;
       });
 
-      const bodyText = await this.readBody(res, headersRecord, finalUrl);
+      const raw = await this.readBody(res, headersRecord, finalUrl);
 
       const isRequestedRedirect =
         this.redirect === "manual" && isRedirect({ status: res.status });
 
       if (throwOnHttpError && !res.ok && !isRequestedRedirect) {
-        throw new Error(`HTTP ${res.status}: ${bodyText}`);
+        // A binary body has no text to quote, and decoding it for the message
+        // would reintroduce on the error path exactly the corruption this
+        // mode exists to avoid. Name its shape instead.
+        throw new Error(
+          typeof raw === "string"
+            ? `HTTP ${res.status}: ${raw}`
+            : `HTTP ${res.status}: ${raw.byteLength} bytes of ${headersRecord["content-type"] ?? "an unnamed content type"}`,
+        );
       }
 
-      // Auto-parse JSON based on Content-Type
-      let parsedBody: string | unknown = bodyText;
+      // Auto-parse JSON based on Content-Type. Bytes are handed over as they
+      // arrived: the mode exists because the caller wants the wire form.
+      let parsedBody: string | unknown = raw;
       const contentType = headersRecord["content-type"]?.toLowerCase() || "";
-      if (contentType.includes("application/json")) {
+      if (typeof raw === "string" && contentType.includes("application/json")) {
         try {
-          parsedBody = JSON.parse(bodyText);
+          parsedBody = JSON.parse(raw);
         } catch {
           // Parse failed, keep as string
-          parsedBody = bodyText;
+          parsedBody = raw;
         }
       }
 
@@ -205,8 +219,9 @@ export class HttpEnricherAdapter<T = unknown, R = unknown> implements Enricher<
     res: Response,
     headersRecord: Record<string, string>,
     requestUrl: string,
-  ): Promise<string> {
+  ): Promise<string | Uint8Array> {
     const max = this.maxBodySize;
+    const asBytes = this.responseBody === "bytes";
 
     const declared = declaredLengthOver(headersRecord["content-length"], max);
     if (declared !== undefined) {
@@ -216,6 +231,13 @@ export class HttpEnricherAdapter<T = unknown, R = unknown> implements Enricher<
 
     const stream = res.body;
     if (!stream) {
+      if (asBytes) {
+        const bytes = new Uint8Array(await res.arrayBuffer());
+        if (bytes.byteLength > max) {
+          throw this.tooLarge(res, requestUrl, bytes.byteLength, "read");
+        }
+        return bytes;
+      }
       const text = await res.text();
       const size = new TextEncoder().encode(text).byteLength;
       if (size > max) {
@@ -225,7 +247,11 @@ export class HttpEnricherAdapter<T = unknown, R = unknown> implements Enricher<
     }
 
     const reader = stream.getReader();
-    const decoder = new TextDecoder();
+    // Only one of these accumulates, chosen by the mode. The counting and the
+    // cap are identical either way: the difference is whether the bytes are
+    // decoded on the way past.
+    const decoder = asBytes ? undefined : new TextDecoder();
+    const chunks: Uint8Array[] = [];
     let text = "";
     let total = 0;
     try {
@@ -236,13 +262,18 @@ export class HttpEnricherAdapter<T = unknown, R = unknown> implements Enricher<
         if (total > max) {
           throw this.tooLarge(res, requestUrl, total, "read");
         }
-        // `stream: true` keeps a multi-byte character split across a chunk
-        // boundary intact.
-        text += decoder.decode(value, { stream: true });
+        if (decoder === undefined) {
+          chunks.push(value);
+        } else {
+          // `stream: true` keeps a multi-byte character split across a chunk
+          // boundary intact.
+          text += decoder.decode(value, { stream: true });
+        }
       }
     } finally {
       await reader.cancel().catch(() => {});
     }
+    if (decoder === undefined) return concatBytes(chunks, total);
     return text + decoder.decode();
   }
 
@@ -326,4 +357,46 @@ function normalizeRedirect(
     });
   }
   return value;
+}
+
+/**
+ * Resolve `responseBody`, defaulting to the mode every route had before the
+ * option existed. An unknown value fails at the `http({...})` call site rather
+ * than being read as the default: a route meaning to receive bytes and
+ * silently receiving a corrupted string is the exact failure this option was
+ * added to remove.
+ */
+function normalizeResponseBody(
+  mode: HttpResponseBodyMode | undefined,
+): HttpResponseBodyMode {
+  if (mode === undefined) return "text";
+  if (mode !== "text" && mode !== "bytes") {
+    throw rcError("RC5003", undefined, {
+      message: `http() client: invalid responseBody ${JSON.stringify(mode)}. Allowed: "text", "bytes".`,
+    });
+  }
+  return mode;
+}
+
+/** Case-insensitive presence check over a header record the caller owns. */
+function hasHeader(headers: Record<string, string>, name: string): boolean {
+  const wanted = name.toLowerCase();
+  for (const key of Object.keys(headers)) {
+    if (key.toLowerCase() === wanted) return true;
+  }
+  return false;
+}
+
+/**
+ * Join the chunks as they arrived. `total` is already known from the cap
+ * accounting, so the result is allocated once rather than grown per chunk.
+ */
+function concatBytes(chunks: readonly Uint8Array[], total: number): Uint8Array {
+  const out = new Uint8Array(total);
+  let offset = 0;
+  for (const chunk of chunks) {
+    out.set(chunk, offset);
+    offset += chunk.byteLength;
+  }
+  return out;
 }
