@@ -386,6 +386,22 @@ describe("http() client responseBody", () => {
   });
 
   /**
+   * @case A body callback may decide there is no body
+   * @preconditions A callback returning undefined, which the client treats as "send no body"
+   * @expectedResult No request body and no Content-Type of the client's own. This pins the RUNTIME behaviour only: `undefined` is a member of HttpRequestPayload for documentation, and removing it produces no type error, because `object` is also a member and every function satisfies it
+   */
+  test("a body callback may return undefined", async () => {
+    const result = await callClient<{ contentType?: string }>({
+      url: `${base}/echo-content-type`,
+      method: "POST",
+      body: () => undefined,
+    });
+
+    // No body, so the client adds no JSON content type of its own.
+    expect(result.body.contentType).toBeUndefined();
+  });
+
+  /**
    * @case The bytes overload types the result without a type argument
    * @preconditions http({ responseBody: "bytes" }) with no explicit result type parameter
    * @expectedResult The enricher's result body is Uint8Array, so a feature whose point is that the body is bytes does not ask the author to say so twice

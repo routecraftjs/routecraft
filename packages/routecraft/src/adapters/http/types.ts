@@ -55,12 +55,18 @@ export type HttpRedirectMode = "follow" | "manual" | "error";
  * {@link HttpClientOptions.body} and made every call site annotate its own
  * exchange by hand. Anything a `fetch` body can be is here, plus the plain
  * values the client serialises to JSON for you.
+ *
+ * `undefined` is a member rather than only the property being optional,
+ * because the callback form has to be able to decide per exchange that there
+ * is no body to send (`body: (ex) => ex.body.attachment ?? undefined`). The
+ * client sends none for it, as it always has.
  */
 export type HttpRequestPayload =
   | string
   | number
   | boolean
   | null
+  | undefined
   | object
   | Uint8Array
   | ArrayBuffer
