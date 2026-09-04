@@ -338,22 +338,91 @@ export interface HttpBuiltinOptions {
 export type HttpConfig = HttpPluginOptions;
 
 /**
- * When the source answers the caller, relative to the pipeline.
+ * What a {@link HttpResponder} returns: the answer to send, described rather
+ * than constructed. The dispatcher serialises it exactly as it serialises a
+ * pipeline result, so one place owns the wire format.
  *
- * - `"result"` (the default): the response is the finished exchange, so
- *   status and body come from the pipeline. Right for an API.
- * - `"accepted"`: every pre-handler gate still runs (method and path match,
- *   body limit, body parse, signature verification, principal resolution
- *   where the mount demands one) and, once they all pass, the caller gets
- *   `202 Accepted` with an empty body while the pipeline runs detached.
- *   Right for a webhook whose work outlasts the sender's patience.
- *
- * Rejections are unaffected either way: a bad signature is still a 401 and
- * the sender still sees it.
+ * A `body` of `undefined` sends no body at all, which is what a bare
+ * acknowledgement wants: `{ status: 202 }`.
  */
-export const HTTP_RESPOND_MODES = ["result", "accepted"] as const;
+export interface HttpResponseDescriptor {
+  /** Status code to send. Required: a responder exists to choose it. */
+  status: number;
+  /** Extra response headers, lower-cased before they are applied. */
+  headers?: Readonly<Record<string, string>>;
+  /**
+   * Response body. Serialised by the same rules as a pipeline result
+   * (string, `Uint8Array`, `ArrayBuffer`, else JSON). Omit for an empty body.
+   * Streaming is not available here; a route that streams has no responder.
+   */
+  body?: unknown;
+}
 
-export type HttpRespondMode = (typeof HTTP_RESPOND_MODES)[number];
+/**
+ * What the request looked like by the time every gate had passed. The same
+ * values the route receives, never the `Request` itself: its body has already
+ * been read to parse and to verify the signature, so it cannot be read again.
+ */
+export interface HttpRespondRequest {
+  /** Parsed request body, by the same content-type rules the route sees. */
+  body: HttpRequestBody;
+  /** Raw request headers, lower-cased. */
+  headers: Readonly<Record<string, string>>;
+  /** Resolved path parameters. */
+  params: Readonly<Record<string, string>>;
+  /** Request method. */
+  method: HttpMethod;
+  /** Matched route pattern. */
+  path: string;
+  /** The admitted principal, where the mount or the route demanded one. */
+  principal?: Principal;
+}
+
+/** Everything a {@link HttpResponder} is given. */
+export interface HttpRespondContext {
+  /** The request, as the route sees it. */
+  request: HttpRespondRequest;
+  /**
+   * The pipeline, already running. Awaiting it answers with the finished
+   * exchange in hand, which is what the framework does when no responder is
+   * configured. Returning without touching it answers now and leaves the
+   * pipeline running detached.
+   *
+   * Rejections are already claimed by the framework, so ignoring this
+   * promise is safe: a failure reaches the route's `.error()` handler and the
+   * error events either way. Await it only to read the result.
+   */
+  finished: Promise<Exchange>;
+}
+
+/**
+ * Decides when the caller is answered, and with what.
+ *
+ * Called once per request, after every gate has passed (method and path
+ * match, body limit, body parse, signature verification, and the mount's
+ * credential check where it has one) and after the pipeline has been
+ * started. Rejections are unaffected: a bad signature is still a 401 and the
+ * responder never runs.
+ *
+ * The response is sent when the function returns, so the function decides
+ * whether the caller waits:
+ *
+ * ```ts
+ * // Acknowledge a webhook, then process. `finished` is never touched.
+ * respond: () => ({ status: 202 })
+ *
+ * // Answer with something derived from the finished pipeline.
+ * respond: async ({ finished }) => ({ status: 200, body: (await finished).body })
+ * ```
+ *
+ * Omitting the option entirely keeps the framework's own behaviour, which is
+ * to await the pipeline and serialise its result. That path also carries
+ * streaming and the suspension acknowledgement; a responder carries neither,
+ * so a route that streams does not configure one.
+ */
+export type HttpResponder = (
+  ctx: HttpRespondContext,
+) => HttpResponseDescriptor | Promise<HttpResponseDescriptor>;
 
 /** Server-side options accepted by `http({...})` when used with `.from(...)`. */
 export interface HttpServerOptions {
@@ -409,56 +478,63 @@ export interface HttpServerOptions {
    */
   signature?: HttpWebhookSignatureOptions;
   /**
-   * Whether the caller waits for the pipeline. Defaults to `"result"`,
-   * which is what every route did before this option existed.
+   * Decide when the caller is answered, and with what. Omit it and the
+   * framework awaits the pipeline and serialises its result, which is what
+   * every route did before this option existed.
    *
-   * `"accepted"` acknowledges with `202` and an empty body as soon as the
-   * pre-handler gates pass, then runs the pipeline detached. Use it for a
-   * webhook: Bird, Stripe and Svix all treat a slow response as a failed
-   * delivery and redeliver, and the Standard Webhooks specification says to
-   * acknowledge before processing.
+   * The webhook form is the reason it exists:
    *
-   * What the caller gives up is the result. A detached failure reaches the
-   * route's `.error()` handler and the ordinary error events
-   * (`route:error`, `context:error`, `route:exchange:failed`), and nothing
-   * else: the response is already gone. A webhook route wants an `.error()`
-   * handler for that reason.
+   * ```ts
+   * respond: () => ({ status: 202 })
+   * ```
    *
-   * The pipeline still runs in full and the exchange is untouched; its body
-   * is simply never read for the response, and the response-hint headers
-   * (`routecraft.http.response.status` and its siblings) are inert, because
-   * the response was built before the pipeline ran. A body that turns out to
-   * be a stream is cancelled rather than left open, since nothing will read
-   * it and it may hold a socket or a file descriptor, but a streaming route
-   * is still not a candidate for this option. `/openapi.json` advertises
-   * `202` for such a route instead of `200` and `204`, since those are
-   * answers it can no longer give.
+   * That answers `202` the moment the gates pass and leaves the pipeline
+   * running detached. Bird, Stripe and Svix all treat a slow response as a
+   * failed delivery and redeliver, and the Standard Webhooks specification
+   * says to acknowledge before processing, so a webhook whose work takes tens
+   * of seconds cannot answer with its result.
+   *
+   * What a responder costs, all of it load-bearing:
+   *
+   * - **A refusal only reaches the sender if it happens before the answer.**
+   *   `.authorize()` runs inside the pipeline, so on a responder that answers
+   *   early a denial stops the work without the caller being able to tell it
+   *   from acceptance. A route that must be able to refuse its caller does
+   *   not answer early.
+   * - **A detached failure has nowhere to go but the error channel.** It
+   *   reaches the route's `.error()` handler and the ordinary error events
+   *   (`route:error`, `context:error`, `route:exchange:failed`), and nothing
+   *   else, because the response has already gone. Give such a route an
+   *   `.error()` handler.
+   * - **Answering early removes the backpressure the caller's wait provided.**
+   *   `.throttle()` and `.concurrency()` before `.from()` still apply, but
+   *   their defaults (`mode: "queue"` with no `maxQueue`, `mode: "delay"`)
+   *   cap how many run at once while the wait line grows without limit, and
+   *   every queued exchange pins its parsed body. Under the redelivery burst
+   *   this exists for, that is unbounded heap. Bound admission instead, with
+   *   `.concurrency({ maxQueue })` or `mode: "reject"`.
+   * - **A responder cannot stream and cannot carry a suspension.** Both live
+   *   on the framework's own path, so a route that streams omits the option.
+   *   An exchange body that turns out to be a stream is cancelled once the
+   *   pipeline finishes, since nothing will read it and it may hold a socket
+   *   or a file descriptor.
+   * - **`/openapi.json` advertises only the rejection codes** for a route with
+   *   a responder, because the document cannot know what a function returns.
+   *   A route wanting documented success codes omits the option.
+   * - **Two combinations are refused outright** (`RC5003`, at subscribe): a
+   *   responder alongside `.batch()`, because a buffered message is not
+   *   in-flight work and an answer would outlive the delivery; and, at
+   *   request time, a responder once shutdown has begun, which answers `503`
+   *   with `retry-after` so the sender redelivers to the next instance.
+   *   Both refuse a responder that would have awaited the pipeline too, since
+   *   nothing can tell the two apart before calling it.
    *
    * A detached run is still the route's in-flight work, so a graceful
-   * shutdown waits for it within the context's drain deadline. Once
-   * shutdown has begun the route stops acknowledging and answers `503`
-   * with `retry-after` instead, so a delivery is refused rather than
-   * accepted and then abandoned.
+   * shutdown waits for it within the context's drain deadline.
    *
-   * Nothing bounds how many run at once by construction, and answering
-   * early is what removes the backpressure the caller's own wait used to
-   * provide. Bound them on the route, and bound ADMISSION rather than
-   * execution: `.concurrency({ max, maxQueue })` or
-   * `mode: "reject"` is what caps the backlog, because the default
-   * `mode: "queue"` and `.throttle()`'s default `mode: "delay"` bound how
-   * many run at once while letting the wait line grow without limit. An
-   * unbounded queue under a redelivery burst grows the heap until the
-   * process dies.
-   *
-   * A refusal from any pre-from filter reaches the sender only when it
-   * happens before the acknowledgement. Positions that run inside the
-   * pipeline, `.authorize()` among them, resolve after the `202` has been
-   * written, so a denial stops the work without the caller being able to
-   * tell it from acceptance.
-   *
-   * @see {@link HttpRespondMode}
+   * @see {@link HttpResponder}
    */
-  respond?: HttpRespondMode;
+  respond?: HttpResponder;
 }
 
 /**

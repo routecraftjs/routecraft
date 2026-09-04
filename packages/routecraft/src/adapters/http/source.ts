@@ -10,17 +10,7 @@ import {
 import { compilePathMatcher } from "../../plugins/http/path-matcher";
 import { METHODS_WITHOUT_BODY } from "../../plugins/http/body-parser";
 import { invalidSignatureOptionsReason } from "../../plugins/http/webhook-signature";
-import {
-  HTTP_RESPOND_MODES,
-  type HttpMethod,
-  type HttpRequestBody,
-  type HttpRespondMode,
-  type HttpServerOptions,
-} from "./types";
-
-// Derived from the union rather than restated, so a third mode cannot
-// type-check everywhere and then be refused at construction.
-const RESPOND_MODES: ReadonlySet<HttpRespondMode> = new Set(HTTP_RESPOND_MODES);
+import type { HttpMethod, HttpRequestBody, HttpServerOptions } from "./types";
 
 const HTTP_METHODS: ReadonlySet<string> = new Set([
   "GET",
@@ -53,23 +43,17 @@ function normalizeMethod(options: HttpServerOptions): HttpMethod {
 }
 
 /**
- * Resolve `respond`, defaulting to the pre-existing behaviour. An unknown
- * value fails at the `http({...})` call site rather than being read as the
- * default: a route meaning to acknowledge early and silently answering with
- * the pipeline result instead would be discovered by the sender's retries,
- * not by the author.
+ * Refuse a `respond` that is not callable. An options object built
+ * programmatically (or by an untyped caller) would otherwise register a route
+ * whose responder throws on the first request, which is a 500 per delivery
+ * rather than a boot failure.
  */
-function normalizeRespond(options: HttpServerOptions): HttpRespondMode {
-  const respond = options.respond ?? "result";
-  if (
-    typeof respond !== "string" ||
-    !RESPOND_MODES.has(respond as HttpRespondMode)
-  ) {
+function assertRespondCallable(options: HttpServerOptions): void {
+  if (options.respond !== undefined && typeof options.respond !== "function") {
     throw rcError("RC5003", undefined, {
-      message: `http() source: invalid respond ${JSON.stringify(respond)}. Allowed: ${[...RESPOND_MODES].map((m) => `"${m}"`).join(", ")}.`,
+      message: `http() source: respond must be a function, received ${typeof options.respond}. It is called once per request and returns the response to send, e.g. respond: () => ({ status: 202 }).`,
     });
   }
-  return respond as HttpRespondMode;
 }
 
 /**
@@ -102,7 +86,7 @@ export class HttpSourceAdapter implements Source<HttpRequestBody> {
     // Validate the method unconditionally so an unsupported or non-string
     // method fails here, not as a dead route at subscribe time.
     normalizeMethod(options);
-    normalizeRespond(options);
+    assertRespondCallable(options);
 
     // Auth is mount-owned; the removed per-route auth modes fail loudly so
     // an untyped caller migrating from 0.6 learns the new model instead of
@@ -177,17 +161,18 @@ export class HttpSourceAdapter implements Source<HttpRequestBody> {
     }
     const registry = mount.registry;
 
-    const respond = normalizeRespond(this.options);
-    if (respond === "accepted" && meta?.bufferedConsumer === true) {
+    const respond = this.options.respond;
+    if (respond !== undefined && meta?.bufferedConsumer === true) {
       // A buffering consumer parks the message instead of starting the
       // pipeline, so the route never counts it as in flight and a graceful
-      // shutdown drains past it. The 202 would already have gone out, and a
-      // sender that receives one does not redeliver, so the delivery is lost
-      // in silence. Refuse the pair at subscribe rather than acknowledge
-      // something this route cannot promise to finish.
+      // shutdown drains past it: an answer already sent would outlive the
+      // delivery, and a sender that received one does not redeliver. Nothing
+      // here can tell whether this particular responder would have awaited
+      // the pipeline, because that is decided inside the function at request
+      // time, so the refusal covers every responder.
       throw rcError("RC5003", undefined, {
         message:
-          'http() source: respond: "accepted" cannot be combined with a batching route. The acknowledgement promises the delivery is being processed, but a batched message waits in the buffer and is discarded at shutdown without ever running. Drop .batch() from this route, or use respond: "result".',
+          "http() source: respond cannot be combined with a batching route. A batched message waits in the buffer instead of running, so it is not in-flight work and a graceful shutdown discards it, while the responder has already answered. Drop .batch() from this route, or drop respond and let the framework answer with the pipeline's result.",
       });
     }
 

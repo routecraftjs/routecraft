@@ -1,6 +1,6 @@
 import type { Exchange, ExchangeHeaders } from "../../exchange";
 import type { RouteDiscovery } from "../../route";
-import type { HttpMethod, HttpRespondMode } from "../../adapters/http/types";
+import type { HttpMethod, HttpResponder } from "../../adapters/http/types";
 import type { PathMatcher } from "./path-matcher";
 import type { HttpWebhookSignatureOptions } from "./webhook-signature";
 
@@ -29,10 +29,10 @@ export interface HttpRouteEntry {
   /** Webhook-signature gate; requests failing verification 401 before the route runs. */
   readonly signature: HttpWebhookSignatureOptions | undefined;
   /**
-   * When the caller is answered. Resolved by the source, so the dispatcher
-   * reads a value rather than re-applying the default.
+   * Decides when the caller is answered and with what. Undefined leaves the
+   * dispatcher's own path, which awaits the pipeline and serialises it.
    */
-  readonly respond: HttpRespondMode;
+  readonly respond: HttpResponder | undefined;
   /** Route-level discovery bundle, used by /openapi.json. */
   readonly discovery: RouteDiscovery | undefined;
   /** Provided by the source on subscribe; the dispatcher calls it once it has a parsed body. */

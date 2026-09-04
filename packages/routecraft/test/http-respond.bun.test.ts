@@ -13,6 +13,7 @@ import {
   type CraftConfig,
   type EventName,
   type HttpPluginOptions,
+  type HttpResponder,
   type ValidatorAuthOptions,
 } from "@routecraft/routecraft";
 import { createHmac } from "node:crypto";
@@ -41,6 +42,21 @@ function deferred(): { promise: Promise<void>; resolve: () => void } {
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
+
+/**
+ * The webhook form from the docs: answer 202 at once, never touch `finished`,
+ * leave the pipeline running detached.
+ */
+const ACKNOWLEDGE: HttpResponder = () => ({ status: 202 });
+
+/**
+ * A responder that awaits the pipeline, which is what the framework does on
+ * its own. Used to show the two halves of the same option side by side.
+ */
+const AWAIT_RESULT: HttpResponder = async ({ finished }) => ({
+  status: 200,
+  body: (await finished).body,
+});
 
 function signSha256Hex(body: string): string {
   return createHmac("sha256", WEBHOOK_SECRET).update(body).digest("hex");
@@ -82,7 +98,7 @@ async function bootHttp(
   });
 }
 
-describe('HTTP source respond: "accepted"', () => {
+describe("HTTP source respond", () => {
   let t: TestContext | undefined;
 
   afterEach(async () => {
@@ -94,7 +110,7 @@ describe('HTTP source respond: "accepted"', () => {
 
   /**
    * @case The 202 arrives before the pipeline finishes
-   * @preconditions respond: "accepted" on a route whose step parks on a deferred the test resolves only after asserting the response
+   * @preconditions a responder answering 202 without awaiting `finished`, on a route whose step parks on a deferred the test resolves only after asserting the response
    * @expectedResult The fetch resolves 202 with an empty body while the step is still parked; the step then completes
    */
   test("answers 202 before a slow pipeline step completes", async () => {
@@ -105,7 +121,7 @@ describe('HTTP source respond: "accepted"', () => {
       routes: craft()
         .id("accepted-slow")
         .from(
-          http({ path: "/hooks/slow", method: "POST", respond: "accepted" }),
+          http({ path: "/hooks/slow", method: "POST", respond: ACKNOWLEDGE }),
         )
         .process(async (ex) => {
           stepEntered = true;
@@ -162,16 +178,20 @@ describe('HTTP source respond: "accepted"', () => {
   });
 
   /**
-   * @case respond: "result" is the default spelled out
-   * @preconditions respond: "result" on a route returning a body
-   * @expectedResult 200 with the pipeline's body, identical to omitting the option
+   * @case A responder that awaits the pipeline answers with its result
+   * @preconditions A responder awaiting `finished` and returning the finished exchange's body
+   * @expectedResult 200 with the pipeline's body, so the same option covers both waiting and not waiting
    */
-  test('respond: "result" answers with the pipeline result', async () => {
+  test("a responder that awaits finished answers with the result", async () => {
     const bound = await bootHttp({
       routes: craft()
         .id("explicit-result")
         .from(
-          http({ path: "/hooks/explicit", method: "POST", respond: "result" }),
+          http({
+            path: "/hooks/explicit",
+            method: "POST",
+            respond: AWAIT_RESULT,
+          }),
         )
         .transform(() => ({ received: true }))
         .to(noop()),
@@ -190,7 +210,7 @@ describe('HTTP source respond: "accepted"', () => {
 
   /**
    * @case A bad signature still rejects, and the early answer never happens
-   * @preconditions respond: "accepted" alongside a signature gate, with a signature computed over a different body
+   * @preconditions a responder answering 202 without awaiting `finished`, alongside a signature gate, with a signature computed over a different body
    * @expectedResult 401 { error: "unauthorized", reason: "invalid signature" }; the pipeline never runs
    */
   test("a signature failure answers 401 and never runs the pipeline", async () => {
@@ -202,7 +222,7 @@ describe('HTTP source respond: "accepted"', () => {
           http({
             path: "/hooks/signed",
             method: "POST",
-            respond: "accepted",
+            respond: ACKNOWLEDGE,
             signature: {
               header: "x-hub-signature-256",
               secret: WEBHOOK_SECRET,
@@ -239,7 +259,7 @@ describe('HTTP source respond: "accepted"', () => {
 
   /**
    * @case A correctly signed delivery is accepted early
-   * @preconditions respond: "accepted" with a signature gate and a valid signature over the exact body sent
+   * @preconditions a responder answering 202 without awaiting `finished`, with a signature gate and a valid signature over the exact body sent
    * @expectedResult 202 with an empty body, and the pipeline runs
    */
   test("a valid signature is answered 202 and the pipeline runs", async () => {
@@ -253,7 +273,7 @@ describe('HTTP source respond: "accepted"', () => {
           http({
             path: "/hooks/signed-ok",
             method: "POST",
-            respond: "accepted",
+            respond: ACKNOWLEDGE,
             signature: {
               header: "x-hub-signature-256",
               secret: WEBHOOK_SECRET,
@@ -288,7 +308,7 @@ describe('HTTP source respond: "accepted"', () => {
 
   /**
    * @case The mount's wall still rejects before the early answer
-   * @preconditions respond: "accepted" on a walled mount, request carrying no credential
+   * @preconditions a responder answering 202 without awaiting `finished`, on a walled mount, request carrying no credential
    * @expectedResult 401 and the pipeline never runs, so the option cannot be used to skip admission
    */
   test("a walled mount answers 401 and never runs the pipeline", async () => {
@@ -297,7 +317,7 @@ describe('HTTP source respond: "accepted"', () => {
       routes: craft()
         .id("accepted-walled")
         .from(
-          http({ path: "/hooks/walled", method: "POST", respond: "accepted" }),
+          http({ path: "/hooks/walled", method: "POST", respond: ACKNOWLEDGE }),
         )
         .process((ex) => {
           routeRan = true;
@@ -338,7 +358,7 @@ describe('HTTP source respond: "accepted"', () => {
 
   /**
    * @case A detached failure reaches the route's .error() handler
-   * @preconditions respond: "accepted" on a route whose step throws after the 202 has been answered
+   * @preconditions a responder answering 202 without awaiting `finished`, on a route whose step throws after the 202 has been answered
    * @expectedResult The 202 is already sent, and the route's .error() handler still receives the failure
    */
   test("a pipeline failure after the 202 reaches .error()", async () => {
@@ -349,7 +369,7 @@ describe('HTTP source respond: "accepted"', () => {
       routes: craft()
         .id("accepted-error")
         .from(
-          http({ path: "/hooks/fails", method: "POST", respond: "accepted" }),
+          http({ path: "/hooks/fails", method: "POST", respond: ACKNOWLEDGE }),
         )
         .error((error) => {
           handledError = error;
@@ -381,7 +401,7 @@ describe('HTTP source respond: "accepted"', () => {
 
   /**
    * @case A detached failure with no .error() handler still raises the error events
-   * @preconditions respond: "accepted", no .error() handler, a step that throws after the 202
+   * @preconditions a responder answering 202 without awaiting `finished`, no .error() handler, a step that throws after the 202
    * @expectedResult route:exchange:failed and route:error fire for the route, and the failure never surfaces as an unhandled rejection
    */
   test("a detached failure with no .error() handler raises route:exchange:failed", async () => {
@@ -396,7 +416,7 @@ describe('HTTP source respond: "accepted"', () => {
           http({
             path: "/hooks/fails-unhandled",
             method: "POST",
-            respond: "accepted",
+            respond: ACKNOWLEDGE,
           }),
         )
         .process(async () => {
@@ -435,7 +455,7 @@ describe('HTTP source respond: "accepted"', () => {
 
   /**
    * @case request:completed reports the 202
-   * @preconditions respond: "accepted" with per-request events on (the default)
+   * @preconditions a responder answering 202 without awaiting `finished`, with per-request events on (the default)
    * @expectedResult One plugin:http:request:completed carrying status 202 for the route, emitted when the caller is answered rather than when the pipeline ends
    */
   test("plugin:http:request:completed reports status 202", async () => {
@@ -446,7 +466,7 @@ describe('HTTP source respond: "accepted"', () => {
       routes: craft()
         .id("accepted-events")
         .from(
-          http({ path: "/hooks/events", method: "POST", respond: "accepted" }),
+          http({ path: "/hooks/events", method: "POST", respond: ACKNOWLEDGE }),
         )
         .process(async (ex) => {
           await gate.promise;
@@ -482,7 +502,7 @@ describe('HTTP source respond: "accepted"', () => {
 
   /**
    * @case A graceful shutdown waits for a detached run
-   * @preconditions respond: "accepted", the pipeline parked on a deferred, stop() called immediately on receiving the 202 and never waiting for the pipeline to be observed first
+   * @preconditions a responder answering 202 without awaiting `finished`, the pipeline parked on a deferred, stop() called immediately on receiving the 202 and never waiting for the pipeline to be observed first
    * @expectedResult stop() does not resolve while the detached run is parked, and the run completes rather than being abandoned. Stopping without first waiting for the step is deliberate: it also pins the ordering, because a dispatcher that answered before starting the run would enqueue after the drain had already found the route idle, and the delivery would be lost
    */
   test("shutdown waits for a detached run in flight", async () => {
@@ -496,7 +516,7 @@ describe('HTTP source respond: "accepted"', () => {
           http({
             path: "/hooks/shutdown",
             method: "POST",
-            respond: "accepted",
+            respond: ACKNOWLEDGE,
           }),
         )
         .process(async (ex) => {
@@ -537,20 +557,20 @@ describe('HTTP source respond: "accepted"', () => {
   });
 
   /**
-   * @case OpenAPI advertises what an accepted route can actually answer
-   * @preconditions Two routes on the default mount, one respond: "accepted" and one left at the default, with /openapi.json served
-   * @expectedResult The accepted route lists 202 and neither 200 nor 204; the default route is unchanged; both keep the rejection codes, which every gate can still produce
+   * @case OpenAPI documents no success code for a route with a responder
+   * @preconditions Two routes on the default mount, one with a responder and one without, with /openapi.json served
+   * @expectedResult The responder route lists only the rejection codes, since nothing can know what a function returns; the route without one is unchanged
    */
-  test("/openapi.json advertises 202 for an accepted route", async () => {
+  test("/openapi.json omits success codes for a route with a responder", async () => {
     const bound = await bootHttp({
       routes: [
         craft()
-          .id("openapi-accepted")
+          .id("openapi-responder")
           .from(
             http({
               path: "/hooks/openapi",
               method: "POST",
-              respond: "accepted",
+              respond: ACKNOWLEDGE,
             }),
           )
           .to(noop()),
@@ -572,32 +592,37 @@ describe('HTTP source respond: "accepted"', () => {
       >;
     };
 
-    const accepted = doc.paths["/hooks/openapi"]!["post"]!.responses;
-    expect(Object.keys(accepted)).toContain("202");
-    expect(Object.keys(accepted)).not.toContain("200");
-    expect(Object.keys(accepted)).not.toContain("204");
-    // The gates still reject, so those answers stay documented.
-    expect(Object.keys(accepted)).toContain("401");
-    expect(Object.keys(accepted)).toContain("413");
+    const responder = doc.paths["/hooks/openapi"]!["post"]!.responses;
+    expect(Object.keys(responder)).not.toContain("200");
+    expect(Object.keys(responder)).not.toContain("204");
+    expect(Object.keys(responder)).not.toContain("202");
+    // The gates still run ahead of the responder, so those answers stay
+    // documented: a webhook route that could never be rejected would be the
+    // opposite lie.
+    expect(Object.keys(responder)).toContain("401");
+    expect(Object.keys(responder)).toContain("413");
 
     const normal = doc.paths["/orders"]!["post"]!.responses;
     expect(Object.keys(normal)).toContain("200");
     expect(Object.keys(normal)).toContain("204");
-    expect(Object.keys(normal)).not.toContain("202");
   });
 
   /**
-   * @case A batching route is refused rather than acknowledging a delivery it can drop
-   * @preconditions .batch() before .from(), with respond: "accepted" on the source
-   * @expectedResult The context fails to start with RC5003 naming the combination. Without the refusal the sender gets a 202 for a message that sits in the batch buffer and is discarded at shutdown, having never run
+   * @case A batching route is refused rather than answering for a delivery it can drop
+   * @preconditions .batch() before .from(), with a responder on the source
+   * @expectedResult The context fails to start with RC5003 naming the combination. The refusal covers every responder, including one that would have awaited the pipeline, because nothing can tell before calling it. Without it the sender gets an answer for a message that sits in the batch buffer and is discarded at shutdown, having never run
    */
-  test('respond: "accepted" is refused on a batching route', async () => {
+  test("a responder is refused on a batching route", async () => {
     const build = bootHttp({
       routes: craft()
         .id("accepted-batched")
         .batch({ size: 10 })
         .from(
-          http({ path: "/hooks/batched", method: "POST", respond: "accepted" }),
+          http({
+            path: "/hooks/batched",
+            method: "POST",
+            respond: ACKNOWLEDGE,
+          }),
         )
         .to(noop()),
       http: {},
@@ -610,7 +635,7 @@ describe('HTTP source respond: "accepted"', () => {
    * @preconditions The same batching route with respond left at its default
    * @expectedResult The context starts, so the refusal is scoped to the acknowledging mode rather than banning batched http routes
    */
-  test("a batching route still starts under the default respond mode", async () => {
+  test("a batching route still starts with no responder", async () => {
     const bound = await bootHttp({
       routes: craft()
         .id("default-batched")
@@ -625,7 +650,7 @@ describe('HTTP source respond: "accepted"', () => {
 
   /**
    * @case A delivery arriving after shutdown has begun is refused, not acknowledged
-   * @preconditions respond: "accepted", context.stop() already begun, a request whose body arrives in two chunks so it is still being read when the drain runs
+   * @preconditions a responder, with context.stop() already begun, a request whose body arrives in two chunks so it is still being read when the drain runs
    * @expectedResult 503 with retry-after rather than 202, and the pipeline never runs. Without the guard the sender is told 202 for a run the drain has already passed, and the delivery is lost with no redelivery coming
    */
   test("a request that arrives during shutdown answers 503, not 202", async () => {
@@ -637,7 +662,7 @@ describe('HTTP source respond: "accepted"', () => {
           http({
             path: "/hooks/window",
             method: "POST",
-            respond: "accepted",
+            respond: ACKNOWLEDGE,
           }),
         )
         .process((ex) => {
@@ -689,7 +714,7 @@ describe('HTTP source respond: "accepted"', () => {
 
   /**
    * @case A streaming body from an accepted route is cancelled rather than left open
-   * @preconditions respond: "accepted" on a route whose pipeline ends with a ReadableStream carrying a cancel observer
+   * @preconditions respond: ACKNOWLEDGE on a route whose pipeline ends with a ReadableStream carrying a cancel observer
    * @expectedResult The stream is cancelled once the detached run resolves. Without this the stream has no reader and holds whatever backs it until GC finalises it, if ever
    */
   test("a detached streaming body is cancelled", async () => {
@@ -699,7 +724,7 @@ describe('HTTP source respond: "accepted"', () => {
       routes: craft()
         .id("accepted-stream")
         .from(
-          http({ path: "/hooks/stream", method: "POST", respond: "accepted" }),
+          http({ path: "/hooks/stream", method: "POST", respond: ACKNOWLEDGE }),
         )
         .transform(
           () =>
@@ -727,17 +752,98 @@ describe('HTTP source respond: "accepted"', () => {
   });
 
   /**
-   * @case An unknown respond value is refused at the call site
-   * @preconditions http({ respond }) built with a value outside the union, as an untyped caller would
-   * @expectedResult RC5003 thrown from http({...}) itself, naming the allowed values
+   * @case The descriptor's status, headers and body all reach the wire
+   * @preconditions A responder returning a status, a custom header and an object body, without awaiting the pipeline
+   * @expectedResult The response carries all three, serialised by the same rules a pipeline result would be, and the header name is lower-cased
    */
-  test("an invalid respond value throws RC5003 at construction", () => {
+  test("a descriptor's status, headers and body are serialised", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("descriptor-full")
+        .from(
+          http({
+            path: "/hooks/descriptor",
+            method: "POST",
+            respond: () => ({
+              status: 207,
+              headers: { "X-Delivery": "queued" },
+              body: { queued: true },
+            }),
+          }),
+        )
+        .to(noop()),
+      http: {},
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/hooks/descriptor`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "evt_1" }),
+    });
+    expect(res.status).toBe(207);
+    expect(res.headers.get("x-delivery")).toBe("queued");
+    expect(res.headers.get("content-type")).toContain("application/json");
+    expect(await res.json()).toEqual({ queued: true });
+  });
+
+  /**
+   * @case The responder sees the request as the route sees it
+   * @preconditions A responder reading the parsed body, the path params, the method and a request header, on a route with a :id segment
+   * @expectedResult All four are present and already parsed, so the responder never needs the Request, whose body has been consumed by the parser and the signature gate
+   */
+  test("the responder receives the parsed request, not the Request", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("descriptor-request")
+        .from(
+          http({
+            path: "/hooks/:id/echo",
+            method: "POST",
+            respond: ({ request }) => ({
+              status: 200,
+              body: {
+                body: request.body,
+                id: request.params["id"],
+                method: request.method,
+                path: request.path,
+                header: request.headers["x-source"],
+              },
+            }),
+          }),
+        )
+        .to(noop()),
+      http: {},
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/hooks/evt_9/echo`, {
+      method: "POST",
+      headers: { "content-type": "application/json", "x-source": "bird" },
+      body: JSON.stringify({ kind: "message" }),
+    });
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({
+      body: { kind: "message" },
+      id: "evt_9",
+      method: "POST",
+      path: "/hooks/:id/echo",
+      header: "bird",
+    });
+  });
+
+  /**
+   * @case A respond that is not callable is refused at the call site
+   * @preconditions http({ respond }) built with a string, as an untyped caller or a stale example would produce
+   * @expectedResult RC5003 thrown from http({...}) itself rather than a 500 on the first delivery
+   */
+  test("a non-callable respond throws RC5003 at construction", () => {
     expect(() =>
       http({
         path: "/hooks/bad",
         method: "POST",
-        respond: "acknowledged" as "accepted",
+        respond: "accepted" as unknown as HttpResponder,
       }),
-    ).toThrow(/RC5003|invalid respond/);
+    ).toThrow(/RC5003|respond must be a function/);
   });
 });

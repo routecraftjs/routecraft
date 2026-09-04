@@ -111,7 +111,7 @@ export const account = craft()
 | `mount` | `string` | `"default"` | No | Named mount under `http.mounts` this route belongs to; `path` is relative to the mount prefix. The mount decides authentication. See [Mounts and authentication](#mounts-and-authentication) below. |
 | `rawBody` | `boolean` | `false` | No | Attach the exact wire bytes of the request body to the exchange as `routecraft.http.rawBody` (a `Uint8Array`). See [Signed webhooks](#signed-webhooks). |
 | `signature` | `HttpWebhookSignatureOptions` | -- | No | Verify a webhook signature against the raw body and reject 401 before the route runs. Body-bearing methods only. See [Signed webhooks](#signed-webhooks). |
-| `respond` | `"result" \| "accepted"` | `"result"` | No | When the caller is answered. `"accepted"` acknowledges with `202` once the gates pass and runs the pipeline detached. See [Acknowledge, then process](#acknowledge-then-process). |
+| `respond` | `HttpResponder` | -- | No | Function deciding when the caller is answered and with what. Returning without awaiting `finished` answers now and detaches the pipeline. Omit it and the framework answers with the pipeline's result. See [Acknowledge, then process](#acknowledge-then-process). |
 
 ### Request metadata on the exchange
 
@@ -607,10 +607,22 @@ RC5039 applies only to the built-in `signature` gate; it is documented on the [e
 
 A webhook sender is not waiting for your pipeline. Bird treats anything past a few seconds as a failed delivery and redelivers under the same `webhook-id` for about 27 hours; Stripe and Svix behave the same way; the [Standard Webhooks](https://www.standardwebhooks.com/) specification says outright to acknowledge before processing. A route that answers with its result is therefore wrong for a webhook whose work takes tens of seconds, such as one that leads to a model turn.
 
-`respond: "accepted"` is the rule in one option: acknowledge, then process.
+`respond` is a function that decides when the caller is answered, and with what. It is called once per request, after every gate has passed and after the pipeline has been started, and the response is sent when it returns. So the function itself decides whether the caller waits:
 
 ```typescript
-export const birdAckHook = craft()
+// Acknowledge and process. `finished` is never touched, so the answer goes
+// out now and the pipeline keeps running.
+respond: () => ({ status: 202 })
+
+// Answer with the result. This is what the framework does when `respond` is
+// omitted, written out.
+respond: async ({ finished }) => ({ status: 200, body: (await finished).body })
+```
+
+The webhook case in full:
+
+```typescript
+export const birdHook = craft()
   .id('bird-hook')
   // Route scope: both sit before .from(), so they bound and guard the whole
   // detached pipeline. maxQueue is the part that bounds ADMISSION; without
@@ -621,7 +633,7 @@ export const birdAckHook = craft()
     path: '/hooks/bird',
     method: 'POST',
     signature: { scheme: 'standard-webhooks', secret: process.env.BIRD_WEBHOOK_SECRET! },
-    respond: 'accepted',
+    respond: () => ({ status: 202 }),
   }))
   .process(async (ex) => {
     await handleDelivery(ex)
@@ -630,23 +642,30 @@ export const birdAckHook = craft()
   .to(noop())
 ```
 
-Every gate still runs before the acknowledgement: path and method matching, the body size limit, body parsing, signature verification, and the mount's credential check where it has one. Only once all of them pass does the caller get `202` with an empty body, and only then does the pipeline start. Rejections are unchanged, so a bad signature is still a `401` and the sender still sees it.
+The responder receives `{ request, finished }`. `request` is what the route sees: the parsed body, the lower-cased headers, the path params, the method, the matched pattern, and the principal where one was admitted. It is deliberately not the `Request`, whose body has already been read to parse it and to verify the signature and so cannot be read again. `finished` is the promise of the completed exchange, already running; the framework has claimed its rejection, so ignoring it is safe.
 
-What changes is where a failure goes. The response is gone by the time the pipeline runs, so a failure reaches the route's `.error()` handler and the ordinary error events (`route:error`, `context:error`, `route:exchange:failed`), and nowhere else. Give a route that acknowledges early an `.error()` handler; without one the failure is visible only to an event listener and the log.
+It returns a descriptor, `{ status, headers?, body? }`, which the dispatcher serialises by the same rules it applies to a pipeline result. Omit `body` for an empty response, which is what a bare acknowledgement wants.
 
-The pipeline still runs in full and the exchange is untouched, but its body is never read for the response. `/openapi.json` reflects that: an accepted route advertises `202` rather than `200` and `204`, while keeping the rejection codes its gates can still produce. A route that streams is not a candidate for this option, since the stream would have no reader.
+Every gate still runs before the responder is called: path and method matching, the body size limit, body parsing, signature verification, and the mount's credential check where it has one. Rejections are unchanged, so a bad signature is still a `401`, the sender still sees it, and the responder never runs.
 
-A graceful shutdown still waits for a detached run. The run is the route's in-flight work from the moment it starts, and the context drains that work before any listener closes, bounded by the same shutdown deadline as everything else. Once shutdown has begun the route stops acknowledging: a request that arrives, or that was still in its body read, answers `503` with `retry-after` rather than a `202` this process cannot promise to finish. That is what a webhook sender's redelivery is for, and it is why the option refuses to be combined with `.batch()`: a batched message waits in the buffer rather than counting as in-flight work, so the acknowledgement would outlive the delivery.
+What changes, once a responder answers before the pipeline finishes, is where a failure goes. The response is gone by then, so a failure reaches the route's `.error()` handler and the ordinary error events (`route:error`, `context:error`, `route:exchange:failed`), and nowhere else. Give such a route an `.error()` handler; without one the failure is visible only to an event listener and the log.
+
+A graceful shutdown still waits for a detached run. The run is the route's in-flight work from the moment it starts, and the context drains that work before any listener closes, bounded by the same shutdown deadline as everything else. Once shutdown has begun a responder is not called at all: the request answers `503` with `retry-after` rather than an answer this process cannot promise to honour, and the sender redelivers to the next instance.
+
+**Two refusals, both wider than they look.** Nothing can tell before calling a responder whether it will await the pipeline, because that is decided inside the function. Both guards therefore cover every responder, including one that would have awaited and been perfectly safe:
+
+- A responder on a route that also uses `.batch()` is refused with `RC5003` at subscribe. A batched message waits in the buffer instead of running, so it is not in-flight work and a graceful shutdown discards it, while the responder has already answered.
+- Once shutdown has begun, every responder gets the `503` above, including one that would have awaited.
 
 **Bounding the work, and bounding the right thing.** Answering early removes the backpressure the caller's own wait used to provide: arrival rate is now entirely the sender's, and a provider replaying a day of backlog hands you all of it at once. `.throttle()` and `.concurrency()` before `.from()` still apply to the detached run, but read what they bound. Their defaults (`.concurrency()`'s `mode: "queue"` with no `maxQueue`, `.throttle()`'s `mode: "delay"`) cap how many run **at once** while letting the wait line grow without limit, and every queued exchange pins its parsed body until it runs. That is not a bound on a redelivery burst; it is a slower way to reach the same heap.
 
-Bound admission instead: give `.concurrency()` a `maxQueue`, or `mode: "reject"`. Past the bound the exchange fails with `RC5026` on the route's `.error()` channel, which is a delivery you have already acknowledged, so treat that channel as the place a shed delivery is recorded and rely on the sender's redelivery to bring it back.
+Bound admission instead: give `.concurrency()` a `maxQueue`, or `mode: "reject"`. Past the bound the exchange fails with `RC5026` on the route's `.error()` channel, which is a delivery you have already answered for, so treat that channel as the place a shed delivery is recorded and rely on the sender's redelivery to bring it back.
 
-**A refusal only reaches the sender if it happens before the acknowledgement.** Every transport gate does: path and method, body size, body parse, signature, and the mount's credential check. The pre-from chain positions that run inside the pipeline do not, `.authorize()` among them, so a scope denial on an accepted route stops the work but the caller has already been told `202` and cannot tell a denial from acceptance. Put a route that must be able to refuse a caller on `respond: "result"`.
+**A refusal only reaches the sender if it happens before the answer.** Every transport gate does: path and method, body size, body parse, signature, and the mount's credential check. The pre-from chain positions that run inside the pipeline do not, `.authorize()` among them, so a scope denial on a route that answers early stops the work while the caller has already been told `202` and cannot tell a denial from acceptance. A route that must be able to refuse its caller does not answer early.
 
-**Response hints are inert.** `routecraft.http.response.status` and its siblings are read when the dispatcher builds the response, which on this option has already happened, so a step that sets them changes nothing.
+**What a responder gives up.** Response hints (`routecraft.http.response.status` and its siblings) are inert, because the descriptor is the answer and it is built here rather than from the exchange. Streaming and the suspension acknowledgement both live on the framework's own path, so a route that streams omits the option; an exchange body that turns out to be a stream is cancelled once the pipeline finishes, since nothing will read it and it may hold a socket or a file descriptor. And `/openapi.json` advertises no success code for a route with a responder, because the document cannot know what a function returns; the rejection codes stay, since every gate still runs ahead of it. A route that wants documented success codes omits the option.
 
-**What this does not do.** An acknowledged delivery lost to a crash is not retried, replayed, or persisted; that is the sender's redelivery to make, which is what deduplicating on `webhook-id` in the route is for.
+**What this does not do.** A delivery answered for and then lost to a crash is not retried, replayed, or persisted; that is the sender's redelivery to make, which is what deduplicating on `webhook-id` in the route is for.
 
 ### Route matching and information disclosure
 

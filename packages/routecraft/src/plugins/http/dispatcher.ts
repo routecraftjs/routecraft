@@ -6,7 +6,11 @@ import { isRoutecraftError } from "../../brand";
 import { isSuspended } from "../../suspension/suspended";
 import { principalExpirySignal } from "../../auth/expiry.ts";
 import type { Principal } from "../../auth/types";
-import type { HttpMethod, HttpResponseHint } from "../../adapters/http/types";
+import type {
+  HttpMethod,
+  HttpResponseDescriptor,
+  HttpResponseHint,
+} from "../../adapters/http/types";
 import type { AuthResult } from "./auth";
 import type { HttpRouteEntry, HttpRouteRegistry } from "./registry";
 import {
@@ -374,13 +378,14 @@ export function createDispatcher(
     //    user steps and any registered .error() handler). We translate its
     //    body + response hints into a Response.
     try {
-      if (entry.respond === "accepted") {
+      if (entry.respond !== undefined) {
         // Once the drain has begun, a run started here is not guaranteed to
         // be waited for: the request may have spent the whole shutdown in
         // auth or in its body read, and the route can already have been
-        // drained. Refuse rather than acknowledge, so the sender redelivers
-        // to the next instance instead of being told a delivery succeeded
-        // that this process then abandons.
+        // drained. Nothing can tell in advance whether this responder would
+        // have awaited the pipeline, since that is decided inside the
+        // function, so every responder is refused here rather than risk
+        // answering for a delivery this process then abandons.
         if (opts.shutdownSignal?.aborted === true) {
           const response = jsonResponse(
             { error: "service unavailable", reason: "shutting_down" },
@@ -395,31 +400,51 @@ export function createDispatcher(
           });
           return response;
         }
-        // Must start before answering: the route counts the exchange as
-        // in-flight at enqueue, which is what a graceful shutdown drains.
-        const detached = entry.handler(parsedBody, handlerHeaders);
-        detached.then(
-          (exchange) => {
-            // Nothing will read this body, and a stream may hold a socket or
-            // a file descriptor until GC finalises it.
-            if (isReadableStream(exchange.body)) void exchange.body.cancel();
-          },
-          () => {
-            // Already routed and logged by the pipeline (the route's
-            // `.error()` handler, or the executor's boundary log plus
-            // `route:error` / `route:exchange:failed`); claimed here only so
-            // it does not surface as an unhandled rejection.
-          },
+        // Must start before the responder is called: the route counts the
+        // exchange as in-flight at enqueue, which is what a graceful shutdown
+        // drains. A responder that never awaits `finished` leaves this
+        // running detached, and it is inside the drain either way.
+        const finished = entry.handler(parsedBody, handlerHeaders);
+        // Claimed on the framework's own reference, before the responder can
+        // see it: a responder that ignores `finished` must not turn a failed
+        // delivery into an unhandled rejection. The pipeline has already
+        // routed and logged it (the route's `.error()` handler, or the
+        // executor's boundary log plus `route:error` / `route:exchange:failed`).
+        const settled = finished.then(
+          (exchange) => exchange,
+          () => undefined,
         );
+        const descriptor = await entry.respond({
+          request: {
+            body: parsedBody,
+            headers: Object.freeze(reqHeaders),
+            params,
+            method,
+            path: entry.matcher.pattern,
+            ...(principal !== undefined ? { principal } : {}),
+          },
+          finished,
+        });
+        void settled.then((exchange) => {
+          // Nothing will read the exchange's body once a responder has
+          // answered, and a stream may hold a socket or a file descriptor
+          // until GC finalises it. Skipped when the responder handed that
+          // very body back, which is then the response's to consume.
+          const body = exchange?.body;
+          if (isReadableStream(body) && body !== descriptor.body) {
+            void body.cancel();
+          }
+        });
+        const response = serialiseDescriptor(descriptor);
         emitCompleted(opts, {
           method,
           path: entry.matcher.pattern,
-          status: 202,
+          status: response.status,
           durationMs: ms(started),
           routeId: entry.routeId,
           principal: principal ? { subject: principal.subject } : undefined,
         });
-        return new Response(null, { status: 202 });
+        return response;
       }
       const exchange = await entry.handler(parsedBody, handlerHeaders);
       const plan = planStream(exchange.body, exchange.headers);
@@ -644,6 +669,49 @@ function lowerCaseKeys(
  * Translate the final exchange body + response hint headers into a Response
  * according to the documented convention.
  */
+/**
+ * Turn a responder's descriptor into a Response. Body serialisation follows
+ * the same rules as a pipeline result, so one set of rules governs both
+ * paths; the status is taken as given, because choosing it is the whole
+ * reason a responder exists, and an absent body sends nothing rather than
+ * collapsing to 204.
+ *
+ * Streaming is deliberately absent. A stream needs the listener's slot
+ * accounting and its own expiry handling, both of which belong to the
+ * framework's path, so a route that streams does not configure a responder.
+ */
+function serialiseDescriptor(descriptor: HttpResponseDescriptor): Response {
+  const { status, body } = descriptor;
+  const headers = lowerCaseKeys(descriptor.headers);
+  if (body === undefined || body === null) {
+    return new Response(null, { status, headers });
+  }
+  if (typeof body === "string") {
+    return new Response(body, {
+      status,
+      headers: { "content-type": "text/plain; charset=utf-8", ...headers },
+    });
+  }
+  if (body instanceof Uint8Array) {
+    // Same cast as serialiseResponse: Uint8Array is a valid BodyInit at
+    // runtime, but TS picks the URLSearchParams overload under mixed types.
+    return new Response(body as unknown as BodyInit, {
+      status,
+      headers: { "content-type": "application/octet-stream", ...headers },
+    });
+  }
+  if (body instanceof ArrayBuffer) {
+    return new Response(body, {
+      status,
+      headers: { "content-type": "application/octet-stream", ...headers },
+    });
+  }
+  return new Response(JSON.stringify(body), {
+    status,
+    headers: { "content-type": "application/json; charset=utf-8", ...headers },
+  });
+}
+
 function serialiseResponse(body: unknown, headers: ExchangeHeaders): Response {
   const hint = readResponseHint(headers);
   // Same normalisation as the streaming arm: a differently-cased override
