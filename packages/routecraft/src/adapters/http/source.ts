@@ -10,7 +10,14 @@ import {
 import { compilePathMatcher } from "../../plugins/http/path-matcher";
 import { METHODS_WITHOUT_BODY } from "../../plugins/http/body-parser";
 import { invalidSignatureOptionsReason } from "../../plugins/http/webhook-signature";
-import type { HttpMethod, HttpRequestBody, HttpServerOptions } from "./types";
+import type {
+  HttpMethod,
+  HttpRequestBody,
+  HttpRespondMode,
+  HttpServerOptions,
+} from "./types";
+
+const RESPOND_MODES: ReadonlySet<string> = new Set(["result", "accepted"]);
 
 const HTTP_METHODS: ReadonlySet<string> = new Set([
   "GET",
@@ -43,6 +50,23 @@ function normalizeMethod(options: HttpServerOptions): HttpMethod {
 }
 
 /**
+ * Resolve `respond`, defaulting to the pre-existing behaviour. An unknown
+ * value fails at the `http({...})` call site rather than being read as the
+ * default: a route meaning to acknowledge early and silently answering with
+ * the pipeline result instead would be discovered by the sender's retries,
+ * not by the author.
+ */
+function normalizeRespond(options: HttpServerOptions): HttpRespondMode {
+  const respond = options.respond ?? "result";
+  if (typeof respond !== "string" || !RESPOND_MODES.has(respond)) {
+    throw rcError("RC5003", undefined, {
+      message: `http() source: invalid respond ${JSON.stringify(respond)}. Allowed: ${[...RESPOND_MODES].map((m) => `"${m}"`).join(", ")}.`,
+    });
+  }
+  return respond as HttpRespondMode;
+}
+
+/**
  * Join a mount prefix and a mount-relative route path into the full request
  * pattern. `"/"` plus `"/orders"` is `/orders`; `"/api"` plus `"/orders"`
  * is `/api/orders`.
@@ -72,6 +96,7 @@ export class HttpSourceAdapter implements Source<HttpRequestBody> {
     // Validate the method unconditionally so an unsupported or non-string
     // method fails here, not as a dead route at subscribe time.
     normalizeMethod(options);
+    normalizeRespond(options);
 
     // Auth is mount-owned; the removed per-route auth modes fail loudly so
     // an untyped caller migrating from 0.6 learns the new model instead of
@@ -160,6 +185,7 @@ export class HttpSourceAdapter implements Source<HttpRequestBody> {
       requiresPrincipal: meta?.requiresPrincipal === true,
       rawBody: this.options.rawBody ?? false,
       signature: this.options.signature,
+      respond: normalizeRespond(this.options),
       discovery: meta?.discovery,
       handler: (body, headers) =>
         sub.emit({

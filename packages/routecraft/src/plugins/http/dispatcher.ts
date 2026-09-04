@@ -374,6 +374,31 @@ export function createDispatcher(
     //    user steps and any registered .error() handler). We translate its
     //    body + response hints into a Response.
     try {
+      if (entry.respond === "accepted") {
+        // Start the pipeline BEFORE answering. The route registers the
+        // exchange as its in-flight work at enqueue, and a graceful shutdown
+        // drains that work before any listener closes, so starting first is
+        // exactly what makes the detached run survive a stop. Answering
+        // first would open a window where a stop between the two drops a
+        // delivery the sender has already been told was accepted.
+        const detached = entry.handler(parsedBody, handlerHeaders);
+        detached.catch(() => {
+          // The pipeline has already routed and logged this: the route's
+          // `.error()` handler, or `route:error` + `context:error` +
+          // `route:exchange:failed` and the executor's boundary log. Claiming
+          // the rejection keeps a detached run from surfacing as an unhandled
+          // rejection; logging it here would duplicate that boundary.
+        });
+        emitCompleted(opts, {
+          method,
+          path: entry.matcher.pattern,
+          status: 202,
+          durationMs: ms(started),
+          routeId: entry.routeId,
+          principal: principal ? { subject: principal.subject } : undefined,
+        });
+        return new Response(null, { status: 202 });
+      }
       const exchange = await entry.handler(parsedBody, handlerHeaders);
       const plan = planStream(exchange.body, exchange.headers);
       if (plan) {

@@ -104,11 +104,22 @@ export function buildOpenApiDocument(
     const path = patternToOpenApi(entry.matcher.pattern);
     const method = entry.method.toLowerCase() as OpenApiMethod;
     const item = (doc.paths[path] ??= {});
+    // A route that acknowledges early answers 202 and nothing else on the
+    // success side: there is no pipeline result to describe, so advertising
+    // 200 and 204 would document a response it can never send. The rejection
+    // codes are unchanged, because every gate still runs and a sender still
+    // sees its 401 or 413.
+    const successResponses =
+      entry.respond === "accepted"
+        ? { "202": { description: "Accepted; processed asynchronously" } }
+        : {
+            "200": { description: "Successful response" },
+            "204": { description: "No content" },
+          };
     const op: OpenApiOperation = {
       operationId: entry.routeId,
       responses: {
-        "200": { description: "Successful response" },
-        "204": { description: "No content" },
+        ...successResponses,
         "400": { description: "Bad request" },
         "401": { description: "Unauthorized" },
         "403": { description: "Forbidden" },

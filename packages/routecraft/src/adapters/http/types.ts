@@ -337,6 +337,22 @@ export interface HttpBuiltinOptions {
  */
 export type HttpConfig = HttpPluginOptions;
 
+/**
+ * When the source answers the caller, relative to the pipeline.
+ *
+ * - `"result"` (the default): the response is the finished exchange, so
+ *   status and body come from the pipeline. Right for an API.
+ * - `"accepted"`: every pre-handler gate still runs (method and path match,
+ *   body limit, body parse, signature verification, principal resolution
+ *   where the mount demands one) and, once they all pass, the caller gets
+ *   `202 Accepted` with an empty body while the pipeline runs detached.
+ *   Right for a webhook whose work outlasts the sender's patience.
+ *
+ * Rejections are unaffected either way: a bad signature is still a 401 and
+ * the sender still sees it.
+ */
+export type HttpRespondMode = "result" | "accepted";
+
 /** Server-side options accepted by `http({...})` when used with `.from(...)`. */
 export interface HttpServerOptions {
   /**
@@ -390,6 +406,40 @@ export interface HttpServerOptions {
    * route step instead. See {@link HttpWebhookSignatureOptions}.
    */
   signature?: HttpWebhookSignatureOptions;
+  /**
+   * Whether the caller waits for the pipeline. Defaults to `"result"`,
+   * which is what every route did before this option existed.
+   *
+   * `"accepted"` acknowledges with `202` and an empty body as soon as the
+   * pre-handler gates pass, then runs the pipeline detached. Use it for a
+   * webhook: Bird, Stripe and Svix all treat a slow response as a failed
+   * delivery and redeliver, and the Standard Webhooks specification says to
+   * acknowledge before processing.
+   *
+   * What the caller gives up is the result. A detached failure reaches the
+   * route's `.error()` handler and the ordinary error events
+   * (`route:error`, `context:error`, `route:exchange:failed`), and nothing
+   * else: the response is already gone. A webhook route wants an `.error()`
+   * handler for that reason.
+   *
+   * The pipeline still runs in full and the exchange is untouched; its body
+   * is simply never read for the response. A pipeline that ends in a stream
+   * therefore produces a stream nobody consumes, discarded like any other
+   * unread body, so `respond: "accepted"` and a streaming route are not a
+   * combination worth writing. `/openapi.json` advertises `202` for such a
+   * route instead of `200` and `204`, since those are answers it can no
+   * longer give.
+   *
+   * A detached run is still the route's in-flight work, so a graceful
+   * shutdown waits for it within the context's drain deadline. Nothing
+   * bounds how many run at once by construction; bound them on the route
+   * with `.throttle()` or `.concurrency()`, which sit in the pre-from chain
+   * and therefore apply to the detached run exactly as they do to any
+   * other.
+   *
+   * @see {@link HttpRespondMode}
+   */
+  respond?: HttpRespondMode;
 }
 
 /**

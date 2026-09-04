@@ -111,6 +111,7 @@ export const account = craft()
 | `mount` | `string` | `"default"` | No | Named mount under `http.mounts` this route belongs to; `path` is relative to the mount prefix. The mount decides authentication. See [Mounts and authentication](#mounts-and-authentication) below. |
 | `rawBody` | `boolean` | `false` | No | Attach the exact wire bytes of the request body to the exchange as `routecraft.http.rawBody` (a `Uint8Array`). See [Signed webhooks](#signed-webhooks). |
 | `signature` | `HttpWebhookSignatureOptions` | -- | No | Verify a webhook signature against the raw body and reject 401 before the route runs. Body-bearing methods only. See [Signed webhooks](#signed-webhooks). |
+| `respond` | `"result" \| "accepted"` | `"result"` | No | When the caller is answered. `"accepted"` acknowledges with `202` once the gates pass and runs the pipeline detached. See [Acknowledge, then process](#acknowledge-then-process). |
 
 ### Request metadata on the exchange
 
@@ -601,6 +602,41 @@ Rules enforced at construction (`RC5003` from the `http({...})` call site): `sig
 ```
 
 RC5039 applies only to the built-in `signature` gate; it is documented on the [errors reference](/docs/reference/errors#rc-5039).
+
+### Acknowledge, then process
+
+A webhook sender is not waiting for your pipeline. Bird treats anything past a few seconds as a failed delivery and redelivers under the same `webhook-id` for about 27 hours; Stripe and Svix behave the same way; the [Standard Webhooks](https://www.standardwebhooks.com/) specification says outright to acknowledge before processing. A route that answers with its result is therefore wrong for a webhook whose work takes tens of seconds, such as one that leads to a model turn.
+
+`respond: "accepted"` is the rule in one option: acknowledge, then process.
+
+```typescript
+export const birdHook = craft()
+  .id('bird-hook')
+  // Route scope: both sit before .from(), so they bound and guard the whole
+  // detached pipeline rather than the next step alone.
+  .error((error) => reportDeliveryFailure(error))
+  .concurrency({ max: 8 })
+  .from(http({
+    path: '/hooks/bird',
+    method: 'POST',
+    signature: { scheme: 'standard-webhooks', secret: process.env.BIRD_WEBHOOK_SECRET! },
+    respond: 'accepted',
+  }))
+  .process(async (ex) => handleDelivery(ex))
+  .to(noop())
+```
+
+Every gate still runs before the acknowledgement: path and method matching, the body size limit, body parsing, signature verification, and the mount's credential check where it has one. Only once all of them pass does the caller get `202` with an empty body, and only then does the pipeline start. Rejections are unchanged, so a bad signature is still a `401` and the sender still sees it.
+
+What changes is where a failure goes. The response is gone by the time the pipeline runs, so a failure reaches the route's `.error()` handler and the ordinary error events (`route:error`, `context:error`, `route:exchange:failed`), and nowhere else. Give a route that acknowledges early an `.error()` handler; without one the failure is visible only to an event listener and the log.
+
+The pipeline still runs in full and the exchange is untouched, but its body is never read for the response. `/openapi.json` reflects that: an accepted route advertises `202` rather than `200` and `204`, while keeping the rejection codes its gates can still produce. A route that streams is not a candidate for this option, since the stream would have no reader.
+
+A graceful shutdown still waits for a detached run. The run is the route's in-flight work from the moment it starts, and the context drains that work before any listener closes, bounded by the same shutdown deadline as everything else.
+
+**Bounding the work.** One detached pipeline per delivery is unbounded by construction, and a sender that redelivers a backlog will hand you all of it at once. Nothing new bounds this, because the route already can: `.throttle()` and `.concurrency()` sit in the [pre-from filter chain](/docs/advanced/filter-chain) and apply to the detached run exactly as they do to any other. Put one of them on any route that acknowledges early.
+
+**What this does not do.** An acknowledged delivery lost to a crash is not retried, replayed, or persisted; that is the sender's redelivery to make, which is what deduplicating on `webhook-id` in the route is for.
 
 ### Route matching and information disclosure
 
