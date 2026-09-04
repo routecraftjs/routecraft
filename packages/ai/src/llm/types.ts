@@ -191,6 +191,64 @@ export type LlmProviderOptionsMap = Required<LlmPluginProviders>;
 export type LlmPromptSource<T = unknown> =
   string | ((exchange: Exchange<T>) => string);
 
+/** Text in a multimodal user prompt. */
+export interface LlmTextPart {
+  type: "text";
+  text: string;
+}
+
+/**
+ * A file in a multimodal user prompt: a recording, a PDF, a spreadsheet.
+ * `data` is the bytes, a base64 string, or a URL the provider fetches;
+ * `mediaType` is the IANA type and is required, because it is what tells the
+ * provider how to read the bytes.
+ */
+export interface LlmFilePart {
+  type: "file";
+  data: Uint8Array | ArrayBuffer | string | URL;
+  mediaType: string;
+  filename?: string;
+}
+
+/**
+ * An image in a multimodal user prompt. Separate from {@link LlmFilePart}
+ * because the providers treat it separately; `mediaType` is optional here
+ * since providers sniff image bytes.
+ */
+export interface LlmImagePart {
+  type: "image";
+  image: Uint8Array | ArrayBuffer | string | URL;
+  mediaType?: string;
+}
+
+/**
+ * One part of a multimodal user prompt. Mirrors the Vercel AI SDK's own
+ * `TextPart | ImagePart | FilePart`, deliberately: the parts are the SDK's
+ * vocabulary, so one mapping serves every provider it supports rather than
+ * one translation per provider.
+ *
+ * Which media types actually work is the provider's business, not the
+ * framework's. Nothing is pre-validated here; a provider that cannot read a
+ * part fails through its own error. The llm adapter reference carries the
+ * table of what accepts what.
+ */
+export type LlmPromptPart = LlmTextPart | LlmFilePart | LlmImagePart;
+
+/**
+ * Resolve a USER prompt from an exchange. Widens {@link LlmPromptSource}
+ * with the parts array, so a route can hand a model the voice note it
+ * received rather than a transcription of it.
+ *
+ * System prompts stay string-only ({@link LlmPromptSource}): no provider
+ * takes content parts there.
+ *
+ * @template T - Body type available to the prompt callback
+ */
+export type LlmUserPromptSource<T = unknown> =
+  | string
+  | LlmPromptPart[]
+  | ((exchange: Exchange<T>) => string | LlmPromptPart[]);
+
 /**
  * Normalised reasoning effort, the portable way to ask a model to think more
  * or less about one call. Mapped to each provider's own control at dispatch
@@ -254,7 +312,7 @@ export interface LlmSamplingOptions {
  */
 export interface LlmOptions<T = unknown> extends LlmSamplingOptions {
   system?: LlmPromptSource<T>;
-  user?: LlmPromptSource<T>;
+  user?: LlmUserPromptSource<T>;
   /**
    * Optional output schema (Standard Schema). When set, the adapter requests
    * provider-level structured output and validates the result. Supported by
