@@ -60,8 +60,12 @@ export type SpyAdapter<T = unknown> = {
 export function spy<T = unknown>(): SpyAdapter<T> {
   const state = createSpyState<T>();
 
-  return {
+  const adapter: SpyAdapter<T> = {
     adapterId: "routecraft.adapter.spy",
+    // Placeholders: both are redefined below as non-enumerable, because a
+    // step's description for the suspension hash folds an adapter's own
+    // enumerable properties, and captured state that grows with every
+    // delivery would move the digest under a parked exchange.
     received: state.received,
     calls: state.calls,
 
@@ -102,4 +106,13 @@ export function spy<T = unknown>(): SpyAdapter<T> {
       return state.received.map((e) => e.body);
     },
   };
+  Object.defineProperty(adapter, "received", {
+    value: state.received,
+    enumerable: false,
+  });
+  Object.defineProperty(adapter, "calls", {
+    value: state.calls,
+    enumerable: false,
+  });
+  return adapter;
 }

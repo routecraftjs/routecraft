@@ -54,6 +54,15 @@ export class AgentSessionStore {
     return parseSessionRecord(record.stepState, key);
   }
 
+  /**
+   * Settle a stored continuation nothing will revive: a park whose work
+   * another turn consumed. Denied rather than left, so the store does not
+   * hold a live continuation for a turn that already happened.
+   */
+  async releasePark(suspensionId: string, reason: string): Promise<void> {
+    await this.store.markDenied(suspensionId, reason);
+  }
+
   /** Every session key the index knows. */
   async list(): Promise<AgentSessionKey[]> {
     const record = await this.store.get(INDEX_ID);

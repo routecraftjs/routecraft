@@ -2,6 +2,7 @@ import {
   getExchangeContext,
   getExchangeRoute,
   markSuspendCapable,
+  parkAside,
   peekResumeStepState,
   rcError,
   type CraftContext,
@@ -49,8 +50,11 @@ import type {
 } from "./types.ts";
 import {
   AgentSessionRuntime,
+  isSessionParkMarker,
   sessionSystemBlock,
   type AgentSessionKey,
+  type AgentSessionPark,
+  type AgentSessionParkMarker,
   type AgentTurnExecutor,
 } from "./session/index.ts";
 import type { ThreadMessage } from "./suspension-state.ts";
@@ -192,8 +196,12 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
     // setup failure below) still resumes instead of silently re-running
     // the whole loop from the original prompt.
     const resumeRaw = peekResumeStepState(exchange);
+    // A revived session continuation re-enters here too, carrying only
+    // the session's name: the transcript and the inbox are in the session
+    // record, and the turn they make is the runtime's to run.
+    const revivedPark = isSessionParkMarker(resumeRaw) ? resumeRaw : undefined;
     const resume: AgentRunResume | undefined =
-      resumeRaw !== undefined
+      resumeRaw !== undefined && revivedPark === undefined
         ? rehydrateSession(resumeRaw, agentIdentity, exchange.suspension.result)
         : undefined;
 
@@ -259,12 +267,15 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
       this.binding.kind === "by-name" ? this.binding.perCall : undefined;
     const onDelta = perCall?.onDelta ?? merged.onDelta;
 
-    const sessionKey = this.resolveSessionKey(
-      perCall?.session ?? merged.session,
-      exchange,
-      agentIdentity,
-      merged.stream === true,
-    );
+    const sessionKey =
+      revivedPark !== undefined
+        ? this.revivedSessionKey(revivedPark, agentIdentity)
+        : this.resolveSessionKey(
+            perCall?.session ?? merged.session,
+            exchange,
+            agentIdentity,
+            merged.stream === true,
+          );
     const backgroundTools = tools.filter((tool) => tool.background === true);
     if (sessionKey === undefined && backgroundTools.length > 0) {
       throw rcError("RC5003", undefined, {
@@ -302,14 +313,43 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
         });
       }
       const interrupt = perCall?.interrupt ?? merged.interrupt;
+      // Where this exchange can be parked for a later turn: the re-entrant
+      // site the build assigned this step, when it sits on the primary flow.
+      const site = route?.definition.reentrantSuspendSteps?.find(
+        (host) => host.adapter === this,
+      )?.suspendSite;
+      const routeId = route?.definition.id;
+      const park =
+        site !== undefined && routeId !== undefined
+          ? async (): Promise<AgentSessionPark> => {
+              const { suspensionId } = await parkAside(
+                context,
+                exchange,
+                site,
+                routeId,
+                (id): AgentSessionParkMarker => ({
+                  kind: "agent-session-park",
+                  agent: sessionKey.agent,
+                  session: sessionKey.session,
+                  suspensionId: id,
+                }),
+              );
+              return { suspensionId, routeId };
+            }
+          : undefined;
       return await AgentSessionRuntime.for(context).turn({
         key: sessionKey,
         exchange,
-        message: user,
+        ...(revivedPark === undefined ? { message: user } : {}),
+        ...(park !== undefined ? { park } : {}),
+        ...(revivedPark !== undefined
+          ? { revived: revivedPark.suspensionId }
+          : {}),
         interrupt:
-          typeof interrupt === "function"
+          revivedPark === undefined &&
+          (typeof interrupt === "function"
             ? interrupt(exchange) === true
-            : interrupt === true,
+            : interrupt === true),
         executor: this.sessionExecutor(
           {
             ...base,
@@ -375,6 +415,24 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
       });
     }
     return { agent: agentIdentity, session: resolved };
+  }
+
+  /**
+   * The session a revived continuation belongs to, from the marker it
+   * stored. The agent it names must be the one this step dispatches: the
+   * marker is read off the store, and a route rebound under a park would
+   * otherwise run another agent's conversation.
+   */
+  private revivedSessionKey(
+    marker: AgentSessionParkMarker,
+    agentIdentity: string | undefined,
+  ): AgentSessionKey {
+    if (agentIdentity !== marker.agent) {
+      throw rcError("AI1007", undefined, {
+        message: `This continuation was stored by agent "${marker.agent}", but the revived route now dispatches ${agentIdentity === undefined ? "an agent with no identity" : `"${agentIdentity}"`}. Restore the original agent binding.`,
+      });
+    }
+    return { agent: marker.agent, session: marker.session };
   }
 
   /**

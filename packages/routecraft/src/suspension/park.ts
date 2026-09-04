@@ -64,61 +64,17 @@ export async function parkExchange(
     });
   }
 
-  const sequence = readSequence(exchange.headers);
-  const id = suspensionIdOf(exchange.headers, exchange.id);
-  // The parked exchange carries the sequence its successor will use, so a
-  // route that suspends, resumes, and suspends again mints a fresh id
-  // rather than colliding with the record it just settled.
-  const parking = DefaultExchange.rewrap(exchange, {
-    headers: {
-      ...exchange.headers,
-      [SuspensionHeaders.SEQUENCE]: sequence + 1,
-    },
-  });
-
-  const schema = describeSchema(request.schema);
-  const serialized = serializeExchange(parking);
-  // The site's continuation is exactly what a resume would run: for a
-  // static `.suspend()` it excludes the step itself (it already ran), and
-  // for a re-entrant site it includes it (it runs again). The hash covers
-  // whichever is true.
-  const hash = continuationTailHash(request.site.continuation, schema);
-  // `stepState` crosses the persistence boundary raw: the store's `create`
-  // applies the same plain-JSON rule as the exchange (both backends encode
-  // it, refusing a resolver, a secret, or a non-envelope Date with RC5042),
-  // so the park still fails here rather than surprising the revival, and
-  // encoding happens exactly once. Encoding it here too would double-wrap
-  // the Date envelope, which the second pass refuses as a reserved shape.
-  const stepState = request.stepState;
-  const suspendedAt = new Date();
-  const ttlMs = request.expiresInMs ?? runtime.defaultTtlMs;
-  const record: NewSuspension = {
-    id,
+  // Per-suspend `ttl` first, then the context default. A suspension with
+  // no deadline at all is only reachable through `defaultTtl: "never"`,
+  // because a park nobody resumes should eventually reach the route
+  // that asked for it rather than sit in the store forever.
+  const { id, parking, record } = describeRecord(
+    exchange,
     routeId,
-    position: request.site.position,
-    continuationHash: hash,
-    exchange: serialized,
-    schema,
-    ...(request.meta !== undefined ? { meta: request.meta } : {}),
-    ...(request.callBinding !== undefined
-      ? { callBinding: request.callBinding }
-      : {}),
-    ...(stepState !== undefined ? { stepState } : {}),
-    actionFingerprint: actionFingerprint({
-      routeId,
-      position: request.site.position,
-      continuationHash: hash,
-      exchange: serialized,
-    }),
-    suspendedAt,
-    // Per-suspend `ttl` first, then the context default. A suspension with
-    // no deadline at all is only reachable through `defaultTtl: "never"`,
-    // because a park nobody resumes should eventually reach the route
-    // that asked for it rather than sit in the store forever.
-    ...(ttlMs !== undefined
-      ? { expiresAt: new Date(suspendedAt.getTime() + ttlMs) }
-      : {}),
-  };
+    request,
+    request.expiresInMs ?? runtime.defaultTtlMs,
+  );
+  const schema = record.schema;
 
   await runtime.store.create(record);
 
@@ -183,6 +139,128 @@ export async function parkExchange(
     "Exchange suspended",
   );
   return parked;
+}
+
+/**
+ * The record a park writes, and the exchange it was taken from.
+ *
+ * Shared by the two ways an exchange reaches the store: a `.suspend()`
+ * park, which replaces the run's outcome with the acknowledgment, and an
+ * aside park, which stores a continuation for a run that completes
+ * normally. Both must agree on the id, the sequence, the serialised
+ * exchange and the hash, or a revival of one would not find what the
+ * other wrote.
+ */
+function describeRecord(
+  exchange: Exchange,
+  routeId: string,
+  request: Pick<
+    SuspendRequest,
+    "site" | "schema" | "meta" | "callBinding" | "stepState"
+  >,
+  ttlMs: number | undefined,
+): { id: string; parking: Exchange; record: NewSuspension } {
+  const sequence = readSequence(exchange.headers);
+  const id = suspensionIdOf(exchange.headers, exchange.id);
+  // The parked exchange carries the sequence its successor will use, so a
+  // route that suspends, resumes, and suspends again mints a fresh id
+  // rather than colliding with the record it just settled.
+  const parking = DefaultExchange.rewrap(exchange, {
+    headers: {
+      ...exchange.headers,
+      [SuspensionHeaders.SEQUENCE]: sequence + 1,
+    },
+  });
+
+  const schema = describeSchema(request.schema);
+  const serialized = serializeExchange(parking);
+  // The site's continuation is exactly what a resume would run: for a
+  // static `.suspend()` it excludes the step itself (it already ran), and
+  // for a re-entrant site it includes it (it runs again). The hash covers
+  // whichever is true.
+  const hash = continuationTailHash(request.site.continuation, schema);
+  // `stepState` crosses the persistence boundary raw: the store's `create`
+  // applies the same plain-JSON rule as the exchange (both backends encode
+  // it, refusing a resolver, a secret, or a non-envelope Date with RC5042),
+  // so the park still fails here rather than surprising the revival, and
+  // encoding happens exactly once. Encoding it here too would double-wrap
+  // the Date envelope, which the second pass refuses as a reserved shape.
+  const stepState = request.stepState;
+  const suspendedAt = new Date();
+  const record: NewSuspension = {
+    id,
+    routeId,
+    position: request.site.position,
+    continuationHash: hash,
+    exchange: serialized,
+    schema,
+    ...(request.meta !== undefined ? { meta: request.meta } : {}),
+    ...(request.callBinding !== undefined
+      ? { callBinding: request.callBinding }
+      : {}),
+    ...(stepState !== undefined ? { stepState } : {}),
+    actionFingerprint: actionFingerprint({
+      routeId,
+      position: request.site.position,
+      continuationHash: hash,
+      exchange: serialized,
+    }),
+    suspendedAt,
+    ...(ttlMs !== undefined
+      ? { expiresAt: new Date(suspendedAt.getTime() + ttlMs) }
+      : {}),
+  };
+  return { id, parking, record };
+}
+
+/**
+ * Store a continuation for an exchange that completes normally.
+ *
+ * A `.suspend()` park ends the run and answers with the acknowledgment. An
+ * aside park does not: the run goes on to complete, and what is stored is
+ * a way to re-enter the route at `site` later, on this process, with the
+ * exchange's body and headers exactly as a park stores them. The agent
+ * tier uses it for a session turn that ends with work still outstanding
+ * (a background tool running, messages queued): the caller has its reply,
+ * and the continuation is what a completion revives to run the next turn
+ * and the route's downstream steps.
+ *
+ * No `route:exchange:suspended` is emitted and the exchange is not marked
+ * suspended, because it is not: it completes, and one `exchange:started`
+ * must reach exactly one terminal. Revival is a first-class run of the
+ * route with its own pair. The record carries no deadline, since what it
+ * waits on has none the framework knows.
+ *
+ * @param stepState - Built from the suspension id, so the state a revival
+ *   hands back can name the record it came from
+ * @returns The suspension id, which `reviveSuspension` takes back
+ * @throws RC5052 without a suspension runtime, RC5042 when the exchange
+ *   cannot be persisted, RC5044 when the store write fails
+ *
+ * @internal
+ */
+export async function parkAside(
+  context: CraftContext,
+  exchange: Exchange,
+  site: SuspendRequest["site"],
+  routeId: string,
+  stepState: (suspensionId: string) => unknown,
+): Promise<{ suspensionId: string }> {
+  const runtime = context.getStore(SUSPENSION_RUNTIME);
+  if (!runtime) {
+    throw rcError("RC5052", undefined, {
+      message: `Route "${routeId}" needs a continuation stored for a later turn, and this context has no suspension runtime. Add suspension: {} to defineConfig.`,
+    });
+  }
+  const id = suspensionIdOf(exchange.headers, exchange.id);
+  const { record } = describeRecord(
+    exchange,
+    routeId,
+    { site, stepState: stepState(id) },
+    undefined,
+  );
+  await runtime.store.create(record);
+  return { suspensionId: id };
 }
 
 /**

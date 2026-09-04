@@ -663,6 +663,8 @@ export {
   isSuspendSignal,
   isSuspended,
   markSuspendCapable,
+  parkAside,
+  reviveSuspension,
   routeCanSuspend,
   stepStateFingerprint,
   suspendedSchema,

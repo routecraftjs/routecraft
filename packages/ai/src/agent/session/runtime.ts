@@ -4,6 +4,7 @@ import {
   decodeCursor,
   getExchangeRoute,
   rcError,
+  reviveSuspension,
   takePage,
   type CraftContext,
   type CursorScope,
@@ -22,6 +23,7 @@ import type {
   AgentBackgroundCall,
   AgentInboxMessage,
   AgentSessionKey,
+  AgentSessionPark,
   AgentSessionRecord,
   AgentSessionSummary,
 } from "./types.ts";
@@ -53,9 +55,22 @@ export interface AgentTurnExecutor {
 export interface AgentTurnRequest<T = unknown> {
   readonly key: AgentSessionKey;
   readonly exchange: Exchange<T>;
-  readonly message: string | LlmPromptPart[];
+  /**
+   * The caller's message. Absent on a revived continuation, whose turn is
+   * the inbox alone: the completion, or the messages that queued.
+   */
+  readonly message?: string | LlmPromptPart[];
   readonly interrupt: boolean;
   readonly executor: AgentTurnExecutor;
+  /**
+   * Store this exchange's continuation, for a turn that ends with work
+   * outstanding. Absent when the step sits where a park cannot be revived
+   * from (inside a fan-out), in which case queued messages run in process
+   * and a completion waits for the next message.
+   */
+  readonly park?: () => Promise<AgentSessionPark>;
+  /** The stored continuation this exchange revives, when it is one. */
+  readonly revived?: string;
 }
 
 /** What the management API asks of the session listing. @internal */
@@ -94,6 +109,10 @@ export class AgentSessionRuntime {
   private readonly active = new Map<string, ActiveTurn>();
   /** The exchange each in-flight background call was started from. */
   private readonly backgroundOrigins = new Map<string, Exchange<unknown>>();
+  /** Sessions whose stored continuation is being revived right now. */
+  private readonly reviving = new Set<string>();
+  /** Callers waiting for the next turn to start on a session. */
+  private readonly starters = new Map<string, Set<() => void>>();
 
   constructor(
     private readonly context: CraftContext,
@@ -145,7 +164,23 @@ export class AgentSessionRuntime {
     if (!running) {
       return this.start(k, req, req.message).outcome;
     }
+    if (req.message === undefined) {
+      // A revived continuation that found a turn already running: that
+      // turn's boundary consumes the inbox, and its end stores a fresh
+      // continuation if work is still outstanding. Nothing to run here.
+      const depth = (await this.store.load(req.key))?.inbox.length ?? 0;
+      return {
+        text: "",
+        session: {
+          agent: req.key.agent,
+          id: req.key.session,
+          status: "idle",
+          queued: depth,
+        },
+      };
+    }
     const id = randomUUID();
+    const content = req.message;
     const record = await this.store.update(req.key, (r) => ({
       ...r,
       inbox: [
@@ -153,7 +188,7 @@ export class AgentSessionRuntime {
         {
           kind: "message",
           id,
-          content: req.message,
+          content,
           at: new Date().toISOString(),
           ...(req.interrupt ? { interrupt: true } : {}),
         },
@@ -189,10 +224,69 @@ export class AgentSessionRuntime {
     // failed before reaching the inbox failed on the store, and starting
     // another against the same fault would spin.
     for (;;) {
-      const current = this.active.get(k) ?? this.start(k, req, undefined);
+      const current = this.active.get(k) ?? (await this.nextTurn(k, req, id));
       const result = await current.outcome;
       if (current.consumed.has(id)) return result;
     }
+  }
+
+  /**
+   * The turn that will consume a queued message when none is running:
+   * the revival of the session's stored continuation when the boundary
+   * left one and is reviving it, else one started here. Waiting on the
+   * revival is what keeps the boundary turn on the route's own pipeline;
+   * a revival that never reaches this runtime (a step ahead of the agent
+   * failed) is given up on after a bound and the turn started in process,
+   * so a waiting caller is never stranded on it.
+   */
+  private async nextTurn<T>(
+    k: string,
+    req: AgentTurnRequest<T>,
+    messageId: string,
+  ): Promise<ActiveTurn> {
+    // Registered before the read: a revival can start its turn while the
+    // record is being read, and a waiter registered after that start
+    // would wait on one that has already happened.
+    const wait = this.awaitStart(k, REVIVAL_WAIT_MS);
+    const record = await this.store.load(req.key);
+    const already = this.active.get(k);
+    if (already) {
+      wait.cancel();
+      return already;
+    }
+    const pending =
+      record?.park !== undefined &&
+      record.inbox.some((entry) => entry.id === messageId);
+    if (pending) {
+      const started = await wait.started;
+      if (started) return started;
+    } else {
+      wait.cancel();
+    }
+    return this.active.get(k) ?? this.start(k, req, undefined);
+  }
+
+  /** The next turn registered for `k`, or `undefined` at the bound or when cancelled. */
+  private awaitStart(
+    k: string,
+    timeoutMs: number,
+  ): { started: Promise<ActiveTurn | undefined>; cancel: () => void } {
+    const waiters = this.starters.get(k) ?? new Set();
+    this.starters.set(k, waiters);
+    let settle!: (turn: ActiveTurn | undefined) => void;
+    const started = new Promise<ActiveTurn | undefined>((resolve) => {
+      settle = resolve;
+    });
+    const timer = setTimeout(() => finish(undefined), timeoutMs);
+    const notify = (): void => finish(this.active.get(k));
+    const finish = (turn: ActiveTurn | undefined): void => {
+      clearTimeout(timer);
+      waiters.delete(notify);
+      if (waiters.size === 0) this.starters.delete(k);
+      settle(turn);
+    };
+    waiters.add(notify);
+    return { started, cancel: () => finish(undefined) };
   }
 
   /**
@@ -211,7 +305,9 @@ export class AgentSessionRuntime {
         { ...entry, id: randomUUID(), at: new Date().toISOString() },
       ] as AgentInboxMessage[],
     }));
-    return { depth: record.inbox.length, running: this.isRunning(key) };
+    const running = this.isRunning(key);
+    if (!running && record.park !== undefined) this.revive(key, record.park);
+    return { depth: record.inbox.length, running };
   }
 
   /**
@@ -244,8 +340,9 @@ export class AgentSessionRuntime {
   /**
    * Retire a background call and deliver its outcome to the inbox in one
    * write, so a crash between the two cannot lose the result while
-   * forgetting the call. The inbox rule applies from here: a running turn
-   * sees it at its boundary, an idle session at its next turn.
+   * forgetting the call. A running turn sees it at its boundary; an idle
+   * session's stored continuation is revived so the completion starts the
+   * next turn on its own, which is what a build finishing is for.
    */
   async settleBackground(
     key: AgentSessionKey,
@@ -301,7 +398,47 @@ export class AgentSessionRuntime {
         });
       }
     }
-    return { depth: record.inbox.length, running: this.isRunning(key) };
+    const running = this.isRunning(key);
+    if (!running && record.park !== undefined) this.revive(key, record.park);
+    return { depth: record.inbox.length, running };
+  }
+
+  /**
+   * Drive what a previous process left: for every session with a stored
+   * continuation, report the background calls it was waiting on as lost
+   * (no process is running them) and revive the continuation so the loss
+   * reaches the model as a turn rather than waiting for a message nobody
+   * may send. A session with no continuation is left for its next message,
+   * which restores it the same way. Bounded by the index; one read per
+   * session and writes only where something was outstanding.
+   */
+  async driveBoot(): Promise<{ revived: number; lostBackground: number }> {
+    let revived = 0;
+    let lostBackground = 0;
+    for (const key of await this.store.list()) {
+      const record = await this.store.load(key);
+      if (record?.park === undefined) continue;
+      let next = record;
+      if (record.turn !== undefined || record.background.length > 0) {
+        lostBackground += record.background.length;
+        next = await this.store.update(key, restoreAfterRestart);
+        this.context.logger.info(
+          {
+            agent: key.agent,
+            session: key.session,
+            lostBackground: record.background.length,
+          },
+          "Agent session restored at boot: its previous process is gone",
+        );
+      }
+      if (next.inbox.length > 0) {
+        this.revive(key, next.park!);
+        revived += 1;
+      } else if (next.background.length === 0) {
+        await this.releasePark(key, next.park!);
+      }
+    }
+    return { revived, lostBackground };
   }
 
   /**
@@ -351,6 +488,7 @@ export class AgentSessionRuntime {
           : "idle",
       inbox: record.inbox.length,
       background: record.background.length,
+      parked: record.park !== undefined,
       messages: record.messages.length,
       turns: record.turns,
       updatedAt: record.updatedAt,
@@ -381,6 +519,7 @@ export class AgentSessionRuntime {
       outcome,
     };
     this.active.set(k, turn);
+    for (const notify of this.starters.get(k) ?? []) notify();
     return turn;
   }
 
@@ -392,11 +531,11 @@ export class AgentSessionRuntime {
     consumed: Set<string>,
   ): Promise<AgentResult> {
     const { key, exchange, executor } = req;
-    let followUp = false;
     let after: AgentSessionRecord | undefined;
     try {
       let lostBackground = 0;
       let stale = false;
+      let empty = false;
       const started = await this.store.update(key, (r) => {
         let next = r;
         if (r.turn !== undefined) {
@@ -407,6 +546,21 @@ export class AgentSessionRuntime {
           stale = true;
           lostBackground = r.background.length;
           next = restoreAfterRestart(r);
+        }
+        // Core has settled the continuation this exchange revives; the
+        // record stops naming it, and a fresh one is stored at this turn's
+        // end if work is still outstanding.
+        if (
+          req.revived !== undefined &&
+          next.park?.suspensionId === req.revived
+        ) {
+          next = withoutPark(next);
+        }
+        if (incoming === undefined && next.inbox.length === 0) {
+          // A revival with nothing left to consume: another turn got to
+          // the inbox first. No model call for an empty user message.
+          empty = true;
+          return next;
         }
         for (const entry of next.inbox) consumed.add(entry.id);
         const user = renderUserMessage(next.inbox, incoming);
@@ -420,12 +574,31 @@ export class AgentSessionRuntime {
           },
         };
       });
+      if (req.revived !== undefined) {
+        this.emit(exchange, "route:agent:session:revived", {
+          agentName: key.agent,
+          session: key.session,
+          suspensionId: req.revived,
+        });
+      }
       if (stale) {
         this.emit(exchange, "route:agent:session:restored", {
           agentName: key.agent,
           session: key.session,
           lostBackground,
         });
+      }
+      if (empty) {
+        after = await this.parkIfOutstanding(req, started);
+        return {
+          text: "",
+          session: {
+            agent: key.agent,
+            id: key.session,
+            status: "idle",
+            queued: 0,
+          },
+        };
       }
       const startMessages = started.messages;
       let result: AgentResult;
@@ -442,12 +615,15 @@ export class AgentSessionRuntime {
         // is what the next turn starts from, and the marker must not
         // outlive the turn in this process.
         const partial = executor.thread() ?? startMessages;
-        after = await this.store.update(key, (r) => ({
+        const written = await this.store.update(key, (r) => ({
           ...withoutTurn(r),
           messages: partial,
         }));
-        if (!controller.signal.aborted) throw err;
-        followUp = true;
+        if (!controller.signal.aborted) {
+          after = written;
+          throw err;
+        }
+        after = await this.parkIfOutstanding(req, written);
         return {
           text: "",
           session: {
@@ -459,12 +635,14 @@ export class AgentSessionRuntime {
         };
       }
       const final = executor.thread() ?? startMessages;
-      after = await this.store.update(key, (r) => ({
-        ...withoutTurn(r),
-        messages: final,
-        turns: r.turns + 1,
-      }));
-      followUp = true;
+      after = await this.parkIfOutstanding(
+        req,
+        await this.store.update(key, (r) => ({
+          ...withoutTurn(r),
+          messages: final,
+          turns: r.turns + 1,
+        })),
+      );
       return {
         ...result,
         session: {
@@ -477,23 +655,128 @@ export class AgentSessionRuntime {
     } finally {
       this.active.delete(k);
       // The boundary: what queued while the turn ran is delivered now, as
-      // the next turn, on the same route so shutdown drains it. Registered
-      // before this turn's promise settles, so a waiter never sees the
-      // session idle between two turns.
-      if (followUp && after !== undefined && after.inbox.length > 0) {
-        const next = this.start(k, req, undefined);
-        const route = getExchangeRoute(exchange);
-        if (route) {
-          route.trackTask(next.outcome);
-        } else {
-          next.outcome.catch((err: unknown) => {
-            this.context.logger.error(
-              { err, agent: key.agent, session: key.session },
-              "Agent session follow-up turn failed",
-            );
-          });
-        }
+      // the next turn. Through the stored continuation when there is one,
+      // so the turn runs on the route's own pipeline and its reply reaches
+      // the route's downstream steps; in process otherwise.
+      if (after !== undefined && after.inbox.length > 0) {
+        if (after.park !== undefined) this.revive(key, after.park, { k, req });
+        else this.followUpInProcess(k, req);
       }
+    }
+  }
+
+  /**
+   * Store this exchange's continuation when the turn leaves work
+   * outstanding, and settle a stale one when it leaves none. One
+   * continuation per session: a turn that ends with work outstanding while
+   * one is already stored keeps it, whichever exchange it came from.
+   */
+  private async parkIfOutstanding<T>(
+    req: AgentTurnRequest<T>,
+    record: AgentSessionRecord,
+  ): Promise<AgentSessionRecord> {
+    const outstanding = record.background.length > 0 || record.inbox.length > 0;
+    if (!outstanding) {
+      if (record.park === undefined) return record;
+      await this.releasePark(req.key, record.park);
+      return withoutPark(record);
+    }
+    if (record.park !== undefined || req.park === undefined) return record;
+    let park: AgentSessionPark;
+    try {
+      park = await req.park();
+    } catch (err: unknown) {
+      // Without a continuation the queued messages run in process and a
+      // completion waits for the next message: the shape sessions had
+      // before parks, and the log is what says why this one is on it.
+      this.context.logger.error(
+        { err, agent: req.key.agent, session: req.key.session },
+        "Agent session continuation could not be stored; completions wait for the next message",
+      );
+      return record;
+    }
+    const updated = await this.store.update(req.key, (r) => ({ ...r, park }));
+    this.emit(req.exchange, "route:agent:session:parked", {
+      agentName: req.key.agent,
+      session: req.key.session,
+      suspensionId: park.suspensionId,
+      inbox: updated.inbox.length,
+      background: updated.background.length,
+    });
+    return updated;
+  }
+
+  /** Settle a continuation nothing will revive and drop it from the record. */
+  private async releasePark(
+    key: AgentSessionKey,
+    park: AgentSessionPark,
+  ): Promise<void> {
+    await this.store.releasePark(park.suspensionId, "agent session idle");
+    await this.store.update(key, (r) =>
+      r.park?.suspensionId === park.suspensionId ? withoutPark(r) : r,
+    );
+  }
+
+  /**
+   * Revive a session's stored continuation on this process: core resumes
+   * the parked exchange at the agent step, the step runs the next turn
+   * from the inbox, and the route's downstream steps follow. At most one
+   * revival per session at a time, and none while a turn is running here,
+   * because that turn's boundary does this itself.
+   *
+   * A revival that fails (the route is gone, its continuation changed, the
+   * store refused) is logged and the record stops naming the park; the
+   * queued messages then run in process when a caller is waiting on them,
+   * and otherwise wait for the next message.
+   */
+  private revive<T>(
+    key: AgentSessionKey,
+    park: AgentSessionPark,
+    fallback?: { k: string; req: AgentTurnRequest<T> },
+  ): void {
+    const k = keyOf(key);
+    if (this.reviving.has(k) || this.active.has(k)) return;
+    const suspension = this.context.getStore(SUSPENSION_RUNTIME);
+    if (!suspension) return;
+    this.reviving.add(k);
+    const token = suspension.signer.mint(park.suspensionId, new Date());
+    reviveSuspension(this.context, { token, result: undefined })
+      .catch(async (err: unknown) => {
+        this.context.logger.error(
+          {
+            err,
+            agent: key.agent,
+            session: key.session,
+            suspensionId: park.suspensionId,
+            routeId: park.routeId,
+          },
+          "Agent session continuation could not be revived",
+        );
+        await this.store
+          .update(key, (r) =>
+            r.park?.suspensionId === park.suspensionId ? withoutPark(r) : r,
+          )
+          .catch(() => undefined);
+        if (fallback && !this.active.has(k)) {
+          this.followUpInProcess(fallback.k, fallback.req);
+        }
+      })
+      .finally(() => this.reviving.delete(k));
+  }
+
+  /** The boundary turn without a continuation: started here, tracked by the route for drain. */
+  private followUpInProcess<T>(k: string, req: AgentTurnRequest<T>): void {
+    const next = this.start(k, req, undefined);
+    const route = getExchangeRoute(req.exchange);
+    if (route) {
+      route.trackTask(next.outcome);
+    } else {
+      next.outcome.catch((err: unknown) => {
+        this.context.logger.error(
+          { err, agent: req.key.agent, session: req.key.session },
+          "Agent session follow-up turn failed",
+        );
+      });
     }
   }
 
@@ -534,6 +817,8 @@ type SessionEventName =
   | "route:agent:session:queued"
   | "route:agent:session:interrupted"
   | "route:agent:session:restored"
+  | "route:agent:session:parked"
+  | "route:agent:session:revived"
   | "route:agent:session:background:started"
   | "route:agent:session:background:completed"
   | "route:agent:session:background:failed";
@@ -565,6 +850,18 @@ function withoutTurn(record: AgentSessionRecord): AgentSessionRecord {
   const { turn: _turn, ...rest } = record;
   return rest;
 }
+
+function withoutPark(record: AgentSessionRecord): AgentSessionRecord {
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructure to omit
+  const { park: _park, ...rest } = record;
+  return rest;
+}
+
+/**
+ * How long a caller waiting on a queued message gives the boundary's
+ * revival to reach this runtime before starting the turn itself.
+ */
+const REVIVAL_WAIT_MS = 30_000;
 
 /**
  * What a record cut short by a restart becomes at the next turn start.

@@ -331,7 +331,7 @@ registerOpsResource(ctx, {
 
 A collection answer is the same `{ items, nextCursor? }` envelope as the route listing, and the contributor pages it with the same helpers the mount uses: `parsePageQuery(query)` reads `limit` and `after` (refusing a bad limit with `RC5059`), `decodeCursor(after, scope)` checks a cursor against the contributor's own filter scope, and `takePage(sorted, scope, limit, after)` takes the page and mints the next cursor, all exported from `@routecraft/routecraft`. A throw from either read is answered by the mount: `RC5059` as a 400 carrying the message, since it is the caller's; anything else as a 500 carrying the resource name and the error's code, never its message. `routes` and `events` are the mount's own names and refused, as is a second registration of one name. Registration needs no ops plugin to be present: it is inert until a mount exists.
 
-**`agent-sessions`** is the one shipped: [`@routecraft/ai`](/docs/reference/adapters/agent#sessions-an-agent-that-remembers) registers it, and it lists every named agent session with its turn state (`idle`, `running`, or `stale` for a turn a restart cut short), the depth of its inbox, the background calls it is waiting on, its transcript length and its turn count. `?agent=` narrows the collection to one agent, `limit` and `after` page it exactly as the route listing (the cursor is bound to the `agent` filter), and `GET /ops/agent-sessions/{agent}/{session}` answers one summary. A page costs one store read per session shown, never one per session stored. A context with no suspension store lists nothing, which the collection cannot tell apart from a store with no sessions.
+**`agent-sessions`** is the one shipped: [`@routecraft/ai`](/docs/reference/adapters/agent#sessions-an-agent-that-remembers) registers it, and it lists every named agent session with its turn state (`idle`, `running`, or `stale` for a turn a restart cut short), the depth of its inbox, the background calls it is waiting on, whether a continuation is stored for them (`parked`), its transcript length and its turn count. `?agent=` narrows the collection to one agent, `limit` and `after` page it exactly as the route listing (the cursor is bound to the `agent` filter), and `GET /ops/agent-sessions/{agent}/{session}` answers one summary. A page costs one store read per session shown, never one per session stored. A context with no suspension store lists nothing, which the collection cannot tell apart from a store with no sessions.
 
 ```bash
 curl -H "authorization: Bearer $TOKEN" 'http://127.0.0.1:8080/ops/agent-sessions?agent=max'
@@ -340,7 +340,7 @@ curl -H "authorization: Bearer $TOKEN" 'http://127.0.0.1:8080/ops/agent-sessions
 ```json
 {
   "items": [
-    { "agent": "max", "session": "feature-login", "turn": "idle", "inbox": 0, "background": 1, "messages": 14, "turns": 6, "updatedAt": "2026-09-04T21:40:11.522Z" }
+    { "agent": "max", "session": "feature-login", "turn": "idle", "inbox": 0, "background": 1, "parked": true, "messages": 14, "turns": 6, "updatedAt": "2026-09-04T21:40:11.522Z" }
   ]
 }
 ```

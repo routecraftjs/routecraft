@@ -72,10 +72,53 @@ export interface AgentSessionRecord {
   readonly inbox: readonly AgentInboxMessage[];
   readonly turn?: { readonly exchangeId: string; readonly startedAt: string };
   readonly background: readonly AgentBackgroundCall[];
+  /**
+   * The stored continuation of the exchange whose turn ended with work
+   * outstanding, revived to run the next turn when a background call
+   * settles, when messages are queued, or at boot. One per session: a
+   * later turn that ends with work outstanding keeps the one that exists.
+   */
+  readonly park?: AgentSessionPark;
   /** Completed turns. */
   readonly turns: number;
   readonly createdAt: string;
   readonly updatedAt: string;
+}
+
+/** Where a session's stored continuation is. */
+export interface AgentSessionPark {
+  readonly suspensionId: string;
+  readonly routeId: string;
+}
+
+/**
+ * What a session park stores as its step state, so the revived step knows
+ * it re-enters as a turn and not as a parked tool loop. The transcript and
+ * the inbox stay in the session record; this names them, it does not
+ * carry them.
+ *
+ * @internal
+ */
+export interface AgentSessionParkMarker {
+  readonly kind: "agent-session-park";
+  readonly agent: string;
+  readonly session: string;
+  readonly suspensionId: string;
+}
+
+/** @internal */
+export function isSessionParkMarker(
+  value: unknown,
+): value is AgentSessionParkMarker {
+  const marker = value as Partial<AgentSessionParkMarker> | null | undefined;
+  return (
+    marker !== null &&
+    typeof marker === "object" &&
+    marker.kind === "agent-session-park" &&
+    typeof marker.agent === "string" &&
+    typeof marker.session === "string" &&
+    typeof marker.suspensionId === "string"
+  );
 }
 
 /**
@@ -86,11 +129,14 @@ export interface AgentSessionRecord {
  *   and is answered by the turn that consumes it; `text` is empty.
  * - `interrupted`: this call's turn was interrupted by a later message. The
  *   partial transcript is stored and `text` is empty.
+ * - `idle`: a revived continuation found nothing to run, because another
+ *   turn had consumed the inbox first; `text` is empty and no model call
+ *   was made. Only a revived exchange can carry it.
  */
 export interface AgentSessionOutcome {
   readonly agent: string;
   readonly id: string;
-  readonly status: "replied" | "queued" | "interrupted";
+  readonly status: "replied" | "queued" | "interrupted" | "idle";
   /** Inbox depth after this message was handled. */
   readonly queued: number;
 }
@@ -109,6 +155,8 @@ export interface AgentSessionSummary {
   readonly inbox: number;
   /** Background tool calls still running. */
   readonly background: number;
+  /** A continuation is stored, waiting for a completion or a boot to revive it. */
+  readonly parked: boolean;
   /** Transcript length, in messages. */
   readonly messages: number;
   readonly turns: number;

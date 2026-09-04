@@ -40,7 +40,10 @@ const sleep = (ms: number): Promise<void> =>
 let release: ((value: string) => void) | undefined;
 let finished = false;
 
-function routes(sink: ReturnType<typeof spy>): RouteDefinition[] {
+function routes(
+  sink: ReturnType<typeof spy>,
+  chatSink: ReturnType<typeof spy>,
+): RouteDefinition[] {
   return [
     ...craft()
       .id("sandbox-run")
@@ -71,7 +74,7 @@ function routes(sink: ReturnType<typeof spy>): RouteDefinition[] {
       .input({ body: ChatMessage })
       .from(direct())
       .to(agent<ChatMessage>("max", { session: (ex) => ex.body.session }))
-      .to(noop())
+      .to(chatSink)
       .build(),
     ...craft().id("plain").from(direct()).to(agent("max")).to(noop()).build(),
   ];
@@ -86,10 +89,12 @@ const whoami = {
 function contextWith(
   store: MemorySuspensionStore,
   sink: ReturnType<typeof spy>,
+  chatSink: ReturnType<typeof spy> = spy(),
 ): ReturnType<ReturnType<typeof testContext>["routes"]> {
   return testContext()
     .with({
       suspension: { store },
+      shutdown: { timeout: 500 },
       plugins: [
         llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         agentPlugin({
@@ -110,7 +115,16 @@ function contextWith(
         }),
       ],
     })
-    .routes(routes(sink));
+    .routes(routes(sink, chatSink));
+}
+
+/** Wait, bounded, until the scripted model has been called `count` times. */
+async function waitForCalls(count: number): Promise<void> {
+  const deadline = Date.now() + 5_000;
+  while (llm.calls.length < count && Date.now() < deadline) await sleep(5);
+  if (llm.calls.length < count) {
+    throw new Error(`model call ${count} never came`);
+  }
 }
 
 function send(t: TestContext, body: ChatMessage): Promise<AgentResult> {
@@ -122,19 +136,6 @@ function lastUserOf(call: { user: unknown }): unknown {
   const thread = call.user as Array<{ role: string; content: unknown }>;
   const users = thread.filter((m) => m.role === "user");
   return users[users.length - 1]!.content;
-}
-
-async function inboxDepth(t: TestContext, session: string): Promise<number> {
-  const deadline = Date.now() + 5_000;
-  for (;;) {
-    const summary = await AgentSessionRuntime.for(t.ctx).summary({
-      agent: "max",
-      session,
-    });
-    if (summary && summary.inbox > 0) return summary.inbox;
-    if (Date.now() > deadline) return summary?.inbox ?? 0;
-    await sleep(5);
-  }
 }
 
 describe("background tools", () => {
@@ -153,19 +154,22 @@ describe("background tools", () => {
   });
 
   /**
-   * @case A background call returns a handle at once, the turn replies before the route finishes, and the next turn opens with the result attributed to the handle
-   * @preconditions sandbox-run is held open by the test; the agent calls it and answers; the route is released after the reply
-   * @expectedResult The tool result the model saw is { handle: "sandbox-run:<dispatchId>", status: "running" } and the dispatched exchange carries the handle on its headers; the reply arrives while the route is still running; once released the result lands in the inbox with background:started and :completed emitted; the next turn's first user message carries the result text naming the handle before the new message. With the inbox post removed this fails: the next turn carries only the new message
+   * @case A background call returns a handle at once, the turn replies before the route finishes, and the completion starts the next turn on its own
+   * @preconditions sandbox-run is held open by the test; the agent calls it and answers; the route is released after the reply, and no further message is sent
+   * @expectedResult The tool result the model saw is { handle: "sandbox-run:<dispatchId>", status: "running" } and the dispatched exchange carries the handle on its headers; the reply arrives while the route is still running and the turn's exchange is parked with one background call; once released, background:completed is emitted, the stored continuation is revived and a second model call is made with no new message, whose only user part carries the result text naming the handle; that turn's reply reaches the chat route's downstream step; a later message is a third call carrying only itself. With the revival removed this fails: no second call is made until a message arrives
    */
-  test("the turn continues past the call and the next turn opens with the result", async () => {
+  test("the turn continues past the call and the completion starts the next turn", async () => {
     const store = new MemorySuspensionStore();
     const sink = spy();
-    t = await contextWith(store, sink).build();
+    const chatSink = spy();
+    t = await contextWith(store, sink, chatSink).build();
     await t.startAndWaitReady();
     const events: string[] = [];
     for (const name of [
       "route:agent:session:background:started",
       "route:agent:session:background:completed",
+      "route:agent:session:parked",
+      "route:agent:session:revived",
     ] as const) {
       t.ctx.on(name, () => {
         events.push(name);
@@ -184,7 +188,10 @@ describe("background tools", () => {
     const receipt = call?.output as BackgroundToolHandle;
     expect(receipt.status).toBe("running");
     expect(receipt.handle).toMatch(/^sandbox-run:[0-9a-f-]{36}$/);
-    expect(events).toEqual(["route:agent:session:background:started"]);
+    expect(events).toEqual([
+      "route:agent:session:background:started",
+      "route:agent:session:parked",
+    ]);
     // The model was told the tool is asynchronous.
     const advertised = (
       llm.calls[0]!.tools as Record<string, { description: string }>
@@ -198,40 +205,93 @@ describe("background tools", () => {
         })
       )?.background,
     ).toBe(1);
+    expect(chatSink.received).toHaveLength(1);
 
+    llm.script.push({ text: "green, opening the PR" });
     release!("all 12 tests passed");
-    expect(await inboxDepth(t, "s")).toBe(1);
+    await waitForCalls(2);
+    await t.ctx.getRouteById("chat")!.drain();
     expect(events).toEqual([
       "route:agent:session:background:started",
+      "route:agent:session:parked",
       "route:agent:session:background:completed",
+      "route:agent:session:revived",
     ]);
     // The run the handle names is findable from the route's side.
     expect(sink.received).toHaveLength(1);
     expect(sink.received[0]!.headers[AgentHeadersKeys.BACKGROUND_HANDLE]).toBe(
       receipt.handle,
     );
-
-    llm.script.push({ text: "green" });
-    const next = await send(t, { session: "s", message: "and?" });
-    expect(next.text).toBe("green");
+    // The completion was the whole of the revived turn's user message.
     const parts = lastUserOf(llm.calls[1]!) as Array<{
       type: string;
       text: string;
     }>;
-    expect(parts).toHaveLength(2);
+    expect(parts).toHaveLength(1);
     expect(parts[0]!.text).toContain(`Handle: ${receipt.handle}`);
     expect(parts[0]!.text).toContain('"sandboxRun" finished');
     expect(parts[0]!.text).toContain("all 12 tests passed");
-    expect(parts[1]).toEqual({ type: "text", text: "and?" });
-    expect(
-      (
-        await AgentSessionRuntime.for(t.ctx).summary({
-          agent: "max",
-          session: "s",
-        })
-      )?.background,
-    ).toBe(0);
+    // And its reply ran the route's downstream step, on the revived exchange.
+    expect(chatSink.received).toHaveLength(2);
+    expect((chatSink.received[1]!.body as AgentResult).text).toBe(
+      "green, opening the PR",
+    );
+    expect((chatSink.received[1]!.body as AgentResult).session).toMatchObject({
+      status: "replied",
+      queued: 0,
+    });
+    const summary = await AgentSessionRuntime.for(t.ctx).summary({
+      agent: "max",
+      session: "s",
+    });
+    expect(summary).toMatchObject({ background: 0, inbox: 0, turns: 2 });
+
+    llm.script.push({ text: "yes" });
+    const next = await send(t, { session: "s", message: "and?" });
+    expect(next.text).toBe("yes");
+    expect(lastUserOf(llm.calls[2]!)).toBe("and?");
     expect(t.errors).toHaveLength(0);
+  });
+
+  /**
+   * @case A process that dies with a background call outstanding: the next process reports the run lost and the loss starts a turn on its own
+   * @preconditions Context A's turn calls sandbox-run, which is never released, replies, and A stops; context B is built over the same store and no message is sent
+   * @expectedResult B's boot revives the stored continuation with the lost-run message as the turn's user message, the model is called once with it, the reply reaches the chat route's downstream step, and the session reports no background calls. With the boot drive removed this fails: no call is made until a message arrives
+   */
+  test("a lost run reaches the model at the next boot", async () => {
+    const store = new MemorySuspensionStore();
+    t = await contextWith(store, spy()).build();
+    await t.startAndWaitReady();
+    llm.script.push(
+      { toolCalls: [{ toolName: "sandboxRun", input: { cmd: "make" } }] },
+      { text: "building" },
+    );
+    const reply = await send(t, { session: "s", message: "build it" });
+    const receipt = reply.toolCalls?.[0]?.output as BackgroundToolHandle;
+    await t.stop();
+    t = undefined;
+
+    const chatSink = spy();
+    llm.script.push({ text: "the build was lost, starting it again" });
+    t = await contextWith(store, spy(), chatSink).build();
+    await t.startAndWaitReady();
+    await waitForCalls(2);
+    await t.ctx.getRouteById("chat")!.drain();
+    const parts = lastUserOf(llm.calls[1]!) as Array<{ text: string }>;
+    expect(parts).toHaveLength(1);
+    expect(parts[0]!.text).toContain('"sandboxRun" failed');
+    expect(parts[0]!.text).toContain(`Handle: ${receipt.handle}`);
+    expect(parts[0]!.text).toContain("process restarted");
+    expect(chatSink.received).toHaveLength(1);
+    expect((chatSink.received[0]!.body as AgentResult).text).toBe(
+      "the build was lost, starting it again",
+    );
+    expect(
+      await AgentSessionRuntime.for(t.ctx).summary({
+        agent: "max",
+        session: "s",
+      }),
+    ).toMatchObject({ background: 0, inbox: 0, turn: "idle" });
   });
 
   /**

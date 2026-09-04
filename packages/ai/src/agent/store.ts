@@ -81,9 +81,20 @@ export const ADAPTER_AGENT_SESSIONS = Symbol.for(
   "routecraft.adapter.agent.sessions",
 );
 
+/**
+ * Set once the boot drive of leftover sessions has begun on a context, so
+ * a second `agentPlugin()` install does not drive them twice.
+ *
+ * @internal
+ */
+export const ADAPTER_AGENT_SESSIONS_BOOT = Symbol.for(
+  "routecraft.adapter.agent.sessions.boot",
+);
+
 declare module "@routecraft/routecraft" {
   interface StoreRegistry {
     [ADAPTER_AGENT_SESSIONS]: AgentSessionRuntime;
+    [ADAPTER_AGENT_SESSIONS_BOOT]: boolean;
     [ADAPTER_AGENT_REGISTRY]: Map<string, AgentRegisteredOptions>;
     [ADAPTER_AGENT_DEFAULT_OPTIONS]: AgentDefaultOptions;
     [ADAPTER_AGENT_TOOL_POLICIES]: AgentToolPolicy[];

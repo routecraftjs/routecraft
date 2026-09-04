@@ -1110,6 +1110,31 @@ export interface EventDetailsMap {
     session: string;
     lostBackground: number;
   };
+  /**
+   * A turn ended with work outstanding (background calls running, or
+   * messages queued), so its exchange's continuation was stored: what a
+   * completion, the queued messages, or a boot revives to run the next
+   * turn and the route's downstream steps.
+   */
+  "route:agent:session:parked": ExchangeScoped & {
+    agentName: string;
+    session: string;
+    suspensionId: string;
+    /** Messages waiting when the park was stored. */
+    inbox: number;
+    /** Background calls still running when the park was stored. */
+    background: number;
+  };
+  /**
+   * A stored continuation was revived and this turn is the one it runs:
+   * the inbox is its user message and the route's downstream steps follow.
+   * Emitted on the revived exchange, after core's `route:exchange:resumed`.
+   */
+  "route:agent:session:revived": ExchangeScoped & {
+    agentName: string;
+    session: string;
+    suspensionId: string;
+  };
   /** A background tool dispatched its route and returned a handle to the model. */
   "route:agent:session:background:started": ExchangeScoped & {
     agentName: string;

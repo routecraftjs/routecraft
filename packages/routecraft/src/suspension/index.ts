@@ -84,3 +84,9 @@ export { SuspensionHeaders } from "./exchange-state.ts";
 export type { SuspensionAffordance } from "./exchange-state.ts";
 
 export type { ResumeAcknowledgment, ResumeRequest } from "./revive.ts";
+
+// The in-process halves of park and resume, for a tier that stores a
+// continuation beside a completing run and revives it itself (agent
+// sessions). Internal: the public surfaces are `.suspend()` / `.resume()`.
+export { parkAside } from "./park.ts";
+export { reviveSuspension } from "./revive.ts";

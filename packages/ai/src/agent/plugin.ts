@@ -14,6 +14,7 @@ import { validateAgentOptions, validateBlocks } from "./agent.ts";
 import {
   ADAPTER_AGENT_DEFAULT_OPTIONS,
   ADAPTER_AGENT_REGISTRY,
+  ADAPTER_AGENT_SESSIONS_BOOT,
   ADAPTER_AGENT_TOOL_POLICIES,
   AGENT_DEFAULT_OPTION_KEYS,
 } from "./store.ts";
@@ -291,6 +292,7 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
     start(ctx: CraftContext) {
       resolveDeferredTools(ctx, functions);
       emitRegistrations(ctx, agents, functions);
+      driveSessionsAtBoot(ctx);
     },
   };
 }
@@ -309,6 +311,44 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
  * @internal
  */
 const SESSIONS_RESOURCE = "agent-sessions";
+
+/**
+ * What a previous process left in sessions is driven from here, after
+ * the routes are live: background calls it was waiting on become lost
+ * results and the stored continuations they were for are revived, so a
+ * lost build reaches the model as a turn rather than waiting for a
+ * message. Begun and returned rather than awaited, because it reads every
+ * session the index names; a context with no suspension store has nothing
+ * to drive. Once per context, keyed on the first install like the
+ * resource registration.
+ */
+function driveSessionsAtBoot(ctx: CraftContext): void {
+  if (ctx.getStore(ADAPTER_AGENT_SESSIONS_BOOT) === true) return;
+  ctx.setStore(ADAPTER_AGENT_SESSIONS_BOOT, true);
+  let runtime: AgentSessionRuntime;
+  try {
+    runtime = AgentSessionRuntime.for(ctx);
+  } catch (err) {
+    if (rcCodeOf(err) === "RC5052") return;
+    throw err;
+  }
+  void runtime.driveBoot().then(
+    ({ revived, lostBackground }) => {
+      if (revived > 0 || lostBackground > 0) {
+        ctx.logger.info(
+          { revived, lostBackground },
+          "Agent sessions left by the previous process were driven",
+        );
+      }
+    },
+    (err: unknown) => {
+      ctx.logger.error(
+        { err },
+        "Agent sessions left by the previous process could not be driven; each is restored by its next message instead",
+      );
+    },
+  );
+}
 
 function registerSessionsResource(ctx: CraftContext): void {
   const runtime = (): AgentSessionRuntime | undefined => {
