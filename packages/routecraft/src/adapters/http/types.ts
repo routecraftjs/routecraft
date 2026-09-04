@@ -56,6 +56,14 @@ export type HttpRedirectMode = "follow" | "manual" | "error";
  * exchange by hand. Anything a `fetch` body can be is here, plus the plain
  * values the client serialises to JSON for you.
  *
+ * `object` is deliberately broad. Narrowing it to `Record<string, unknown>`
+ * would make a callback's return type checked, but it also refuses arrays,
+ * class instances and Maps, all of which the client serialises correctly, and
+ * `object & { call?: never }` refuses a plain object literal because the
+ * intersection triggers excess-property checking. So the value arm admits
+ * functions and a callback's return goes unchecked; the contextual parameter
+ * type it exists for still works.
+ *
  * `undefined` is a member rather than only the property being optional,
  * because the callback form has to be able to decide per exchange that there
  * is no body to send (`body: (ex) => ex.body.attachment ?? undefined`). The
