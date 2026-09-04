@@ -4,7 +4,7 @@ System-native host capabilities for Routecraft: drive the host machine from rout
 
 ## Available now
 
-- `shell()` -- run a command, isolated by default. It never invokes a shell: the program is spawned directly with an argument vector, so an argument can never become a command. The `unshare` tier denies network egress, hides host processes, and withholds the caller's privileges; it does not contain filesystem reads, which its documentation says in as many words. The environment is granted rather than inherited.
+- `shell()` -- run a command, isolated by default. It never invokes a shell: the program is spawned directly with an argument vector, so an argument can never become a command. The `unshare` tier denies network egress, hides host processes, and withholds the caller's privileges; it does not contain filesystem reads, which its documentation says in as many words. The `docker` tier runs the command in a throwaway container on a Docker Engine daemon and is the one that contains the filesystem: only the image and the declared mounts are visible. The environment is granted rather than inherited.
 - `agentBrowser()` -- browser automation via [agent-browser](https://github.com/nichochar/agent-browser). Migrated here from the former `@routecraft/browser` package.
 
 ## Planned

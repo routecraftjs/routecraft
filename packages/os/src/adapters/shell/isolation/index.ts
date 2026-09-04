@@ -1,10 +1,17 @@
 import { rcError } from "@routecraft/routecraft";
 import type { IsolationName } from "../types.ts";
+import { dockerTier } from "./docker.ts";
 import { noneTier } from "./none.ts";
 import { unshareTier } from "./unshare.ts";
 import type { IsolationTier } from "./types.ts";
 
-export type { Invocation, IsolationRequest, IsolationTier } from "./types.ts";
+export type {
+  ExecutionIo,
+  ExecutionOutcome,
+  Invocation,
+  IsolationRequest,
+  IsolationTier,
+} from "./types.ts";
 
 /**
  * Every tier this build can provide, keyed by the mechanism it is named
@@ -15,6 +22,7 @@ export type { Invocation, IsolationRequest, IsolationTier } from "./types.ts";
 const TIERS: Record<IsolationName, IsolationTier> = {
   none: noneTier,
   unshare: unshareTier,
+  docker: dockerTier,
 };
 
 /** The tier a call gets when nothing chooses one. Isolated, never raw. */

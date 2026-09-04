@@ -1,6 +1,7 @@
 import { rcError } from "@routecraft/routecraft";
 import { loadExeca } from "../peers.ts";
 import type { Invocation, IsolationRequest, IsolationTier } from "./types.ts";
+import { refuseContainerOptions } from "./host.ts";
 
 /**
  * Linux kernel namespaces, via util-linux `unshare`. No daemon and
@@ -57,12 +58,12 @@ export const unshareTier: IsolationTier = {
     return probe;
   },
 
-  refuse(): undefined {
-    // Every option this adapter can express maps onto a namespace this
-    // tier takes: egress onto `--net`, identity onto the user namespace's
-    // mapping. Nothing to refuse. A future option this tier cannot
-    // deliver belongs here rather than being quietly dropped in `wrap`.
-    return undefined;
+  refuse(request: IsolationRequest): string | undefined {
+    // Every host option maps onto a namespace this tier takes: egress onto
+    // `--net`, identity onto the user namespace's mapping. The container
+    // options do not: there is no image and no mount here, and an author
+    // who wrote one believes in a containment this tier does not give.
+    return refuseContainerOptions("unshare", request);
   },
 
   wrap(target: Invocation, request: IsolationRequest): Invocation {

@@ -25,19 +25,25 @@
   "devDependencies": {
     "@routecraft/routecraft": "workspace:*",
     "@routecraft/testing": "workspace:*",
+    "@types/dockerode": "^4.0.1",
     "agent-browser": "^0.17.1",
-    "vitest": "^4.1.10",
+    "dockerode": "^5.0.1",
     "execa": "^9.6.0",
-    "shescape": "^3.0.2"
+    "shescape": "^3.0.2",
+    "vitest": "^4.1.10"
   },
   "peerDependencies": {
     "@routecraft/routecraft": ">=0.7.0-0 <1.0.0",
     "agent-browser": "^0.17.1",
+    "dockerode": "^5.0.1",
     "execa": "^9.6.0",
     "shescape": "^3.0.2"
   },
   "peerDependenciesMeta": {
     "agent-browser": {
+      "optional": true
+    },
+    "dockerode": {
       "optional": true
     },
     "execa": {

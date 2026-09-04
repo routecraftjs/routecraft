@@ -30,7 +30,7 @@ describe("isolation tier invocation", () => {
    */
   test("the none tier does not wrap the invocation", () => {
     expect(
-      noneTier.wrap(target, { network: false, mapRootUser: false }),
+      noneTier.wrap!(target, { network: false, mapRootUser: false }),
     ).toEqual(target);
   });
 
@@ -40,7 +40,7 @@ describe("isolation tier invocation", () => {
    * @expectedResult unshare is invoked with the user, mount, pid, net, ipc, uts and cgroup flags
    */
   test("the unshare tier asks for the namespaces it promises", () => {
-    const wrapped = unshareTier.wrap(target, {
+    const wrapped = unshareTier.wrap!(target, {
       network: false,
       mapRootUser: false,
     });
@@ -63,7 +63,7 @@ describe("isolation tier invocation", () => {
    * @expectedResult The --net flag is absent while every other namespace remains
    */
   test("granting the network removes only --net", () => {
-    const wrapped = unshareTier.wrap(target, {
+    const wrapped = unshareTier.wrap!(target, {
       network: true,
       mapRootUser: false,
     });
@@ -78,14 +78,14 @@ describe("isolation tier invocation", () => {
    * @expectedResult The current-user mapping is the default and root mapping is opt-in
    */
   test("identity is mapped to the caller unless root is asked for", () => {
-    const asCaller = unshareTier.wrap(target, {
+    const asCaller = unshareTier.wrap!(target, {
       network: false,
       mapRootUser: false,
     });
     expect(asCaller.args).toContain("--map-current-user");
     expect(asCaller.args).not.toContain("--map-root-user");
 
-    const asRoot = unshareTier.wrap(target, {
+    const asRoot = unshareTier.wrap!(target, {
       network: false,
       mapRootUser: true,
     });
@@ -99,7 +99,7 @@ describe("isolation tier invocation", () => {
    * @expectedResult A bare -- separates unshare's flags from the target's
    */
   test("the target's flags are separated from unshare's own", () => {
-    const wrapped = unshareTier.wrap(target, {
+    const wrapped = unshareTier.wrap!(target, {
       network: false,
       mapRootUser: false,
     });

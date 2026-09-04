@@ -33,3 +33,17 @@ export function loadShescape(): Promise<ShescapeModule> {
   });
   return shescapeCache;
 }
+
+/** The module namespace, so the `default` export is what a caller constructs. */
+type DockerodeModule = { default: typeof import("dockerode") };
+
+let dockerodeCache: Promise<DockerodeModule> | undefined;
+
+/** Load `dockerode`, the Docker Engine API client the docker tier drives. */
+export function loadDockerode(): Promise<DockerodeModule> {
+  dockerodeCache ??= loadOptionalPeer(() => import("dockerode"), {
+    consumer: "shell adapter (docker tier)",
+    packageName: "dockerode",
+  });
+  return dockerodeCache;
+}

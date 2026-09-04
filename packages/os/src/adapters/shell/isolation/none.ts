@@ -1,4 +1,5 @@
 import type { Invocation, IsolationRequest, IsolationTier } from "./types.ts";
+import { refuseContainerOptions } from "./host.ts";
 
 /**
  * The opt-out tier: a plain subprocess, no isolation promised and none
@@ -40,7 +41,7 @@ export const noneTier: IsolationTier = {
         `Drop mapRootUser, or choose a tier with a user namespace.`
       );
     }
-    return undefined;
+    return refuseContainerOptions("none", request);
   },
   wrap(target: Invocation): Invocation {
     return target;

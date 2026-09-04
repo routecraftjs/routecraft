@@ -434,6 +434,19 @@ jobs:
             exit 1
           fi
 
+      # The docker tier's smoke runs in the same job for the same reason the
+      # unshare one does: a guarantee nobody checked must not look checked.
+      # The runner ships a daemon; the probe fails loudly if it is absent,
+      # and the image is pulled here because the tier never pulls one.
+      - name: Check the runner has a Docker daemon
+        run: |
+          if ! docker info > /dev/null 2>&1; then
+            echo "::error::This runner has no reachable Docker daemon, so the docker tier's guarantees cannot be proven here."
+            echo "::error::The suite is failed rather than skipped."
+            exit 1
+          fi
+          docker pull alpine:3.20
+
       - name: Run the isolation smoke
         run: bun run test:isolation
 

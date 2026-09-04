@@ -10,7 +10,7 @@ title: shell
 import { shell, untrusted } from '@routecraft/os'
 ```
 
-Run a command and produce its output, isolated by default. The adapter is an enricher: use it with `.enrich()` to merge the result, `.to()` to replace the body with it, or `.tap()` to discard it. Output is always captured, because a command's output is usually why you ran it. Requires `execa` and `shescape` as peer dependencies.
+Run a command and produce its output, isolated by default. The adapter is an enricher: use it with `.enrich()` to merge the result, `.to()` to replace the body with it, or `.tap()` to discard it. Output is always captured, because a command's output is usually why you ran it. Requires `execa` and `shescape` as peer dependencies, and `dockerode` for the `docker` tier.
 
 ```ts
 import { shell, untrusted } from '@routecraft/os'
@@ -58,6 +58,7 @@ Each tier is named for the mechanism that provides it, so its name is its promis
 | Tier | What it is | Availability |
 | --- | --- | --- |
 | `unshare` | Linux kernel namespaces. The default. | Linux |
+| `docker` | A throwaway container per command on a Docker Engine daemon. The only tier that contains the filesystem. | Wherever a daemon answers (`DOCKER_HOST` or the default socket) |
 | `none` | A plain subprocess. No isolation promised, none provided. | Everywhere |
 
 ```ts
@@ -97,9 +98,40 @@ If a command must not read your secrets, either run it on a host whose files it 
 
 Note how this interacts with `network: true`. Granting egress to a command that can read your files is what turns readable-but-local into exfiltratable. That combination deserves a deliberate decision, particularly for agent workloads.
 
+### What `docker` guarantees
+
+- **Filesystem**: the command sees the image's filesystem and the mounts the call declared, and nothing else from the host. This is the containment `unshare` deliberately does not provide, and the reason an agent's build runs here.
+- **Network**: none unless the call sets `network: true`, so egress is denied by default.
+- **Identity**: the caller's own uid and gid inside the container by default; `mapRootUser: true` runs as root inside.
+- **Processes**: the container's own PID namespace.
+- **Lifetime**: one container per command, removed when it exits (`--rm`). No pool and no reuse; a warm pool is a later decision with a benchmark behind it.
+
+```ts
+craft()
+  .id('sandbox-run')
+  .description('Run a command in a container mounted on the session workspace')
+  .input({ body: RunInput }) // { session: string; image: string; cmd: string; timeout?: string }
+  .from(direct())
+  .to(shell<RunInput>('sh', (ex) => ['-lc', untrusted(ex.body.cmd)], {
+    isolation: 'docker',
+    image: (ex) => ex.body.image,
+    timeout: (ex) => ex.body.timeout ?? '10m',
+    mounts: (ex) => [{ host: `/work/${ex.body.session}`, container: '/workspace' }],
+    cwd: '/workspace',
+  }))
+```
+
+The positional command stays static and the data travels through `args` under `untrusted()`, exactly as on the host tiers: inside a container with no network the guardrail is the container, but the lint rule and the discipline do not change per tier. `isolation` stays static too; it sits in the same [precedence chain](#options) as every tier.
+
+### What `docker` does not guarantee
+
+A container shares the host kernel; it is not a virtual machine. The image is chosen by the call and pulled by nobody: an image that is not present fails the call with [`OS1002`](/docs/reference/errors) naming it and the `docker pull`, so what runs inside is only as trusted as the image an author, or an agent, named. `env` values are visible in `docker inspect`; a value that must not be goes through `stdin`. A restart of the Routecraft process while a container runs fails that exchange; the container itself is left to `--rm`, and re-attaching to it afterwards is what `name` exists for and is not built yet.
+
+Under Bun the tier feeds `stdin` through its own connection upgrade on the daemon's socket rather than through the client library's, because the library's upgrade never completes there. A daemon reached over TLS uses the certificate settings the library resolved from `DOCKER_CERT_PATH`; that path is implemented from those settings and not exercised by the smoke suite, which runs against the local socket.
+
 ### A tier that cannot be established fails
 
-`shell()` never falls back to a weaker tier. If the requested isolation cannot be established, the call fails with [`OS1001`](/docs/reference/errors) naming the cause and the ways out: grant the privilege, or write `isolation: "none"` deliberately. The realistic case is `unshare` inside a container whose seccomp profile blocks namespace creation, or a distro restricting unprivileged user namespaces.
+`shell()` never falls back to a weaker tier. If the requested isolation cannot be established, the call fails with [`OS1001`](/docs/reference/errors) naming the cause and the ways out: grant the privilege, start the daemon, or write `isolation: "none"` deliberately. The realistic cases are `unshare` inside a container whose seccomp profile blocks namespace creation, a distro restricting unprivileged user namespaces, and `docker` on a host where no daemon answers.
 
 ## The environment is granted, not inherited
 
@@ -125,19 +157,23 @@ No credential-bearing variable reaches a command that did not ask for it. A name
 
 ## Options
 
-| Option | Default | Purpose |
-| --- | --- | --- |
-| `isolation` | `unshare` | Which tier to run under |
-| `network` | `false` | Allow network egress |
-| `mapRootUser` | `false` | Map to root inside the user namespace instead of to yourself |
-| `cwd` | the host process's | Working directory, static or resolved from the exchange |
-| `env` | `{}` | Environment variables by value |
-| `passEnv` | `[]` | Parent variables to forward by name |
-| `timeout` | none | Milliseconds before the command and its children are killed |
-| `failOnNonZero` | `true` | Throw [`OS1002`](/docs/reference/errors) when the command exits non-zero |
-| `maxOutputBytes` | 8 MiB | Cap on captured output, per stream |
+| Option | Default | Tiers | Purpose |
+| --- | --- | --- | --- |
+| `isolation` | `unshare` | all | Which tier to run under. Static: it is the containment the route promises, not a value data may choose |
+| `network` | `false` | all | Allow network egress |
+| `mapRootUser` | `false` | all | Root inside the user namespace or the container, instead of yourself |
+| `cwd` | the host process's, or the image's | all | Working directory, static or resolved from the exchange |
+| `env` | `{}` | all | Environment variables by value, static or resolved from the exchange. A grant surface: never derive a variable **name** from data, only a value. On `docker` the values are visible in `docker inspect` |
+| `passEnv` | `[]` | all | Parent variables to forward by name |
+| `stdin` | closed | all | Bytes written to standard input before the command reads, then closed, static or resolved from the exchange. The place for a token that must appear nowhere else: on stdin it reaches the command and nothing besides it, where in `env` it is in `docker inspect` and in `args` it is in the process list |
+| `timeout` | none | all | Duration before the command and its children are killed, static or resolved from the exchange, so two exchanges through one step can carry different deadlines |
+| `image` | none, required on `docker` | `docker` | The image the command runs in. Required with no default: selecting the tier without one is a configuration error naming the option. Passed to the daemon as one field, never interpolated, so a value from data cannot carry flags; never pulled. A host tier refuses it with [`OS1004`](/docs/reference/errors) |
+| `mounts` | `[]` | `docker` | Host paths exposed inside the container, `{ host, container, readonly? }` with both paths absolute. The route decides what is exposed; nothing outside the list is visible to the command. A host tier refuses it with `OS1004` |
+| `name` | `rc-<routeId>-<exchangeId>` | `docker` | Container name, so an operator can find a run with `docker ps` and a later re-attach can name it. A host tier refuses it with `OS1004` |
+| `failOnNonZero` | `true` | all | Throw [`OS1002`](/docs/reference/errors) when the command exits non-zero |
+| `maxOutputBytes` | 8 MiB | all | Cap on captured output, per stream |
 
-Per-call options beat the `ROUTECRAFT_SHELL_ISOLATION` environment override, which beats `shellPlugin()` defaults. The environment sits above plugin config so an operator can harden a loosely configured deployment, and below the call site so an explicit demand is never quietly changed.
+Per-call options beat the `ROUTECRAFT_SHELL_ISOLATION` environment override, which beats `shellPlugin()` defaults. The environment sits above plugin config so an operator can harden a loosely configured deployment, and below the call site so an explicit demand is never quietly changed. A container option on a host tier is refused rather than dropped, because a dropped `image` is the worst kind of silence: the author named a filesystem the command was to be confined to, and the command ran on the host's.
 
 ## The result
 
@@ -145,7 +181,7 @@ Per-call options beat the `ROUTECRAFT_SHELL_ISOLATION` environment override, whi
 { stdout: string, stderr: string, exitCode: number, signal?: string, truncated: boolean }
 ```
 
-A non-zero exit throws by default. For commands whose exit code is data rather than failure, read it off the result instead:
+`ShellResult` is the same on every tier. A timeout stops the command (or the container) and reports [`OS1003`](/docs/reference/errors) the same way everywhere. A non-zero exit throws by default. For commands whose exit code is data rather than failure, read it off the result instead:
 
 ```ts
 .enrich(shell('grep', ['-q', 'TODO', 'src'], { failOnNonZero: false }))

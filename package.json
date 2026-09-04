@@ -26,7 +26,7 @@
     "test:vitest": "vitest --run --passWithNoTests --exclude '**/integration.test.ts' --exclude '**/*.integration.test.ts' --exclude '**/test/cross-runtime/**' --exclude '**/*.bun.test.ts' --exclude '**/*.bun.test.tsx'",
     "test:coverage": "find packages/*/test examples/test \\( -name '*.bun.test.ts' -o -name '*.bun.test.tsx' \\) -not -path '*/cross-runtime/*' | sort | xargs bun test --coverage --coverage-reporter=lcov --coverage-reporter=text --coverage-dir=coverage/bun && bun run test:vitest --coverage",
     "test:integration": "vitest --run 'test/integration.test.ts'",
-    "test:isolation": "bun test packages/os/test/shell-isolation.integration.test.ts",
+    "test:isolation": "bun test packages/os/test/shell-isolation.integration.test.ts packages/os/test/shell-docker.integration.test.ts",
     "test:cross-runtime": "vitest run --passWithNoTests test/cross-runtime/",
     "test:cross-runtime:node": "node node_modules/vitest/vitest.mjs run --passWithNoTests test/cross-runtime/",
     "limit:size": "size-limit",

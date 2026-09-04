@@ -22,6 +22,7 @@ export {
   type IsolationName,
   type ShellArg,
   type ShellArgs,
+  type ShellMount,
   type ShellOptions,
   type ShellPluginOptions,
   type ShellResult,

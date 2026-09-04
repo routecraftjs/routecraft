@@ -910,10 +910,11 @@ Check logs and enable debug level.
 Isolation tier unavailable
 
 **Why it happens**  
-`shell()` runs isolated by default and never silently downgrades to a weaker tier, because a route that believes it is contained and is not is worse than one that fails. The tier could not be established. The usual causes are a non-Linux host (the `unshare` tier is Linux-only), a kernel with unprivileged user namespaces restricted (`kernel.unprivileged_userns_clone=0`, or `apparmor_restrict_unprivileged_userns=1`), a container whose seccomp profile blocks namespace creation, or util-linux `unshare` not being installed.
+`shell()` runs isolated by default and never silently downgrades to a weaker tier, because a route that believes it is contained and is not is worse than one that fails. The tier could not be established. For `unshare` the usual causes are a non-Linux host (the tier is Linux-only), a kernel with unprivileged user namespaces restricted (`kernel.unprivileged_userns_clone=0`, or `apparmor_restrict_unprivileged_userns=1`), a container whose seccomp profile blocks namespace creation, or util-linux `unshare` not being installed. For `docker` it is a daemon that did not answer: none running, or `DOCKER_HOST` pointing somewhere else.
 
 **Suggestion**  
 - Grant the privilege: allow unprivileged user namespaces, or relax the container's seccomp profile.
+- For the `docker` tier, start the daemon or point `DOCKER_HOST` at one.
 - Or write `isolation: "none"` at the call site to run without isolation deliberately and visibly.
 
 There is no third option by design. `shell()` will not choose a weaker tier on your behalf.
@@ -922,7 +923,7 @@ There is no third option by design. `shell()` will not choose a weaker tier on y
 Command execution failed
 
 **Why it happens**  
-The command ran and reported failure. This is the default because a route whose `git push` failed should not continue as though it had. The same code covers a command that could not be started at all, which is usually a program that is not installed or not on the `PATH` the call granted.
+The command ran and reported failure. This is the default because a route whose `git push` failed should not continue as though it had. The same code covers a command that could not be started at all, which is usually a program that is not installed or not on the `PATH` the call granted. On the `docker` tier it also covers an image that is not present on the daemon: `shell()` never pulls one, and the message names the image and the `docker pull`.
 
 **Suggestion**  
 - Where the command ran, read `stderr` and `exitCode` from the error's cause to see what it said. A command that never started has neither, and the cause is whatever the spawn itself raised.
@@ -946,9 +947,10 @@ Isolation cannot satisfy the request
 **Why it happens**  
 The tier was established, but an option the call set asks for something it cannot do. A tier refuses such an option rather than ignoring it, because a route that believes it is contained and is not is worse than one that fails.
 
-The usual case is `isolation: "none"` with egress left denied. `network` defaults to denied and that tier contains nothing, so it cannot withhold the network; granting it silently would leave the call believing in a containment it never had.
+The usual case is `isolation: "none"` with egress left denied. `network` defaults to denied and that tier contains nothing, so it cannot withhold the network; granting it silently would leave the call believing in a containment it never had. The other case is a container option (`image`, `mounts`, `name`) on a host tier: there is no container to apply it to, and a dropped `image` would let a command the author confined to a filesystem run on the host's.
 
 **Suggestion**  
 - Say what you mean at the call site: `network: true` beside `isolation: "none"` accepts egress out loud.
-- Or choose a tier that can deny it, which on Linux is `unshare`.
+- Or choose a tier that can deny it, which on Linux is `unshare`, and anywhere a daemon answers is `docker`.
 - The same applies to `mapRootUser` on a tier with no user namespace: drop it, or pick a tier that has one.
+- For a container option, write `isolation: "docker"` beside it, or drop it.
