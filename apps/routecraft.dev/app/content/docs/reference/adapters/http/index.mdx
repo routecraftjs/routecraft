@@ -734,12 +734,12 @@ The corruption is silent and asymmetric, which is what makes it dangerous. A JPE
 
 ```typescript
 .enrich(
-  http({ url: (ex) => ex.body.mediaUrl, responseBody: 'bytes' }),
+  http<Delivery, Uint8Array>({ url: (ex) => ex.body.mediaUrl, responseBody: 'bytes' }),
   only((r) => r.body, 'media'),
 )
 ```
 
-The body is a `Uint8Array` of exactly what arrived, with no JSON parsing, and the result type says `Uint8Array` without the call site repeating it. `maxBodySize` and `timeout` apply unchanged, counting bytes as they arrive, and an oversized body still fails with [`RC5061`](/docs/reference/errors#rc-5061). With `throwOnHttpError` the failure message names the body's size and content type rather than quoting it, since decoding it for the message would reintroduce the corruption this mode exists to avoid.
+The body is a `Uint8Array` of exactly what arrived, with no JSON parsing. Name it in the call's type arguments, `http<In, Uint8Array>({ ... })`: the option does not change the result type, because an option value that selects an adapter's type is what the adapter Option Laws forbid, and every way of expressing it here either mistypes the two-type-argument form the examples use or refuses an options object built programmatically. `maxBodySize` and `timeout` apply unchanged, counting bytes as they arrive, and an oversized body still fails with [`RC5061`](/docs/reference/errors#rc-5061). With `throwOnHttpError` the failure message names the body's size and content type rather than quoting it, since decoding it for the message would reintroduce the corruption this mode exists to avoid.
 
 The mode is explicit rather than sniffed from the content type. Choosing by content type would silently change the body type of an existing route that receives `application/octet-stream` today and reads it as a string.
 

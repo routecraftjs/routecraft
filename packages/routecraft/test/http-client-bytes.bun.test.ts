@@ -402,20 +402,24 @@ describe("http() client responseBody", () => {
   });
 
   /**
-   * @case The bytes overload types the result without a type argument
-   * @preconditions http({ responseBody: "bytes" }) with no explicit result type parameter
-   * @expectedResult The enricher's result body is Uint8Array, so a feature whose point is that the body is bytes does not ask the author to say so twice
+   * @case The caller names the byte type; the option does not change it
+   * @preconditions http<In, Uint8Array>({ responseBody: "bytes" }), and the same call with the type left off
+   * @expectedResult Named, the body is Uint8Array; unnamed it stays unknown. Option Law 2 forbids an option value selecting the adapter's type, and the two ways of doing it here both fail: a one-type-parameter overload is skipped by the two-argument form the templates use, and overloads narrow enough to refuse that also refuse an options object whose mode is not a literal
    */
-  test("responseBody bytes types the result as Uint8Array", () => {
-    const bytesAdapter = http({
+  test("the result type is named by the caller, not by the option", () => {
+    const named = http<{ id: string }, Uint8Array>({
       url: `${base}/jpeg`,
       responseBody: "bytes",
     });
-    type ResultBody = Awaited<ReturnType<typeof bytesAdapter.fetch>>["body"];
-    expectTypeOf<ResultBody>().toEqualTypeOf<Uint8Array>();
-    // Referenced at runtime so the value is not dead: the assertion above is
-    // the point, but lint reads a type-only use as unused.
-    expect(typeof bytesAdapter.fetch).toBe("function");
+    type NamedBody = Awaited<ReturnType<typeof named.fetch>>["body"];
+    expectTypeOf<NamedBody>().toEqualTypeOf<Uint8Array>();
+
+    const unnamed = http({ url: `${base}/jpeg`, responseBody: "bytes" });
+    type UnnamedBody = Awaited<ReturnType<typeof unnamed.fetch>>["body"];
+    expectTypeOf<UnnamedBody>().toEqualTypeOf<unknown>();
+
+    expect(typeof named.fetch).toBe("function");
+    expect(typeof unnamed.fetch).toBe("function");
   });
 
   /**

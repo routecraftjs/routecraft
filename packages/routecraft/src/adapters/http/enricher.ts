@@ -111,9 +111,18 @@ export class HttpEnricherAdapter<T = unknown, R = unknown> implements Enricher<
     if (resolvedBody !== undefined && resolvedBody !== null) {
       if (
         typeof resolvedBody === "string" ||
-        resolvedBody instanceof Uint8Array ||
-        resolvedBody instanceof ArrayBuffer
+        ArrayBuffer.isView(resolvedBody) ||
+        resolvedBody instanceof ArrayBuffer ||
+        resolvedBody instanceof Blob ||
+        resolvedBody instanceof FormData ||
+        resolvedBody instanceof URLSearchParams
       ) {
+        // Handed over untouched, and deliberately without a Content-Type of
+        // our own: fetch derives the right one, including the multipart
+        // boundary, which cannot be written by hand. JSON.stringify reduces a
+        // FormData to "{}" on Node and to a plain object on Bun, so the same
+        // upload would lose its files on one runtime and change format on the
+        // other.
         body = resolvedBody as BodyInit;
       } else {
         // Looked up case-insensitively: a route that set `content-type`
@@ -378,11 +387,17 @@ function normalizeResponseBody(
   return mode;
 }
 
-/** Case-insensitive presence check over a header record the caller owns. */
+/**
+ * Case-insensitive lookup for a header already set to a non-empty value.
+ *
+ * Tests the value, not just the key: the check this replaced was
+ * `!headers["Content-Type"]`, so an empty string was overwritten rather than
+ * honoured, and a callback building headers with `?? ""` relies on that.
+ */
 function hasHeader(headers: Record<string, string>, name: string): boolean {
   const wanted = name.toLowerCase();
-  for (const key of Object.keys(headers)) {
-    if (key.toLowerCase() === wanted) return true;
+  for (const [key, value] of Object.entries(headers)) {
+    if (key.toLowerCase() === wanted) return value !== "";
   }
   return false;
 }

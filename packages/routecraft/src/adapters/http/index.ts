@@ -40,22 +40,6 @@ function isSourceOptions(
  */
 export function http(options: HttpServerOptions): Source<HttpRequestBody>;
 /**
- * Create an HTTP client enricher that hands the route the response bytes.
- *
- * Selected by `responseBody: "bytes"` on the options, so the result type says
- * `Uint8Array` without the call site repeating it as a type argument. Use it
- * for anything that is not text: the default mode decodes as UTF-8, which
- * silently corrupts a body that is not valid UTF-8.
- *
- * @example
- * ```typescript
- * .enrich(http({ url: (ex) => ex.body.mediaUrl, responseBody: 'bytes' }), only((r) => r.body, 'media'))
- * ```
- */
-export function http<T = unknown>(
-  options: HttpClientOptions<T> & { responseBody: "bytes" },
-): Enricher<T, HttpResult<Uint8Array>>;
-/**
  * Create an HTTP client enricher (a pull-in). Use with `.enrich()`, `.to()`
  * (the result replaces the body), or `.tap()` (fire-and-forget). Supports
  * dynamic url, headers, query, and body from the exchange.
@@ -64,13 +48,23 @@ export function http<T = unknown>(
  * keyword enforces the category: `.from(http({ url }))` fails to compile
  * because the client has no `subscribe`.
  *
- * @param options - method, url (string or (exchange) => string), optional headers, query, body, timeout, throwOnHttpError, maxBodySize, redirect
+ * `responseBody: "bytes"` does NOT change this signature's result type. Name
+ * the body yourself: `http<In, Uint8Array>({ url, responseBody: "bytes" })`.
+ * An option value that selects the adapter's type is what Option Law 2
+ * forbids, and the two ways of getting it here both fail: a bytes overload
+ * with one type parameter is skipped by the two-argument form the examples
+ * and templates use, which is then told its body is `Out` while the runtime
+ * hands back bytes, and overloads narrow enough to refuse that also refuse
+ * any options object whose mode is not a literal.
+ *
+ * @param options - method, url (string or (exchange) => string), optional headers, query, body, timeout, throwOnHttpError, maxBodySize, redirect, responseBody
  * @returns An Enricher whose fetch returns { status, headers, body, url }
  *
  * @example
  * ```typescript
  * .to(http({ url: 'https://api.example.com/ingest', method: 'POST', body: (ex) => ex.body }))
  * .enrich(http({ url: (ex) => `https://api.example.com/users/${ex.body.userId}` }), only((r) => r.body, 'user'))
+ * .enrich(http({ url: (ex) => ex.body.mediaUrl, responseBody: 'bytes' }), only((r) => r.body, 'media'))
  * ```
  */
 export function http<T = unknown, R = unknown>(
