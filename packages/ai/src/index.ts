@@ -188,6 +188,7 @@ export type {
 // the `MCP(server:tool)` / `mcp__server__tool` grammar inside
 // `tools(...)`.
 export {
+  AgentHeadersKeys,
   directTool,
   tools,
   type AgentToolDescriptor,
@@ -201,6 +202,7 @@ export {
   type DeferredFnKind,
   type FnEntry,
   type ResolvedTool,
+  type BackgroundToolHandle,
   type ToolBuilderOverrides,
   type ToolGuard,
   type ToolSelection,

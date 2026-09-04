@@ -10,7 +10,12 @@ import {
 } from "../../mcp/types.ts";
 import type { McpToolRegistry } from "../../mcp/tool-registry.ts";
 import { directTool } from "./builders.ts";
-import { isDeferredFn, resolveFnOptions, type FnEntry } from "./types.ts";
+import {
+  isBackgroundFn,
+  isDeferredFn,
+  resolveFnOptions,
+  type FnEntry,
+} from "./types.ts";
 import {
   describeToolNameViolation,
   isSplittableNameHead,
@@ -215,6 +220,12 @@ export interface ResolvedTool {
   source: AgentToolSource;
   /** The function the LLM ultimately invokes. */
   handler: FnOptions["handler"];
+  /**
+   * The tool returns a handle immediately and posts its result to the
+   * calling session's inbox later. Set by `directTool(routeId, {
+   * background: true })`; an agent without a session cannot carry one.
+   */
+  background?: true;
 }
 
 /**
@@ -625,6 +636,7 @@ function toResolvedTool(
     ...(guard ? { guard } : {}),
     source,
     handler: fn.handler as FnOptions["handler"],
+    ...(isBackgroundFn(fn) ? { background: true as const } : {}),
   };
 }
 

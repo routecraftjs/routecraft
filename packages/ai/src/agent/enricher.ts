@@ -267,6 +267,14 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
       agentIdentity,
       merged.stream === true,
     );
+    const backgroundTools = tools.filter((tool) => tool.background === true);
+    if (sessionKey === undefined && backgroundTools.length > 0) {
+      throw rcError("RC5003", undefined, {
+        message:
+          `Agent${agentName !== undefined ? ` "${agentName}"` : ""}: ${backgroundTools.map((t) => `"${t.name}"`).join(", ")} ${backgroundTools.length === 1 ? "is" : "are"} declared background: true, which delivers the result to the calling session's inbox, and this dispatch carries no session. ` +
+          `Dispatch the agent with agent(name, { session }), or register the tool without the background flag.`,
+      });
+    }
     if (sessionKey !== undefined) {
       if (!context) {
         throw rcError("RC5003", undefined, {

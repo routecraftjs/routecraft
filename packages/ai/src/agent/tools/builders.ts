@@ -1,12 +1,15 @@
+import { randomUUID } from "node:crypto";
 import {
   CraftClient,
   HeadersKeys,
   isAuthentic,
   isInternalEndpoint,
   markAuthentic,
+  rcCodeOf,
   rcError,
   type Capability,
   type CraftContext,
+  type ExchangeHeaders,
   type Principal,
 } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
@@ -15,7 +18,8 @@ import type {
   FnOptions,
   ReadonlyPrincipal,
 } from "../../fn/types.ts";
-import { DEFERRED_FN_BRAND, type DeferredFn } from "./types.ts";
+import { AgentSessionRuntime } from "../session/runtime.ts";
+import { DEFERRED_FN_BRAND, FN_BACKGROUND, type DeferredFn } from "./types.ts";
 
 /**
  * Re-hydrate a frozen `ReadonlyPrincipal` (as exposed on
@@ -52,11 +56,12 @@ function cloneFrozenPrincipal(rp: ReadonlyPrincipal): Principal {
  * narrow the underlying tool's surface to a specific agent without
  * touching the underlying registration.
  *
- * Only `description` and `input` may be overridden. Guards are policy
- * and live at the consumer (attach them in `tools([{ name, guard }])`
- * at the agent's call site). Tags were previously overridable to
- * influence the removed tag-based selector; without that selector the
- * override has no effect at runtime, so the field is gone.
+ * `description` and `input` narrow what the model sees; `background`
+ * changes how the agent awaits the route. Guards are policy and live at
+ * the consumer (attach them in `tools([{ name, guard }])` at the agent's
+ * call site). Tags were previously overridable to influence the removed
+ * tag-based selector; without that selector the override has no effect
+ * at runtime, so the field is gone.
  */
 export interface ToolBuilderOverrides<TIn = unknown> {
   /** Replace the underlying description shown to the LLM. */
@@ -66,7 +71,66 @@ export interface ToolBuilderOverrides<TIn = unknown> {
    * the underlying schema.
    */
   input?: StandardSchemaV1<unknown, TIn>;
+  /**
+   * Return a handle now and deliver the result later.
+   *
+   * The call dispatches the route as usual and returns
+   * `{ handle, status: "running" }` immediately, so a build or a test run
+   * that takes minutes does not hold the agent's turn. When the route
+   * finishes, its result (or its failure, as a typed message) is posted to
+   * the calling session's inbox attributed to the handle, and the model
+   * reads it at the start of its next turn. The handle is the route id
+   * plus a dispatch id, stable across restarts and written on the
+   * dispatched exchange's headers so the run can be found.
+   *
+   * A property of how this agent awaits this route, not of the route: the
+   * route stays an ordinary `direct()` route callable synchronously by
+   * anything else. Needs a session to deliver into, so an agent dispatched
+   * without `session` refuses the tool when its tool list is resolved
+   * (`RC5003`). The description the model sees says the tool is
+   * asynchronous, so it does not wait on the return value.
+   */
+  background?: boolean;
 }
+
+/**
+ * Header keys the agent tier writes on exchanges it dispatches.
+ */
+export const AgentHeadersKeys = {
+  /**
+   * The background handle a dispatched exchange belongs to, so an operator
+   * reading the route's exchanges can find the run a handle names. The
+   * route mints its own exchange id, so this is the join key.
+   */
+  BACKGROUND_HANDLE: "routecraft.agent.background.handle",
+} as const;
+
+declare module "@routecraft/routecraft" {
+  interface RoutecraftHeaders {
+    /** The background tool handle this exchange was dispatched under. */
+    "routecraft.agent.background.handle"?: string;
+  }
+}
+
+/** What a background call returns to the model in place of the route's result. */
+export interface BackgroundToolHandle {
+  /**
+   * `<routeId>:<dispatchId>`, the key the later inbox message names. The
+   * dispatch id rides on the dispatched exchange as
+   * `routecraft.agent.background.handle`.
+   */
+  readonly handle: string;
+  readonly status: "running";
+}
+
+/**
+ * Appended to a background tool's description so the model knows the
+ * return value is a receipt, not the answer.
+ *
+ * @internal
+ */
+export const BACKGROUND_DESCRIPTION_SUFFIX =
+  ' This tool runs in the background: it returns { handle, status: "running" } immediately, and its result arrives later as a message naming that handle. Do not wait for the result in this turn.';
 
 /**
  * Wrap a registered direct route as a fn-shaped tool. The route's
@@ -120,6 +184,23 @@ export function directTool<TIn = unknown>(
         });
       }
       const tags = route.tags;
+      if (overrides?.background === true) {
+        const handler = ((input, hctx) =>
+          dispatchBackground(
+            ctx,
+            hctx,
+            routeId,
+            fnId,
+            input,
+          )) as FnOptions["handler"];
+        return {
+          description: `${description}${BACKGROUND_DESCRIPTION_SUFFIX}`,
+          input,
+          ...(tags && tags.length > 0 ? { tags: [...tags] } : {}),
+          handler,
+          [FN_BACKGROUND]: true,
+        } as FnOptions;
+      }
       const handler = ((input, hctx) =>
         dispatchDirect(ctx, hctx, routeId, input)) as FnOptions["handler"];
       return {
@@ -130,6 +211,94 @@ export function directTool<TIn = unknown>(
       } as FnOptions;
     },
   };
+}
+
+/**
+ * Headers a direct dispatch from a tool carries: the caller's correlation
+ * id so traces stay linked, and the calling principal, forwarded as a
+ * fresh mutable copy (see {@link cloneFrozenPrincipal}).
+ */
+function dispatchHeaders(hctx: FnHandlerContext): Record<string, unknown> {
+  const headers: Record<string, unknown> = {};
+  if (hctx.correlationId) {
+    headers[HeadersKeys.CORRELATION_ID] = hctx.correlationId;
+  }
+  if (hctx.principal) {
+    headers[HeadersKeys.AUTH_PRINCIPAL] = cloneFrozenPrincipal(hctx.principal);
+  }
+  return headers;
+}
+
+/**
+ * Dispatch the route and return a handle at once. The result or the
+ * failure is delivered to the calling session's inbox by the session
+ * runtime when the route settles, attributed to the handle.
+ *
+ * The dispatch id is minted here and carried on the dispatched exchange's
+ * headers: a route mints its own exchange id, so the header is what lets
+ * an operator join the handle to the run.
+ *
+ * @internal
+ */
+async function dispatchBackground<TIn>(
+  ctx: CraftContext,
+  hctx: FnHandlerContext,
+  routeId: string,
+  toolName: string,
+  input: TIn,
+): Promise<BackgroundToolHandle> {
+  // Wiring defence: the enricher refuses a background tool on a sessionless
+  // dispatch before the model can call it, so reaching here without a
+  // session means the tool was invoked outside an agent turn.
+  const session = hctx.session;
+  if (!session) {
+    throw rcError("RC5003", undefined, {
+      message: `directTool "${routeId}" is declared background: true, which delivers its result to the calling agent's session inbox, and this call has no session. Dispatch the agent with agent(name, { session }), or drop the background flag.`,
+    });
+  }
+  if (hctx.abortSignal.aborted) {
+    throw abortError(routeId, hctx.abortSignal.reason);
+  }
+  const runtime = AgentSessionRuntime.for(ctx);
+  const key = { agent: session.agent, session: session.id };
+  const dispatchId = randomUUID();
+  const handle = `${routeId}:${dispatchId}`;
+  const startedAt = new Date();
+  await runtime.startBackground(key, {
+    handle,
+    tool: toolName,
+    startedAt: startedAt.toISOString(),
+  });
+  const headers: ExchangeHeaders = {
+    ...dispatchHeaders(hctx),
+    [AgentHeadersKeys.BACKGROUND_HANDLE]: handle,
+  } as ExchangeHeaders;
+  // Deliberately not awaited: the turn continues, and the settlement is
+  // the runtime's business. Both arms are handled, so the dispatch can
+  // never become an unhandled rejection.
+  void new CraftClient(ctx).sendDirect(routeId, input, headers).then(
+    (result) =>
+      runtime.settleBackground(key, {
+        handle,
+        tool: toolName,
+        status: "completed",
+        result,
+        duration: Date.now() - startedAt.getTime(),
+      }),
+    (err: unknown) =>
+      runtime.settleBackground(key, {
+        handle,
+        tool: toolName,
+        status: "failed",
+        error: {
+          ...(rcCodeOf(err) !== undefined ? { rc: rcCodeOf(err)! } : {}),
+          message: err instanceof Error ? err.message : String(err),
+          name: err instanceof Error ? err.name || "Error" : typeof err,
+        },
+        duration: Date.now() - startedAt.getTime(),
+      }),
+  );
+  return { handle, status: "running" };
 }
 
 function readDirectRoute(
@@ -181,13 +350,7 @@ async function dispatchDirect<TIn>(
   // mutable copy so a `.process()` step downstream may legitimately
   // attach a different principal; the tool handler's own snapshot
   // stays frozen and unaffected.
-  const headers: Record<string, unknown> = {};
-  if (hctx.correlationId) {
-    headers[HeadersKeys.CORRELATION_ID] = hctx.correlationId;
-  }
-  if (hctx.principal) {
-    headers[HeadersKeys.AUTH_PRINCIPAL] = cloneFrozenPrincipal(hctx.principal);
-  }
+  const headers = dispatchHeaders(hctx);
   const dispatch = new CraftClient(ctx).sendDirect(
     routeId,
     input,

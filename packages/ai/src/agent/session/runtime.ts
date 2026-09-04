@@ -57,6 +57,8 @@ export interface AgentTurnRequest<T = unknown> {
 /** A turn this process is running. */
 interface ActiveTurn {
   readonly controller: AbortController;
+  /** The exchange the turn runs on, for attributing events. */
+  readonly exchange: Exchange<unknown>;
   /** Inbox entries the turn consumed at its start. */
   readonly consumed: Set<string>;
   readonly outcome: Promise<AgentResult>;
@@ -78,6 +80,8 @@ interface ActiveTurn {
  */
 export class AgentSessionRuntime {
   private readonly active = new Map<string, ActiveTurn>();
+  /** The exchange each in-flight background call was started from. */
+  private readonly backgroundOrigins = new Map<string, Exchange<unknown>>();
 
   constructor(
     private readonly context: CraftContext,
@@ -195,8 +199,12 @@ export class AgentSessionRuntime {
     return { depth: record.inbox.length, running: this.isRunning(key) };
   }
 
-  /** Record a background tool call the session is waiting on. */
-  async trackBackground(
+  /**
+   * Record a background tool call the session is waiting on, before the
+   * route is dispatched: a crash between the two reports the call lost at
+   * the next turn rather than forgetting it ever started.
+   */
+  async startBackground(
     key: AgentSessionKey,
     call: AgentBackgroundCall,
   ): Promise<void> {
@@ -204,20 +212,31 @@ export class AgentSessionRuntime {
       ...r,
       background: [...r.background, call],
     }));
+    const turn = this.active.get(keyOf(key));
+    // Remembered so the settlement can be attributed to the exchange that
+    // started the call, which by then may have finished its turn.
+    if (turn) this.backgroundOrigins.set(call.handle, turn.exchange);
+    if (turn) {
+      this.emit(turn.exchange, "route:agent:session:background:started", {
+        agentName: key.agent,
+        session: key.session,
+        handle: call.handle,
+        toolName: call.tool,
+      });
+    }
   }
 
   /**
    * Retire a background call and deliver its outcome to the inbox in one
    * write, so a crash between the two cannot lose the result while
-   * forgetting the call.
+   * forgetting the call. The inbox rule applies from here: a running turn
+   * sees it at its boundary, an idle session at its next turn.
    */
   async settleBackground(
     key: AgentSessionKey,
-    entry: Omit<
-      Extract<AgentInboxMessage, { kind: "background" }>,
-      "id" | "at" | "kind"
-    >,
+    outcome: BackgroundOutcome,
   ): Promise<{ depth: number; running: boolean }> {
+    const { duration, ...entry } = outcome;
     const record = await this.store.update(key, (r) => ({
       ...r,
       background: r.background.filter((b) => b.handle !== entry.handle),
@@ -227,10 +246,44 @@ export class AgentSessionRuntime {
           kind: "background",
           id: randomUUID(),
           at: new Date().toISOString(),
-          ...entry,
+          handle: entry.handle,
+          tool: entry.tool,
+          status: entry.status,
+          ...(entry.status === "completed"
+            ? { result: entry.result }
+            : {
+                error: {
+                  ...(entry.error.rc !== undefined
+                    ? { rc: entry.error.rc }
+                    : {}),
+                  message: entry.error.message,
+                },
+              }),
         },
       ],
     }));
+    const origin = this.backgroundOrigins.get(entry.handle);
+    this.backgroundOrigins.delete(entry.handle);
+    if (origin) {
+      if (entry.status === "completed") {
+        this.emit(origin, "route:agent:session:background:completed", {
+          agentName: key.agent,
+          session: key.session,
+          handle: entry.handle,
+          toolName: entry.tool,
+          duration,
+        });
+      } else {
+        this.emit(origin, "route:agent:session:background:failed", {
+          agentName: key.agent,
+          session: key.session,
+          handle: entry.handle,
+          toolName: entry.tool,
+          errorName: entry.error.name,
+          duration,
+        });
+      }
+    }
     return { depth: record.inbox.length, running: this.isRunning(key) };
   }
 
@@ -282,6 +335,7 @@ export class AgentSessionRuntime {
     const outcome = this.execute(k, req, incoming, controller, consumed);
     const turn: ActiveTurn = {
       controller,
+      exchange: req.exchange,
       consumed,
       outcome,
       settled: outcome.then(
@@ -422,10 +476,30 @@ export class AgentSessionRuntime {
   }
 }
 
+/** How a background call ended, as the tool reports it to the runtime. @internal */
+export type BackgroundOutcome = {
+  readonly handle: string;
+  readonly tool: string;
+  readonly duration: number;
+} & (
+  | { readonly status: "completed"; readonly result: unknown }
+  | {
+      readonly status: "failed";
+      readonly error: {
+        readonly rc?: string;
+        readonly message: string;
+        readonly name: string;
+      };
+    }
+);
+
 type SessionEventName =
   | "route:agent:session:queued"
   | "route:agent:session:interrupted"
-  | "route:agent:session:restored";
+  | "route:agent:session:restored"
+  | "route:agent:session:background:started"
+  | "route:agent:session:background:completed"
+  | "route:agent:session:background:failed";
 
 type SessionEventDetails<K extends SessionEventName> = Omit<
   EventDetailsMap[K],
