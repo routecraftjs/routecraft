@@ -40,7 +40,6 @@ function keyAuth(): HttpAuth {
 function widgets(items: Array<{ id: string; colour: string }>): OpsResource {
   return {
     name: "widgets",
-    description: "Widgets, for the test",
     list: async (query) => ({
       items:
         query["colour"] === undefined
@@ -221,7 +220,6 @@ describe("contributed management resources", () => {
       plugins: [
         contributing({
           name: "widgets",
-          description: "Widgets that fail",
           list: async (query) => {
             if (query["limit"] !== undefined) {
               throw rcError("RC5059", undefined, {

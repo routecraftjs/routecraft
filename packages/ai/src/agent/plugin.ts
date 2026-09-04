@@ -361,8 +361,6 @@ function registerSessionsResource(ctx: CraftContext): void {
   };
   registerOpsResource<AgentSessionSummary>(ctx, {
     name: SESSIONS_RESOURCE,
-    description:
-      "Named agent sessions: transcript length, turn state, inbox depth and background calls in flight.",
     async list(query): Promise<OpsPage<AgentSessionSummary>> {
       const sessions = runtime();
       if (!sessions) return { items: [] };

@@ -24,7 +24,11 @@ import type {
   OpsRouteFilter,
   OpsRouteSummary,
 } from "@routecraft/routecraft";
-import { describeSource, type ResolvedSettings } from "./settings.js";
+import {
+  describeSource,
+  SettingsError,
+  type ResolvedSettings,
+} from "./settings.js";
 import { messageOf } from "./util.js";
 
 /**
@@ -92,9 +96,35 @@ export interface OpsClient {
   dispatch(id: string, body: unknown): Promise<OpsDispatchOutcome>;
 }
 
+/**
+ * A bearer token over plain `http:` is readable by every hop between the
+ * terminal and the instance, and the settings ladder makes it easy to pin
+ * an `http://` address in a file and add a token from the environment
+ * later without seeing the two together. Loopback is the exception: the
+ * bytes never leave the machine, and it is the address `craft` defaults
+ * to for an instance running here.
+ */
+function refuseClearTextBearer(settings: ResolvedSettings): void {
+  const url = new URL(settings.url.value);
+  if (url.protocol !== "http:" || isLoopback(url.hostname)) return;
+  throw new SettingsError(
+    `The instance URL from the ${describeSource(settings.url)} is ${settings.url.value}, which is plain http, and the token from the ${describeSource(settings.token!)} would travel over it as clear text. ` +
+      `Use an https URL, or a loopback address (localhost, 127.0.0.1, ::1) for an instance on this machine.`,
+  );
+}
+
+/** localhost, 127.0.0.0/8 and ::1, as `URL.hostname` renders them. */
+function isLoopback(hostname: string): boolean {
+  const host = hostname.replace(/^\[|\]$/g, "").toLowerCase();
+  return (
+    host === "localhost" || host === "::1" || /^127(?:\.\d{1,3}){3}$/.test(host)
+  );
+}
+
 export function createOpsClient(settings: ResolvedSettings): OpsClient {
   const base = settings.url.value.replace(/\/+$/, "");
   const token = settings.token?.value;
+  if (token !== undefined) refuseClearTextBearer(settings);
 
   /**
    * Where the address came from, phrased for an error a reader must act

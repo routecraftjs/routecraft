@@ -663,6 +663,9 @@ export {
   isSuspendSignal,
   isSuspended,
   markSuspendCapable,
+  // parkAside and reviveSuspension are @internal and re-exported on purpose:
+  // @routecraft/ai stores and revives an agent session's continuation
+  // through them, and a package cannot reach a deep import of core.
   parkAside,
   reviveSuspension,
   routeCanSuspend,

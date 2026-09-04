@@ -159,6 +159,9 @@ export interface ContainerCreateOptions {
 /** Grace between the timeout's SIGTERM and the SIGKILL, as on the host tiers. */
 const FORCE_KILL_AFTER_MS = 5_000;
 
+/** How long after the exit the attach stream is given to deliver its tail. */
+const ATTACH_DRAIN_MS = 5_000;
+
 /** How long the daemon gets to answer the stdin attach upgrade. */
 const UPGRADE_TIMEOUT_MS = 10_000;
 
@@ -250,6 +253,7 @@ export function createDockerTier(
       else io.signal?.addEventListener("abort", onAbort, { once: true });
 
       let exited: Promise<{ StatusCode: number }> | undefined;
+      let drained: Promise<void> = Promise.resolve();
       let started = false;
       try {
         const output = await container.attach({
@@ -257,6 +261,7 @@ export function createDockerTier(
           stdout: true,
           stderr: true,
         });
+        drained = streamEnded(output);
         docker.modem.demuxStream(
           output,
           sink((chunk) => stdout.push(chunk)),
@@ -304,6 +309,12 @@ export function createDockerTier(
 
       try {
         const { StatusCode } = await exited!;
+        // The exit lands before the last of the output does: the daemon
+        // closes the attach stream after the wait answers, and a result
+        // read at the exit drops whatever was still in flight. Bounded,
+        // because a daemon that never closes the stream must not hold the
+        // exchange once the command is known to be gone.
+        await Promise.race([drained, delay(ATTACH_DRAIN_MS)]);
         return {
           stdout: stdout.result(),
           stderr: stderr.result(),
@@ -502,9 +513,10 @@ export function containerSpec(
  * so files the command writes on a mount are the caller's. Root is opt-in
  * and, unlike root inside the `unshare` tier's user namespace, is the
  * host's real uid 0 on a daemon without user-namespace remapping: with a
- * writable mount it writes root-owned files on the host. On a platform
- * without POSIX ids (Windows, where the daemon is remote anyway) the
- * image's own user applies.
+ * writable mount it writes root-owned files on the host. A runtime without
+ * POSIX ids leaves the image's own user in place; the one platform that
+ * lacks them is refused at the probe, so this is the type kept honest
+ * rather than a path a command takes.
  */
 function containerUser(mapRootUser: boolean): { User?: string } {
   const ids = posixIds(mapRootUser);
@@ -532,6 +544,24 @@ function posixIds(
   return { uid: process.getuid(), gid: process.getgid() };
 }
 
+/** Settles when the daemon closes an attach stream, or when it fails. */
+function streamEnded(stream: NodeJS.ReadableStream): Promise<void> {
+  return new Promise((resolve) => {
+    const done = (): void => resolve();
+    stream.once("end", done);
+    stream.once("close", done);
+    stream.once("error", done);
+  });
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    // A settled race must not keep the process alive for its loser.
+    timer.unref?.();
+  });
+}
+
 /** A writable that hands every chunk to a bounded buffer. */
 function sink(push: (chunk: Uint8Array) => void): Writable {
   return new Writable({
@@ -543,6 +573,16 @@ function sink(push: (chunk: Uint8Array) => void): Writable {
 }
 
 async function runProbe(client: () => Promise<DockerClient>): Promise<void> {
+  // Mount paths are checked as POSIX paths and handed to the daemon as
+  // such; a drive-letter path would pass neither, so the tier refuses the
+  // platform outright rather than a mount at a time.
+  if (process.platform === "win32") {
+    throw rcError("OS1001", undefined, {
+      message:
+        `The "docker" isolation tier runs on Linux and macOS and this host is win32. ` +
+        `Run the route on one of those, or write isolation: "none" at the call site to run without isolation deliberately.`,
+    });
+  }
   // A missing peer rejects here as RC5017 from the loader, with its own
   // install hint, and is not reworded.
   const docker = await client();

@@ -323,7 +323,6 @@ import { registerOpsResource } from '@routecraft/routecraft'
 
 registerOpsResource(ctx, {
   name: 'widgets',
-  description: 'Widgets this instance holds',
   list: async (query) => ({ items: await widgets.list(query.colour) }),
   describe: async ([id]) => widgets.get(id),
 })

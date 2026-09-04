@@ -45,17 +45,31 @@ function fakeContainer(options: {
   exitCode?: number;
   /** Resolve `wait` only when the test says so. */
   hold?: boolean;
+  /** Written to the attach stream at start, as a command that prints and exits does. */
   stdout?: string;
+  /**
+   * Written to the attach stream after `wait` has answered, which is when
+   * the daemon delivers the tail of a command's output.
+   */
+  lateStdout?: string;
 }): {
   container: DockerContainer;
   calls: string[];
-  stdoutText: string | undefined;
   exit: (code: number) => void;
 } {
   const calls: string[] = [];
+  const output = new PassThrough();
   let exit!: (code: number) => void;
   const exited = new Promise<{ StatusCode: number }>((resolve) => {
-    exit = (code) => resolve({ StatusCode: code });
+    exit = (code) => {
+      resolve({ StatusCode: code });
+      // The daemon closes the attach stream after the wait answers, not
+      // before, and the bytes still in flight arrive in between.
+      setTimeout(() => {
+        if (options.lateStdout !== undefined) output.write(options.lateStdout);
+        output.end();
+      }, 20);
+    };
   });
   const container: DockerContainer = {
     id: "c1",
@@ -63,10 +77,11 @@ function fakeContainer(options: {
       calls.push(
         `attach:${opts.stdout ? "out" : ""}${opts.stderr ? "err" : ""}`,
       );
-      return new PassThrough();
+      return output;
     },
     async start() {
       calls.push("start");
+      if (options.stdout !== undefined) output.write(options.stdout);
       if (!options.hold) exit(options.exitCode ?? 0);
     },
     async wait(opts) {
@@ -81,7 +96,7 @@ function fakeContainer(options: {
       calls.push("remove");
     },
   };
-  return { container, calls, stdoutText: options.stdout, exit };
+  return { container, calls, exit };
 }
 
 function fakeClient(
@@ -102,8 +117,10 @@ function fakeClient(
       },
       modem: {
         socketPath: "/var/run/docker.sock",
-        demuxStream(_stream, stdout) {
-          if (fake.stdoutText !== undefined) stdout.write(fake.stdoutText);
+        // The real one reads the attach stream and splits it by header;
+        // the fake stream is unframed, so every chunk is stdout.
+        demuxStream(stream, stdout) {
+          stream.on("data", (chunk: Uint8Array) => stdout.write(chunk));
         },
       },
     },
@@ -266,6 +283,23 @@ describe("driving a container", () => {
       stdout: { text: "hi\n", truncated: false },
     });
     expect(outcome.signal).toBeUndefined();
+  });
+
+  /**
+   * @case Output the daemon delivers after the exit is part of the result
+   * @preconditions A fake container that exits 0 on start and writes "late" to the attach stream after wait has answered, then closes it
+   * @expectedResult The outcome's stdout carries "late": the result was read once the attach stream ended rather than at the exit
+   */
+  test("drains the attach stream after the exit", async () => {
+    const fake = fakeContainer({ stdout: "early\n", lateStdout: "late\n" });
+    const tier = createDockerTier(async () => fakeClient(fake).client);
+    const outcome = await tier.execute(
+      target,
+      { ...request, image: "alpine:3.20" },
+      io,
+    );
+    expect(outcome.exitCode).toBe(0);
+    expect(outcome.stdout.text).toBe("early\nlate\n");
   });
 
   /**
@@ -457,6 +491,35 @@ describe("driving a container", () => {
       /DOCKER_HOST.*unshare/,
     );
     expect(pings).toBe(2);
+  });
+
+  /**
+   * @case The tier refuses Windows at the probe, before any daemon is asked
+   * @preconditions process.platform reads "win32" for the duration; a fake client whose ping records whether it ran
+   * @expectedResult ensureAvailable rejects with OS1001 naming win32 and the platforms the tier runs on, and the daemon was never pinged
+   */
+  test("windows is refused at the probe", async () => {
+    let pings = 0;
+    const { client } = fakeClient(fakeContainer({}), {
+      ping: async () => {
+        pings += 1;
+        return "OK";
+      },
+    });
+    const platform = Object.getOwnPropertyDescriptor(process, "platform")!;
+    Object.defineProperty(process, "platform", { value: "win32" });
+    try {
+      const tier = createDockerTier(async () => client);
+      await expect(tier.ensureAvailable()).rejects.toMatchObject({
+        rc: "OS1001",
+      });
+      await expect(tier.ensureAvailable()).rejects.toThrow(
+        /Linux and macOS.*win32/,
+      );
+    } finally {
+      Object.defineProperty(process, "platform", platform);
+    }
+    expect(pings).toBe(0);
   });
 
   /**

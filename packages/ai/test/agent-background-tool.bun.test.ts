@@ -360,7 +360,7 @@ describe("background tools", () => {
 
   /**
    * @case A tool handler is told which session it runs in
-   * @preconditions A plain fn returns ctx.session; the agent calls it inside a session turn and once on the sessionless route without background tools
+   * @preconditions A plain fn returns ctx.session; the agent calls it inside a session turn
    * @expectedResult Inside the session the tool sees { agent: "max", id: "s" }; the handle context is frozen
    */
   test("ctx.session names the calling session", async () => {

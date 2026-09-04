@@ -231,6 +231,23 @@ export class AgentSessionRuntime {
       const current = this.active.get(k) ?? (await this.nextTurn(k, req, id));
       const result = await current.outcome;
       if (current.consumed.has(id)) return result;
+      if (this.active.has(k)) continue;
+      // The turn ended without reading this message and no follow-up took
+      // over. Only a message still in the inbox has a turn to wait for; one
+      // that is gone was consumed where this process could not see it, and
+      // starting turns until one reads it would never end.
+      const inbox = (await this.store.load(req.key))?.inbox ?? [];
+      if (!inbox.some((entry) => entry.id === id)) {
+        return {
+          text: "",
+          session: {
+            agent: req.key.agent,
+            id: req.key.session,
+            status: "idle",
+            queued: inbox.length,
+          },
+        };
+      }
     }
   }
 

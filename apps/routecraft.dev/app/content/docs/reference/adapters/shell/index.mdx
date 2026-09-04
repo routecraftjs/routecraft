@@ -58,7 +58,7 @@ Each tier is named for the mechanism that provides it, so its name is its promis
 | Tier | What it is | Availability |
 | --- | --- | --- |
 | `unshare` | Linux kernel namespaces. The default. | Linux |
-| `docker` | A throwaway container per command on a Docker Engine daemon. The only tier that contains the filesystem. | Wherever a daemon answers (`DOCKER_HOST` or the default socket) |
+| `docker` | A throwaway container per command on a Docker Engine daemon. The only tier that contains the filesystem. | Linux and macOS, wherever a daemon answers (`DOCKER_HOST` or the default socket). Refused on Windows, whose mount paths the tier does not parse |
 | `none` | A plain subprocess. No isolation promised, none provided. | Everywhere |
 
 ```ts
@@ -79,7 +79,7 @@ shell('curl', ['https://example.com'], { isolation: 'none', network: true })
 
 Running uncontained costs two visible words rather than one silent default. The same holds for `mapRootUser` on a tier with no user namespace. This matters more than its size suggests: denied egress is the strongest guarantee this adapter makes, because the tier deliberately does not contain filesystem reads, so no-network is what stands between a command reading a credential and sending it somewhere.
 
-### What `unshare` guarantees
+### What `unshare` guarantees \{#what-unshare-guarantees}
 
 - **Processes**: a PID namespace with `/proc` remounted inside it. Host processes are invisible to the command and cannot be signalled by it.
 - **Network**: a network namespace with no interfaces unless the call sets `network: true`, so egress is denied by default.
@@ -88,7 +88,7 @@ Running uncontained costs two visible words rather than one silent default. The 
 - **IPC**: an IPC namespace. Host SysV shared memory, message queues and semaphores are invisible.
 - **Hostname**: a UTS namespace. The command can set a hostname of its own without touching yours.
 
-### What `unshare` does not guarantee
+### What `unshare` does not guarantee \{#what-unshare-does-not-guarantee}
 
 **The command can still read every file you can read**, including `~/.ssh`, `.env` files, and the rest of your home directory.
 
@@ -98,7 +98,7 @@ If a command must not read your secrets, either run it on a host whose files it 
 
 Note how this interacts with `network: true`. Granting egress to a command that can read your files is what turns readable-but-local into exfiltratable. That combination deserves a deliberate decision, particularly for agent workloads.
 
-### What `docker` guarantees
+### What `docker` guarantees \{#what-docker-guarantees}
 
 - **Filesystem**: the command sees the image's filesystem and the mounts the call declared, and nothing else from the host. This is the containment `unshare` deliberately does not provide, and the reason an agent's build runs here.
 - **Network**: none unless the call sets `network: true`, so egress is denied by default.
@@ -123,9 +123,9 @@ craft()
   }))
 ```
 
-The positional command stays static and the data travels through `args` under `untrusted()`, exactly as on the host tiers: inside a container with no network the guardrail is the container, but the lint rule and the discipline do not change per tier. `isolation` stays static too; it sits in the same [precedence chain](#options) as every tier.
+This example deliberately executes data as shell code: `sh -lc` interprets `cmd`, and `untrusted()` marks the argument as data for the lint rule without quoting or neutralising it, so the guardrail is the container and nothing else. On a host tier the same line is command injection and must not be written; there the program is named at the call site and data travels through `args` as the `git clone` example above does. `isolation` stays static too; it sits in the same [precedence chain](#options) as every tier.
 
-### What `docker` does not guarantee
+### What `docker` does not guarantee \{#what-docker-does-not-guarantee}
 
 A container shares the host kernel; it is not a virtual machine. The image is chosen by the call and pulled by nobody: an image that is not present fails the call with [`OS1002`](/docs/reference/errors) naming it and the `docker pull`, so what runs inside is only as trusted as the image an author, or an agent, named. There is no image allowlist here; which images may run is the route's policy, and a route that takes the image from data has made that policy the data's. `env` values are visible in `docker inspect`; a value that must not be goes through `stdin`. The image's own `ENV` is present beside the granted baseline: the daemon merges the two, and the grant wins only on the names it sets, so an image that bakes in a credential hands it to every command. A mount whose host path does not exist is created by the daemon as a root-owned directory rather than refused. `mapRootUser: true` is the host's real uid 0 on a daemon without user-namespace remapping, not the unprivileged root of the `unshare` tier: with a writable mount it writes root-owned files on the host. A restart of the Routecraft process while a container runs fails that exchange; the container itself is left to `--rm`, and re-attaching to it afterwards is what `name` exists for and is not built yet.
 

@@ -63,6 +63,9 @@ import type { ThreadMessage } from "./suspension-state.ts";
 const AGENT_REGISTRY_STORE_DESCRIPTION =
   ADAPTER_AGENT_REGISTRY.description ?? "routecraft.adapter.agent.registry";
 
+/** The shape a session id must have; see `AgentOptions.session`. */
+const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+
 /**
  * Per-call overrides accepted by the by-name `agent("name", { ... })`
  * factory. Constrained to fields that are inherently request-scoped:
@@ -404,6 +407,13 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
     if (typeof resolved !== "string" || resolved.trim() === "") {
       throw rcError("RC5003", undefined, {
         message: `Agent: "session" must resolve to a non-empty string naming the conversation; got ${JSON.stringify(resolved)}.`,
+      });
+    }
+    // The id is rendered into the system prompt and keys a store record,
+    // so a value shaped from data is bounded before it reaches either.
+    if (!SESSION_ID.test(resolved)) {
+      throw rcError("RC5003", undefined, {
+        message: `Agent: "session" must be 1 to 128 characters of letters, digits, ".", "_", ":" or "-", starting with a letter or digit; got ${JSON.stringify(resolved)}. Map the value the message carries onto that shape before naming the session with it.`,
       });
     }
     if (streaming) {

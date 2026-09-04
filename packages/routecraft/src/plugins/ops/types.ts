@@ -389,8 +389,6 @@ export interface OpsResource<TItem = unknown> {
    * own and refused.
    */
   readonly name: string;
-  /** One line for the docs and the resource listing. */
-  readonly description: string;
   /**
    * The collection, filtered by the request's query parameters. The
    * contributor pages, with `parsePageQuery()`, `takePage()` and
