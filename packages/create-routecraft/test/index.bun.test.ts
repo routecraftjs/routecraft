@@ -7,11 +7,19 @@ import {
   beforeEach,
   afterEach,
 } from "bun:test";
-import { mkdir, rm, readFile, writeFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  rm,
+  readFile,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import {
+  assertInsideRepository,
   collidingExamplePaths,
   generateProjectStructure,
   isExcludedExamplePath,
@@ -628,6 +636,38 @@ describe("mergeExamplePackageJson", () => {
   });
 
   /**
+   * @case A non-string value inside a manifest map is refused
+   * @preconditions A template whose scripts map carries a number
+   * @expectedResult Throws naming the offending entry, rather than writing a numeric value into the generated package.json
+   */
+  test("refuses a non-string value inside a manifest map", async () => {
+    await writeFile(
+      join(source, "package.json"),
+      JSON.stringify({ scripts: { start: 1 } }),
+    );
+
+    await expect(mergeExamplePackageJson(source, target)).rejects.toThrow(
+      /"scripts\.start"/,
+    );
+  });
+
+  /**
+   * @case A null value inside a manifest map is refused
+   * @preconditions A template whose dependencies map carries null
+   * @expectedResult Throws, because null survives the spread as readily as a number
+   */
+  test("refuses a null value inside a manifest map", async () => {
+    await writeFile(
+      join(source, "package.json"),
+      JSON.stringify({ dependencies: { zod: null } }),
+    );
+
+    await expect(mergeExamplePackageJson(source, target)).rejects.toThrow(
+      /null/,
+    );
+  });
+
+  /**
    * @case An array in a manifest map field is refused
    * @preconditions A template declaring dependencies as an array
    * @expectedResult Throws, because an array spreads to numeric keys just as a string does
@@ -795,6 +835,43 @@ describe("parseGitHubExampleUrl", () => {
         "https://github.com/owner/repo/tree/main/examples/app?plain=1#L20",
       ),
     ).toMatchObject({ branch: "main", subPath: "examples/app" });
+  });
+
+  /**
+   * @case A symlinked example directory is refused
+   * @preconditions A clone carrying a symlink that points outside it, which git stores and clones faithfully
+   * @expectedResult Throws, because the check resolves real paths rather than comparing strings
+   */
+  test("refuses an example directory that is a symlink out of the clone", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rc-symlink-"));
+    const clone = join(root, "clone");
+    const outside = join(root, "outside");
+    await mkdir(clone, { recursive: true });
+    await mkdir(outside, { recursive: true });
+    await symlink(outside, join(clone, "examples"));
+
+    expect(() =>
+      assertInsideRepository(join(clone, "examples"), clone, "examples"),
+    ).toThrow(/outside the repository/);
+
+    await rm(root, { recursive: true, force: true });
+  });
+
+  /**
+   * @case A real directory inside the clone is accepted
+   * @preconditions An ordinary subdirectory, no symlink
+   * @expectedResult No throw, so the guard does not refuse the normal case
+   */
+  test("accepts a real directory inside the clone", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rc-symlink-ok-"));
+    const inside = join(root, "examples", "app");
+    await mkdir(inside, { recursive: true });
+
+    expect(() =>
+      assertInsideRepository(inside, root, "examples/app"),
+    ).not.toThrow();
+
+    await rm(root, { recursive: true, force: true });
   });
 
   /**

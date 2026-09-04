@@ -3,7 +3,7 @@
 import { mkdir, writeFile, readFile, readdir, stat } from "node:fs/promises";
 import { join, resolve, dirname, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, realpathSync } from "node:fs";
 import { execSync, execFileSync } from "node:child_process";
 import { input, select, confirm } from "@inquirer/prompts";
 import { tmpdir } from "node:os";
@@ -275,6 +275,38 @@ export function parseGitHubExampleUrl(url: string): GitHubExampleRef {
 }
 
 /**
+ * Refuse an example directory that is not really inside the clone.
+ *
+ * Both paths go through `realpath` rather than `resolve`, and only once they
+ * exist: `resolve` is lexical, so a repository carrying a symlink passes a
+ * string comparison and is then read and copied from wherever the link
+ * actually points. Git stores symlinks, so this is reachable from any
+ * repository an operator is talked into scaffolding from.
+ *
+ * The parser refuses `..` already. This is the check that does not depend on
+ * the parser being right, because what follows copies this directory
+ * wholesale into the user's new project.
+ *
+ * @param sourceDir Directory the example will be copied from
+ * @param tempDir The clone it must stay inside
+ * @param subPath The path as the user wrote it, for the message
+ * @throws Error when the real path escapes the clone
+ */
+export function assertInsideRepository(
+  sourceDir: string,
+  tempDir: string,
+  subPath: string,
+): void {
+  const realSource = realpathSync(sourceDir);
+  const realTemp = realpathSync(tempDir);
+  if (realSource !== realTemp && !realSource.startsWith(realTemp + sep)) {
+    throw new Error(
+      `Invalid example path "${subPath}": it resolves outside the repository.`,
+    );
+  }
+}
+
+/**
  * Download and extract a GitHub example
  */
 async function downloadGitHubExample(url: string): Promise<string> {
@@ -307,21 +339,11 @@ async function downloadGitHubExample(url: string): Promise<string> {
     }
 
     const sourceDir = subPath ? join(tempDir, subPath) : tempDir;
-    // The parser refuses ".." already. This is the check that does not
-    // depend on the parser being right, because what follows copies this
-    // directory wholesale into the user's new project.
-    if (
-      sourceDir !== tempDir &&
-      !resolve(sourceDir).startsWith(resolve(tempDir) + sep)
-    ) {
-      throw new Error(
-        `Invalid example path "${subPath}": it resolves outside the repository.`,
-      );
-    }
-
     if (!existsSync(sourceDir)) {
       throw new Error(`Path ${subPath} not found in repository`);
     }
+
+    assertInsideRepository(sourceDir, tempDir, subPath);
 
     await validateExampleContent(sourceDir);
 
@@ -711,6 +733,16 @@ function mapFieldOrThrow(
     throw new Error(
       `The ${source} package.json declares "${field}" as ${Array.isArray(value) ? "an array" : typeof value}, but it must be an object mapping names to strings.`,
     );
+  }
+  // The values matter as much as the container: a numeric or null entry
+  // survives the spread and lands in the generated package.json, where no
+  // package manager will accept it.
+  for (const [name, entry] of Object.entries(value)) {
+    if (typeof entry !== "string") {
+      throw new Error(
+        `The ${source} package.json declares "${field}.${name}" as ${entry === null ? "null" : typeof entry}, but every entry must be a string.`,
+      );
+    }
   }
   return value as Record<string, string>;
 }

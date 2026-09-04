@@ -477,9 +477,7 @@ Parked agent thread replacement refused
 **Why it happens**  
 A rewrite of a parked run's message thread produced a thread the run could not be resumed from. Compaction is the caller this exists for: an agent parks at an approval, its conversation has outgrown the model's context window, and the only moment to shrink it is while the exchange is still parked.
 
-Refused: an empty thread or an entry that is not a message, a tool call with no result (or a result with no call), a result placed before the call that produced it, a missing or empty `toolCallId`, an id used twice, and a thread that no longer contains the suspended call the approver's answer lands on. All but the last are what a summariser breaks by dropping or reordering a message it judged uninteresting; every provider rejects the thread that comes out. The last would fail the revival with [AI1007](#ai-1007) instead, after the approval had already been spent.
-
-The check runs before the store is touched, so a refused replacement leaves the parked record exactly as it was and the run resumes uncompacted.
+Refused: an empty thread or an entry that is not a message, a tool call with no result (or a result with no call), a result placed before the call that produced it, a missing or empty `toolCallId`, an id used twice, and a thread that no longer contains the suspended call the approver's answer lands on. All but the last are what a summariser breaks by dropping or reordering a message it judged uninteresting; every provider rejects the thread that comes out. The last is the reason the guard runs before the store is written rather than after: a thread missing the suspended call is only discovered at revival, as [AI1007](#ai-1007), by which point the approval has been spent and the run cannot be recovered. AI1008 is the recoverable half of that pair. It is raised by `assertResumableThread` while the rewrite is still in hand, nothing has been persisted, and the parked run resumes from the thread it already had.
 
 **Suggestion**  
 - Drop a tool call and its result together, never one of the pair.
