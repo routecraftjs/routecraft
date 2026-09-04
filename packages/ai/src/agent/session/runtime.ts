@@ -19,6 +19,7 @@ import type { ThreadMessage } from "../suspension-state.ts";
 import type { AgentResult } from "../types.ts";
 import { closeUnansweredToolCalls, renderUserMessage } from "./render.ts";
 import { AgentSessionStore } from "./store.ts";
+import { ANONYMOUS } from "./types.ts";
 import type {
   AgentBackgroundCall,
   AgentInboxMessage,
@@ -60,6 +61,8 @@ export interface AgentTurnRequest<T = unknown> {
    * the inbox alone: the completion, or the messages that queued.
    */
   readonly message?: string | LlmPromptPart[];
+  /** The subject of the exchange's principal, or `"anonymous"`. */
+  readonly by: string;
   readonly interrupt: boolean;
   readonly executor: AgentTurnExecutor;
   /**
@@ -189,6 +192,7 @@ export class AgentSessionRuntime {
           kind: "message",
           id,
           content,
+          by: req.by,
           at: new Date().toISOString(),
           ...(req.interrupt ? { interrupt: true } : {}),
         },
@@ -364,6 +368,7 @@ export class AgentSessionRuntime {
           at: new Date().toISOString(),
           handle: entry.handle,
           tool: entry.tool,
+          by: entry.by,
           status: entry.status,
           ...(entry.status === "completed"
             ? { result: entry.result }
@@ -481,6 +486,7 @@ export class AgentSessionRuntime {
     return {
       agent: record.agent,
       session: record.session,
+      startedBy: record.startedBy ?? ANONYMOUS,
       turn: this.isRunning(key)
         ? "running"
         : record.turn !== undefined
@@ -563,9 +569,12 @@ export class AgentSessionRuntime {
           return next;
         }
         for (const entry of next.inbox) consumed.add(entry.id);
-        const user = renderUserMessage(next.inbox, incoming);
+        const user = renderUserMessage(next.inbox, incoming, req.by);
         return {
           ...withoutTurn(next),
+          // Who started the conversation: the first turn's caller, kept
+          // for an operator. Never a gate.
+          ...(next.startedBy === undefined ? { startedBy: req.by } : {}),
           messages: [...next.messages, user],
           inbox: [],
           turn: {
@@ -800,6 +809,8 @@ export class AgentSessionRuntime {
 export type BackgroundOutcome = {
   readonly handle: string;
   readonly tool: string;
+  /** The subject whose turn started the call, or `"anonymous"`. */
+  readonly by: string;
   readonly duration: number;
 } & (
   | { readonly status: "completed"; readonly result: unknown }
@@ -874,6 +885,7 @@ function restoreAfterRestart(record: AgentSessionRecord): AgentSessionRecord {
     id: randomUUID(),
     handle: call.handle,
     tool: call.tool,
+    by: call.by,
     status: "failed",
     error: {
       message: `The run was lost: the process restarted before it finished (started ${call.startedAt}). Start it again if it is still needed.`,

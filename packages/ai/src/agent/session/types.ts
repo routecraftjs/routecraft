@@ -26,6 +26,13 @@ export type AgentInboxMessage =
       readonly id: string;
       readonly content: string | LlmPromptPart[];
       readonly at: string;
+      /**
+       * The subject of the principal that posted it, or `"anonymous"`. A
+       * queued message is consumed under whichever turn runs next, so the
+       * attribution travels with the message and is rendered to the model
+       * as data: the transcript and the model both see who said it.
+       */
+      readonly by: string;
       /** The message asked for the running turn to be interrupted. */
       readonly interrupt?: boolean;
     }
@@ -38,6 +45,8 @@ export type AgentInboxMessage =
       readonly result?: unknown;
       readonly error?: { readonly rc?: string; readonly message: string };
       readonly at: string;
+      /** The subject of the principal whose turn started the call, or `"anonymous"`. */
+      readonly by: string;
     };
 
 /** A background tool call the session is still waiting on. */
@@ -45,7 +54,12 @@ export interface AgentBackgroundCall {
   readonly handle: string;
   readonly tool: string;
   readonly startedAt: string;
+  /** The subject of the principal whose turn started it, or `"anonymous"`. */
+  readonly by: string;
 }
+
+/** The attribution of an exchange that carries no principal. */
+export const ANONYMOUS = "anonymous";
 
 /**
  * What the store holds for one session, in the suspension record's opaque
@@ -67,6 +81,12 @@ export interface AgentSessionRecord {
   readonly version: typeof SESSION_RECORD_VERSION;
   readonly agent: string;
   readonly session: string;
+  /**
+   * The subject of the principal whose turn started the session, or
+   * `"anonymous"`; who owns the conversation, for an operator. Never a
+   * gate: who may post is the route's `.authorize()`.
+   */
+  readonly startedBy?: string;
   /** The transcript, in the SDK's message shape. */
   readonly messages: readonly ThreadMessage[];
   readonly inbox: readonly AgentInboxMessage[];
@@ -145,6 +165,8 @@ export interface AgentSessionOutcome {
 export interface AgentSessionSummary {
   readonly agent: string;
   readonly session: string;
+  /** The subject that started the session, or `"anonymous"`. */
+  readonly startedBy: string;
   /**
    * `running` while this process runs a turn; `stale` when the stored
    * turn marker belongs to a process that is gone, which the next turn

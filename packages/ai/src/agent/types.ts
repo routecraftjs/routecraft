@@ -370,12 +370,13 @@ export interface AgentOptions<T = unknown> extends LlmSamplingOptions {
    * Two limits to design around. The one-turn bound is per process: two
    * instances sharing one store are not coordinated, and a turn marker set
    * by a live sibling is read as one a restart cut short, so run one
-   * process per store. And a session is keyed by its id alone: a queued
-   * message runs under the exchange, principal and tools of the turn that
-   * consumes it, not of the caller that queued it, so where more than one
-   * principal can reach the route, derive the id from the principal
-   * (`session: (ex) => \`${ex.principal?.sub}:${ex.body.session}\``) so no
-   * two callers share one.
+   * process per store. And a turn runs under the principal of the
+   * exchange it runs on, whoever queued the text it consumes; every inbox
+   * item carries its poster's subject and is rendered to the model with
+   * it. Who may post is the route's `.authorize()`: derive the id from the
+   * principal (`session: (ex) => \`${ex.principal?.subject}:${ex.body.session}\``)
+   * when a session must be one caller's, or restrict posting by role or
+   * scope when several principals share one on purpose.
    *
    * @see AgentByNameOverrides for the per-call form, which wins over this one.
    */

@@ -22,6 +22,7 @@ import {
   AgentSessionRuntime,
   type BackgroundOutcome,
 } from "../session/runtime.ts";
+import { ANONYMOUS } from "../session/types.ts";
 import { DEFERRED_FN_BRAND, FN_BACKGROUND, type DeferredFn } from "./types.ts";
 
 /**
@@ -267,10 +268,12 @@ async function dispatchBackground<TIn>(
   const dispatchId = randomUUID();
   const handle = `${routeId}:${dispatchId}`;
   const startedAt = new Date();
+  const by = hctx.principal?.subject ?? ANONYMOUS;
   await runtime.startBackground(key, {
     handle,
     tool: toolName,
     startedAt: startedAt.toISOString(),
+    by,
   });
   const headers: ExchangeHeaders = {
     ...dispatchHeaders(hctx),
@@ -295,6 +298,7 @@ async function dispatchBackground<TIn>(
       settle({
         handle,
         tool: toolName,
+        by,
         status: "completed",
         result,
         duration: Date.now() - startedAt.getTime(),
@@ -303,6 +307,7 @@ async function dispatchBackground<TIn>(
       settle({
         handle,
         tool: toolName,
+        by,
         status: "failed",
         error: {
           ...(rcCodeOf(err) !== undefined ? { rc: rcCodeOf(err)! } : {}),

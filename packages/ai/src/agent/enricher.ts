@@ -49,6 +49,7 @@ import type {
   AgentSessionSource,
 } from "./types.ts";
 import {
+  ANONYMOUS,
   AgentSessionRuntime,
   isSessionParkMarker,
   sessionSystemBlock,
@@ -340,6 +341,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
       return await AgentSessionRuntime.for(context).turn({
         key: sessionKey,
         exchange,
+        by: exchange.principal?.subject ?? ANONYMOUS,
         ...(revivedPark === undefined ? { message: user } : {}),
         ...(park !== undefined ? { park } : {}),
         ...(revivedPark !== undefined

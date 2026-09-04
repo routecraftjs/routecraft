@@ -2,10 +2,12 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
 import {
   DefaultExchange,
+  HeadersKeys,
   MemorySuspensionStore,
   craft,
   direct,
   noop,
+  type Principal,
   type RouteDefinition,
 } from "@routecraft/routecraft";
 import { spy, testContext, type TestContext } from "@routecraft/testing";
@@ -146,8 +148,20 @@ function lastUserOf(call: { user: unknown }): {
   return users[users.length - 1]!;
 }
 
-function send(t: TestContext, body: ChatMessage): Promise<AgentResult> {
-  return t.client.sendDirect("chat", body) as Promise<AgentResult>;
+function send(
+  t: TestContext,
+  body: ChatMessage,
+  as?: string,
+): Promise<AgentResult> {
+  const principal: Principal | undefined =
+    as === undefined
+      ? undefined
+      : { kind: "custom", scheme: "test", subject: as };
+  return t.client.sendDirect(
+    "chat",
+    body,
+    principal === undefined ? {} : { [HeadersKeys.AUTH_PRINCIPAL]: principal },
+  ) as Promise<AgentResult>;
 }
 
 describe("agent sessions", () => {
@@ -270,9 +284,9 @@ describe("agent sessions", () => {
     expect(llm.calls).toHaveLength(2);
     const user = lastUserOf(llm.calls[1]!);
     expect(user.content).toEqual([
-      { type: "text", text: "one" },
-      { type: "text", text: "two" },
-      { type: "text", text: "three" },
+      { type: "text", text: "[Message from an anonymous caller]\none" },
+      { type: "text", text: "[Message from an anonymous caller]\ntwo" },
+      { type: "text", text: "[Message from an anonymous caller]\nthree" },
     ]);
     // Turn two's thread carries turn one in full.
     expect(JSON.stringify(llm.calls[1]!.user)).toContain("turn one");
@@ -342,8 +356,8 @@ describe("agent sessions", () => {
       }),
     ]);
     expect(lastUserOf(llm.calls[1]!).content).toEqual([
-      { type: "text", text: "also this" },
-      { type: "text", text: "stop" },
+      { type: "text", text: "[Message from an anonymous caller]\nalso this" },
+      { type: "text", text: "[Message from an anonymous caller]\nstop" },
     ]);
     expect(t.errors).toHaveLength(0);
   });
@@ -362,11 +376,11 @@ describe("agent sessions", () => {
     const runtimeA = AgentSessionRuntime.for(t.ctx);
     await runtimeA.post(
       { agent: "max", session: "s" },
-      { kind: "message", content: "preview is up" },
+      { kind: "message", content: "preview is up", by: "ci" },
     );
     await runtimeA.post(
       { agent: "max", session: "s" },
-      { kind: "message", content: "tests passed" },
+      { kind: "message", content: "tests passed", by: "ci" },
     );
     expect(
       (await runtimeA.summary({ agent: "max", session: "s" }))?.inbox,
@@ -380,9 +394,12 @@ describe("agent sessions", () => {
     const result = await send(b, { session: "s", message: "anything new?" });
     expect(result.text).toBe("caught up");
     expect(lastUserOf(llm.calls[1]!).content).toEqual([
-      { type: "text", text: "preview is up" },
-      { type: "text", text: "tests passed" },
-      { type: "text", text: "anything new?" },
+      { type: "text", text: '[Message from "ci"]\npreview is up' },
+      { type: "text", text: '[Message from "ci"]\ntests passed' },
+      {
+        type: "text",
+        text: "[Message from an anonymous caller]\nanything new?",
+      },
     ]);
     // Turn one's exchange is in the thread too: the transcript survived.
     expect(JSON.stringify(llm.calls[1]!.user)).toContain('"first"');
@@ -432,6 +449,7 @@ describe("agent sessions", () => {
         handle: "sandbox-run:dead",
         tool: "sandbox-run",
         startedAt: "2026-09-04T00:00:00.000Z",
+        by: "alice",
       },
     ];
     const restored: unknown[] = [];
@@ -606,6 +624,7 @@ describe("agent sessions", () => {
       key,
       exchange,
       message: "a",
+      by: "anonymous",
       interrupt: false,
       executor,
     });
@@ -615,6 +634,7 @@ describe("agent sessions", () => {
       key,
       exchange,
       message: "b",
+      by: "anonymous",
       interrupt: true,
       executor,
     });
@@ -622,6 +642,79 @@ describe("agent sessions", () => {
     await expect(first).rejects.toThrow(/store down/);
     expect(runs).toBe(1);
     expect(runtime.isRunning(key)).toBe(false);
+  });
+
+  /**
+   * @case A queued message is attributed to its poster while the turn that consumes it runs under the exchange that parked
+   * @preconditions Alice's turn is held in the slow tool; Bob and an anonymous caller queue a message each; the tool is released and the boundary turn consumes both
+   * @expectedResult The delivered user message carries a bracketed attribution per part naming "bob" and an anonymous caller, the stored transcript holds the same, and the exchange the boundary turn ran on carries Alice's principal, not Bob's
+   */
+  test("a queued message names its poster and runs under the parked exchange", async () => {
+    const store = new MemorySuspensionStore();
+    const sink = spy();
+    t = await contextWith(store, sink).build();
+    await t.startAndWaitReady();
+    llm.script.push({ toolCalls: [{ toolName: "slow" }] }, { text: "done" });
+    const first = send(t, { session: "s", message: "start" }, "alice");
+    await waitForEntry(1);
+    const bob = await send(t, { session: "s", message: "bob says hi" }, "bob");
+    expect(bob.session?.status).toBe("queued");
+    const anon = await send(t, { session: "s", message: "who is there?" });
+    expect(anon.session?.status).toBe("queued");
+    llm.script.push({ text: "hello both" });
+    release!();
+    await first;
+    const deadline = Date.now() + 5_000;
+    while (llm.calls.length < 2 && Date.now() < deadline) await sleep(5);
+    await t.ctx.getRouteById("chat")!.drain();
+    expect(lastUserOf(llm.calls[1]!).content).toEqual([
+      { type: "text", text: '[Message from "bob"]\nbob says hi' },
+      {
+        type: "text",
+        text: "[Message from an anonymous caller]\nwho is there?",
+      },
+    ]);
+    const record = MemorySuspensionStore.unsafeRecords(store).get(
+      sessionRecordId({ agent: "max", session: "s" }),
+    )!;
+    expect(JSON.stringify(record.stepState)).toContain(
+      '[Message from \\"bob\\"]',
+    );
+    // The boundary turn ran on Alice's parked exchange: its downstream
+    // delivery carries her principal, whoever queued the text.
+    const boundary = sink.received[sink.received.length - 1]!;
+    expect((boundary.body as AgentResult).text).toBe("hello both");
+    expect(boundary.principal?.subject).toBe("alice");
+  });
+
+  /**
+   * @case The session records who started it, and a later caller does not change that
+   * @preconditions Alice's message starts the session; Bob's message runs the next turn
+   * @expectedResult The summary reports startedBy "alice" after both turns, and Bob's own message, having started its turn, is delivered as a plain string under his turn
+   */
+  test("the session records its starter", async () => {
+    const store = new MemorySuspensionStore();
+    t = await contextWith(store, spy()).build();
+    await t.startAndWaitReady();
+    llm.script.push({ text: "hi alice" }, { text: "hi bob" });
+    await send(t, { session: "s", message: "I am Alice" }, "alice");
+    await send(t, { session: "s", message: "I am Bob" }, "bob");
+    expect(lastUserOf(llm.calls[1]!).content).toBe("I am Bob");
+    const summary = await AgentSessionRuntime.for(t.ctx).summary({
+      agent: "max",
+      session: "s",
+    });
+    expect(summary).toMatchObject({ startedBy: "alice", turns: 2 });
+    llm.script.push({ text: "hi nobody" });
+    await send(t, { session: "anon", message: "hello" });
+    expect(
+      (
+        await AgentSessionRuntime.for(t.ctx).summary({
+          agent: "max",
+          session: "anon",
+        })
+      )?.startedBy,
+    ).toBe("anonymous");
   });
 
   /**
