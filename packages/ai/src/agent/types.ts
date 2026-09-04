@@ -8,6 +8,7 @@ import type {
 import type {
   LlmModelId,
   LlmPromptSource,
+  LlmUserPromptSource,
   LlmSamplingOptions,
   LlmUsage,
 } from "../llm/types.ts";
@@ -19,14 +20,14 @@ import type { ToolSelection } from "./tools/selection.ts";
  * the user prompt from `exchange.body` (string body as-is, JSON-stringified
  * for objects, `String()` otherwise).
  *
- * Alias of {@link LlmPromptSource} so the same prompt-source contract
+ * Alias of {@link LlmUserPromptSource} so the same prompt-source contract
  * applies to both the `agent` and `llm` destinations: pass a static
- * string for fixed prompts, or a function that derives the prompt from
- * the incoming exchange.
+ * string for fixed prompts, an array of content parts for a multimodal
+ * prompt, or a function that derives either from the incoming exchange.
  *
  * @template T - Body type available to the prompt callback
  */
-export type AgentUserPromptSource<T = unknown> = LlmPromptSource<T>;
+export type AgentUserPromptSource<T = unknown> = LlmUserPromptSource<T>;
 
 /**
  * Custom renderer for the agent's `## Caller` section. Receives the
@@ -159,12 +160,16 @@ export interface AgentOptions<T = unknown> extends LlmSamplingOptions {
   system: LlmPromptSource<T>;
 
   /**
-   * Optional override for the user prompt. Either a static string or
-   * a function that derives the prompt from the incoming exchange
-   * (mirrors `llm({ user })`). Defaults to the exchange body (string
-   * as-is, JSON for objects, `String()` otherwise) when omitted.
+   * Optional override for the user prompt. A static string, an array of
+   * content parts, or a function deriving either from the incoming exchange
+   * (mirrors `llm({ user })`). Defaults to the exchange body (string as-is,
+   * JSON for objects, `String()` otherwise) when omitted.
+   *
+   * The parts form is what lets an agent take a recording or an image
+   * directly, with no transcription step in front of it. See
+   * {@link LlmPromptPart}.
    */
-  user?: LlmPromptSource<T>;
+  user?: LlmUserPromptSource<T>;
 
   /**
    * Tools the agent is allowed to call. Build via

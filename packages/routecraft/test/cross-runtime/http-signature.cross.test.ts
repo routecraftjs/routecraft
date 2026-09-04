@@ -144,4 +144,57 @@ describe("http source rawBody + signature (cross-runtime contract)", () => {
       reason: "invalid signature",
     });
   });
+
+  /**
+   * @case A multi-header signature scheme decides identically on this runtime's server path
+   * @preconditions Route with a standard-webhooks gate, which reads three request headers rather than one
+   * @expectedResult Correctly signed delivery returns 200; the same signature over a different body returns 401 with the bounded reason
+   */
+  test("standard-webhooks accepts valid and rejects tampered deliveries", async () => {
+    const body = '{"event":"message.received"}';
+    const secret = "whsec_MfKQ9r8GKYqrTwjUPD8ILPZIo2LaLaSw";
+    const id = "msg_p5jXN8AQM9LWM0D4loKWxJek";
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const key = Buffer.from(secret.slice("whsec_".length), "base64");
+    const signature = createHmac("sha256", key)
+      .update(`${id}.${timestamp}.${body}`)
+      .digest("base64");
+    const headers = {
+      "content-type": "application/json",
+      "webhook-id": id,
+      "webhook-timestamp": timestamp,
+      "webhook-signature": `v1,${signature}`,
+    };
+
+    const bound = await bootHttp(
+      craft()
+        .id("xr-sw")
+        .from(
+          http({
+            path: "/xr-sw",
+            method: "POST",
+            signature: { scheme: "standard-webhooks", secret },
+          }),
+        )
+        .transform(() => ({ received: true }))
+        .to(noop()),
+    );
+    t = bound.ctx;
+
+    const url = `http://127.0.0.1:${bound.port}/xr-sw`;
+    const good = await fetch(url, { method: "POST", headers, body });
+    expect(good.status).toBe(200);
+    expect(await good.json()).toEqual({ received: true });
+
+    const bad = await fetch(url, {
+      method: "POST",
+      headers,
+      body: '{"event":"tampered"}',
+    });
+    expect(bad.status).toBe(401);
+    expect((await bad.json()) as Record<string, unknown>).toEqual({
+      error: "unauthorized",
+      reason: "invalid signature",
+    });
+  });
 });

@@ -554,9 +554,38 @@ export const stripeHook = craft()
   }))
   .transform((event) => handlePaymentEvent(event))
   .to(noop())
+
+// Standard Webhooks (Resend, Bird, Svix and anything else on the spec):
+// webhook-id, webhook-timestamp and webhook-signature, signed over
+// `<id>.<timestamp>.<body>`. The spec fixes the header names, so there is
+// nothing to configure but the secret.
+export const birdHook = craft()
+  .id('bird-whatsapp-inbound')
+  .from(http({
+    path: '/hooks/bird',
+    method: 'POST',
+    signature: {
+      scheme: 'standard-webhooks',
+      secret: process.env.BIRD_WEBHOOK_SECRET!,
+    },
+  }))
+  .transform((event) => toInboundMessage(event))
+  .to(direct('agent'))
 ```
 
-Schemes: `"hmac-sha256-hex"` (hex HMAC-SHA256, optional `prefix` such as GitHub's `sha256=`), `"hmac-sha1-hex"` (legacy providers; prefer sha256 when offered), and `"stripe-timestamped"` (`t=<unix>,v1=<hex>` with freshness checking; expired timestamps reject with reason `signature expired`). The rejection reasons are a bounded vocabulary: `missing signature header`, `invalid signature`, `signature expired`.
+Schemes: `"hmac-sha256-hex"` (hex HMAC-SHA256, optional `prefix` such as GitHub's `sha256=`), `"hmac-sha1-hex"` (legacy providers; prefer sha256 when offered), `"stripe-timestamped"` (`t=<unix>,v1=<hex>` with freshness checking; expired timestamps reject with reason `signature expired`), and `"standard-webhooks"` ([the specification](https://www.standardwebhooks.com/), used by Resend, Bird and Svix). The rejection reasons are a bounded vocabulary: `missing signature header`, `invalid signature`, `signature expired`.
+
+`"standard-webhooks"` differs from the other three in what it needs from you, because the specification fixes what they leave open:
+
+- **There is no `header` to set.** The specification fixes all three names (`webhook-signature`, `webhook-id`, `webhook-timestamp`), so this scheme takes a secret and nothing else, and the option type refuses a header on it. `header` stays required for the other three schemes, which fix no names of their own.
+- **The secret is base64.** Pass it as the provider shows it, `whsec_` prefix and all; the prefix is stripped and the rest decoded to the signing key. Padding is optional. A secret that is not base64 fails at the `http({...})` call site rather than on the first delivery.
+- **Several signatures may arrive at once**, space separated, which is what key rotation looks like. Any `v1` entry that matches admits the delivery.
+- **`toleranceSec`** works as it does for Stripe, defaulting to 300 seconds, and a delivery outside it rejects `signature expired`. A delivery missing `webhook-id` or `webhook-timestamp` rejects `missing signature header`: nothing was presented to verify.
+- **A passing signature authenticates the sending system, not a person.** The gate admits the request and attaches no principal. Whatever the payload says about an end user is the sender's claim, so treat it as identification and not as authentication.
+- **Redeliveries inside the tolerance window are yours to deduplicate.** The window bounds replay by age, and the specification's answer to the rest is `webhook-id`, which is stable across retries. Read it from `routecraft.http.rawHeaders['webhook-id']` when a duplicate delivery would do damage; the raw headers are on every HTTP exchange and need no opt-in, so deduplicating costs you nothing extra to retain.
+- **`prefix` is ignored**, as it is for `stripe-timestamped`.
+
+This covers the symmetric half of the specification. Asymmetric signatures (`v1a`, ed25519, `whpk_` keys) are not verified, and a `v1a` entry is skipped like any other unsupported version. Note also that Svix sends `svix-id`, `svix-timestamp` and `svix-signature` unless the sender is on a tier that white-labels them to the `webhook-` prefix. A `svix-` delivery does not verify through this option: use the manual escape hatch below for one, or ask the sender to white-label its headers. The scheme deliberately offers no per-header override, since renaming only the signature header would build a route that constructs cleanly and then rejects every delivery.
 
 Rules enforced at construction (`RC5003` from the `http({...})` call site): `signature` requires a body-bearing method (`POST`, `PUT`, `PATCH`), a non-empty `secret`, and a known `scheme`. At request time, oversized bodies still return 413 before any signature computation, and an empty body on a signature-gated route is verified rather than waved through. The gate is independent of the mount wall; webhook endpoints typically live on a public mount, since the signature is the credential.
 

@@ -4,7 +4,12 @@ import { craft, simple } from "@routecraft/routecraft";
 import { agent } from "../src/agent/agent.ts";
 import { embedding } from "../src/embedding/embedding.ts";
 import { llm } from "../src/llm/llm.ts";
-import type { LlmResult, LlmResultWithOutput } from "../src/llm/types.ts";
+import type {
+  LlmPromptPart,
+  LlmResult,
+  LlmResultWithOutput,
+} from "../src/llm/types.ts";
+import type { UserContent } from "ai";
 import type { Enricher } from "@routecraft/routecraft";
 
 /**
@@ -128,5 +133,50 @@ describe("LLM adapter type safety", () => {
           using: (exchange) => exchange.body.content,
         }),
       );
+  });
+
+  /**
+   * @case A parts-returning user callback keeps the route's body typing through `.enrich()`
+   * @preconditions `.input({ body })` precedes llm() and agent(), whose `user` callbacks build content parts from the declared body
+   * @expectedResult Both callbacks read the declared fields without a cast, so the parts form costs none of the type flow the string form has
+   */
+  test("route input type flows into parts-returning user callbacks", () => {
+    const body = z.object({ audio: z.string(), question: z.string() });
+    const source = simple({ audio: "AQID", question: "what was said?" });
+
+    craft()
+      .input({ body })
+      .from(source)
+      .enrich(
+        llm("ollama:my-model", {
+          user: (exchange) => [
+            { type: "file", data: exchange.body.audio, mediaType: "audio/ogg" },
+            { type: "text", text: exchange.body.question },
+          ],
+        }),
+      );
+
+    craft()
+      .input({ body })
+      .from(source)
+      .enrich(
+        agent({
+          model: "ollama:my-model",
+          system: "answer the recording",
+          user: (exchange) => [
+            { type: "file", data: exchange.body.audio, mediaType: "audio/ogg" },
+            { type: "text", text: exchange.body.question },
+          ],
+        }),
+      );
+  });
+
+  /**
+   * @case The framework's part types stay assignable to the SDK's own user content
+   * @preconditions LlmPromptPart[] checked against the `ai` package's exported UserContent
+   * @expectedResult The assignment holds, so an SDK release that changes the part shape fails this compile rather than a user's dispatch
+   */
+  test("LlmPromptPart[] is assignable to the SDK's UserContent", () => {
+    expectTypeOf<LlmPromptPart[]>().toMatchTypeOf<UserContent>();
   });
 });

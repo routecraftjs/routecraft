@@ -8,7 +8,7 @@ The checklists below apply to **packages that ship code**: anything under `packa
 
 ## General Checklist (every change)
 
-- [ ] New or changed behavior has corresponding tests in `packages/*/test/**/*.bun.test.ts` (bun:test, the default runner; the vitest-to-bun:test migration is complete, and the only deliberate vitest files are the scaffolder integration test and the `test/cross-runtime/` suites, per `.standards/testing.md`)
+- [ ] New or changed behavior has corresponding tests in `packages/*/test/**/*.bun.test.ts` (bun:test, the default runner; the vitest-to-bun:test migration is complete, and the only deliberate vitest files are the scaffolder integration test, the `test/cross-runtime/` suites, and the AI SDK prompt-assembly test that needs the real `ai` module, per `.standards/testing.md`)
 - [ ] Bug fixes include a regression test that fails without the fix
 - [ ] Every test has JSDoc with `@case`, `@preconditions`, and `@expectedResult`
 - [ ] JSDoc on any public API you touched is accurate and up to date (`@param`, `@returns`, `@example`)

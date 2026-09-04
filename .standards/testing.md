@@ -6,7 +6,7 @@ Authoritative rules and conventions for tests in Routecraft.
 
 ## 1. Runners and layout
 
-Routecraft has completed its migration from vitest to `bun:test`. New tests must use `bun:test`. Exactly two vitest surfaces remain, both deliberate: the scaffolder integration test (`packages/create-routecraft/test/integration.test.ts`) and the cross-runtime suites (`packages/*/test/cross-runtime/*.cross.test.ts`, which must run under Node and therefore cannot use `bun:test`; see § 11). Any new vitest file beyond those requires a justification from the known-gaps table in § 1.2.
+Routecraft has completed its migration from vitest to `bun:test`. New tests must use `bun:test`. Three vitest surfaces remain, all deliberate: the scaffolder integration test (`packages/create-routecraft/test/integration.test.ts`), the cross-runtime suites (`packages/*/test/cross-runtime/*.cross.test.ts`, which must run under Node and therefore cannot use `bun:test`; see § 11), and `packages/ai/test/llm-prompt-parts-sdk.test.ts`, which needs the real `ai` module that a sibling bun:test file stubs process-wide. Any new vitest file beyond those requires a justification from the known-gaps table in § 1.2.
 
 ### 1.1. File placement and naming
 
@@ -24,7 +24,7 @@ bun run test:vitest    # vitest files only (`*.test.{ts,tsx}` excluding `*.bun.t
 
 ### 1.2. Choosing a runner
 
-Default to `bun:test`. No current unit test uses vitest; a new vitest file is justified only when the test hits a known bun:test gap:
+Default to `bun:test`. One unit test uses vitest, for the last row of the table below; a new vitest file is justified only when the test hits a known bun:test gap:
 
 | Reason | Workaround / Status |
 |---|---|
@@ -32,6 +32,7 @@ Default to `bun:test`. No current unit test uses vitest; a new vitest file is ju
 | `vi.hoisted` / `vi.importActual` complex module mocks | Different hoisting semantics; per-file workaround needed. |
 | `toMatchObject` followed by access to matched fields | Bun:test mutates the actual object, replacing matched fields with matcher refs. Use a shallow-copy match or restructure the test. |
 | `jose` remote JWKS over real HTTP | `fetchImpl` resolves differently under Bun. Investigate later. |
+| A test needing the REAL module that a sibling file replaces with `mock.module` | `mock.module` is process-global and `bun test` shares one registry across the run, so whichever file loads first wins and the loser gets the other's stub. A file that must exercise the genuine module cannot be protected against it: `packages/ai/test/llm-prompt-parts-sdk.test.ts` drives the real `generateText`, which `stream-llm.bun.test.ts` stubs, and under bun:test it fails with `Export named 'generateText' not found` whenever the stubbing file sorts first. It passes only by filename luck, which is worse than failing. Vitest isolates the registry per file. |
 
 Ink-testing-library renderers and ESLint `RuleTester` both work under bun:test with the binding pattern shown in `packages/eslint-plugin-routecraft/test/*.bun.test.ts`. They are no longer blockers.
 

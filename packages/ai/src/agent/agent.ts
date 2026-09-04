@@ -22,6 +22,97 @@ import { AgentEnricherAdapter, type AgentByNameOverrides } from "./enricher.ts";
 import { isToolSelection } from "./tools/selection.ts";
 import type { AgentOptions, AgentResult } from "./types.ts";
 
+/** What a file part's `data` or an image part's `image` may hold. */
+const PART_PAYLOAD_TYPES = "a string, Uint8Array, ArrayBuffer or URL";
+
+/** Built-in types the SDK's payload union admits, by their internal tag. */
+const PART_PAYLOAD_TAGS = new Set([
+  "[object Uint8Array]",
+  "[object ArrayBuffer]",
+  "[object URL]",
+]);
+
+/**
+ * The payload union the SDK declares for a file or image part. `Buffer`
+ * passes as a `Uint8Array`, which is what the SDK accepts too.
+ *
+ * Matched on the internal tag rather than `instanceof`, which is realm
+ * sensitive: a `Uint8Array` built in a worker thread or a `vm` context fails
+ * an `instanceof` check against this realm's constructor, and refusing a
+ * payload the SDK would have accepted is worse than not checking at all.
+ * `ArrayBuffer.isView` is not the answer either, since it admits every typed
+ * array, and a `Float32Array` is not `DataContent`.
+ */
+function isPartPayload(value: unknown): boolean {
+  return (
+    typeof value === "string" ||
+    PART_PAYLOAD_TAGS.has(Object.prototype.toString.call(value))
+  );
+}
+
+/**
+ * Render an untrusted config value for an error message without letting the
+ * renderer itself throw. `JSON.stringify` rejects a BigInt and a circular
+ * object, which are exactly the malformed inputs being reported, so using it
+ * bare would replace the intended RC5003 with a native TypeError.
+ */
+function describeValue(value: unknown): string {
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    try {
+      return String(value);
+    } catch {
+      return "<unrepresentable value>";
+    }
+  }
+}
+
+/**
+ * Check a statically supplied parts array at the `agent({...})` call site.
+ * The type already rejects a malformed part for a TypeScript caller, but a
+ * JavaScript one, or a config object cast on the way in, would otherwise
+ * reach the provider and fail there as an opaque dispatch error rather than
+ * as a route that refused to build.
+ *
+ * Shallow by design: it checks the discriminator and the fields the SDK
+ * requires, never which media types a given provider will accept. That stays
+ * the provider's answer to give. A callback form cannot be checked here at
+ * all, since its parts do not exist until dispatch.
+ */
+function invalidPromptPartReason(parts: readonly unknown[]): string | null {
+  for (const [index, part] of parts.entries()) {
+    const at = `Agent: "user"[${index}]`;
+    if (typeof part !== "object" || part === null) {
+      return `${at} must be a content part object, got ${typeof part}.`;
+    }
+    const p = part as Record<string, unknown>;
+    switch (p["type"]) {
+      case "text":
+        if (typeof p["text"] !== "string") {
+          return `${at} is a text part and must carry a string "text".`;
+        }
+        break;
+      case "file":
+        if (typeof p["mediaType"] !== "string" || p["mediaType"] === "") {
+          return `${at} is a file part and must carry a non-empty "mediaType".`;
+        }
+        if (!isPartPayload(p["data"])) {
+          return `${at} is a file part and its "data" must be ${PART_PAYLOAD_TYPES}, got ${describeValue(p["data"])}.`;
+        }
+        break;
+      case "image":
+        if (!isPartPayload(p["image"])) {
+          return `${at} is an image part and its "image" must be ${PART_PAYLOAD_TYPES}, got ${describeValue(p["image"])}.`;
+        }
+        break;
+      default:
+        return `${at} has unknown type ${describeValue(p["type"])}. Allowed: "text", "file", "image".`;
+    }
+  }
+  return null;
+}
+
 /**
  * Validate the LLM-config shape of agent options. Run at construction so
  * misconfiguration surfaces immediately rather than at first dispatch.
@@ -44,14 +135,18 @@ export function validateAgentOptions<T>(options: AgentOptions<T>): void {
       message: `Agent: "system" must be a string or a function (exchange) => string.`,
     });
   }
-  if (
-    options.user !== undefined &&
-    typeof options.user !== "string" &&
-    typeof options.user !== "function"
-  ) {
-    throw rcError("RC5003", undefined, {
-      message: `Agent: "user" must be a string or a function (exchange) => string when present.`,
-    });
+  if (options.user !== undefined) {
+    if (Array.isArray(options.user)) {
+      const bad = invalidPromptPartReason(options.user);
+      if (bad !== null) throw rcError("RC5003", undefined, { message: bad });
+    } else if (
+      typeof options.user !== "string" &&
+      typeof options.user !== "function"
+    ) {
+      throw rcError("RC5003", undefined, {
+        message: `Agent: "user" must be a string, an array of content parts, or a function (exchange) => string | LlmPromptPart[] when present.`,
+      });
+    }
   }
   // `model` is optional: inheritable from agentPlugin({ defaultOptions:
   // { model } }) at dispatch time. Validate the shape only when present.

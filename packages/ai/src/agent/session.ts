@@ -9,12 +9,14 @@ import {
 import { isBlockLoaderCall, summariseBlockLoads } from "../block/resolve.ts";
 import { callLlm, streamLlm } from "../llm/providers/index.ts";
 import {
-  resolvePrompt,
+  resolveUserPrompt,
+  toPromptInput,
   resolveSampling,
   resolveUserPromptDefault,
 } from "../llm/shared.ts";
 import type {
   LlmModelConfig,
+  LlmPromptPart,
   LlmResult,
   LlmSamplingOptionsMerged,
   LlmToolCallSummary,
@@ -107,8 +109,8 @@ export interface AgentSessionInput<T = unknown> {
   readonly agentName?: string;
   /** Resolved tool list (empty when the agent has no tools). */
   readonly tools: ResolvedTool[];
-  /** Final user prompt for this dispatch. */
-  readonly user: string;
+  /** Final user prompt for this dispatch: a string, or the content parts. */
+  readonly user: string | LlmPromptPart[];
   /** Final system prompt for this dispatch. */
   readonly system: string;
   /** Optional context reference passed to tool handlers. */
@@ -318,7 +320,7 @@ export class AgentSession<T = unknown> {
     let turnsUsed = this.input.resume?.turnsUsed ?? 0;
     let currentUser: string | ThreadMessage[] = this.input.resume
       ? [...this.input.resume.messages]
-      : this.input.user;
+      : toPromptInput(this.input.user);
     let lastValidatorMsg: string | undefined;
     const accumulatedToolCalls: LlmToolCallSummary[] = [];
     // Seeded from the park for the same reason turnsUsed is: a cancelled
@@ -410,12 +412,7 @@ export class AgentSession<T = unknown> {
           });
         }
         lastValidatorMsg = verdict;
-        currentUser = buildRetryPrompt(
-          this.input.user,
-          currentUser,
-          result,
-          verdict,
-        );
+        currentUser = buildRetryPrompt(currentUser, result, verdict);
       }
     } catch (err) {
       // A park is not an error: core emits route:exchange:suspended once
@@ -457,7 +454,6 @@ export class AgentSession<T = unknown> {
       });
     }
     let messages: readonly ThreadMessage[] = historyMessages(
-      this.input.user,
       currentUser,
       result,
     );
@@ -776,13 +772,12 @@ async function buildStopWhen(
  * @internal
  */
 function historyMessages(
-  initialUser: string,
   currentUser: string | ThreadMessage[],
   lastResult: LlmResult,
 ): ThreadMessage[] {
   const userMsgs: ThreadMessage[] =
     typeof currentUser === "string"
-      ? [{ role: "user", content: initialUser }]
+      ? [{ role: "user", content: currentUser }]
       : currentUser;
   // The SDK owns the full ModelMessage shape; ThreadMessage is the
   // structural slice the park persists. One cast, at the SDK boundary.
@@ -804,22 +799,12 @@ function historyMessages(
  * @internal
  */
 function buildRetryPrompt(
-  initialUser: string,
   currentUser: string | ThreadMessage[],
   lastResult: LlmResult,
   validatorMsg: string,
 ): ThreadMessage[] {
-  const userMsgs: ThreadMessage[] =
-    typeof currentUser === "string"
-      ? [{ role: "user", content: initialUser }]
-      : currentUser;
-  // Same SDK-boundary cast as historyMessages: ModelMessage narrowed to
-  // the structural slice this module threads through.
-  const responseMessages = (lastResult.responseMessages ??
-    []) as ThreadMessage[];
   return [
-    ...userMsgs,
-    ...responseMessages,
+    ...historyMessages(currentUser, lastResult),
     { role: "user", content: `Validator: ${validatorMsg}` },
   ];
 }
@@ -862,8 +847,8 @@ function toAgentResult(
 export function buildUserPrompt<T>(
   options: AgentOptions<T> | AgentRegisteredOptions<T>,
   exchange: Exchange<T>,
-): string {
+): string | LlmPromptPart[] {
   return options.user !== undefined
-    ? resolvePrompt(options.user, exchange)
+    ? resolveUserPrompt(options.user, exchange)
     : resolveUserPromptDefault(exchange);
 }

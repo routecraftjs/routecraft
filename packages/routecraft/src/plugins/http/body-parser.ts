@@ -150,11 +150,7 @@ export async function parseRequestBody(
   // content-type parsing: a signature-gated route must reject an empty or
   // malformed body that is not correctly signed, not admit it by accident.
   if (opts.signature) {
-    const result = verifyWebhookSignature(
-      bytes,
-      req.headers.get(opts.signature.header),
-      opts.signature,
-    );
+    const result = verifyWebhookSignature(bytes, req.headers, opts.signature);
     if (!result.ok) {
       const err = bodyError(
         401,
