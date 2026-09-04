@@ -566,17 +566,23 @@ describe("collidingExamplePaths", () => {
    * @expectedResult Not reported, because the walk uses lstat and never follows the link, so it cannot leave the example or spin on a loop
    */
   test("does not walk into a symlinked directory", async () => {
-    const outside = join(source, "..", `outside-${Date.now()}`);
-    await mkdir(outside, { recursive: true });
-    await writeFile(join(outside, "index.ts"), "export default [];");
-    await symlink(outside, join(source, "linked"));
-    await mkdir(join(target, "linked"), { recursive: true });
-    await writeFile(join(target, "linked", "index.ts"), "existing");
+    // The link's target has to sit outside the example for the test to mean
+    // what it says, so it cannot live under `source` where afterEach would
+    // reach it. try/finally is what guarantees it goes even when the
+    // assertion fails.
+    const outside = await mkdtemp(join(tmpdir(), "rc-outside-"));
+    try {
+      await writeFile(join(outside, "index.ts"), "export default [];");
+      await symlink(outside, join(source, "linked"));
+      await mkdir(join(target, "linked"), { recursive: true });
+      await writeFile(join(target, "linked", "index.ts"), "existing");
 
-    const dropped = await collidingExamplePaths(source, target);
+      const dropped = await collidingExamplePaths(source, target);
 
-    expect(dropped).not.toContain(join("linked", "index.ts"));
-    await rm(outside, { recursive: true, force: true });
+      expect(dropped).not.toContain(join("linked", "index.ts"));
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
   });
 
   /**
