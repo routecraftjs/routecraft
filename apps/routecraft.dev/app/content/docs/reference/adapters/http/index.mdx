@@ -610,19 +610,23 @@ A webhook sender is not waiting for your pipeline. Bird treats anything past a f
 `respond: "accepted"` is the rule in one option: acknowledge, then process.
 
 ```typescript
-export const birdHook = craft()
+export const birdAckHook = craft()
   .id('bird-hook')
   // Route scope: both sit before .from(), so they bound and guard the whole
-  // detached pipeline rather than the next step alone.
+  // detached pipeline. maxQueue is the part that bounds ADMISSION; without
+  // it the wait line grows without limit (see Bounding the work below).
   .error((error) => reportDeliveryFailure(error))
-  .concurrency({ max: 8 })
+  .concurrency({ max: 8, maxQueue: 100 })
   .from(http({
     path: '/hooks/bird',
     method: 'POST',
     signature: { scheme: 'standard-webhooks', secret: process.env.BIRD_WEBHOOK_SECRET! },
     respond: 'accepted',
   }))
-  .process(async (ex) => handleDelivery(ex))
+  .process(async (ex) => {
+    await handleDelivery(ex)
+    return ex
+  })
   .to(noop())
 ```
 
@@ -632,9 +636,15 @@ What changes is where a failure goes. The response is gone by the time the pipel
 
 The pipeline still runs in full and the exchange is untouched, but its body is never read for the response. `/openapi.json` reflects that: an accepted route advertises `202` rather than `200` and `204`, while keeping the rejection codes its gates can still produce. A route that streams is not a candidate for this option, since the stream would have no reader.
 
-A graceful shutdown still waits for a detached run. The run is the route's in-flight work from the moment it starts, and the context drains that work before any listener closes, bounded by the same shutdown deadline as everything else.
+A graceful shutdown still waits for a detached run. The run is the route's in-flight work from the moment it starts, and the context drains that work before any listener closes, bounded by the same shutdown deadline as everything else. Once shutdown has begun the route stops acknowledging: a request that arrives, or that was still in its body read, answers `503` with `retry-after` rather than a `202` this process cannot promise to finish. That is what a webhook sender's redelivery is for, and it is why the option refuses to be combined with `.batch()`: a batched message waits in the buffer rather than counting as in-flight work, so the acknowledgement would outlive the delivery.
 
-**Bounding the work.** One detached pipeline per delivery is unbounded by construction, and a sender that redelivers a backlog will hand you all of it at once. Nothing new bounds this, because the route already can: `.throttle()` and `.concurrency()` sit in the [pre-from filter chain](/docs/advanced/filter-chain) and apply to the detached run exactly as they do to any other. Put one of them on any route that acknowledges early.
+**Bounding the work, and bounding the right thing.** Answering early removes the backpressure the caller's own wait used to provide: arrival rate is now entirely the sender's, and a provider replaying a day of backlog hands you all of it at once. `.throttle()` and `.concurrency()` before `.from()` still apply to the detached run, but read what they bound. Their defaults (`.concurrency()`'s `mode: "queue"` with no `maxQueue`, `.throttle()`'s `mode: "delay"`) cap how many run **at once** while letting the wait line grow without limit, and every queued exchange pins its parsed body until it runs. That is not a bound on a redelivery burst; it is a slower way to reach the same heap.
+
+Bound admission instead: give `.concurrency()` a `maxQueue`, or `mode: "reject"`. Past the bound the exchange fails with `RC5026` on the route's `.error()` channel, which is a delivery you have already acknowledged, so treat that channel as the place a shed delivery is recorded and rely on the sender's redelivery to bring it back.
+
+**A refusal only reaches the sender if it happens before the acknowledgement.** Every transport gate does: path and method, body size, body parse, signature, and the mount's credential check. The pre-from chain positions that run inside the pipeline do not, `.authorize()` among them, so a scope denial on an accepted route stops the work but the caller has already been told `202` and cannot tell a denial from acceptance. Put a route that must be able to refuse a caller on `respond: "result"`.
+
+**Response hints are inert.** `routecraft.http.response.status` and its siblings are read when the dispatcher builds the response, which on this option has already happened, so a step that sets them changes nothing.
 
 **What this does not do.** An acknowledged delivery lost to a crash is not retried, replayed, or persisted; that is the sender's redelivery to make, which is what deduplicating on `webhook-id` in the route is for.
 

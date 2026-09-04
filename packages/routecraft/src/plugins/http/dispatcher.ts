@@ -375,20 +375,42 @@ export function createDispatcher(
     //    body + response hints into a Response.
     try {
       if (entry.respond === "accepted") {
-        // Start the pipeline BEFORE answering. The route registers the
-        // exchange as its in-flight work at enqueue, and a graceful shutdown
-        // drains that work before any listener closes, so starting first is
-        // exactly what makes the detached run survive a stop. Answering
-        // first would open a window where a stop between the two drops a
-        // delivery the sender has already been told was accepted.
+        // Once the drain has begun, a run started here is not guaranteed to
+        // be waited for: the request may have spent the whole shutdown in
+        // auth or in its body read, and the route can already have been
+        // drained. Refuse rather than acknowledge, so the sender redelivers
+        // to the next instance instead of being told a delivery succeeded
+        // that this process then abandons.
+        if (opts.shutdownSignal?.aborted === true) {
+          const response = jsonResponse(
+            { error: "service unavailable", reason: "shutting_down" },
+            { status: 503, headers: { "retry-after": "5" } },
+          );
+          emitCompleted(opts, {
+            method,
+            path: entry.matcher.pattern,
+            status: 503,
+            durationMs: ms(started),
+            routeId: entry.routeId,
+          });
+          return response;
+        }
+        // Must start before answering: the route counts the exchange as
+        // in-flight at enqueue, which is what a graceful shutdown drains.
         const detached = entry.handler(parsedBody, handlerHeaders);
-        detached.catch(() => {
-          // The pipeline has already routed and logged this: the route's
-          // `.error()` handler, or `route:error` + `context:error` +
-          // `route:exchange:failed` and the executor's boundary log. Claiming
-          // the rejection keeps a detached run from surfacing as an unhandled
-          // rejection; logging it here would duplicate that boundary.
-        });
+        detached.then(
+          (exchange) => {
+            // Nothing will read this body, and a stream may hold a socket or
+            // a file descriptor until GC finalises it.
+            if (isReadableStream(exchange.body)) void exchange.body.cancel();
+          },
+          () => {
+            // Already routed and logged by the pipeline (the route's
+            // `.error()` handler, or the executor's boundary log plus
+            // `route:error` / `route:exchange:failed`); claimed here only so
+            // it does not surface as an unhandled rejection.
+          },
+        );
         emitCompleted(opts, {
           method,
           path: entry.matcher.pattern,

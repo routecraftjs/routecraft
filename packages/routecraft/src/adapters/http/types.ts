@@ -351,7 +351,9 @@ export type HttpConfig = HttpPluginOptions;
  * Rejections are unaffected either way: a bad signature is still a 401 and
  * the sender still sees it.
  */
-export type HttpRespondMode = "result" | "accepted";
+export const HTTP_RESPOND_MODES = ["result", "accepted"] as const;
+
+export type HttpRespondMode = (typeof HTTP_RESPOND_MODES)[number];
 
 /** Server-side options accepted by `http({...})` when used with `.from(...)`. */
 export interface HttpServerOptions {
@@ -423,19 +425,36 @@ export interface HttpServerOptions {
    * handler for that reason.
    *
    * The pipeline still runs in full and the exchange is untouched; its body
-   * is simply never read for the response. A pipeline that ends in a stream
-   * therefore produces a stream nobody consumes, discarded like any other
-   * unread body, so `respond: "accepted"` and a streaming route are not a
-   * combination worth writing. `/openapi.json` advertises `202` for such a
-   * route instead of `200` and `204`, since those are answers it can no
-   * longer give.
+   * is simply never read for the response, and the response-hint headers
+   * (`routecraft.http.response.status` and its siblings) are inert, because
+   * the response was built before the pipeline ran. A body that turns out to
+   * be a stream is cancelled rather than left open, since nothing will read
+   * it and it may hold a socket or a file descriptor, but a streaming route
+   * is still not a candidate for this option. `/openapi.json` advertises
+   * `202` for such a route instead of `200` and `204`, since those are
+   * answers it can no longer give.
    *
    * A detached run is still the route's in-flight work, so a graceful
-   * shutdown waits for it within the context's drain deadline. Nothing
-   * bounds how many run at once by construction; bound them on the route
-   * with `.throttle()` or `.concurrency()`, which sit in the pre-from chain
-   * and therefore apply to the detached run exactly as they do to any
-   * other.
+   * shutdown waits for it within the context's drain deadline. Once
+   * shutdown has begun the route stops acknowledging and answers `503`
+   * with `retry-after` instead, so a delivery is refused rather than
+   * accepted and then abandoned.
+   *
+   * Nothing bounds how many run at once by construction, and answering
+   * early is what removes the backpressure the caller's own wait used to
+   * provide. Bound them on the route, and bound ADMISSION rather than
+   * execution: `.concurrency({ max, maxQueue })` or
+   * `mode: "reject"` is what caps the backlog, because the default
+   * `mode: "queue"` and `.throttle()`'s default `mode: "delay"` bound how
+   * many run at once while letting the wait line grow without limit. An
+   * unbounded queue under a redelivery burst grows the heap until the
+   * process dies.
+   *
+   * A refusal from any pre-from filter reaches the sender only when it
+   * happens before the acknowledgement. Positions that run inside the
+   * pipeline, `.authorize()` among them, resolve after the `202` has been
+   * written, so a denial stops the work without the caller being able to
+   * tell it from acceptance.
    *
    * @see {@link HttpRespondMode}
    */

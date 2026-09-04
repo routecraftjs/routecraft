@@ -457,6 +457,8 @@ Events emitted by the HTTP plugin (configured via `defineConfig({ http })`). The
 
 `plugin:http:request:completed` fires for every request by default; disable it with `http: { events: { perRequest: false } }`. Built-in endpoints (`/health`, `/ready`, `/openapi.json`) do not emit it.
 
+On a route using [`respond: "accepted"`](/docs/reference/adapters/http#acknowledge-then-process) the event reports the acknowledgement rather than the work: `status` is `202` (or `503` once shutdown has begun) and `durationMs` measures time to answer, not time to finish. The detached pipeline's own outcome arrives on `route:exchange:completed` / `route:exchange:failed` as it does for any route.
+
 ## Ops plugin events
 
 Events emitted by the ops plugin (configured via `defineConfig({ ops })`).

@@ -1,5 +1,10 @@
 import { describe, test, expect, afterEach } from "bun:test";
-import { testContext, type TestContext } from "@routecraft/testing";
+import {
+  bootServer,
+  signHs256,
+  testContext,
+  type TestContext,
+} from "@routecraft/testing";
 import {
   craft,
   http,
@@ -41,67 +46,40 @@ function signSha256Hex(body: string): string {
   return createHmac("sha256", WEBHOOK_SECRET).update(body).digest("hex");
 }
 
-function makeJwt(claims: Record<string, unknown>): string {
-  const header = base64url(JSON.stringify({ alg: "HS256", typ: "JWT" }));
-  const payload = base64url(
-    JSON.stringify({
-      iss: JWT_ISSUER,
-      aud: JWT_AUDIENCE,
-      exp: Math.floor(Date.now() / 1000) + 60,
-      ...claims,
-    }),
-  );
-  const signature = createHmac("sha256", JWT_SECRET)
-    .update(`${header}.${payload}`)
-    .digest("base64url");
-  return `${header}.${payload}.${signature}`;
-}
-
-function base64url(value: string): string {
-  return Buffer.from(value).toString("base64url");
-}
-
 interface BootHttpOptions {
   routes: Parameters<ReturnType<typeof testContext>["routes"]>[0];
-  http: HttpPluginOptions & { port: number };
+  http: HttpPluginOptions;
+  /** Server-level validator (servers.default.auth), inherited by mounts. */
   serverAuth?: ValidatorAuthOptions;
   events?: Partial<Record<EventName, (ev: { details: unknown }) => void>>;
 }
 
+/**
+ * Thin wrapper over the shared `bootServer` helper: this suite always wants
+ * the same config shape, so only the routes, the optional wall and the
+ * optional event subscriptions vary.
+ */
 async function bootHttp(
   opts: BootHttpOptions,
 ): Promise<{ ctx: TestContext; port: number }> {
-  let resolvedPort = 0;
-  const { port, ...httpOptions } = opts.http;
-  const builder = testContext()
-    .on(
-      "server:listening" as EventName,
-      ((payload: { details: unknown }) => {
-        resolvedPort = (payload.details as { port: number }).port;
-      }) as Parameters<ReturnType<typeof testContext>["on"]>[1],
-    )
-    .routes(opts.routes)
-    .with({
+  return bootServer((builder) => {
+    let b = builder.routes(opts.routes).with({
       servers: {
         default: {
-          port,
+          port: 0,
           ...(opts.serverAuth !== undefined ? { auth: opts.serverAuth } : {}),
         },
       },
-      http: httpOptions,
+      http: opts.http,
     } as CraftConfig);
-  if (opts.events) {
-    for (const [name, handler] of Object.entries(opts.events)) {
-      builder.on(
+    for (const [name, handler] of Object.entries(opts.events ?? {})) {
+      b = b.on(
         name as EventName,
         handler as Parameters<ReturnType<typeof testContext>["on"]>[1],
       );
     }
-  }
-  const ctx = await builder.build();
-  await ctx.startAndWaitReady();
-  expect(resolvedPort).toBeGreaterThan(0);
-  return { ctx, port: resolvedPort };
+    return b;
+  });
 }
 
 describe('HTTP source respond: "accepted"', () => {
@@ -136,7 +114,7 @@ describe('HTTP source respond: "accepted"', () => {
           return ex;
         })
         .to(noop()),
-      http: { port: 0 },
+      http: {},
     });
     t = bound.ctx;
 
@@ -170,7 +148,7 @@ describe('HTTP source respond: "accepted"', () => {
         .from(http({ path: "/hooks/default", method: "POST" }))
         .transform(() => ({ received: true }))
         .to(noop()),
-      http: { port: 0 },
+      http: {},
     });
     t = bound.ctx;
 
@@ -197,7 +175,7 @@ describe('HTTP source respond: "accepted"', () => {
         )
         .transform(() => ({ received: true }))
         .to(noop()),
-      http: { port: 0 },
+      http: {},
     });
     t = bound.ctx;
 
@@ -237,7 +215,7 @@ describe('HTTP source respond: "accepted"', () => {
           return ex;
         })
         .to(noop()),
-      http: { port: 0 },
+      http: {},
     });
     t = bound.ctx;
 
@@ -289,7 +267,7 @@ describe('HTTP source respond: "accepted"', () => {
           return ex;
         })
         .to(noop()),
-      http: { port: 0 },
+      http: {},
     });
     t = bound.ctx;
 
@@ -326,7 +304,7 @@ describe('HTTP source respond: "accepted"', () => {
           return ex;
         })
         .to(noop()),
-      http: { port: 0 },
+      http: {},
       serverAuth: jwt({
         secret: JWT_SECRET,
         issuer: JWT_ISSUER,
@@ -351,7 +329,7 @@ describe('HTTP source respond: "accepted"', () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        authorization: `Bearer ${makeJwt({ sub: "user-1" })}`,
+        authorization: `Bearer ${signHs256({ secret: JWT_SECRET, claims: { sub: "user-1" } })}`,
       },
       body: JSON.stringify({ id: "evt_2" }),
     });
@@ -383,7 +361,7 @@ describe('HTTP source respond: "accepted"', () => {
           throw new Error("downstream exploded");
         })
         .to(noop()),
-      http: { port: 0 },
+      http: {},
     });
     t = bound.ctx;
 
@@ -426,7 +404,7 @@ describe('HTTP source respond: "accepted"', () => {
           throw new Error("downstream exploded");
         })
         .to(noop()),
-      http: { port: 0 },
+      http: {},
       events: {
         ["route:exchange:failed" as EventName]: (ev: { details: unknown }) => {
           failedRouteId = (ev.details as { routeId: string }).routeId;
@@ -475,7 +453,7 @@ describe('HTTP source respond: "accepted"', () => {
           return ex;
         })
         .to(noop()),
-      http: { port: 0 },
+      http: {},
       events: {
         ["plugin:http:request:completed" as EventName]: (ev: {
           details: unknown;
@@ -528,7 +506,7 @@ describe('HTTP source respond: "accepted"', () => {
           return ex;
         })
         .to(noop()),
-      http: { port: 0 },
+      http: {},
     });
 
     const res = await fetch(`http://127.0.0.1:${bound.port}/hooks/shutdown`, {
@@ -581,7 +559,7 @@ describe('HTTP source respond: "accepted"', () => {
           .from(http({ path: "/orders", method: "POST" }))
           .to(noop()),
       ],
-      http: { port: 0 },
+      http: {},
     });
     t = bound.ctx;
 
@@ -606,6 +584,146 @@ describe('HTTP source respond: "accepted"', () => {
     expect(Object.keys(normal)).toContain("200");
     expect(Object.keys(normal)).toContain("204");
     expect(Object.keys(normal)).not.toContain("202");
+  });
+
+  /**
+   * @case A batching route is refused rather than acknowledging a delivery it can drop
+   * @preconditions .batch() before .from(), with respond: "accepted" on the source
+   * @expectedResult The context fails to start with RC5003 naming the combination. Without the refusal the sender gets a 202 for a message that sits in the batch buffer and is discarded at shutdown, having never run
+   */
+  test('respond: "accepted" is refused on a batching route', async () => {
+    const build = bootHttp({
+      routes: craft()
+        .id("accepted-batched")
+        .batch({ size: 10 })
+        .from(
+          http({ path: "/hooks/batched", method: "POST", respond: "accepted" }),
+        )
+        .to(noop()),
+      http: {},
+    });
+    await expect(build).rejects.toThrow(/RC5003|cannot be combined/);
+  });
+
+  /**
+   * @case .batch() is unaffected on a route that answers with its result
+   * @preconditions The same batching route with respond left at its default
+   * @expectedResult The context starts, so the refusal is scoped to the acknowledging mode rather than banning batched http routes
+   */
+  test("a batching route still starts under the default respond mode", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("default-batched")
+        .batch({ size: 10 })
+        .from(http({ path: "/hooks/batched-ok", method: "POST" }))
+        .to(noop()),
+      http: {},
+    });
+    t = bound.ctx;
+    expect(bound.port).toBeGreaterThan(0);
+  });
+
+  /**
+   * @case A delivery arriving after shutdown has begun is refused, not acknowledged
+   * @preconditions respond: "accepted", context.stop() already begun, a request whose body arrives in two chunks so it is still being read when the drain runs
+   * @expectedResult 503 with retry-after rather than 202, and the pipeline never runs. Without the guard the sender is told 202 for a run the drain has already passed, and the delivery is lost with no redelivery coming
+   */
+  test("a request that arrives during shutdown answers 503, not 202", async () => {
+    let stepRan = false;
+    const bound = await bootHttp({
+      routes: craft()
+        .id("accepted-shutdown-window")
+        .from(
+          http({
+            path: "/hooks/window",
+            method: "POST",
+            respond: "accepted",
+          }),
+        )
+        .process((ex) => {
+          stepRan = true;
+          return ex;
+        })
+        .to(noop()),
+      http: {},
+    });
+
+    // A body delivered in two chunks: the dispatcher parks in its body read
+    // between them, which is where the shutdown lands.
+    let sendRest!: () => void;
+    const gap = new Promise<void>((resolve) => {
+      sendRest = resolve;
+    });
+    const body = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        controller.enqueue(new TextEncoder().encode('{"id":'));
+        await gap;
+        controller.enqueue(new TextEncoder().encode('"evt_1"}'));
+        controller.close();
+      },
+    });
+    const inflight = fetch(`http://127.0.0.1:${bound.port}/hooks/window`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body,
+      // @ts-expect-error duplex is required whenever the body is a stream
+      duplex: "half",
+    });
+
+    await sleep(20);
+    const stopping = bound.ctx.stop();
+    await sleep(20);
+    sendRest();
+
+    const res = await inflight;
+    expect(res.status).toBe(503);
+    expect(res.headers.get("retry-after")).toBe("5");
+    expect(await res.json()).toEqual({
+      error: "service unavailable",
+      reason: "shutting_down",
+    });
+    await stopping;
+    expect(stepRan).toBe(false);
+    t = undefined;
+  });
+
+  /**
+   * @case A streaming body from an accepted route is cancelled rather than left open
+   * @preconditions respond: "accepted" on a route whose pipeline ends with a ReadableStream carrying a cancel observer
+   * @expectedResult The stream is cancelled once the detached run resolves. Without this the stream has no reader and holds whatever backs it until GC finalises it, if ever
+   */
+  test("a detached streaming body is cancelled", async () => {
+    const cancelled = deferred();
+    let cancelSeen = false;
+    const bound = await bootHttp({
+      routes: craft()
+        .id("accepted-stream")
+        .from(
+          http({ path: "/hooks/stream", method: "POST", respond: "accepted" }),
+        )
+        .transform(
+          () =>
+            new ReadableStream<Uint8Array>({
+              cancel() {
+                cancelSeen = true;
+                cancelled.resolve();
+              },
+            }),
+        )
+        .to(noop()),
+      http: {},
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/hooks/stream`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "evt_1" }),
+    });
+    expect(res.status).toBe(202);
+
+    await cancelled.promise;
+    expect(cancelSeen).toBe(true);
   });
 
   /**

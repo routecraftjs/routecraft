@@ -10,14 +10,17 @@ import {
 import { compilePathMatcher } from "../../plugins/http/path-matcher";
 import { METHODS_WITHOUT_BODY } from "../../plugins/http/body-parser";
 import { invalidSignatureOptionsReason } from "../../plugins/http/webhook-signature";
-import type {
-  HttpMethod,
-  HttpRequestBody,
-  HttpRespondMode,
-  HttpServerOptions,
+import {
+  HTTP_RESPOND_MODES,
+  type HttpMethod,
+  type HttpRequestBody,
+  type HttpRespondMode,
+  type HttpServerOptions,
 } from "./types";
 
-const RESPOND_MODES: ReadonlySet<string> = new Set(["result", "accepted"]);
+// Derived from the union rather than restated, so a third mode cannot
+// type-check everywhere and then be refused at construction.
+const RESPOND_MODES: ReadonlySet<HttpRespondMode> = new Set(HTTP_RESPOND_MODES);
 
 const HTTP_METHODS: ReadonlySet<string> = new Set([
   "GET",
@@ -58,7 +61,10 @@ function normalizeMethod(options: HttpServerOptions): HttpMethod {
  */
 function normalizeRespond(options: HttpServerOptions): HttpRespondMode {
   const respond = options.respond ?? "result";
-  if (typeof respond !== "string" || !RESPOND_MODES.has(respond)) {
+  if (
+    typeof respond !== "string" ||
+    !RESPOND_MODES.has(respond as HttpRespondMode)
+  ) {
     throw rcError("RC5003", undefined, {
       message: `http() source: invalid respond ${JSON.stringify(respond)}. Allowed: ${[...RESPOND_MODES].map((m) => `"${m}"`).join(", ")}.`,
     });
@@ -171,6 +177,20 @@ export class HttpSourceAdapter implements Source<HttpRequestBody> {
     }
     const registry = mount.registry;
 
+    const respond = normalizeRespond(this.options);
+    if (respond === "accepted" && meta?.bufferedConsumer === true) {
+      // A buffering consumer parks the message instead of starting the
+      // pipeline, so the route never counts it as in flight and a graceful
+      // shutdown drains past it. The 202 would already have gone out, and a
+      // sender that receives one does not redeliver, so the delivery is lost
+      // in silence. Refuse the pair at subscribe rather than acknowledge
+      // something this route cannot promise to finish.
+      throw rcError("RC5003", undefined, {
+        message:
+          'http() source: respond: "accepted" cannot be combined with a batching route. The acknowledgement promises the delivery is being processed, but a batched message waits in the buffer and is discarded at shutdown without ever running. Drop .batch() from this route, or use respond: "result".',
+      });
+    }
+
     const method = normalizeMethod(this.options);
     // Route paths are relative to the mount prefix; the matcher covers the
     // full request path so dispatch and OpenAPI need no join at read time.
@@ -185,7 +205,7 @@ export class HttpSourceAdapter implements Source<HttpRequestBody> {
       requiresPrincipal: meta?.requiresPrincipal === true,
       rawBody: this.options.rawBody ?? false,
       signature: this.options.signature,
-      respond: normalizeRespond(this.options),
+      respond,
       discovery: meta?.discovery,
       handler: (body, headers) =>
         sub.emit({
