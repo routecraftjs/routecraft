@@ -6,6 +6,7 @@ import { join } from "node:path";
 import {
   MemorySuspensionStore,
   SqliteSuspensionStore,
+  stepStateFingerprint,
   type SerializedOutcome,
   type NewSuspension,
   type SuspensionStore,
@@ -727,6 +728,118 @@ function contractSuite(
 
       expect(await store.purgeSettled(new Date())).toBe(0);
       expect((await store.get("sus-1"))?.status).toBe("suspended");
+    });
+
+    /**
+     * @case replaceStepState swaps the slot of a still-parked record
+     * @preconditions A suspended record carrying a step state, replaced under its own fingerprint
+     * @expectedResult The caller wins, the new state is stored, and nothing else on the record moved
+     */
+    test("replaceStepState swaps the slot of a parked record", async () => {
+      store = await open();
+      const written = record({
+        stepState: { messages: [{ role: "user" }], turnsUsed: 2 },
+      });
+      await store.create(written);
+
+      const next = {
+        messages: [{ role: "user" }, { role: "assistant" }],
+        turnsUsed: 2,
+      };
+      const result = await store.replaceStepState(
+        "sus-1",
+        stepStateFingerprint(written.stepState),
+        next,
+      );
+
+      expect(result.won).toBe(true);
+      expect(result.suspension?.stepState).toEqual(next);
+      expect(result.suspension?.status).toBe("suspended");
+      expect(result.suspension?.exchange).toEqual(written.exchange);
+      expect(result.suspension?.meta).toEqual(written.meta);
+      expect((await store.get("sus-1"))?.stepState).toEqual(next);
+    });
+
+    /**
+     * @case A stale fingerprint loses the compare-and-swap
+     * @preconditions Two replacements race off the same read; the first has already landed
+     * @expectedResult The second reports won: false and hands back the state that actually landed, leaving it untouched
+     */
+    test("replaceStepState refuses a stale fingerprint", async () => {
+      store = await open();
+      const written = record({ stepState: { messages: [], turnsUsed: 0 } });
+      await store.create(written);
+      const stale = stepStateFingerprint(written.stepState);
+
+      const first = await store.replaceStepState("sus-1", stale, {
+        messages: [],
+        turnsUsed: 1,
+      });
+      const second = await store.replaceStepState("sus-1", stale, {
+        messages: [],
+        turnsUsed: 99,
+      });
+
+      expect(first.won).toBe(true);
+
+      expect(second.won).toBe(false);
+      expect(second.suspension?.stepState).toEqual({
+        messages: [],
+        turnsUsed: 1,
+      });
+    });
+
+    /**
+     * @case replaceStepState never edits a record that left the parked state
+     * @preconditions A record already resumed, then a replacement under the fingerprint it was parked with
+     * @expectedResult The swap is refused, so a compaction cannot rewrite the thread of a run already executing its continuation
+     */
+    test("replaceStepState refuses a record that is no longer suspended", async () => {
+      store = await open();
+      const written = record({ stepState: { messages: [], turnsUsed: 0 } });
+      await store.create(written);
+      await store.markResumed("sus-1", { at: new Date() });
+
+      const result = await store.replaceStepState(
+        "sus-1",
+        stepStateFingerprint(written.stepState),
+        { messages: [], turnsUsed: 5 },
+      );
+
+      expect(result.won).toBe(false);
+      expect(result.suspension?.status).toBe("resumed");
+      expect(result.suspension?.stepState).toEqual(written.stepState);
+    });
+
+    /**
+     * @case replaceStepState reports a loss for an unknown id
+     * @preconditions An empty store
+     * @expectedResult won: false with no record, matching every other compare-and-swap on the contract
+     */
+    test("replaceStepState reports a loss for an unknown id", async () => {
+      store = await open();
+      const result = await store.replaceStepState("nope", "whatever", {});
+      expect(result).toEqual({ won: false, suspension: undefined });
+    });
+
+    /**
+     * @case A replacement that breaks the plain-JSON rule is refused
+     * @preconditions A parked record and a replacement holding a circular reference
+     * @expectedResult RC5042 on both backends, so an unpersistable value cannot be written on one and refused on the other
+     */
+    test("replaceStepState refuses a replacement the store cannot persist", async () => {
+      store = await open();
+      const written = record({ stepState: { messages: [], turnsUsed: 0 } });
+      await store.create(written);
+
+      await expect(
+        store.replaceStepState(
+          "sus-1",
+          stepStateFingerprint(written.stepState),
+          { cycle: circular() },
+        ),
+      ).rejects.toMatchObject({ rc: "RC5042" });
+      expect((await store.get("sus-1"))?.stepState).toEqual(written.stepState);
     });
   });
 }

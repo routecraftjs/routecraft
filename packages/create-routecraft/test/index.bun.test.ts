@@ -7,12 +7,25 @@ import {
   beforeEach,
   afterEach,
 } from "bun:test";
-import { mkdir, rm, readFile } from "node:fs/promises";
+import {
+  mkdir,
+  mkdtemp,
+  rm,
+  readFile,
+  symlink,
+  writeFile,
+} from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
 import {
+  assertInsideRepository,
+  collidingExamplePaths,
+  isSymbolicLink,
   generateProjectStructure,
+  isExcludedExamplePath,
+  mergeExamplePackageJson,
+  parseGitHubExampleUrl,
   processTemplate,
   isUrl,
   type InitOptions,
@@ -445,5 +458,516 @@ describe("generateProjectStructure", () => {
         makeOptions({ example: "does-not-exist" }),
       ),
     ).rejects.toThrow("Unknown example: does-not-exist");
+  });
+});
+
+// ─── Unit: example copy filters ──────────────────────────────────────────────
+
+describe("isExcludedExamplePath", () => {
+  /**
+   * @case The repository directory and installed packages are excluded
+   * @preconditions Paths inside .git/ and node_modules/ at any depth
+   * @expectedResult Both excluded, at the root and nested
+   */
+  test("excludes .git and node_modules at any depth", () => {
+    expect(isExcludedExamplePath(".git/HEAD")).toBe(true);
+    expect(isExcludedExamplePath("node_modules/zod/index.js")).toBe(true);
+    expect(isExcludedExamplePath("packages/app/node_modules/x.js")).toBe(true);
+  });
+
+  /**
+   * @case Files whose names merely start with .git are kept
+   * @preconditions .gitignore and .github/workflows/ci.yml
+   * @expectedResult Both kept, because a substring test used to drop a template's
+   *   gitignore and its whole CI folder along with the repository directory
+   */
+  test("keeps .gitignore and .github", () => {
+    expect(isExcludedExamplePath(".gitignore")).toBe(false);
+    expect(isExcludedExamplePath(".github/workflows/ci.yml")).toBe(false);
+  });
+
+  /**
+   * @case Every lockfile is excluded, bun's included
+   * @preconditions One path per supported package manager
+   * @expectedResult All excluded, so a scaffolded project resolves its own tree
+   */
+  test("excludes every lockfile", () => {
+    for (const file of [
+      "package-lock.json",
+      "yarn.lock",
+      "pnpm-lock.yaml",
+      "bun.lock",
+      "bun.lockb",
+    ]) {
+      expect(isExcludedExamplePath(file)).toBe(true);
+    }
+  });
+
+  /**
+   * @case A path that merely contains a lockfile name is kept
+   * @preconditions A capability folder named after a lockfile parser
+   * @expectedResult Kept, because the exclusion matches whole segments
+   */
+  test("keeps a path that only contains a lockfile name", () => {
+    expect(
+      isExcludedExamplePath("capabilities/pnpm-lock.yaml-parser/route.ts"),
+    ).toBe(false);
+  });
+
+  /**
+   * @case The example root is never excluded
+   * @preconditions The empty relative path node:fs/promises cp passes for the root
+   * @expectedResult Kept, or the copy would produce nothing at all
+   */
+  test("keeps the example root", () => {
+    expect(isExcludedExamplePath("")).toBe(false);
+  });
+});
+
+describe("collidingExamplePaths", () => {
+  let source: string;
+  let target: string;
+
+  beforeEach(async () => {
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    source = join(tmpdir(), `rc-src-${stamp}`);
+    target = join(tmpdir(), `rc-dst-${stamp}`);
+    await mkdir(join(source, "capabilities", "greet"), { recursive: true });
+    await mkdir(join(target, "capabilities", "greet"), { recursive: true });
+  });
+
+  afterEach(async () => {
+    await rm(source, { recursive: true, force: true });
+    await rm(target, { recursive: true, force: true });
+  });
+
+  /**
+   * @case Files the target already holds are reported, nested ones included
+   * @preconditions An example and a project that share index.ts and a nested route.ts
+   * @expectedResult Both reported by their example-relative path, sorted, so the
+   *   copy can name what it dropped instead of losing it silently
+   */
+  test("reports files the project already has", async () => {
+    await writeFile(join(source, "index.ts"), "example");
+    await writeFile(join(target, "index.ts"), "base");
+    await writeFile(join(source, "capabilities", "greet", "route.ts"), "a");
+    await writeFile(join(target, "capabilities", "greet", "route.ts"), "b");
+    await writeFile(join(source, "README.md"), "only in the example");
+
+    expect(await collidingExamplePaths(source, target)).toEqual([
+      join("capabilities", "greet", "route.ts"),
+      "index.ts",
+    ]);
+  });
+
+  /**
+   * @case A symlinked directory is not walked into
+   * @preconditions The example holds a link to a directory outside it, carrying a name the target also has
+   * @expectedResult Not reported, because the walk uses lstat and never follows the link, so it cannot leave the example or spin on a loop
+   */
+  test("does not walk into a symlinked directory", async () => {
+    // The link's target has to sit outside the example for the test to mean
+    // what it says, so it cannot live under `source` where afterEach would
+    // reach it. try/finally is what guarantees it goes even when the
+    // assertion fails.
+    const outside = await mkdtemp(join(tmpdir(), "rc-outside-"));
+    try {
+      await writeFile(join(outside, "index.ts"), "export default [];");
+      await symlink(outside, join(source, "linked"));
+      await mkdir(join(target, "linked"), { recursive: true });
+      await writeFile(join(target, "linked", "index.ts"), "existing");
+
+      const dropped = await collidingExamplePaths(source, target);
+
+      expect(dropped).not.toContain(join("linked", "index.ts"));
+    } finally {
+      await rm(outside, { recursive: true, force: true });
+    }
+  });
+
+  /**
+   * @case Excluded paths are never reported
+   * @preconditions A lockfile present on both sides
+   * @expectedResult Not reported, because the copy skips it deliberately rather
+   *   than dropping it by collision
+   */
+  test("never reports a path the copy skips anyway", async () => {
+    await writeFile(join(source, "bun.lock"), "x");
+    await writeFile(join(target, "bun.lock"), "y");
+
+    expect(await collidingExamplePaths(source, target)).toEqual([]);
+  });
+});
+
+describe("mergeExamplePackageJson", () => {
+  let source: string;
+  let target: string;
+
+  beforeEach(async () => {
+    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+    source = join(tmpdir(), `rc-src-${stamp}`);
+    target = join(tmpdir(), `rc-dst-${stamp}`);
+    await mkdir(source, { recursive: true });
+    await mkdir(target, { recursive: true });
+    await writeFile(
+      join(target, "package.json"),
+      JSON.stringify({
+        name: "my-app",
+        packageManager: "bun@1.3.9",
+        scripts: { start: "craft run index.ts", lint: "eslint ." },
+        dependencies: { "@routecraft/routecraft": "^0.6.0" },
+        devDependencies: { typescript: "^5.9.3" },
+      }),
+    );
+  });
+
+  afterEach(async () => {
+    await rm(source, { recursive: true, force: true });
+    await rm(target, { recursive: true, force: true });
+  });
+
+  /**
+   * @case The project name and package manager survive a template package.json
+   * @preconditions A URL example declaring its own name and packageManager
+   * @expectedResult Both keep the scaffold's values, because they are what the
+   *   user typed and picked rather than anything the template can know
+   */
+  test("keeps the project name and package manager", async () => {
+    await writeFile(
+      join(source, "package.json"),
+      JSON.stringify({ name: "craft-harness", packageManager: "npm@10.0.0" }),
+    );
+
+    await mergeExamplePackageJson(source, target);
+
+    const pkg = await readJson(join(target, "package.json"));
+    expect(pkg.name).toBe("my-app");
+    expect(pkg.packageManager).toBe("bun@1.3.9");
+  });
+
+  /**
+   * @case A manifest map field that is not a map is refused
+   * @preconditions A template whose "scripts" is a string rather than an object
+   * @expectedResult Throws naming the field, rather than spreading it into indexed properties and writing a package.json no package manager can read
+   */
+  test("refuses a manifest field that is not a map", async () => {
+    await writeFile(
+      join(source, "package.json"),
+      JSON.stringify({ scripts: "craft start" }),
+    );
+
+    await expect(mergeExamplePackageJson(source, target)).rejects.toThrow(
+      /"scripts"/,
+    );
+  });
+
+  /**
+   * @case A symlinked manifest is not read
+   * @preconditions The example's package.json is a link pointing outside the clone
+   * @expectedResult The merge leaves the scaffold alone rather than reading through the link
+   */
+  test("ignores a package.json that is a symlink", async () => {
+    // The sentinel lives under `source` so afterEach removes it even when an
+    // assertion fails, and it carries a script rather than a name: `name` is
+    // project-owned and restored from the scaffold either way, so asserting
+    // on it would pass whether or not the link was read.
+    const outside = join(source, "linked-manifest.json");
+    await writeFile(
+      outside,
+      JSON.stringify({ scripts: { leaked: "echo through-the-link" } }),
+    );
+    await symlink(outside, join(source, "package.json"));
+
+    await mergeExamplePackageJson(source, target);
+
+    const pkg = await readJson(join(target, "package.json"));
+    expect(pkg.scripts?.leaked).toBeUndefined();
+  });
+
+  /**
+   * @case A non-string value inside a manifest map is refused
+   * @preconditions A template whose scripts map carries a number
+   * @expectedResult Throws naming the offending entry, rather than writing a numeric value into the generated package.json
+   */
+  test("refuses a non-string value inside a manifest map", async () => {
+    await writeFile(
+      join(source, "package.json"),
+      JSON.stringify({ scripts: { start: 1 } }),
+    );
+
+    await expect(mergeExamplePackageJson(source, target)).rejects.toThrow(
+      /"scripts\.start"/,
+    );
+  });
+
+  /**
+   * @case A null value inside a manifest map is refused
+   * @preconditions A template whose dependencies map carries null
+   * @expectedResult Throws, because null survives the spread as readily as a number
+   */
+  test("refuses a null value inside a manifest map", async () => {
+    await writeFile(
+      join(source, "package.json"),
+      JSON.stringify({ dependencies: { zod: null } }),
+    );
+
+    await expect(mergeExamplePackageJson(source, target)).rejects.toThrow(
+      /null/,
+    );
+  });
+
+  /**
+   * @case An array in a manifest map field is refused
+   * @preconditions A template declaring dependencies as an array
+   * @expectedResult Throws, because an array spreads to numeric keys just as a string does
+   */
+  test("refuses an array in a manifest map field", async () => {
+    await writeFile(
+      join(source, "package.json"),
+      JSON.stringify({ dependencies: ["zod"] }),
+    );
+
+    await expect(mergeExamplePackageJson(source, target)).rejects.toThrow(
+      /an array/,
+    );
+  });
+
+  /**
+   * @case Dependency maps and scripts merge key by key
+   * @preconditions A template declaring one extra dependency and one extra script
+   * @expectedResult The base entries survive alongside the template's, and the
+   *   template wins where both declare the same key
+   */
+  test("merges dependency maps and scripts instead of replacing them", async () => {
+    await writeFile(
+      join(source, "package.json"),
+      JSON.stringify({
+        scripts: { start: "craft start", test: "bun test" },
+        dependencies: { "@routecraft/ai": "^0.6.0" },
+        devDependencies: { prettier: "^3.8.1" },
+      }),
+    );
+
+    await mergeExamplePackageJson(source, target);
+
+    const pkg = await readJson(join(target, "package.json"));
+    expect(pkg.scripts).toEqual({
+      start: "craft start",
+      lint: "eslint .",
+      test: "bun test",
+    });
+    expect(pkg.dependencies).toEqual({
+      "@routecraft/routecraft": "^0.6.0",
+      "@routecraft/ai": "^0.6.0",
+    });
+    expect(pkg.devDependencies).toEqual({
+      typescript: "^5.9.3",
+      prettier: "^3.8.1",
+    });
+  });
+
+  /**
+   * @case An example with no package.json leaves the scaffold alone
+   * @preconditions An example fragment carrying only route files
+   * @expectedResult The base manifest is unchanged, since it already describes the project
+   */
+  test("leaves the manifest alone when the example has none", async () => {
+    const before = await readJson(join(target, "package.json"));
+    await mergeExamplePackageJson(source, target);
+    expect(await readJson(join(target, "package.json"))).toEqual(before);
+  });
+});
+
+// ─── Unit: parseGitHubExampleUrl ─────────────────────────────────────────────
+
+describe("parseGitHubExampleUrl", () => {
+  /**
+   * @case A plain repository URL takes the default branch and the whole tree
+   * @preconditions No /tree/ segment
+   * @expectedResult branch "main" and an empty subpath, because templates are
+   *   untagged and always scaffolded from main
+   */
+  test("defaults to main and the repository root", () => {
+    expect(parseGitHubExampleUrl("https://github.com/owner/repo")).toEqual({
+      owner: "owner",
+      repo: "repo",
+      branch: "main",
+      subPath: "",
+    });
+  });
+
+  /**
+   * @case A branch with no subpath names the whole repository at that branch
+   * @preconditions /tree/<branch> with and without a trailing slash
+   * @expectedResult The branch, and an empty subpath. Without this a template
+   *   repository cannot scaffold from the branch under test in its own CI.
+   */
+  test("accepts a branch with no subpath", () => {
+    for (const url of [
+      "https://github.com/owner/repo/tree/feature-x",
+      "https://github.com/owner/repo/tree/feature-x/",
+    ]) {
+      expect(parseGitHubExampleUrl(url)).toEqual({
+        owner: "owner",
+        repo: "repo",
+        branch: "feature-x",
+        subPath: "",
+      });
+    }
+  });
+
+  /**
+   * @case A branch and a subpath are both read
+   * @preconditions /tree/<branch>/<nested/path>
+   * @expectedResult Both, with the subpath keeping its own separators
+   */
+  test("reads a branch and a nested subpath", () => {
+    expect(
+      parseGitHubExampleUrl(
+        "https://github.com/owner/repo/tree/main/examples/api",
+      ),
+    ).toEqual({
+      owner: "owner",
+      repo: "repo",
+      branch: "main",
+      subPath: "examples/api",
+    });
+  });
+
+  /**
+   * @case A .git suffix is tolerated
+   * @preconditions A clone URL pasted as an example
+   * @expectedResult The repository name without the suffix
+   */
+  test("strips a .git suffix", () => {
+    expect(parseGitHubExampleUrl("https://github.com/owner/repo.git")).toEqual({
+      owner: "owner",
+      repo: "repo",
+      branch: "main",
+      subPath: "",
+    });
+  });
+
+  /**
+   * @case A URL that is not a GitHub repository is refused
+   * @preconditions A host that is not github.com, and a path with no repo
+   * @expectedResult Throws, rather than cloning something unexpected
+   */
+  test("refuses a URL that is not a GitHub repository", () => {
+    expect(() =>
+      parseGitHubExampleUrl("https://example.com/owner/repo"),
+    ).toThrow();
+    expect(() => parseGitHubExampleUrl("https://github.com/owner")).toThrow();
+  });
+
+  /**
+   * @case A backslash-separated climb is refused too
+   * @preconditions A subpath using Windows separators, which a "/"-only split would miss
+   * @expectedResult Throws, because join() on Windows treats both separators alike
+   */
+  test("refuses a subpath that escapes using backslashes", () => {
+    expect(() =>
+      parseGitHubExampleUrl(
+        "https://github.com/owner/repo/tree/main/..\\..\\outside",
+      ),
+    ).toThrow(/cannot contain/);
+  });
+
+  /**
+   * @case A query string or fragment is not part of the path
+   * @preconditions A URL copied from the GitHub file view, carrying ?plain=1 and an anchor
+   * @expectedResult The subpath is the path alone, so the clone finds it
+   */
+  test("ignores a query string and a fragment", () => {
+    expect(
+      parseGitHubExampleUrl(
+        "https://github.com/owner/repo/tree/main/examples/app?plain=1#L20",
+      ),
+    ).toMatchObject({ branch: "main", subPath: "examples/app" });
+  });
+
+  /**
+   * @case A symlinked example directory is refused
+   * @preconditions A clone carrying a symlink that points outside it, which git stores and clones faithfully
+   * @expectedResult Throws, because the check resolves real paths rather than comparing strings
+   */
+  test("refuses an example directory that is a symlink out of the clone", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rc-symlink-"));
+    const clone = join(root, "clone");
+    const outside = join(root, "outside");
+    await mkdir(clone, { recursive: true });
+    await mkdir(outside, { recursive: true });
+    await symlink(outside, join(clone, "examples"));
+
+    expect(() =>
+      assertInsideRepository(join(clone, "examples"), clone, "examples"),
+    ).toThrow(/outside the repository/);
+
+    await rm(root, { recursive: true, force: true });
+  });
+
+  /**
+   * @case A symlink nested inside the example is refused
+   * @preconditions A link below the example root, which the root containment check cannot see
+   * @expectedResult isSymbolicLink reports it, so the copy filter skips it rather than
+   *   planting a link to the author's machine in the generated project
+   */
+  test("detects a symlink nested below the example root", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rc-nested-link-"));
+    const example = join(root, "example");
+    await mkdir(example, { recursive: true });
+    await symlink("/etc/passwd", join(example, "secrets"));
+
+    expect(isSymbolicLink(join(example, "secrets"))).toBe(true);
+    expect(isSymbolicLink(example)).toBe(false);
+
+    await rm(root, { recursive: true, force: true });
+  });
+
+  /**
+   * @case A real directory inside the clone is accepted
+   * @preconditions An ordinary subdirectory, no symlink
+   * @expectedResult No throw, so the guard does not refuse the normal case
+   */
+  test("accepts a real directory inside the clone", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rc-symlink-ok-"));
+    const inside = join(root, "examples", "app");
+    await mkdir(inside, { recursive: true });
+
+    expect(() =>
+      assertInsideRepository(inside, root, "examples/app"),
+    ).not.toThrow();
+
+    await rm(root, { recursive: true, force: true });
+  });
+
+  /**
+   * @case A subpath that climbs out of the repository is refused
+   * @preconditions A /tree/ URL whose path contains a ".." segment
+   * @expectedResult Throws, so nothing outside the clone is ever copied into
+   *   the new project
+   */
+  test("refuses a subpath that escapes the repository", () => {
+    expect(() =>
+      parseGitHubExampleUrl(
+        "https://github.com/owner/repo/tree/main/../../../etc",
+      ),
+    ).toThrow(/cannot contain/);
+    expect(() =>
+      parseGitHubExampleUrl(
+        "https://github.com/owner/repo/tree/main/a/../../b",
+      ),
+    ).toThrow(/cannot contain/);
+  });
+
+  /**
+   * @case A path that merely contains two dots is kept
+   * @preconditions A subpath whose segments contain dots but are not ".."
+   * @expectedResult Parses, because the guard is per segment
+   */
+  test("keeps a subpath whose segments merely contain dots", () => {
+    expect(
+      parseGitHubExampleUrl("https://github.com/owner/repo/tree/main/v1..2/x"),
+    ).toMatchObject({ subPath: "v1..2/x" });
   });
 });

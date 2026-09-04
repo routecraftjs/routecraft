@@ -379,6 +379,42 @@ export interface SuspensionStore {
   releaseExpiring(before: Date): Promise<number>;
 
   /**
+   * Compare-and-swap the opaque {@link Suspension.stepState} slot of a
+   * record that is STILL `suspended`, leaving every other field alone.
+   *
+   * The one write that edits a parked record in place rather than settling
+   * it. Compaction is the motivating caller: an agent's parked thread grows
+   * past what the model will accept, and shrinking it has to happen while
+   * the exchange stays parked, because a resume that lands on an
+   * unshrinkable thread has nowhere to go.
+   *
+   * Two races are closed by the same compare. `expected` is the
+   * `stepStateFingerprint` of the state the caller read and rewrote, so two
+   * compactions of the same record produce one winner and one `won: false`
+   * holding the state that landed, instead of the second silently
+   * discarding the first. And the swap only matches a `suspended` row, so a
+   * resume or a sweep that got there first wins outright: the compaction is
+   * refused rather than rewriting the thread of a run that is already
+   * executing its continuation.
+   *
+   * The store still never reads INTO the slot. Whether the replacement is a
+   * usable thread is the owning tier's question, and `@routecraft/ai`
+   * answers it before calling this.
+   *
+   * @param id - Suspension whose step state is being replaced
+   * @param expected - Fingerprint of the step state the caller based its
+   *   replacement on, from `stepStateFingerprint`
+   * @param stepState - The replacement. Subject to the same plain-JSON rule
+   *   as every other free-form slot (`RC5042`). `undefined` clears the slot
+   *   on every backend.
+   */
+  replaceStepState(
+    id: string,
+    expected: string,
+    stepState: unknown,
+  ): Promise<SuspensionCasResult>;
+
+  /**
    * Cache the terminal outcome of execution two so a duplicate resume can
    * reply without re-running the continuation. Silently ignores an unknown
    * id: the outcome is a convenience, and losing the race to a sweep must

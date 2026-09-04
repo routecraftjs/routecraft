@@ -2,6 +2,7 @@ import { mkdirSync } from "node:fs";
 import { dirname, isAbsolute, resolve } from "node:path";
 import { rcError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
+import { stepStateFingerprint } from "./hash.ts";
 import { encodePersistable } from "./serialize.ts";
 import { assertScanCursor, assertSweepLimit } from "./memory-store.ts";
 import {
@@ -309,6 +310,74 @@ export class SqliteSuspensionStore implements SuspensionStore {
         }
       ).changed;
     });
+  }
+
+  /**
+   * Unlike the `mark*` transitions this cannot be one conditional `UPDATE`:
+   * the compare is a digest of a JSON column, which SQLite cannot compute.
+   * The read and the write therefore share one `BEGIN IMMEDIATE`, which
+   * takes the write lock at the read, so no other connection can move the
+   * row in between. That is the same guarantee the single-statement form
+   * gives, bought with a lock held for one extra statement.
+   */
+  async replaceStepState(
+    id: string,
+    expected: string,
+    stepState: unknown,
+  ): Promise<SuspensionCasResult> {
+    // Outside the transaction on purpose: RC5042 for an unpersistable
+    // replacement is the caller's bug, and reporting it as a store failure
+    // would also leave a lock taken for a write that was never viable.
+    const encoded = encodePersistable(stepState, "stepState");
+    let won = false;
+    let row: unknown;
+    try {
+      this.#db.exec("BEGIN IMMEDIATE");
+      const current = this.#db
+        .prepare(`SELECT status, step_state FROM suspensions WHERE id = ?`)
+        .get(id) as
+        { status: string; step_state: string | null } | undefined | null;
+      if (
+        current != null &&
+        current.status === "suspended" &&
+        stepStateFingerprint(
+          current.step_state === null
+            ? undefined
+            : (JSON.parse(current.step_state) as unknown),
+        ) === expected
+      ) {
+        this.#db
+          .prepare(
+            `UPDATE suspensions SET step_state = ?
+             WHERE id = ? AND status = 'suspended'`,
+          )
+          // `create` guards the same way. `bun:sqlite` binds an undefined
+          // parameter as NULL and `better-sqlite3` rejects it, so the branch
+          // is what keeps the two drivers substitutable.
+          .run(encoded === undefined ? null : JSON.stringify(encoded), id);
+        won =
+          (
+            this.#db.prepare("SELECT changes() AS changed").get() as {
+              changed: number;
+            }
+          ).changed === 1;
+      }
+      row = this.#db.prepare(`SELECT * FROM suspensions WHERE id = ?`).get(id);
+      this.#db.exec("COMMIT");
+    } catch (cause) {
+      try {
+        this.#db.exec("ROLLBACK");
+      } catch {
+        // BEGIN itself failed, so there is no transaction to roll back.
+      }
+      throw rcError(busy(cause) ? "RC5045" : "RC5044", cause, {
+        message: `Failed to replace the step state of suspension "${id}" in the sqlite store.`,
+      });
+    }
+    return {
+      won,
+      suspension: row ? toSuspension(row as SuspensionRow) : undefined,
+    };
   }
 
   async recordTerminal(id: string, terminal: SerializedOutcome): Promise<void> {

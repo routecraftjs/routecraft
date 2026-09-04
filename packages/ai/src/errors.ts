@@ -87,6 +87,10 @@ declare module "@routecraft/routecraft" {
     AI1006: RCMeta;
     /** Agent suspension state invalid at rehydration */
     AI1007: RCMeta;
+    /** Parked agent thread replacement refused */
+    AI1008: RCMeta;
+    /** Model context window exceeded */
+    AI1009: RCMeta;
     /** MCP tool result violated the tool's advertised output schema */
     AI2001: RCMeta;
     /** MCP tool declined the request: the route dropped the exchange */
@@ -153,6 +157,22 @@ registerErrorCodes(
       suggestion:
         "A resumed exchange carried stepState this agent cannot re-enter: the persisted shape is not the { agentId, messages, suspendedToolCallId, turnsUsed } record the runtime writes, or it names a different agent than the one the route now dispatches. The suspension was already claimed, so this failure is recorded as its terminal outcome and reaches the suspended route's error channel. Restore the agent binding the record names, or treat the parked work as lost and re-ask.",
       docs: `${DOCS_BASE}#ai-1007`,
+      retryable: false,
+    },
+    AI1008: {
+      category: "Adapter",
+      message: "Parked agent thread replacement refused",
+      suggestion:
+        "A rewrite of a parked run's message thread (compaction is the usual caller) produced a thread the run could not be resumed from: an orphaned tool call or tool result, a duplicate tool-call id, an empty thread, or a thread that dropped the suspended call the approver's answer lands on. The parked record is left exactly as it was. Fix the rewrite so every tool call keeps its result and the suspended call survives, or leave the thread alone and let the run resume uncompacted.",
+      docs: `${DOCS_BASE}#ai-1008`,
+      retryable: false,
+    },
+    AI1009: {
+      category: "Adapter",
+      message: "Model context window exceeded",
+      suggestion:
+        "The provider refused the request because the prompt does not fit the model's context window. This is distinct from an ordinary dispatch failure: no retry of the same input can succeed, and the fix is to send less. Compact the conversation, trim the tool results carried in the thread, or move to a model with a larger window. The provider's own refusal is on the error's cause.",
+      docs: `${DOCS_BASE}#ai-1009`,
       retryable: false,
     },
     AI2001: {

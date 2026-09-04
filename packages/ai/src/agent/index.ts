@@ -15,6 +15,7 @@ export {
 export { SuspendError, isSuspendError } from "./suspend.ts";
 export type { AgentSuspendOptions, AgentSuspendSentinel } from "./suspend.ts";
 export type { AgentStepState, ThreadMessage } from "./suspension-state.ts";
+export { assertResumableThread, replaceParkedThread } from "./thread.ts";
 export { AgentCancellationCause } from "./session.ts";
 export type {
   AgentDefaultOptions,

@@ -39,6 +39,7 @@ export {
   actionFingerprint,
   continuationTailHash,
   describeSchema,
+  stepStateFingerprint,
 } from "./hash.ts";
 
 export type {

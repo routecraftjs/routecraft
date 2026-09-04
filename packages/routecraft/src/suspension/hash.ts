@@ -379,3 +379,29 @@ function canonical(value: unknown): string {
 function sha256(input: string): string {
   return createHash("sha256").update(input, "utf8").digest("hex");
 }
+
+/**
+ * Digest of a suspension's `stepState` slot, used as the compare half of
+ * the store's `replaceStepState` compare-and-swap.
+ *
+ * A digest rather than the value itself, for two reasons. The slot holds an
+ * arbitrarily large blob (an agent's whole message thread is the motivating
+ * case), and shipping it back to the store to be compared would double the
+ * write. And equality on the blob is only meaningful under a canonical
+ * form: the two backends round-trip it through different machinery
+ * (`structuredClone` and `JSON.parse`), so key order is not a property a
+ * caller can rely on. Hashing the canonical rendering makes the comparison
+ * structural.
+ *
+ * A record with no step state gets its own digest, distinct from one
+ * holding `null`, rather than being special-cased at every call site. That
+ * makes "the record had no step state" an expectation a caller can hold and
+ * lose like any other.
+ */
+export function stepStateFingerprint(stepState: unknown): string {
+  return sha256(
+    stepState === undefined
+      ? canonical({ absent: true })
+      : canonical({ stepState }),
+  );
+}

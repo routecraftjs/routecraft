@@ -15,8 +15,14 @@ import { logger as frameworkLogger } from "@routecraft/routecraft";
 // whose consolidation accessors resolve as Promises. Two text-deltas plus a
 // coarse `finish` part (which is filtered out by `normalizeStreamDelta`); the
 // test asserts that only the deltas drive `onDelta` invocations.
-mock.module("ai", () => ({
-  streamText: mock(() => ({
+//
+// Bun 1.3.11 shares the module registry across every file in a run, so "ai"
+// is mocked once here and the per-test shape is selected through `scripted`
+// rather than by a second file mocking the same path.
+let scripted: () => unknown = okStream;
+
+function okStream() {
+  return {
     fullStream: (async function* () {
       yield { type: "text-delta", text: "o" };
       yield { type: "text-delta", text: "k" };
@@ -26,7 +32,11 @@ mock.module("ai", () => ({
     usage: Promise.resolve(undefined),
     reasoningText: Promise.resolve(undefined),
     output: Promise.resolve(undefined),
-  })),
+  };
+}
+
+mock.module("ai", () => ({
+  streamText: mock(() => scripted()),
 }));
 
 // Mock the Anthropic provider so resolveLanguageModel doesn't try to
@@ -95,5 +105,84 @@ describe("streamLlm: production listener-error containment", () => {
       },
     });
     expect(calls).toBe(2);
+  });
+});
+
+describe("streamLlm: provider failure classification", () => {
+  afterEach(() => {
+    scripted = okStream;
+  });
+
+  /**
+   * The SDK settles its consolidated promises with a generic failure of its
+   * own when a step never finished. `runStreamGenerate` deliberately leaves
+   * that promise unread once the stream carried an error part, so the test
+   * has to own the rejection rather than leaking it.
+   */
+  function unread(reason: string): Promise<string> {
+    const pending = Promise.reject(new Error(reason));
+    pending.catch(() => {});
+    return pending;
+  }
+
+  /**
+   * @case A context-window refusal on the streaming path surfaces as AI1009
+   * @preconditions The SDK reports the refusal as an `error` part on fullStream and settles `text` with its own generic NoOutputGeneratedError, which is what it really does
+   * @expectedResult AI1009 carrying the provider's error as its cause, rather than the SDK's generic one
+   */
+  test("classifies a context overflow reported as a stream error part", async () => {
+    const providerError = Object.assign(
+      new Error("prompt is too long: 250000 tokens > 200000 maximum"),
+      { code: "context_length_exceeded" },
+    );
+    scripted = () => ({
+      fullStream: (async function* () {
+        yield { type: "error", error: providerError };
+      })(),
+      text: unread("No output generated. Check the stream for errors."),
+      usage: Promise.resolve(undefined),
+      reasoningText: Promise.resolve(undefined),
+      output: Promise.resolve(undefined),
+    });
+
+    await expect(
+      streamLlm({
+        config: { provider: "anthropic", apiKey: "sk-test" },
+        modelId: "claude-test",
+        options: { temperature: 0, maxTokens: 64 },
+        system: "x",
+        user: "y",
+        onDelta: () => {},
+      }),
+    ).rejects.toMatchObject({ rc: "AI1009", cause: providerError });
+  });
+
+  /**
+   * @case An ordinary provider failure on the streaming path is not relabelled
+   * @preconditions The error part carries a failure that is not a context overflow
+   * @expectedResult The provider's own error is rethrown untouched, so its retryability is intact
+   */
+  test("rethrows a non-overflow stream error untouched", async () => {
+    const providerError = new Error("upstream connect error");
+    scripted = () => ({
+      fullStream: (async function* () {
+        yield { type: "error", error: providerError };
+      })(),
+      text: unread("No output generated."),
+      usage: Promise.resolve(undefined),
+      reasoningText: Promise.resolve(undefined),
+      output: Promise.resolve(undefined),
+    });
+
+    await expect(
+      streamLlm({
+        config: { provider: "anthropic", apiKey: "sk-test" },
+        modelId: "claude-test",
+        options: { temperature: 0, maxTokens: 64 },
+        system: "x",
+        user: "y",
+        onDelta: () => {},
+      }),
+    ).rejects.toBe(providerError);
   });
 });

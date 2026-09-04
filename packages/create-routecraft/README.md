@@ -28,6 +28,26 @@ The scaffolded project includes:
 - Development dependencies configured
 - ESLint and testing setup
 
+## Starting from a repository
+
+`--example` also takes a public GitHub URL. `craft-harness` is the reference starting point:
+a working agent harness laid out in the project convention, where every capability is an
+ordinary route you own.
+
+```bash
+bunx create-routecraft my-agent --example https://github.com/routecraftjs/craft-harness
+```
+
+A plain repository URL always takes `main`; add `/tree/<branch>` or
+`/tree/<branch>/<subpath>` for a specific branch or a subdirectory. A branch is read as one
+path segment, so a name containing `/` (`feature/login`) cannot be expressed this way:
+nothing in the URL says which slash divides the branch from the path. The template's files
+win over the base scaffold, except for the project name you passed and the package manager
+you chose, and its `dependencies`, `devDependencies`, `peerDependencies` and `scripts` merge
+into the base manifest rather than replacing it. `node_modules`, `.git` and the lockfiles
+(`package-lock.json`, `npm-shrinkwrap.json`, `yarn.lock`, `pnpm-lock.yaml`, `bun.lock`,
+`bun.lockb`) are never copied.
+
 ## Interactive Prompts
 
 The CLI will guide you through:

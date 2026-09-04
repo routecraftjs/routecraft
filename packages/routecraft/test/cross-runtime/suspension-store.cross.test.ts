@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   SqliteSuspensionStore,
+  stepStateFingerprint,
   type NewSuspension,
 } from "@routecraft/routecraft";
 
@@ -121,6 +122,71 @@ describe("suspension store (cross-runtime)", () => {
     expect(second.won).toBe(false);
     expect((await store.get("sus-1"))?.resumedBy?.subject).toBe("a");
     expect((await store.get("sus-1"))?.status).toBe("resumed");
+  });
+
+  /**
+   * @case The step-state swap produces exactly one winner on either driver
+   * @preconditions One suspended record; two swaps based on the same read
+   * @expectedResult The first wins, the second is refused on the fingerprint
+   *   compare, and the winner's state is what reads back
+   */
+  test("replaceStepState swaps exactly once", async () => {
+    store = await SqliteSuspensionStore.open({ path: ":memory:" });
+    await store.create(record({ stepState: { turns: 1 } }));
+    const expected = stepStateFingerprint(
+      (await store.get("sus-1"))?.stepState,
+    );
+
+    const first = await store.replaceStepState("sus-1", expected, { turns: 2 });
+    const second = await store.replaceStepState("sus-1", expected, {
+      turns: 3,
+    });
+
+    expect(first.won).toBe(true);
+    expect(second.won).toBe(false);
+    expect((await store.get("sus-1"))?.stepState).toEqual({ turns: 2 });
+  });
+
+  /**
+   * @case Clearing the slot behaves identically on both drivers
+   * @preconditions A suspended record holding step state, replaced with
+   *   undefined
+   * @expectedResult The swap wins and the slot reads back absent, rather than
+   *   one driver binding undefined as NULL and the other rejecting it
+   */
+  test("replaceStepState clears the slot on either driver", async () => {
+    store = await SqliteSuspensionStore.open({ path: ":memory:" });
+    await store.create(record({ stepState: { turns: 1 } }));
+    const expected = stepStateFingerprint(
+      (await store.get("sus-1"))?.stepState,
+    );
+
+    const result = await store.replaceStepState("sus-1", expected, undefined);
+
+    expect(result.won).toBe(true);
+    expect((await store.get("sus-1"))?.stepState).toBeUndefined();
+  });
+
+  /**
+   * @case A swap never touches a record that left the parked state
+   * @preconditions A record that has already resumed
+   * @expectedResult Refused with the record returned untouched, so a
+   *   compaction cannot rewrite a run that is executing its continuation
+   */
+  test("replaceStepState refuses a record that already resumed", async () => {
+    store = await SqliteSuspensionStore.open({ path: ":memory:" });
+    await store.create(record({ stepState: { turns: 1 } }));
+    const expected = stepStateFingerprint(
+      (await store.get("sus-1"))?.stepState,
+    );
+    await store.markResumed("sus-1", { at: new Date(), by: { subject: "a" } });
+
+    const result = await store.replaceStepState("sus-1", expected, {
+      turns: 9,
+    });
+
+    expect(result.won).toBe(false);
+    expect(result.suspension?.stepState).toEqual({ turns: 1 });
   });
 
   /**

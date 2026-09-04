@@ -63,6 +63,22 @@ bun run start
 
 For all flags and options, see [CLI -- create](/docs/reference/cli#project-scaffolding).
 
+### Start from the agent harness
+
+An empty project is the right start for an integration. For an agent you intend to talk to,
+scaffold from `craft-harness` instead: chat, a bash tool, web fetch and search, a workspace,
+memory, a scheduler, and human approvals, each one an ordinary route in the project you now
+own rather than a framework feature you configure.
+
+```bash
+bunx create-routecraft my-agent --example https://github.com/routecraftjs/craft-harness
+```
+
+It pulls the template's `main` branch (templates carry no tags). Its own
+[README](https://github.com/routecraftjs/craft-harness) covers what each capability does,
+which of them stay dormant until you configure them, and how the generated API key secures
+every surface the harness exposes.
+
 ## Manual installation
 
 Add Routecraft to an existing project:

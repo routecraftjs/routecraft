@@ -471,6 +471,32 @@ A resumed exchange carried `stepState` this agent cannot re-enter. Either the pe
 **Suggestion**  
 Restore the agent binding the record names, or treat the parked work as lost and re-ask with a fresh suspension. The suspension was already claimed when this fired, so the failure is recorded as its terminal outcome and the suspended route's `.error()` handler receives it.
 
+## AI1008
+Parked agent thread replacement refused
+
+**Why it happens**  
+A rewrite of a parked run's message thread produced a thread the run could not be resumed from. Compaction is the caller this exists for: an agent parks at an approval, its conversation has outgrown the model's context window, and the only moment to shrink it is while the exchange is still parked.
+
+Refused: an empty thread or an entry that is not a message, a tool call with no result (or a result with no call), a result placed before the call that produced it, a missing or empty `toolCallId`, an id used twice, and a thread that no longer contains the suspended call the approver's answer lands on. All but the last are what a summariser breaks by dropping or reordering a message it judged uninteresting; every provider rejects the thread that comes out. The last is the reason the guard runs before the store is written rather than after: a thread missing the suspended call is only discovered at revival, as [AI1007](#ai-1007), by which point the approval has been spent and the run cannot be recovered. AI1008 is the recoverable half of that pair. It is raised by `assertResumableThread` while the rewrite is still in hand, nothing has been persisted, and the parked run resumes from the thread it already had.
+
+**Suggestion**  
+- Drop a tool call and its result together, never one of the pair.
+- Keep the suspended call in the thread; summarise around it.
+- Leave the thread alone if it cannot be shortened safely. An uncompacted run that resumes beats a compacted one that cannot.
+
+## AI1009
+Model context window exceeded
+
+**Why it happens**  
+The provider refused the request because the prompt does not fit the model's context window. It is separated from every other dispatch failure because it needs the opposite reaction: a transient provider failure is worth retrying with the same input, and this one can only ever fail again.
+
+Providers do not agree on how to say it. OpenAI-compatible endpoints carry a machine-readable `context_length_exceeded`; Anthropic, Google and the local runtimes only say it in prose, with no shared status code. The classifier reads the code where there is one and matches the known phrasings otherwise, deliberately narrowly: any other failure is rethrown untouched, with its own retryability intact.
+
+**Suggestion**  
+- Send less: compact the conversation, trim what the tool results in the thread carry, or drop older turns.
+- Move to a model with a larger window if the input genuinely cannot shrink.
+- Do not retry the same input. Nothing about it will fit on a second attempt.
+
 ## AI2001
 MCP tool output violated its declared schema
 

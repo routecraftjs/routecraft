@@ -91,6 +91,34 @@ Options:
 | --use-npm, --use-pnpm, --use-yarn, --use-bun | Choose package manager |
 | --no-git | Skip git initialization |
 
+### Scaffolding from a repository
+
+`--example` also takes a public GitHub URL, which is how the larger starting points ship.
+`craft-harness` is the reference one: a working agent harness, laid out in the
+[project convention](/docs/introduction/project-structure), with every capability an
+ordinary route you own and can edit.
+
+```bash
+bunx create-routecraft my-app --example https://github.com/routecraftjs/craft-harness
+```
+
+The URL form accepts a whole repository or a subdirectory of one
+(`https://github.com/owner/repo/tree/<branch>/<path>`). A plain repository URL always takes
+`main`; templates are not tagged, so what you get is the template's current state rather
+than a pinned release. Pass a `/tree/<branch>/` URL when you need a specific one.
+
+A branch is read as one path segment. `/tree/feature/login` is understood as branch
+`feature` with subpath `login`, because nothing in the URL says which slash is the boundary
+and deciding would take a call to GitHub. Scaffold from a single-segment branch, or from the
+repository root.
+
+The template's files win over the base scaffold, except for two the base keeps: the project
+name you passed and the package manager you chose. Its `dependencies`, `devDependencies` and
+`scripts` merge into the base manifest rather than replacing it, so the template declares
+only its own additions. `node_modules`, `.git` and the lockfiles (`package-lock.json`,
+`npm-shrinkwrap.json`, `yarn.lock`, `pnpm-lock.yaml`, `bun.lock`, `bun.lockb`) are never
+copied; the scaffolded project resolves its own dependency tree.
+
 ## Commands
 
 ### run
