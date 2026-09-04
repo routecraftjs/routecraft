@@ -191,6 +191,15 @@ export function validateAgentOptions<T>(options: AgentOptions<T>): void {
       });
     }
   }
+  if (
+    options.interrupt !== undefined &&
+    typeof options.interrupt !== "boolean" &&
+    typeof options.interrupt !== "function"
+  ) {
+    throw rcError("RC5003", undefined, {
+      message: `Agent: "interrupt" must be a boolean or a function (exchange) => boolean when present.`,
+    });
+  }
   if (options.tools !== undefined && !isToolSelection(options.tools)) {
     throw rcError("RC5003", undefined, {
       message: `Agent: "tools" must be the result of tools([...]).`,

@@ -6,6 +6,7 @@ import {
   direct,
   noop,
   opsPlugin,
+  rcError,
   registerOpsResource,
   type CraftPlugin,
   type HttpAuth,
@@ -207,6 +208,51 @@ describe("contributed management resources", () => {
     const dark = await start({});
     expect((await call(dark, "/ops/widgets")).status).toBe(404);
     expect((await call(dark, "/ops/gadgets")).status).toBe(404);
+  });
+
+  /**
+   * @case A contributor that throws is answered by the mount, in the mount's vocabulary
+   * @preconditions A resource whose list refuses a limit with RC5059 and whose describe throws a plain error
+   * @expectedResult The RC5059 is a 400 carrying the message, since it is the caller's; the plain error is a 500 carrying "resource failed" and the resource name with no message, and the server stays up to answer the next request
+   */
+  test("a throwing resource is a 500 and a bad page is a 400", async () => {
+    const port = await start({
+      introspection: true,
+      plugins: [
+        contributing({
+          name: "widgets",
+          description: "Widgets that fail",
+          list: async (query) => {
+            if (query["limit"] !== undefined) {
+              throw rcError("RC5059", undefined, {
+                message: "The page limit must be a positive integer.",
+              });
+            }
+            return { items: [] };
+          },
+          describe: async () => {
+            throw new Error("the store is on fire: /var/lib/secret.db");
+          },
+        }),
+      ],
+    });
+    const bad = await call<{ error: string; message: string }>(
+      port,
+      "/ops/widgets?limit=x",
+    );
+    expect(bad.status).toBe(400);
+    expect(bad.body.message).toContain("positive integer");
+    const boom = await call<{ error: string; resource: string; code?: string }>(
+      port,
+      "/ops/widgets/a",
+    );
+    expect(boom.status).toBe(500);
+    expect(boom.body).toEqual({
+      error: "resource failed",
+      resource: "widgets",
+    });
+    expect(JSON.stringify(boom.body)).not.toContain("secret.db");
+    expect((await call(port, "/ops/widgets")).status).toBe(200);
   });
 
   /**

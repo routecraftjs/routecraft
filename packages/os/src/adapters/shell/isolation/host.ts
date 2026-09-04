@@ -2,6 +2,27 @@ import type { IsolationName } from "../types.ts";
 import type { IsolationRequest } from "./types.ts";
 
 /**
+ * Memoise an availability probe, caching only a success.
+ *
+ * A probe can fail for reasons that are not properties of the host (fork
+ * pressure, a transient EAGAIN, a daemon that was down when first asked,
+ * the probe's own timeout), and caching those would tell every later call
+ * that the tier is unavailable when it is not. So a rejection clears the
+ * memo and the next call probes again, while a success stands for the
+ * process. See {@link IsolationTier.ensureAvailable}.
+ *
+ * @internal
+ */
+export function cacheSuccess(run: () => Promise<void>): () => Promise<void> {
+  let pending: Promise<void> | undefined;
+  return () =>
+    (pending ??= run().catch((cause: unknown) => {
+      pending = undefined;
+      throw cause;
+    }));
+}
+
+/**
  * The refusal every host tier gives a container option.
  *
  * `image`, `mounts` and `name` describe a container. Under a tier that

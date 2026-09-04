@@ -1,6 +1,9 @@
 import type { LlmPromptPart } from "../../llm/types.ts";
 import type { ThreadMessage } from "../suspension-state.ts";
 
+/** The shape version {@link AgentSessionRecord} is written at. */
+export const SESSION_RECORD_VERSION = 1;
+
 /** What names a conversation: the agent it belongs to and the caller's id. */
 export interface AgentSessionKey {
   readonly agent: string;
@@ -56,6 +59,12 @@ export interface AgentBackgroundCall {
  */
 export interface AgentSessionRecord {
   readonly kind: "agent-session";
+  /**
+   * The record's shape version, checked on every read so a record written
+   * by another release of this package fails as `AI1010` naming the store
+   * rather than as a provider refusing a message part one turn later.
+   */
+  readonly version: typeof SESSION_RECORD_VERSION;
   readonly agent: string;
   readonly session: string;
   /** The transcript, in the SDK's message shape. */

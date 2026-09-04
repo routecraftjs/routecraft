@@ -11,11 +11,8 @@
  * differ.
  */
 
-import {
-  createOpsClient,
-  OpsClientError,
-  type OpsClient,
-} from "./ops-client.js";
+import { OpsClientError, type OpsClient } from "./ops-client.js";
+import { prepare } from "./prepare.js";
 import {
   renderComponent,
   renderIndicators,
@@ -25,47 +22,12 @@ import {
   type ViewNote,
 } from "./format.js";
 import { EXEC_EXIT, failureCode, type ExecResult } from "./exec.js";
-import {
-  resolveSettings,
-  SettingsError,
-  type OutputFormat,
-  type SettingsOverrides,
-} from "./settings.js";
+import type { OutputFormat, SettingsOverrides } from "./settings.js";
 
 /** Filters accepted by `craft ops routes`. */
 export interface OpsRoutesOptions extends SettingsOverrides {
   dispatchable?: boolean;
   source?: string;
-}
-
-/** Set up a client, or report why the settings could not be resolved. */
-function prepare(overrides: SettingsOverrides):
-  | {
-      ok: true;
-      client: OpsClient;
-      format: OutputFormat;
-      view: ViewNote;
-    }
-  | { ok: false; result: ExecResult } {
-  let settings;
-  try {
-    settings = resolveSettings(overrides);
-  } catch (error: unknown) {
-    if (error instanceof SettingsError) {
-      return {
-        ok: false,
-        result: { code: EXEC_EXIT.usage, error: error.message },
-      };
-    }
-    throw error;
-  }
-  const client = createOpsClient(settings);
-  return {
-    ok: true,
-    client,
-    format: settings.format.value,
-    view: client.authenticated ? "authenticated" : "anonymous",
-  };
 }
 
 /** Run one read and render it, turning client failures into exit codes. */
@@ -78,7 +40,7 @@ async function read(
   ) => Promise<string>,
 ): Promise<ExecResult> {
   const prepared = prepare(overrides);
-  if (!prepared.ok) return prepared.result;
+  if (!prepared.ok) return { code: EXEC_EXIT.usage, error: prepared.error };
   try {
     return {
       code: EXEC_EXIT.ok,

@@ -4,12 +4,13 @@ import { connect as connectTls } from "node:tls";
 import { rcError } from "@routecraft/routecraft";
 import { loadDockerode } from "../peers.ts";
 import { BoundedOutput } from "../shared.ts";
+import { cacheSuccess } from "./host.ts";
 import type {
-  ExecutionIo,
+  ContainerIo,
+  ContainerTier,
   ExecutionOutcome,
   Invocation,
   IsolationRequest,
-  IsolationTier,
 } from "./types.ts";
 
 /**
@@ -35,7 +36,11 @@ import type {
  * present fails the call naming it, so what runs inside is only as trusted
  * as the image an author (or an agent) named. Environment variables are
  * visible in `docker inspect`; a value that must not be is passed through
- * `stdin`, which reaches only the command.
+ * `stdin`, which reaches only the command. The image's own `ENV` is
+ * present beside the granted baseline: the daemon merges the two and the
+ * grant wins only on the names it sets, so an image that bakes in a
+ * credential hands it to every command. A mount whose host path does not
+ * exist is created by the daemon, as a root-owned directory.
  *
  * ## Why the API and not the `docker` CLI
  *
@@ -113,6 +118,13 @@ export type StdinWriter = (
 /** The container specification this tier builds, as the API takes it. */
 export interface ContainerCreateOptions {
   Image: string;
+  /**
+   * The program, set explicitly so the image's own entrypoint is replaced
+   * rather than prepended: an image whose entrypoint is a shell would
+   * otherwise put a shell in front of the argv `shell()` promises never
+   * to hand to one.
+   */
+  Entrypoint: string[];
   Cmd: string[];
   name: string;
   Env: string[];
@@ -134,11 +146,24 @@ export interface ContainerCreateOptions {
     Init: boolean;
     NetworkMode: "none" | "bridge";
     Binds: string[];
+    /**
+     * A private, writable `HOME` for the command, mode 0700 and owned by
+     * the container user, so the baseline's promise (a home holding none
+     * of the caller's dotfiles and writable by nobody else) holds inside
+     * the container as it does on the host.
+     */
+    Tmpfs: Record<string, string>;
   };
 }
 
 /** Grace between the timeout's SIGTERM and the SIGKILL, as on the host tiers. */
 const FORCE_KILL_AFTER_MS = 5_000;
+
+/** How long the daemon gets to answer the stdin attach upgrade. */
+const UPGRADE_TIMEOUT_MS = 10_000;
+
+/** The directory handed to the command as `HOME` inside the container. */
+export const CONTAINER_HOME = "/home/routecraft";
 
 /**
  * Build the tier over a client factory. The shipped tier loads `dockerode`
@@ -151,20 +176,13 @@ const FORCE_KILL_AFTER_MS = 5_000;
 export function createDockerTier(
   client: () => Promise<DockerClient>,
   writeStdin: StdinWriter = writeStdinOverUpgrade,
-): IsolationTier {
-  let probe: Promise<void> | undefined;
+): ContainerTier {
   return {
     name: "docker",
+    kind: "container",
+    home: CONTAINER_HOME,
 
-    ensureAvailable(): Promise<void> {
-      // Only a success is cached, as on the unshare tier: a daemon that was
-      // down when first asked may be up on the next call.
-      probe ??= runProbe(client).catch((cause: unknown) => {
-        probe = undefined;
-        throw cause;
-      });
-      return probe;
-    },
+    ensureAvailable: cacheSuccess(() => runProbe(client)),
 
     refuse(): undefined {
       // Egress maps onto the network mode, identity onto the container
@@ -176,7 +194,7 @@ export function createDockerTier(
     async execute(
       target: Invocation,
       request: IsolationRequest,
-      io: ExecutionIo,
+      io: ContainerIo,
     ): Promise<ExecutionOutcome> {
       const image = request.image;
       // Checked by the adapter before the tier is asked; this is the tier
@@ -196,7 +214,43 @@ export function createDockerTier(
       }
       const stdout = new BoundedOutput(io.maxOutputBytes);
       const stderr = new BoundedOutput(io.maxOutputBytes);
-      let exited: Promise<{ StatusCode: number }>;
+
+      let signal: string | undefined;
+      let timedOut = false;
+      let timer: ReturnType<typeof setTimeout> | undefined;
+      let forceTimer: ReturnType<typeof setTimeout> | undefined;
+      const kill = async (sig: "SIGTERM" | "SIGKILL"): Promise<void> => {
+        signal ??= sig;
+        // A container that already exited, or has not started, answers
+        // 409 or 404; the wait below reports the real outcome either way.
+        await container.kill({ signal: sig }).catch(() => undefined);
+      };
+      const onAbort = (): void => {
+        void kill("SIGKILL");
+      };
+      const disarm = (): void => {
+        if (timer !== undefined) clearTimeout(timer);
+        if (forceTimer !== undefined) clearTimeout(forceTimer);
+        io.signal?.removeEventListener("abort", onAbort);
+      };
+      // Armed before the attach, the start and the stdin delivery, so a
+      // deadline or a cancellation covers the setup too: a daemon that
+      // accepts the container and then stalls is bounded like a command.
+      if (io.timeoutMs !== undefined) {
+        timer = setTimeout(() => {
+          timedOut = true;
+          void kill("SIGTERM");
+          forceTimer = setTimeout(
+            () => void kill("SIGKILL"),
+            FORCE_KILL_AFTER_MS,
+          );
+        }, io.timeoutMs);
+      }
+      if (io.signal?.aborted) onAbort();
+      else io.signal?.addEventListener("abort", onAbort, { once: true });
+
+      let exited: Promise<{ StatusCode: number }> | undefined;
+      let started = false;
       try {
         const output = await container.attach({
           stream: true,
@@ -219,44 +273,37 @@ export function createDockerTier(
         // Waited on before the start, with `next-exit`, so an `--rm`
         // container that exits at once is not gone before the wait begins.
         exited = container.wait({ condition: "next-exit" });
+        // Both are awaited below; observed here so a rejection that lands
+        // while the start is awaited is not an unhandled one.
+        fed.catch(() => undefined);
+        exited.catch(() => undefined);
         await container.start();
+        started = true;
+        // A kill requested during the setup found nothing running. Now
+        // there is, and it must not outlive the deadline that asked.
+        if (signal !== undefined) await kill("SIGKILL");
         await fed;
       } catch (cause: unknown) {
-        // `--rm` only applies to a container that ran. One that failed to
-        // attach or start stays in the created state, holding its name,
-        // so it is removed here rather than left for an operator.
-        await container.remove({ force: true }).catch(() => undefined);
-        throw cause;
+        if (!started) {
+          disarm();
+          // `--rm` only applies to a container that ran. One that failed
+          // to attach or start stays in the created state, holding its
+          // name, so it is removed here rather than left for an operator.
+          await container.remove({ force: true }).catch(() => undefined);
+          throw cause;
+        }
+        // Started, but its input never arrived: a command must not run on
+        // without the input it was promised.
+        await kill("SIGKILL");
+        if (!timedOut) {
+          disarm();
+          await exited?.catch(() => undefined);
+          throw cause;
+        }
       }
-
-      let signal: string | undefined;
-      let timedOut = false;
-      let timer: ReturnType<typeof setTimeout> | undefined;
-      let forceTimer: ReturnType<typeof setTimeout> | undefined;
-      const kill = async (sig: "SIGTERM" | "SIGKILL"): Promise<void> => {
-        signal ??= sig;
-        // A container that already exited answers 409 or 404; either way the
-        // wait below reports the real outcome, so the refusal is not news.
-        await container.kill({ signal: sig }).catch(() => undefined);
-      };
-      const onAbort = (): void => {
-        void kill("SIGKILL");
-      };
-      if (io.timeoutMs !== undefined) {
-        timer = setTimeout(() => {
-          timedOut = true;
-          void kill("SIGTERM");
-          forceTimer = setTimeout(
-            () => void kill("SIGKILL"),
-            FORCE_KILL_AFTER_MS,
-          );
-        }, io.timeoutMs);
-      }
-      if (io.signal?.aborted) onAbort();
-      else io.signal?.addEventListener("abort", onAbort, { once: true });
 
       try {
-        const { StatusCode } = await exited;
+        const { StatusCode } = await exited!;
         return {
           stdout: stdout.result(),
           stderr: stderr.result(),
@@ -265,9 +312,7 @@ export function createDockerTier(
           timedOut,
         };
       } finally {
-        if (timer !== undefined) clearTimeout(timer);
-        if (forceTimer !== undefined) clearTimeout(forceTimer);
-        io.signal?.removeEventListener("abort", onAbort);
+        disarm();
       }
     },
   };
@@ -303,12 +348,41 @@ export async function writeStdinOverUpgrade(
       );
     };
     socket.once("error", fail);
+    // A daemon that accepts the connection and drops it, or never answers,
+    // would otherwise leave this pending with no deadline to reach. Both
+    // `end` and `close` are watched because Bun delivers only the former
+    // for a peer that hangs up, and the deadline is a timer rather than
+    // the socket's own, which Bun does not fire on a unix socket.
+    const dropped = (): void => {
+      if (!upgraded) {
+        fail(
+          new Error(
+            "the daemon dropped the connection before answering the attach upgrade",
+          ),
+        );
+      }
+    };
+    socket.once("end", dropped);
+    socket.once("close", dropped);
+    const deadline = setTimeout(() => {
+      if (!upgraded) {
+        fail(
+          new Error(
+            `the daemon did not answer the attach upgrade within ${String(UPGRADE_TIMEOUT_MS)}ms`,
+          ),
+        );
+      }
+    }, UPGRADE_TIMEOUT_MS);
+    socket.once("close", () => clearTimeout(deadline));
     socket.on("data", (chunk: Buffer) => {
       if (upgraded) return;
       head = Buffer.concat([head, chunk]);
       const end = head.indexOf("\r\n\r\n");
       if (end < 0) return;
       upgraded = true;
+      // The upgrade answered; the write below may legitimately wait on a
+      // command that is slow to read, so the deadline ends here.
+      clearTimeout(deadline);
       const status = head.subarray(0, head.indexOf("\r\n")).toString();
       // 101 is the upgrade; a daemon that answers 200 streams over the
       // same connection and accepts input the same way.
@@ -349,9 +423,18 @@ async function openDaemonSocket(connection: DockerConnection): Promise<Socket> {
   if (socketPath !== undefined) {
     return connectTcp({ path: socketPath });
   }
+  const protocol = connection.protocol ?? "http";
+  // The client library tunnels `ssh://` through an agent of its own; this
+  // hand-written upgrade cannot, and a plain TCP write to port 22 would
+  // fail one hop later with a message naming nothing.
+  if (protocol !== "http" && protocol !== "https") {
+    throw rcError("OS1002", undefined, {
+      message: `The "docker" tier cannot attach stdin over a "${protocol}" daemon connection: shell({ stdin }) needs a unix socket or a TCP daemon. Drop stdin, or point DOCKER_HOST at one.`,
+    });
+  }
   const host = connection.host ?? "127.0.0.1";
   const port = Number(connection.port ?? 2375);
-  if (connection.protocol === "https") {
+  if (protocol === "https") {
     return connectTls({
       host,
       port,
@@ -364,7 +447,7 @@ async function openDaemonSocket(connection: DockerConnection): Promise<Socket> {
 }
 
 /** The shipped tier, over `dockerode` loaded as an optional peer. */
-export const dockerTier: IsolationTier = createDockerTier(async () => {
+export const dockerTier: ContainerTier = createDockerTier(async () => {
   const { default: Dockerode } = await loadDockerode();
   // No options: dockerode reads DOCKER_HOST and the default socket itself,
   // which is the same resolution the docker CLI performs.
@@ -373,22 +456,24 @@ export const dockerTier: IsolationTier = createDockerTier(async () => {
 
 /**
  * The container the call asks for. Every value the call resolved is one
- * field here, and the command is `Cmd` as an argument vector: the image's
- * entrypoint is bypassed rather than composed with, so the program named
- * at the call site is the program that runs. `image` is one field too,
- * never interpolated, so a value from data cannot carry flags.
+ * field here, and the command is `Entrypoint` plus `Cmd` as an argument
+ * vector: the image's own entrypoint is replaced rather than composed
+ * with, so the program named at the call site is the program that runs
+ * and no shell an image bakes in sits in front of it. `image` is one
+ * field too, never interpolated, so a value from data cannot carry flags.
  *
  * @internal
  */
 export function containerSpec(
   target: Invocation,
   request: IsolationRequest,
-  io: ExecutionIo,
+  io: ContainerIo,
   image: string,
 ): ContainerCreateOptions {
   return {
     Image: image,
-    Cmd: [target.file, ...target.args],
+    Entrypoint: [target.file],
+    Cmd: [...target.args],
     name: request.name ?? io.defaultName,
     Env: Object.entries(io.env).map(([key, value]) => `${key}=${value}`),
     ...(io.cwd !== undefined ? { WorkingDir: io.cwd } : {}),
@@ -407,26 +492,44 @@ export function containerSpec(
         (mount) =>
           `${mount.host}:${mount.container}${mount.readonly ? ":ro" : ""}`,
       ),
+      Tmpfs: { [CONTAINER_HOME]: homeMountOptions(request.mapRootUser) },
     },
   };
 }
 
 /**
- * Who the command runs as. Root inside the container is opt-in, as root
- * inside the user namespace is on the host tiers; the default is the
- * caller's own uid and gid, so files the command writes on a mount are the
- * caller's. On a platform without POSIX ids (Windows, where the daemon is
- * remote anyway) the image's own user applies.
+ * Who the command runs as. The default is the caller's own uid and gid,
+ * so files the command writes on a mount are the caller's. Root is opt-in
+ * and, unlike root inside the `unshare` tier's user namespace, is the
+ * host's real uid 0 on a daemon without user-namespace remapping: with a
+ * writable mount it writes root-owned files on the host. On a platform
+ * without POSIX ids (Windows, where the daemon is remote anyway) the
+ * image's own user applies.
  */
 function containerUser(mapRootUser: boolean): { User?: string } {
-  if (mapRootUser) return { User: "0:0" };
+  const ids = posixIds(mapRootUser);
+  return ids === undefined ? {} : { User: `${ids.uid}:${ids.gid}` };
+}
+
+/** The tmpfs options that make the container home private to its user. */
+function homeMountOptions(mapRootUser: boolean): string {
+  const ids = posixIds(mapRootUser);
+  return ids === undefined
+    ? "rw,mode=0700"
+    : `rw,mode=0700,uid=${ids.uid},gid=${ids.gid}`;
+}
+
+function posixIds(
+  mapRootUser: boolean,
+): { uid: number; gid: number } | undefined {
+  if (mapRootUser) return { uid: 0, gid: 0 };
   if (
     typeof process.getuid !== "function" ||
     typeof process.getgid !== "function"
   ) {
-    return {};
+    return undefined;
   }
-  return { User: `${process.getuid()}:${process.getgid()}` };
+  return { uid: process.getuid(), gid: process.getgid() };
 }
 
 /** A writable that hands every chunk to a bounded buffer. */

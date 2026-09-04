@@ -104,6 +104,8 @@ Note how this interacts with `network: true`. Granting egress to a command that 
 - **Network**: none unless the call sets `network: true`, so egress is denied by default.
 - **Identity**: the caller's own uid and gid inside the container by default; `mapRootUser: true` runs as root inside.
 - **Processes**: the container's own PID namespace.
+- **The command**: the program named at the call site is what runs. The image's own entrypoint is replaced rather than composed with, so an image whose entrypoint is a shell wrapper does not put a shell in front of the argument vector.
+- **Home**: `HOME` is a private tmpfs inside the container, mode `0700` and owned by the container user, holding nothing of the host's; the baseline's promise on the host tiers, kept where the host's private directory cannot be seen.
 - **Lifetime**: one container per command, removed when it exits (`--rm`). No pool and no reuse; a warm pool is a later decision with a benchmark behind it.
 
 ```ts
@@ -125,9 +127,9 @@ The positional command stays static and the data travels through `args` under `u
 
 ### What `docker` does not guarantee
 
-A container shares the host kernel; it is not a virtual machine. The image is chosen by the call and pulled by nobody: an image that is not present fails the call with [`OS1002`](/docs/reference/errors) naming it and the `docker pull`, so what runs inside is only as trusted as the image an author, or an agent, named. `env` values are visible in `docker inspect`; a value that must not be goes through `stdin`. A restart of the Routecraft process while a container runs fails that exchange; the container itself is left to `--rm`, and re-attaching to it afterwards is what `name` exists for and is not built yet.
+A container shares the host kernel; it is not a virtual machine. The image is chosen by the call and pulled by nobody: an image that is not present fails the call with [`OS1002`](/docs/reference/errors) naming it and the `docker pull`, so what runs inside is only as trusted as the image an author, or an agent, named. There is no image allowlist here; which images may run is the route's policy, and a route that takes the image from data has made that policy the data's. `env` values are visible in `docker inspect`; a value that must not be goes through `stdin`. The image's own `ENV` is present beside the granted baseline: the daemon merges the two, and the grant wins only on the names it sets, so an image that bakes in a credential hands it to every command. A mount whose host path does not exist is created by the daemon as a root-owned directory rather than refused. `mapRootUser: true` is the host's real uid 0 on a daemon without user-namespace remapping, not the unprivileged root of the `unshare` tier: with a writable mount it writes root-owned files on the host. A restart of the Routecraft process while a container runs fails that exchange; the container itself is left to `--rm`, and re-attaching to it afterwards is what `name` exists for and is not built yet.
 
-Under Bun the tier feeds `stdin` through its own connection upgrade on the daemon's socket rather than through the client library's, because the library's upgrade never completes there. A daemon reached over TLS uses the certificate settings the library resolved from `DOCKER_CERT_PATH`; that path is implemented from those settings and not exercised by the smoke suite, which runs against the local socket.
+Under Bun the tier feeds `stdin` through its own connection upgrade on the daemon's socket rather than through the client library's, because the library's upgrade never completes there. That upgrade reaches a unix socket or a TCP daemon, plain or TLS with the certificate settings the library resolved from `DOCKER_CERT_PATH`; an `ssh://` `DOCKER_HOST`, which the library tunnels through an agent of its own, runs everything except `stdin`, and a call that sets it there is refused with `OS1002` naming the connection. The TLS path is implemented from those settings and not exercised by the smoke suite, which runs against the local socket.
 
 ### A tier that cannot be established fails
 
@@ -140,7 +142,7 @@ A command gets a documented baseline of `PATH`, `HOME`, `LANG` and `TZ`, and not
 | Variable | Value |
 | --- | --- |
 | `PATH` | `/usr/local/bin:/usr/bin:/bin` (system locations only) |
-| `HOME` | a private directory created for this process, mode `0700`, holding none of your dotfiles |
+| `HOME` | a private directory created for this process, mode `0700`, holding none of your dotfiles; on `docker`, a private tmpfs inside the container with the same properties |
 | `LANG` | `C.UTF-8` |
 | `TZ` | `UTC` |
 
@@ -153,7 +155,7 @@ shell('deploy', ['--now'], {
 })
 ```
 
-No credential-bearing variable reaches a command that did not ask for it. A name in `passEnv` that is unset in the parent is simply absent rather than an error.
+No credential-bearing variable reaches a command that did not ask for it. A name in `passEnv` that is unset in the parent is simply absent rather than an error. On the `docker` tier the image's own `ENV` sits beside this grant, which is the one place the grant is not the whole environment; see [what `docker` does not guarantee](#what-docker-does-not-guarantee).
 
 ## Options
 
@@ -168,7 +170,7 @@ No credential-bearing variable reaches a command that did not ask for it. A name
 | `stdin` | closed | all | Bytes written to standard input before the command reads, then closed, static or resolved from the exchange. The place for a token that must appear nowhere else: on stdin it reaches the command and nothing besides it, where in `env` it is in `docker inspect` and in `args` it is in the process list |
 | `timeout` | none | all | Duration before the command and its children are killed, static or resolved from the exchange, so two exchanges through one step can carry different deadlines |
 | `image` | none, required on `docker` | `docker` | The image the command runs in. Required with no default: selecting the tier without one is a configuration error naming the option. Passed to the daemon as one field, never interpolated, so a value from data cannot carry flags; never pulled. A host tier refuses it with [`OS1004`](/docs/reference/errors) |
-| `mounts` | `[]` | `docker` | Host paths exposed inside the container, `{ host, container, readonly? }` with both paths absolute. The route decides what is exposed; nothing outside the list is visible to the command. A host tier refuses it with `OS1004` |
+| `mounts` | `[]` | `docker` | Host paths exposed inside the container, `{ host, container, readonly? }` with both paths absolute and in normal form: no `.` or `..` segments, no repeated or trailing separators (`RC5003` otherwise), so a path built from data cannot climb out of the directory the route named. The route decides what is exposed; nothing outside the list is visible to the command. A host tier refuses it with `OS1004` |
 | `name` | `rc-<routeId>-<exchangeId>` | `docker` | Container name, so an operator can find a run with `docker ps` and a later re-attach can name it. A host tier refuses it with `OS1004` |
 | `failOnNonZero` | `true` | all | Throw [`OS1002`](/docs/reference/errors) when the command exits non-zero |
 | `maxOutputBytes` | 8 MiB | all | Cap on captured output, per stream |

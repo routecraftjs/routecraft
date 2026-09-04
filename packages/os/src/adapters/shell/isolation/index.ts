@@ -6,11 +6,14 @@ import { unshareTier } from "./unshare.ts";
 import type { IsolationTier } from "./types.ts";
 
 export type {
-  ExecutionIo,
+  ContainerIo,
+  ContainerTier,
   ExecutionOutcome,
+  HostTier,
   Invocation,
   IsolationRequest,
   IsolationTier,
+  ProcessIo,
 } from "./types.ts";
 
 /**

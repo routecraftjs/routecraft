@@ -255,14 +255,26 @@ export function createManagementHandler(
         if (segment === undefined) return notFound();
         segments.push(segment);
       }
-      if (segments.length === 0) {
-        const query = Object.fromEntries(url.searchParams.entries());
-        return jsonResponse(await resource.list(query), { status: 200 });
+      try {
+        if (segments.length === 0) {
+          const query = Object.fromEntries(url.searchParams.entries());
+          return jsonResponse(await resource.list(query), { status: 200 });
+        }
+        const item = await resource.describe(segments);
+        return item === undefined
+          ? notFound()
+          : jsonResponse(item, { status: 200 });
+      } catch (error: unknown) {
+        // A malformed limit or cursor is the caller's; anything else is
+        // the contributor's and reaches the wire as a code, never a
+        // message, as the dispatch surface does.
+        const code = rcCodeOf(error);
+        if (code === "RC5059") return badRequest((error as Error).message);
+        return jsonResponse(
+          { error: "resource failed", resource: name, code },
+          { status: 500 },
+        );
       }
-      const item = await resource.describe(segments);
-      return item === undefined
-        ? notFound()
-        : jsonResponse(item, { status: 200 });
     }
 
     return notFound();

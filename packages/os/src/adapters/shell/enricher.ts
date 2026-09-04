@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { isAbsolute } from "node:path";
+import { isAbsolute, posix } from "node:path";
 import {
   getExchangeContext,
   getExchangeRoute,
@@ -12,11 +12,11 @@ import {
 import { resolve } from "../../shared/resolvable.ts";
 import {
   resolveIsolation,
-  type ExecutionIo,
   type ExecutionOutcome,
+  type HostTier,
   type Invocation,
   type IsolationRequest,
-  type IsolationTier,
+  type ProcessIo,
 } from "./isolation/index.ts";
 import { loadExeca } from "./peers.ts";
 import { SHELL_DEFAULTS, type ShellPluginOptions } from "./plugin.ts";
@@ -111,29 +111,25 @@ export class ShellEnricherAdapter<T = unknown> implements Enricher<
     const env = buildEnv(
       this.options.passEnv,
       resolve(this.options.env, exchange),
+      tier.kind === "container" ? tier.home : undefined,
     );
     const stdin = resolveStdin(this.options.stdin, exchange);
+    const io: ProcessIo = {
+      ...(cwd === undefined ? {} : { cwd }),
+      env,
+      ...(stdin === undefined ? {} : { stdin }),
+      ...(timeout === undefined ? {} : { timeoutMs: timeout }),
+      ...(ctx?.signal ? { signal: ctx.signal } : {}),
+      maxOutputBytes: limit,
+    };
 
     const outcome: HostOutcome =
-      tier.execute !== undefined
+      tier.kind === "container"
         ? await tier.execute(target, request, {
-            ...(cwd === undefined ? {} : { cwd }),
-            env,
-            ...(stdin === undefined ? {} : { stdin }),
-            ...(timeout === undefined ? {} : { timeoutMs: timeout }),
-            ...(ctx?.signal ? { signal: ctx.signal } : {}),
-            maxOutputBytes: limit,
+            ...io,
             defaultName: defaultContainerName(exchange),
           })
-        : await this.spawn(tier, target, request, {
-            ...(cwd === undefined ? {} : { cwd }),
-            env,
-            ...(stdin === undefined ? {} : { stdin }),
-            ...(timeout === undefined ? {} : { timeoutMs: timeout }),
-            ...(ctx?.signal ? { signal: ctx.signal } : {}),
-            maxOutputBytes: limit,
-            defaultName: "",
-          });
+        : await this.spawn(tier, target, request, io);
 
     const out = outcome.stdout;
     const err = outcome.stderr;
@@ -183,17 +179,11 @@ export class ShellEnricherAdapter<T = unknown> implements Enricher<
    * (timeout, spawn failure, exit code) is decided once.
    */
   private async spawn(
-    tier: IsolationTier,
+    tier: HostTier,
     target: Invocation,
     request: IsolationRequest,
-    io: ExecutionIo,
+    io: ProcessIo,
   ): Promise<HostOutcome> {
-    // A host tier without `wrap` is a registry bug, not a call-site one.
-    if (tier.wrap === undefined) {
-      throw rcError("RC5003", undefined, {
-        message: `shell(): the "${tier.name}" tier neither wraps an invocation nor executes one.`,
-      });
-    }
     const invocation = tier.wrap(target, request);
     const { execa } = await loadExeca();
     const stdout = new BoundedOutput(io.maxOutputBytes);
@@ -286,6 +276,14 @@ function containerOptions<T>(
           message: `shell(): mounts[${index}] paths cannot contain ":", which the daemon reads as the mount separator.`,
         });
       }
+      // Normal form only: "/work/../../etc" is absolute and is /etc. A
+      // route that builds a mount from data decides which directory it
+      // exposes, and a ".." segment lets the data decide instead.
+      if (!isNormalPath(mount.host) || !isNormalPath(mount.container)) {
+        throw rcError("RC5003", undefined, {
+          message: `shell(): mounts[${index}] paths must be in normal form, with no "." or ".." segments and no repeated or trailing separators; got host "${mount.host}" and container "${mount.container}". A ".." from data would expose a directory the route never named.`,
+        });
+      }
     }
   }
   const name = resolve(options.name, exchange);
@@ -299,6 +297,13 @@ function containerOptions<T>(
     ...(mounts !== undefined ? { mounts } : {}),
     ...(name !== undefined ? { name } : {}),
   };
+}
+
+/** A path already in normal form: no `.` or `..` segments, no repeated or trailing separators. */
+function isNormalPath(path: string): boolean {
+  return (
+    posix.normalize(path) === path && (path.length === 1 || !path.endsWith("/"))
+  );
 }
 
 /** The charset the daemon accepts for a container name. */

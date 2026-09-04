@@ -49,9 +49,9 @@ const RESOURCE_NAME = /^[a-z][a-z0-9-]*$/;
  *
  * @throws RC5053 on a reserved or malformed name, or a name already taken
  */
-export function registerOpsResource(
+export function registerOpsResource<TItem>(
   ctx: CraftContext,
-  resource: OpsResource,
+  resource: OpsResource<TItem>,
 ): void {
   if (!RESOURCE_NAME.test(resource.name)) {
     throw rcError("RC5053", undefined, {
@@ -70,6 +70,6 @@ export function registerOpsResource(
       message: `Management resource "${resource.name}" is already registered on this context. One contributor per name.`,
     });
   }
-  registry.set(resource.name, resource);
+  registry.set(resource.name, resource as OpsResource);
   ctx.setStore(OPS_RESOURCES, registry);
 }

@@ -1,4 +1,6 @@
 import {
+  OPS_RESOURCES,
+  parsePageQuery,
   rcCodeOf,
   rcError,
   registerOpsResource,
@@ -266,7 +268,9 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
       // Once per context, whichever install applies first: the resource
       // reads the shared session runtime, so a second install has nothing
       // more to contribute and would collide on the name.
-      if (!existingAgents) registerSessionsResource(ctx);
+      if (ctx.getStore(OPS_RESOURCES)?.has(SESSIONS_RESOURCE) !== true) {
+        registerSessionsResource(ctx);
+      }
     },
 
     /**
@@ -304,6 +308,8 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
  *
  * @internal
  */
+const SESSIONS_RESOURCE = "agent-sessions";
+
 function registerSessionsResource(ctx: CraftContext): void {
   const runtime = (): AgentSessionRuntime | undefined => {
     try {
@@ -313,18 +319,18 @@ function registerSessionsResource(ctx: CraftContext): void {
       throw err;
     }
   };
-  registerOpsResource(ctx, {
-    name: "agent-sessions",
+  registerOpsResource<AgentSessionSummary>(ctx, {
+    name: SESSIONS_RESOURCE,
     description:
       "Named agent sessions: transcript length, turn state, inbox depth and background calls in flight.",
     async list(query): Promise<OpsPage<AgentSessionSummary>> {
       const sessions = runtime();
       if (!sessions) return { items: [] };
-      const all = await sessions.summaries();
       const agent = query["agent"];
-      return {
-        items: agent === undefined ? all : all.filter((s) => s.agent === agent),
-      };
+      return sessions.summaries({
+        ...(agent !== undefined ? { agent } : {}),
+        ...parsePageQuery(query),
+      });
     },
     async describe(segments): Promise<AgentSessionSummary | undefined> {
       if (segments.length !== 2) return undefined;

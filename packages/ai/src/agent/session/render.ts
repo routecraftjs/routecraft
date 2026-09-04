@@ -1,6 +1,15 @@
 import type { LlmPromptPart } from "../../llm/types.ts";
-import { INTERRUPTED_TOOL_MESSAGE } from "../run.ts";
 import { contentPartsOf, type ThreadMessage } from "../suspension-state.ts";
+
+/**
+ * The tool result recorded for a call that was still running when its turn
+ * was interrupted, so the model reads the thread as "this did not finish"
+ * rather than as a call that returned nothing.
+ *
+ * @internal
+ */
+export const INTERRUPTED_TOOL_MESSAGE =
+  "This tool call was interrupted before it completed. Its result is unknown; re-run it if it is still needed.";
 import type { AgentInboxMessage, AgentSessionKey } from "./types.ts";
 
 /**

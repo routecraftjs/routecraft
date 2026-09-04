@@ -1,11 +1,15 @@
 import { randomUUID } from "node:crypto";
 import {
   SUSPENSION_RUNTIME,
+  decodeCursor,
   getExchangeRoute,
   rcError,
+  takePage,
   type CraftContext,
+  type CursorScope,
   type EventDetailsMap,
   type Exchange,
+  type OpsPage,
 } from "@routecraft/routecraft";
 import type { LlmPromptPart } from "../../llm/types.ts";
 import { dispatchIdentityFrom } from "../run.ts";
@@ -54,6 +58,16 @@ export interface AgentTurnRequest<T = unknown> {
   readonly executor: AgentTurnExecutor;
 }
 
+/** What the management API asks of the session listing. @internal */
+export interface AgentSessionListQuery {
+  /** Only this agent's sessions. */
+  readonly agent?: string;
+  /** Page size; the mount's default and bound apply. */
+  readonly limit?: number;
+  /** The `nextCursor` of the previous page, still encoded. */
+  readonly after?: string;
+}
+
 /** A turn this process is running. */
 interface ActiveTurn {
   readonly controller: AbortController;
@@ -62,8 +76,6 @@ interface ActiveTurn {
   /** Inbox entries the turn consumed at its start. */
   readonly consumed: Set<string>;
   readonly outcome: Promise<AgentResult>;
-  /** Resolves when the turn ended, however it ended. */
-  readonly settled: Promise<void>;
 }
 
 /**
@@ -172,11 +184,14 @@ export class AgentSessionRuntime {
     }
     // The turn ended while the message was being written, or this caller
     // interrupted it: either way the message is in the inbox and is
-    // answered by whichever turn consumes it. Wait for that turn.
+    // answered by whichever turn consumes it. Wait for that turn. A turn
+    // that fails propagates whether or not it read the message: one that
+    // failed before reaching the inbox failed on the store, and starting
+    // another against the same fault would spin.
     for (;;) {
       const current = this.active.get(k) ?? this.start(k, req, undefined);
-      await current.settled;
-      if (current.consumed.has(id)) return current.outcome;
+      const result = await current.outcome;
+      if (current.consumed.has(id)) return result;
     }
   }
 
@@ -237,6 +252,10 @@ export class AgentSessionRuntime {
     outcome: BackgroundOutcome,
   ): Promise<{ depth: number; running: boolean }> {
     const { duration, ...entry } = outcome;
+    // Taken before the write, so a write that fails does not leave the
+    // origin behind for a settlement that will never come again.
+    const origin = this.backgroundOrigins.get(entry.handle);
+    this.backgroundOrigins.delete(entry.handle);
     const record = await this.store.update(key, (r) => ({
       ...r,
       background: r.background.filter((b) => b.handle !== entry.handle),
@@ -262,8 +281,6 @@ export class AgentSessionRuntime {
         },
       ],
     }));
-    const origin = this.backgroundOrigins.get(entry.handle);
-    this.backgroundOrigins.delete(entry.handle);
     if (origin) {
       if (entry.status === "completed") {
         this.emit(origin, "route:agent:session:background:completed", {
@@ -287,15 +304,35 @@ export class AgentSessionRuntime {
     return { depth: record.inbox.length, running: this.isRunning(key) };
   }
 
-  /** Every session the store knows, for the management API. */
-  async summaries(): Promise<AgentSessionSummary[]> {
-    const keys = await this.store.list();
-    const out: AgentSessionSummary[] = [];
-    for (const key of keys) {
+  /**
+   * One page of the sessions the store knows, for the management API.
+   *
+   * The index carries every key, so the agent filter and the page are
+   * taken on keys alone and only the page's records are read: a listing
+   * costs one read per session shown, never one per session stored, and
+   * a transcript is never loaded to report a count for a page it is not on.
+   */
+  async summaries(
+    query: AgentSessionListQuery = {},
+  ): Promise<OpsPage<AgentSessionSummary>> {
+    const scope: CursorScope = {
+      fingerprint: JSON.stringify([query.agent ?? null]),
+    };
+    const after =
+      query.after === undefined ? undefined : decodeCursor(query.after, scope);
+    const keys = (await this.store.list())
+      .filter((key) => query.agent === undefined || key.agent === query.agent)
+      .map((key) => ({ id: keyOf(key), key }))
+      .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
+    const page = takePage(keys, scope, query.limit, after);
+    const items: AgentSessionSummary[] = [];
+    for (const { key } of page.items) {
       const summary = await this.summary(key);
-      if (summary) out.push(summary);
+      if (summary) items.push(summary);
     }
-    return out;
+    return page.nextCursor === undefined
+      ? { items }
+      : { items, nextCursor: page.nextCursor };
   }
 
   /** One session, or `undefined` when the store has never seen it. */
@@ -333,15 +370,15 @@ export class AgentSessionRuntime {
     const controller = new AbortController();
     const consumed = new Set<string>();
     const outcome = this.execute(k, req, incoming, controller, consumed);
+    // Observed here so a turn nobody awaits (a boundary follow-up that the
+    // route tracks) never surfaces as an unhandled rejection; the waiters
+    // that do await it still receive the rejection.
+    outcome.catch(() => undefined);
     const turn: ActiveTurn = {
       controller,
       exchange: req.exchange,
       consumed,
       outcome,
-      settled: outcome.then(
-        () => undefined,
-        () => undefined,
-      ),
     };
     this.active.set(k, turn);
     return turn;

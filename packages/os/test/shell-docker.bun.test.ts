@@ -3,9 +3,16 @@ import { PassThrough } from "node:stream";
 import type { Exchange } from "@routecraft/routecraft";
 import { DefaultExchange, ContextBuilder } from "@routecraft/routecraft";
 import { shell } from "@routecraft/os";
+import { createServer } from "node:net";
+import { mkdtempSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import {
+  CONTAINER_HOME,
   containerSpec,
   createDockerTier,
+  dockerTier,
+  writeStdinOverUpgrade,
   type ContainerCreateOptions,
   type DockerClient,
   type DockerContainer,
@@ -13,7 +20,7 @@ import {
 } from "../src/adapters/shell/isolation/docker.ts";
 import { resolveIsolation } from "../src/adapters/shell/isolation/index.ts";
 import type {
-  ExecutionIo,
+  ContainerIo,
   IsolationRequest,
 } from "../src/adapters/shell/isolation/types.ts";
 
@@ -27,7 +34,7 @@ import type {
 const exchange = {} as Exchange<unknown>;
 const target = { file: "sh", args: ["-lc", "echo hi"] };
 const request: IsolationRequest = { network: false, mapRootUser: false };
-const io: ExecutionIo = {
+const io: ContainerIo = {
   env: { PATH: "/usr/bin", HOME: "/tmp/h" },
   maxOutputBytes: 1024,
   defaultName: "rc-route-ex1",
@@ -125,13 +132,31 @@ describe("the container specification", () => {
   /**
    * @case The command is an argument vector and the image is one field
    * @preconditions A target with arguments and an image reference that looks like a flag
-   * @expectedResult Cmd is the file followed by its arguments unchanged, Image is the value verbatim, and no field carries it anywhere else, so an image from data cannot smuggle an option
+   * @expectedResult Entrypoint is the program and Cmd its arguments unchanged, so an image's own entrypoint is replaced rather than put in front of the argv; Image is the value verbatim, and no field carries it anywhere else, so an image from data cannot smuggle an option
    */
   test("passes the command as argv and the image as one field", () => {
     const spec = containerSpec(target, request, io, "alpine:3.20 --privileged");
-    expect(spec.Cmd).toEqual(["sh", "-lc", "echo hi"]);
+    expect(spec.Entrypoint).toEqual(["sh"]);
+    expect(spec.Cmd).toEqual(["-lc", "echo hi"]);
     expect(spec.Image).toBe("alpine:3.20 --privileged");
     expect(JSON.stringify(spec.HostConfig)).not.toContain("privileged");
+  });
+
+  /**
+   * @case The command gets a private, writable home inside the container
+   * @preconditions The default mapping and mapRootUser true, on a POSIX host
+   * @expectedResult A tmpfs is mounted at the tier's home, mode 0700 and owned by the container user, so HOME names a directory that exists in the container rather than the host's private one
+   */
+  test("mounts a private home for the command", () => {
+    if (typeof process.getuid !== "function") return;
+    expect(dockerTier.home).toBe(CONTAINER_HOME);
+    expect(containerSpec(target, request, io, "img").HostConfig.Tmpfs).toEqual({
+      [CONTAINER_HOME]: `rw,mode=0700,uid=${process.getuid()},gid=${process.getgid!()}`,
+    });
+    expect(
+      containerSpec(target, { ...request, mapRootUser: true }, io, "img")
+        .HostConfig.Tmpfs,
+    ).toEqual({ [CONTAINER_HOME]: "rw,mode=0700,uid=0,gid=0" });
   });
 
   /**
@@ -227,7 +252,7 @@ describe("driving a container", () => {
     const { client, created } = fakeClient(fake);
     const stdin = recordingStdin();
     const tier = createDockerTier(async () => client, stdin.writer);
-    const outcome = await tier.execute!(
+    const outcome = await tier.execute(
       target,
       { ...request, image: "alpine:3.20" },
       { ...io, stdin: Buffer.from("secret") },
@@ -255,7 +280,7 @@ describe("driving a container", () => {
     };
     const tier = createDockerTier(async () => fakeClient(fake).client);
     await expect(
-      tier.execute!(target, { ...request, image: "img" }, io),
+      tier.execute(target, { ...request, image: "img" }, io),
     ).rejects.toThrow(/start refused/);
     expect(fake.calls).toContain("remove");
   });
@@ -272,7 +297,7 @@ describe("driving a container", () => {
       async () => fakeClient(fake).client,
       stdin.writer,
     );
-    await tier.execute!(target, { ...request, image: "img" }, io);
+    await tier.execute(target, { ...request, image: "img" }, io);
     expect(stdin.fed).toEqual([]);
   });
 
@@ -284,7 +309,7 @@ describe("driving a container", () => {
   test("kills the container on timeout", async () => {
     const fake = fakeContainer({ hold: true });
     const tier = createDockerTier(async () => fakeClient(fake).client);
-    const outcome = await tier.execute!(
+    const outcome = await tier.execute(
       target,
       { ...request, image: "img" },
       { ...io, timeoutMs: 20 },
@@ -304,7 +329,7 @@ describe("driving a container", () => {
     const fake = fakeContainer({ hold: true });
     const tier = createDockerTier(async () => fakeClient(fake).client);
     const controller = new AbortController();
-    const run = tier.execute!(
+    const run = tier.execute(
       target,
       { ...request, image: "img" },
       { ...io, signal: controller.signal },
@@ -315,6 +340,100 @@ describe("driving a container", () => {
     expect(fake.calls).toContain("kill:SIGKILL");
     expect(outcome.timedOut).toBe(false);
     expect(outcome.signal).toBe("SIGKILL");
+  });
+
+  /**
+   * @case A deadline that elapses while the daemon is still starting the container still bounds the run
+   * @preconditions A fake container whose start does not return until the test releases it, held open after that, and a 20ms timeout
+   * @expectedResult The timeout fires during the start, and once the start lands the tier kills the container at once rather than letting it run unbounded; the outcome is a timeout
+   */
+  test("a timeout during the setup kills the container once it starts", async () => {
+    const fake = fakeContainer({ hold: true });
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+    const start = fake.container.start;
+    fake.container.start = async () => {
+      await gate;
+      return start();
+    };
+    const tier = createDockerTier(async () => fakeClient(fake).client);
+    const run = tier.execute(
+      target,
+      { ...request, image: "img" },
+      { ...io, timeoutMs: 20 },
+    );
+    await new Promise((r) => setTimeout(r, 60));
+    release();
+    const outcome = await run;
+    expect(fake.calls.filter((c) => c.startsWith("kill:"))).toContain(
+      "kill:SIGKILL",
+    );
+    expect(outcome.timedOut).toBe(true);
+  });
+
+  /**
+   * @case Stdin that cannot be delivered to a started container stops the command
+   * @preconditions A held container and a stdin writer that rejects after the start
+   * @expectedResult The container is killed, the run rejects with the stdin failure, and the wait's outcome is consumed rather than left dangling
+   */
+  test("kills a started container whose stdin failed", async () => {
+    const fake = fakeContainer({ hold: true });
+    const tier = createDockerTier(
+      async () => fakeClient(fake).client,
+      async () => {
+        await new Promise((r) => setTimeout(r, 10));
+        throw new Error("upgrade refused");
+      },
+    );
+    await expect(
+      tier.execute(
+        target,
+        { ...request, image: "img" },
+        { ...io, stdin: Buffer.from("x") },
+      ),
+    ).rejects.toThrow(/upgrade refused/);
+    expect(fake.calls).toContain("start");
+    expect(fake.calls).toContain("kill:SIGKILL");
+    expect(fake.calls).not.toContain("remove");
+  });
+
+  /**
+   * @case A daemon that closes the attach upgrade without answering fails the stdin delivery instead of hanging it
+   * @preconditions A unix socket server that accepts the connection and closes it at once
+   * @expectedResult writeStdinOverUpgrade rejects with OS1002 naming the closed connection
+   */
+  test("a closed upgrade connection is a failure, not a hang", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "rc-docker-sock-"));
+    const path = join(dir, "d.sock");
+    const server = createServer((socket) => socket.destroy());
+    await new Promise<void>((r) => server.listen(path, r));
+    try {
+      await expect(
+        writeStdinOverUpgrade(
+          { socketPath: path, demuxStream() {} },
+          "c1",
+          Buffer.from("x"),
+        ),
+      ).rejects.toMatchObject({ rc: "OS1002" });
+    } finally {
+      server.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  /**
+   * @case A daemon connection the hand-written upgrade cannot drive is refused by name
+   * @preconditions A modem resolved from an ssh:// DOCKER_HOST
+   * @expectedResult writeStdinOverUpgrade rejects with OS1002 naming the protocol and the way out, rather than writing HTTP to an SSH port
+   */
+  test("stdin over an ssh daemon connection is refused", async () => {
+    await expect(
+      writeStdinOverUpgrade(
+        { protocol: "ssh", host: "box", port: 22, demuxStream() {} },
+        "c1",
+        Buffer.from("x"),
+      ),
+    ).rejects.toThrow(/"ssh" daemon connection.*DOCKER_HOST/);
   });
 
   /**
@@ -357,10 +476,10 @@ describe("driving a container", () => {
     });
     const tier = createDockerTier(async () => client);
     await expect(
-      tier.execute!(target, { ...request, image: "ghcr.io/x/y:1" }, io),
+      tier.execute(target, { ...request, image: "ghcr.io/x/y:1" }, io),
     ).rejects.toMatchObject({ rc: "OS1002" });
     await expect(
-      tier.execute!(target, { ...request, image: "ghcr.io/x/y:1" }, io),
+      tier.execute(target, { ...request, image: "ghcr.io/x/y:1" }, io),
     ).rejects.toThrow(/docker pull ghcr\.io\/x\/y:1/);
   });
 
@@ -373,7 +492,7 @@ describe("driving a container", () => {
     const tier = createDockerTier(
       async () => fakeClient(fakeContainer({})).client,
     );
-    await expect(tier.execute!(target, request, io)).rejects.toThrow(
+    await expect(tier.execute(target, request, io)).rejects.toThrow(
       /needs an image.*no default/,
     );
   });
@@ -391,6 +510,37 @@ describe("the docker tier in the precedence chain", () => {
     process.env["ROUTECRAFT_SHELL_ISOLATION"] = "docker";
     expect(resolveIsolation(undefined, "none").name).toBe("docker");
     expect(resolveIsolation("unshare", undefined).name).toBe("unshare");
+  });
+});
+
+describe("mount paths", () => {
+  /**
+   * @case A mount path that is not in normal form is refused before any tier sees it
+   * @preconditions Mounts whose host or container path carries a ".." segment, a "." segment, or a trailing separator, on a host tier with egress accepted so the refusal is the path's and not the tier's
+   * @expectedResult Each is RC5003 naming the mount and the normal-form rule, so a path built from data cannot climb out of the directory the route named; a normal-form mount reaches the tier and gets the tier's own OS1004
+   */
+  test("refuses mounts that are not in normal form", async () => {
+    for (const mount of [
+      { host: "/work/../../etc", container: "/workspace" },
+      { host: "/work/s1", container: "/workspace/../etc" },
+      { host: "/work/./s1", container: "/workspace" },
+      { host: "/work/s1/", container: "/workspace" },
+    ]) {
+      await expect(
+        shell("true", [], {
+          isolation: "none",
+          network: true,
+          mounts: [mount],
+        }).fetch(exchange),
+      ).rejects.toMatchObject({ rc: "RC5003" });
+    }
+    await expect(
+      shell("true", [], {
+        isolation: "none",
+        network: true,
+        mounts: [{ host: "/work/s1", container: "/workspace" }],
+      }).fetch(exchange),
+    ).rejects.toMatchObject({ rc: "OS1004" });
   });
 });
 

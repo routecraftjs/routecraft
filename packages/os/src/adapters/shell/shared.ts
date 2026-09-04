@@ -61,15 +61,20 @@ export const ENV_BASELINE: Readonly<Record<string, string>> = {
  * `passEnv` and `env` both outrank the baseline, so forwarding `HOME`
  * deliberately is how a call gets the caller's own.
  *
+ * `home` is the private directory handed as `HOME`: this process's own by
+ * default, or the one a container tier names, since the host directory is
+ * a path the container cannot see.
+ *
  * @internal
  */
 export function buildEnv(
   passEnv: readonly string[] | undefined,
   env: Record<string, string> | undefined,
+  home: string = commandHome(),
 ): Record<string, string> {
   const result: Record<string, string> = {
     ...ENV_BASELINE,
-    HOME: commandHome(),
+    HOME: home,
   };
   for (const name of passEnv ?? []) {
     const value = process.env[name];

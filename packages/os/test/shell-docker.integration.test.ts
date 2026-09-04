@@ -41,6 +41,8 @@ const run = (
   }).fetch(exchange);
 
 let work: string;
+let imageDir: string;
+const ENTRYPOINT_IMAGE = "rc-smoke-entrypoint:local";
 
 beforeAll(async () => {
   try {
@@ -55,10 +57,25 @@ beforeAll(async () => {
   }
   work = mkdtempSync(join(tmpdir(), "rc-docker-smoke-"));
   writeFileSync(join(work, "marker.txt"), "session workspace\n");
+  // An image with an entrypoint and an ENV of its own, built here because
+  // alpine has neither and both are guarantees this suite has to prove
+  // against a real one.
+  imageDir = mkdtempSync(join(tmpdir(), "rc-docker-smoke-image-"));
+  writeFileSync(
+    join(imageDir, "Dockerfile"),
+    [
+      `FROM ${IMAGE}`,
+      "ENV LEAKED=from-image",
+      'ENTRYPOINT ["/bin/sh", "-c", "echo ENTRYPOINT-RAN; exec \\"$0\\" \\"$@\\""]',
+      "",
+    ].join("\n"),
+  );
+  await exec("docker", ["build", "-q", "-t", ENTRYPOINT_IMAGE, imageDir]);
 }, SMOKE_TIMEOUT);
 
 afterAll(() => {
   if (work) rmSync(work, { recursive: true, force: true });
+  if (imageDir) rmSync(imageDir, { recursive: true, force: true });
 });
 
 describe("the docker tier's guarantees", () => {
@@ -267,6 +284,68 @@ describe("the docker tier's guarantees", () => {
       expect(asCaller.stdout.trim()).toBe(String(process.getuid?.()));
       const asRoot = await run("id", ["-u"], { mapRootUser: true });
       expect(asRoot.stdout.trim()).toBe("0");
+    },
+    SMOKE_TIMEOUT,
+  );
+
+  /**
+   * @case The image's own entrypoint is replaced, never put in front of the command
+   * @preconditions An image whose entrypoint is a shell wrapper that announces itself, proven to run under plain `docker run`
+   * @expectedResult The command's output carries no trace of the entrypoint, so no shell an image bakes in sits between shell() and the program it named
+   */
+  test(
+    "an image entrypoint does not wrap the command",
+    async () => {
+      const plain = await exec("docker", [
+        "run",
+        "--rm",
+        ENTRYPOINT_IMAGE,
+        "echo",
+        "hello",
+      ]);
+      expect(plain.stdout).toContain("ENTRYPOINT-RAN");
+      const result = await run("echo", ["hello"], { image: ENTRYPOINT_IMAGE });
+      expect(result.stdout).toBe("hello\n");
+      expect(result.stdout).not.toContain("ENTRYPOINT-RAN");
+    },
+    SMOKE_TIMEOUT,
+  );
+
+  /**
+   * @case HOME is a private, writable directory that exists inside the container
+   * @preconditions The default environment, no env overrides
+   * @expectedResult $HOME is the tier's own directory, mode 0700, and a file can be written there
+   */
+  test(
+    "HOME exists inside the container and is private",
+    async () => {
+      const result = await run("sh", [
+        "-c",
+        'echo "$HOME" && stat -c %a "$HOME" && touch "$HOME/probe" && echo written',
+      ]);
+      expect(result.exitCode).toBe(0);
+      expect(result.stdout).toBe("/home/routecraft\n700\nwritten\n");
+    },
+    SMOKE_TIMEOUT,
+  );
+
+  /**
+   * @case The image's own ENV is present beside the granted baseline
+   * @preconditions An image that bakes in an environment variable; the same variable named in the call's env
+   * @expectedResult The image's value is visible when the call does not set the name, and the call's value wins when it does, which is the documented limit of the environment grant on this tier
+   */
+  test(
+    "image ENV is merged with the grant and the grant wins by name",
+    async () => {
+      const leaked = await run("sh", ["-c", 'echo "$LEAKED"'], {
+        image: ENTRYPOINT_IMAGE,
+      });
+      expect(leaked.stdout).toBe("from-image\n");
+      const overridden = await run("sh", ["-c", 'echo "$LEAKED"'], {
+        image: ENTRYPOINT_IMAGE,
+        env: { LEAKED: "from-call" },
+      });
+      expect(overridden.stdout).toBe("from-call\n");
     },
     SMOKE_TIMEOUT,
   );

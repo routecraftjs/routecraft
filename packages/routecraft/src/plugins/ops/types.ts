@@ -375,8 +375,15 @@ export const OPS_SCOPE_EVENTS = "ops:events";
  *
  * Read-only by contract. A resource that needs to act on something is the
  * operations tier's business and slots in there when it ships.
+ *
+ * A throw from either read is answered as a 500 carrying the error's code
+ * and never its message; `RC5059` (a malformed limit or cursor) is the one
+ * the caller owns and is answered as a 400 with the message.
+ *
+ * @template TItem - What the collection lists and the item view describes;
+ *   plain JSON, since it goes on the wire as the mount serialises it
  */
-export interface OpsResource {
+export interface OpsResource<TItem = unknown> {
   /**
    * The path segment under `/ops`. `routes` and `events` are the mount's
    * own and refused.
@@ -386,16 +393,17 @@ export interface OpsResource {
   readonly description: string;
   /**
    * The collection, filtered by the request's query parameters. The
-   * contributor pages: a present `nextCursor` means there is more, exactly
-   * as for the route collection, and a resource whose whole collection
-   * fits one page returns it without one.
+   * contributor pages, with `parsePageQuery()`, `takePage()` and
+   * `decodeCursor()` from core: a present `nextCursor` means there is
+   * more, exactly as for the route collection, and a resource whose whole
+   * collection fits one page returns it without one.
    */
-  list(query: Readonly<Record<string, string>>): Promise<OpsPage<unknown>>;
+  list(query: Readonly<Record<string, string>>): Promise<OpsPage<TItem>>;
   /**
    * One item, addressed by the decoded path segments after the resource
    * name. `undefined` answers 404.
    */
-  describe(segments: readonly string[]): Promise<unknown | undefined>;
+  describe(segments: readonly string[]): Promise<TItem | undefined>;
 }
 
 /**

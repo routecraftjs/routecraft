@@ -25,6 +25,7 @@ import type {
 } from "../llm/types.ts";
 import { toAiOutputSpec } from "../llm/structured-output.ts";
 import type { AgentDeltaListener } from "./events.ts";
+import { closeUnansweredToolCalls } from "./session/render.ts";
 import { buildVercelTools, type AgentSuspensionBridge } from "./tool-bridge.ts";
 import {
   SIBLING_SUSPENDED_MESSAGE,
@@ -80,15 +81,7 @@ export function dispatchIdentityFrom(
 
 const DEFAULT_MAX_TURNS = 20;
 
-/**
- * The tool result recorded for a call that was still running when its turn
- * was interrupted, so the model reads the thread as "this did not finish"
- * rather than as a call that returned nothing.
- *
- * @internal
- */
-export const INTERRUPTED_TOOL_MESSAGE =
-  "This tool call was interrupted before it completed. Its result is unknown; re-run it if it is still needed.";
+export { INTERRUPTED_TOOL_MESSAGE } from "./session/render.ts";
 
 /**
  * Resolved agent inputs ready for dispatch. Computed once by the
@@ -597,7 +590,9 @@ export class AgentRun<T = unknown> {
       return;
     }
     const calls = [...this.inFlight.entries()];
-    this.thread = [
+    // The calls are recorded here; pairing each with its interrupted
+    // result is the one closer a restart uses too.
+    this.thread = closeUnansweredToolCalls([
       ...base,
       {
         role: "assistant",
@@ -608,16 +603,7 @@ export class AgentRun<T = unknown> {
           input: call.input,
         })),
       },
-      {
-        role: "tool",
-        content: calls.map(([toolCallId, call]) => ({
-          type: "tool-result",
-          toolCallId,
-          toolName: call.toolName,
-          output: { type: "error-text", value: INTERRUPTED_TOOL_MESSAGE },
-        })),
-      },
-    ];
+    ]);
   }
 
   /**

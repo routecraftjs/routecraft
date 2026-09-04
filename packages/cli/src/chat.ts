@@ -18,19 +18,11 @@
 
 import { randomUUID } from "node:crypto";
 import { createInterface } from "node:readline";
-import {
-  createOpsClient,
-  OpsClientError,
-  type OpsClient,
-} from "./ops-client.js";
+import { OpsClientError, type OpsClient } from "./ops-client.js";
 import { asJson, renderDispatch } from "./format.js";
 import { EXEC_EXIT, failureCode, type ExecResult } from "./exec.js";
-import {
-  resolveSettings,
-  SettingsError,
-  type OutputFormat,
-  type SettingsOverrides,
-} from "./settings.js";
+import { prepare } from "./prepare.js";
+import type { OutputFormat, SettingsOverrides } from "./settings.js";
 
 export interface ChatOptions extends SettingsOverrides {
   /** The conversation to continue. A fresh id is minted and printed when absent. */
@@ -74,21 +66,13 @@ export async function chatCommand(
   route: string | undefined,
   options: ChatOptions = {},
 ): Promise<ExecResult> {
-  let settings;
-  try {
-    settings = resolveSettings(options);
-  } catch (error: unknown) {
-    if (error instanceof SettingsError) {
-      return { code: EXEC_EXIT.usage, error: error.message };
-    }
-    throw error;
-  }
+  const prepared = prepare(options);
+  if (!prepared.ok) return { code: EXEC_EXIT.usage, error: prepared.error };
   if (route === undefined || route.trim() === "") {
     return { code: EXEC_EXIT.usage, error: USAGE };
   }
 
-  const client = createOpsClient(settings);
-  const format = settings.format.value;
+  const { client, format, settings } = prepared;
   const session = options.session ?? randomUUID();
   const write =
     options.write ?? ((text: string) => process.stdout.write(`${text}\n`));

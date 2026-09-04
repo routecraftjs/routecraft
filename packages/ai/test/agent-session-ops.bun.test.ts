@@ -130,6 +130,38 @@ describe("the agent-sessions management resource", () => {
   });
 
   /**
+   * @case The collection pages by keyset cursor, bound to the agent filter
+   * @preconditions Three sessions have each had one turn; the introspection tier is open
+   * @expectedResult limit=2 answers two items and a nextCursor; the cursor answers the third with no cursor; the same cursor under another agent filter is refused as a 400, as is a limit that is not a positive integer
+   */
+  test("pages the collection", async () => {
+    const port = await start(true);
+    llm.script.push({ text: "a" }, { text: "b" }, { text: "c" });
+    for (const session of ["s1", "s2", "s3"]) {
+      await t!.client.sendDirect("chat", { session, message: "hi" });
+    }
+    const first = await get<{
+      items: AgentSessionSummary[];
+      nextCursor?: string;
+    }>(port, "/ops/agent-sessions?limit=2");
+    expect(first.status).toBe(200);
+    expect(first.body.items.map((s) => s.session)).toEqual(["s1", "s2"]);
+    expect(typeof first.body.nextCursor).toBe("string");
+    const cursor = encodeURIComponent(first.body.nextCursor!);
+    const second = await get<{
+      items: AgentSessionSummary[];
+      nextCursor?: string;
+    }>(port, `/ops/agent-sessions?limit=2&after=${cursor}`);
+    expect(second.body.items.map((s) => s.session)).toEqual(["s3"]);
+    expect(second.body.nextCursor).toBeUndefined();
+    expect(
+      (await get(port, `/ops/agent-sessions?agent=other&after=${cursor}`))
+        .status,
+    ).toBe(400);
+    expect((await get(port, "/ops/agent-sessions?limit=0")).status).toBe(400);
+  });
+
+  /**
    * @case A context without a suspension store lists no sessions rather than failing the read
    * @preconditions No suspension block; the resource is registered by agentPlugin regardless
    * @expectedResult GET /ops/agent-sessions answers 200 with an empty items array

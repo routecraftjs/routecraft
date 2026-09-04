@@ -1,4 +1,4 @@
-import type { Invocation, IsolationRequest, IsolationTier } from "./types.ts";
+import type { HostTier, Invocation, IsolationRequest } from "./types.ts";
 import { refuseContainerOptions } from "./host.ts";
 
 /**
@@ -14,8 +14,9 @@ import { refuseContainerOptions } from "./host.ts";
  * containment: the command runs with the caller's identity, the caller's
  * view of the filesystem, and the caller's network.
  */
-export const noneTier: IsolationTier = {
+export const noneTier: HostTier = {
   name: "none",
+  kind: "host",
   ensureAvailable(): Promise<void> {
     return Promise.resolve();
   },

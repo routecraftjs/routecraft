@@ -44,6 +44,7 @@ import type {
   AgentPrincipalRenderer,
   AgentRegisteredOptions,
   AgentResult,
+  AgentInterruptSource,
   AgentSessionSource,
 } from "./types.ts";
 import {
@@ -82,13 +83,10 @@ export interface AgentByNameOverrides<T = unknown> {
    */
   session?: AgentSessionSource<T>;
   /**
-   * Cancel the session's running turn before answering this message.
-   * Only meaningful with `session`: the running turn stops at its next
-   * checkpoint, its partial transcript is kept, and a new turn starts
-   * with whatever had queued plus this message. Ignored when no turn is
-   * running.
+   * Cancel the session's running turn before answering this message. Same
+   * contract as {@link AgentOptions.interrupt}; the per-call value wins.
    */
-  interrupt?: boolean | ((exchange: Exchange<T>) => boolean);
+  interrupt?: AgentInterruptSource<T>;
 }
 
 /**
@@ -275,52 +273,9 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
           `Dispatch the agent with agent(name, { session }), or register the tool without the background flag.`,
       });
     }
-    if (sessionKey !== undefined) {
-      if (!context) {
-        throw rcError("RC5003", undefined, {
-          message: `Agent: "session" needs a CraftContext to keep the conversation in; this exchange has none.`,
-        });
-      }
-      if (resume !== undefined) {
-        throw rcError("RC5003", undefined, {
-          message: `Agent: a resumed suspension cannot re-enter an agent dispatched with "session". A session turn is not parkable; drop "session" on this route or park from a sessionless agent.`,
-        });
-      }
-      const withSession = `${system}\n\n${sessionSystemBlock(sessionKey)}`;
-      const runtime = AgentSessionRuntime.for(context);
-      const executor = this.sessionExecutor(
-        {
-          options: merged,
-          modelConfig: config,
-          modelName,
-          model,
-          ...(agentName !== undefined && { agentName }),
-          tools,
-          user,
-          system: withSession,
-          context,
-          exchange,
-          dispatchIdentity,
-          ...(suspension !== undefined && { suspension }),
-          session: { agent: sessionKey.agent, id: sessionKey.session },
-        },
-        abortSignal,
-        onDelta,
-      );
-      const interrupt = perCall?.interrupt;
-      return await runtime.turn({
-        key: sessionKey,
-        exchange,
-        message: user,
-        interrupt:
-          typeof interrupt === "function"
-            ? interrupt(exchange) === true
-            : interrupt === true,
-        executor,
-      });
-    }
-
-    const run = new AgentRun<T>({
+    // Built once for both paths: a field added here reaches a session turn
+    // and a one-shot run alike, where two literals would let one drift.
+    const base = {
       options: merged,
       modelConfig: config,
       modelName,
@@ -333,6 +288,42 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
       exchange,
       dispatchIdentity,
       ...(suspension !== undefined && { suspension }),
+    } satisfies Omit<AgentRunInput<T>, "onStep" | "resume" | "session">;
+
+    if (sessionKey !== undefined) {
+      if (!context) {
+        throw rcError("RC5003", undefined, {
+          message: `Agent: "session" needs a CraftContext to keep the conversation in; this exchange has none.`,
+        });
+      }
+      if (resume !== undefined) {
+        throw rcError("RC5003", undefined, {
+          message: `Agent: a resumed suspension cannot re-enter an agent dispatched with "session". A session turn is not parkable; drop "session" on this route or park from a sessionless agent.`,
+        });
+      }
+      const interrupt = perCall?.interrupt ?? merged.interrupt;
+      return await AgentSessionRuntime.for(context).turn({
+        key: sessionKey,
+        exchange,
+        message: user,
+        interrupt:
+          typeof interrupt === "function"
+            ? interrupt(exchange) === true
+            : interrupt === true,
+        executor: this.sessionExecutor(
+          {
+            ...base,
+            system: `${system}\n\n${sessionSystemBlock(sessionKey)}`,
+            session: { agent: sessionKey.agent, id: sessionKey.session },
+          },
+          abortSignal,
+          onDelta,
+        ),
+      });
+    }
+
+    const run = new AgentRun<T>({
+      ...base,
       ...(resume !== undefined && { resume }),
     });
 

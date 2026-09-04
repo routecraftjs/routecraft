@@ -9,16 +9,12 @@
  * is a property worth relying on rather than an accident of the plumbing.
  */
 
-import {
-  createOpsClient,
-  OpsClientError,
-  type OpsClient,
-} from "./ops-client.js";
+import { OpsClientError, type OpsClient } from "./ops-client.js";
 import { renderDispatch, renderRoutes } from "./format.js";
+import { prepare } from "./prepare.js";
 import {
   describeSource,
-  resolveSettings,
-  SettingsError,
+  type ResolvedSettings,
   type OutputFormat,
   type SettingsOverrides,
 } from "./settings.js";
@@ -184,18 +180,9 @@ export async function execCommand(
   args: readonly string[],
   options: ExecOptions = {},
 ): Promise<ExecResult> {
-  let settings;
-  try {
-    settings = resolveSettings(options);
-  } catch (error: unknown) {
-    if (error instanceof SettingsError) {
-      return { code: EXEC_EXIT.usage, error: error.message };
-    }
-    throw error;
-  }
-
-  const client = createOpsClient(settings);
-  const format = settings.format.value;
+  const prepared = prepare(options);
+  if (!prepared.ok) return { code: EXEC_EXIT.usage, error: prepared.error };
+  const { client, format, settings } = prepared;
 
   if (route === undefined) return introspect(client, format);
 
@@ -254,7 +241,7 @@ export async function execCommand(
 function dispatchBlame(
   error: OpsClientError,
   route: string,
-  settings: ReturnType<typeof resolveSettings>,
+  settings: ResolvedSettings,
 ): string {
   if (error.kind !== "absent") return error.message;
   const detail = error.detail as

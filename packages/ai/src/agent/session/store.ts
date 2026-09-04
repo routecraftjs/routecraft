@@ -1,9 +1,14 @@
 import {
+  rcCodeOf,
   rcError,
   stepStateFingerprint,
   type SuspensionStore,
 } from "@routecraft/routecraft";
-import type { AgentSessionKey, AgentSessionRecord } from "./types.ts";
+import {
+  SESSION_RECORD_VERSION,
+  type AgentSessionKey,
+  type AgentSessionRecord,
+} from "./types.ts";
 // Registers AI1010, thrown from the record checks below.
 import "../../errors.ts";
 
@@ -67,77 +72,77 @@ export class AgentSessionStore {
     key: AgentSessionKey,
     mutate: (record: AgentSessionRecord) => AgentSessionRecord,
   ): Promise<AgentSessionRecord> {
-    const id = sessionRecordId(key);
-    for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
-      const existing = await this.store.get(id);
-      if (!existing) {
-        const created = mutate(emptyRecord(key));
-        try {
-          await this.store.create({
-            ...placeholderFields(id, key),
-            stepState: stamped(created),
-          });
-        } catch (err) {
-          // A concurrent first write for the same session: the next
-          // attempt reads it back and updates instead.
-          if (isAlreadyExists(err)) continue;
-          throw err;
-        }
-        await this.index(key);
-        return stamped(created);
-      }
-      const current = parseSessionRecord(existing.stepState, key);
-      const next = stamped(mutate(current));
-      const cas = await this.store.replaceStepState(
-        id,
-        stepStateFingerprint(existing.stepState),
-        next,
-      );
-      if (cas.won) return next;
-    }
-    throw rcError("AI1010", undefined, {
-      message: `Agent session "${key.session}" of "${key.agent}" could not be written after ${CAS_ATTEMPTS} attempts: another writer kept winning the compare-and-swap.`,
+    const { value, created } = await this.cas<AgentSessionRecord>({
+      id: sessionRecordId(key),
+      key,
+      parse: (slot) => parseSessionRecord(slot, key),
+      empty: () => emptyRecord(key),
+      mutate: (current) => stamped(mutate(current)),
+      exhausted: `Agent session "${key.session}" of "${key.agent}" could not be written after ${CAS_ATTEMPTS} attempts: another writer kept winning the compare-and-swap.`,
     });
+    if (created) await this.index(key);
+    return value;
   }
 
   /** Add the key to the index record, creating the index on first use. */
   private async index(key: AgentSessionKey): Promise<void> {
+    await this.cas<SessionIndex>({
+      id: INDEX_ID,
+      key,
+      parse: parseIndex,
+      empty: () => ({ kind: "agent-session-index", keys: [] }),
+      mutate: (current) =>
+        current.keys.some(
+          (k) => k.agent === key.agent && k.session === key.session,
+        )
+          ? current
+          : { ...current, keys: [...current.keys, key] },
+      exhausted: `The agent session index could not be written after ${CAS_ATTEMPTS} attempts.`,
+    });
+  }
+
+  /**
+   * The one write path: read the slot, mutate it, write it back under a
+   * compare-and-swap, and retry on a lost race with the state that landed.
+   * A slot that does not exist yet is created from `empty`, and a create
+   * that loses to a concurrent first write reads that write back on the
+   * next attempt. A mutation that returns its input unchanged is not
+   * written, so a no-op costs one read.
+   */
+  private async cas<S>(op: {
+    id: string;
+    key: AgentSessionKey;
+    parse: (slot: unknown) => S;
+    empty: () => S;
+    mutate: (current: S) => S;
+    exhausted: string;
+  }): Promise<{ value: S; created: boolean }> {
     for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
-      const existing = await this.store.get(INDEX_ID);
+      const existing = await this.store.get(op.id);
       if (!existing) {
-        const created: SessionIndex = {
-          kind: "agent-session-index",
-          keys: [key],
-        };
+        const value = op.mutate(op.empty());
         try {
           await this.store.create({
-            ...placeholderFields(INDEX_ID, key),
-            stepState: created,
+            ...placeholderFields(op.id, op.key),
+            stepState: value,
           });
-          return;
         } catch (err) {
           if (isAlreadyExists(err)) continue;
           throw err;
         }
+        return { value, created: true };
       }
-      const current = parseIndex(existing.stepState);
-      if (
-        current.keys.some(
-          (k) => k.agent === key.agent && k.session === key.session,
-        )
-      ) {
-        return;
-      }
+      const current = op.parse(existing.stepState);
+      const next = op.mutate(current);
+      if (next === current) return { value: current, created: false };
       const cas = await this.store.replaceStepState(
-        INDEX_ID,
+        op.id,
         stepStateFingerprint(existing.stepState),
-        { ...current, keys: [...current.keys, key] } satisfies SessionIndex,
+        next,
       );
-      if (cas.won) return;
+      if (cas.won) return { value: next, created: false };
     }
-    throw rcError("AI1010", undefined, {
-      message: `The agent session index could not be written after ${CAS_ATTEMPTS} attempts.`,
-    });
+    throw rcError("AI1010", undefined, { message: op.exhausted });
   }
 }
 
@@ -145,6 +150,7 @@ function emptyRecord(key: AgentSessionKey): AgentSessionRecord {
   const now = new Date().toISOString();
   return {
     kind: "agent-session",
+    version: SESSION_RECORD_VERSION,
     agent: key.agent,
     session: key.session,
     messages: [],
@@ -179,11 +185,7 @@ function placeholderFields(id: string, key: AgentSessionKey) {
 }
 
 function isAlreadyExists(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    (err as { rc?: unknown }).rc === "RC5044"
-  );
+  return rcCodeOf(err) === "RC5044";
 }
 
 /**
@@ -210,6 +212,11 @@ export function parseSessionRecord(
   ) {
     throw rcError("AI1010", undefined, {
       message: `The stored record for agent session "${key.session}" of "${key.agent}" is not the { kind: "agent-session", messages, inbox, background, turns } shape the runtime writes.`,
+    });
+  }
+  if (record.version !== SESSION_RECORD_VERSION) {
+    throw rcError("AI1010", undefined, {
+      message: `The stored record for agent session "${key.session}" of "${key.agent}" was written at version ${String(record.version)} and this build reads version ${String(SESSION_RECORD_VERSION)}: two releases of @routecraft/ai share one store, or the record predates this one.`,
     });
   }
   return record as AgentSessionRecord;

@@ -28,6 +28,16 @@ export type AgentSessionSource<T = unknown> =
   string | ((exchange: Exchange<T>) => string);
 
 /**
+ * Whether a message interrupts the session's running turn: a fixed answer,
+ * or one read off the incoming exchange (a `{ interrupt: true }` field on
+ * the message is the usual form).
+ *
+ * @template T - Body type available to the callback
+ */
+export type AgentInterruptSource<T = unknown> =
+  boolean | ((exchange: Exchange<T>) => boolean);
+
+/**
  * Resolves a user prompt from an exchange. When omitted, the agent derives
  * the user prompt from `exchange.body` (string body as-is, JSON-stringified
  * for objects, `String()` otherwise).
@@ -350,17 +360,37 @@ export interface AgentOptions<T = unknown> extends LlmSamplingOptions {
    * the next turn boundary; its caller gets `AgentResult.session.status
    * === "queued"` and an empty `text`, and the reply belongs to the turn
    * that consumes it. Several queued messages become one user message
-   * with the parts in order. The by-name form's `interrupt` cancels the
-   * running turn first.
+   * with the parts in order. `interrupt` cancels the running turn first.
    *
    * Requires a `suspension` block on the context (`RC5052` otherwise) and
    * does not combine with `stream: true` (`RC5003`). `maxTurns` bounds one
    * turn, not the conversation. Two different sessions never see each
    * other's transcript.
    *
+   * Two limits to design around. The one-turn bound is per process: two
+   * instances sharing one store are not coordinated, and a turn marker set
+   * by a live sibling is read as one a restart cut short, so run one
+   * process per store. And a session is keyed by its id alone: a queued
+   * message runs under the exchange, principal and tools of the turn that
+   * consumes it, not of the caller that queued it, so where more than one
+   * principal can reach the route, derive the id from the principal
+   * (`session: (ex) => \`${ex.principal?.sub}:${ex.body.session}\``) so no
+   * two callers share one.
+   *
    * @see AgentByNameOverrides for the per-call form, which wins over this one.
    */
   session?: AgentSessionSource<T>;
+
+  /**
+   * Cancel the session's running turn before answering this message.
+   * Only meaningful with `session`: the running turn stops at its next
+   * checkpoint, its partial transcript is kept, and a new turn starts
+   * with whatever had queued plus this message. Ignored when no turn is
+   * running.
+   *
+   * @see AgentByNameOverrides for the per-call form, which wins over this one.
+   */
+  interrupt?: AgentInterruptSource<T>;
 
   /**
    * Produce the token deltas themselves instead of the consolidated

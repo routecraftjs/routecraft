@@ -139,6 +139,15 @@ export {
   OPS_RESOURCES,
   registerOpsResource,
 } from "./plugins/ops/store.ts";
+// Paging for contributed resources, so a contributor's collection carries the
+// same cursor contract as the route listing rather than a second one.
+export {
+  decodeCursor,
+  parsePageQuery,
+  takePage,
+  type CursorScope,
+  type PageFilter,
+} from "./plugins/ops/pagination.ts";
 // The read surface only. The ledger's mutators are the plugin's translation of
 // framework events, and the store hands back the live instance, so a type that
 // exposed them would let an app inject a transition nothing ever observed.

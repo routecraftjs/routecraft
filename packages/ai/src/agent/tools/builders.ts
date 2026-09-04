@@ -18,7 +18,10 @@ import type {
   FnOptions,
   ReadonlyPrincipal,
 } from "../../fn/types.ts";
-import { AgentSessionRuntime } from "../session/runtime.ts";
+import {
+  AgentSessionRuntime,
+  type BackgroundOutcome,
+} from "../session/runtime.ts";
 import { DEFERRED_FN_BRAND, FN_BACKGROUND, type DeferredFn } from "./types.ts";
 
 /**
@@ -273,12 +276,23 @@ async function dispatchBackground<TIn>(
     ...dispatchHeaders(hctx),
     [AgentHeadersKeys.BACKGROUND_HANDLE]: handle,
   } as ExchangeHeaders;
+  // The settlement writes the session record, and that write can fail
+  // (a store outage, a compare-and-swap that never wins); a failure here
+  // is logged, because the model is waiting on a result that is now lost
+  // and nothing else will say so.
+  const settle = (outcome: BackgroundOutcome): void => {
+    runtime.settleBackground(key, outcome).catch((err: unknown) => {
+      ctx.logger.error(
+        { err, agent: key.agent, session: key.session, handle, tool: toolName },
+        "Background tool result could not be delivered to the session inbox",
+      );
+    });
+  };
   // Deliberately not awaited: the turn continues, and the settlement is
-  // the runtime's business. Both arms are handled, so the dispatch can
-  // never become an unhandled rejection.
+  // the runtime's business.
   void new CraftClient(ctx).sendDirect(routeId, input, headers).then(
     (result) =>
-      runtime.settleBackground(key, {
+      settle({
         handle,
         tool: toolName,
         status: "completed",
@@ -286,7 +300,7 @@ async function dispatchBackground<TIn>(
         duration: Date.now() - startedAt.getTime(),
       }),
     (err: unknown) =>
-      runtime.settleBackground(key, {
+      settle({
         handle,
         tool: toolName,
         status: "failed",

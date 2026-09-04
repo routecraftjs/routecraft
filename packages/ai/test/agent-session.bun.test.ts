@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
 import {
+  DefaultExchange,
   MemorySuspensionStore,
   craft,
   direct,
@@ -17,7 +18,10 @@ import {
   type FnHandlerContext,
 } from "../src/index.ts";
 import { AgentSessionRuntime } from "../src/agent/session/index.ts";
-import { sessionRecordId } from "../src/agent/session/store.ts";
+import {
+  AgentSessionStore,
+  sessionRecordId,
+} from "../src/agent/session/store.ts";
 import { INTERRUPTED_TOOL_MESSAGE } from "../src/agent/run.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
 import { MODEL } from "./helpers/suspend-fixtures.ts";
@@ -85,6 +89,22 @@ function routes(sink: ReturnType<typeof spy>): RouteDefinition[] {
       .to(sink)
       .build(),
     ...craft().id("plain").from(direct()).to(agent("max")).to(noop()).build(),
+    ...craft()
+      .id("inline")
+      .input({ body: ChatMessage })
+      .from(direct())
+      .to(
+        agent<ChatMessage>({
+          model: MODEL,
+          system: "be useful",
+          user: (ex) => ex.body.message,
+          tools: tools(["slow"]),
+          session: (ex) => ex.body.session,
+          interrupt: (ex) => ex.body.interrupt === true,
+        }),
+      )
+      .to(sink)
+      .build(),
   ];
 }
 
@@ -488,6 +508,120 @@ describe("agent sessions", () => {
       rc: "RC5003",
     });
     expect(llm.calls).toHaveLength(0);
+  });
+
+  /**
+   * @case The inline form takes session and interrupt exactly as the by-name form does
+   * @preconditions An inline agent({ session, interrupt }) on its own route, keyed by the route id; turn one held in the slow tool
+   * @expectedResult A message with interrupt: true cancels the running tool, the interrupter gets the next turn's reply, and turn one's caller gets status "interrupted"
+   */
+  test("an inline agent can interrupt its session", async () => {
+    const store = new MemorySuspensionStore();
+    t = await contextWith(store, spy()).build();
+    await t.startAndWaitReady();
+    llm.script.push({ toolCalls: [{ toolName: "slow" }] });
+    const first = t.client.sendDirect("inline", {
+      session: "s",
+      message: "build it",
+    }) as Promise<AgentResult>;
+    await waitForEntry(1);
+    llm.script.push({ text: "stopped" });
+    const reply = (await t.client.sendDirect("inline", {
+      session: "s",
+      message: "stop",
+      interrupt: true,
+    })) as AgentResult;
+    expect(reply.text).toBe("stopped");
+    expect(reply.session).toMatchObject({ agent: "inline", status: "replied" });
+    expect((await first).session?.status).toBe("interrupted");
+    expect(llm.sawAbort()).toBe(true);
+  });
+
+  /**
+   * @case A record written by another release of the package is refused as AI1010, not handed to the provider
+   * @preconditions One turn has stored a session record; its version field is then rewritten in the store
+   * @expectedResult The next message for the session rejects with AI1010 naming the version, and no model call is made for it
+   */
+  test("a record at another version is AI1010", async () => {
+    const store = new MemorySuspensionStore();
+    t = await contextWith(store, spy()).build();
+    await t.startAndWaitReady();
+    llm.script.push({ text: "one" });
+    await send(t, { session: "old", message: "a" });
+    const record = MemorySuspensionStore.unsafeRecords(store).get(
+      sessionRecordId({ agent: "max", session: "old" }),
+    )!;
+    (record.stepState as { version: number }).version = 0;
+    await expect(send(t, { session: "old", message: "b" })).rejects.toThrow(
+      /version 0.*version 1/,
+    );
+    expect(llm.calls).toHaveLength(1);
+  });
+
+  /**
+   * @case A turn that fails on the store propagates to the caller waiting on it rather than starting another turn against the same fault
+   * @preconditions The runtime driven directly: turn one held in its executor, turn two interrupts it, and the store refuses every write after turn two's inbox write landed
+   * @expectedResult Both callers reject with the store's error, the executor ran exactly once, and no further turn was started
+   */
+  test("a failed turn is the waiting caller's answer", async () => {
+    const store = new MemorySuspensionStore();
+    t = await contextWith(store, spy()).build();
+    await t.startAndWaitReady();
+    let writes = 0;
+    // Methods are bound to the real store: the class keeps private fields,
+    // which a call through the proxy as `this` cannot reach.
+    const failing = new Proxy(store, {
+      get(target, prop) {
+        if (prop === "replaceStepState") {
+          return async (...args: unknown[]) => {
+            writes += 1;
+            if (writes >= 2) throw new Error("store down");
+            return (
+              target.replaceStepState as (...a: unknown[]) => Promise<unknown>
+            ).apply(target, args);
+          };
+        }
+        const value = Reflect.get(target, prop, target) as unknown;
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const runtime = new AgentSessionRuntime(
+      t.ctx,
+      new AgentSessionStore(failing),
+    );
+    let runs = 0;
+    const executor = {
+      run: (_messages: unknown, interrupt: AbortSignal) =>
+        new Promise<AgentResult>((_resolve, reject) => {
+          runs += 1;
+          interrupt.addEventListener("abort", () =>
+            reject(new Error("aborted")),
+          );
+        }),
+      thread: () => undefined,
+    };
+    const exchange = new DefaultExchange(t.ctx, { body: {} });
+    const key = { agent: "max", session: "direct" };
+    const first = runtime.turn({
+      key,
+      exchange,
+      message: "a",
+      interrupt: false,
+      executor,
+    });
+    first.catch(() => undefined);
+    await sleep(10);
+    const second = runtime.turn({
+      key,
+      exchange,
+      message: "b",
+      interrupt: true,
+      executor,
+    });
+    await expect(second).rejects.toThrow(/store down/);
+    await expect(first).rejects.toThrow(/store down/);
+    expect(runs).toBe(1);
+    expect(runtime.isRunning(key)).toBe(false);
   });
 
   /**
