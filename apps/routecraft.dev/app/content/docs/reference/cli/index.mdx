@@ -247,6 +247,36 @@ Exit codes, which are the API for anything scripting this:
 
 **A refusal reports how to get in.** On a 401 or 403 the CLI reads the `WWW-Authenticate` challenge, follows its RFC 9728 `resource_metadata` hint (best effort, short timeout), and folds the answer into the refusal: which scope is required, who issues acceptable tokens (or that the instance advertises no authorization server, in which case ask whoever operates it how to obtain a credential), and where to supply one (`--token`, `CRAFT_TOKEN`, the [settings file](#settings-file)). The [credential ladder](/docs/advanced/securing-capabilities#the-credential-ladder) walks the four ways an instance is secured.
 
+### chat
+
+Hold a conversation with an [agent session](/docs/reference/adapters/agent#sessions-an-agent-that-remembers) on a **running** instance, one message per line.
+
+```bash
+craft chat [options] <route>
+```
+
+A loop over the same primitive `exec` uses: every line is a dispatch of `{ session, message }` to the route fronting the agent, through the [management API](/docs/reference/plugins/opsplugin#management-api), and the reply is printed. The terminal owns nothing. The conversation lives in the instance's store under the session id, so the loop can be killed and reattached with the same id, from here or from another machine, and a webhook or a mail reply can post into the same session while it is open.
+
+Options:
+
+| Option | Description |
+| --- | --- |
+| `<route>` | The route fronting the agent: one that takes `{ session, message }` and dispatches `agent(name, { session })` |
+| `--session <id>` | The conversation to continue. A fresh id is minted and printed at the start when omitted |
+| `--url <url>` | Ops server base URL. Defaults to the [settings file](#settings-file), else `http://127.0.0.1:8080` |
+| `--token <token>` | Bearer credential presented at the management door |
+| `--format <format>` | `pretty` (default), `json` (the whole dispatch outcome per line), or `raw` (the reply text only) |
+
+```bash
+craft chat max
+craft chat max --session feature-login
+echo "what is left on the branch?" | craft chat max --session feature-login --format raw
+```
+
+A message sent while the session's turn is running is queued rather than answered, and the terminal says so: the turn that consumes it replies into the transcript, which is where a reattached terminal would have to read it. A route failure on one message is printed and the loop goes on, because the conversation is still there; a refused door or an unreachable instance ends the loop with [`exec`'s exit code](#exec) for it.
+
+**The route's guardrails run on every message.** `craft chat` reaches the agent only through a route the app wrote, so `.authorize()`, `.input()` and `.throttle()` apply per message exactly as for `exec`. Addressing an agent by its registry name with no route in front is the fast path [#599](https://github.com/routecraftjs/routecraft/issues/599) still has open, and it is not built.
+
 ### ops
 
 Inspect a running instance: health, readiness, routes, indicators.

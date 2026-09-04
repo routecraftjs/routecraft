@@ -311,6 +311,41 @@ program
   );
 
 /**
+ * The 'chat' command holds a conversation with an agent session on a
+ * running instance: one message per line, through the route fronting
+ * the agent, so the app's own guardrails run on every message.
+ *
+ * Example:
+ * craft chat max
+ * craft chat max --session feature-login
+ */
+program
+  .command("chat")
+  .description(
+    "Talk to an agent session on a running instance, one message per line",
+  )
+  .argument("[route]", "Route fronting the agent (takes { session, message })")
+  .option("--session <id>", "Conversation to continue; a fresh id otherwise")
+  .option("--url <url>", "Ops server base URL of the target instance")
+  .option("--token <token>", "Bearer credential for the management door")
+  .option("--format <format>", "pretty (default), json, or raw")
+  .action(
+    async (
+      route: string | undefined,
+      options: {
+        session?: string;
+        url?: string;
+        token?: string;
+        format?: string;
+      },
+    ) => {
+      applyGlobalLogOptions();
+      const { chatCommand } = await import("./chat.js");
+      settle(await chatCommand(route, options));
+    },
+  );
+
+/**
  * The 'ops' command family reads a running instance's own state.
  *
  * Grouped by operator task rather than by URL prefix: `craft ops health`
