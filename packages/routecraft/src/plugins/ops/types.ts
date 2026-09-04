@@ -363,6 +363,42 @@ export const OPS_SCOPE_DISPATCH = "ops:dispatch";
 export const OPS_SCOPE_EVENTS = "ops:events";
 
 /**
+ * A read-only resource another package contributes to the management API,
+ * served under the introspection tier at `GET /ops/{name}` and
+ * `GET /ops/{name}/{segment...}`.
+ *
+ * The ops plugin lives in core and knows routes, exchanges and events.
+ * What an ecosystem package keeps alongside them (an agent's sessions) is
+ * listable through the same door and the same tier without core learning
+ * what it is: the contributor answers the two reads, and the mount owns
+ * admission, method handling and the wire.
+ *
+ * Read-only by contract. A resource that needs to act on something is the
+ * operations tier's business and slots in there when it ships.
+ */
+export interface OpsResource {
+  /**
+   * The path segment under `/ops`. `routes` and `events` are the mount's
+   * own and refused.
+   */
+  readonly name: string;
+  /** One line for the docs and the resource listing. */
+  readonly description: string;
+  /**
+   * The collection, filtered by the request's query parameters. The
+   * contributor pages: a present `nextCursor` means there is more, exactly
+   * as for the route collection, and a resource whose whole collection
+   * fits one page returns it without one.
+   */
+  list(query: Readonly<Record<string, string>>): Promise<OpsPage<unknown>>;
+  /**
+   * One item, addressed by the decoded path segments after the resource
+   * name. `undefined` answers 404.
+   */
+  describe(segments: readonly string[]): Promise<unknown | undefined>;
+}
+
+/**
  * A collection response. Never a bare array, from the first release: a
  * present `nextCursor` means there is more, and a correct client follows
  * it even against a collection that does not produce one today.

@@ -497,6 +497,16 @@ Providers do not agree on how to say it. OpenAI-compatible endpoints carry a mac
 - Move to a model with a larger window if the input genuinely cannot shrink.
 - Do not retry the same input. Nothing about it will fit on a second attempt.
 
+## AI1010
+Agent session record could not be read or written
+
+**Why it happens**  
+Every named agent session (`agent(name, { session })`) is one record in the suspension store, holding the transcript and the inbox. Either a stored record is not the shape the runtime writes (it was edited by hand, or two versions of `@routecraft/ai` share one store), or a write lost the compare-and-swap to another writer repeatedly, which takes a store under a load the in-process turn bound does not produce.
+
+**Suggestion**  
+- Inspect the record the message names; remove it to start that session over.
+- Check that one process, on one version of `@routecraft/ai`, owns the store.
+
 ## AI2001
 MCP tool output violated its declared schema
 

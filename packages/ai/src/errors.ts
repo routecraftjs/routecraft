@@ -91,6 +91,8 @@ declare module "@routecraft/routecraft" {
     AI1008: RCMeta;
     /** Model context window exceeded */
     AI1009: RCMeta;
+    /** Agent session record could not be read or written */
+    AI1010: RCMeta;
     /** MCP tool result violated the tool's advertised output schema */
     AI2001: RCMeta;
     /** MCP tool declined the request: the route dropped the exchange */
@@ -173,6 +175,14 @@ registerErrorCodes(
       suggestion:
         "The provider refused the request because the prompt does not fit the model's context window. This is distinct from an ordinary dispatch failure: no retry of the same input can succeed, and the fix is to send less. Compact the conversation, trim the tool results carried in the thread, or move to a model with a larger window. The provider's own refusal is on the error's cause.",
       docs: `${DOCS_BASE}#ai-1009`,
+      retryable: false,
+    },
+    AI1010: {
+      category: "Adapter",
+      message: "Agent session record could not be read or written",
+      suggestion:
+        "The suspension store holds the transcript and inbox of every named agent session, one record per (agent, session). Either a stored record is not the shape the runtime writes (the store was edited by hand, or two versions of @routecraft/ai share one store), or a write lost the compare-and-swap repeatedly to another writer. Inspect the record named in the message, or remove it to start the session over.",
+      docs: `${DOCS_BASE}#ai-1010`,
       retryable: false,
     },
     AI2001: {

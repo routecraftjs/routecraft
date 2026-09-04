@@ -12,7 +12,11 @@ import {
   type AgentSuspendOptions,
   type AgentSuspendSentinel,
 } from "../agent/suspend.ts";
-import type { FnHandlerContext, FnSuspensionView } from "./types.ts";
+import type {
+  FnHandlerContext,
+  FnSessionView,
+  FnSuspensionView,
+} from "./types.ts";
 // Registers AI1006, thrown from the default suspend refusal below.
 import "../errors.ts";
 
@@ -67,11 +71,13 @@ export function makeFnHandlerContext(
   abortSignal: AbortSignal,
   principal: Principal | undefined,
   suspension?: FnSuspensionWiring,
+  session?: FnSessionView,
 ): FnHandlerContext {
   return {
     logger: frameworkLogger.child({ tool: toolName }),
     abortSignal,
     ...(principal ? { principal: freezePrincipal(principal) } : {}),
+    ...(session ? { session: Object.freeze({ ...session }) } : {}),
     ...(suspension
       ? {
           suspensionId: suspension.id,

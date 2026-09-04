@@ -1,8 +1,13 @@
 import {
+  rcCodeOf,
   rcError,
+  registerOpsResource,
   type CraftContext,
   type CraftPlugin,
+  type OpsPage,
 } from "@routecraft/routecraft";
+import { AgentSessionRuntime } from "./session/runtime.ts";
+import type { AgentSessionSummary } from "./session/types.ts";
 import { validateAgentOptions, validateBlocks } from "./agent.ts";
 import {
   ADAPTER_AGENT_DEFAULT_OPTIONS,
@@ -257,6 +262,11 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
           ctx.setStore(ADAPTER_AGENT_TOOL_POLICIES, [toolPolicy]);
         }
       }
+
+      // Once per context, whichever install applies first: the resource
+      // reads the shared session runtime, so a second install has nothing
+      // more to contribute and would collide on the name.
+      if (!existingAgents) registerSessionsResource(ctx);
     },
 
     /**
@@ -279,6 +289,49 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
       emitRegistrations(ctx, agents, functions);
     },
   };
+}
+
+/**
+ * The `agent-sessions` management resource: every named session the
+ * store knows, with its turn state and inbox depth, at
+ * `GET /ops/agent-sessions` (filter with `?agent=`) and one session at
+ * `GET /ops/agent-sessions/{agent}/{session}`. Served under the ops
+ * plugin's introspection tier when an ops mount exists; inert otherwise.
+ *
+ * A context with no suspension store has no sessions, and says so with an
+ * empty collection rather than the RC5052 a dispatch would get, because a
+ * listing is a question and not an attempt to hold a conversation.
+ *
+ * @internal
+ */
+function registerSessionsResource(ctx: CraftContext): void {
+  const runtime = (): AgentSessionRuntime | undefined => {
+    try {
+      return AgentSessionRuntime.for(ctx);
+    } catch (err) {
+      if (rcCodeOf(err) === "RC5052") return undefined;
+      throw err;
+    }
+  };
+  registerOpsResource(ctx, {
+    name: "agent-sessions",
+    description:
+      "Named agent sessions: transcript length, turn state, inbox depth and background calls in flight.",
+    async list(query): Promise<OpsPage<AgentSessionSummary>> {
+      const sessions = runtime();
+      if (!sessions) return { items: [] };
+      const all = await sessions.summaries();
+      const agent = query["agent"];
+      return {
+        items: agent === undefined ? all : all.filter((s) => s.agent === agent),
+      };
+    },
+    async describe(segments): Promise<AgentSessionSummary | undefined> {
+      if (segments.length !== 2) return undefined;
+      const [agent, session] = segments as [string, string];
+      return runtime()?.summary({ agent, session });
+    },
+  });
 }
 
 /**

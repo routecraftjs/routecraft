@@ -176,6 +176,21 @@ export function validateAgentOptions<T>(options: AgentOptions<T>): void {
       message: `Agent: "stream" must be a boolean when present.`,
     });
   }
+  if (options.session !== undefined) {
+    if (
+      (typeof options.session !== "string" || options.session.trim() === "") &&
+      typeof options.session !== "function"
+    ) {
+      throw rcError("RC5003", undefined, {
+        message: `Agent: "session" must be a non-empty string or a function (exchange) => string when present.`,
+      });
+    }
+    if (options.stream === true) {
+      throw rcError("RC5003", undefined, {
+        message: `Agent: "session" and "stream: true" cannot be combined. A session turn stores its transcript when it ends, and a stream is handed over before that.`,
+      });
+    }
+  }
   if (options.tools !== undefined && !isToolSelection(options.tools)) {
     throw rcError("RC5003", undefined, {
       message: `Agent: "tools" must be the result of tools([...]).`,
@@ -406,6 +421,10 @@ function validateBlocksLevel(
  *   against agents registered via `agentPlugin({ agents: { name: {...} } })`.
  *   Registered agents carry their own description.
  *
+ * Either form takes `session` to make the agent remember: every message
+ * for one session id continues one transcript, kept in the context's
+ * suspension store. See {@link AgentOptions.session}.
+ *
  * @example Inline (identity on the route)
  * ```typescript
  * craft()
@@ -437,6 +456,18 @@ function validateBlocksLevel(
  *   .to(agent("summariser"))
  *   .to(direct("reply"));
  * ```
+ *
+ * @example A conversation, one route, many sessions
+ * ```typescript
+ * craft()
+ *   .id("max")
+ *   .input({ body: MaxMessage }) // { session: string; message: string; interrupt?: boolean }
+ *   .from(direct())
+ *   .to(agent("max", {
+ *     session: (ex) => ex.body.session,
+ *     interrupt: (ex) => ex.body.interrupt === true,
+ *   }));
+ * ```
  */
 export function agent<T = unknown>(
   options: AgentOptions<T> & { stream: true },
@@ -450,13 +481,13 @@ export function agent<T = unknown>(
   options: AgentOptions<T> & { stream?: false },
 ): Enricher<T, AgentResult>;
 export function agent(name: string): Enricher<unknown, AgentResult>;
-export function agent(
+export function agent<T = unknown>(
   name: string,
-  perCall: AgentByNameOverrides,
-): Enricher<unknown, AgentResult>;
+  perCall: AgentByNameOverrides<T>,
+): Enricher<T, AgentResult>;
 export function agent<T = unknown>(
   arg: AgentOptions<T> | string,
-  perCall?: AgentByNameOverrides,
+  perCall?: AgentByNameOverrides<T>,
 ): Enricher<T, AgentResult | AgentStream> {
   if (typeof arg === "string") {
     if (arg.trim() === "") {

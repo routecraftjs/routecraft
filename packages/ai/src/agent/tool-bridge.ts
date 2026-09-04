@@ -14,7 +14,7 @@ import {
   SUSPENDED_TOOL_PLACEHOLDER,
   type AgentSuspendSignalRecord,
 } from "./suspension-state.ts";
-import type { AgentDispatchIdentity } from "./session.ts";
+import type { AgentDispatchIdentity, AgentRunSession } from "./run.ts";
 import type { ResolvedTool } from "./tools/selection.ts";
 
 /**
@@ -77,6 +77,8 @@ export async function buildVercelTools(
   dispatchIdentity?: AgentDispatchIdentity,
   principal?: Principal,
   suspensions?: AgentSuspensionBridge,
+  inFlight?: Map<string, { toolName: string; input: unknown }>,
+  session?: AgentRunSession,
 ): Promise<Record<string, unknown>> {
   if (resolved.length === 0)
     return Object.create(null) as Record<string, unknown>;
@@ -133,8 +135,13 @@ export async function buildVercelTools(
                 mintToken: () => wiring.mintToken(toolCallId),
               }
             : undefined,
+          session,
         );
         const start = Date.now();
+        // Tracked for the whole call, block loaders included: a turn
+        // interrupted mid-call records what was running so the model can
+        // see it in the transcript it resumes from.
+        inFlight?.set(toolCallId, { toolName: r.name, input });
 
         if (!isLoader && ctx && dispatchIdentity) {
           ctx.emit("route:agent:tool:invoked", {
@@ -286,6 +293,8 @@ export async function buildVercelTools(
             }
           }
           throw err;
+        } finally {
+          inFlight?.delete(toolCallId);
         }
       },
     });

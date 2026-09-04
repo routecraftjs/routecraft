@@ -55,6 +55,8 @@ const ROUTE_DETAIL = /^\/ops\/routes\/([^/]+)$/;
 const ROUTE_EXCHANGES = /^\/ops\/routes\/([^/]+)\/exchanges$/;
 /** `GET /ops/events`. */
 const EVENTS = "/ops/events";
+/** `GET /ops/{resource}` and `GET /ops/{resource}/{segment...}` for contributed resources. */
+const RESOURCE = /^\/ops\/([^/]+)((?:\/[^/]+)*)$/;
 
 /**
  * Percent-decode a path segment, or `undefined` when the escape is
@@ -231,6 +233,36 @@ export function createManagementHandler(
         return methodNotAllowed("POST");
       }
       return dispatchExchange(api, exchangesMatch[1]!, req, verdict.principal);
+    }
+
+    const resourceMatch = RESOURCE.exec(pathname);
+    if (resourceMatch) {
+      const name = decodeSegment(resourceMatch[1]!);
+      const resource = name === undefined ? undefined : api.resource(name);
+      // An unknown resource and a disabled tier answer alike, on purpose:
+      // the tier check comes first so an unconfigured instance discloses
+      // neither which resources exist nor that the surface does.
+      const verdict = await admitToTier(tiers.introspection, context);
+      if (verdict.kind !== "admit") return refuse(verdict, onRefused, req.url);
+      if (resource === undefined) return notFound();
+      if (req.method !== "GET" && req.method !== "HEAD") {
+        return methodNotAllowed("GET, HEAD");
+      }
+      const rest = resourceMatch[2]!.split("/").filter((s) => s.length > 0);
+      const segments: string[] = [];
+      for (const raw of rest) {
+        const segment = decodeSegment(raw);
+        if (segment === undefined) return notFound();
+        segments.push(segment);
+      }
+      if (segments.length === 0) {
+        const query = Object.fromEntries(url.searchParams.entries());
+        return jsonResponse(await resource.list(query), { status: 200 });
+      }
+      const item = await resource.describe(segments);
+      return item === undefined
+        ? notFound()
+        : jsonResponse(item, { status: 200 });
     }
 
     return notFound();

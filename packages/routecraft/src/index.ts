@@ -134,7 +134,11 @@ export {
 
 export { opsPlugin } from "./plugins/ops/plugin.ts";
 export { defineIndicator } from "./plugins/ops/indicator.ts";
-export { OPS_HEALTH_STATE } from "./plugins/ops/store.ts";
+export {
+  OPS_HEALTH_STATE,
+  OPS_RESOURCES,
+  registerOpsResource,
+} from "./plugins/ops/store.ts";
 // The read surface only. The ledger's mutators are the plugin's translation of
 // framework events, and the store hands back the live instance, so a type that
 // exposed them would let an app inject a transition nothing ever observed.
@@ -160,6 +164,7 @@ export type {
   OpsHealthOptions,
   OpsPage,
   OpsPluginOptions,
+  OpsResource,
   OpsRouteDetail,
   OpsRouteFilter,
   OpsRouteQuery,

@@ -30,10 +30,12 @@ import {
 import { decodeCursor, takePage } from "./pagination";
 import { safeStringify } from "../../shared/safe-json.ts";
 import { compareCodeUnits } from "../../shared/compare";
+import { OPS_RESOURCES } from "./store";
 import type {
   OpsDispatchOutcome,
   OpsEventTailItem,
   OpsPage,
+  OpsResource,
   OpsRouteDetail,
   OpsRouteFilter,
   OpsRouteQuery,
@@ -62,6 +64,12 @@ export interface ManagementApi {
     principal: Principal | undefined,
   ): Promise<OpsDispatchOutcome>;
   tailEvents(signal: AbortSignal): AsyncIterable<OpsEventTailItem>;
+  /**
+   * A contributed resource by name, read per request so a plugin applied
+   * after the ops mount is served too. `undefined` for a name nothing
+   * contributed, which the mount answers as 404 like any unknown path.
+   */
+  resource(name: string): OpsResource | undefined;
 }
 
 /**
@@ -251,6 +259,10 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
         signal.removeEventListener("abort", onAbort);
         unsubscribe();
       }
+    },
+
+    resource(name: string): OpsResource | undefined {
+      return ctx.getStore(OPS_RESOURCES)?.get(name);
     },
 
     describeRoute(id: string): OpsRouteDetail | undefined {
