@@ -3,7 +3,7 @@
 import { mkdir, writeFile, readFile, readdir, stat } from "node:fs/promises";
 import { join, resolve, dirname, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { existsSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
 import { execSync, execFileSync } from "node:child_process";
 import { input, select, confirm } from "@inquirer/prompts";
 import { tmpdir } from "node:os";
@@ -272,6 +272,25 @@ export function parseGitHubExampleUrl(url: string): GitHubExampleRef {
     );
   }
   return { owner: owner!, repo: repo!, branch, subPath };
+}
+
+/**
+ * Whether a path is a symlink.
+ *
+ * The containment check covers the example's root. It cannot cover what is
+ * under it: `cp` preserves symlinks rather than following them, so a link
+ * anywhere in the tree lands in the generated project still pointing at the
+ * author's machine, and a `package.json` that is itself a link is read from
+ * wherever it points. Both are refused by skipping every link, which costs
+ * an example nothing real: a scaffold is a fresh checkout, and a link into
+ * it would be broken the moment it was copied anyway.
+ */
+export function isSymbolicLink(candidate: string): boolean {
+  try {
+    return lstatSync(candidate).isSymbolicLink();
+  } catch {
+    return false;
+  }
 }
 
 /**
@@ -631,7 +650,9 @@ export async function generateProjectStructure(
           // template, and a base file left standing in the middle of it is a
           // file the template's own CI never saw.
           force: true,
-          filter: (src) => !skipFromUrlExample(relative(tempExampleDir, src)),
+          filter: (src) =>
+            !isSymbolicLink(src) &&
+            !skipFromUrlExample(relative(tempExampleDir, src)),
         });
         // package.json is held back from the copy above and merged instead,
         // because a straight overwrite drops the project name the user just
@@ -663,7 +684,8 @@ export async function generateProjectStructure(
           // The base template wins on collision here: its package.json and
           // index.ts carry the placeholders this function already resolved.
           force: false,
-          filter: (src) => !skip(relative(exampleDir, src)),
+          filter: (src) =>
+            !isSymbolicLink(src) && !skip(relative(exampleDir, src)),
         });
 
         await mergeExampleDeps(exampleDir, projectDir);
@@ -767,7 +789,7 @@ export async function mergeExamplePackageJson(
   projectDir: string,
 ): Promise<void> {
   const examplePath = join(exampleDir, "package.json");
-  if (!existsSync(examplePath)) return;
+  if (!existsSync(examplePath) || isSymbolicLink(examplePath)) return;
 
   const example = JSON.parse(await readFile(examplePath, "utf-8")) as Record<
     string,
@@ -809,7 +831,7 @@ async function mergeExampleDeps(
   projectDir: string,
 ): Promise<void> {
   const depsPath = join(exampleDir, "deps.json");
-  if (!existsSync(depsPath)) return;
+  if (!existsSync(depsPath) || isSymbolicLink(depsPath)) return;
 
   const exampleDeps = JSON.parse(await readFile(depsPath, "utf-8")) as {
     dependencies?: Record<string, string>;

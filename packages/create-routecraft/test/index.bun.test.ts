@@ -21,6 +21,7 @@ import { existsSync } from "node:fs";
 import {
   assertInsideRepository,
   collidingExamplePaths,
+  isSymbolicLink,
   generateProjectStructure,
   isExcludedExamplePath,
   mergeExamplePackageJson,
@@ -636,6 +637,25 @@ describe("mergeExamplePackageJson", () => {
   });
 
   /**
+   * @case A symlinked manifest is not read
+   * @preconditions The example's package.json is a link pointing outside the clone
+   * @expectedResult The merge leaves the scaffold alone rather than reading through the link
+   */
+  test("ignores a package.json that is a symlink", async () => {
+    const outside = join(source, "..", "outside-manifest.json");
+    await writeFile(outside, JSON.stringify({ name: "stolen" }));
+    await symlink(outside, join(source, "package.json"));
+
+    const before = await readJson(join(target, "package.json"));
+    await mergeExamplePackageJson(source, target);
+
+    const pkg = await readJson(join(target, "package.json"));
+    expect(pkg.name).not.toBe("stolen");
+    expect(pkg.name).toBe(before.name);
+    await rm(outside, { force: true });
+  });
+
+  /**
    * @case A non-string value inside a manifest map is refused
    * @preconditions A template whose scripts map carries a number
    * @expectedResult Throws naming the offending entry, rather than writing a numeric value into the generated package.json
@@ -853,6 +873,24 @@ describe("parseGitHubExampleUrl", () => {
     expect(() =>
       assertInsideRepository(join(clone, "examples"), clone, "examples"),
     ).toThrow(/outside the repository/);
+
+    await rm(root, { recursive: true, force: true });
+  });
+
+  /**
+   * @case A symlink nested inside the example is refused
+   * @preconditions A link below the example root, which the root containment check cannot see
+   * @expectedResult isSymbolicLink reports it, so the copy filter skips it rather than
+   *   planting a link to the author's machine in the generated project
+   */
+  test("detects a symlink nested below the example root", async () => {
+    const root = await mkdtemp(join(tmpdir(), "rc-nested-link-"));
+    const example = join(root, "example");
+    await mkdir(example, { recursive: true });
+    await symlink("/etc/passwd", join(example, "secrets"));
+
+    expect(isSymbolicLink(join(example, "secrets"))).toBe(true);
+    expect(isSymbolicLink(example)).toBe(false);
 
     await rm(root, { recursive: true, force: true });
   });
