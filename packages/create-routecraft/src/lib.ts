@@ -1,6 +1,6 @@
 /* eslint-disable no-console */
 
-import { mkdir, writeFile, readFile, readdir, stat } from "node:fs/promises";
+import { mkdir, writeFile, readFile, readdir, lstat } from "node:fs/promises";
 import { join, resolve, dirname, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
@@ -103,7 +103,12 @@ export function isUrl(example: string): boolean {
  */
 async function validateExampleContent(sourceDir: string): Promise<void> {
   try {
-    const files = await readdir(sourceDir);
+    // Symlinks are not counted, because the copy skips them. Counting one
+    // would accept an example whose only project markers are links and then
+    // scaffold nothing but the base template, reporting success.
+    const files = (await readdir(sourceDir)).filter(
+      (file) => !isSymbolicLink(join(sourceDir, file)),
+    );
 
     // Check for basic project structure indicators
     const hasPackageJson = files.includes("package.json");
@@ -119,9 +124,11 @@ async function validateExampleContent(sourceDir: string): Promise<void> {
     let hasRouteSubdirs = false;
     for (const file of files) {
       const filePath = join(sourceDir, file);
-      const fileStat = await stat(filePath);
+      const fileStat = await lstat(filePath);
       if (fileStat.isDirectory()) {
-        const subFiles = await readdir(filePath);
+        const subFiles = (await readdir(filePath)).filter(
+          (f) => !isSymbolicLink(join(filePath, f)),
+        );
         if (
           subFiles.some(
             (f) => f.endsWith(".ts") || f.endsWith(".js") || f.endsWith(".mjs"),
@@ -210,7 +217,13 @@ export async function collidingExamplePaths(
       const absolute = join(dir, entry);
       const relativePath = relative(sourceDir, absolute);
       if (exclude(relativePath)) continue;
-      if ((await stat(absolute)).isDirectory()) {
+      // lstat, not stat: stat follows a link, so a symlinked directory would
+      // be recursed into and this walk would leave the example entirely, or
+      // spin on a link that points at one of its own parents. The copy skips
+      // links, so the scan agrees with it by not counting them at all.
+      const entryStat = await lstat(absolute);
+      if (entryStat.isSymbolicLink()) continue;
+      if (entryStat.isDirectory()) {
         await walk(absolute);
       } else if (existsSync(join(targetDir, relativePath))) {
         collisions.push(relativePath);

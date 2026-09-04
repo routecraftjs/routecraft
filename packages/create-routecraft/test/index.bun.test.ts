@@ -561,6 +561,25 @@ describe("collidingExamplePaths", () => {
   });
 
   /**
+   * @case A symlinked directory is not walked into
+   * @preconditions The example holds a link to a directory outside it, carrying a name the target also has
+   * @expectedResult Not reported, because the walk uses lstat and never follows the link, so it cannot leave the example or spin on a loop
+   */
+  test("does not walk into a symlinked directory", async () => {
+    const outside = join(source, "..", `outside-${Date.now()}`);
+    await mkdir(outside, { recursive: true });
+    await writeFile(join(outside, "index.ts"), "export default [];");
+    await symlink(outside, join(source, "linked"));
+    await mkdir(join(target, "linked"), { recursive: true });
+    await writeFile(join(target, "linked", "index.ts"), "existing");
+
+    const dropped = await collidingExamplePaths(source, target);
+
+    expect(dropped).not.toContain(join("linked", "index.ts"));
+    await rm(outside, { recursive: true, force: true });
+  });
+
+  /**
    * @case Excluded paths are never reported
    * @preconditions A lockfile present on both sides
    * @expectedResult Not reported, because the copy skips it deliberately rather
@@ -642,17 +661,21 @@ describe("mergeExamplePackageJson", () => {
    * @expectedResult The merge leaves the scaffold alone rather than reading through the link
    */
   test("ignores a package.json that is a symlink", async () => {
-    const outside = join(source, "..", "outside-manifest.json");
-    await writeFile(outside, JSON.stringify({ name: "stolen" }));
+    // The sentinel lives under `source` so afterEach removes it even when an
+    // assertion fails, and it carries a script rather than a name: `name` is
+    // project-owned and restored from the scaffold either way, so asserting
+    // on it would pass whether or not the link was read.
+    const outside = join(source, "linked-manifest.json");
+    await writeFile(
+      outside,
+      JSON.stringify({ scripts: { leaked: "echo through-the-link" } }),
+    );
     await symlink(outside, join(source, "package.json"));
 
-    const before = await readJson(join(target, "package.json"));
     await mergeExamplePackageJson(source, target);
 
     const pkg = await readJson(join(target, "package.json"));
-    expect(pkg.name).not.toBe("stolen");
-    expect(pkg.name).toBe(before.name);
-    await rm(outside, { force: true });
+    expect(pkg.scripts?.leaked).toBeUndefined();
   });
 
   /**
