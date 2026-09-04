@@ -1,8 +1,13 @@
 import { jsonResponse, missingCredentialResponse } from "./response.ts";
 import { anySignal } from "../../shared/abort.ts";
 import { logger as defaultLogger } from "../../logger";
-import { type ExchangeHeaders, HeadersKeys } from "../../exchange";
+import {
+  type Exchange,
+  type ExchangeHeaders,
+  HeadersKeys,
+} from "../../exchange";
 import { isRoutecraftError } from "../../brand";
+import { rcError } from "../../error";
 import { isSuspended } from "../../suspension/suspended";
 import { principalExpirySignal } from "../../auth/expiry.ts";
 import type { Principal } from "../../auth/types";
@@ -378,14 +383,10 @@ export function createDispatcher(
     //    user steps and any registered .error() handler). We translate its
     //    body + response hints into a Response.
     try {
+      let exchange: Exchange;
       if (entry.respond !== undefined) {
-        // Once the drain has begun, a run started here is not guaranteed to
-        // be waited for: the request may have spent the whole shutdown in
-        // auth or in its body read, and the route can already have been
-        // drained. Nothing can tell in advance whether this responder would
-        // have awaited the pipeline, since that is decided inside the
-        // function, so every responder is refused here rather than risk
-        // answering for a delivery this process then abandons.
+        // Refused for every responder, not just one that answers early: which
+        // it is cannot be known before calling it. See HttpResponder.
         if (opts.shutdownSignal?.aborted === true) {
           const response = jsonResponse(
             { error: "service unavailable", reason: "shutting_down" },
@@ -400,53 +401,73 @@ export function createDispatcher(
           });
           return response;
         }
-        // Must start before the responder is called: the route counts the
-        // exchange as in-flight at enqueue, which is what a graceful shutdown
-        // drains. A responder that never awaits `finished` leaves this
-        // running detached, and it is inside the drain either way.
+        // Started before the responder so the exchange is in-flight for the
+        // shutdown drain whether or not the responder waits for it.
         const finished = entry.handler(parsedBody, handlerHeaders);
-        // Claimed on the framework's own reference, before the responder can
-        // see it: a responder that ignores `finished` must not turn a failed
-        // delivery into an unhandled rejection. The pipeline has already
-        // routed and logged it (the route's `.error()` handler, or the
-        // executor's boundary log plus `route:error` / `route:exchange:failed`).
+        // Claimed here, before the responder sees it, so an ignored `finished`
+        // never surfaces as an unhandled rejection. The pipeline's own
+        // boundary has already logged it; logging again would duplicate.
         const settled = finished.then(
-          (exchange) => exchange,
+          (result) => result,
           () => undefined,
         );
-        const descriptor = await entry.respond({
-          request: {
-            body: parsedBody,
-            headers: Object.freeze(reqHeaders),
-            params,
+        // The response is built by the responder, so nothing will ever read
+        // the exchange's body, and a stream holds its socket or file
+        // descriptor until GC finalises it. Cancelling can itself reject (a
+        // locked stream throws), and an unhandled rejection is fatal under
+        // Node's default, so the failure is logged rather than thrown into
+        // a request that has already been answered.
+        const cancelUnreadBody = (): void => {
+          void settled
+            .then((result) => {
+              const body = result?.body;
+              return isReadableStream(body) ? body.cancel() : undefined;
+            })
+            .catch((error: unknown) => {
+              log.warn(
+                { err: error, routeId: entry.routeId, method, path: pathname },
+                "http source: could not cancel the unread body of a detached run",
+              );
+            });
+        };
+        let descriptor: HttpResponseDescriptor | undefined;
+        try {
+          descriptor = await entry.respond({
+            request: {
+              body: parsedBody,
+              headers: Object.freeze(reqHeaders),
+              params,
+              method,
+              path: entry.matcher.pattern,
+              ...(principal !== undefined ? { principal } : {}),
+            },
+            finished,
+          });
+        } catch (error) {
+          // The pipeline is already running and cannot be un-started, so the
+          // orphaned body still needs releasing before the 500 goes out.
+          cancelUnreadBody();
+          throw error;
+        }
+        if (descriptor !== undefined) {
+          cancelUnreadBody();
+          const response = serialiseDescriptor(descriptor);
+          emitCompleted(opts, {
             method,
             path: entry.matcher.pattern,
-            ...(principal !== undefined ? { principal } : {}),
-          },
-          finished,
-        });
-        void settled.then((exchange) => {
-          // Nothing will read the exchange's body once a responder has
-          // answered, and a stream may hold a socket or a file descriptor
-          // until GC finalises it. Skipped when the responder handed that
-          // very body back, which is then the response's to consume.
-          const body = exchange?.body;
-          if (isReadableStream(body) && body !== descriptor.body) {
-            void body.cancel();
-          }
-        });
-        const response = serialiseDescriptor(descriptor);
-        emitCompleted(opts, {
-          method,
-          path: entry.matcher.pattern,
-          status: response.status,
-          durationMs: ms(started),
-          routeId: entry.routeId,
-          principal: principal ? { subject: principal.subject } : undefined,
-        });
-        return response;
+            status: response.status,
+            durationMs: ms(started),
+            routeId: entry.routeId,
+            principal: principal ? { subject: principal.subject } : undefined,
+          });
+          return response;
+        }
+        // Deferred: await the run already in flight, never start a second one,
+        // which would process the delivery twice.
+        exchange = await finished;
+      } else {
+        exchange = await entry.handler(parsedBody, handlerHeaders);
       }
-      const exchange = await entry.handler(parsedBody, handlerHeaders);
       const plan = planStream(exchange.body, exchange.headers);
       if (plan) {
         // A stream may stay quiet far longer than the listener's idle
@@ -542,7 +563,9 @@ export function createDispatcher(
     } catch (err) {
       log.error(
         { err, routeId: entry.routeId, method, path: pathname },
-        "http source: route handler threw",
+        entry.respond !== undefined
+          ? "http source: respond threw; the pipeline it started keeps running"
+          : "http source: route handler threw",
       );
       const response = jsonResponse(
         { error: "internal server error" },
@@ -680,36 +703,79 @@ function lowerCaseKeys(
  * accounting and its own expiry handling, both of which belong to the
  * framework's path, so a route that streams does not configure a responder.
  */
+/**
+ * Statuses the Fetch specification forbids a body on. Node throws when one
+ * carries a body and Bun does not, so the body is dropped here and the two
+ * runtimes answer the same way rather than one of them 500ing.
+ */
+const NULL_BODY_STATUSES: ReadonlySet<number> = new Set([101, 204, 205, 304]);
+
 function serialiseDescriptor(descriptor: HttpResponseDescriptor): Response {
   const { status, body } = descriptor;
-  const headers = lowerCaseKeys(descriptor.headers);
-  if (body === undefined || body === null) {
-    return new Response(null, { status, headers });
+  if (!Number.isInteger(status) || status < 200 || status > 599) {
+    // Left to the platform this is a RangeError caught by the 500 arm, which
+    // reads as a route failure and names the wrong culprit. An omitted status
+    // is worse: `new Response(x, { status: undefined })` is a silent 200, so a
+    // sender would read a forgotten field as an acknowledgement.
+    throw rcError("RC5003", undefined, {
+      message: `http() source: respond returned status ${String(status)}; it must be an integer between 200 and 599, e.g. { status: 202 }.`,
+    });
+  }
+  if (isReadableStream(body) || isAsyncIterable(body)) {
+    // Without this the stream falls through to the JSON arm and the caller
+    // receives "{}" with a 200, while the stream itself is never read and
+    // holds its resource open. Streaming belongs to the framework's own
+    // path, which has the listener's slot accounting and the credential
+    // expiry handling a stream needs.
+    throw rcError("RC5003", undefined, {
+      message:
+        "http() source: respond returned a streaming body, which it cannot serialise. Omit respond on a route that streams, or return a string, bytes, or a JSON-serialisable value.",
+    });
+  }
+  const { init, contentType } = NULL_BODY_STATUSES.has(status)
+    ? { init: null, contentType: undefined }
+    : bodyToWire(body);
+  return new Response(init, {
+    status,
+    headers: {
+      ...(contentType !== undefined ? { "content-type": contentType } : {}),
+      ...lowerCaseKeys(descriptor.headers),
+    },
+  });
+}
+
+/**
+ * The wire form of a body value: what to hand `Response`, and the content type
+ * it implies. Shared by both response paths so the promise that a responder's
+ * descriptor serialises by the same rules as a pipeline result is kept by the
+ * code rather than by a comment. Status and any route-supplied overrides stay
+ * with the caller, which is the only thing the two paths disagree about.
+ */
+function bodyToWire(body: unknown): {
+  init: BodyInit | null;
+  contentType: string | undefined;
+} {
+  if (body === null || body === undefined) {
+    return { init: null, contentType: undefined };
   }
   if (typeof body === "string") {
-    return new Response(body, {
-      status,
-      headers: { "content-type": "text/plain; charset=utf-8", ...headers },
-    });
+    return { init: body, contentType: "text/plain; charset=utf-8" };
   }
   if (body instanceof Uint8Array) {
-    // Same cast as serialiseResponse: Uint8Array is a valid BodyInit at
-    // runtime, but TS picks the URLSearchParams overload under mixed types.
-    return new Response(body as unknown as BodyInit, {
-      status,
-      headers: { "content-type": "application/octet-stream", ...headers },
-    });
+    // Uint8Array is a valid BodyInit at runtime, but TS picks the
+    // URLSearchParams overload of the union under bun-types/node-types mixing.
+    return {
+      init: body as unknown as BodyInit,
+      contentType: "application/octet-stream",
+    };
   }
   if (body instanceof ArrayBuffer) {
-    return new Response(body, {
-      status,
-      headers: { "content-type": "application/octet-stream", ...headers },
-    });
+    return { init: body, contentType: "application/octet-stream" };
   }
-  return new Response(JSON.stringify(body), {
-    status,
-    headers: { "content-type": "application/json; charset=utf-8", ...headers },
-  });
+  return {
+    init: JSON.stringify(body),
+    contentType: "application/json; charset=utf-8",
+  };
 }
 
 function serialiseResponse(body: unknown, headers: ExchangeHeaders): Response {
@@ -739,52 +805,16 @@ function serialiseResponse(body: unknown, headers: ExchangeHeaders): Response {
     });
   }
 
-  // Null / undefined -> 204 unless the user explicitly overrode the status.
-  if (body === null || body === undefined) {
-    return new Response(null, {
-      status: hint.status ?? 204,
-      headers: extraHeaders,
-    });
-  }
-
-  if (typeof body === "string") {
-    return new Response(body, {
-      status: hint.status ?? 200,
-      headers: {
-        "content-type": hint.contentType ?? "text/plain; charset=utf-8",
-        ...extraHeaders,
-      },
-    });
-  }
-
-  if (body instanceof Uint8Array) {
-    // Cast: TS picks the URLSearchParams overload of the BodyInit union for
-    // Uint8Array under bun-types/node-types mixing. Uint8Array IS a valid
-    // BodyInit (ArrayBufferView) at runtime.
-    return new Response(body as unknown as BodyInit, {
-      status: hint.status ?? 200,
-      headers: {
-        "content-type": hint.contentType ?? "application/octet-stream",
-        ...extraHeaders,
-      },
-    });
-  }
-
-  if (body instanceof ArrayBuffer) {
-    return new Response(body, {
-      status: hint.status ?? 200,
-      headers: {
-        "content-type": hint.contentType ?? "application/octet-stream",
-        ...extraHeaders,
-      },
-    });
-  }
-
-  // Object / array / number / boolean -> JSON.
-  return new Response(JSON.stringify(body), {
-    status: hint.status ?? 200,
+  // An absent body is 204 unless the route overrode the status; everything
+  // else is 200. The content type is the body's own unless the route named
+  // one, and an absent body carries none at all.
+  const { init, contentType } = bodyToWire(body);
+  return new Response(init, {
+    status: hint.status ?? (init === null ? 204 : 200),
     headers: {
-      "content-type": hint.contentType ?? "application/json; charset=utf-8",
+      ...(contentType !== undefined
+        ? { "content-type": hint.contentType ?? contentType }
+        : {}),
       ...extraHeaders,
     },
   });

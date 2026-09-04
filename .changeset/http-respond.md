@@ -16,7 +16,7 @@ An `http()` source answered the caller with the pipeline's result, which is righ
 respond: async ({ finished }) => ({ status: 200, body: (await finished).body })
 ```
 
-It receives `{ request, finished }` and returns `{ status, headers?, body? }`, which the dispatcher serialises by the same rules as a pipeline result. `request` is the parsed request the route sees, never the `Request`, whose body has already been read to parse it and verify its signature. Omitting `respond` entirely keeps the previous behaviour exactly, including streaming and the suspension acknowledgement, which a responder does not carry.
+It receives `{ request, finished }` and returns `{ status, headers?, body? }`, which the dispatcher serialises by the same rules as a pipeline result. Returning `undefined` defers to the pipeline and answers with its result, so one responder can decide per request. `status` is required and validated, since an omitted one would otherwise be a silent 200 that a webhook sender reads as an acknowledgement, and a status that forbids a body drops it so Bun and Node answer alike. `request` is the parsed request the route sees, never the `Request`, whose body has already been read to parse it and verify its signature. Omitting `respond` entirely keeps the previous behaviour exactly, including streaming and the suspension acknowledgement, which a responder does not carry.
 
 Every gate runs before the responder: a bad signature is still a 401 and the responder never runs.
 

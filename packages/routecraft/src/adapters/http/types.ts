@@ -338,8 +338,8 @@ export interface HttpBuiltinOptions {
 export type HttpConfig = HttpPluginOptions;
 
 /**
- * What a {@link HttpResponder} returns: the answer to send, described rather
- * than constructed. The dispatcher serialises it exactly as it serialises a
+ * What a {@link HttpResponder} returns to send an answer of its own, described
+ * rather than constructed. The dispatcher serialises it exactly as it serialises a
  * pipeline result, so one place owns the wire format.
  *
  * A `body` of `undefined` sends no body at all, which is what a bare
@@ -407,12 +407,21 @@ export interface HttpRespondContext {
  * The response is sent when the function returns, so the function decides
  * whether the caller waits:
  *
+ * A descriptor is sent as soon as it is returned. Returning `undefined`
+ * defers to the pipeline instead: the dispatcher waits for `finished` and
+ * answers with its result, exactly as when the option is absent. So one
+ * responder can decide per request.
+ *
  * ```ts
  * // Acknowledge a webhook, then process. `finished` is never touched.
  * respond: () => ({ status: 202 })
  *
  * // Answer with something derived from the finished pipeline.
  * respond: async ({ finished }) => ({ status: 200, body: (await finished).body })
+ *
+ * // Answer a status ping at once; let a real delivery take the normal path.
+ * respond: ({ request }) =>
+ *   isPing(request.body) ? { status: 202 } : undefined
  * ```
  *
  * Omitting the option entirely keeps the framework's own behaviour, which is
@@ -422,7 +431,10 @@ export interface HttpRespondContext {
  */
 export type HttpResponder = (
   ctx: HttpRespondContext,
-) => HttpResponseDescriptor | Promise<HttpResponseDescriptor>;
+) =>
+  | HttpResponseDescriptor
+  | undefined
+  | Promise<HttpResponseDescriptor | undefined>;
 
 /** Server-side options accepted by `http({...})` when used with `.from(...)`. */
 export interface HttpServerOptions {

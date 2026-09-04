@@ -617,6 +617,10 @@ respond: () => ({ status: 202 })
 // Answer with the result. This is what the framework does when `respond` is
 // omitted, written out.
 respond: async ({ finished }) => ({ status: 200, body: (await finished).body })
+
+// Decide per request. A descriptor is sent as soon as it is returned;
+// `undefined` defers to the pipeline and answers with its result.
+respond: ({ request }) => isPing(request.body) ? { status: 202 } : undefined
 ```
 
 The webhook case in full:
@@ -644,7 +648,9 @@ export const birdHook = craft()
 
 The responder receives `{ request, finished }`. `request` is what the route sees: the parsed body, the lower-cased headers, the path params, the method, the matched pattern, and the principal where one was admitted. It is deliberately not the `Request`, whose body has already been read to parse it and to verify the signature and so cannot be read again. `finished` is the promise of the completed exchange, already running; the framework has claimed its rejection, so ignoring it is safe.
 
-It returns a descriptor, `{ status, headers?, body? }`, which the dispatcher serialises by the same rules it applies to a pipeline result. Omit `body` for an empty response, which is what a bare acknowledgement wants.
+It returns a descriptor, `{ status, headers?, body? }`, which the dispatcher serialises by the same rules it applies to a pipeline result. Omit `body` for an empty response, which is what a bare acknowledgement wants. Returning `undefined` instead of a descriptor defers to the pipeline: the dispatcher waits for `finished` and answers with its result, exactly as when the option is absent.
+
+`status` is required and must be an integer between 200 and 599; anything else is refused rather than passed to the platform, because an omitted status would otherwise be a silent `200` that a webhook sender reads as an acknowledgement. A status that forbids a body (`204`, `205`, `304`, `101`) sends none, so the same responder behaves identically under Bun and Node rather than serving on one and failing on the other. A responder that throws answers `500`, and the pipeline it already started keeps running, so the sender's redelivery will duplicate it.
 
 Every gate still runs before the responder is called: path and method matching, the body size limit, body parsing, signature verification, and the mount's credential check where it has one. Rejections are unchanged, so a bad signature is still a `401`, the sender still sees it, and the responder never runs.
 

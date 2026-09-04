@@ -349,9 +349,20 @@ export type ConsumerDeps = {
  * `ConsumerType<Consumer>` without casts, so route definitions can store
  * any consumer implementation uniformly.
  */
-export type ConsumerType<T extends Consumer = Consumer> = new (
+export type ConsumerType<T extends Consumer = Consumer> = (new (
   deps: ConsumerDeps,
-) => T;
+) => T) & {
+  /**
+   * The consumer may hold a message before the pipeline runs, the way
+   * `.batch()` fills a buffer. A held message is not the route's in-flight
+   * work, so a graceful shutdown can drain past it, and a transport that
+   * answers its caller before the pipeline finishes cannot promise the
+   * delivery will run. Declared by the consumer rather than inferred from
+   * its class, so a new consumer states its own answer instead of an
+   * unrelated file guessing.
+   */
+  readonly buffers?: boolean;
+};
 
 /**
  * Internal envelope flowing from a source adapter to its consumer through the

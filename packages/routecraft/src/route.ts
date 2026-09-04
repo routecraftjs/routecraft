@@ -32,7 +32,6 @@ import type {
   Message,
   ProcessingQueue,
 } from "./types.ts";
-import { SimpleConsumer } from "./consumers/simple.ts";
 import { InMemoryProcessingQueue } from "./queue.ts";
 import {
   buildCacheCheckStep,
@@ -854,10 +853,9 @@ export class DefaultRoute implements Route {
         ? { discovery: this.definition.discovery }
         : {}),
       ...(this.definition.requiresPrincipal ? { requiresPrincipal: true } : {}),
-      // Anything other than the pass-through consumer may park a message
-      // before the pipeline runs. Computed here, where the consumer is known,
-      // rather than in each source.
-      ...(this.definition.consumer.type !== SimpleConsumer
+      // Read from the consumer's own declaration, and resolved here because
+      // this is where the consumer is known rather than in each source.
+      ...(this.definition.consumer.type.buffers === true
         ? { bufferedConsumer: true }
         : {}),
     };

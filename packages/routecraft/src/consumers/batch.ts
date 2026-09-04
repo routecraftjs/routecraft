@@ -30,6 +30,9 @@ export type BatchOptions = {
 };
 
 export class BatchConsumer implements Consumer<Required<BatchOptions>> {
+  /** Messages wait in the buffer until the batch flushes. See {@link ConsumerType.buffers}. */
+  static readonly buffers = true;
+
   public readonly context: CraftContext;
   public readonly definition: RouteDefinition;
   public readonly channel: ProcessingQueue<Message>;

@@ -7,6 +7,7 @@ import {
 } from "@routecraft/testing";
 import {
   craft,
+  DefaultExchange,
   http,
   jwt,
   noop,
@@ -14,6 +15,7 @@ import {
   type EventName,
   type HttpPluginOptions,
   type HttpResponder,
+  type HttpResponseDescriptor,
   type ValidatorAuthOptions,
 } from "@routecraft/routecraft";
 import { createHmac } from "node:crypto";
@@ -22,21 +24,6 @@ const WEBHOOK_SECRET = "whsec_test_please_change_me";
 const JWT_SECRET = "test-secret-please-change-me";
 const JWT_ISSUER = "https://idp.test";
 const JWT_AUDIENCE = "https://api.test";
-
-/**
- * A promise plus its resolver. Every timing claim in this file is proved by
- * ordering against one of these rather than by a sleep: the pipeline parks on
- * the gate, the assertion runs, and only then is the gate opened. A test that
- * waited a few milliseconds instead would pass on a fast machine whether or
- * not the response actually preceded the pipeline.
- */
-function deferred(): { promise: Promise<void>; resolve: () => void } {
-  let resolve!: () => void;
-  const promise = new Promise<void>((r) => {
-    resolve = r;
-  });
-  return { promise, resolve };
-}
 
 /** Yield for `ms`, portable across runtimes (the suite runs on Node too). */
 function sleep(ms: number): Promise<void> {
@@ -98,6 +85,13 @@ async function bootHttp(
   });
 }
 
+/**
+ * Every timing claim in this file is proved by ordering against a promise the
+ * test resolves itself, never by waiting a few milliseconds: the pipeline
+ * parks on a gate, the assertion runs, and only then is the gate opened. A
+ * sleep would pass on a fast machine whether or not the response actually
+ * preceded the pipeline.
+ */
 describe("HTTP source respond", () => {
   let t: TestContext | undefined;
 
@@ -114,7 +108,7 @@ describe("HTTP source respond", () => {
    * @expectedResult The fetch resolves 202 with an empty body while the step is still parked; the step then completes
    */
   test("answers 202 before a slow pipeline step completes", async () => {
-    const gate = deferred();
+    const gate = Promise.withResolvers<void>();
     let stepEntered = false;
     let stepFinished = false;
     const bound = await bootHttp({
@@ -264,7 +258,7 @@ describe("HTTP source respond", () => {
    */
   test("a valid signature is answered 202 and the pipeline runs", async () => {
     const body = JSON.stringify({ id: "evt_1" });
-    const ran = deferred();
+    const ran = Promise.withResolvers<void>();
     let routeRan = false;
     const bound = await bootHttp({
       routes: craft()
@@ -362,8 +356,8 @@ describe("HTTP source respond", () => {
    * @expectedResult The 202 is already sent, and the route's .error() handler still receives the failure
    */
   test("a pipeline failure after the 202 reaches .error()", async () => {
-    const gate = deferred();
-    const handled = deferred();
+    const gate = Promise.withResolvers<void>();
+    const handled = Promise.withResolvers<void>();
     let handledError: unknown;
     const bound = await bootHttp({
       routes: craft()
@@ -405,8 +399,8 @@ describe("HTTP source respond", () => {
    * @expectedResult route:exchange:failed and route:error fire for the route, and the failure never surfaces as an unhandled rejection
    */
   test("a detached failure with no .error() handler raises route:exchange:failed", async () => {
-    const gate = deferred();
-    const failed = deferred();
+    const gate = Promise.withResolvers<void>();
+    const failed = Promise.withResolvers<void>();
     let failedRouteId: string | undefined;
     let routeErrorSeen = false;
     const bound = await bootHttp({
@@ -459,8 +453,8 @@ describe("HTTP source respond", () => {
    * @expectedResult One plugin:http:request:completed carrying status 202 for the route, emitted when the caller is answered rather than when the pipeline ends
    */
   test("plugin:http:request:completed reports status 202", async () => {
-    const gate = deferred();
-    const completed = deferred();
+    const gate = Promise.withResolvers<void>();
+    const completed = Promise.withResolvers<void>();
     let event: { status: number; routeId?: string } | undefined;
     const bound = await bootHttp({
       routes: craft()
@@ -506,7 +500,7 @@ describe("HTTP source respond", () => {
    * @expectedResult stop() does not resolve while the detached run is parked, and the run completes rather than being abandoned. Stopping without first waiting for the step is deliberate: it also pins the ordering, because a dispatcher that answered before starting the run would enqueue after the drain had already found the route idle, and the delivery would be lost
    */
   test("shutdown waits for a detached run in flight", async () => {
-    const gate = deferred();
+    const gate = Promise.withResolvers<void>();
     let stepEntered = false;
     let stepFinished = false;
     const bound = await bootHttp({
@@ -675,14 +669,11 @@ describe("HTTP source respond", () => {
 
     // A body delivered in two chunks: the dispatcher parks in its body read
     // between them, which is where the shutdown lands.
-    let sendRest!: () => void;
-    const gap = new Promise<void>((resolve) => {
-      sendRest = resolve;
-    });
+    const gap = Promise.withResolvers<void>();
     const body = new ReadableStream<Uint8Array>({
       async start(controller) {
         controller.enqueue(new TextEncoder().encode('{"id":'));
-        await gap;
+        await gap.promise;
         controller.enqueue(new TextEncoder().encode('"evt_1"}'));
         controller.close();
       },
@@ -698,7 +689,7 @@ describe("HTTP source respond", () => {
     await sleep(20);
     const stopping = bound.ctx.stop();
     await sleep(20);
-    sendRest();
+    gap.resolve();
 
     const res = await inflight;
     expect(res.status).toBe(503);
@@ -718,7 +709,7 @@ describe("HTTP source respond", () => {
    * @expectedResult The stream is cancelled once the detached run resolves. Without this the stream has no reader and holds whatever backs it until GC finalises it, if ever
    */
   test("a detached streaming body is cancelled", async () => {
-    const cancelled = deferred();
+    const cancelled = Promise.withResolvers<void>();
     let cancelSeen = false;
     const bound = await bootHttp({
       routes: craft()
@@ -830,6 +821,368 @@ describe("HTTP source respond", () => {
       path: "/hooks/:id/echo",
       header: "bird",
     });
+  });
+
+  /**
+   * @case A responder returning undefined defers to the pipeline
+   * @preconditions A responder that returns undefined, on a route whose step parks on a deferred and then sets a body and a status
+   * @expectedResult The request is held open until the pipeline finishes and is answered with its result, so returning undefined is the same as configuring no responder at all. The step runs exactly ONCE: the dispatcher awaits the run it already started rather than starting a second, which would process every delivery twice and answer from the wrong one
+   */
+  test("a responder returning undefined answers with the pipeline result", async () => {
+    const gate = Promise.withResolvers<void>();
+    let answered = false;
+    let runs = 0;
+    const bound = await bootHttp({
+      routes: craft()
+        .id("defer-to-pipeline")
+        .from(
+          http({
+            path: "/hooks/defer",
+            method: "POST",
+            respond: () => undefined,
+          }),
+        )
+        .process(async (ex) => {
+          runs += 1;
+          await gate.promise;
+          return DefaultExchange.rewrap(ex, { body: { from: "pipeline" } });
+        })
+        .to(noop()),
+      http: {},
+    });
+    t = bound.ctx;
+
+    const pending = fetch(`http://127.0.0.1:${bound.port}/hooks/defer`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "evt_1" }),
+    }).then((res) => {
+      answered = true;
+      return res;
+    });
+
+    // Held open: the caller is still waiting while the pipeline is parked,
+    // which is the whole difference from a responder that answers early.
+    await sleep(30);
+    expect(answered).toBe(false);
+
+    gate.resolve();
+    const res = await pending;
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ from: "pipeline" });
+    // One delivery, one run. A dispatcher that started a fresh pipeline
+    // rather than awaiting the one already in flight would answer correctly
+    // and still have processed the delivery twice.
+    await sleep(20);
+    expect(runs).toBe(1);
+  });
+
+  /**
+   * @case A responder can build its answer from the request alone
+   * @preconditions A responder reading the request body and returning a 202 carrying a value derived from it, never touching finished, on a route whose step parks on a deferred
+   * @expectedResult The 202 and its derived body arrive while the step is still parked, and the pipeline afterwards runs to its destination
+   */
+  test("a responder maps its answer from the request and still detaches", async () => {
+    const gate = Promise.withResolvers<void>();
+    const arrived = Promise.withResolvers<void>();
+    let stepFinished = false;
+    let delivered: unknown;
+    const bound = await bootHttp({
+      routes: craft()
+        .id("map-from-request")
+        .from(
+          http({
+            path: "/hooks/map",
+            method: "POST",
+            respond: ({ request }) => ({
+              status: 202,
+              body: { received: (request.body as { id: string }).id },
+            }),
+          }),
+        )
+        .process(async (ex) => {
+          await gate.promise;
+          stepFinished = true;
+          return ex;
+        })
+        .tap((ex) => {
+          delivered = ex.body;
+          arrived.resolve();
+        })
+        .to(noop()),
+      http: {},
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/hooks/map`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "evt_42" }),
+    });
+
+    expect(res.status).toBe(202);
+    expect(await res.json()).toEqual({ received: "evt_42" });
+    expect(stepFinished).toBe(false);
+
+    gate.resolve();
+    await arrived.promise;
+    expect(stepFinished).toBe(true);
+    expect(delivered).toEqual({ id: "evt_42" });
+  });
+
+  /**
+   * @case A responder can shape both status and body from the finished exchange
+   * @preconditions A responder awaiting finished and returning a status and body derived from the finished exchange's body
+   * @expectedResult Both come from the pipeline's result, so awaiting gives the responder the same material the framework's own path uses
+   */
+  test("a responder shapes status and body from the finished exchange", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("shape-from-finished")
+        .from(
+          http({
+            path: "/hooks/shape",
+            method: "POST",
+            respond: async ({ finished }) => {
+              const ex = await finished;
+              const body = ex.body as { created: boolean; id: string };
+              return {
+                status: body.created ? 201 : 200,
+                headers: { location: `/orders/${body.id}` },
+                body: { id: body.id },
+              };
+            },
+          }),
+        )
+        .transform(() => ({ created: true, id: "ord_7" }))
+        .to(noop()),
+      http: {},
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/hooks/shape`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ id: "evt_1" }),
+    });
+    expect(res.status).toBe(201);
+    expect(res.headers.get("location")).toBe("/orders/ord_7");
+    expect(await res.json()).toEqual({ id: "ord_7" });
+  });
+
+  /**
+   * @case One responder decides per request
+   * @preconditions A responder returning a 202 for a status ping and undefined for anything else, on one route whose step parks on a deferred
+   * @expectedResult The ping is answered at once while the pipeline is parked; the real delivery is held open and answered with the pipeline's result, from the same route and the same responder
+   */
+  test("a responder answers one request early and defers another", async () => {
+    const gate = Promise.withResolvers<void>();
+    const bound = await bootHttp({
+      routes: craft()
+        .id("per-request-switch")
+        .from(
+          http({
+            path: "/hooks/switch",
+            method: "POST",
+            respond: ({ request }) =>
+              (request.body as { event: string }).event === "status"
+                ? { status: 202 }
+                : undefined,
+          }),
+        )
+        .process(async (ex) => {
+          await gate.promise;
+          return DefaultExchange.rewrap(ex, { body: { handled: true } });
+        })
+        .to(noop()),
+      http: {},
+    });
+    t = bound.ctx;
+
+    // The ping is answered while the pipeline is still parked on the gate.
+    const ping = await fetch(`http://127.0.0.1:${bound.port}/hooks/switch`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ event: "status" }),
+    });
+    expect(ping.status).toBe(202);
+    expect(await ping.text()).toBe("");
+
+    let realAnswered = false;
+    const real = fetch(`http://127.0.0.1:${bound.port}/hooks/switch`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ event: "message" }),
+    }).then((res) => {
+      realAnswered = true;
+      return res;
+    });
+    await sleep(30);
+    expect(realAnswered).toBe(false);
+
+    gate.resolve();
+    const res = await real;
+    expect(res.status).toBe(200);
+    expect(await res.json()).toEqual({ handled: true });
+  });
+
+  /**
+   * @case A responder returning a streaming body is refused rather than answering with {}
+   * @preconditions A responder handing back a pipeline body that is a ReadableStream, which the descriptor cannot serialise
+   * @expectedResult 500 rather than a 200 carrying "{}", because a stream falls through every serialiser arm to JSON and would otherwise be a silently empty answer with the stream never read
+   */
+  test("a responder returning a stream is refused, not JSON-stringified", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("stream-descriptor")
+        .from(
+          http({
+            path: "/hooks/stream-desc",
+            method: "POST",
+            respond: async ({ finished }) => ({
+              status: 200,
+              body: (await finished).body,
+            }),
+          }),
+        )
+        .process((ex) =>
+          DefaultExchange.rewrap(ex, {
+            body: new ReadableStream({
+              start(c) {
+                c.enqueue(new TextEncoder().encode("hello"));
+                c.close();
+              },
+            }),
+          }),
+        )
+        .to(noop()),
+      http: {},
+    });
+    t = bound.ctx;
+
+    const res = await fetch(
+      `http://127.0.0.1:${bound.port}/hooks/stream-desc`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      },
+    );
+    expect(res.status).toBe(500);
+    expect(await res.text()).not.toContain("{}\n");
+  });
+
+  /**
+   * @case A descriptor status outside the valid range is refused by name
+   * @preconditions Two responders, one returning a status of 999 and one omitting status entirely as an untyped caller would
+   * @expectedResult Both answer 500. The omitted status is the dangerous half: left to the platform it is a silent 200, which a webhook sender reads as an acknowledgement
+   */
+  test("a descriptor with an invalid or missing status is refused", async () => {
+    const bound = await bootHttp({
+      routes: [
+        craft()
+          .id("status-out-of-range")
+          .from(
+            http({
+              path: "/hooks/status-999",
+              method: "POST",
+              respond: () => ({ status: 999 }),
+            }),
+          )
+          .to(noop()),
+        craft()
+          .id("status-missing")
+          .from(
+            http({
+              path: "/hooks/status-missing",
+              method: "POST",
+              respond: () => ({}) as unknown as HttpResponseDescriptor,
+            }),
+          )
+          .to(noop()),
+      ],
+      http: {},
+    });
+    t = bound.ctx;
+
+    for (const path of ["/hooks/status-999", "/hooks/status-missing"]) {
+      const res = await fetch(`http://127.0.0.1:${bound.port}${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: "{}",
+      });
+      expect(res.status).toBe(500);
+    }
+  });
+
+  /**
+   * @case A status that forbids a body answers the same way on both runtimes
+   * @preconditions A responder returning 204 with a body, which Bun accepts and Node rejects with a TypeError
+   * @expectedResult 204 with an empty body, because the framework drops the body rather than letting the same route serve under Bun and 500 under Node
+   */
+  test("a 204 descriptor drops its body instead of diverging by runtime", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("null-body-status")
+        .from(
+          http({
+            path: "/hooks/204",
+            method: "POST",
+            respond: () => ({ status: 204, body: { ignored: true } }),
+          }),
+        )
+        .to(noop()),
+      http: {},
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/hooks/204`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(res.status).toBe(204);
+    expect(await res.text()).toBe("");
+  });
+
+  /**
+   * @case A responder that throws answers 500 and leaves the pipeline running
+   * @preconditions A responder that throws synchronously, on a route whose step records that it ran
+   * @expectedResult The caller gets 500, and the pipeline the dispatcher had already started still completes, since starting it is not reversible once the responder has been called
+   */
+  test("a responder that throws answers 500 and the pipeline still runs", async () => {
+    const ran = Promise.withResolvers<void>();
+    let stepRan = false;
+    const bound = await bootHttp({
+      routes: craft()
+        .id("responder-throws")
+        .from(
+          http({
+            path: "/hooks/throws",
+            method: "POST",
+            respond: () => {
+              throw new Error("responder blew up");
+            },
+          }),
+        )
+        .process((ex) => {
+          stepRan = true;
+          ran.resolve();
+          return ex;
+        })
+        .to(noop()),
+      http: {},
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/hooks/throws`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: "{}",
+    });
+    expect(res.status).toBe(500);
+    await ran.promise;
+    expect(stepRan).toBe(true);
   });
 
   /**
