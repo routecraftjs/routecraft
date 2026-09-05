@@ -6,7 +6,7 @@ rule under the fixed headings. Delete the guidance comments before opening.
 
 ## TLDR
 
-<!-- One to three sentences: what a route author gets or loses, and why. End with the ticket: "Closes #123". -->
+<!-- One to three sentences: what a route author gets or loses, and why. End with the tickets it closes, one `Closes #N` per line: GitHub honours only the first number in a comma-separated list. -->
 
 **Breaking for route authors:** <!-- yes or no; a behaviour or type an existing route asserts on changes -->
 
