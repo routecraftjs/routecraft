@@ -22,6 +22,7 @@ import { buildAuthHeaders } from "../src/mcp/build-auth-headers.ts";
 import { z } from "zod";
 import http from "node:http";
 import { rpcBody } from "./fixtures/rpc-body.ts";
+import { callTool } from "./helpers/mcp-tool-call.ts";
 
 const MCP_STORE_KEY =
   MCP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry;
@@ -3735,31 +3736,114 @@ describe("McpServer", () => {
     });
   });
 
+  describe("tool failure text", () => {
+    /**
+     * @case A step throws a plain Error
+     * @preconditions A tool route whose transform throws new Error("Nuclino API 404: Item not found"); the pipeline wraps it as RC5001 with the error as its cause and the error's message as the RC message
+     * @expectedResult The tool result text carries that message exactly once, where every route-raised tool error used to read as "message: message"
+     */
+    test("says a plain step error once", async () => {
+      const srv = await serve([
+        craft()
+          .id("thrower")
+          .description("Throws a plain error from its transform")
+          .from<{ value: string }>(mcp())
+          .transform(() => {
+            throw new Error("Nuclino API 404: Item not found");
+          }),
+      ]);
+
+      const result = await callTool(srv, "thrower", { value: "hi" });
+
+      expect(result.isError).toBe(true);
+      const text = result.content[0]!.text;
+      expect(text).toStartWith("Error: ");
+      expect(text.match(/Nuclino API 404: Item not found/g)).toHaveLength(1);
+    });
+
+    /**
+     * @case A RoutecraftError whose cause says something its message does not
+     * @preconditions A tool route throws rcError("RC5001", new Error("field total is required"), { message: "Validation failed" })
+     * @expectedResult The text carries the message and then the cause, each once: a cause that adds information still reaches the client, which is how schema field errors get there
+     */
+    test("still appends a cause that adds information", async () => {
+      const srv = await serve([
+        craft()
+          .id("validator")
+          .description("Throws an RC error with an informative cause")
+          .from<{ value: string }>(mcp())
+          .transform(() => {
+            throw rcError("RC5001", new Error("field total is required"), {
+              message: "Validation failed",
+            });
+          }),
+      ]);
+
+      const result = await callTool(srv, "validator", { value: "hi" });
+
+      expect(result.isError).toBe(true);
+      const text = result.content[0]!.text;
+      expect(text.match(/Validation failed/g)).toHaveLength(1);
+      expect(text.match(/field total is required/g)).toHaveLength(1);
+      expect(text.indexOf("Validation failed")).toBeLessThan(
+        text.indexOf("field total is required"),
+      );
+    });
+
+    /**
+     * @case A RoutecraftError whose message already embeds its cause's text
+     * @preconditions A tool route throws rcError("RC5001", new Error("total"), { message: "Validation failed for total" }), the shape several core sites build
+     * @expectedResult The cause is not appended, so "total" appears once: containment, not equality, is the rule
+     */
+    test("does not append a cause the message already contains", async () => {
+      const srv = await serve([
+        craft()
+          .id("embedder")
+          .description("Throws an RC error whose message embeds the cause")
+          .from<{ value: string }>(mcp())
+          .transform(() => {
+            throw rcError("RC5001", new Error("total"), {
+              message: "Validation failed for total",
+            });
+          }),
+      ]);
+
+      const result = await callTool(srv, "embedder", { value: "hi" });
+
+      const text = result.content[0]!.text;
+      expect(text).toContain("Validation failed for total");
+      expect(text.match(/total/g)).toHaveLength(1);
+    });
+
+    /**
+     * @case A cause whose text already contains the RC message
+     * @preconditions A tool route throws rcError("RC5001", new Error("Validation failed: field total is required"), { message: "Validation failed" })
+     * @expectedResult The cause is returned whole and the message is not prefixed to it, so "Validation failed" appears once and the detail survives
+     */
+    test("returns a cause that contains the message, once", async () => {
+      const srv = await serve([
+        craft()
+          .id("prefixed")
+          .description("Throws an RC error whose cause extends the message")
+          .from<{ value: string }>(mcp())
+          .transform(() => {
+            throw rcError(
+              "RC5001",
+              new Error("Validation failed: field total is required"),
+              { message: "Validation failed" },
+            );
+          }),
+      ]);
+
+      const result = await callTool(srv, "prefixed", { value: "hi" });
+
+      const text = result.content[0]!.text;
+      expect(text.match(/Validation failed/g)).toHaveLength(1);
+      expect(text).toContain("field total is required");
+    });
+  });
+
   describe("advertised output enforcement", () => {
-    /** Shape of the tool result the server hands back to a client. */
-    type ToolResult = {
-      content: Array<{ type: string; text: string }>;
-      structuredContent?: Record<string, unknown>;
-      isError?: boolean;
-    };
-
-    /** Call a tool the way the SDK does, bypassing the JSON-RPC transport. */
-    async function callTool(
-      srv: McpServer,
-      tool: string,
-      args: Record<string, unknown>,
-    ): Promise<ToolResult> {
-      return (await (
-        srv as unknown as {
-          handleToolCall(
-            tool: string,
-            args: Record<string, unknown>,
-            principal: undefined,
-          ): Promise<ToolResult>;
-        }
-      ).handleToolCall(tool, args, undefined)) as ToolResult;
-    }
-
     /**
      * Serve one tool straight from the local registry, with a handler that
      * returns `body` without a route behind it. Isolates the MCP boundary
