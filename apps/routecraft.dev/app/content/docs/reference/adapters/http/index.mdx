@@ -844,7 +844,7 @@ const revalidateAndFollow = (path) =>
 craft()
   .id('fetch-page')
   .input({ body: z.object({ url: AllowedUrl }) })
-  .from(direct('fetch-page'))
+  .from(direct())
   .enrich(http({ url: (ex) => ex.body.url, redirect: 'manual' }))
   .choice(when(isRedirect, revalidateAndFollow))
   .to(log())

@@ -45,7 +45,8 @@ craft()
 ```ts
 // An agent capability: list candidate files, read them, return the matches
 craft()
-  .from(direct('search-notes'))
+  .id('search-notes')
+  .from(direct())
   .to(directory({ path: './notes', recursive: true }))   // body becomes DirectoryEntry[]
   .transform((entries) => entries.filter((e) => e.ext === '.md'))
   .split((ex) => ex.body)
@@ -57,7 +58,8 @@ craft()
 
 // List a directory whose path depends on the exchange
 craft()
-  .from(direct('inspect-dir'))
+  .id('inspect-dir')
+  .from(direct())
   .enrich(
     directory({ path: (ex) => ex.body.dir }),
     only((entries: DirectoryEntry[]) => entries, 'candidates'),
