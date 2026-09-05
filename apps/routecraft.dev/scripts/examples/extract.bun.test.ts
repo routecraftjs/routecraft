@@ -320,6 +320,35 @@ describe('extractCheatCode', () => {
   })
 
   /**
+   * @case Marker-looking text inside another attribute's value is not read as a marker
+   * @preconditions `<CheatCode className="note: skip='fake' marker">`, whose value contains
+   *   text that looks like a skip marker but belongs to a different attribute
+   * @expectedResult Block carries a "check" marker, because the attribute is matched by its
+   *   own captured name rather than found by searching the raw attribute text
+   */
+  test("marker-looking text in another attribute's value is not a marker", () => {
+    const source =
+      '<CheatCode className="note: skip=\'fake\' marker">{`const a = 1`}</CheatCode>'
+    const blocks = extractCheatCode(TSX, source)
+
+    expect(blocks[0].marker).toEqual({ kind: 'check' })
+  })
+
+  /**
+   * @case A single-quoted reason may contain a literal double quote
+   * @preconditions `<CheatCode skip='he said "hi"'>`, a reason that would corrupt a
+   *   double-quoted reassembly of the marker
+   * @expectedResult Block carries the skip marker with the reason intact
+   */
+  test('a single-quoted reason may contain a literal double quote', () => {
+    const source =
+      '<CheatCode skip=\'he said "hi"\'>{`const a = 1`}</CheatCode>'
+    const blocks = extractCheatCode(TSX, source)
+
+    expect(blocks[0].marker).toEqual({ kind: 'skip', reason: 'he said "hi"' })
+  })
+
+  /**
    * @case A block claiming both markers is rejected
    * @preconditions `<CheatCode>` carries skip and expect-error together
    * @expectedResult MarkerError, because the two demand opposite outcomes

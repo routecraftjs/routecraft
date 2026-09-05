@@ -177,12 +177,19 @@ function unescapeTemplate(raw: string): string {
 /**
  * Reads one attribute's value out of a `<CheatCode>` attribute list,
  * accepting either quote style.
+ *
+ * Attributes are tokenised and compared by captured name rather than
+ * searched for as raw text, so another attribute's value cannot be mistaken
+ * for the one being looked up just because it contains matching text (a
+ * `note="the marker skip='...' shown as text"` attribute, say).
  */
 function attrValue(attrs: string, name: string): string | undefined {
-  const match = new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`).exec(
-    attrs,
-  )
-  return match ? (match[1] ?? match[2]) : undefined
+  for (const found of attrs.matchAll(
+    /([\w-]+)\s*=\s*(?:"([^"]*)"|'([^']*)')/g,
+  )) {
+    if (found[1] === name) return found[2] ?? found[3]
+  }
+  return undefined
 }
 
 /**
@@ -206,8 +213,12 @@ export function extractCheatCode(file: string, source: string): ExampleBlock[] {
     const [, attrs, raw] = match
     const fenceLine = source.slice(0, match.index).split('\n').length
     // The tag can wrap across lines, so the code does not necessarily start on
-    // the line after it. Anchor on the template's own opening backtick.
-    const literalStart = match.index + match[0].indexOf('>{`') + 3
+    // the line after it. Anchor on the template's own opening backtick,
+    // searching only after the attribute list so an attribute value that
+    // happens to contain `>{`` can't be mistaken for the real delimiter.
+    const afterAttrs = match.index + '<CheatCode'.length + attrs.length
+    const literalStart =
+      afterAttrs + source.slice(afterAttrs).indexOf('>{`') + 3
     const literalLine = source.slice(0, literalStart).split('\n').length
     const language = attrValue(attrs, 'language') ?? 'ts'
 
@@ -216,7 +227,7 @@ export function extractCheatCode(file: string, source: string): ExampleBlock[] {
     // marker on a block the gate was never going to check (a bash or json
     // CheatCode) throws and aborts the whole run, over a block that did not
     // matter in the first place.
-    const marker: string[] = []
+    let marker: BlockMarker = { kind: 'check' }
     if (isTypeScript(language)) {
       // Every attribute is checked, not just the two marker names: a typo
       // such as `skipp="..."` would otherwise match neither regex below and
@@ -241,16 +252,35 @@ export function extractCheatCode(file: string, source: string): ExampleBlock[] {
       }
 
       const skip = attrValue(attrs, 'skip')
-      if (skip !== undefined) marker.push(`skip="${skip}"`)
       const expectError = attrValue(attrs, 'expect-error')
-      if (expectError !== undefined)
-        marker.push(`expect-error="${expectError}"`)
-      if (marker.length > 1) {
+      if (skip !== undefined && expectError !== undefined) {
         throw new MarkerError(
           file,
           fenceLine,
           'a block carries both `skip` and `expect-error`; it can only be one.',
         )
+      }
+      // Built directly from the parsed value rather than reassembled into a
+      // `skip="..."` string and reparsed: a single-quoted reason containing a
+      // literal `"` would otherwise come out the other side as unparseable.
+      if (skip !== undefined) {
+        if (skip.trim() === '') {
+          throw new MarkerError(
+            file,
+            fenceLine,
+            '`skip` needs a non-empty reason.',
+          )
+        }
+        marker = { kind: 'skip', reason: skip }
+      } else if (expectError !== undefined) {
+        if (expectError.trim() === '') {
+          throw new MarkerError(
+            file,
+            fenceLine,
+            '`expect-error` needs a non-empty reason.',
+          )
+        }
+        marker = { kind: 'expect-error', reason: expectError }
       }
     }
 
@@ -262,9 +292,7 @@ export function extractCheatCode(file: string, source: string): ExampleBlock[] {
       codeLine: literalLine + leading,
       lang: language,
       indent: 0,
-      marker: isTypeScript(language)
-        ? parseMarker(marker[0] ?? '', file, fenceLine)
-        : { kind: 'check' },
+      marker,
       code: unescapeTemplate(raw.replace(/^\n+|\n+$/g, '')),
     })
   }
