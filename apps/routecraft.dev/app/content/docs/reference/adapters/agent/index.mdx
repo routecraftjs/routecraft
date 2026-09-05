@@ -146,11 +146,12 @@ craft()
 // A webhook continues the same conversation: the branch name carries the session id.
 craft()
   .id('github-hook')
+  .input({ body: DeploymentStatus })
   .from(http({ path: '/hooks/github', signature: github }))
-  .filter((ex) => ex.body.deployment_status?.state === 'success')
-  .transform((ex) => ({
-    session: ex.body.deployment.ref.replace('max/', ''),
-    message: `Preview is up: ${ex.body.deployment_status.environment_url}`,
+  .filter((ex) => ex.body.deployment_status.state === 'success')
+  .transform((body) => ({
+    session: body.deployment.ref.replace('max/', ''),
+    message: `Preview is up: ${body.deployment_status.environment_url}`,
   }))
   .to(direct('max'))
 ```

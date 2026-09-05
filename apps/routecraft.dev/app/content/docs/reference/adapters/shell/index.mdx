@@ -112,7 +112,7 @@ Note how this interacts with `network: true`. Granting egress to a command that 
 craft()
   .id('sandbox-run')
   .description('Run a command in a container mounted on the session workspace')
-  .input({ body: RunInput }) // { session: string; image: string; cmd: string; timeout?: string }
+  .input({ body: RunInput }) // { session: string; image: string; cmd: string; timeout?: Duration }
   .from(direct())
   .to(shell<RunInput>('sh', (ex) => ['-lc', untrusted(ex.body.cmd)], {
     isolation: 'docker',
