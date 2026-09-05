@@ -1212,7 +1212,7 @@ describe("agent sessions", () => {
   /**
    * @case A park the boot cannot release keeps its reference for the next boot
    * @preconditions A record whose parking names a real park, and a suspension store whose claim fails
-   * @expectedResult driveBoot() leaves the parking field in place and the park unsettled, and warns
+   * @expectedResult driveBoot() leaves the parking field in place and the park unsettled
    */
   test("a park the boot cannot release keeps its reference", async () => {
     const store = new MemorySuspensionStore();
@@ -1241,6 +1241,7 @@ describe("agent sessions", () => {
     expect((await sessions.load(key))?.parking?.suspensionId).toBe(
       suspensionId,
     );
+    expect((await store.get(suspensionId))?.status).toBe("suspended");
   });
 
   /**
@@ -1279,6 +1280,7 @@ describe("agent sessions", () => {
     expect((await sessions.load(key))?.parking?.suspensionId).toBe(
       "started-under-the-boot",
     );
+    expect((await store.get(suspensionId))?.status).toBe("denied");
   });
 
   /**
@@ -1337,6 +1339,7 @@ describe("agent sessions", () => {
     expect((await sessions.load(key))?.parking?.suspensionId).toBe(
       announced[0],
     );
+    expect((await store.get(announced[0]!))?.status).toBe("suspended");
   });
 
   /**
