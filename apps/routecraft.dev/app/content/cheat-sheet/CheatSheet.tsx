@@ -157,22 +157,24 @@ await ctx.stop()`}</CheatCode>
   { timezone: 'America/New_York' }))
 
 // In-process direct endpoint
-.from(direct('my-endpoint'))
+.from(direct())  // endpoint = route .id()
 
 // IMAP mail (push via IDLE)
 .from(mail('INBOX',
   { unseen: true, markSeen: true }))
 
 // In-process EventEmitter
-.from(event({ eventName: 'order' }))
+.from(event('route:error'))
+.from(event('exchange:*'))  // wildcards
 
 // File and file-format sources
 .from(file({ path: './data.txt' }))
 .from(directory({ path: './inbox' }))
-.from(json({ file: './data.json' }))
-.from(jsonl({ file: './events.jsonl' }))
-.from(csv({ file: './rows.csv' }))
-.from(html({ html: '<table>...</table>' }))`}</CheatCode>
+.from(json({ path: './data.json' }))
+.from(jsonl({ path: './events.jsonl' }))
+.from(csv({ path: './rows.csv' }))
+.from(html({ path: './page.html',
+  selector: 'h1' }))`}</CheatCode>
           </CheatSection>
 
           <CheatSection
@@ -202,9 +204,9 @@ await ctx.stop()`}</CheatCode>
 
 // Write file or file format
 .to(file({ path: './out.txt' }))
-.to(json({ file: './out.json' }))
-.to(jsonl({ file: './out.jsonl' }))
-.to(csv({ file: './out.csv' }))
+.to(json({ path: './out.json' }))
+.to(jsonl({ path: './out.jsonl' }))
+.to(csv({ path: './out.csv' }))
 
 // Send email via SMTP (payload from the exchange body)
 .transform(body => ({
@@ -289,8 +291,10 @@ craft()
 }))
 
 // Merge helpers
-.enrich(dest, only('meta'))
-.enrich(dest, replace())`}</CheatCode>
+.enrich(dest, only((m: Meta) => m, 'meta'))
+
+// Run the fetch, keep the original body
+.enrich(dest, none())`}</CheatCode>
           </CheatSection>
 
           <CheatSection
@@ -305,7 +309,8 @@ craft()
 import { schema } from '@routecraft/routecraft'
 
 craft()
-  .from(direct('input'))
+  .id('input')
+  .from(direct())
   .validate(schema(z.object({
     email: z.string().email(),
     age: z.number().min(18),
@@ -405,7 +410,8 @@ const myPlugin: CraftPlugin = {
 
 // Basic call (user prompt defaults to body)
 craft()
-  .from(direct('text-in'))
+  .id('text-in')
+  .from(direct())
   .to(llm('anthropic:claude-sonnet-4-6', {
     system: 'Summarize concisely',
     user: ex => ex.body.text,
@@ -433,7 +439,7 @@ craft()
 
 craft()
   .id('assistant')
-  .from(direct('chat-in'))
+  .from(direct())
   .to(agent({
     model: 'anthropic:claude-sonnet-4-6',
     system: 'You are a helpful assistant.',
