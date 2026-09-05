@@ -143,6 +143,13 @@ export {
   assertResumableThread,
   replaceParkedThread,
   SuspendError,
+  // Where agent sessions live: the config key's plugin form, the two
+  // shipped backends, and the contract for a backend of your own.
+  DEFAULT_SESSION_DB_PATH,
+  MemorySessionStore,
+  SESSION_STORE_ENV,
+  SqliteSessionStore,
+  sessionsPlugin,
 } from "./agent/index.ts";
 export type {
   AgentDefaultOptions,
@@ -157,9 +164,14 @@ export type {
   AgentRegisteredOptions,
   AgentResult,
   AgentSessionOutcome,
+  AgentSessionsConfig,
   AgentInterruptSource,
   AgentSessionSource,
   AgentSessionSummary,
+  SessionCasResult,
+  SessionStore,
+  SessionStoreConfig,
+  StoredSession,
   AgentStepState,
   AgentStream,
   AgentSuspendOptions,

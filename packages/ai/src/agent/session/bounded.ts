@@ -1,39 +1,13 @@
 /**
- * A set that forgets its oldest members past a bound. Per-process memory
- * about sessions must not grow with every session a long-lived process
- * has ever served; what it forgets is repaired the way it was first
- * learnt (an index write, a follow-up request), one extra step per
- * forgotten key.
- *
- * @internal
- */
-export class BoundedSet<T> {
-  private readonly members = new Set<T>();
-
-  constructor(private readonly bound: number) {}
-
-  has(value: T): boolean {
-    return this.members.has(value);
-  }
-
-  add(value: T): void {
-    // Re-adding moves the key to the young end, so what is in use stays.
-    this.members.delete(value);
-    this.members.add(value);
-    if (this.members.size > this.bound) {
-      const oldest = this.members.values().next().value as T;
-      this.members.delete(oldest);
-    }
-  }
-}
-
-/**
- * A map with the same forgetting rule as {@link BoundedSet}, plus pins: a
- * pinned key is never forgotten, for an entry the owner knows it will
- * need (a session with work outstanding and no stored continuation,
- * whose next turn can only run on the request kept here). The bound
- * counts the unpinned entries only, so pinned ones never crowd out a new
- * entry, and an unpin trims what the pin was holding open.
+ * A map that forgets its oldest entries past a bound, plus pins: a pinned
+ * key is never forgotten, for an entry the owner knows it will need (a
+ * session with work outstanding and no stored continuation, whose next turn
+ * can only run on the request kept here). Per-process memory about sessions
+ * must not grow with every session a long-lived process has ever served;
+ * what it forgets is repaired the way it was first learnt, one extra step
+ * per forgotten key. The bound counts the unpinned entries only, so pinned
+ * ones never crowd out a new entry, and an unpin trims what the pin was
+ * holding open.
  *
  * @internal
  */
@@ -50,6 +24,7 @@ export class BoundedMap<K, V> {
   get(key: K): V | undefined {
     if (!this.entries.has(key)) return undefined;
     const value = this.entries.get(key) as V;
+    // A read moves the key to the young end, so what is in use stays.
     this.entries.delete(key);
     this.entries.set(key, value);
     return value;

@@ -14,11 +14,13 @@ import { validateAgentOptions, validateBlocks } from "./agent.ts";
 import {
   ADAPTER_AGENT_DEFAULT_OPTIONS,
   ADAPTER_AGENT_REGISTRY,
+  ADAPTER_AGENT_SESSION_STORE,
   ADAPTER_AGENT_SESSIONS,
   ADAPTER_AGENT_SESSIONS_BOOT,
   ADAPTER_AGENT_TOOL_POLICIES,
   AGENT_DEFAULT_OPTION_KEYS,
 } from "./store.ts";
+import { createSessionStore } from "./session/config.ts";
 import { AGENT_TOOL_POLICY_KINDS } from "./tools/policy.ts";
 import type {
   AgentToolPolicy,
@@ -176,7 +178,7 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
   const defaultOptions = validatePluginDefaults(options.defaultOptions);
   const toolPolicy = validateToolPolicy(options.toolPolicy);
   return {
-    apply(ctx: CraftContext) {
+    async apply(ctx: CraftContext) {
       // Merge into an existing registry when present so multiple
       // `agentPlugin({...})` entries compose instead of overwriting.
       const existingAgents = ctx.getStore(ADAPTER_AGENT_REGISTRY);
@@ -273,6 +275,16 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
       if (ctx.getStore(OPS_RESOURCES)?.has(SESSIONS_RESOURCE) !== true) {
         registerSessionsResource(ctx);
       }
+
+      // The default session store, unless a `sessions` block chose one (or
+      // will: its plugin replaces an unconfigured default whichever applied
+      // first). Resolved here so the driver is probed at boot.
+      if (ctx.getStore(ADAPTER_AGENT_SESSION_STORE) === undefined) {
+        ctx.setStore(
+          ADAPTER_AGENT_SESSION_STORE,
+          await createSessionStore(ctx, {}, false),
+        );
+      }
     },
 
     /**
@@ -297,7 +309,7 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
     },
 
     /**
-     * A boot drive still walking the index at shutdown would revive
+     * A boot drive still walking the store at shutdown would revive
      * sessions onto routes that are draining and write the store after
      * the context let go of it; it is told to stop and waited for.
      */
@@ -307,6 +319,9 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
       // After the boot walk, so a revival the walk was starting when the
       // stop landed is in the set the runtime waits for.
       await ctx.getStore(ADAPTER_AGENT_SESSIONS)?.stop();
+      // Closed only once every revival has settled, and only if this
+      // context opened it.
+      await ctx.getStore(ADAPTER_AGENT_SESSION_STORE)?.close();
     },
   };
 }
@@ -335,7 +350,7 @@ const SESSIONS_RESOURCE = "agent-sessions";
  * results and the stored continuations they were for are revived, so a
  * lost build reaches the model as a turn rather than waiting for a
  * message. Begun and returned rather than awaited, because it reads every
- * session the index names; a context with no suspension store has nothing
+ * session the store holds; a context with no suspension store has nothing
  * to drive. Once per context, keyed on the first install like the
  * resource registration.
  */

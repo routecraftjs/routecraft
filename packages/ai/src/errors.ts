@@ -95,6 +95,8 @@ declare module "@routecraft/routecraft" {
     AI1010: RCMeta;
     /** A tool asked to park an agent session turn */
     AI1011: RCMeta;
+    /** The agent session store could not be opened, read or written */
+    AI1012: RCMeta;
     /** MCP tool result violated the tool's advertised output schema */
     AI2001: RCMeta;
     /** MCP tool declined the request: the route dropped the exchange */
@@ -194,6 +196,14 @@ registerErrorCodes(
         "ctx.suspend() was called by a tool inside an agent dispatched with session. A session turn stores its transcript when it ends and is revived from the session record, not from a parked exchange, so there is no continuation for an approval to resume into. Park from a sessionless agent, or move the approval into a route the agent calls as a tool.",
       docs: `${DOCS_BASE}#ai-1011`,
       retryable: false,
+    },
+    AI1012: {
+      category: "Adapter",
+      message: "Agent session store failed",
+      suggestion:
+        "The store configured by sessions: { store } (the sqlite file at .routecraft/sessions.db by default) could not be opened, migrated, read or written. Check the path and its permissions, that one process at a time holds the file, and under Node that better-sqlite3 is installed; a store that is busy answers this code too, and that call can be retried.",
+      docs: `${DOCS_BASE}#ai-1012`,
+      retryable: true,
     },
     AI2001: {
       category: "Adapter",

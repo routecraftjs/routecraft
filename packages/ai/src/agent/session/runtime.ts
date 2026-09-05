@@ -20,6 +20,7 @@ import type { AgentResult } from "../types.ts";
 import { closeUnansweredToolCalls, renderUserMessage } from "./render.ts";
 import { BoundedMap, SESSION_MEMORY_BOUND } from "./bounded.ts";
 import { AgentSessionStore } from "./store.ts";
+import { sessionStoreOf } from "./config.ts";
 import type {
   AgentBackgroundCall,
   AgentInboxMessage,
@@ -137,10 +138,12 @@ export class AgentSessionRuntime {
   ) {}
 
   /**
-   * The runtime for a context, created on first use over the context's
-   * suspension store. A context with no `suspension` block has nowhere to
-   * keep a transcript, so `session` refuses there rather than running a
-   * conversation that forgets itself on restart.
+   * The runtime for a context, created on first use over the session store
+   * the context resolved and its suspension store. Records live in the
+   * first; the continuation a turn stores between turns is a parked
+   * exchange and lives in the second, so a context with no `suspension`
+   * block refuses `session` rather than running conversations whose
+   * boundary turns could never be revived.
    */
   static for(context: CraftContext): AgentSessionRuntime {
     const existing = context.getStore(ADAPTER_AGENT_SESSIONS);
@@ -149,12 +152,12 @@ export class AgentSessionRuntime {
     if (!suspension) {
       throw rcError("RC5052", undefined, {
         message:
-          "agent({ session }) keeps the conversation in the suspension store, and this context has none. Add a `suspension` block to defineConfig (the sqlite backend is the default) so sessions survive a restart.",
+          "agent({ session }) stores a turn's continuation in the suspension store, and this context has none. Add a `suspension` block to defineConfig (the sqlite backend is the default) so a turn that ends with work outstanding can be revived.",
       });
     }
     const runtime = new AgentSessionRuntime(
       context,
-      new AgentSessionStore(suspension.store),
+      new AgentSessionStore(sessionStoreOf(context), suspension.store),
     );
     context.setStore(ADAPTER_AGENT_SESSIONS, runtime);
     // Latched as shutdown begins, before the routes drain, so a completion

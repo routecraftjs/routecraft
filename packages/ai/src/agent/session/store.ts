@@ -1,10 +1,5 @@
-import { BoundedSet, SESSION_MEMORY_BOUND } from "./bounded.ts";
-import {
-  rcCodeOf,
-  rcError,
-  stepStateFingerprint,
-  type SuspensionStore,
-} from "@routecraft/routecraft";
+import { rcError, type SuspensionStore } from "@routecraft/routecraft";
+import type { SessionStore } from "./port.ts";
 import {
   SESSION_RECORD_VERSION,
   type AgentSessionKey,
@@ -13,49 +8,29 @@ import {
 // Registers AI1010, thrown from the record checks below.
 import "../../errors.ts";
 
-/**
- * Session persistence over the suspension store.
- *
- * A session is not a parked exchange, but it needs exactly what a park
- * needs from a store: a durable free-form slot with a compare-and-swap on
- * write, on whichever backend the deployment configured. So each session
- * is one suspension record that never expires and is never resumed, with
- * the transcript and inbox in its `stepState`. The record's other fields
- * are filled with placeholders and mean nothing.
- *
- * The one cost of borrowing the store: the boot summary's `pending` count
- * includes session records, since the store cannot tell them apart.
- *
- * The store contract has no enumeration, so an index record lists every
- * session key. It is written through the same compare-and-swap.
- */
-
-const RECORD_PREFIX = "agent-session:";
-const INDEX_ID = "agent-sessions:index";
 const CAS_ATTEMPTS = 20;
 
-/** What the index record's slot holds. */
-interface SessionIndex {
-  readonly kind: "agent-session-index";
-  readonly keys: readonly AgentSessionKey[];
-}
-
-/** Id of the record holding one session. */
-export function sessionRecordId(key: AgentSessionKey): string {
-  return `${RECORD_PREFIX}${encodeURIComponent(key.agent)}:${encodeURIComponent(key.session)}`;
-}
-
+/**
+ * The typed layer over the two stores a session touches.
+ *
+ * Session records live in the {@link SessionStore} the context resolved
+ * through `sessions: { store }`: one slot per `(agent, session)`, written
+ * under a compare-and-swap and validated on every read, since the value
+ * crossed a process boundary. The continuation a turn stores between turns
+ * is a parked exchange, so it lives in the suspension store beside every
+ * other one, and releasing it goes through that store's own transitions.
+ */
 export class AgentSessionStore {
-  /** Record ids this process has confirmed in the index. */
-  private readonly indexed = new BoundedSet<string>(SESSION_MEMORY_BOUND);
-
-  constructor(private readonly store: SuspensionStore) {}
+  constructor(
+    private readonly records: SessionStore,
+    private readonly parks: SuspensionStore,
+  ) {}
 
   /** The stored record, or `undefined` for a session the store has never seen. */
   async load(key: AgentSessionKey): Promise<AgentSessionRecord | undefined> {
-    const record = await this.store.get(sessionRecordId(key));
-    if (!record) return undefined;
-    return parseSessionRecord(record.stepState, key);
+    const stored = await this.records.get(key);
+    if (!stored) return undefined;
+    return parseSessionRecord(stored.value, key);
   }
 
   /**
@@ -67,16 +42,14 @@ export class AgentSessionStore {
     // Claim first: `markDenied` only leaves `expiring`, and a record nothing
     // revives is still `suspended`. Losing the claim means another party
     // settled it already, and that outcome stands.
-    const claim = await this.store.claimExpiry(suspensionId, new Date());
+    const claim = await this.parks.claimExpiry(suspensionId, new Date());
     if (!claim.won) return;
-    await this.store.markDenied(suspensionId, reason);
+    await this.parks.markDenied(suspensionId, reason);
   }
 
-  /** Every session key the index knows. */
+  /** Every session the store holds. */
   async list(): Promise<AgentSessionKey[]> {
-    const record = await this.store.get(INDEX_ID);
-    if (!record) return [];
-    return [...parseIndex(record.stepState).keys];
+    return this.records.keys();
   }
 
   /**
@@ -84,96 +57,35 @@ export class AgentSessionStore {
    * `mutate` and write the result back. Retried on a lost compare-and-swap
    * with the state that landed, so two writers never overwrite each other:
    * an inbox append and a transcript write race to the same record from
-   * different exchanges.
+   * different exchanges. A mutation that returns its input unchanged is
+   * not written, so a no-op costs one read.
    */
   async update(
     key: AgentSessionKey,
     mutate: (record: AgentSessionRecord) => AgentSessionRecord,
   ): Promise<AgentSessionRecord> {
-    const { value, created } = await this.cas<AgentSessionRecord>({
-      id: sessionRecordId(key),
-      key,
-      parse: (slot) => parseSessionRecord(slot, key),
-      empty: () => emptyRecord(key),
-      mutate: (current) => {
-        const next = mutate(current);
-        // Unchanged input passes through untouched, which is what lets the
-        // compare-and-swap skip the write for a no-op.
-        return next === current ? current : stamped(next);
-      },
-      exhausted: `Agent session "${key.session}" of "${key.agent}" could not be written after ${CAS_ATTEMPTS} attempts: another writer kept winning the compare-and-swap.`,
-    });
-    // Indexed on creation and once more per process on the first write to
-    // a record this process has not indexed: a record whose index write
-    // failed after its own succeeded is repaired by its next write rather
-    // than hidden from the listing for good.
-    const id = sessionRecordId(key);
-    if (created || !this.indexed.has(id)) {
-      await this.index(key);
-      this.indexed.add(id);
-    }
-    return value;
-  }
-
-  /** Add the key to the index record, creating the index on first use. */
-  private async index(key: AgentSessionKey): Promise<void> {
-    await this.cas<SessionIndex>({
-      id: INDEX_ID,
-      key,
-      parse: parseIndex,
-      empty: () => ({ kind: "agent-session-index", keys: [] }),
-      mutate: (current) =>
-        current.keys.some(
-          (k) => k.agent === key.agent && k.session === key.session,
-        )
-          ? current
-          : { ...current, keys: [...current.keys, key] },
-      exhausted: `The agent session index could not be written after ${CAS_ATTEMPTS} attempts.`,
-    });
-  }
-
-  /**
-   * The one write path: read the slot, mutate it, write it back under a
-   * compare-and-swap, and retry on a lost race with the state that landed.
-   * A slot that does not exist yet is created from `empty`, and a create
-   * that loses to a concurrent first write reads that write back on the
-   * next attempt. A mutation that returns its input unchanged is not
-   * written, so a no-op costs one read.
-   */
-  private async cas<S>(op: {
-    id: string;
-    key: AgentSessionKey;
-    parse: (slot: unknown) => S;
-    empty: () => S;
-    mutate: (current: S) => S;
-    exhausted: string;
-  }): Promise<{ value: S; created: boolean }> {
     for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
-      const existing = await this.store.get(op.id);
-      if (!existing) {
-        const value = op.mutate(op.empty());
-        try {
-          await this.store.create({
-            ...placeholderFields(op.id, op.key),
-            stepState: value,
-          });
-        } catch (err) {
-          if (isAlreadyExists(err)) continue;
-          throw err;
-        }
-        return { value, created: true };
+      const stored = await this.records.get(key);
+      if (!stored) {
+        const empty = emptyRecord(key);
+        const first = mutate(empty);
+        const value = first === empty ? empty : stamped(first);
+        // A create that loses to a concurrent first write reads that write
+        // back on the next attempt.
+        if ((await this.records.create(key, value)).won) return value;
+        continue;
       }
-      const current = op.parse(existing.stepState);
-      const next = op.mutate(current);
-      if (next === current) return { value: current, created: false };
-      const cas = await this.store.replaceStepState(
-        op.id,
-        stepStateFingerprint(existing.stepState),
-        next,
-      );
-      if (cas.won) return { value: next, created: false };
+      const current = parseSessionRecord(stored.value, key);
+      const next = mutate(current);
+      if (next === current) return current;
+      const value = stamped(next);
+      if ((await this.records.replace(key, stored.version, value)).won) {
+        return value;
+      }
     }
-    throw rcError("AI1010", undefined, { message: op.exhausted });
+    throw rcError("AI1010", undefined, {
+      message: `Agent session "${key.session}" of "${key.agent}" could not be written after ${CAS_ATTEMPTS} attempts: another writer kept winning the compare-and-swap.`,
+    });
   }
 }
 
@@ -198,32 +110,10 @@ function stamped(record: AgentSessionRecord): AgentSessionRecord {
 }
 
 /**
- * The record fields a session does not use, filled so the store accepts
- * the row. `expiresAt` is deliberately absent: the sweeper visits only
- * records with a deadline, so a session is never expired or retired by it.
- */
-function placeholderFields(id: string, key: AgentSessionKey) {
-  return {
-    id,
-    routeId: `agent:${key.agent}`,
-    position: 0,
-    continuationHash: "agent-session",
-    actionFingerprint: id,
-    exchange: { body: null, headers: {} },
-    schema: { hash: "agent-session", absent: true },
-    suspendedAt: new Date(),
-  };
-}
-
-function isAlreadyExists(err: unknown): boolean {
-  return rcCodeOf(err) === "RC5044";
-}
-
-/**
- * Validate a slot read back off a session record. The value crossed a
- * process boundary, so nothing about its shape is assumed.
+ * Validate a value read back off the store. It crossed a process boundary,
+ * so nothing about its shape is assumed.
  *
- * @throws AI1010 when the slot is not a session record for `key`
+ * @throws AI1010 when the value is not a session record for `key`
  */
 export function parseSessionRecord(
   value: unknown,
@@ -251,20 +141,4 @@ export function parseSessionRecord(
     });
   }
   return record as AgentSessionRecord;
-}
-
-function parseIndex(value: unknown): SessionIndex {
-  const index = value as Partial<SessionIndex> | null | undefined;
-  if (
-    index === null ||
-    typeof index !== "object" ||
-    index.kind !== "agent-session-index" ||
-    !Array.isArray(index.keys)
-  ) {
-    throw rcError("AI1010", undefined, {
-      message:
-        'The agent session index record is not the { kind: "agent-session-index", keys } shape the runtime writes.',
-    });
-  }
-  return index as SessionIndex;
 }

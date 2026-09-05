@@ -18,7 +18,19 @@ export type { AgentStepState, ThreadMessage } from "./suspension-state.ts";
 export type {
   AgentInboxMessage,
   AgentSessionOutcome,
+  AgentSessionsConfig,
   AgentSessionSummary,
+  SessionCasResult,
+  SessionStore,
+  SessionStoreConfig,
+  StoredSession,
+} from "./session/index.ts";
+export {
+  DEFAULT_SESSION_DB_PATH,
+  MemorySessionStore,
+  SESSION_STORE_ENV,
+  SqliteSessionStore,
+  sessionsPlugin,
 } from "./session/index.ts";
 export { assertResumableThread, replaceParkedThread } from "./thread.ts";
 export { AgentCancellationCause } from "./run.ts";

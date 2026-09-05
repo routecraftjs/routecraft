@@ -450,6 +450,12 @@
     "retryable": false
   },
   {
+    "code": "AI1012",
+    "category": "Adapter",
+    "message": "Agent session store failed",
+    "retryable": true
+  },
+  {
     "code": "AI2001",
     "category": "Adapter",
     "message": "MCP tool output violated its declared schema",

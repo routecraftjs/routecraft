@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { BoundedMap, BoundedSet } from "../src/agent/session/bounded.ts";
+import { BoundedMap } from "../src/agent/session/bounded.ts";
 
 /**
  * The per-process memory the session runtime keeps about sessions: bounded,
@@ -7,22 +7,6 @@ import { BoundedMap, BoundedSet } from "../src/agent/session/bounded.ts";
  */
 
 describe("bounded session memory", () => {
-  /**
-   * @case A set past its bound forgets its oldest member, and a re-added member is young again
-   * @preconditions A set bounded at 2; a, b added, a re-added, then c
-   * @expectedResult b is forgotten and a and c remain
-   */
-  test("a set forgets the oldest", () => {
-    const set = new BoundedSet<string>(2);
-    set.add("a");
-    set.add("b");
-    set.add("a");
-    set.add("c");
-    expect(set.has("a")).toBe(true);
-    expect(set.has("b")).toBe(false);
-    expect(set.has("c")).toBe(true);
-  });
-
   /**
    * @case A read refreshes an entry whatever its value, a pinned entry survives evictions until unpinned, and pins never count against the bound
    * @preconditions A map bounded at 2 holding a (value undefined) and b; a is read, then c is set; a is pinned and d, e are set; a is unpinned; then in a fresh map bounded at 2, a and b are pinned and c is set

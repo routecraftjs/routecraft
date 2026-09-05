@@ -19,6 +19,7 @@ import {
   type BackgroundToolHandle,
   type FnHandlerContext,
 } from "../src/index.ts";
+import { MemorySessionStore } from "../src/agent/session/index.ts";
 import { AgentSessionRuntime } from "../src/agent/session/index.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
 import { MODEL } from "./helpers/suspend-fixtures.ts";
@@ -94,6 +95,17 @@ const whoami = {
   handler: (_input: unknown, ctx: FnHandlerContext) => ctx.session ?? null,
 };
 
+/** The session store paired with a suspension store, so a restart over the same stores sees the same sessions. */
+const recordStores = new WeakMap<MemorySuspensionStore, MemorySessionStore>();
+function recordsFor(store: MemorySuspensionStore): MemorySessionStore {
+  let records = recordStores.get(store);
+  if (!records) {
+    records = new MemorySessionStore();
+    recordStores.set(store, records);
+  }
+  return records;
+}
+
 function contextWith(
   store: MemorySuspensionStore,
   sink: ReturnType<typeof spy>,
@@ -102,6 +114,7 @@ function contextWith(
   return testContext()
     .with({
       suspension: { store },
+      sessions: { store: recordsFor(store) },
       shutdown: { timeout: 500 },
       plugins: [
         llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),

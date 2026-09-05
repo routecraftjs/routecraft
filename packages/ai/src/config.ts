@@ -7,6 +7,8 @@ import type { LlmPluginOptions } from "./llm/types.ts";
 import type { McpPluginOptions } from "./mcp/types.ts";
 import type { EmbeddingPluginOptions } from "./embedding/types.ts";
 import type { AgentPluginOptions } from "./agent/plugin.ts";
+import { sessionsPlugin } from "./agent/session/config.ts";
+import type { AgentSessionsConfig } from "./agent/session/config.ts";
 
 /**
  * Promote AI ecosystem plugins to first-class keys on `CraftConfig`. Once
@@ -21,6 +23,7 @@ import type { AgentPluginOptions } from "./agent/plugin.ts";
  *   mcp: { clients: { ... } },
  *   embedding: { providers: { ... } },
  *   agent: { agents: { ... }, functions: { ... } },
+ *   sessions: { store: { path: "/data/sessions.db" } },
  * });
  * ```
  *
@@ -42,6 +45,11 @@ declare module "@routecraft/routecraft" {
     embedding?: EmbeddingPluginOptions;
     /** Agent and tool registry. Equivalent to `plugins: [agentPlugin(...)]`. */
     agent?: AgentPluginOptions;
+    /**
+     * Where agent session records live. Optional: without it the sqlite
+     * backend at `.routecraft/sessions.db` is opened on the first session.
+     */
+    sessions?: AgentSessionsConfig;
   }
 }
 
@@ -49,3 +57,4 @@ registerConfigApplier("llm", (options) => llmPlugin(options));
 registerConfigApplier("mcp", (options) => mcpPlugin(options));
 registerConfigApplier("embedding", (options) => embeddingPlugin(options));
 registerConfigApplier("agent", (options) => agentPlugin(options));
+registerConfigApplier("sessions", (options) => sessionsPlugin(options));

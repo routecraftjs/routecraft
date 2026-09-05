@@ -14,6 +14,7 @@ import {
   llmPlugin,
   type AgentSessionSummary,
 } from "../src/index.ts";
+import { MemorySessionStore } from "../src/agent/session/index.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
 import { MODEL } from "./helpers/suspend-fixtures.ts";
 
@@ -52,6 +53,7 @@ describe("the agent-sessions management resource", () => {
     t = await testContext()
       .with({
         servers: { default: { port: 0, host: "127.0.0.1" } },
+        sessions: { store: new MemorySessionStore() },
         ...(withStore
           ? { suspension: { store: new MemorySuspensionStore() } }
           : {}),

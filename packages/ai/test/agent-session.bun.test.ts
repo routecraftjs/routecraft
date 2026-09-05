@@ -20,11 +20,11 @@ import {
   type AgentResult,
   type FnHandlerContext,
 } from "../src/index.ts";
-import { AgentSessionRuntime } from "../src/agent/session/index.ts";
 import {
-  AgentSessionStore,
-  sessionRecordId,
-} from "../src/agent/session/store.ts";
+  AgentSessionRuntime,
+  MemorySessionStore,
+} from "../src/agent/session/index.ts";
+import { AgentSessionStore } from "../src/agent/session/store.ts";
 import { INTERRUPTED_TOOL_MESSAGE } from "../src/agent/run.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
 import { MODEL } from "./helpers/suspend-fixtures.ts";
@@ -163,6 +163,21 @@ function routes(sink: ReturnType<typeof spy>): RouteDefinition[] {
   ];
 }
 
+/**
+ * The session store paired with a suspension store, so a "restart" built
+ * over the same suspension store sees the same sessions, as one deployment
+ * reopening both files would.
+ */
+const recordStores = new WeakMap<MemorySuspensionStore, MemorySessionStore>();
+function recordsFor(store: MemorySuspensionStore): MemorySessionStore {
+  let records = recordStores.get(store);
+  if (!records) {
+    records = new MemorySessionStore();
+    recordStores.set(store, records);
+  }
+  return records;
+}
+
 function contextWith(
   store: MemorySuspensionStore,
   sink: ReturnType<typeof spy>,
@@ -170,6 +185,7 @@ function contextWith(
   return testContext()
     .with({
       suspension: { store },
+      sessions: { store: recordsFor(store) },
       shutdown: { timeout: 500 },
       plugins: [
         llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
@@ -428,7 +444,7 @@ describe("agent sessions", () => {
     await send(t, { session: "s", message: "first" });
     const runtimeA = new AgentSessionRuntime(
       t.ctx,
-      new AgentSessionStore(store),
+      new AgentSessionStore(recordsFor(store), store),
     );
     await runtimeA.post(
       { agent: "max", session: "s" },
@@ -478,9 +494,9 @@ describe("agent sessions", () => {
     llm.script.push({ text: "ok" });
     await send(t, { session: "s", message: "first" });
     // Forge what a crash mid-tool leaves behind, through the store seam.
-    const id = sessionRecordId({ agent: "max", session: "s" });
-    const record = MemorySuspensionStore.unsafeRecords(store).get(id)!;
-    const state = record.stepState as {
+    const key = { agent: "max", session: "s" };
+    const stored = (await recordsFor(store).get(key))!;
+    const state = stored.value as {
       messages: unknown[];
       turn?: unknown;
       background: unknown[];
@@ -508,6 +524,7 @@ describe("agent sessions", () => {
         by: "alice",
       },
     ];
+    await recordsFor(store).replace(key, stored.version, state);
     const restored: unknown[] = [];
     t.ctx.on("route:agent:session:restored", ({ details }) => {
       restored.push(details);
@@ -567,6 +584,7 @@ describe("agent sessions", () => {
     expect(llm.calls[1]!.user).toBe("b");
     expect(llm.calls[1]!.system).not.toContain("## Session");
     expect(MemorySuspensionStore.unsafeRecords(store).size).toBe(0);
+    expect(await recordsFor(store).keys()).toEqual([]);
   });
 
   /**
@@ -657,10 +675,12 @@ describe("agent sessions", () => {
     await t.startAndWaitReady();
     llm.script.push({ text: "one" });
     await send(t, { session: "old", message: "a" });
-    const record = MemorySuspensionStore.unsafeRecords(store).get(
-      sessionRecordId({ agent: "max", session: "old" }),
-    )!;
-    (record.stepState as { version: number }).version = 0;
+    const key = { agent: "max", session: "old" };
+    const stored = (await recordsFor(store).get(key))!;
+    await recordsFor(store).replace(key, stored.version, {
+      ...(stored.value as object),
+      version: 0,
+    });
     await expect(send(t, { session: "old", message: "b" })).rejects.toThrow(
       /version 0.*version 1/,
     );
@@ -679,14 +699,14 @@ describe("agent sessions", () => {
     let writes = 0;
     // Methods are bound to the real store: the class keeps private fields,
     // which a call through the proxy as `this` cannot reach.
-    const failing = new Proxy(store, {
+    const failing = new Proxy(recordsFor(store), {
       get(target, prop) {
-        if (prop === "replaceStepState") {
+        if (prop === "replace") {
           return async (...args: unknown[]) => {
             writes += 1;
             if (writes >= 2) throw new Error("store down");
             return (
-              target.replaceStepState as (...a: unknown[]) => Promise<unknown>
+              target.replace as (...a: unknown[]) => Promise<unknown>
             ).apply(target, args);
           };
         }
@@ -696,7 +716,7 @@ describe("agent sessions", () => {
     });
     const runtime = new AgentSessionRuntime(
       t.ctx,
-      new AgentSessionStore(failing),
+      new AgentSessionStore(failing, store),
     );
     let runs = 0;
     const executor = {
@@ -744,7 +764,7 @@ describe("agent sessions", () => {
     const store = new MemorySuspensionStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
-    const sessions = new AgentSessionStore(store);
+    const sessions = new AgentSessionStore(recordsFor(store), store);
     const runtime = new AgentSessionRuntime(t.ctx, sessions);
     let runs = 0;
     // The abort is honoured late, which is the window a real tool call
@@ -834,12 +854,8 @@ describe("agent sessions", () => {
         text: "[Message from an anonymous caller]\nwho is there?",
       },
     ]);
-    const record = MemorySuspensionStore.unsafeRecords(store).get(
-      sessionRecordId({ agent: "max", session: "s" }),
-    )!;
-    expect(JSON.stringify(record.stepState)).toContain(
-      '[Message from \\"bob\\"]',
-    );
+    const stored = await recordsFor(store).get({ agent: "max", session: "s" });
+    expect(JSON.stringify(stored?.value)).toContain('[Message from \\"bob\\"]');
     // The boundary turn ran on Alice's parked exchange: its downstream
     // delivery carries her principal, whoever queued the text.
     const boundary = sink.received[sink.received.length - 1]!;
@@ -916,7 +932,7 @@ describe("agent sessions", () => {
     llm.script.push({ toolCalls: [{ toolName: "parker" }] }, { text: "ok" });
     const reply = await send(t, { session: "s", message: "approve this" });
     expect(reply.text).toBe("ok");
-    const record = await new AgentSessionStore(store).load({
+    const record = await new AgentSessionStore(recordsFor(store), store).load({
       agent: "max",
       session: "s",
     });
@@ -973,7 +989,7 @@ describe("agent sessions", () => {
     await waitForEntry(1);
     await send(t, { session: "s", message: "named" }, "anonymous");
     await send(t, { session: "s", message: "unnamed" });
-    const record = await new AgentSessionStore(store).load({
+    const record = await new AgentSessionStore(recordsFor(store), store).load({
       agent: "max",
       session: "s",
     });
@@ -992,19 +1008,19 @@ describe("agent sessions", () => {
 
   /**
    * @case A mutation that returns the record unchanged costs one read and no write
-   * @preconditions A session record exists; update() is called with the identity mutation while replaceStepState calls are counted
-   * @expectedResult No replaceStepState call is made, and the record's updatedAt is unchanged
+   * @preconditions A session record exists; update() is called with the identity mutation while the session store's replace calls are counted
+   * @expectedResult No replace call is made, and the record's updatedAt is unchanged
    */
   test("an unchanged update is not written", async () => {
     const store = new MemorySuspensionStore();
     let writes = 0;
-    const counting = new Proxy(store, {
+    const counting = new Proxy(recordsFor(store), {
       get(target, prop) {
-        if (prop === "replaceStepState") {
+        if (prop === "replace") {
           return async (...args: unknown[]) => {
             writes += 1;
             return (
-              target.replaceStepState as (...a: unknown[]) => Promise<unknown>
+              target.replace as (...a: unknown[]) => Promise<unknown>
             ).apply(target, args);
           };
         }
@@ -1012,7 +1028,7 @@ describe("agent sessions", () => {
         return typeof value === "function" ? value.bind(target) : value;
       },
     });
-    const sessions = new AgentSessionStore(counting);
+    const sessions = new AgentSessionStore(counting, store);
     const key = { agent: "max", session: "noop" };
     const created = await sessions.update(key, (r) => ({ ...r, turns: 1 }));
     writes = 0;
@@ -1021,42 +1037,6 @@ describe("agent sessions", () => {
     expect(same.updatedAt).toBe(created.updatedAt);
     await sessions.update(key, (r) => ({ ...r, turns: 2 }));
     expect(writes).toBe(1);
-  });
-
-  /**
-   * @case A record whose index write failed is indexed again by its next write
-   * @preconditions The store's first create of the index record throws; the session record itself was created; a second update to the same session follows
-   * @expectedResult The first update rejects with the index failure, the second succeeds, and list() then names the session
-   */
-  test("a missed index entry is repaired by the next write", async () => {
-    const store = new MemorySuspensionStore();
-    let failIndex = true;
-    const flaky = new Proxy(store, {
-      get(target, prop) {
-        if (prop === "create") {
-          return async (record: { id: string }) => {
-            if (failIndex && record.id === "agent-sessions:index") {
-              failIndex = false;
-              throw new Error("index write lost");
-            }
-            return (target.create as (r: unknown) => Promise<unknown>).call(
-              target,
-              record,
-            );
-          };
-        }
-        const value = Reflect.get(target, prop, target) as unknown;
-        return typeof value === "function" ? value.bind(target) : value;
-      },
-    });
-    const sessions = new AgentSessionStore(flaky);
-    const key = { agent: "max", session: "unindexed" };
-    await expect(
-      sessions.update(key, (r) => ({ ...r, turns: 1 })),
-    ).rejects.toThrow(/index write lost/);
-    expect(await sessions.list()).toEqual([]);
-    await sessions.update(key, (r) => ({ ...r, turns: 2 }));
-    expect(await sessions.list()).toEqual([key]);
   });
 
   /**
@@ -1082,7 +1062,7 @@ describe("agent sessions", () => {
       }),
     );
     expect((await store.get(suspensionId))?.status).toBe("suspended");
-    const sessions = new AgentSessionStore(store);
+    const sessions = new AgentSessionStore(recordsFor(store), store);
     await sessions.releasePark(suspensionId, "test");
     expect((await store.get(suspensionId))?.status).toBe("denied");
     await sessions.releasePark(suspensionId, "again");
@@ -1098,7 +1078,7 @@ describe("agent sessions", () => {
     const store = new MemorySuspensionStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
-    const sessions = new AgentSessionStore(store);
+    const sessions = new AgentSessionStore(recordsFor(store), store);
     const key = { agent: "max", session: "gap" };
     await sessions.update(key, (r) => ({
       ...r,
@@ -1155,7 +1135,7 @@ describe("agent sessions", () => {
     const store = new MemorySuspensionStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
-    const sessions = new AgentSessionStore(store);
+    const sessions = new AgentSessionStore(recordsFor(store), store);
     const realLoad = sessions.load.bind(sessions);
     let slowLoads = 0;
     sessions.load = async (key) => {
@@ -1234,7 +1214,7 @@ describe("agent sessions", () => {
     await t.startAndWaitReady();
     const runtime = new AgentSessionRuntime(
       t.ctx,
-      new AgentSessionStore(store),
+      new AgentSessionStore(recordsFor(store), store),
     );
     const seen: unknown[] = [];
     const executor = {
@@ -1276,7 +1256,7 @@ describe("agent sessions", () => {
     const store = new MemorySuspensionStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
-    const sessions = new AgentSessionStore(store);
+    const sessions = new AgentSessionStore(recordsFor(store), store);
     const runtime = new AgentSessionRuntime(t.ctx, sessions);
     let runs = 0;
     const executor = {
@@ -1314,7 +1294,7 @@ describe("agent sessions", () => {
     const store = new MemorySuspensionStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
-    const sessions = new AgentSessionStore(store);
+    const sessions = new AgentSessionStore(recordsFor(store), store);
     const runtime = new AgentSessionRuntime(t.ctx, sessions);
     let runs = 0;
     const executor = {
@@ -1351,7 +1331,7 @@ describe("agent sessions", () => {
     const store = new MemorySuspensionStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
-    const sessions = new AgentSessionStore(store);
+    const sessions = new AgentSessionStore(recordsFor(store), store);
     const { realLoad, gates, entered } = gateLoads(sessions);
     const runtime = new AgentSessionRuntime(t.ctx, sessions);
     let runs = 0;
@@ -1409,7 +1389,7 @@ describe("agent sessions", () => {
     const store = new MemorySuspensionStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
-    const sessions = new AgentSessionStore(store);
+    const sessions = new AgentSessionStore(recordsFor(store), store);
     const { realLoad, gates, entered } = gateLoads(sessions);
     const releasing = gate();
     const realRelease = sessions.releasePark.bind(sessions);
@@ -1478,7 +1458,7 @@ describe("agent sessions", () => {
     const store = new MemorySuspensionStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
-    const sessions = new AgentSessionStore(store);
+    const sessions = new AgentSessionStore(recordsFor(store), store);
     const runtime = new AgentSessionRuntime(t.ctx, sessions);
     let runs = 0;
     let releaseRun: (() => void) | undefined;

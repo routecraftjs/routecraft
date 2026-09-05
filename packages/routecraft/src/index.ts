@@ -644,6 +644,17 @@ export type {
   SqliteDatabaseConstructor,
   SqliteStatement,
 } from "./shared/sqlite/types.ts";
+// The driver resolver is @internal and exported on purpose: @routecraft/ai
+// opens its session store on the same runtime split (bun:sqlite under Bun,
+// better-sqlite3 as an optional peer under Node), and a package cannot
+// reach a deep import of core. The first brick of #601, shared rather than
+// copied.
+export {
+  resolveSqliteDriver,
+  type ResolvedSqliteDriver,
+  type SqliteDriverLoaders,
+  type SqliteDriverName,
+} from "./shared/sqlite/driver.ts";
 
 // The suspension engine (hashing, serialization, token minting, runtime
 // resolution) stays behind `./suspension/index.ts`, which is where the

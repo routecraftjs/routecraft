@@ -517,6 +517,17 @@ A tool called `ctx.suspend()` inside an agent dispatched with `session`. A sessi
 - Park from a sessionless agent, where `ctx.suspend()` parks the dispatch itself.
 - Move the approval into a route the agent calls as a tool, and let that route suspend.
 
+## AI1012
+Agent session store failed
+
+**Why it happens**  
+The store that holds agent session records, chosen by [`sessions: { store }`](/docs/reference/configuration#sessions) and the SQLite file at `.routecraft/sessions.db` by default, could not be opened, migrated, read or written. An explicitly configured path that cannot be opened raises it at startup; the default path raises it on the first session written. A store that is busy under another writer answers it too, and that call can be retried.
+
+**Suggestion**  
+- Check the path and the permissions on its directory, and that one process at a time holds the file.
+- Under Node, install `better-sqlite3`; without it the unconfigured default falls back to memory with a warning rather than raising this code.
+- Set `sessions: { store: "memory" }` deliberately for a context whose conversations may die with the process.
+
 ## AI2001
 MCP tool output violated its declared schema
 
