@@ -1,0 +1,56 @@
+name: Bug
+description: Something a route author sees that does not match what the framework promises.
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The first three fields are the whole report for a reader with one minute. Keep them short; the detail goes at the bottom.
+  - type: input
+    id: tldr
+    attributes:
+      label: TLDR
+      description: One sentence. What is wrong, for whom.
+      placeholder: "html() text extraction deletes escaped markup such as Array<string> from documentation pages"
+    validations:
+      required: true
+  - type: textarea
+    id: before
+    attributes:
+      label: What happens
+      description: Observable behaviour, one or two lines. Paste the exact output or error code.
+    validations:
+      required: true
+  - type: textarea
+    id: after
+    attributes:
+      label: What should happen
+      description: The behaviour the docs or the types promise, one or two lines.
+    validations:
+      required: true
+  - type: textarea
+    id: dsl
+    attributes:
+      label: The route that shows it
+      description: The smallest route that reproduces it, as you write it. Options and operators involved, nothing else.
+      render: ts
+      placeholder: |
+        craft()
+          .id("repro")
+          .from(direct())
+          .transform(html({ selector: "pre", extract: "text" }))
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version
+      description: Package and version, or the canary tag.
+      placeholder: "@routecraft/routecraft 0.7.0-canary-20260905085002"
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: What you found in the source, the file and line, logs, and anything a reader needs only when fixing it.
