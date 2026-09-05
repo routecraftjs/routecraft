@@ -18,25 +18,30 @@ Core adapter defaults (`cron`, `direct`) are set via dedicated fields on `CraftC
 
 Importing `@routecraft/ai` augments `CraftConfig` with first-class keys for the AI plugins. Setting `llm`, `mcp`, `embedding`, `agent`, or `sessions` on the config is equivalent to pushing the corresponding plugin onto `plugins: []` (`sessions` maps to `sessionsPlugin`, documented under [Configuration](/docs/reference/configuration#sessions)). Lifecycle (`apply`, `start`, `teardown`, plugin events) is identical.
 
+Still supported, and what you want for shared plugin instances or
+programmatic composition:
+
 ```ts
-// Before (still supported, use this for shared plugin instances or programmatic composition)
 import { defineConfig } from '@routecraft/routecraft'
 import { llmPlugin, mcpPlugin } from '@routecraft/ai'
 
 export const craftConfig = defineConfig({
   plugins: [
     llmPlugin({ providers: { openai: { apiKey: '...' } } }),
-    mcpPlugin({ clients: { /* ... */ } }),
+    mcpPlugin({ clients: {} }),
   ],
 })
+```
 
-// After (recommended for declarative configs)
+Recommended for declarative configs:
+
+```ts
 import { defineConfig } from '@routecraft/routecraft'
 import '@routecraft/ai' // augments CraftConfig
 
 export const craftConfig = defineConfig({
   llm: { providers: { openai: { apiKey: '...' } } },
-  mcp: { clients: { /* ... */ } },
+  mcp: { clients: {} },
 })
 ```
 

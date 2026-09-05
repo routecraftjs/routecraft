@@ -94,6 +94,13 @@ craft()
     scopes: ['mail:send'],
     actor: ['none', { subject: 'agent:zoe', issuer: 'https://agents.example.com' }],
   })
+  .input({
+    body: z.object({
+      to: z.string(),
+      subject: z.string(),
+      text: z.string(),
+    }),
+  })
   .from(direct())
   .to(mail())
 ```

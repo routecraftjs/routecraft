@@ -46,7 +46,7 @@ craft()
 
 By default, `retry` checks the error's `retryable` property:
 
-```ts
+```ts skip="fragment: the predicate on its own, not a statement"
 // Default retryOn logic
 (error) => {
   if (error instanceof RoutecraftError && error.retryable === false) {

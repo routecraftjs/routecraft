@@ -66,6 +66,7 @@ export default craft()
 // capabilities/metrics-event.ts
 export default craft()
   .id('events.metrics')
+  .input({ body: z.object({ type: z.string() }) })
   .from(direct())
   .transform(({ type }) => ({ counter: type }))
   .to(http({ method: 'POST', url: 'https://api.example.com/metrics' }))
@@ -79,8 +80,10 @@ The destination channel can be resolved at runtime from the exchange body or hea
 // capabilities/route-by-priority.ts
 export default craft()
   .id('jobs.route')
+  .input({ body: z.object({ priority: z.string() }) })
   .from(http({ path: '/jobs', method: 'POST' }))
-  .to(direct((exchange) => `jobs.${exchange.body.priority}`))
+  // explicit body type at .to() until #726
+  .to(direct<{ priority: string }, unknown>((exchange) => `jobs.${exchange.body.priority}`))
 ```
 
 ```ts skip="fragment: processUrgent is illustrative"

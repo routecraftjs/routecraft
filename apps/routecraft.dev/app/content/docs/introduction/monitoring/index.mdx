@@ -185,7 +185,7 @@ This sends OTel traces to Better Stack while keeping the local SQLite database f
 
 To disable the SQLite backend entirely (external only):
 
-```ts
+```ts skip="fragment: tracerProvider is illustrative"
 telemetry({ tracerProvider, disableSqlite: true })
 ```
 

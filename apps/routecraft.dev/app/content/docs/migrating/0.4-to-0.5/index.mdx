@@ -116,11 +116,15 @@ export const craftConfig = defineConfig({
 
 If you actually extended the type, switch the `type` alias to an `interface`:
 
-```ts
-// Before
-type MyConfig = CraftConfig & { custom: string }
+**Before:**
 
-// After
+```ts
+type MyConfig = CraftConfig & { custom: string }
+```
+
+**After:**
+
+```ts
 interface MyConfig extends CraftConfig {
   custom: string
 }
@@ -219,7 +223,7 @@ console.log(message.body.html)
 
 **Before (0.4.0):**
 
-```ts
+```ts expect-error="the 0.4 option names: modelId, systemPrompt, userPrompt, allowedRoutes and allowedMcpServers were all replaced in 0.5"
 agent({
   modelId: "anthropic:claude-opus-4-7",
   systemPrompt: "You are a summariser.",
@@ -252,7 +256,7 @@ Inline `LlmModelConfig` credentials on `agent({...})` are no longer accepted. Pr
 
 **Before (0.4.0):**
 
-```ts
+```ts expect-error="the 0.4 shape: model took an inline provider object, and 0.5 takes a provider-prefixed id string"
 agent({
   model: { provider: "anthropic", apiKey: "...", model: "claude-opus-4-7" },
   // ...
@@ -261,7 +265,7 @@ agent({
 
 **After (0.5.0):**
 
-```ts
+```ts skip="fragment: shows only the options under discussion"
 // Configure the provider once on llmPlugin
 llmPlugin({ providers: { anthropic: { apiKey: "..." } } })
 
@@ -302,7 +306,7 @@ The result body still exposes `text`, `output`, and `usage` — no shape change 
 
 **Before (0.4.0):**
 
-```ts
+```ts expect-error="the 0.4 call: embedding no longer accepts an empty options object, using is required in 0.5"
 embedding("openai:text-embedding-3-small", {})
 // typechecked at compile time, but threw RC5003 at runtime
 ```
@@ -364,7 +368,7 @@ craft()
 
 **Before (0.4.0):**
 
-```ts
+```ts expect-error="the 0.4 import: these symbols moved to @routecraft/routecraft in 0.5, and AuthPrincipal became Principal"
 import { jwt, jwks, type AuthPrincipal } from "@routecraft/ai"
 ```
 

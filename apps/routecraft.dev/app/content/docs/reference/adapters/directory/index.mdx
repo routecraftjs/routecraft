@@ -17,7 +17,7 @@ One factory, one type; the operation keyword selects the role: `.from()` emits t
 
 By default the source emits a single exchange whose body is the full `DirectoryEntry[]` listing, the same collection-in-one-exchange shape as the non-chunked [`csv`](/docs/reference/adapters/csv) and [`jsonl`](/docs/reference/adapters/jsonl) adapters. Pass `chunked: true` to emit one exchange per entry instead. Filtering is intentionally not built in either way: list the entries, then decide which ones.
 
-```ts
+```ts expect-error="file() is not generic in the route body, unlike http(), so the path callback receives Exchange<unknown>. Leaving it inferred does not compile and annotating it is not assignable; only a cast works, and a cast is not what we want users to write."
 // Chunked: one exchange per file, filter by name/metadata, read each
 craft()
   .from(directory({ path: './inbox', chunked: true }))
@@ -42,7 +42,7 @@ craft()
 
 **List mid-route:** the adapter's `fetch` returns the sorted `DirectoryEntry[]` listing, so you can list a directory partway through a route with `.enrich()` or `.to()`, the same way [`file`](/docs/reference/adapters/file)'s fetch pulls in a file's content. A listing is a read, so it belongs in the pull-in role. This is what makes the adapter usable inside a [`direct()`](/docs/reference/adapters/direct) capability, where there is no `.from()` slot to hang the listing on. The source role needs a static string path; the enricher also accepts a function, resolved against the exchange when the scan runs.
 
-```ts
+```ts expect-error="file() is not generic in the route body, unlike http(), so the path callback receives Exchange<unknown>. Leaving it inferred does not compile and annotating it is not assignable; only a cast works, and a cast is not what we want users to write."
 // An agent capability: list candidate files, read them, return the matches
 craft()
   .id('search-notes')

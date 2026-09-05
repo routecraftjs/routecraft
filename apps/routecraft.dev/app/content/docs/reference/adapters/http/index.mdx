@@ -828,7 +828,7 @@ Streaming the response to the route is a different thing and is not available: t
 
 `'manual'` exists because a route that validated a URL has that validation bypassed the moment the adapter follows a redirect the route never saw. With `'manual'` the route gets the 3xx back and re-runs its own rule on each hop:
 
-```ts
+```ts skip="fragment: revalidateAndFollow is pseudo-code the reader supplies"
 import { craft, direct, http, isRedirect, when, log } from '@routecraft/routecraft'
 import { z } from 'zod'
 

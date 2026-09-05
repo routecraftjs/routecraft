@@ -212,10 +212,12 @@ To run capabilities from inside an existing Node or Bun application, use `Contex
 
 ```ts
 import { ContextBuilder, craft, direct, log } from "@routecraft/routecraft";
+import { z } from "zod";
 
 const route = craft()
   .id("greet")
-  .from(direct<{ name: string }>())
+  .input({ body: z.object({ name: z.string() }) })
+  .from(direct())
   .transform((body) => `Hello, ${body.name}!`)
   .to(log());
 

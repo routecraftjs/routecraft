@@ -13,9 +13,11 @@ A capability is a TypeScript file that defines a secure, type-safe action your s
 ```ts
 // capabilities/send-email.ts
 import { craft, http, mail } from "@routecraft/routecraft";
+import { z } from "zod";
 
 export default craft()
   .id("send-email")
+  .input({ body: z.object({ recipient: z.string(), subject: z.string() }) })
   .from(http({ path: "/send", method: "POST" }))
   .transform((body) => ({ to: body.recipient, subject: body.subject }))
   .to(mail());

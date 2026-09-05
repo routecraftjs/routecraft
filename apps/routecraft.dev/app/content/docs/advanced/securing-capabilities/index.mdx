@@ -299,7 +299,7 @@ Three shapes are accepted; choose exactly one.
 
 **Shape 1: auto-discover via OIDC Discovery.** Requires a single-string `issuer` on the verify helper (`jwks({ issuer })` / `jwt({ issuer })`). The framework resolves the userinfo endpoint from the discovery document at `${issuer}/.well-known/openid-configuration` and caches the URL honouring `Cache-Control: max-age` (default 1 hour).
 
-```ts
+```ts skip="fragment: jwksUrl and audience are illustrative"
 mcpPlugin({
   transport: 'http',
   auth: jwks({ jwksUrl, issuer: 'https://idp.example.com', audience }),
@@ -309,7 +309,7 @@ mcpPlugin({
 
 **Shape 2: explicit userinfo endpoint URL.** Skips discovery; use when the IdP does not advertise OIDC Discovery or you want to pin the URL explicitly.
 
-```ts
+```ts skip="fragment: jwksUrl and audience are illustrative"
 mcpPlugin({
   transport: 'http',
   auth: jwks({ jwksUrl, issuer: 'https://idp.example.com', audience }),
@@ -401,13 +401,13 @@ The option surface is intentionally minimal: only `origin` is configurable. The 
 // Default: no config needed for local browser MCP tooling
 mcpPlugin({
   transport: 'http',
-  auth: jwks({ jwksUrl: '...', issuer: '...' }),
+  auth: jwks({ jwksUrl: '...', issuer: '...', audience: '...' }),
 })
 
 // Production: allowlist your browser MCP client's origin
 mcpPlugin({
   transport: 'http',
-  auth: jwks({ /* ... */ }),
+  auth: jwks({ jwksUrl: '...', issuer: '...', audience: '...' }),
   cors: { origin: 'https://claude.ai' },
 })
 

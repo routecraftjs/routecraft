@@ -20,7 +20,8 @@ import { agentBrowser } from '@routecraft/os'
 craft()
   .id('scrape-page')
   .from(simple({ url: 'https://example.com' }))
-  .to(agentBrowser('open', { url: (ex) => ex.body.url }))
+  // explicit body type at .to() until #726
+  .to(agentBrowser<{ url: string }>('open', { url: (ex) => ex.body.url }))
   .enrich(agentBrowser('snapshot', { json: true }))
   .to(log())
 // Result replaces the body: { stdout: '...', parsed: { snapshot: '...', refs: {...} }, exitCode: 0 }

@@ -89,6 +89,7 @@ craft()
 craft()
   .id('errors.orders')
   .description('Receives failed order payloads for alerting')
+  .input({ body: z.object({ reason: z.string() }) })
   .from(direct())
   .transform((body) => {
     // Log, enrich, or reshape the failure payload

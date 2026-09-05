@@ -98,8 +98,18 @@ craft()
 **Send destination (SMTP):** Call with no arguments or client options (no `folder`) to send email. The exchange body must be a `MailSendPayload`. The send is void: the body flows through the `.to()` step unchanged, and the send receipt lands on headers (`routecraft.mail.sentMessageId`, `routecraft.mail.accepted`, `routecraft.mail.rejected`, `routecraft.mail.response`; see [send receipt headers](#send-receipt-headers)). The inbound `routecraft.mail.messageId` (set by the source) is left untouched, so mail-to-mail routes keep their correlation id.
 
 ```ts
+import { craft, direct, mail } from '@routecraft/routecraft'
+import { z } from 'zod'
+
 craft()
   .id('outbound')
+  .input({
+    body: z.object({
+      to: z.string(),
+      subject: z.string(),
+      text: z.string(),
+    }),
+  })
   .from(direct())
   .to(mail())
 ```

@@ -10,7 +10,7 @@ Every verb in the Routecraft DSL. Each row opens its own reference page with the
 craft()
   .id('my-route')
   .from(simple('x'))
-  .filter((s) => s.length > 0)
+  .filter((ex) => ex.body.length > 0)
   .transform((s) => s + '!')
   .to(log())
 ```

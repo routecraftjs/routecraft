@@ -228,7 +228,7 @@ spyAdapter.receivedBodies() // Get array of just the body values
 ```ts
 import { testContext, spy } from "@routecraft/testing";
 import { craft, simple } from "@routecraft/routecraft";
-import { expect } from "vitest";
+import { expect, test } from "vitest";
 
 const spyAdapter = spy();
 
@@ -248,7 +248,7 @@ expect(spyAdapter.calls.send).toBe(1);
 ```ts
 import { testContext } from "@routecraft/testing";
 import { craft, simple, log } from "@routecraft/routecraft";
-import { expect } from "vitest";
+import { expect, test } from "vitest";
 
 test('logs messages correctly', async () => {
   const route = craft()

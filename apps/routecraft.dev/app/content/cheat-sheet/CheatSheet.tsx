@@ -447,11 +447,13 @@ craft()
     model: 'anthropic:claude-sonnet-4-6',
     system: 'You are a helpful assistant.',
     user: ex => ex.body.message,
-    tools: tools([
+    tools: tools(catalog => [
       'CurrentTime',              // registered fn
       'Direct(greet-user)',       // direct route as tool
       'MCP(github:create_issue)', // single MCP tool
-      { tagged: 'read-only' },    // by tag
+      ...catalog.fns              // by tag
+        .filter(f => f.tags?.includes('read-only'))
+        .map(f => f.name),
     ]),
   }))
   .to(log())`}</CheatCode>
@@ -493,16 +495,27 @@ craft()
             <CheatCode skip="fragment: not a complete statement on its own">{`// As a destination (invoke a remote tool)
 .to(mcp('github', 'search'))`}</CheatCode>
             <CheatLabel>Protect with auth</CheatLabel>
-            <CheatCode>{`import { jwt } from '@routecraft/routecraft'
+            <CheatCode>{`import { mcpPlugin, oauth, jwks } from '@routecraft/ai'
+
+// Auth sits on the plugin, not on mcp()
+mcpPlugin({
+  transport: 'http',
+  resource: { url: 'https://mcp.example.com' },
+  auth: oauth({
+    verify: jwks({
+      jwksUrl: 'https://idp.example.com/.well-known/jwks.json',
+      issuer: 'https://idp.example.com',
+      audience: 'https://mcp.example.com',
+    }),
+    requiredScopes: ['mcp:invoke'],
+  }),
+})
 
 craft()
   .id('private-tool')
   .authorize({ scopes: ['tools:read'] })
-  .from(mcp({
-    auth: jwt({ jwksUri: '...' }),
-  }))
-  .to(log())
-// Use WorkOS / Clerk presets via mcpPlugin`}</CheatCode>
+  .from(mcp())
+  .to(log())`}</CheatCode>
             <CheatLabel>Claude Desktop config</CheatLabel>
             <CheatCode language="json">{`{
   "mcpServers": {

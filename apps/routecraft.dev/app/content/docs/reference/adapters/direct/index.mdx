@@ -272,9 +272,10 @@ craft()
   .id('processor')
   .input({ body: schema })
   .from(direct())
-  .process((data) => {
-    // data.createdAt is Date, not string
-    console.log(data.createdAt.getFullYear())
+  .process((ex) => {
+    // ex.body.createdAt is Date, not string
+    console.log(ex.body.createdAt.getFullYear())
+    return ex
   })
 ```
 

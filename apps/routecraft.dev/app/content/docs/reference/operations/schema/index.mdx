@@ -12,7 +12,7 @@ schema<S extends StandardSchemaV1>(standardSchema: S): RouteBuilder<StandardSche
 
 Validate the exchange body against a Standard Schema. Sugar for `.validate(schema(standardSchema))`. On failure throws RC5002 with formatted issue details. The route builder type is narrowed to the schema's output type.
 
-```ts
+```ts skip="fragment: the operation shown without its route"
 import { z } from 'zod'
 
 const userSchema = z.object({

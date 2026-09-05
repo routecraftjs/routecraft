@@ -59,7 +59,7 @@ The big semantic shift: progressive disclosure is now the default for skills. Th
 
 **Before (0.5.x):**
 
-```ts
+```ts expect-error="the 0.5 skills option on agent, replaced by tools in 0.6"
 agent({
   model: "anthropic:claude-sonnet-4-6",
   system: "You are an analyst.",
@@ -94,7 +94,7 @@ agent({
 
 **Before (0.5.x):**
 
-```ts
+```ts expect-error="the 0.5 skills API on agentPlugin, removed in 0.6"
 import { agentPlugin, skills } from "@routecraft/ai";
 
 agentPlugin({
@@ -312,7 +312,7 @@ For the cases where enumeration is impractical, `tools()` now accepts a builder 
 
 **Before (0.5.x):**
 
-```ts
+```ts expect-error="the 0.5 tag-selector object; 0.6 selects tagged tools through the catalog callback"
 agent({
   tools: tools([{ tagged: "read-only" }]),
 });
@@ -320,7 +320,7 @@ agent({
 
 **After (0.6.0), explicit (recommended):**
 
-```ts
+```ts skip="fragment: shows only the option under discussion"
 agent({
   tools: tools(["fetchOrder", "getCustomer", "listOrders"]),
 });
@@ -328,7 +328,7 @@ agent({
 
 **After (0.6.0), programmatic escape hatch:**
 
-```ts
+```ts skip="fragment: shows only the option under discussion"
 agent({
   tools: tools((catalog) =>
     catalog.fns
@@ -440,7 +440,7 @@ Only the streaming **source** changes. The fetch destination (`.enrich(mail(...)
 
 **Before (0.5.x):**
 
-```ts
+```ts expect-error="the 0.5 MailBody shape: subject and text moved in 0.6"
 craft()
   .from(mail("INBOX", { unseen: true }))
   .transform((msg) => ({
@@ -946,7 +946,7 @@ Two behaviour changes that can turn a previously-accepted request into a `401`:
 
 If you have tokens minted with very short lifetimes and clients that cut the refresh fine, this last second is the one that will bite. Configure skew explicitly:
 
-```ts
+```ts skip="fragment: jwksUrl, issuer and audience are illustrative"
 auth: oauth({
   verify: jwks({ jwksUrl, issuer, audience, clockToleranceSec: 30 }),
 })

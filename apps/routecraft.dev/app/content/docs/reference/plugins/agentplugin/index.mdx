@@ -258,7 +258,7 @@ Two `agentPlugin` installs that each supply `defaultOptions.blocks` merge additi
 
 Functions are an agent-only concept: there is no public dispatch API for fns outside the agent tool loop. If you want to call a "named processor" from a route, write `.process(...)` inline.
 
-```ts
+```ts expect-error="FnOptions.handler is typed (input: unknown), so reading a field off input does not compile and annotating the parameter is not assignable either. The example is the shape we want; the type is what has to change."
 import { agentPlugin } from '@routecraft/ai'
 import { z } from 'zod'
 
@@ -305,10 +305,12 @@ There is no public `invokeFn` helper. Agents are the only legitimate dispatcher 
 import { testFn } from '@routecraft/testing'
 import { z } from 'zod'
 
+const greetInput = z.object({ name: z.string() })
+
 const greet = {
   description: 'Greets someone',
-  input: z.object({ name: z.string() }),
-  handler: async (input, ctx) => `hello ${input.name}`,
+  input: greetInput,
+  handler: async (input: z.infer<typeof greetInput>) => `hello ${input.name}`,
 }
 
 const out = await testFn(greet, { name: 'alice' })
@@ -398,7 +400,7 @@ Fn ids reach the provider verbatim, with no prefix, so the same constraint appli
 
 Examples:
 
-```ts
+```ts skip="fragment: shows only the tools option"
 agent({
   tools: tools([
     'CurrentTime',                                  // fn
@@ -421,7 +423,7 @@ agent({
 
 Programmatic escape hatch when explicit enumeration is impractical. The builder receives a `ToolsCatalog` snapshot of the live registries and returns the same shape the array form accepts.
 
-```ts
+```ts skip="fragment: shows only the tools option"
 agent({
   tools: tools((catalog) => [
     // Explicit, reviewed at call site
@@ -521,7 +523,7 @@ Resolution at dispatch is per-key: instance value > plugin default > (for `model
 
 For `model` / `tools` / `maxTurns` / `principal`, two `agentPlugin` installs that each set the same field throw at context init. `blocks` merges additively across installs by name; a name set in two installs throws.
 
-```ts
+```ts skip="fragment: description and system stand in for values defined above"
 agentPlugin({
   defaultOptions: {
     model: 'anthropic:claude-opus-4-7',
@@ -542,7 +544,7 @@ agentPlugin({
 
 Once you supply a policy, **every kind is required**. Writing only the line you care about does not compile:
 
-```ts
+```ts expect-error="toolPolicy is all-or-nothing: naming one channel without fn and direct is the mistake this line demonstrates"
 agentPlugin({ toolPolicy: { mcp: false } }) // Error: missing 'fn', 'direct'
 ```
 
@@ -740,12 +742,12 @@ craft()
     return forward("escalate-to-human", ex.body);
   })
   .process((ex) => {
-    const r = ex.body as AgentResult;
-    const replied = r.toolCalls?.some(
+    const replied = ex.body.toolCalls?.some(
       (c) => c.toolName === "replyEmail" && !c.error,
     );
     if (!replied) throw new Error("Agent finished without sending a reply");
-    return r;
+    // .process() returns the exchange, not the body
+    return ex;
   })
 ```
 

@@ -172,7 +172,7 @@ craft()
 
 Who may post to a session is the route's own [`.authorize()`](/docs/reference/operations/authorize), in one of two shapes. A session that must be one caller's derives its id from the principal, so no two callers share one:
 
-```ts
+```ts skip="fragment: the session option on its own, without its route"
 agent('max', { session: (ex) => `${ex.principal?.subject}:${ex.body.session}` })
 ```
 

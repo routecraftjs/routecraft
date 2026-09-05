@@ -45,16 +45,25 @@ export const judgement = z.object({
 
 export type Judgement = z.infer<typeof judgement>
 
-export interface JudgeEvidence {
-  request: unknown
-  account: string
-  toolCalls: Array<{ toolName: string; failed: boolean; error?: string }>
-}
+export const evidence = z.object({
+  request: z.unknown(),
+  account: z.string(),
+  toolCalls: z.array(
+    z.object({
+      toolName: z.string(),
+      failed: z.boolean(),
+      error: z.string().optional(),
+    }),
+  ),
+})
+
+export type JudgeEvidence = z.infer<typeof evidence>
 
 export default craft()
   .id('judge-agent-result')
   .description('Judges whether an agent result fulfilled the request that produced it.')
-  .from(direct<JudgeEvidence>())
+  .input({ body: evidence })
+  .from(direct())
   .to(
     llm('anthropic:claude-haiku-4-5', {
       system:

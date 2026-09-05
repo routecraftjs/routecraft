@@ -20,7 +20,9 @@ import { craft, timer, log } from "@routecraft/routecraft";
 import { pseudo } from "@routecraft/testing";
 
 // Option types (move to real adapter package later)
-interface McpCallOptions {
+// A type alias, not an interface: only an alias gets the implicit index
+// signature that `Record<string, unknown>` constraints require.
+type McpCallOptions = {
   server: string;
   tool: string;
   args?: Record<string, unknown>;
@@ -43,7 +45,7 @@ craft()
       args: { query: "is:unread" },
     }),
   )
-  .split((r) => r.messages)
+  .split((ex) => ex.body.messages)
   .tap(log());
 ```
 

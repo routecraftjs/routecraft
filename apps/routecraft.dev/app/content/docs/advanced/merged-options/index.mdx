@@ -53,11 +53,11 @@ import { llmPlugin, embeddingPlugin } from '@routecraft/ai'
 export const craftConfig: CraftConfig = {
   plugins: [
     llmPlugin({
-      providers: { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY } },
+      providers: { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY! } },
       defaultOptions: { temperature: 0.7 },
     }),
     embeddingPlugin({
-      providers: { openai: { apiKey: process.env.OPENAI_API_KEY } },
+      providers: { openai: { apiKey: process.env.OPENAI_API_KEY! } },
     }),
   ],
 }

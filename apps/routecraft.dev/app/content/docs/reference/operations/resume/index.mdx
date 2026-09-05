@@ -126,7 +126,7 @@ Each of these is real running code, proven in `packages/routecraft/test/securing
 
 **Four eyes.** The principal that parked may not resume their own run. Both subjects must be present, or two anonymous parties would count as two different people:
 
-```ts
+```ts skip="fragment: one property of the resume options object, shown on its own"
 authorize: ({ principal, parked }) => {
   const resuming = principal?.subject
   const requester = parked?.subject
@@ -137,7 +137,7 @@ authorize: ({ principal, parked }) => {
 
 **Scope gate.** The parker records what the resuming principal must hold, so the requirement is the one in force at park time:
 
-```ts
+```ts skip="fragment: one property of the resume options object, shown on its own"
 // .suspend({ schema: Approval, meta: { requires: ['payouts:approve'] } })
 authorize: ({ principal, record }) => {
   const required = (record.meta as { requires?: string[] })?.requires
@@ -166,7 +166,7 @@ craft().id('ops-door').from(opsIngress).resume(mapPayload, servesChannel('ops'))
 
 **Policy travels with the park.** The parker snapshots its policy onto the record; the door enforces the record's copy, so editing the suspend site never reaches records already parked:
 
-```ts
+```ts skip="fragment: one property of the resume options object, shown on its own"
 // .suspend({ schema: Approval, meta: { fourEyes: true } })
 authorize: ({ principal, parked, record }) => {
   const policy = record.meta as { fourEyes?: boolean } | undefined
@@ -181,7 +181,7 @@ This is a property of where you put the policy, not a framework behaviour. Read 
 
 **Same-user continuation.** A wizard or a long-running form resumes only for the person who left it:
 
-```ts
+```ts skip="fragment: one property of the resume options object, shown on its own"
 authorize: ({ principal, parked }) => {
   const resuming = principal?.subject
   const requester = parked?.subject
@@ -194,7 +194,7 @@ An anonymous parker can never satisfy this, and the hook says so rather than mat
 
 **Threshold by scope.** What was submitted decides which scope the hook demands, so a junior approver clears the small payments and escalates the large ones:
 
-```ts
+```ts skip="fragment: one property of the resume options object, shown on its own"
 // .suspend({ schema: Settlement, meta: { threshold: 1000, senior: 'payouts:approve:large' } })
 authorize: ({ principal, payload, record }) => {
   const { threshold, senior } = record.meta as { threshold: number; senior: string }

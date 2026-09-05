@@ -110,6 +110,21 @@ bun run build         # build all packages
 
 Or run the bundled `bun run all`, which executes lint --fix, format:write, typecheck, build, and test in one pass.
 
+If you edited a documentation page, run the example typecheck as well, from `apps/routecraft.dev`:
+
+```bash
+bun run check:examples
+```
+
+It compiles every fenced `ts` block on the docs site against the workspace packages. A block that is not meant to compile says so on its fence, with a reason:
+
+````
+```ts skip="fragment: dest is illustrative"
+```ts expect-error="json() takes path, not file"
+````
+
+Use `skip` when the block is not a complete program, such as a chain shown without its route or a type signature written for reference. Use `expect-error` when the block is meant to be wrong, which is what a migration guide's "before" example is. Both need a non-empty reason, and both are checked: if a block carrying either marker turns out to compile, the build fails, so a marker cannot be carried through a rewrite and quietly leave the block unchecked.
+
 Include in your PR description:
 
 - What changed and why

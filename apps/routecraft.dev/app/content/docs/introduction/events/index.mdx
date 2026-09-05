@@ -42,7 +42,7 @@ Each key is an event name (or the catch-all `'*'`). The value can be a single ha
 
 When you need the full context API (dynamic subscriptions, `context.once`, cleanup), use a plugin instead:
 
-Call `context.on(event, handler)` with an event name or pattern. The handler receives `{ ts, context, details }`.
+Call `context.on(event, handler)` with an event name or pattern. The handler receives `{ ts, contextId, details }`.
 
 ```ts
 // plugins/logger.ts
@@ -57,8 +57,8 @@ export default function loggerPlugin(ctx: CraftContext) {
     ctx.logger.info(`Capability running: ${route.definition.id}`)
   })
 
-  ctx.on('error', ({ details: { error, route } }) => {
-    ctx.logger.error(error, `Error in ${route?.definition.id ?? 'context'}`)
+  ctx.on('context:error', ({ details: { error } }) => {
+    ctx.logger.error(error, 'Context error')
   })
 }
 ```
@@ -124,9 +124,18 @@ Plugins can emit their own events on the context for other plugins or adapters t
 
 ```ts
 // plugins/auth.ts
+import { type CraftContext } from '@routecraft/routecraft'
+
+// Declaring the event is what makes it emittable and gives subscribers
+// its details type.
+declare module '@routecraft/routecraft' {
+  interface EventDetailsMap {
+    'plugin:auth:capability:secured': { capabilityId: string }
+  }
+}
+
 export default function authPlugin(ctx: CraftContext) {
   ctx.on('route:started', ({ details: { route } }) => {
-    // Emit a custom event that other plugins can subscribe to
     ctx.emit('plugin:auth:capability:secured', {
       capabilityId: route.definition.id,
     })
@@ -147,6 +156,8 @@ import { type Destination, type Exchange, type SendContext } from '@routecraft/r
 
 class HttpStorageAdapter implements Destination<unknown> {
   readonly adapterId = 'my.http-storage'
+
+  constructor(private readonly url: string) {}
 
   async send(exchange: Exchange, ctx?: SendContext) {
     const res = await fetch(this.url, { method: 'POST', body: JSON.stringify(exchange.body) })
