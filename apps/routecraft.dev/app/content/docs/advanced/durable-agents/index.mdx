@@ -8,6 +8,8 @@ An agent tool handler that cannot answer now parks the whole run through the cor
 
 Suspension is a pipeline primitive, not an agent feature: the store, tokens, TTL, idempotency, and restart semantics are all [`.suspend()` / `.resume()`](/docs/reference/operations/suspend)'s, shared with plain capabilities. The agent tier contributes exactly one thing: what goes into the record's opaque `stepState` slot, which is the messages thread and outstanding tool-call id that a mid-loop agent is.
 
+One limit before the rest: an agent dispatched with a [session](/docs/reference/adapters/agent#sessions-an-agent-that-remembers) cannot park. A session turn keeps its own transcript and delivers later messages through its inbox, so `ctx.suspend()` inside one fails the turn rather than parking it. Everything on this page is about the sessionless dispatch.
+
 ## Parking from a tool handler
 
 `ctx.suspend()` on the handler context is the whole protocol. Return its sentinel immediately:

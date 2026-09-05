@@ -1091,6 +1091,86 @@ export interface EventDetailsMap {
     error: unknown;
   };
 
+  // -- Agent sessions (emitted by @routecraft/ai for agent() dispatches
+  // that carry `session`). `agentName` is the session's agent: the
+  // registered name, or the route id for an inline agent.
+  /**
+   * A message arrived for a session whose turn is running and was queued
+   * for the next turn boundary. The caller was acknowledged, not answered.
+   */
+  "route:agent:session:queued": ExchangeScoped & {
+    agentName: string;
+    session: string;
+    /** Inbox depth after this message was appended. */
+    depth: number;
+    /** The message asked for the running turn to be interrupted. */
+    interrupt: boolean;
+  };
+  /** A running turn was cancelled by a later message with `interrupt: true`. */
+  "route:agent:session:interrupted": ExchangeScoped & {
+    agentName: string;
+    session: string;
+  };
+  /**
+   * A turn started on a session whose previous turn was cut short by a
+   * restart: its partial transcript was kept, its inbox was intact, and
+   * every background call it was waiting on was reported lost.
+   */
+  "route:agent:session:restored": ExchangeScoped & {
+    agentName: string;
+    session: string;
+    lostBackground: number;
+  };
+  /**
+   * A turn ended with work outstanding (background calls running, or
+   * messages queued), so its exchange's continuation was stored: what a
+   * completion, the queued messages, or a boot revives to run the next
+   * turn and the route's downstream steps.
+   */
+  "route:agent:session:parked": ExchangeScoped & {
+    agentName: string;
+    session: string;
+    suspensionId: string;
+    /** Messages waiting when the park was stored. */
+    inbox: number;
+    /** Background calls still running when the park was stored. */
+    background: number;
+  };
+  /**
+   * A stored continuation was revived and this turn is the one it runs:
+   * the inbox is its user message and the route's downstream steps follow.
+   * Emitted on the revived exchange, after core's `route:exchange:resumed`.
+   */
+  "route:agent:session:revived": ExchangeScoped & {
+    agentName: string;
+    session: string;
+    suspensionId: string;
+  };
+  /** A background tool dispatched its route and returned a handle to the model. */
+  "route:agent:session:background:started": ExchangeScoped & {
+    agentName: string;
+    session: string;
+    handle: string;
+    toolName: string;
+  };
+  /** A background tool's route finished and its result was posted to the session inbox. */
+  "route:agent:session:background:completed": ExchangeScoped & {
+    agentName: string;
+    session: string;
+    handle: string;
+    toolName: string;
+    duration: number;
+  };
+  /** A background tool's route failed and the failure was posted to the session inbox. */
+  "route:agent:session:background:failed": ExchangeScoped & {
+    agentName: string;
+    session: string;
+    handle: string;
+    toolName: string;
+    errorName: string;
+    duration: number;
+  };
+
   // -- Agent / tool registration (emitted once per registered agent / fn
   // on context:started by agentPlugin in @routecraft/ai, so observability
   // consumers can list agents and tools before any of them runs) --

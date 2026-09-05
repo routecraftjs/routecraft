@@ -91,6 +91,12 @@ declare module "@routecraft/routecraft" {
     AI1008: RCMeta;
     /** Model context window exceeded */
     AI1009: RCMeta;
+    /** Agent session record could not be read or written */
+    AI1010: RCMeta;
+    /** A tool asked to park an agent session turn */
+    AI1011: RCMeta;
+    /** The agent session store could not be opened, read or written */
+    AI1012: RCMeta;
     /** MCP tool result violated the tool's advertised output schema */
     AI2001: RCMeta;
     /** MCP tool declined the request: the route dropped the exchange */
@@ -174,6 +180,30 @@ registerErrorCodes(
         "The provider refused the request because the prompt does not fit the model's context window. This is distinct from an ordinary dispatch failure: no retry of the same input can succeed, and the fix is to send less. Compact the conversation, trim the tool results carried in the thread, or move to a model with a larger window. The provider's own refusal is on the error's cause.",
       docs: `${DOCS_BASE}#ai-1009`,
       retryable: false,
+    },
+    AI1010: {
+      category: "Adapter",
+      message: "Agent session record could not be read or written",
+      suggestion:
+        "The suspension store holds the transcript and inbox of every named agent session, one record per (agent, session). Either a stored record is not the shape the runtime writes (the store was edited by hand, or two versions of @routecraft/ai share one store), or a write lost the compare-and-swap repeatedly to another writer. Inspect the record named in the message, or remove it to start the session over.",
+      docs: `${DOCS_BASE}#ai-1010`,
+      retryable: false,
+    },
+    AI1011: {
+      category: "Adapter",
+      message: "A tool asked to park an agent session turn",
+      suggestion:
+        "ctx.suspend() was called by a tool inside an agent dispatched with session. A session turn stores its transcript when it ends and is revived from the session record, not from a parked exchange, so there is no continuation for an approval to resume into. Park from a sessionless agent, or move the approval into a route the agent calls as a tool.",
+      docs: `${DOCS_BASE}#ai-1011`,
+      retryable: false,
+    },
+    AI1012: {
+      category: "Adapter",
+      message: "Agent session store failed",
+      suggestion:
+        "The store configured by sessions: { store } (the sqlite file at .routecraft/sessions.db by default) could not be opened, migrated, read or written. Check the path and its permissions, that one process at a time holds the file, and under Node that better-sqlite3 is installed; a store that is busy answers this code too, and that call can be retried.",
+      docs: `${DOCS_BASE}#ai-1012`,
+      retryable: true,
     },
     AI2001: {
       category: "Adapter",

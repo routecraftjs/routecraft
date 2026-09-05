@@ -12,6 +12,26 @@ import { ADAPTER_FN_RESOLVED } from "../../fn/store.ts";
 export const DEFERRED_FN_BRAND = Symbol.for("routecraft.ai.fn.deferred");
 
 /**
+ * Marks the `FnOptions` a `directTool(routeId, { background: true })`
+ * resolves to, so the agent's tool list can tell a background tool from
+ * a synchronous one without re-reading the builder's overrides. A symbol
+ * rather than a field, because `FnOptions` is the public shape an author
+ * writes and this is resolver-set provenance, not something to author.
+ *
+ * @internal
+ */
+export const FN_BACKGROUND = Symbol.for("routecraft.ai.fn.background");
+
+/**
+ * Whether resolved fn options carry the background marker.
+ *
+ * @internal
+ */
+export function isBackgroundFn(fn: FnOptions): boolean {
+  return (fn as { [FN_BACKGROUND]?: unknown })[FN_BACKGROUND] === true;
+}
+
+/**
  * The kinds of underlying things `tools(...)` can wrap as a deferred
  * fn. Today only `directTool(routeId)` produces a deferred entry;
  * MCP tools are resolved directly from `MCP_TOOL_REGISTRY` at

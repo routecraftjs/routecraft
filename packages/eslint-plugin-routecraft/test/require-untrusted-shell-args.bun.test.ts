@@ -36,6 +36,15 @@ ruleTester.run("require-untrusted-shell-args", requireUntrustedShellArgsRule, {
     `shell("git", () => ["log", "--oneline"]);`,
     // Every exchange-derived element is marked.
     `shell("git", (ex) => ["clone", untrusted(ex.body.url), untrusted(ex.headers.ref)]);`,
+    // The docker tier's route shape: the command stays static, the data
+    // travels through args under the marker, and options that resolve
+    // from the exchange are not arguments.
+    `import { shell, untrusted } from "@routecraft/os";
+     shell("sh", (ex) => ["-lc", untrusted(ex.body.cmd)], {
+       isolation: "docker",
+       image: (ex) => ex.body.image,
+       mounts: (ex) => [{ host: "/work/" + ex.body.session, container: "/workspace" }],
+     });`,
     // A block body returning marked values.
     `shell("git", (ex) => { return ["clone", untrusted(ex.body.url)]; });`,
     // Not the shell adapter.

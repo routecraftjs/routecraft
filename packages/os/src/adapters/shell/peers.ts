@@ -3,7 +3,7 @@ import { loadOptionalPeer } from "@routecraft/routecraft";
 /**
  * Optional peer loading for the shell adapter.
  *
- * Both packages are declared optional peers and imported through
+ * Every package here is declared an optional peer and imported through
  * `loadOptionalPeer`, so an absent one surfaces as `RC5017` naming the
  * package and the install command rather than a raw module-resolution
  * failure. Kept in its own module so the tiers and the execution path can
@@ -32,4 +32,18 @@ export function loadShescape(): Promise<ShescapeModule> {
     packageName: "shescape",
   });
   return shescapeCache;
+}
+
+/** The module namespace, so the `default` export is what a caller constructs. */
+type DockerodeModule = { default: typeof import("dockerode") };
+
+let dockerodeCache: Promise<DockerodeModule> | undefined;
+
+/** Load `dockerode`, the Docker Engine API client the docker tier drives. */
+export function loadDockerode(): Promise<DockerodeModule> {
+  dockerodeCache ??= loadOptionalPeer(() => import("dockerode"), {
+    consumer: "shell adapter (docker tier)",
+    packageName: "dockerode",
+  });
+  return dockerodeCache;
 }

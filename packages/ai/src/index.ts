@@ -143,11 +143,19 @@ export {
   assertResumableThread,
   replaceParkedThread,
   SuspendError,
+  // Where agent sessions live: the config key's plugin form, the two
+  // shipped backends, and the contract for a backend of your own.
+  DEFAULT_SESSION_DB_PATH,
+  MemorySessionStore,
+  SESSION_STORE_ENV,
+  SqliteSessionStore,
+  sessionsPlugin,
 } from "./agent/index.ts";
 export type {
   AgentDefaultOptions,
   AgentByNameOverrides,
   AgentDelta,
+  AgentInboxMessage,
   AgentMarkdownOverride,
   AgentDeltaListener,
   AgentOptions,
@@ -155,6 +163,16 @@ export type {
   AgentPrincipalRenderer,
   AgentRegisteredOptions,
   AgentResult,
+  AgentSessionKey,
+  AgentSessionOutcome,
+  AgentSessionsConfig,
+  AgentInterruptSource,
+  AgentSessionSource,
+  AgentSessionSummary,
+  SessionCasResult,
+  SessionStore,
+  SessionStoreConfig,
+  StoredSession,
   AgentStepState,
   AgentStream,
   AgentSuspendOptions,
@@ -172,6 +190,7 @@ export type {
   FnHandlerContext,
   FnOptions,
   FnRegistry,
+  FnSessionView,
   FnSuspensionView,
   ReadonlyPrincipal,
   RegisteredFnId,
@@ -183,6 +202,7 @@ export type {
 // the `MCP(server:tool)` / `mcp__server__tool` grammar inside
 // `tools(...)`.
 export {
+  AgentHeadersKeys,
   directTool,
   tools,
   type AgentToolDescriptor,
@@ -196,6 +216,7 @@ export {
   type DeferredFnKind,
   type FnEntry,
   type ResolvedTool,
+  type BackgroundToolHandle,
   type ToolBuilderOverrides,
   type ToolGuard,
   type ToolSelection,

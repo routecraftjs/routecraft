@@ -62,6 +62,8 @@ interface VercelToolLike {
  *   objects wrapped as `{ type: "json", value }`;
  * - `stopWhen` conditions (function or array) are evaluated after every
  *   step and stop the loop when any returns true;
+ * - `onStep` is called after every step with the response messages so
+ *   far, cloned, matching the SDK's cumulative `onStepFinish`;
  * - an aborted signal fails the call with an `AbortError`.
  */
 export function scriptedLlm(script: ScriptedTurn[]): ScriptedLlm {
@@ -154,6 +156,9 @@ export function scriptedLlm(script: ScriptedTurn[]): ScriptedLlm {
           });
         }
         steps.push({ toolCalls: batch });
+        await params.onStep?.({
+          responseMessages: structuredClone(responseMessages),
+        });
         if (await stopped(params.stopWhen, steps)) break;
         continue;
       }
@@ -164,6 +169,9 @@ export function scriptedLlm(script: ScriptedTurn[]): ScriptedLlm {
         content: [{ type: "text", text }],
       });
       steps.push({ toolCalls: [] });
+      await params.onStep?.({
+        responseMessages: structuredClone(responseMessages),
+      });
       break;
     }
 

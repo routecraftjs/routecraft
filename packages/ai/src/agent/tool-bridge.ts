@@ -14,7 +14,7 @@ import {
   SUSPENDED_TOOL_PLACEHOLDER,
   type AgentSuspendSignalRecord,
 } from "./suspension-state.ts";
-import type { AgentDispatchIdentity } from "./session.ts";
+import type { AgentDispatchIdentity, AgentRunSession } from "./run.ts";
 import type { ResolvedTool } from "./tools/selection.ts";
 
 /**
@@ -70,6 +70,20 @@ export interface AgentSuspensionWiring {
  *
  * @internal
  */
+/**
+ * A tool call of the step in progress, kept until the step is committed
+ * to the thread. A call that has settled keeps its outcome, because a
+ * cancellation between a sibling's completion and the step's commit would
+ * otherwise drop the finished call along with its result.
+ *
+ * @internal
+ */
+export interface TrackedToolCall {
+  toolName: string;
+  input: unknown;
+  settled?: { ok: true; output: unknown } | { ok: false; message: string };
+}
+
 export async function buildVercelTools(
   resolved: ResolvedTool[],
   ctx: CraftContext | undefined,
@@ -77,6 +91,8 @@ export async function buildVercelTools(
   dispatchIdentity?: AgentDispatchIdentity,
   principal?: Principal,
   suspensions?: AgentSuspensionBridge,
+  inFlight?: Map<string, TrackedToolCall>,
+  session?: AgentRunSession,
 ): Promise<Record<string, unknown>> {
   if (resolved.length === 0)
     return Object.create(null) as Record<string, unknown>;
@@ -133,8 +149,13 @@ export async function buildVercelTools(
                 mintToken: () => wiring.mintToken(toolCallId),
               }
             : undefined,
+          session,
         );
         const start = Date.now();
+        // Tracked for the whole call, block loaders included: a turn
+        // interrupted mid-call records what was running so the model can
+        // see it in the transcript it resumes from.
+        inFlight?.set(toolCallId, { toolName: r.name, input });
 
         if (!isLoader && ctx && dispatchIdentity) {
           ctx.emit("route:agent:tool:invoked", {
@@ -225,6 +246,11 @@ export async function buildVercelTools(
               });
             }
           }
+          inFlight?.set(toolCallId, {
+            toolName: r.name,
+            input,
+            settled: { ok: true, output },
+          });
           return output;
         } catch (err) {
           // The throw form of the suspend signal, honoured as an escape
@@ -252,6 +278,11 @@ export async function buildVercelTools(
                 duration: Date.now() - start,
               });
             }
+            inFlight?.set(toolCallId, {
+              toolName: r.name,
+              input,
+              settled: { ok: true, output: SUSPENDED_TOOL_PLACEHOLDER },
+            });
             return SUSPENDED_TOOL_PLACEHOLDER;
           }
           if (ctx && dispatchIdentity) {
@@ -285,6 +316,11 @@ export async function buildVercelTools(
               });
             }
           }
+          inFlight?.set(toolCallId, {
+            toolName: r.name,
+            input,
+            settled: { ok: false, message: errorMessage(err) },
+          });
           throw err;
         }
       },
@@ -302,6 +338,12 @@ export async function buildVercelTools(
  *
  * @internal
  */
+function errorMessage(err: unknown): string {
+  if (err instanceof Error) return err.message;
+  const message = (err as { message?: unknown } | null)?.message;
+  return typeof message === "string" ? message : String(err);
+}
+
 function errorName(err: unknown): string {
   if (err instanceof Error) return err.name || "Error";
   return typeof err;

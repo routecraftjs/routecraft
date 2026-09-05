@@ -13,6 +13,7 @@
  * decision about who may act lives in `tier.ts`.
  */
 
+import { parsePageQuery } from "./pagination.ts";
 import { isRoutecraftError, rcCodeOf } from "../../brand";
 import { missingCredentialReason } from "../http/auth";
 import {
@@ -55,6 +56,8 @@ const ROUTE_DETAIL = /^\/ops\/routes\/([^/]+)$/;
 const ROUTE_EXCHANGES = /^\/ops\/routes\/([^/]+)\/exchanges$/;
 /** `GET /ops/events`. */
 const EVENTS = "/ops/events";
+/** `GET /ops/{resource}` and `GET /ops/{resource}/{segment...}` for contributed resources. */
+const RESOURCE = /^\/ops\/([^/]+)((?:\/[^/]+)*)$/;
 
 /**
  * Percent-decode a path segment, or `undefined` when the escape is
@@ -72,6 +75,13 @@ function decodeSegment(value: string): string | undefined {
 
 const notFound = (): Response =>
   jsonResponse({ error: "not found" }, { status: 404 });
+
+/** A HEAD's answer: the status and the type of the body a GET would carry. */
+const emptyOk = (): Response =>
+  new Response(null, {
+    status: 200,
+    headers: { "content-type": "application/json; charset=utf-8" },
+  });
 
 /**
  * The listener is already carrying its full complement of streams.
@@ -231,6 +241,58 @@ export function createManagementHandler(
         return methodNotAllowed("POST");
       }
       return dispatchExchange(api, exchangesMatch[1]!, req, verdict.principal);
+    }
+
+    const resourceMatch = RESOURCE.exec(pathname);
+    if (resourceMatch) {
+      const name = decodeSegment(resourceMatch[1]!);
+      const resource = name === undefined ? undefined : api.resource(name);
+      // An unknown resource and a disabled tier answer alike, on purpose:
+      // the tier check comes first so an unconfigured instance discloses
+      // neither which resources exist nor that the surface does.
+      const verdict = await admitToTier(tiers.introspection, context);
+      if (verdict.kind !== "admit") return refuse(verdict, onRefused, req.url);
+      if (resource === undefined) return notFound();
+      if (req.method !== "GET" && req.method !== "HEAD") {
+        return methodNotAllowed("GET, HEAD");
+      }
+      const rest = resourceMatch[2]!.split("/").filter((s) => s.length > 0);
+      const segments: string[] = [];
+      for (const raw of rest) {
+        const segment = decodeSegment(raw);
+        if (segment === undefined) return notFound();
+        segments.push(segment);
+      }
+      try {
+        if (segments.length === 0) {
+          const query = Object.fromEntries(url.searchParams.entries());
+          // A HEAD carries no body, and a contributed listing costs the
+          // contributor a read per item; the route listing it mirrors
+          // is a scan, so this is where the cost would be new. The page
+          // limit is still checked, so a malformed one is 400 on HEAD as
+          // on GET; a cursor is the contributor's to decode against its
+          // own scope, and HEAD does not ask it to.
+          if (req.method === "HEAD") {
+            parsePageQuery(query);
+            return emptyOk();
+          }
+          return jsonResponse(await resource.list(query), { status: 200 });
+        }
+        const item = await resource.describe(segments);
+        return item === undefined
+          ? notFound()
+          : jsonResponse(item, { status: 200 });
+      } catch (error: unknown) {
+        // A malformed limit or cursor is the caller's; anything else is
+        // the contributor's and reaches the wire as a code, never a
+        // message, as the dispatch surface does.
+        const code = rcCodeOf(error);
+        if (code === "RC5059") return badRequest((error as Error).message);
+        return jsonResponse(
+          { error: "resource failed", resource: name, code },
+          { status: 500 },
+        );
+      }
     }
 
     return notFound();

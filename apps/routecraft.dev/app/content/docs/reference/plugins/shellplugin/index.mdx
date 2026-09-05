@@ -25,8 +25,8 @@ export const craftConfig = defineConfig({
 
 | Field | Type | Default | Required | Description |
 | --- | --- | --- | --- | --- |
-| `isolation` | `"none" \| "unshare"` | `unshare` | No | Isolation tier for calls that do not choose one |
-| `timeout` | `number` | none | No | Milliseconds before a command and its children are killed |
+| `isolation` | `"none" \| "unshare" \| "docker"` | `unshare` | No | Isolation tier for calls that do not choose one |
+| `timeout` | `Duration` | none | No | How long before a command and its children are killed, for calls that set none |
 | `maxOutputBytes` | `number` | `8388608` (8 MiB) | No | Cap on captured output, per stream |
 
 ## Precedence

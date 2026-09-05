@@ -2,6 +2,7 @@ import {
   getExchangeContext,
   getExchangeRoute,
   markSuspendCapable,
+  parkAside,
   peekResumeStepState,
   rcError,
   type CraftContext,
@@ -14,13 +15,14 @@ import { BLOCK_RESERVED_PREFIX, resolveBlocks } from "../block/resolve.ts";
 import type { BlockBody, Blocks } from "../block/types.ts";
 import { resolveModel, resolvePrompt } from "../llm/shared.ts";
 import {
-  AgentSession,
+  AgentRun,
   buildUserPrompt,
   dispatchIdentityFrom,
   type AgentDispatchIdentity,
-  type AgentSessionResume,
-  type AgentSessionSuspension,
-} from "./session.ts";
+  type AgentRunInput,
+  type AgentRunResume,
+  type AgentRunSuspension,
+} from "./run.ts";
 import { rehydrateSession } from "./suspension-state.ts";
 import {
   ADAPTER_AGENT_DEFAULT_OPTIONS,
@@ -43,25 +45,55 @@ import type {
   AgentPrincipalRenderer,
   AgentRegisteredOptions,
   AgentResult,
+  AgentInterruptSource,
+  AgentSessionSource,
 } from "./types.ts";
+import {
+  AgentSessionRuntime,
+  isSessionParkMarker,
+  sessionSystemBlock,
+  type AgentSessionKey,
+  type AgentSessionPark,
+  type AgentSessionParkMarker,
+  type AgentTurnExecutor,
+} from "./session/index.ts";
+import type { ThreadMessage } from "./suspension-state.ts";
 
 const AGENT_REGISTRY_STORE_DESCRIPTION =
   ADAPTER_AGENT_REGISTRY.description ?? "routecraft.adapter.agent.registry";
 
+/** The shape a session id must have; see `AgentOptions.session`. */
+const SESSION_ID = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,127}$/;
+
 /**
  * Per-call overrides accepted by the by-name `agent("name", { ... })`
- * factory. Constrained to fields that are inherently request-scoped
- * (the SSE / WebSocket / TUI consumer for `onDelta` is not known at
- * registration time). Anything else (model, system, tools, output)
- * stays authoritative on the registered options.
+ * factory. Constrained to fields that are inherently request-scoped:
+ * the SSE / WebSocket / TUI consumer for `onDelta` is not known at
+ * registration time, and which conversation a message belongs to
+ * (`session`, `interrupt`) is a property of the message, not of the
+ * agent. Anything else (model, system, tools, output) stays
+ * authoritative on the registered options.
+ *
+ * @template T - Body type available to the resolver callbacks
  */
-export interface AgentByNameOverrides {
+export interface AgentByNameOverrides<T = unknown> {
   /**
    * Per-request token-delta listener. Mirrors `AgentOptions.onDelta`
    * but lives at the call site so each dispatch can stream into its
    * own consumer without cross-talk.
    */
   onDelta?: AgentDeltaListener;
+  /**
+   * The conversation this message belongs to. Same contract as
+   * {@link AgentOptions.session}; the per-call value wins over one on the
+   * registered options.
+   */
+  session?: AgentSessionSource<T>;
+  /**
+   * Cancel the session's running turn before answering this message. Same
+   * contract as {@link AgentOptions.interrupt}; the per-call value wins.
+   */
+  interrupt?: AgentInterruptSource<T>;
 }
 
 /**
@@ -73,14 +105,14 @@ export type AgentBinding<T = unknown> =
   | {
       kind: "by-name";
       name: string;
-      perCall?: AgentByNameOverrides;
+      perCall?: AgentByNameOverrides<T>;
     };
 
 /**
  * Agent enricher adapter. Resolves agent options (inline or
  * registered), merges them with `agentPlugin({ defaultOptions })`,
  * resolves the agent's tool selection against the live context, and
- * dispatches the tool-calling loop via {@link AgentSession}.
+ * dispatches the tool-calling loop via {@link AgentRun}.
  *
  * Fetch-only: an agent run PRODUCES a value, so it fills the `fetch` slot and
  * implements no `send`. The resulting `AgentResult { text, output?,
@@ -148,7 +180,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
     // resume token the handler had already sent. Refusing at the handler
     // instead (AI1006, the same refusal an unbound dispatch gets) puts the
     // error where the author can act on it.
-    const suspension: AgentSessionSuspension | undefined =
+    const suspension: AgentRunSuspension | undefined =
       dispatchIdentity && agentIdentity !== undefined && merged.stream !== true
         ? {
             id: exchange.suspension.id,
@@ -167,8 +199,12 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
     // setup failure below) still resumes instead of silently re-running
     // the whole loop from the original prompt.
     const resumeRaw = peekResumeStepState(exchange);
-    const resume: AgentSessionResume | undefined =
-      resumeRaw !== undefined
+    // A revived session continuation re-enters here too, carrying only
+    // the session's name: the transcript and the inbox are in the session
+    // record, and the turn they make is the runtime's to run.
+    const revivedPark = isSessionParkMarker(resumeRaw) ? resumeRaw : undefined;
+    const resume: AgentRunResume | undefined =
+      resumeRaw !== undefined && revivedPark === undefined
         ? rehydrateSession(resumeRaw, agentIdentity, exchange.suspension.result)
         : undefined;
 
@@ -210,22 +246,6 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
       exchange,
     );
 
-    const session = new AgentSession<T>({
-      options: merged,
-      modelConfig: config,
-      modelName,
-      model,
-      ...(agentName !== undefined && { agentName }),
-      tools,
-      user,
-      system,
-      context,
-      exchange,
-      dispatchIdentity,
-      ...(suspension !== undefined && { suspension }),
-      ...(resume !== undefined && { resume }),
-    });
-
     // Thread cancellation through so the agent dispatch (LLM call plus
     // in-flight tool handlers) stops when either owner says so: the
     // route's signal (stop, context shutdown) or the step's signal (a
@@ -246,23 +266,222 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
     // merged options or as a per-call override at the by-name call
     // site. Per-call wins because it's request-scoped (e.g. a
     // specific SSE channel for THIS dispatch).
-    const onDelta =
-      this.binding.kind === "by-name"
-        ? (this.binding.perCall?.onDelta ?? merged.onDelta)
-        : merged.onDelta;
+    const perCall =
+      this.binding.kind === "by-name" ? this.binding.perCall : undefined;
+    const onDelta = perCall?.onDelta ?? merged.onDelta;
+
+    const sessionKey =
+      revivedPark !== undefined
+        ? this.revivedSessionKey(revivedPark, agentIdentity)
+        : this.resolveSessionKey(
+            perCall?.session ?? merged.session,
+            exchange,
+            agentIdentity,
+            merged.stream === true,
+          );
+    const backgroundTools = tools.filter((tool) => tool.background === true);
+    if (sessionKey === undefined && backgroundTools.length > 0) {
+      throw rcError("RC5003", undefined, {
+        message:
+          `Agent${agentName !== undefined ? ` "${agentName}"` : ""}: ${backgroundTools.map((t) => `"${t.name}"`).join(", ")} ${backgroundTools.length === 1 ? "is" : "are"} declared background: true, which delivers the result to the calling session's inbox, and this dispatch carries no session. ` +
+          `Dispatch the agent with agent(name, { session }), or register the tool without the background flag.`,
+      });
+    }
+    // Built once for both paths: a field added here reaches a session turn
+    // and a one-shot run alike, where two literals would let one drift.
+    const base = {
+      options: merged,
+      modelConfig: config,
+      modelName,
+      model,
+      ...(agentName !== undefined && { agentName }),
+      tools,
+      user,
+      system,
+      context,
+      exchange,
+      dispatchIdentity,
+      // Withheld on a session turn: its continuation is the session record,
+      // revived by the runtime, and a tool that parks would strand the
+      // caller on a suspension nothing resumes into (AI1011 at the tool).
+      ...(suspension !== undefined &&
+        sessionKey === undefined && { suspension }),
+    } satisfies Omit<AgentRunInput<T>, "onStep" | "resume" | "session">;
+
+    if (sessionKey !== undefined) {
+      if (!context) {
+        throw rcError("RC5003", undefined, {
+          message: `Agent: "session" needs a CraftContext to keep the conversation in; this exchange has none.`,
+        });
+      }
+      if (resume !== undefined) {
+        throw rcError("RC5003", undefined, {
+          message: `Agent: a resumed suspension cannot re-enter an agent dispatched with "session". A session turn is not parkable; drop "session" on this route or park from a sessionless agent.`,
+        });
+      }
+      const interrupt = perCall?.interrupt ?? merged.interrupt;
+      // Where this exchange can be parked for a later turn: the re-entrant
+      // site the build assigned this step, when it sits on the primary flow.
+      const site = route?.definition.reentrantSuspendSteps?.find(
+        (host) => host.adapter === this,
+      )?.suspendSite;
+      const routeId = route?.definition.id;
+      const park =
+        site !== undefined && routeId !== undefined
+          ? async (
+              announce: (park: AgentSessionPark) => Promise<void>,
+            ): Promise<AgentSessionPark> => {
+              const { suspensionId } = await parkAside(
+                context,
+                exchange,
+                site,
+                routeId,
+                (id): AgentSessionParkMarker => ({
+                  kind: "agent-session-park",
+                  agent: sessionKey.agent,
+                  session: sessionKey.session,
+                  suspensionId: id,
+                }),
+                (id) => announce({ suspensionId: id, routeId }),
+              );
+              return { suspensionId, routeId };
+            }
+          : undefined;
+      return await AgentSessionRuntime.for(context).turn({
+        key: sessionKey,
+        exchange,
+        by: exchange.principal?.subject ?? null,
+        ...(revivedPark === undefined ? { message: user } : {}),
+        ...(park !== undefined ? { park } : {}),
+        ...(revivedPark !== undefined
+          ? { revived: revivedPark.suspensionId }
+          : {}),
+        interrupt:
+          revivedPark === undefined &&
+          (typeof interrupt === "function"
+            ? interrupt(exchange) === true
+            : interrupt === true),
+        executor: this.sessionExecutor(
+          {
+            ...base,
+            system: `${system}\n\n${sessionSystemBlock(sessionKey)}`,
+            session: { agent: sessionKey.agent, id: sessionKey.session },
+          },
+          abortSignal,
+          onDelta,
+        ),
+      });
+    }
+
+    const run = new AgentRun<T>({
+      ...base,
+      ...(resume !== undefined && { resume }),
+    });
+
     // `stream: true` is the pull form of `onDelta` (see AgentOptions.stream).
     if (merged.stream === true) {
       return streamAgentDeltas(
-        (emit) => session.runStream(abortSignal, emit),
+        (emit) => run.runStream(abortSignal, emit),
         (reason) => consumer.abort(reason),
       );
     }
     // The consolidated AgentResult is returned in both remaining paths, so
     // downstream pipeline ops are unaffected by the choice.
     if (onDelta !== undefined) {
-      return await session.runStream(abortSignal, onDelta);
+      return await run.runStream(abortSignal, onDelta);
     }
-    return await session.runUntilDone(abortSignal);
+    return await run.runUntilDone(abortSignal);
+  }
+
+  /**
+   * Resolve the session this dispatch belongs to, or `undefined` for the
+   * sessionless path every agent took before sessions existed.
+   *
+   * `stream: true` and `session` do not compose: the stream is handed over
+   * before the run ends, so there is no turn boundary at which to store
+   * the transcript or drain the inbox. Refused here rather than silently
+   * running the turn without the session it was asked for.
+   */
+  private resolveSessionKey(
+    source: AgentSessionSource<T> | undefined,
+    exchange: Exchange<T>,
+    agentIdentity: string | undefined,
+    streaming: boolean,
+  ): AgentSessionKey | undefined {
+    if (source === undefined) return undefined;
+    const resolved = typeof source === "function" ? source(exchange) : source;
+    if (typeof resolved !== "string" || resolved.trim() === "") {
+      throw rcError("RC5003", undefined, {
+        message: `Agent: "session" must resolve to a non-empty string naming the conversation; got ${JSON.stringify(resolved)}.`,
+      });
+    }
+    // The id is rendered into the system prompt and keys a store record,
+    // so a value shaped from data is bounded before it reaches either.
+    if (!SESSION_ID.test(resolved)) {
+      throw rcError("RC5003", undefined, {
+        message: `Agent: "session" must be 1 to 128 characters of letters, digits, ".", "_", ":" or "-", starting with a letter or digit; got ${JSON.stringify(resolved)}. Map the value the message carries onto that shape before naming the session with it.`,
+      });
+    }
+    if (streaming) {
+      throw rcError("RC5003", undefined, {
+        message: `Agent: "session" and "stream: true" cannot be combined. A session turn stores its transcript when it ends, and a stream is handed over before that. Use "onDelta" for token deltas on a session, or drop "session" to stream.`,
+      });
+    }
+    if (agentIdentity === undefined) {
+      throw rcError("RC5003", undefined, {
+        message: `Agent: "session" needs an agent identity to key the conversation by, and this dispatch has none: it is neither a registered agent nor on a route. Dispatch through a route, or register the agent by name.`,
+      });
+    }
+    return { agent: agentIdentity, session: resolved };
+  }
+
+  /**
+   * The session a revived continuation belongs to, from the marker it
+   * stored. The agent it names must be the one this step dispatches: the
+   * marker is read off the store, and a route rebound under a park would
+   * otherwise run another agent's conversation.
+   */
+  private revivedSessionKey(
+    marker: AgentSessionParkMarker,
+    agentIdentity: string | undefined,
+  ): AgentSessionKey {
+    if (agentIdentity !== marker.agent) {
+      throw rcError("AI1007", undefined, {
+        message: `This continuation was stored by agent "${marker.agent}", but the revived route now dispatches ${agentIdentity === undefined ? "an agent with no identity" : `"${agentIdentity}"`}. Restore the original agent binding.`,
+      });
+    }
+    return { agent: marker.agent, session: marker.session };
+  }
+
+  /**
+   * What the session runtime calls to run one turn. A fresh run per call,
+   * because the boundary turn that consumes an inbox reuses this executor
+   * after the first run has finished, and a run is one turn's state.
+   */
+  private sessionExecutor(
+    input: Omit<AgentRunInput<T>, "onStep" | "resume">,
+    abortSignal: AbortSignal,
+    onDelta: AgentDeltaListener | undefined,
+  ): AgentTurnExecutor {
+    let last: AgentRun<T> | undefined;
+    return {
+      run: async (messages, interrupt, onStep) => {
+        // Each turn's budget is its own: `maxTurns` bounds one turn, not
+        // the conversation, so the run starts from the stored thread with
+        // no turns spent. `usage` is per turn for the same reason.
+        const run = new AgentRun<T>({
+          ...input,
+          resume: { messages: [...messages], turnsUsed: 0 },
+          onStep,
+        });
+        last = run;
+        const signal = anySignal(abortSignal, interrupt);
+        return onDelta !== undefined
+          ? run.runStream(signal, onDelta)
+          : run.runUntilDone(signal);
+      },
+      thread: (): readonly ThreadMessage[] | undefined => last?.thread,
+    };
   }
 
   /** Pull the agent options for this dispatch, either inline or from the registry. */

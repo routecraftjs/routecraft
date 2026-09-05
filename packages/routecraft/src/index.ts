@@ -134,7 +134,20 @@ export {
 
 export { opsPlugin } from "./plugins/ops/plugin.ts";
 export { defineIndicator } from "./plugins/ops/indicator.ts";
-export { OPS_HEALTH_STATE } from "./plugins/ops/store.ts";
+export {
+  OPS_HEALTH_STATE,
+  OPS_RESOURCES,
+  registerOpsResource,
+} from "./plugins/ops/store.ts";
+// Paging for contributed resources, so a contributor's collection carries the
+// same cursor contract as the route listing rather than a second one.
+export {
+  decodeCursor,
+  parsePageQuery,
+  takePage,
+  type CursorScope,
+  type PageFilter,
+} from "./plugins/ops/pagination.ts";
 // The read surface only. The ledger's mutators are the plugin's translation of
 // framework events, and the store hands back the live instance, so a type that
 // exposed them would let an app inject a transition nothing ever observed.
@@ -160,6 +173,7 @@ export type {
   OpsHealthOptions,
   OpsPage,
   OpsPluginOptions,
+  OpsResource,
   OpsRouteDetail,
   OpsRouteFilter,
   OpsRouteQuery,
@@ -636,6 +650,24 @@ export type {
   SqliteDatabaseConstructor,
   SqliteStatement,
 } from "./shared/sqlite/types.ts";
+// The sqlite seam another package opens a store on: @routecraft/ai opens
+// its session store on the same runtime split (bun:sqlite under Bun,
+// better-sqlite3 as an optional peer under Node) with the same path
+// resolution, busy classification and migration runner, and a package
+// cannot reach a deep import of core. The first brick of #601, shared
+// rather than copied.
+export {
+  resolveSqliteDriver,
+  type ResolvedSqliteDriver,
+  type SqliteDriverLoaders,
+  type SqliteDriverName,
+} from "./shared/sqlite/driver.ts";
+export {
+  isSqliteBusy,
+  migrateSqlite,
+  resolveDatabasePath,
+  type SqliteMigrationFailure,
+} from "./shared/sqlite/database.ts";
 
 // The suspension engine (hashing, serialization, token minting, runtime
 // resolution) stays behind `./suspension/index.ts`, which is where the
@@ -655,6 +687,11 @@ export {
   isSuspendSignal,
   isSuspended,
   markSuspendCapable,
+  // parkAside and reviveSuspension are @internal and re-exported on purpose:
+  // @routecraft/ai stores and revives an agent session's continuation
+  // through them, and a package cannot reach a deep import of core.
+  parkAside,
+  reviveSuspension,
   routeCanSuspend,
   stepStateFingerprint,
   suspendedSchema,

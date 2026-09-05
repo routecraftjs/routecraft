@@ -66,7 +66,9 @@ Model ID format: `"provider:model-name"` (same as `llm()`). The provider must be
 | `tools` | `ToolSelection` | -- | No | Tool whitelist built via `tools([...])`. Inherits `defaultOptions.tools` when omitted; an explicit value replaces the default entirely |
 | `principal` | `boolean \| (principal, exchange) => string` | `false` | No | When `true`, append a built-in `## Caller` section to the system prompt describing `exchange.principal` (identity + roles), or stating the request is unauthenticated. Pass a function to render the section yourself. See [Telling the agent who the caller is](#telling-the-agent-who-the-caller-is) |
 | `output` | `StandardSchemaV1` | -- | No | Schema for structured output. The agent requests provider-level structured output, validates the response, and parses it onto `AgentResult.output` |
-| `stream` | `boolean` | `false` | No | Produce the token deltas instead of the consolidated `AgentResult`. See [Streaming the reply](#streaming-the-reply) |
+| `session` | `string \| (exchange) => string` | -- | No | The conversation this message continues. Every message for one session id shares one transcript, kept in the context's [session store](/docs/reference/configuration#sessions). See [Sessions](#sessions-an-agent-that-remembers) |
+| `interrupt` | `boolean \| (exchange) => boolean` | `false` | No | Cancel the session's running turn before answering this message. Only meaningful with `session`; ignored when no turn is running |
+| `stream` | `boolean` | `false` | No | Produce the token deltas instead of the consolidated `AgentResult`. See [Streaming the reply](#streaming-the-reply). Does not combine with `session` |
 | `onDelta` | `(delta) => void \| Promise<void>` | -- | No | Push form of the same streaming run: each token delta goes to this listener and the consolidated result is still returned. Refused alongside `stream` |
 | `temperature` | `number` | `0` | No | Sampling temperature |
 | `maxTokens` | `number` | `1024` | No | Maximum tokens per model call |
@@ -88,6 +90,14 @@ They apply to every model call in a run: the first turn, each tool-calling turn,
 
 The id is the record key in `agentPlugin({ agents: { [id]: {...} } })`.
 
+**`AgentByNameOverrides` (the second argument of `agent("name", { ... })`):** per-call fields, which are the ones that belong to the message rather than to the agent. A per-call value wins over the registered one.
+
+| Option | Type | Description |
+|--------|------|-------------|
+| `session` | `string \| (exchange) => string` | Same as `AgentOptions.session` |
+| `interrupt` | `boolean \| (exchange) => boolean` | Cancel the session's running turn before answering this message. Ignored when no turn is running, and without `session` |
+| `onDelta` | `(delta) => void \| Promise<void>` | Per-request token-delta listener |
+
 **Result shape (body is replaced by `.to()`):**
 
 | Field | Type | Description |
@@ -97,6 +107,78 @@ The id is the record key in `agentPlugin({ agents: { [id]: {...} } })`.
 | `usage.inputTokens` | `number` | Input token count (when reported) |
 | `usage.outputTokens` | `number` | Output token count (when reported) |
 | `usage.totalTokens` | `number` | Total token count (when reported) |
+| `session` | `{ agent, id, status, queued }` | Present only when the dispatch carried `session`. `status` is `replied` (`text` is this message's reply), `queued` (a turn was running; `text` is empty and the reply belongs to the turn that consumes the inbox), `interrupted` (this call's own turn was cancelled by a later message) or `idle` (only on a revived continuation whose inbox another turn consumed first; `text` is empty and no model call was made). `queued` is the inbox depth afterwards |
+
+#### Sessions: an agent that remembers
+
+Without `session`, an agent run is one turn from a fresh prompt and nothing is remembered. With it, one route serves as many conversations as there are session ids, and each is a record in the store rather than a process: kill the instance, start it again, and the next message continues where the last one stopped.
+
+```ts
+const MaxMessage = z.object({
+  session: z.string(),
+  message: z.string(),
+  interrupt: z.boolean().optional(),
+});
+type MaxMessage = z.infer<typeof MaxMessage>;
+
+agentPlugin({
+  agents: {
+    max: {
+      description: 'Max, the development agent',
+      system: readFileSync('agents/max.md', 'utf-8'),
+      user: (ex) => (ex.body as MaxMessage).message,
+      maxTurns: 200,
+      tools: tools(['sandbox-run', 'github-create-pr']),
+    },
+  },
+})
+
+// One route, many conversations. The instance is a record in the store, not a process.
+craft()
+  .id('max')
+  .input({ body: MaxMessage })
+  .from(direct())
+  .to(agent<MaxMessage>('max', {
+    session: (ex) => ex.body.session,
+    interrupt: (ex) => ex.body.interrupt === true,
+  }))
+
+// A webhook continues the same conversation: the branch name carries the session id.
+craft()
+  .id('github-hook')
+  .input({ body: DeploymentStatus })
+  .from(http({ path: '/hooks/github', signature: github }))
+  .filter((ex) => ex.body.deployment_status.state === 'success')
+  .transform((body) => ({
+    session: body.deployment.ref.replace('max/', ''),
+    message: `Preview is up: ${body.deployment_status.environment_url}`,
+  }))
+  .to(direct('max'))
+```
+
+**The transcript.** Per message the adapter loads the transcript stored under `(agent, session)`, appends the message, runs the turn with the agent's registered options, and stores the transcript back. A session the store has never seen starts empty. Records live in the context's [session store](/docs/reference/configuration#sessions): SQLite at `.routecraft/sessions.db` by default, created by the first session written, or whatever `sessions: { store }` names, including a [`SessionStore`](/docs/reference/configuration#sessions) of your own. A store failure is [`AI1012`](/docs/reference/errors#ai-1012). The continuation a turn stores between turns is a parked exchange and lives in the [`suspension`](/docs/reference/configuration#suspension) store, so a context without that block refuses `session` with [`RC5052`](/docs/reference/errors#rc-5052). The model is told which conversation it is in through a `## Session` block appended to the system prompt, so a tool that takes a session id (a per-session workspace, say) can be handed it. Because the id reaches that prompt and keys the record, it is bounded before it reaches either: 1 to 128 characters of letters, digits, `.`, `_`, `:` or `-`, starting with a letter or digit, and [`RC5003`](/docs/reference/errors#rc-5003) otherwise, so a value taken from a message that carries other characters (a branch name with a slash, a subject with an `@`) must be normalised onto that shape before dispatch; the runtime refuses, it does not map. The agent is identified by its registered name, or by the route id for an inline `agent({ session })`.
+
+**One turn at a time.** A message that arrives while the session's turn is running does not start a second turn. It goes to the session's inbox, its caller gets `session.status === 'queued'` with an empty `text`, and it is delivered at the next turn boundary: when the running turn ends, whatever queued becomes the next user message, in arrival order, several messages as one message with the parts in order, and that turn runs on its own. The reply to a queued message belongs to the turn that consumed it and reaches the transcript, not the caller. The inbox is durable: it lives in the same record as the transcript.
+
+**The boundary turn runs on the route.** A turn that ends with work outstanding, messages queued or a [background tool](/docs/reference/plugins/agentplugin#background-tools) still running, stores its exchange's continuation: the body and the headers, exactly as a `.suspend()` park stores them, at the agent step, after the caller has its reply (`route:agent:session:parked`). The boundary turn is that continuation revived on the running process (`route:exchange:resumed`, then `route:agent:session:revived`): the agent step runs with the inbox as its user message, and the route's steps after the agent run on the reply, so a queued message or a finished build reaches whatever the route does with a reply. What does not run again is the route's pre-from chain: no `.authorize()`, `.input()`, `.throttle()` or `.timeout()` of the route applies to a revived turn. The revived turn runs under the exchange that stored the continuation: its headers, its principal, its tools. One continuation per session; a turn that ends with work outstanding while one is stored keeps it. The transcript and the inbox never live in the continuation, only in the session record. An agent step that sits where a park cannot be revived from (inside a `.split()`) has no continuation: queued messages then run in process on the route that just ended, and a completion waits for the next message.
+
+**Interrupt.** `interrupt: true` cancels the running turn at its next checkpoint through the ordinary cancellation path, so a tool in flight sees its abort signal. The interrupted turn's partial transcript is kept, including the call that was running and an error result saying it did not finish, so the model knows what it was doing. The interrupted caller gets `session.status === 'interrupted'` rather than a failure; the interrupting caller waits for the turn that starts with the queued messages plus theirs and gets its reply.
+
+**Restart.** A turn running when the process stops is treated as interrupted: what it persisted (every finished step) is kept, the messages it had not consumed stay in the inbox, and the next message for the session starts a turn that closes any open tool call as interrupted and reports each background call the dead process was waiting on as lost. A session that had stored a continuation is not left waiting for that message: at boot, after the routes are live, the dead process's background calls become lost-run messages in its inbox and the continuation is revived, so the loss reaches the model as a turn. The context's own shutdown aborts a running turn the same way it aborts any agent run ([`AI1005`](/docs/reference/errors#ai-1005) to that caller), after persisting what the turn reached. A message that reaches an idle session once shutdown has begun is queued rather than run, and waits in the inbox for the next process. A continuation the previous process stored but died before naming on the session record is released at the next boot, so a crash between those two writes never leaves a park nothing references.
+
+**Limits.** `maxTurns` bounds one turn, not the conversation; there is no compaction, so a long enough conversation ends in [`AI1009`](/docs/reference/errors#ai-1009). `session` does not combine with `stream: true` (`RC5003`): a stream is handed over before the turn ends, and the turn boundary is where the transcript is stored. A session turn is not parkable: a tool that calls `ctx.suspend()` inside one fails the turn. The one-turn bound is per process: two instances sharing one store are not coordinated, and a turn marker set by a live sibling is read as one a restart cut short, so run one process per store. A session with no stored continuation is not resumed on boot; its next message drains the inbox. A stored continuation carries no deadline: it waits for the completion, however long the run takes, and shows on the session's summary until then. Records never expire and the transcript has no bound; retiring a session or trimming its transcript is not built.
+
+**Who a turn runs as, and who said what.** A turn runs under the principal of the exchange it runs on: the message's own exchange when that message starts the turn, and the parked exchange when a revival starts it. The runtime never switches principal mid-turn and never picks one for a queued message, so a tool guard reading `ctx.principal` sees the turn's caller, whoever queued the text. What the model and the transcript see is who said it: every inbox item records the subject of the principal that posted it (`null` when the exchange carried none, so a caller whose subject is literally `anonymous` is still named), and the delivered message renders that per part as a bracketed line, `[Message from "bob"]`, in the same quoted-data shape blocks use, so it is something the model reads and never something it obeys. A background result names who started the call the same way. The session record keeps the subject that started it, shown as `startedBy` on the [management API](/docs/reference/plugins/opsplugin#contributed-resources), so an operator can see who owns a conversation; it gates nothing.
+
+Who may post to a session is the route's own [`.authorize()`](/docs/reference/operations/authorize), in one of two shapes. A session that must be one caller's derives its id from the principal, so no two callers share one:
+
+```ts
+agent('max', { session: (ex) => `${ex.principal?.subject}:${ex.body.session}` })
+```
+
+A session several principals share on purpose (a webhook, a mail reply and a terminal all posting into one conversation) keeps the id as the caller names it and restricts posting by role or scope at the route, and reads the attribution to tell them apart. A runtime allowlist of subjects per session is not built.
+
+Every session is listable on the management API at [`GET /ops/agent-sessions`](/docs/reference/plugins/opsplugin#contributed-resources), with its turn state and inbox depth, and `craft chat` is a terminal on this: see the [CLI reference](/docs/reference/cli#chat).
 
 #### Streaming the reply
 

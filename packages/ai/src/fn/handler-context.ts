@@ -12,7 +12,11 @@ import {
   type AgentSuspendOptions,
   type AgentSuspendSentinel,
 } from "../agent/suspend.ts";
-import type { FnHandlerContext, FnSuspensionView } from "./types.ts";
+import type {
+  FnHandlerContext,
+  FnSessionView,
+  FnSuspensionView,
+} from "./types.ts";
 // Registers AI1006, thrown from the default suspend refusal below.
 import "../errors.ts";
 
@@ -67,18 +71,20 @@ export function makeFnHandlerContext(
   abortSignal: AbortSignal,
   principal: Principal | undefined,
   suspension?: FnSuspensionWiring,
+  session?: FnSessionView,
 ): FnHandlerContext {
   return {
     logger: frameworkLogger.child({ tool: toolName }),
     abortSignal,
     ...(principal ? { principal: freezePrincipal(principal) } : {}),
+    ...(session ? { session: Object.freeze({ ...session }) } : {}),
     ...(suspension
       ? {
           suspensionId: suspension.id,
           suspension: makeSuspensionView(suspension),
           suspend: makeSuspend(toolName),
         }
-      : { suspend: makeSuspendRefusal(toolName) }),
+      : { suspend: makeSuspendRefusal(toolName, session !== undefined) }),
   };
 }
 
@@ -120,8 +126,17 @@ function makeSuspend(
 /** @internal */
 function makeSuspendRefusal(
   toolName: string,
+  inSession: boolean,
 ): (options?: AgentSuspendOptions) => AgentSuspendSentinel {
   return () => {
+    // A session turn is revived from the session record, never from a
+    // parked exchange, so the wiring is withheld and the refusal names the
+    // combination rather than the unbound dispatch it is not.
+    if (inSession) {
+      throw rcError("AI1011", undefined, {
+        message: `ctx.suspend in tool "${toolName}": a turn of an agent dispatched with "session" cannot park. The session's continuation is revived from its own record, and an approval has no parked exchange to resume into here. Park from a sessionless agent, or move the approval into a route the agent calls as a tool.`,
+      });
+    }
     throw rcError("AI1006", undefined, {
       message: `ctx.suspend in tool "${toolName}": durable suspension is only available inside an agent dispatch on a route-bound exchange. This dispatch has no exchange to park (a proxied MCP tool guard, a synthetic test dispatch), so nothing was written.`,
     });

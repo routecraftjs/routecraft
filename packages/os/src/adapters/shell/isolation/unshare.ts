@@ -1,6 +1,7 @@
 import { rcError } from "@routecraft/routecraft";
 import { loadExeca } from "../peers.ts";
-import type { Invocation, IsolationRequest, IsolationTier } from "./types.ts";
+import type { HostTier, Invocation, IsolationRequest } from "./types.ts";
+import { cacheSuccess, refuseContainerOptions } from "./host.ts";
 
 /**
  * Linux kernel namespaces, via util-linux `unshare`. No daemon and
@@ -42,27 +43,18 @@ import type { Invocation, IsolationRequest, IsolationTier } from "./types.ts";
  * exfiltratable. Agent workloads that need the network belong on a tier
  * with filesystem containment.
  */
-export const unshareTier: IsolationTier = {
+export const unshareTier: HostTier = {
   name: "unshare",
+  kind: "host",
 
-  ensureAvailable(): Promise<void> {
-    // Only a success is cached. A probe can fail for reasons that are not
-    // properties of the kernel (fork pressure, a transient EAGAIN, the
-    // probe's own timeout), and caching those would tell every later call
-    // that the host restricts user namespaces when it does not.
-    probe ??= runProbe().catch((cause: unknown) => {
-      probe = undefined;
-      throw cause;
-    });
-    return probe;
-  },
+  ensureAvailable: cacheSuccess(runProbe),
 
-  refuse(): undefined {
-    // Every option this adapter can express maps onto a namespace this
-    // tier takes: egress onto `--net`, identity onto the user namespace's
-    // mapping. Nothing to refuse. A future option this tier cannot
-    // deliver belongs here rather than being quietly dropped in `wrap`.
-    return undefined;
+  refuse(request: IsolationRequest): string | undefined {
+    // Every host option maps onto a namespace this tier takes: egress onto
+    // `--net`, identity onto the user namespace's mapping. The container
+    // options do not: there is no image and no mount here, and an author
+    // who wrote one believes in a containment this tier does not give.
+    return refuseContainerOptions("unshare", request);
   },
 
   wrap(target: Invocation, request: IsolationRequest): Invocation {
@@ -89,8 +81,6 @@ const UNSHARE = "unshare";
  * kernel and its policy, so probing once per process is enough, and
  * repeating it would put a subprocess spawn in front of every command.
  */
-let probe: Promise<void> | undefined;
-
 /**
  * Flags for the namespaces this tier promises.
  *

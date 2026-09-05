@@ -69,6 +69,7 @@ export { shellPlugin, type ShellPluginOptions } from "./plugin.ts";
 export type {
   IsolationName,
   ShellArgs,
+  ShellMount,
   ShellOptions,
   ShellResult,
 } from "./types.ts";

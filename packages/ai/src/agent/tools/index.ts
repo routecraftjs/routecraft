@@ -1,4 +1,9 @@
-export { directTool, type ToolBuilderOverrides } from "./builders.ts";
+export {
+  AgentHeadersKeys,
+  directTool,
+  type BackgroundToolHandle,
+  type ToolBuilderOverrides,
+} from "./builders.ts";
 export {
   DEFERRED_FN_BRAND,
   isDeferredFn,

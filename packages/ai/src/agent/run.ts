@@ -8,6 +8,7 @@ import {
 } from "@routecraft/routecraft";
 import { isBlockLoaderCall, summariseBlockLoads } from "../block/resolve.ts";
 import { callLlm, streamLlm } from "../llm/providers/index.ts";
+import type { CallLlmParams } from "../llm/providers/llm-utils.ts";
 import {
   resolveUserPrompt,
   toPromptInput,
@@ -24,7 +25,12 @@ import type {
 } from "../llm/types.ts";
 import { toAiOutputSpec } from "../llm/structured-output.ts";
 import type { AgentDeltaListener } from "./events.ts";
-import { buildVercelTools, type AgentSuspensionBridge } from "./tool-bridge.ts";
+import { closeUnansweredToolCalls } from "./session/render.ts";
+import {
+  buildVercelTools,
+  type AgentSuspensionBridge,
+  type TrackedToolCall,
+} from "./tool-bridge.ts";
 import {
   SIBLING_SUSPENDED_MESSAGE,
   pickWinningSignal,
@@ -79,15 +85,17 @@ export function dispatchIdentityFrom(
 
 const DEFAULT_MAX_TURNS = 20;
 
+export { INTERRUPTED_TOOL_MESSAGE } from "./session/render.ts";
+
 /**
  * Resolved agent inputs ready for dispatch. Computed once by the
  * destination's `send()` method (after merging `defaultOptions`,
  * resolving the tool selection, and deriving the user prompt) and
- * passed to the session constructor.
+ * passed to the run constructor.
  *
  * @internal
  */
-export interface AgentSessionInput<T = unknown> {
+export interface AgentRunInput<T = unknown> {
   /** Agent options after merging with `defaultOptions`. `model` resolved. */
   readonly options: AgentOptions<T> | AgentRegisteredOptions<T>;
   /** Provider config for the resolved model. */
@@ -137,23 +145,48 @@ export interface AgentSessionInput<T = unknown> {
    * suspension identity `ctx.suspend` / `ctx.suspension` are served from
    * and the agent identity persisted into `stepState`.
    */
-  readonly suspension?: AgentSessionSuspension;
+  readonly suspension?: AgentRunSuspension;
   /**
    * Mid-loop state to re-enter after a resume: the persisted messages
    * thread (with the suspended call's answer already swapped in) and the
    * turns the run had spent before it parked. A park is not a fresh
    * dispatch, so the `maxTurns` budget continues rather than resetting.
    */
-  readonly resume?: AgentSessionResume;
+  readonly resume?: AgentRunResume;
+  /**
+   * Called after every finished step with the thread as it stands (the
+   * user-side messages followed by everything the model has produced so
+   * far). A session persists from here, so an interrupt or a crash keeps
+   * every completed step.
+   */
+  readonly onStep?: (
+    messages: readonly ThreadMessage[],
+  ) => void | Promise<void>;
+  /**
+   * The named session this turn belongs to, when the dispatch carries one.
+   * Handed to tool handlers as `ctx.session` so a background tool can post
+   * its result to the right inbox.
+   */
+  readonly session?: AgentRunSession;
+}
+
+/**
+ * The session identity a turn runs under. See {@link AgentRunInput.session}.
+ *
+ * @internal
+ */
+export interface AgentRunSession {
+  readonly agent: string;
+  readonly id: string;
 }
 
 /**
  * Suspension identity for one dispatch. See
- * {@link AgentSessionInput.suspension}.
+ * {@link AgentRunInput.suspension}.
  *
  * @internal
  */
-export interface AgentSessionSuspension {
+export interface AgentRunSuspension {
   /** Id the dispatching exchange would park as (or parked as). */
   readonly id: string;
   /**
@@ -176,11 +209,11 @@ export interface AgentSessionSuspension {
 
 /**
  * Mid-loop state a resumed dispatch re-enters with. See
- * {@link AgentSessionInput.resume}.
+ * {@link AgentRunInput.resume}.
  *
  * @internal
  */
-export interface AgentSessionResume {
+export interface AgentRunResume {
   readonly messages: readonly ThreadMessage[];
   readonly turnsUsed: number;
   /** Token spend accumulated before the park, when any call reported one. */
@@ -220,34 +253,55 @@ export class AgentCancellationCause extends Error {
 }
 
 /**
- * Internal session that drives one agent dispatch. Encapsulates the
+ * Internal run that drives one agent dispatch (one turn). Encapsulates the
  * resolved tools + initial messages + provider config so the dispatch
  * path is structured around discrete units of work.
  *
  * Two execution paths are exposed:
  *
- * - {@link AgentSession.runUntilDone} calls `generateText` once with
+ * - {@link AgentRun.runUntilDone} calls `generateText` once with
  *   the full tool list and lets the Vercel AI SDK handle the
  *   multi-step tool-calling loop internally. Returns the consolidated
  *   {@link AgentResult} when the loop terminates.
- * - {@link AgentSession.runStream} calls `streamText` with the same
+ * - {@link AgentRun.runStream} calls `streamText` with the same
  *   setup, forwards every normalised event through the user-supplied
  *   listener, and returns the same consolidated {@link AgentResult}
  *   once the stream drains.
  *
  * Durable suspension (#268/#269): a tool handler that returns
  * `ctx.suspend(...)`'s sentinel (or throws `SuspendError`) stops the loop
- * after its batch settles; the session persists the messages thread and
+ * after its batch settles; the run persists the messages thread and
  * outstanding tool-call id as `stepState` and raises the core
  * `SuspendSignal`, which the hosting `.to()` / `.enrich()` step converts
  * into a park. A resumed dispatch re-enters through
- * {@link AgentSessionInput.resume} with the answer already swapped into
+ * {@link AgentRunInput.resume} with the answer already swapped into
  * the thread.
  *
  * @internal
  */
-export class AgentSession<T = unknown> {
-  constructor(public readonly input: AgentSessionInput<T>) {}
+export class AgentRun<T = unknown> {
+  constructor(public readonly input: AgentRunInput<T>) {}
+
+  /**
+   * The thread as it stood when the run last reported it: the completed
+   * thread on success, or the last finished step followed by any tool
+   * calls that were in flight when the run was cancelled, each answered
+   * with an "interrupted" error result so the pairing a provider requires
+   * still holds. `undefined` before the first model call settled.
+   *
+   * The session runtime stores this as the partial transcript of an
+   * interrupted turn, so the model knows what it was doing when it resumes.
+   *
+   * @internal
+   */
+  thread: readonly ThreadMessage[] | undefined;
+
+  /**
+   * Tool calls of the step in progress, settled or not, until the step is
+   * committed to the thread. A cancellation reads them to record what the
+   * model was doing, with the results of the calls that did finish.
+   */
+  private readonly inFlight = new Map<string, TrackedToolCall>();
 
   /**
    * Run the synchronous tool-calling loop until the model emits a
@@ -267,7 +321,7 @@ export class AgentSession<T = unknown> {
 
   /**
    * Run the streaming tool-calling loop. Same shape as
-   * {@link AgentSession.runUntilDone}, but the dispatch goes through
+   * {@link AgentRun.runUntilDone}, but the dispatch goes through
    * `streamText`: each normalised token-level delta is forwarded to
    * `onDelta` while the loop runs, and the consolidated
    * {@link AgentResult} is returned once the stream drains. Coarse
@@ -343,6 +397,7 @@ export class AgentSession<T = unknown> {
         // and every tool handler, so an abort mid-turn stops paying for
         // tokens rather than finishing the turn and discarding it.
         if (abortSignal.aborted) {
+          this.recordPartialThread(currentUser);
           throw this.cancelledError(
             abortSignal.reason,
             turnsUsed,
@@ -358,6 +413,10 @@ export class AgentSession<T = unknown> {
           });
         }
         let result: LlmResult;
+        // The user-side thread this call starts from, so a step callback
+        // can report the whole thread rather than the model's half of it.
+        const userSide = currentUser;
+        const onStep = this.input.onStep;
         try {
           result = await callOnce(
             prepared,
@@ -366,6 +425,17 @@ export class AgentSession<T = unknown> {
             abortSignal,
             onDelta,
             signals,
+            onStep === undefined
+              ? undefined
+              : async ({ responseMessages }) => {
+                  this.thread = historyMessages(userSide, {
+                    responseMessages: [...responseMessages],
+                  });
+                  // The step's calls are in the thread now; a later
+                  // cancellation must not record them a second time.
+                  this.inFlight.clear();
+                  await onStep(this.thread);
+                },
           );
         } catch (err) {
           // The dispatch signal is the one definition of cancellation:
@@ -374,10 +444,13 @@ export class AgentSession<T = unknown> {
           // provider failed on its own (a provider-side timeout must stay a
           // provider failure, not masquerade as AI1005).
           if (abortSignal.aborted) {
+            this.recordPartialThread(userSide);
             throw this.cancelledError(err, turnsUsed, accumulatedUsage);
           }
           throw err;
         }
+        this.thread = historyMessages(currentUser, result);
+        this.inFlight.clear();
         turnsUsed += result.stepsCount ?? 1;
         accumulatedUsage = addUsage(accumulatedUsage, result.usage);
         if (result.toolCalls && result.toolCalls.length > 0) {
@@ -443,7 +516,7 @@ export class AgentSession<T = unknown> {
     turnsUsed: number,
     usage: LlmUsage | undefined,
   ): SuspendSignal {
-    // Signals are only ever recorded through a bridge this session created,
+    // Signals are only ever recorded through a bridge this run created,
     // and the bridge exists only when the input carries suspension wiring,
     // so this guard is wiring defence rather than a reachable path.
     const suspension = this.input.suspension;
@@ -506,6 +579,56 @@ export class AgentSession<T = unknown> {
       callBinding: winner.toolCallId,
       stepState,
     });
+  }
+
+  /**
+   * Freeze the partial thread at a cancellation: the last thread a step
+   * reported (or the user side alone when none did), plus a synthesised
+   * assistant message for every tool call of the uncommitted step, the
+   * finished ones paired with their real result and the rest with an
+   * error result saying they were interrupted. Without the pairing a
+   * provider refuses the thread on the next turn; without the calls the
+   * model would not know what it was doing when it was stopped; without
+   * the finished results it would do that work again.
+   *
+   * @internal
+   */
+  private recordPartialThread(userSide: string | ThreadMessage[]): void {
+    const base =
+      this.thread ?? historyMessages(userSide, { responseMessages: [] });
+    if (this.inFlight.size === 0) {
+      this.thread = base;
+      return;
+    }
+    const calls = [...this.inFlight.entries()];
+    const settled = calls.filter(([, call]) => call.settled !== undefined);
+    // The calls are recorded here; pairing each unfinished one with its
+    // interrupted result is the one closer a restart uses too.
+    this.thread = closeUnansweredToolCalls([
+      ...base,
+      {
+        role: "assistant",
+        content: calls.map(([toolCallId, call]) => ({
+          type: "tool-call",
+          toolCallId,
+          toolName: call.toolName,
+          input: call.input,
+        })),
+      },
+      ...(settled.length === 0
+        ? []
+        : [
+            {
+              role: "tool",
+              content: settled.map(([toolCallId, call]) => ({
+                type: "tool-result",
+                toolCallId,
+                toolName: call.toolName,
+                output: toolOutputPart(call.settled!),
+              })),
+            },
+          ]),
+    ]);
   }
 
   /**
@@ -688,6 +811,8 @@ export class AgentSession<T = unknown> {
       dispatchIdentity,
       exchange.principal,
       bridge,
+      this.inFlight,
+      this.input.session,
     );
     const base = {
       modelConfig,
@@ -730,6 +855,7 @@ async function callOnce(
   abortSignal: AbortSignal,
   onDelta: AgentDeltaListener | undefined,
   signals: readonly AgentSuspendSignalRecord[],
+  onStep: CallLlmParams["onStep"],
 ): Promise<LlmResult> {
   const toolExtras =
     Object.keys(prepared.vercelTools).length > 0
@@ -746,6 +872,7 @@ async function callOnce(
     user,
     abortSignal,
     ...(prepared.output !== undefined ? { output: prepared.output } : {}),
+    ...(onStep !== undefined ? { onStep } : {}),
     ...toolExtras,
   };
   return onDelta ? streamLlm({ ...base, onDelta }) : callLlm(base);
@@ -771,9 +898,39 @@ async function buildStopWhen(
  *
  * @internal
  */
+/**
+ * A settled call's outcome in the SDK's tool-result shape. JSON when the
+ * value survives a round trip, text otherwise, because the thread is
+ * persisted and read back by a provider that accepts only those.
+ */
+function toolOutputPart(settled: NonNullable<TrackedToolCall["settled"]>): {
+  type: string;
+  value: unknown;
+} {
+  if (!settled.ok) return { type: "error-text", value: settled.message };
+  try {
+    // `undefined` has no JSON form and a non-finite number serialises as
+    // null; recording either as JSON would hand the model a result the
+    // tool never produced, so both take the text form.
+    const serialized = JSON.stringify(settled.output, (_key, value: unknown) =>
+      typeof value === "number" && !Number.isFinite(value)
+        ? (() => {
+            throw new Error("non-finite");
+          })()
+        : value,
+    );
+    if (serialized === undefined) {
+      return { type: "text", value: String(settled.output) };
+    }
+    return { type: "json", value: JSON.parse(serialized) as unknown };
+  } catch {
+    return { type: "text", value: String(settled.output) };
+  }
+}
+
 function historyMessages(
   currentUser: string | ThreadMessage[],
-  lastResult: LlmResult,
+  lastResult: Pick<LlmResult, "responseMessages">,
 ): ThreadMessage[] {
   const userMsgs: ThreadMessage[] =
     typeof currentUser === "string"

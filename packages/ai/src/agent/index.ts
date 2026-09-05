@@ -15,14 +15,34 @@ export {
 export { SuspendError, isSuspendError } from "./suspend.ts";
 export type { AgentSuspendOptions, AgentSuspendSentinel } from "./suspend.ts";
 export type { AgentStepState, ThreadMessage } from "./suspension-state.ts";
+export type {
+  AgentInboxMessage,
+  AgentSessionKey,
+  AgentSessionOutcome,
+  AgentSessionsConfig,
+  AgentSessionSummary,
+  SessionCasResult,
+  SessionStore,
+  SessionStoreConfig,
+  StoredSession,
+} from "./session/index.ts";
+export {
+  DEFAULT_SESSION_DB_PATH,
+  MemorySessionStore,
+  SESSION_STORE_ENV,
+  SqliteSessionStore,
+  sessionsPlugin,
+} from "./session/index.ts";
 export { assertResumableThread, replaceParkedThread } from "./thread.ts";
-export { AgentCancellationCause } from "./session.ts";
+export { AgentCancellationCause } from "./run.ts";
 export type {
   AgentDefaultOptions,
   AgentOptions,
   AgentPrincipalRenderer,
   AgentRegisteredOptions,
   AgentResult,
+  AgentInterruptSource,
+  AgentSessionSource,
   AgentToolCallSummary,
   AgentUserPromptSource,
 } from "./types.ts";

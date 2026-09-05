@@ -176,6 +176,30 @@ export function validateAgentOptions<T>(options: AgentOptions<T>): void {
       message: `Agent: "stream" must be a boolean when present.`,
     });
   }
+  if (options.session !== undefined) {
+    if (
+      (typeof options.session !== "string" || options.session.trim() === "") &&
+      typeof options.session !== "function"
+    ) {
+      throw rcError("RC5003", undefined, {
+        message: `Agent: "session" must be a non-empty string or a function (exchange) => string when present.`,
+      });
+    }
+    if (options.stream === true) {
+      throw rcError("RC5003", undefined, {
+        message: `Agent: "session" and "stream: true" cannot be combined. A session turn stores its transcript when it ends, and a stream is handed over before that.`,
+      });
+    }
+  }
+  if (
+    options.interrupt !== undefined &&
+    typeof options.interrupt !== "boolean" &&
+    typeof options.interrupt !== "function"
+  ) {
+    throw rcError("RC5003", undefined, {
+      message: `Agent: "interrupt" must be a boolean or a function (exchange) => boolean when present.`,
+    });
+  }
   if (options.tools !== undefined && !isToolSelection(options.tools)) {
     throw rcError("RC5003", undefined, {
       message: `Agent: "tools" must be the result of tools([...]).`,
@@ -406,6 +430,10 @@ function validateBlocksLevel(
  *   against agents registered via `agentPlugin({ agents: { name: {...} } })`.
  *   Registered agents carry their own description.
  *
+ * Either form takes `session` to make the agent remember: every message
+ * for one session id continues one transcript, kept in the context's
+ * suspension store. See {@link AgentOptions.session}.
+ *
  * @example Inline (identity on the route)
  * ```typescript
  * craft()
@@ -437,6 +465,18 @@ function validateBlocksLevel(
  *   .to(agent("summariser"))
  *   .to(direct("reply"));
  * ```
+ *
+ * @example A conversation, one route, many sessions
+ * ```typescript
+ * craft()
+ *   .id("max")
+ *   .input({ body: MaxMessage }) // { session: string; message: string; interrupt?: boolean }
+ *   .from(direct())
+ *   .to(agent("max", {
+ *     session: (ex) => ex.body.session,
+ *     interrupt: (ex) => ex.body.interrupt === true,
+ *   }));
+ * ```
  */
 export function agent<T = unknown>(
   options: AgentOptions<T> & { stream: true },
@@ -450,13 +490,13 @@ export function agent<T = unknown>(
   options: AgentOptions<T> & { stream?: false },
 ): Enricher<T, AgentResult>;
 export function agent(name: string): Enricher<unknown, AgentResult>;
-export function agent(
+export function agent<T = unknown>(
   name: string,
-  perCall: AgentByNameOverrides,
-): Enricher<unknown, AgentResult>;
+  perCall: AgentByNameOverrides<T>,
+): Enricher<T, AgentResult>;
 export function agent<T = unknown>(
   arg: AgentOptions<T> | string,
-  perCall?: AgentByNameOverrides,
+  perCall?: AgentByNameOverrides<T>,
 ): Enricher<T, AgentResult | AgentStream> {
   if (typeof arg === "string") {
     if (arg.trim() === "") {
@@ -464,6 +504,7 @@ export function agent<T = unknown>(
         message: `Agent: name must be a non-empty string.`,
       });
     }
+    if (perCall !== undefined) validateByNameOverrides(perCall);
     return tagAdapter(
       new AgentEnricherAdapter<T>({
         kind: "by-name",
@@ -483,4 +524,36 @@ export function agent<T = unknown>(
     agent,
     factoryArgs(arg),
   );
+}
+
+/**
+ * The by-name overrides are typed, and the inline form's validator never
+ * sees them, so a caller from JavaScript or through a cast would otherwise
+ * have a malformed `interrupt` read as `false` and a malformed `session`
+ * refused only at dispatch. Refused here, where the call site is.
+ */
+function validateByNameOverrides<T>(perCall: AgentByNameOverrides<T>): void {
+  if (
+    perCall.session !== undefined &&
+    typeof perCall.session !== "function" &&
+    (typeof perCall.session !== "string" || perCall.session.trim() === "")
+  ) {
+    throw rcError("RC5003", undefined, {
+      message: `Agent: "session" must be a non-empty string or a function (exchange) => string when present.`,
+    });
+  }
+  if (
+    perCall.interrupt !== undefined &&
+    typeof perCall.interrupt !== "boolean" &&
+    typeof perCall.interrupt !== "function"
+  ) {
+    throw rcError("RC5003", undefined, {
+      message: `Agent: "interrupt" must be a boolean or a function (exchange) => boolean when present.`,
+    });
+  }
+  if (perCall.onDelta !== undefined && typeof perCall.onDelta !== "function") {
+    throw rcError("RC5003", undefined, {
+      message: `Agent: "onDelta" must be a function when present.`,
+    });
+  }
 }

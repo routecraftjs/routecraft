@@ -497,6 +497,37 @@ Providers do not agree on how to say it. OpenAI-compatible endpoints carry a mac
 - Move to a model with a larger window if the input genuinely cannot shrink.
 - Do not retry the same input. Nothing about it will fit on a second attempt.
 
+## AI1010
+Agent session record could not be read or written
+
+**Why it happens**  
+Every named agent session (`agent(name, { session })`) is one record in the suspension store, holding the transcript and the inbox. Either a stored record is not the shape the runtime writes (it was edited by hand, or two versions of `@routecraft/ai` share one store), or a write lost the compare-and-swap to another writer repeatedly, which takes a store under a load the in-process turn bound does not produce.
+
+**Suggestion**  
+- Inspect the record the message names; remove it to start that session over.
+- Check that one process, on one version of `@routecraft/ai`, owns the store.
+
+## AI1011
+A tool asked to park an agent session turn
+
+**Why it happens**  
+A tool called `ctx.suspend()` inside an agent dispatched with `session`. A session turn stores its transcript when it ends and is revived from the session record rather than from a parked exchange, so there is no continuation an approval could resume into; the refusal lands in the tool, as a typed error the model reads, before anything is written.
+
+**Suggestion**  
+- Park from a sessionless agent, where `ctx.suspend()` parks the dispatch itself.
+- Move the approval into a route the agent calls as a tool, and let that route suspend.
+
+## AI1012
+Agent session store failed
+
+**Why it happens**  
+The store that holds agent session records, chosen by [`sessions: { store }`](/docs/reference/configuration#sessions) and the SQLite file at `.routecraft/sessions.db` by default, could not be opened, migrated, read or written. An explicitly configured path that cannot be opened raises it at startup; the default path raises it on the first session written. A store that is busy under another writer answers it too, and that call can be retried.
+
+**Suggestion**  
+- Check the path and the permissions on its directory, and that one process at a time holds the file.
+- Under Node, install `better-sqlite3`; without it the unconfigured default falls back to memory with a warning rather than raising this code.
+- Set `sessions: { store: "memory" }` deliberately for a context whose conversations may die with the process.
+
 ## AI2001
 MCP tool output violated its declared schema
 
@@ -790,8 +821,12 @@ Ops plugin misconfigured
 **Why it happens**  
 The `ops` config does not describe a surface the plugin can serve. The common causes, each with its own message: an indicator bound to a `route` id no route declares (the message lists the known ids), two indicators sharing a name, a value in `ops.indicators` that `defineIndicator()` did not produce, an invalid `health.details` value, `health.details: 'when-authenticated'` written explicitly with no validator in scope (no `ops.auth` and no `servers.<name>.auth`), or `ops.auth: false`, which is refused as a no-op because the health surface never walls.
 
+A [contributed resource](/docs/reference/plugins/opsplugin#contributed-resources) is refused with the same code at `registerOpsResource()`: a name that is not one lowercase path segment (letters, digits and dashes), a name the mount serves itself (`routes`, `events`), or a name another contributor already registered on the context.
+
 **Suggestion**  
 For a bound route, check the id against the route's `.id(...)`; the binding is by id, not by variable name. For a duplicate, rename one indicator: names are the keys of the health report, so a duplicate would shadow one dependency with another. For a hand-rolled handle, declare it with `defineIndicator({ name })`: an object of the same shape has no ledger to report into, so every push through it would be silently dropped, and a dependency nobody is watching looks healthy. For the explicit gate with nothing to gate on, set `ops.auth` (or `servers.<name>.auth`), or say what you mean with `health.details: 'always'` or `'never'`. For `ops.auth: false`, remove it; if the intent was serving details to every caller, that is `health.details: 'always'`.
+
+For a resource name, pick one that matches `^[a-z][a-z0-9-]*$` and is neither `routes` nor `events`; for a duplicate, one contributor owns a name, so a second plugin that wants the same collection reads the first's registration off the context (`OPS_RESOURCES`) rather than registering again.
 
 Pushing through a handle that is merely unregistered is not this error. It is deliberately inert, so health instrumentation can never kill the code it instruments.
 
@@ -900,10 +935,11 @@ Check logs and enable debug level.
 Isolation tier unavailable
 
 **Why it happens**  
-`shell()` runs isolated by default and never silently downgrades to a weaker tier, because a route that believes it is contained and is not is worse than one that fails. The tier could not be established. The usual causes are a non-Linux host (the `unshare` tier is Linux-only), a kernel with unprivileged user namespaces restricted (`kernel.unprivileged_userns_clone=0`, or `apparmor_restrict_unprivileged_userns=1`), a container whose seccomp profile blocks namespace creation, or util-linux `unshare` not being installed.
+`shell()` runs isolated by default and never silently downgrades to a weaker tier, because a route that believes it is contained and is not is worse than one that fails. The tier could not be established. For `unshare` the usual causes are a non-Linux host (the tier is Linux-only), a kernel with unprivileged user namespaces restricted (`kernel.unprivileged_userns_clone=0`, or `apparmor_restrict_unprivileged_userns=1`), a container whose seccomp profile blocks namespace creation, or util-linux `unshare` not being installed. For `docker` it is a daemon that did not answer: none running, or `DOCKER_HOST` pointing somewhere else.
 
 **Suggestion**  
 - Grant the privilege: allow unprivileged user namespaces, or relax the container's seccomp profile.
+- For the `docker` tier, start the daemon or point `DOCKER_HOST` at one.
 - Or write `isolation: "none"` at the call site to run without isolation deliberately and visibly.
 
 There is no third option by design. `shell()` will not choose a weaker tier on your behalf.
@@ -912,7 +948,7 @@ There is no third option by design. `shell()` will not choose a weaker tier on y
 Command execution failed
 
 **Why it happens**  
-The command ran and reported failure. This is the default because a route whose `git push` failed should not continue as though it had. The same code covers a command that could not be started at all, which is usually a program that is not installed or not on the `PATH` the call granted.
+The command ran and reported failure. This is the default because a route whose `git push` failed should not continue as though it had. The same code covers a command that could not be started at all, which is usually a program that is not installed or not on the `PATH` the call granted. On the `docker` tier it also covers an image that is not present on the daemon: `shell()` never pulls one, and the message names the image and the `docker pull`.
 
 **Suggestion**  
 - Where the command ran, read `stderr` and `exitCode` from the error's cause to see what it said. A command that never started has neither, and the cause is whatever the spawn itself raised.
@@ -936,9 +972,10 @@ Isolation cannot satisfy the request
 **Why it happens**  
 The tier was established, but an option the call set asks for something it cannot do. A tier refuses such an option rather than ignoring it, because a route that believes it is contained and is not is worse than one that fails.
 
-The usual case is `isolation: "none"` with egress left denied. `network` defaults to denied and that tier contains nothing, so it cannot withhold the network; granting it silently would leave the call believing in a containment it never had.
+The usual case is `isolation: "none"` with egress left denied. `network` defaults to denied and that tier contains nothing, so it cannot withhold the network; granting it silently would leave the call believing in a containment it never had. The other case is a container option (`image`, `mounts`, `name`) on a host tier: there is no container to apply it to, and a dropped `image` would let a command the author confined to a filesystem run on the host's.
 
 **Suggestion**  
 - Say what you mean at the call site: `network: true` beside `isolation: "none"` accepts egress out loud.
-- Or choose a tier that can deny it, which on Linux is `unshare`.
+- Or choose a tier that can deny it, which on Linux is `unshare`, and anywhere a daemon answers is `docker`.
 - The same applies to `mapRootUser` on a tier with no user namespace: drop it, or pick a tier that has one.
+- For a container option, write `isolation: "docker"` beside it, or drop it.

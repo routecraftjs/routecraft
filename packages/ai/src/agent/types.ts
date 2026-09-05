@@ -13,7 +13,29 @@ import type {
   LlmUsage,
 } from "../llm/types.ts";
 import type { AgentDeltaListener } from "./events.ts";
+import type { AgentSessionOutcome } from "./session/types.ts";
 import type { ToolSelection } from "./tools/selection.ts";
+
+/**
+ * Names the conversation a message belongs to: a fixed id, or one derived
+ * from the incoming exchange (the usual form, since the id travels with
+ * the message). Same inline union the prompt sources use; the shared
+ * `Resolvable` type is #714's.
+ *
+ * @template T - Body type available to the callback
+ */
+export type AgentSessionSource<T = unknown> =
+  string | ((exchange: Exchange<T>) => string);
+
+/**
+ * Whether a message interrupts the session's running turn: a fixed answer,
+ * or one read off the incoming exchange (a `{ interrupt: true }` field on
+ * the message is the usual form).
+ *
+ * @template T - Body type available to the callback
+ */
+export type AgentInterruptSource<T = unknown> =
+  boolean | ((exchange: Exchange<T>) => boolean);
 
 /**
  * Resolves a user prompt from an exchange. When omitted, the agent derives
@@ -321,6 +343,64 @@ export interface AgentOptions<T = unknown> extends LlmSamplingOptions {
   onDelta?: AgentDeltaListener;
 
   /**
+   * The conversation this dispatch continues.
+   *
+   * Absent, an agent run is one turn from a fresh prompt and nothing is
+   * remembered. Present, every message for one session id continues one
+   * transcript: the run loads it from the context's suspension store,
+   * appends the incoming message, runs the turn with the agent's
+   * registered options, and stores the transcript back. A session the
+   * store has never seen starts empty, and a transcript survives a
+   * restart because the store does. The model is told its own session id
+   * in a `## Session` system block, so a tool that takes one can be
+   * handed it.
+   *
+   * One turn at a time per session. A message that arrives while a turn
+   * is running goes to the session's inbox and is delivered, in order, at
+   * the next turn boundary; its caller gets `AgentResult.session.status
+   * === "queued"` and an empty `text`, and the reply belongs to the turn
+   * that consumes it. Several queued messages become one user message
+   * with the parts in order. `interrupt` cancels the running turn first.
+   *
+   * Requires a `suspension` block on the context (`RC5052` otherwise) and
+   * does not combine with `stream: true` (`RC5003`). `maxTurns` bounds one
+   * turn, not the conversation. Two different sessions never see each
+   * other's transcript.
+   *
+   * The id is 1 to 128 characters of letters, digits, `.`, `_`, `:` or
+   * `-`, starting with a letter or digit (`RC5003` otherwise). It is
+   * rendered into the system prompt and keys the stored record, so a value
+   * taken from a message is bounded before it reaches either. The runtime
+   * refuses and does not map: a subject or a reference that carries other
+   * characters is normalised onto this shape by the caller before dispatch.
+   *
+   * Two limits to design around. The one-turn bound is per process: two
+   * instances sharing one store are not coordinated, and a turn marker set
+   * by a live sibling is read as one a restart cut short, so run one
+   * process per store. And a turn runs under the principal of the
+   * exchange it runs on, whoever queued the text it consumes; every inbox
+   * item carries its poster's subject and is rendered to the model with
+   * it. Who may post is the route's `.authorize()`: derive the id from the
+   * principal (`session: (ex) => \`${ex.principal?.subject}:${ex.body.session}\``)
+   * when a session must be one caller's, or restrict posting by role or
+   * scope when several principals share one on purpose.
+   *
+   * @see AgentByNameOverrides for the per-call form, which wins over this one.
+   */
+  session?: AgentSessionSource<T>;
+
+  /**
+   * Cancel the session's running turn before answering this message.
+   * Only meaningful with `session`: the running turn stops at its next
+   * checkpoint, its partial transcript is kept, and a new turn starts
+   * with whatever had queued plus this message. Ignored when no turn is
+   * running.
+   *
+   * @see AgentByNameOverrides for the per-call form, which wins over this one.
+   */
+  interrupt?: AgentInterruptSource<T>;
+
+  /**
    * Produce the token deltas themselves instead of the consolidated
    * {@link AgentResult}.
    *
@@ -473,4 +553,14 @@ export interface AgentResult {
    * appear in this list.
    */
   blocksLoaded?: AgentBlockLoadSummary[];
+
+  /**
+   * How the message was handled when the dispatch carried `session`.
+   * Absent on a sessionless run. `status` says whether `text` is this
+   * message's reply (`replied`), whether the message was queued behind a
+   * running turn and `text` is empty (`queued`), or whether this call's
+   * own turn was interrupted by a later message (`interrupted`). See
+   * {@link AgentOptions.session}.
+   */
+  session?: AgentSessionOutcome;
 }

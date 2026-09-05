@@ -95,10 +95,11 @@ When `@routecraft/ai` is imported (anywhere in the project), `CraftConfig` is au
 | `mcp` | `McpPluginOptions` | `mcpPlugin(options)` |
 | `embedding` | `EmbeddingPluginOptions` | `embeddingPlugin(options)` |
 | `agent` | `AgentPluginOptions` | `agentPlugin(options)` |
+| `sessions` | `AgentSessionsConfig` | `sessionsPlugin(options)`; see [sessions](#sessions) |
 
 ```ts
 import { defineConfig } from '@routecraft/routecraft'
-import '@routecraft/ai' // augments CraftConfig with llm/mcp/embedding/agent
+import '@routecraft/ai' // augments CraftConfig with llm/mcp/embedding/agent/sessions
 
 export const craftConfig = defineConfig({
   llm: {
@@ -113,7 +114,7 @@ The legacy `plugins: [llmPlugin(...)]` form continues to work and is the right e
 
 <Callout type="note">
 
-**Troubleshooting:** if TypeScript reports `Object literal may only specify known properties, and 'llm' does not exist in type 'CraftConfig'` (or the same for `mcp`, `embedding`, `agent`), the augmentation has not been loaded. Add `import '@routecraft/ai'` to a file that's part of your project's compilation -- usually next to `defineConfig` in `craft.config.ts`. The side-effect import is what merges the AI keys into `CraftConfig`.
+**Troubleshooting:** if TypeScript reports `Object literal may only specify known properties, and 'llm' does not exist in type 'CraftConfig'` (or the same for `mcp`, `embedding`, `agent`, `sessions`), the augmentation has not been loaded. Add `import '@routecraft/ai'` to a file that's part of your project's compilation -- usually next to `defineConfig` in `craft.config.ts`. The side-effect import is what merges the AI keys into `CraftConfig`.
 
 </Callout>
 
@@ -265,6 +266,32 @@ An explicit config value wins over the environment.
 **The store backend is chosen per runtime.** Under Bun it is `bun:sqlite`, a built-in. Under Node it is `better-sqlite3`, an optional peer: install it (`bun add better-sqlite3`) to get a durable store on Node. Without it, an unconfigured context falls back to the in-memory backend and warns that parked exchanges will not survive a restart, while a context that named a `store` path fails to start rather than silently losing durability it asked for.
 
 **If you park exchanges, pin your line endings and build settings across deploys.** A parked exchange records a hash of the steps that have not run yet, so that a change to what an approval authorises invalidates it rather than resuming into different behaviour. That hash reads step identity from function source text **verbatim**, with no normalisation, because any normalisation that made two different sources hash alike would also be a way to miss a real change. The consequence is that the hash is sensitive to more than your source tree: a formatting pass, a checkout with different line endings, and a build that changes emitted text (a different minifier, new bundler settings, a TypeScript target bump) each move it for steps whose behaviour did not change. Every one of those outcomes is safe rather than silent, since affected exchanges re-enter their route's error channel and can be re-asked; none of them can resume an approval into different behaviour, which is the trade being made. For a repository whose routes park approvals for days, commit a `.gitattributes` with `* text eol=lf` (or the equivalent pin for your platform) so checkouts agree on line endings, and keep build settings stable between releases. Running TypeScript directly (the default under Bun, with no bundler in the path) removes the build half of this entirely.
+
+### sessions
+
+Added by `@routecraft/ai`. Configures where [agent sessions](/docs/reference/adapters/agent#sessions-an-agent-that-remembers) keep their records: the transcript, the inbox and the background calls a conversation is waiting on. Optional: without it the SQLite backend at `.routecraft/sessions.db` is used, and the file is created by the first session written rather than at boot, so a context whose agents never hold a conversation never grows a database. The continuation a turn stores between turns is a parked exchange and lives in the [suspension](#suspension) store, which `session` therefore still needs.
+
+```ts
+import { defineConfig } from '@routecraft/routecraft'
+import '@routecraft/ai'
+
+export const craftConfig = defineConfig({
+  suspension: { store: { path: '/data/suspensions.db' } },
+  sessions: { store: { path: '/data/sessions.db' } },
+})
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `store` | `string \| { path: string } \| "memory" \| SessionStore` | `.routecraft/sessions.db` | Where session records live. A path opens the SQLite backend. `"memory"` opts into the in-process backend, accepting that every conversation dies with the process. A `SessionStore` instance plugs in a backend of your own: four operations (`get`, `create`, `replace` under a version compare-and-swap, `keys`) plus `close`, the contract both shipped backends pass the same test suite against. |
+
+| Variable | Purpose |
+|----------|---------|
+| `ROUTECRAFT_SESSION_STORE` | Store location: a file path, or the literal `memory`. An explicit config value wins. |
+
+The backend is chosen per runtime exactly as the suspension store's is: `bun:sqlite` under Bun, `better-sqlite3` under Node. An explicitly configured path that cannot be opened fails at startup with [`AI1012`](/docs/reference/errors#ai-1012); the unconfigured default falls back to memory with a warning when no driver is available. A value that names neither a location nor a backend is refused at startup with [`RC5003`](/docs/reference/errors#rc-5003). A store instance you supply is never closed by the context.
+
+Records have no retention: nothing expires a session, so a deployment that opens one per inbound message sizes its volume by how many it will ever open. Retiring a session is not built yet. In tests, `testContext()` substitutes an in-memory suspension store but not a session store, so a test that holds a conversation passes `sessions: { store: 'memory' }` to leave no database behind.
 
 **The signing secret is required, at least 32 bytes, and never generated for you.** A context whose routes can reach a durable suspend fails at startup with [`RC5040`](/docs/reference/errors#rc-5040) when no secret is configured. The secret is deliberately not stored alongside the suspensions: a store compromise must not also yield forgeable resume tokens. `testContext()`, `NODE_ENV=development` and `NODE_ENV=test` mint an ephemeral in-memory key so tests and local iteration need no setup; that key is regenerated on every start, so tokens minted before a restart stop verifying, and the framework warns when it is in use.
 

@@ -1,5 +1,7 @@
 import type { AgentDefaultOptions, AgentRegisteredOptions } from "./types.ts";
 import type { AgentToolPolicy } from "./tools/policy.ts";
+import type { AgentSessionRuntime } from "./session/runtime.ts";
+import type { ResolvedSessionStore } from "./session/config.ts";
 
 /**
  * Store key for the registry of agents installed by `agentPlugin`. Resolved
@@ -70,8 +72,41 @@ export const ADAPTER_AGENT_TOOL_POLICIES = Symbol.for(
   "routecraft.adapter.agent.tool-policies",
 );
 
+/**
+ * Store key for the per-context session runtime, created on the first
+ * dispatch that carries `session` and shared by every agent after that so
+ * the one-turn-at-a-time bound holds across routes.
+ * @internal
+ */
+export const ADAPTER_AGENT_SESSIONS = Symbol.for(
+  "routecraft.adapter.agent.sessions",
+);
+
+/**
+ * Set once the boot drive of leftover sessions has begun on a context, so
+ * a second `agentPlugin()` install does not drive them twice.
+ *
+ * @internal
+ */
+export const ADAPTER_AGENT_SESSIONS_BOOT = Symbol.for(
+  "routecraft.adapter.agent.sessions.boot",
+);
+
+/**
+ * Store key for the session store a context resolved: from its `sessions`
+ * block, or the default the first `agentPlugin()` opened.
+ *
+ * @internal
+ */
+export const ADAPTER_AGENT_SESSION_STORE = Symbol.for(
+  "routecraft.adapter.agent.sessions.store",
+);
+
 declare module "@routecraft/routecraft" {
   interface StoreRegistry {
+    [ADAPTER_AGENT_SESSIONS]: AgentSessionRuntime;
+    [ADAPTER_AGENT_SESSIONS_BOOT]: boolean;
+    [ADAPTER_AGENT_SESSION_STORE]: ResolvedSessionStore;
     [ADAPTER_AGENT_REGISTRY]: Map<string, AgentRegisteredOptions>;
     [ADAPTER_AGENT_DEFAULT_OPTIONS]: AgentDefaultOptions;
     [ADAPTER_AGENT_TOOL_POLICIES]: AgentToolPolicy[];

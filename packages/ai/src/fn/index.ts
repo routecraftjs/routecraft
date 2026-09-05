@@ -3,6 +3,7 @@ export type {
   FnHandlerContext,
   FnOptions,
   FnRegistry,
+  FnSessionView,
   FnSuspensionView,
   ReadonlyPrincipal,
   RegisteredFnId,

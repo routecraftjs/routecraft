@@ -457,13 +457,39 @@ Resolution rules:
 
 | Builder | Use |
 |---|---|
-| `directTool(routeId, overrides?)` | Adapt a registered direct route as a fn. Pulls description, input schema, and tags from the route's discovery bundle by default; `overrides` accepts `description` and `input` to replace either of those (tags pass through unchanged). |
+| `directTool(routeId, overrides?)` | Adapt a registered direct route as a fn. Pulls description, input schema, and tags from the route's discovery bundle by default; `overrides` accepts `description` and `input` to replace either of those (tags pass through unchanged), and `background: true` to return a handle now and deliver the result later (see [Background tools](#background-tools)). |
 
 `directTool` is the only fn builder the framework ships. A tool that just wraps a line of JavaScript, such as a clock or a UUID generator, is written inline in `functions:` as shown above: the declaration costs the same as naming a factory, and it stays yours to change.
 
 MCP tools are NOT exposed via a builder. Use the `MCP(server:tool)` / `MCP(server)` grammar (or the raw `mcp__server__tool` form) inside `tools([...])` instead; the registry populated by `defineConfig.mcp` is the source of truth.
 
 When to hand an agent a raw `MCP(...)` tool versus a wrapped `Direct(...)` route -- and why a guard cannot stand in for the wrap -- is covered in [Calling an MCP](/docs/advanced/call-an-mcp#guardrails-raw-guarded-or-wrapped).
+
+#### Background tools
+
+A build or a test run takes minutes, and a tool call holds the agent's turn until its route returns, so the person talking to the agent waits too. `directTool(routeId, { background: true })` changes how the agent awaits the route, and nothing about the route:
+
+```ts
+agentPlugin({
+  functions: {
+    sandboxRun: directTool('sandbox-run', { background: true }),
+  },
+  agents: {
+    max: {
+      description: 'Max, the development agent',
+      system: readFileSync('agents/max.md', 'utf-8'),
+      maxTurns: 200,
+      tools: tools(['sandboxRun', 'Direct(github-create-pr)']),
+    },
+  },
+})
+```
+
+The call dispatches the route as usual and returns `{ handle, status: 'running' }` at once, where `handle` is `<routeId>:<dispatchId>`, stable across restarts and written on the dispatched exchange's headers as `routecraft.agent.background.handle` (`AgentHeadersKeys.BACKGROUND_HANDLE`) so an operator can find the run. When the route finishes, its result, or its failure as a message carrying the error code and text, is posted to the calling [session](/docs/reference/adapters/agent#sessions-an-agent-that-remembers)'s inbox attributed to the handle. **The completion starts the next turn on its own.** A turn that ends with a background call still running stores its exchange's continuation (the body and headers, as a `.suspend()` park stores them, at the agent step); when the call settles, that continuation is revived on the running process, the agent step runs a turn whose user message is the inbox (the completion, plus anything that queued meanwhile), and the route's downstream steps run on its reply. So a build finishing is what tells the agent to open the pull request, with nobody sending a message. If the route finishes while the calling turn is still running, the turn's own boundary delivers it instead. The description the model sees says the tool is asynchronous, so it does not wait on the return value.
+
+The result lands in a session, so the flag needs one: an agent dispatched without `session` refuses a background tool when its tool list is resolved (`RC5003` naming the tool), before the model can call it. A restart while the route runs loses the dispatch the way it loses any in-flight exchange. At the next boot, every session with a stored continuation has the calls its dead process was waiting on reported lost, attributed to their handles, and the continuation revived, so the loss reaches the agent as a turn and it can start the run again; a session whose turn died before it could store a continuation is restored by its next message instead. Nothing is dropped silently.
+
+Not here yet: cancelling a background call from the agent, progress from a running route, and a join over several calls.
 
 #### Tags
 

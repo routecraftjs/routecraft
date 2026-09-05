@@ -1,4 +1,5 @@
-import type { Invocation, IsolationRequest, IsolationTier } from "./types.ts";
+import type { HostTier, Invocation, IsolationRequest } from "./types.ts";
+import { refuseContainerOptions } from "./host.ts";
 
 /**
  * The opt-out tier: a plain subprocess, no isolation promised and none
@@ -13,8 +14,9 @@ import type { Invocation, IsolationRequest, IsolationTier } from "./types.ts";
  * containment: the command runs with the caller's identity, the caller's
  * view of the filesystem, and the caller's network.
  */
-export const noneTier: IsolationTier = {
+export const noneTier: HostTier = {
   name: "none",
+  kind: "host",
   ensureAvailable(): Promise<void> {
     return Promise.resolve();
   },
@@ -40,7 +42,7 @@ export const noneTier: IsolationTier = {
         `Drop mapRootUser, or choose a tier with a user namespace.`
       );
     }
-    return undefined;
+    return refuseContainerOptions("none", request);
   },
   wrap(target: Invocation): Invocation {
     return target;

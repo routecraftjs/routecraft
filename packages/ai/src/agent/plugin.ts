@@ -1,15 +1,25 @@
 import {
+  OPS_RESOURCES,
+  parsePageQuery,
+  rcCodeOf,
   rcError,
+  registerOpsResource,
   type CraftContext,
   type CraftPlugin,
+  type OpsPage,
 } from "@routecraft/routecraft";
+import { AgentSessionRuntime } from "./session/runtime.ts";
+import type { AgentSessionSummary } from "./session/types.ts";
 import { validateAgentOptions, validateBlocks } from "./agent.ts";
 import {
   ADAPTER_AGENT_DEFAULT_OPTIONS,
   ADAPTER_AGENT_REGISTRY,
+  ADAPTER_AGENT_SESSION_STORE,
+  ADAPTER_AGENT_SESSIONS_BOOT,
   ADAPTER_AGENT_TOOL_POLICIES,
   AGENT_DEFAULT_OPTION_KEYS,
 } from "./store.ts";
+import { createSessionStore, stopSessions } from "./session/config.ts";
 import { AGENT_TOOL_POLICY_KINDS } from "./tools/policy.ts";
 import type {
   AgentToolPolicy,
@@ -167,7 +177,7 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
   const defaultOptions = validatePluginDefaults(options.defaultOptions);
   const toolPolicy = validateToolPolicy(options.toolPolicy);
   return {
-    apply(ctx: CraftContext) {
+    async apply(ctx: CraftContext) {
       // Merge into an existing registry when present so multiple
       // `agentPlugin({...})` entries compose instead of overwriting.
       const existingAgents = ctx.getStore(ADAPTER_AGENT_REGISTRY);
@@ -257,6 +267,23 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
           ctx.setStore(ADAPTER_AGENT_TOOL_POLICIES, [toolPolicy]);
         }
       }
+
+      // Once per context, whichever install applies first: the resource
+      // reads the shared session runtime, so a second install has nothing
+      // more to contribute and would collide on the name.
+      if (ctx.getStore(OPS_RESOURCES)?.has(SESSIONS_RESOURCE) !== true) {
+        registerSessionsResource(ctx);
+      }
+
+      // The default session store, unless a `sessions` block chose one (or
+      // will: its plugin replaces an unconfigured default whichever applied
+      // first). Resolved here so the driver is probed at boot.
+      if (ctx.getStore(ADAPTER_AGENT_SESSION_STORE) === undefined) {
+        ctx.setStore(
+          ADAPTER_AGENT_SESSION_STORE,
+          await createSessionStore(ctx, {}, false),
+        );
+      }
     },
 
     /**
@@ -277,8 +304,107 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
     start(ctx: CraftContext) {
       resolveDeferredTools(ctx, functions);
       emitRegistrations(ctx, agents, functions);
+      driveSessionsAtBoot(ctx);
+    },
+
+    /**
+     * A boot drive still walking the store at shutdown would revive
+     * sessions onto routes that are draining and write the store after
+     * the context let go of it; it is told to stop and waited for.
+     */
+    async teardown(ctx: CraftContext) {
+      await boots.get(ctx);
+      boots.delete(ctx);
+      // After the boot walk, so a revival the walk was starting when the
+      // stop landed is in the set the runtime waits for.
+      await stopSessions(ctx);
     },
   };
+}
+
+/** The boot drive per context, for teardown to wait on. */
+const boots = new WeakMap<CraftContext, Promise<void>>();
+
+/**
+ * The `agent-sessions` management resource: every named session the
+ * store knows, with its turn state and inbox depth, at
+ * `GET /ops/agent-sessions` (filter with `?agent=`) and one session at
+ * `GET /ops/agent-sessions/{agent}/{session}`. Served under the ops
+ * plugin's introspection tier when an ops mount exists; inert otherwise.
+ *
+ * A context with no suspension store has no sessions, and says so with an
+ * empty collection rather than the RC5052 a dispatch would get, because a
+ * listing is a question and not an attempt to hold a conversation.
+ *
+ * @internal
+ */
+const SESSIONS_RESOURCE = "agent-sessions";
+
+/**
+ * What a previous process left in sessions is driven from here, after
+ * the routes are live: background calls it was waiting on become lost
+ * results and the stored continuations they were for are revived, so a
+ * lost build reaches the model as a turn rather than waiting for a
+ * message. Begun and returned rather than awaited, because it reads every
+ * session the store holds; a context with no suspension store has nothing
+ * to drive. Once per context, keyed on the first install like the
+ * resource registration.
+ */
+function driveSessionsAtBoot(ctx: CraftContext): void {
+  if (ctx.getStore(ADAPTER_AGENT_SESSIONS_BOOT) === true) return;
+  ctx.setStore(ADAPTER_AGENT_SESSIONS_BOOT, true);
+  let runtime: AgentSessionRuntime;
+  try {
+    runtime = AgentSessionRuntime.for(ctx);
+  } catch (err) {
+    if (rcCodeOf(err) === "RC5052") return;
+    throw err;
+  }
+  const drive = runtime.driveBoot().then(
+    ({ revived, lostBackground }) => {
+      if (revived > 0 || lostBackground > 0) {
+        ctx.logger.info(
+          { revived, lostBackground },
+          "Agent sessions left by the previous process were driven",
+        );
+      }
+    },
+    (err: unknown) => {
+      ctx.logger.error(
+        { err },
+        "Agent sessions left by the previous process could not be driven; each is restored by its next message instead",
+      );
+    },
+  );
+  boots.set(ctx, drive);
+}
+
+function registerSessionsResource(ctx: CraftContext): void {
+  const runtime = (): AgentSessionRuntime | undefined => {
+    try {
+      return AgentSessionRuntime.for(ctx);
+    } catch (err) {
+      if (rcCodeOf(err) === "RC5052") return undefined;
+      throw err;
+    }
+  };
+  registerOpsResource<AgentSessionSummary>(ctx, {
+    name: SESSIONS_RESOURCE,
+    async list(query): Promise<OpsPage<AgentSessionSummary>> {
+      const sessions = runtime();
+      if (!sessions) return { items: [] };
+      const agent = query["agent"];
+      return sessions.summaries({
+        ...(agent !== undefined ? { agent } : {}),
+        ...parsePageQuery(query),
+      });
+    },
+    async describe(segments): Promise<AgentSessionSummary | undefined> {
+      if (segments.length !== 2) return undefined;
+      const [agent, session] = segments as [string, string];
+      return runtime()?.summary({ agent, session });
+    },
+  });
 }
 
 /**

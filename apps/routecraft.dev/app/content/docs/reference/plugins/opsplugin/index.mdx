@@ -169,6 +169,7 @@ Four resources on the same mount, under `/ops`, for driving a running instance: 
 | `GET /ops/routes/{id}` | `introspection` | Describe one route |
 | `POST /ops/routes/{id}/exchanges` | `dispatch` | Dispatch work and return the outcome |
 | `GET /ops/events` | `events` | Tail the context event bus as Server-Sent Events |
+| `GET /ops/{resource}` and `GET /ops/{resource}/{segment...}` | `introspection` | A resource another package [contributed](#contributed-resources) |
 
 Dispatching creates an exchange, so the exchange is a sub-resource of the route it runs on rather than a verb of its own.
 
@@ -312,6 +313,36 @@ A route that fails answers 500 carrying the framework's error `code`, which is w
 **No bypass, and no synthetic operator principal.** A dispatch runs the full [pre-from chain](/docs/advanced/filter-chain), and the principal is the one the mount's validator minted from the presented credential. A downstream `.authorize()` cannot distinguish an operator dispatch from any other authenticated caller, which is the point: the management door is built from the framework's own primitives rather than beside them.
 
 A park is an outcome and not an error. The response is the standard [`Suspended`](/docs/advanced/durable-agents) acknowledgment every other surface returns, carrying the suspension id, the single-use resume token and the expiry. There is no resume verb here: who may resume a parked run is the application's policy, expressed with `.resume({ authorize })`, and a management resume door would be the framework building the bypass it deliberately refused to build.
+
+### Contributed resources
+
+Core knows routes, exchanges and events. What an ecosystem package keeps alongside them is listable through the same door and the same tier without core learning what it is: a plugin registers a read-only resource from its `apply()`, and the mount serves it at `GET /ops/{name}` (the collection, with the query string handed to the contributor as its filter) and `GET /ops/{name}/{segment...}` (one item, addressed by the decoded path segments). Admission is the introspection tier's, exactly as for the route listing, and a write answers 405.
+
+```ts
+import { registerOpsResource } from '@routecraft/routecraft'
+
+registerOpsResource(ctx, {
+  name: 'widgets',
+  list: async (query) => ({ items: await widgets.list(query.colour) }),
+  describe: async ([id]) => widgets.get(id),
+})
+```
+
+A collection answer is the same `{ items, nextCursor? }` envelope as the route listing, and the contributor pages it with the same helpers the mount uses: `parsePageQuery(query)` reads `limit` and `after` (refusing a bad limit with `RC5059`), `decodeCursor(after, scope)` checks a cursor against the contributor's own filter scope, and `takePage(sorted, scope, limit, after)` takes the page and mints the next cursor, all exported from `@routecraft/routecraft`. A throw from either read is answered by the mount: `RC5059` as a 400 carrying the message, since it is the caller's; anything else as a 500 carrying the resource name and the error's code, never its message. `routes` and `events` are the mount's own names and refused, as is a second registration of one name. Registration needs no ops plugin to be present: it is inert until a mount exists.
+
+**`agent-sessions`** is the one shipped: [`@routecraft/ai`](/docs/reference/adapters/agent#sessions-an-agent-that-remembers) registers it, and it lists every named agent session with the subject that started it (`startedBy`, `null` for an exchange that carried no principal), its turn state (`idle`, `running`, or `stale` for a turn a restart cut short), the depth of its inbox, the background calls it is waiting on, whether a continuation is stored for them (`parked`), its transcript length and its turn count. `?agent=` narrows the collection to one agent, `limit` and `after` page it exactly as the route listing (the cursor is bound to the `agent` filter), and `GET /ops/agent-sessions/{agent}/{session}` answers one summary. A page costs one store read per session shown, never one per session stored. A context with no suspension store lists nothing, which the collection cannot tell apart from a store with no sessions.
+
+```bash
+curl -H "authorization: Bearer $TOKEN" 'http://127.0.0.1:8080/ops/agent-sessions?agent=max'
+```
+
+```json
+{
+  "items": [
+    { "agent": "max", "session": "feature-login", "startedBy": "jaco", "turn": "idle", "inbox": 0, "background": 1, "parked": true, "messages": 14, "turns": 6, "updatedAt": "2026-09-04T21:40:11.522Z" }
+  ]
+}
+```
 
 ### Not built here
 

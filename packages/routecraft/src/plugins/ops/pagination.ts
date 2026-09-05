@@ -35,18 +35,54 @@ interface DecodedCursor {
 }
 
 /**
+ * The result set a cursor pages, for a collection the mount does not own:
+ * a contributed resource renders its own filter canonically (fixed field
+ * order, absent fields as `null`) and hands the string here, so its
+ * cursors are bound to its filters exactly as the route listing's are.
+ */
+export interface CursorScope {
+  readonly fingerprint: string;
+}
+
+/** What binds a cursor: the route filter, or a contributor's own scope. */
+export type PageFilter = OpsRouteFilter | CursorScope;
+
+/**
  * Canonical rendering of a filter, used to bind a cursor to it.
  *
  * Field order is fixed here rather than taken from the caller's query
  * string, so the same filter written two ways produces one fingerprint and
  * a cursor survives a client that reorders its parameters.
  */
-function fingerprintFilter(filter: OpsRouteFilter): string {
+function fingerprintFilter(filter: PageFilter): string {
+  if ("fingerprint" in filter) return filter.fingerprint;
   return JSON.stringify([
     filter.dispatchable ?? null,
     filter.id ?? null,
     filter.source ?? null,
   ]);
+}
+
+/**
+ * Read `limit` and `after` off a resource's raw query, as the mount reads
+ * them for the route listing: a `limit` that is not a positive integer is
+ * `RC5059`, which the mount answers as a 400 naming the rule.
+ */
+export function parsePageQuery(query: Readonly<Record<string, string>>): {
+  limit?: number;
+  after?: string;
+} {
+  const raw = query["limit"];
+  let limit: number | undefined;
+  if (raw !== undefined) {
+    limit = Number(raw);
+    assertPageLimit(limit);
+  }
+  const after = query["after"];
+  return {
+    ...(limit !== undefined ? { limit } : {}),
+    ...(after !== undefined ? { after } : {}),
+  };
 }
 
 /**
@@ -79,7 +115,7 @@ function assertPageLimit(limit: number | undefined): void {
  * owns. A client that decodes it and constructs its own is outside the
  * contract, which is the point of publishing a string rather than a key.
  */
-export function encodeCursor(lastId: string, filter: OpsRouteFilter): string {
+export function encodeCursor(lastId: string, filter: PageFilter): string {
   const payload: DecodedCursor = {
     after: lastId,
     filter: fingerprintFilter(filter),
@@ -95,7 +131,7 @@ export function encodeCursor(lastId: string, filter: OpsRouteFilter): string {
  * changed filter are both "this cursor cannot be used here", and neither
  * says anything about the data behind it.
  */
-export function decodeCursor(cursor: string, filter: OpsRouteFilter): string {
+export function decodeCursor(cursor: string, filter: PageFilter): string {
   let decoded: unknown;
   try {
     decoded = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
@@ -134,7 +170,7 @@ export function decodeCursor(cursor: string, filter: OpsRouteFilter): string {
  */
 export function takePage<T extends { id: string }>(
   sorted: readonly T[],
-  filter: OpsRouteFilter,
+  filter: PageFilter,
   limit: number | undefined,
   after: string | undefined,
 ): { items: T[]; nextCursor?: string } {

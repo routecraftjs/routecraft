@@ -305,7 +305,10 @@ export class SuspensionSweeper {
           ? { oldestStrandedAt: stranded[0].suspendedAt.toISOString() }
           : {}),
       },
-      "Suspension store scanned",
+      // `pending` counts every record the store holds, which includes the
+      // records other tiers keep in it (agent session transcripts) and not
+      // only parked exchanges; the store cannot tell them apart.
+      "Suspension store scanned (pending counts every stored record, parked exchanges and agent session records alike)",
     );
 
     if (stranded.length > 0) {

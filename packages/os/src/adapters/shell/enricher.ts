@@ -1,5 +1,8 @@
+import { createHash, randomUUID } from "node:crypto";
+import { isAbsolute, posix } from "node:path";
 import {
   getExchangeContext,
+  getExchangeRoute,
   parseDuration,
   rcError,
   type Enricher,
@@ -7,7 +10,14 @@ import {
   type StepSignalContext,
 } from "@routecraft/routecraft";
 import { resolve } from "../../shared/resolvable.ts";
-import { resolveIsolation } from "./isolation/index.ts";
+import {
+  resolveIsolation,
+  type ExecutionOutcome,
+  type HostTier,
+  type Invocation,
+  type IsolationRequest,
+  type ProcessIo,
+} from "./isolation/index.ts";
 import { loadExeca } from "./peers.ts";
 import { SHELL_DEFAULTS, type ShellPluginOptions } from "./plugin.ts";
 import {
@@ -64,9 +74,10 @@ export class ShellEnricherAdapter<T = unknown> implements Enricher<
     const tier = resolveIsolation(this.options.isolation, defaults.isolation);
     await tier.ensureAvailable();
 
-    const request = {
+    const request: IsolationRequest = {
       network: this.options.network ?? false,
       mapRootUser: this.options.mapRootUser ?? false,
+      ...containerOptions(this.options, exchange),
     };
     // Checked before the command is built, because the answer is a
     // property of the call rather than of anything it produces. A tier
@@ -85,52 +96,47 @@ export class ShellEnricherAdapter<T = unknown> implements Enricher<
       file: this.command,
       args: await sanitiseArgs(rawArgs),
     };
-    const invocation = tier.wrap(target, request);
 
     const limit =
       this.options.maxOutputBytes ??
       defaults.maxOutputBytes ??
       DEFAULT_MAX_OUTPUT_BYTES;
-    const configuredTimeout = this.options.timeout ?? defaults.timeout;
+    const configuredTimeout =
+      resolve(this.options.timeout, exchange) ?? defaults.timeout;
     const timeout =
       configuredTimeout === undefined
         ? undefined
         : parseDuration(configuredTimeout, "shell({ timeout })");
-
-    const { execa } = await loadExeca();
-    const stdout = new BoundedOutput(limit);
-    const stderr = new BoundedOutput(limit);
-
     const cwd = resolve(this.options.cwd, exchange);
-    const subprocess = execa(invocation.file, [...invocation.args], {
+    const env = buildEnv(
+      this.options.passEnv,
+      resolveEnv(this.options.env, exchange),
+      tier.kind === "container" ? tier.home : undefined,
+    );
+    const stdin = resolveStdin(this.options.stdin, exchange);
+    const io: ProcessIo = {
       ...(cwd === undefined ? {} : { cwd }),
-      env: buildEnv(this.options.passEnv, this.options.env),
-      // Without this execa merges the parent's environment back in, which
-      // would make the whole env-scoping contract a lie.
-      extendEnv: false,
-      reject: false,
-      buffer: false,
-      stdin: "ignore",
-      // Deliberately NOT encoding: "buffer". It is the natural way to ask
-      // for binary chunks, and under Bun execa forwards it to the stream
-      // constructor, which rejects "buffer" as an unknown encoding and
-      // fails the spawn. Decoded chunks are re-encoded when captured, so
-      // the byte cap still counts bytes.
-      ...(timeout === undefined ? {} : { timeout }),
-      ...(ctx?.signal ? { cancelSignal: ctx.signal } : {}),
-      forceKillAfterDelay: FORCE_KILL_AFTER_MS,
-    });
+      env,
+      ...(stdin === undefined ? {} : { stdin }),
+      ...(timeout === undefined ? {} : { timeoutMs: timeout }),
+      ...(ctx?.signal ? { signal: ctx.signal } : {}),
+      maxOutputBytes: limit,
+    };
 
-    subprocess.stdout?.on("data", (chunk: Uint8Array) => stdout.push(chunk));
-    subprocess.stderr?.on("data", (chunk: Uint8Array) => stderr.push(chunk));
+    const outcome: HostOutcome =
+      tier.kind === "container"
+        ? await tier.execute(target, request, {
+            ...io,
+            defaultName: defaultContainerName(exchange),
+          })
+        : await this.spawn(tier, target, request, io);
 
-    const outcome = await subprocess;
-    const out = stdout.result();
-    const err = stderr.result();
+    const out = outcome.stdout;
+    const err = outcome.stderr;
     const result: ShellResult = {
       stdout: out.text,
       stderr: err.text,
-      exitCode: outcome.exitCode ?? exitCodeForSignal(outcome.signal),
+      exitCode: outcome.exitCode,
       truncated: out.truncated || err.truncated,
       ...(outcome.signal ? { signal: outcome.signal } : {}),
     };
@@ -145,8 +151,8 @@ export class ShellEnricherAdapter<T = unknown> implements Enricher<
       });
     }
 
-    if (isSpawnFailure(outcome)) {
-      throw rcError("OS1002", toCause(outcome), {
+    if (outcome.spawnFailure !== undefined) {
+      throw rcError("OS1002", toCause(outcome.spawnFailure), {
         message:
           `"${this.command}" could not be started.` +
           (/\s/.test(this.command)
@@ -166,6 +172,201 @@ export class ShellEnricherAdapter<T = unknown> implements Enricher<
 
     return result;
   }
+
+  /**
+   * The host path: wrap the invocation in the tier and spawn it directly.
+   * Reports the same outcome shape a container tier does, so what follows
+   * (timeout, spawn failure, exit code) is decided once.
+   */
+  private async spawn(
+    tier: HostTier,
+    target: Invocation,
+    request: IsolationRequest,
+    io: ProcessIo,
+  ): Promise<HostOutcome> {
+    const invocation = tier.wrap(target, request);
+    const { execa } = await loadExeca();
+    const stdout = new BoundedOutput(io.maxOutputBytes);
+    const stderr = new BoundedOutput(io.maxOutputBytes);
+    const subprocess = execa(invocation.file, [...invocation.args], {
+      ...(io.cwd === undefined ? {} : { cwd: io.cwd }),
+      env: io.env,
+      // Without this execa merges the parent's environment back in, which
+      // would make the whole env-scoping contract a lie.
+      extendEnv: false,
+      reject: false,
+      buffer: false,
+      // `input` is written and closed before the command reads, so a
+      // secret on stdin is never on the command line or in the env.
+      ...(io.stdin === undefined ? { stdin: "ignore" } : { input: io.stdin }),
+      // Deliberately NOT encoding: "buffer". It is the natural way to ask
+      // for binary chunks, and under Bun execa forwards it to the stream
+      // constructor, which rejects "buffer" as an unknown encoding and
+      // fails the spawn. Decoded chunks are re-encoded when captured, so
+      // the byte cap still counts bytes.
+      ...(io.timeoutMs === undefined ? {} : { timeout: io.timeoutMs }),
+      ...(io.signal ? { cancelSignal: io.signal } : {}),
+      forceKillAfterDelay: FORCE_KILL_AFTER_MS,
+    });
+
+    subprocess.stdout?.on("data", (chunk: Uint8Array) => stdout.push(chunk));
+    subprocess.stderr?.on("data", (chunk: Uint8Array) => stderr.push(chunk));
+
+    const outcome = await subprocess;
+    return {
+      stdout: stdout.result(),
+      stderr: stderr.result(),
+      exitCode: outcome.exitCode ?? exitCodeForSignal(outcome.signal),
+      ...(outcome.signal ? { signal: outcome.signal } : {}),
+      timedOut: outcome.timedOut,
+      ...(isSpawnFailure(outcome) ? { spawnFailure: outcome } : {}),
+    };
+  }
+}
+
+/** A host outcome carries the runner's own error when the program never ran. */
+type HostOutcome = ExecutionOutcome & { readonly spawnFailure?: unknown };
+
+/**
+ * The container options, resolved for this call and checked before any
+ * tier sees them. An absent option stays absent, so a host tier's refusal
+ * fires only for what the call actually set.
+ */
+function containerOptions<T>(
+  options: ShellOptions<T>,
+  exchange: Exchange<T>,
+): Pick<IsolationRequest, "image" | "mounts" | "name"> {
+  const image = resolve(options.image, exchange);
+  if (
+    image !== undefined &&
+    (typeof image !== "string" || image.trim() === "")
+  ) {
+    throw rcError("RC5003", undefined, {
+      message: `shell(): "image" must resolve to a non-empty image reference; got ${JSON.stringify(image)}.`,
+    });
+  }
+  const mounts = resolve(options.mounts, exchange);
+  if (mounts !== undefined) {
+    if (!Array.isArray(mounts)) {
+      throw rcError("RC5003", undefined, {
+        message: `shell(): "mounts" must resolve to an array of { host, container, readonly? }.`,
+      });
+    }
+    for (const [index, mount] of mounts.entries()) {
+      if (
+        typeof mount !== "object" ||
+        mount === null ||
+        typeof mount.host !== "string" ||
+        typeof mount.container !== "string"
+      ) {
+        throw rcError("RC5003", undefined, {
+          message: `shell(): mounts[${index}] must be { host, container, readonly? } with both paths as strings.`,
+        });
+      }
+      // Absolute on both sides: a relative host path would resolve against
+      // the daemon's working directory, which is nowhere the author meant,
+      // and the API reads a relative container path as a volume name.
+      if (!isAbsolute(mount.host) || !isAbsolute(mount.container)) {
+        throw rcError("RC5003", undefined, {
+          message: `shell(): mounts[${index}] must use absolute paths on both sides; got host "${mount.host}" and container "${mount.container}".`,
+        });
+      }
+      if (mount.host.includes(":") || mount.container.includes(":")) {
+        throw rcError("RC5003", undefined, {
+          message: `shell(): mounts[${index}] paths cannot contain ":", which the daemon reads as the mount separator.`,
+        });
+      }
+      // Normal form only: "/work/../../etc" is absolute and is /etc. A
+      // route that builds a mount from data decides which directory it
+      // exposes, and a ".." segment lets the data decide instead.
+      if (!isNormalPath(mount.host) || !isNormalPath(mount.container)) {
+        throw rcError("RC5003", undefined, {
+          message: `shell(): mounts[${index}] paths must be in normal form, with no "." or ".." segments and no repeated or trailing separators; got host "${mount.host}" and container "${mount.container}". A ".." from data would expose a directory the route never named.`,
+        });
+      }
+    }
+  }
+  const name = resolve(options.name, exchange);
+  if (name !== undefined && !CONTAINER_NAME.test(name)) {
+    throw rcError("RC5003", undefined, {
+      message: `shell(): "name" must match ${CONTAINER_NAME.source} (a container name); got ${JSON.stringify(name)}.`,
+    });
+  }
+  return {
+    ...(image !== undefined ? { image } : {}),
+    ...(mounts !== undefined ? { mounts } : {}),
+    ...(name !== undefined ? { name } : {}),
+  };
+}
+
+/** A path already in normal form: no `.` or `..` segments, no repeated or trailing separators. */
+function isNormalPath(path: string): boolean {
+  return (
+    posix.normalize(path) === path && (path.length === 1 || !path.endsWith("/"))
+  );
+}
+
+/** The charset the daemon accepts for a container name. */
+const CONTAINER_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
+
+/**
+ * `rc-<routeId>-<exchangeId>-<digest>`, the ids reduced to the container
+ * name charset and followed by a short digest of the originals, so two
+ * ids that differ only in characters the reduction drops still name two
+ * containers. A synthetic exchange with no route names itself by its id.
+ *
+ * @internal
+ */
+export function defaultContainerName(exchange: Exchange<unknown>): string {
+  const routeId = getExchangeRoute(exchange)?.definition.id ?? "route";
+  // A synthetic exchange with no id (a bare object in a test) still needs
+  // a unique name, or two calls collide on the daemon.
+  const id = typeof exchange.id === "string" ? exchange.id : randomUUID();
+  const digest = createHash("sha256")
+    .update(`${routeId}\0${id}`)
+    .digest("hex")
+    .slice(0, 8);
+  return `rc-${routeId}-${id}-${digest}`
+    .replace(/[^a-zA-Z0-9_.-]+/g, "-")
+    .replace(/^[^a-zA-Z0-9]+/, "rc-");
+}
+
+/** The names a POSIX environment takes; the daemon and the runner read `=` as the separator. */
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * Resolve `env`, refusing a variable name outside the POSIX charset. The
+ * names are the grant, so a name from data is refused rather than passed
+ * on: "A=B" as a name would set a variable the route never named.
+ */
+function resolveEnv<T>(
+  source: ShellOptions<T>["env"],
+  exchange: Exchange<T>,
+): Record<string, string> | undefined {
+  const env = resolve(source, exchange);
+  if (env === undefined) return undefined;
+  for (const key of Object.keys(env)) {
+    if (!ENV_NAME.test(key)) {
+      throw rcError("RC5003", undefined, {
+        message: `shell(): env variable name ${JSON.stringify(key)} must match ${ENV_NAME.source}. The route names the variables and derives only their values from data.`,
+      });
+    }
+  }
+  return env;
+}
+
+/** Resolve `stdin` to bytes, refusing a value that is neither text nor bytes. */
+function resolveStdin<T>(
+  source: ShellOptions<T>["stdin"],
+  exchange: Exchange<T>,
+): Uint8Array | undefined {
+  const value = resolve(source, exchange);
+  if (value === undefined) return undefined;
+  if (typeof value === "string") return Buffer.from(value, "utf8");
+  if (value instanceof Uint8Array) return value;
+  throw rcError("RC5003", undefined, {
+    message: `shell(): "stdin" must resolve to a string or a Uint8Array; got ${typeof value}.`,
+  });
 }
 
 /**

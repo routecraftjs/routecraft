@@ -42,6 +42,19 @@ export interface CallLlmParams {
    * Optional abort signal forwarded into `generateText` / `streamText`.
    */
   abortSignal?: AbortSignal;
+  /**
+   * Called after every finished step of the tool loop with the response
+   * messages generated so far (cumulative, in the SDK's own message shape).
+   * The agent session persists the thread from here, so a run cut short by
+   * an interrupt or a crash keeps every step that completed.
+   */
+  onStep?: (step: LlmStep) => void | Promise<void>;
+}
+
+/** What one finished step of the tool loop hands to `CallLlmParams.onStep`. */
+export interface LlmStep {
+  /** Every response message generated so far, in emission order. */
+  readonly responseMessages: readonly unknown[];
 }
 
 /** Provider-level defaults so users can register models with minimal config (e.g. { provider: "ollama" }). */
@@ -210,10 +223,14 @@ export interface ProviderExtras {
   tools?: Record<string, unknown>;
   stopWhen?: unknown;
   abortSignal?: AbortSignal;
+  onStepFinish?: (step: { response?: { messages?: unknown } }) => Promise<void>;
 }
 
 export function buildExtras(
-  params: Pick<CallLlmParams, "output" | "tools" | "stopWhen" | "abortSignal">,
+  params: Pick<
+    CallLlmParams,
+    "output" | "tools" | "stopWhen" | "abortSignal" | "onStep"
+  >,
 ): ProviderExtras {
   const out: ProviderExtras = {};
   if (params.output !== undefined) out.output = params.output;
@@ -222,6 +239,17 @@ export function buildExtras(
     if (params.stopWhen !== undefined) out.stopWhen = params.stopWhen;
   }
   if (params.abortSignal !== undefined) out.abortSignal = params.abortSignal;
+  const onStep = params.onStep;
+  if (onStep !== undefined) {
+    // The SDK's step result carries the messages generated so far, cloned
+    // per step, so the last step seen is the whole response thread to date.
+    out.onStepFinish = async (step) => {
+      const messages = step.response?.messages;
+      await onStep({
+        responseMessages: Array.isArray(messages) ? messages : [],
+      });
+    };
+  }
   return out;
 }
 

@@ -97,6 +97,16 @@ export interface FnHandlerContext {
   readonly suspension?: FnSuspensionView;
 
   /**
+   * The named session the calling turn belongs to, when the agent was
+   * dispatched with `agent(name, { session })`. Read-only identity: a tool
+   * that needs the conversation's own key (a per-session workspace, a
+   * background result that must land in this conversation) reads it here
+   * rather than trusting the model to pass it as input. Undefined for a
+   * sessionless dispatch and on every other surface.
+   */
+  readonly session?: FnSessionView;
+
+  /**
    * Park the run: the handler cannot answer now, so the agent's tool loop
    * stops, the exchange is durably suspended through the core store, and
    * the caller receives the framework's `Suspended` acknowledgment.
@@ -129,6 +139,17 @@ export interface FnSuspensionView {
    * suspension runtime configured.
    */
   readonly token: string;
+}
+
+/**
+ * The session identity handed to fn handlers. See
+ * {@link FnHandlerContext.session}.
+ */
+export interface FnSessionView {
+  /** The registered agent the session belongs to. */
+  readonly agent: string;
+  /** The caller-chosen session id. */
+  readonly id: string;
 }
 
 /**
