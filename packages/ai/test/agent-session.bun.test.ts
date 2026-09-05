@@ -1189,6 +1189,27 @@ describe("agent sessions", () => {
   });
 
   /**
+   * @case A record whose continuation fields are not park pairs fails at the record boundary
+   * @preconditions A stored record whose parking is null, as a corrupt or hand-edited row would carry
+   * @expectedResult The read is AI1010 naming the continuation, rather than a TypeError inside the boot walk
+   */
+  test("a record naming a continuation of the wrong shape is AI1010", async () => {
+    const store = new MemorySuspensionStore();
+    t = await contextWith(store, spy()).build();
+    await t.startAndWaitReady();
+    const records = recordsFor(store);
+    const sessions = new AgentSessionStore(records, store);
+    const key = { agent: "max", session: "corrupt" };
+    await sessions.update(key, (r) => r);
+    const stored = await records.get(key);
+    await records.replace(key, stored!.version, {
+      ...(stored!.value as object),
+      parking: null,
+    });
+    await expect(sessions.load(key)).rejects.toThrow(/AI1010|continuation/);
+  });
+
+  /**
    * @case A park the boot cannot release keeps its reference for the next boot
    * @preconditions A record whose parking names a real park, and a suspension store whose claim fails
    * @expectedResult driveBoot() leaves the parking field in place and the park unsettled, and warns
@@ -1219,6 +1240,102 @@ describe("agent sessions", () => {
     await runtime.driveBoot();
     expect((await sessions.load(key))?.parking?.suspensionId).toBe(
       suspensionId,
+    );
+  });
+
+  /**
+   * @case A continuation announced while the boot was releasing an older one is left alone
+   * @preconditions A record whose parking names a real park; a turn announces its own parking while the boot's release is in flight
+   * @expectedResult The boot clears only what it released, so the record still names the newer continuation
+   */
+  test("the boot leaves a continuation announced under it", async () => {
+    const store = new MemorySuspensionStore();
+    t = await contextWith(store, spy()).build();
+    await t.startAndWaitReady();
+    const sessions = new AgentSessionStore(recordsFor(store), store);
+    const exchange = new DefaultExchange(t.ctx, { body: {} });
+    const key = { agent: "max", session: "raced" };
+    const { suspensionId } = await parkAside(
+      t.ctx,
+      exchange,
+      { position: 0, continuation: [] },
+      "chat",
+      (id) => ({ kind: "agent-session-park", ...key, suspensionId: id }),
+    );
+    await sessions.update(key, (r) => ({
+      ...r,
+      parking: { suspensionId, routeId: "chat" },
+    }));
+    const realRelease = sessions.releasePark.bind(sessions);
+    sessions.releasePark = async (id, reason) => {
+      await realRelease(id, reason);
+      // The window: a turn started here announces its own continuation.
+      await sessions.update(key, (r) => ({
+        ...r,
+        parking: { suspensionId: "started-under-the-boot", routeId: "chat" },
+      }));
+    };
+    await new AgentSessionRuntime(t.ctx, sessions).driveBoot();
+    expect((await sessions.load(key))?.parking?.suspensionId).toBe(
+      "started-under-the-boot",
+    );
+  });
+
+  /**
+   * @case A park whose release fails keeps its reference on the record, so a later boot still finds it
+   * @preconditions A turn with a background call outstanding whose park callback announces a real park and then fails, over a suspension store whose claim fails
+   * @expectedResult The record still names the announced park, which is still suspended
+   */
+  test("a park the turn cannot release keeps its reference", async () => {
+    const store = new MemorySuspensionStore();
+    t = await contextWith(store, spy()).build();
+    await t.startAndWaitReady();
+    const sessions = new AgentSessionStore(recordsFor(store), store);
+    const runtime = new AgentSessionRuntime(t.ctx, sessions);
+    const key = { agent: "max", session: "unreleasable-turn" };
+    await sessions.update(key, (r) => ({
+      ...r,
+      background: [
+        { handle: "sandbox-run:1", tool: "run", startedAt: "now", by: null },
+      ],
+    }));
+    const exchange = new DefaultExchange(t.ctx, { body: {} });
+    const announced: string[] = [];
+    await runtime.turn({
+      key,
+      exchange,
+      message: "start",
+      by: null,
+      interrupt: false,
+      executor: {
+        run: () => Promise.resolve({ text: "ok" } as AgentResult),
+        thread: () => undefined,
+      },
+      park: async (announce) => {
+        await parkAside(
+          t!.ctx,
+          exchange,
+          { position: 0, continuation: [] },
+          "chat",
+          (id) => ({
+            kind: "agent-session-park",
+            agent: key.agent,
+            session: key.session,
+            suspensionId: id,
+          }),
+          async (id) => {
+            announced.push(id);
+            await announce({ suspensionId: id, routeId: "chat" });
+            store.claimExpiry = () => {
+              throw new Error("the suspension store is unreachable");
+            };
+          },
+        );
+        throw new Error("the store committed and then reported a failure");
+      },
+    });
+    expect((await sessions.load(key))?.parking?.suspensionId).toBe(
+      announced[0],
     );
   });
 

@@ -3,6 +3,7 @@ import type { SessionStore } from "./port.ts";
 import {
   SESSION_RECORD_VERSION,
   type AgentSessionKey,
+  type AgentSessionPark,
   type AgentSessionRecord,
 } from "./types.ts";
 // Registers AI1010, thrown from the record checks below.
@@ -135,10 +136,31 @@ export function parseSessionRecord(
       message: `The stored record for agent session "${key.session}" of "${key.agent}" is not the { kind: "agent-session", messages, inbox, background, turns } shape the runtime writes.`,
     });
   }
+  if (!isParkOrAbsent(record.park) || !isParkOrAbsent(record.parking)) {
+    throw rcError("AI1010", undefined, {
+      message: `The stored record for agent session "${key.session}" of "${key.agent}" names a continuation that is not a { suspensionId, routeId } pair, so the boot that would release it cannot read it.`,
+    });
+  }
   if (record.version !== SESSION_RECORD_VERSION) {
     throw rcError("AI1010", undefined, {
       message: `The stored record for agent session "${key.session}" of "${key.agent}" was written at version ${String(record.version)} and this build reads version ${String(SESSION_RECORD_VERSION)}: two releases of @routecraft/ai share one store, or the record predates this one.`,
     });
   }
   return record as AgentSessionRecord;
+}
+
+/**
+ * Both continuation fields are dereferenced by the boot walk, so a record
+ * that crossed a process boundary carrying something else fails here, at
+ * the documented boundary, rather than as a TypeError mid-walk.
+ */
+function isParkOrAbsent(value: unknown): value is AgentSessionPark | undefined {
+  if (value === undefined) return true;
+  const park = value as Partial<AgentSessionPark> | null;
+  return (
+    park !== null &&
+    typeof park === "object" &&
+    typeof park.suspensionId === "string" &&
+    typeof park.routeId === "string"
+  );
 }

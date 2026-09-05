@@ -552,7 +552,14 @@ export class AgentSessionRuntime {
           );
         }
         if (released) {
-          record = await this.store.update(key, withoutParking);
+          // Only if the field still names what was released: a turn that
+          // started during the release above announced its own, and that
+          // one is live.
+          record = await this.store.update(key, (current) =>
+            current.parking?.suspensionId === orphan
+              ? withoutParking(current)
+              : current,
+          );
           this.context.logger.info(
             { agent: key.agent, session: key.session, suspensionId: orphan },
             "Agent session continuation left unnamed by the previous process was released",
@@ -880,14 +887,17 @@ export class AgentSessionRuntime {
       );
       // A failure after the announce may leave a park behind, and the
       // record is about to stop naming it. Settled here rather than left
-      // for a boot that will no longer find a reference to it.
+      // for a boot that will no longer find a reference to it; a release
+      // that fails keeps the reference, so that boot still finds it.
       if (announced !== undefined) {
-        await this.store
-          .releasePark(
+        try {
+          await this.store.releasePark(
             announced.suspensionId,
             "agent session park announced but never named",
-          )
-          .catch(() => undefined);
+          );
+        } catch {
+          return { ...record, parking: announced };
+        }
       }
       return await this.store
         .update(req.key, withoutParking)
