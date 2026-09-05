@@ -1230,6 +1230,44 @@ describe("agent sessions", () => {
   });
 
   /**
+   * @case Once the runtime is stopping, an append on an idle session stays in the record for the next process
+   * @preconditions One turn ran to completion; stop() was called; a message is then posted through the runtime
+   * @expectedResult No second run starts, and the record's inbox holds the message
+   */
+  test("an append after stop is kept, not run", async () => {
+    const store = new MemorySuspensionStore();
+    t = await contextWith(store, spy()).build();
+    await t.startAndWaitReady();
+    const sessions = new AgentSessionStore(store);
+    const runtime = new AgentSessionRuntime(t.ctx, sessions);
+    let runs = 0;
+    const executor = {
+      run: () => {
+        runs += 1;
+        return Promise.resolve({ text: "ok" } as AgentResult);
+      },
+      thread: () => undefined,
+    };
+    const exchange = new DefaultExchange(t.ctx, { body: {} });
+    const key = { agent: "max", session: "stopping" };
+    await runtime.turn({
+      key,
+      exchange,
+      message: "a",
+      by: null,
+      interrupt: false,
+      executor,
+    });
+    await runtime.stop();
+    await runtime.post(key, { kind: "message", content: "late", by: null });
+    await sleep(50);
+    expect(runs).toBe(1);
+    expect((await sessions.load(key))?.inbox.map((m) => m.kind)).toEqual([
+      "message",
+    ]);
+  });
+
+  /**
    * @case A parallel tool batch cut short keeps the sibling that finished, with its result
    * @preconditions The model calls quick and slow together; quick answers at once, slow is held; the turn is interrupted before the step commits
    * @expectedResult The next turn's thread carries both calls, quick paired with its json result "fast done" and slow with an error result, so the model neither repeats the finished work nor loses its output

@@ -269,7 +269,9 @@ export function createManagementHandler(
           // A HEAD carries no body, and a contributed listing costs the
           // contributor a read per item; the route listing it mirrors
           // is a scan, so this is where the cost would be new. The page
-          // query is still checked, so HEAD answers the status GET would.
+          // limit is still checked, so a malformed one is 400 on HEAD as
+          // on GET; a cursor is the contributor's to decode against its
+          // own scope, and HEAD does not ask it to.
           if (req.method === "HEAD") {
             parsePageQuery(query);
             return emptyOk();

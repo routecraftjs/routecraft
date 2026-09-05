@@ -99,15 +99,16 @@ export async function chatCommand(
   };
   const writeStderr = options.writeStderr ?? lineTo(process.stderr);
 
-  if (format === "pretty") {
-    await write(
-      `Session ${session} on route "${route}" at ${settings.url.value}. One message per line; end the input (Ctrl-D) to leave. The conversation stays in the instance: reattach with --session ${session}.`,
-    );
-  } else if (options.session === undefined) {
-    await writeStderr(`Session ${session}: reattach with --session ${session}`);
-  }
-
   try {
+    if (format === "pretty") {
+      await write(
+        `Session ${session} on route "${route}" at ${settings.url.value}. One message per line; end the input (Ctrl-D) to leave. The conversation stays in the instance: reattach with --session ${session}.`,
+      );
+    } else if (options.session === undefined) {
+      await writeStderr(
+        `Session ${session}: reattach with --session ${session}`,
+      );
+    }
     for await (const raw of options.input ?? lines()) {
       const message = raw.trim();
       if (message === "") continue;

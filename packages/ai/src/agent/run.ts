@@ -909,9 +909,16 @@ function toolOutputPart(settled: NonNullable<TrackedToolCall["settled"]>): {
 } {
   if (!settled.ok) return { type: "error-text", value: settled.message };
   try {
-    const serialized = JSON.stringify(settled.output);
-    // `undefined` has no JSON form; recording it as null would hand the
-    // model a result the tool never produced.
+    // `undefined` has no JSON form and a non-finite number serialises as
+    // null; recording either as JSON would hand the model a result the
+    // tool never produced, so both take the text form.
+    const serialized = JSON.stringify(settled.output, (_key, value: unknown) =>
+      typeof value === "number" && !Number.isFinite(value)
+        ? (() => {
+            throw new Error("non-finite");
+          })()
+        : value,
+    );
     if (serialized === undefined) {
       return { type: "text", value: String(settled.output) };
     }

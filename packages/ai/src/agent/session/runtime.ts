@@ -602,6 +602,7 @@ export class AgentSessionRuntime {
     const { key, exchange, executor } = req;
     // What an append landing on this session while it is idle runs on.
     this.lastRequests.set(k, req as AgentTurnRequest<unknown>);
+    this.lastRequests.unpin(k);
     let after: AgentSessionRecord | undefined;
     try {
       let lostBackground = 0;
@@ -739,7 +740,21 @@ export class AgentSessionRuntime {
       while (this.postedDuring.delete(k) && after !== undefined) {
         boundary = (await this.store.load(key).catch(() => undefined)) ?? after;
       }
-      if (boundary !== undefined && boundary.inbox.length > 0) {
+      // Work outstanding with no continuation stored: the request kept here
+      // is the only thing a later append can run its turn on, so it is
+      // held through evictions until the session's next turn starts.
+      if (
+        boundary !== undefined &&
+        boundary.park === undefined &&
+        (boundary.inbox.length > 0 || boundary.background.length > 0)
+      ) {
+        this.lastRequests.pin(k);
+      }
+      if (
+        boundary !== undefined &&
+        boundary.inbox.length > 0 &&
+        !this.stopping
+      ) {
         if (boundary.park !== undefined) {
           this.active.delete(k);
           this.revive(key, boundary.park, { k, req });
@@ -832,7 +847,7 @@ export class AgentSessionRuntime {
     fallback?: { k: string; req: AgentTurnRequest<T> },
   ): void {
     const k = keyOf(key);
-    if (this.reviving.has(k) || this.active.has(k)) return;
+    if (this.stopping || this.reviving.has(k) || this.active.has(k)) return;
     const suspension = this.context.getStore(SUSPENSION_RUNTIME);
     if (!suspension) return;
     this.reviving.add(k);
@@ -872,6 +887,9 @@ export class AgentSessionRuntime {
    * process ran for the session, as a boundary without a park would.
    */
   private deliverIdle(key: AgentSessionKey, record: AgentSessionRecord): void {
+    // Once shutdown began the append stays in the record for the next
+    // process: a turn started now would run on a context being drained.
+    if (this.stopping) return;
     const k = keyOf(key);
     const last = this.lastRequests.get(k);
     if (record.park !== undefined) {

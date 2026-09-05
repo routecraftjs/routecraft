@@ -397,6 +397,25 @@ describe("craft chat output and non-door failures", () => {
   });
 
   /**
+   * @case A closed output before the first message is the same failure, not a rejection
+   * @preconditions Dispatch open; pretty format, whose header is the first write; the injected writer rejects
+   * @expectedResult chatCommand resolves with the failed code and the output message, and no message was sent
+   */
+  test("a closed output at the banner resolves, not rejects", async () => {
+    await start({ dispatch: true });
+    const result = await chatCommand("max", {
+      url,
+      session: "s",
+      input: ["one"],
+      write: () => Promise.reject(new Error("EPIPE: broken pipe")),
+      ...isolated(),
+    });
+    expect(result.code).toBe(EXEC_EXIT.failed);
+    expect(result.error).toMatch(/Standard output could not be written/);
+    expect(received).toHaveLength(0);
+  });
+
+  /**
    * @case A 500 that is not the dispatch door's own failure ends the command
    * @preconditions A bare HTTP server answering 500 with a body that lacks the door's { error: "dispatch failed" } shape
    * @expectedResult The command ends after the first line with a non-zero code and the server saw one request

@@ -27,18 +27,26 @@ export class BoundedSet<T> {
   }
 }
 
-/** A map with the same forgetting rule as {@link BoundedSet}. @internal */
+/**
+ * A map with the same forgetting rule as {@link BoundedSet}, plus pins: a
+ * pinned key is never the one forgotten, for an entry the owner knows it
+ * will need (a session with work outstanding and no stored continuation,
+ * whose next turn can only run on the request kept here). The bound then
+ * applies to the unpinned entries.
+ *
+ * @internal
+ */
 export class BoundedMap<K, V> {
   private readonly entries = new Map<K, V>();
+  private readonly pinned = new Set<K>();
 
   constructor(private readonly bound: number) {}
 
   get(key: K): V | undefined {
-    const value = this.entries.get(key);
-    if (value !== undefined) {
-      this.entries.delete(key);
-      this.entries.set(key, value);
-    }
+    if (!this.entries.has(key)) return undefined;
+    const value = this.entries.get(key) as V;
+    this.entries.delete(key);
+    this.entries.set(key, value);
     return value;
   }
 
@@ -46,9 +54,21 @@ export class BoundedMap<K, V> {
     this.entries.delete(key);
     this.entries.set(key, value);
     if (this.entries.size > this.bound) {
-      const oldest = this.entries.keys().next().value as K;
-      this.entries.delete(oldest);
+      for (const candidate of this.entries.keys()) {
+        if (this.pinned.has(candidate)) continue;
+        this.entries.delete(candidate);
+        break;
+      }
     }
+  }
+
+  /** Keep the entry through evictions until {@link unpin}. */
+  pin(key: K): void {
+    if (this.entries.has(key)) this.pinned.add(key);
+  }
+
+  unpin(key: K): void {
+    this.pinned.delete(key);
   }
 }
 
