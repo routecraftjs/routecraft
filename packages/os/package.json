@@ -1,6 +1,6 @@
 {
   "name": "@routecraft/os",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "System-native host adapters for Routecraft: isolated shell execution and browser automation",
   "type": "module",
   "main": "./dist/index.cjs",
