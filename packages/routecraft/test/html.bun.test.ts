@@ -176,6 +176,265 @@ describe("HTML Adapter", () => {
     });
   });
 
+  describe("text extraction fidelity", () => {
+    let tempDir: string;
+
+    afterEach(async () => {
+      if (tempDir) {
+        try {
+          await fs.rm(tempDir, { recursive: true, force: true });
+        } catch {
+          // Ignore cleanup errors
+        }
+      }
+    });
+
+    /**
+     * @case Escaped markup inside a <pre> survives text extraction
+     * @preconditions Body is HTML whose text content contains entity-escaped angle brackets, extract: "text"
+     * @expectedResult The decoded angle brackets and the content between them are returned intact
+     */
+    test("keeps escaped markup in extracted text", async () => {
+      const s = spy();
+      const htmlString = "<pre>type X = Array&lt;string&gt;;</pre>";
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("html-text-escaped-markup")
+            .from(simple(htmlString))
+            .transform(html({ selector: "pre", extract: "text" }))
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const body = s.received[0].body as HtmlResult;
+      expect(body).toBe("type X = Array<string>;");
+    });
+
+    /**
+     * @case A multi-line <pre> keeps its line breaks under text extraction
+     * @preconditions Body is HTML with a <pre> spanning several lines and indented, extract: "text"
+     * @expectedResult Newlines and inner indentation are preserved; only leading and trailing whitespace is trimmed
+     */
+    test("preserves newlines and indentation in extracted text", async () => {
+      const s = spy();
+      const htmlString = "<pre>function f() {\n  return 1;\n}</pre>";
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("html-text-multiline")
+            .from(simple(htmlString))
+            .transform(html({ selector: "pre", extract: "text" }))
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const body = s.received[0].body as HtmlResult;
+      expect(body).toBe("function f() {\n  return 1;\n}");
+    });
+
+    /**
+     * @case <style> and <script> subtrees are still excluded from text extraction
+     * @preconditions Selector matches a container holding style, script and visible text, extract: "text"
+     * @expectedResult Only the visible text is returned; neither CSS nor script source appears
+     */
+    test("still removes style and script content from extracted text", async () => {
+      const s = spy();
+      const htmlString =
+        '<div class="wrap"><style>.hide { display: none; }</style><p>Visible</p><script>alert("hi");</script></div>';
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("html-text-style-script")
+            .from(simple(htmlString))
+            .transform(html({ selector: ".wrap", extract: "text" }))
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const body = s.received[0].body as HtmlResult;
+      expect(body).toBe("Visible");
+    });
+
+    /**
+     * @case Escaped markup survives on the multi-match path
+     * @preconditions Selector matches several elements, each containing entity-escaped angle brackets, extract: "text"
+     * @expectedResult Every array entry carries its decoded angle brackets intact
+     */
+    test("keeps escaped markup in every entry of a multi-match result", async () => {
+      const s = spy();
+      const htmlString =
+        "<pre>List&lt;T&gt;</pre><pre>Promise&lt;void&gt;</pre><pre>a &lt; b</pre>";
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("html-text-escaped-multi")
+            .from(simple(htmlString))
+            .transform(html({ selector: "pre", extract: "text" }))
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const body = s.received[0].body as HtmlResult;
+      expect(body).toEqual(["List<T>", "Promise<void>", "a < b"]);
+    });
+
+    /**
+     * @case extract "html" is unaffected by the text-extraction change
+     * @preconditions Same escaped-markup body as the text case, extract: "html"
+     * @expectedResult The raw inner HTML is returned with its entities still encoded
+     */
+    test("extract html still returns the raw encoded markup", async () => {
+      const s = spy();
+      const htmlString = "<pre>type X = Array&lt;string&gt;;</pre>";
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("html-html-escaped-markup")
+            .from(simple(htmlString))
+            .transform(html({ selector: "pre", extract: "html" }))
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const body = s.received[0].body as HtmlResult;
+      expect(body).toBe("type X = Array&lt;string&gt;;");
+    });
+
+    /**
+     * @case An ordinary indented page yields its source whitespace
+     * @preconditions Selector matches a container whose children are indented across several lines, extract: "text"
+     * @expectedResult Inner newlines and indentation are returned as the source has them; only the ends are trimmed
+     */
+    test("returns source whitespace from an indented container", async () => {
+      const s = spy();
+      const htmlString =
+        '<div class="card">\n  <h2>Getting started</h2>\n  <p>Install the   package\n     and run it.</p>\n</div>';
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("html-text-indented-prose")
+            .from(simple(htmlString))
+            .transform(html({ selector: ".card", extract: "text" }))
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const body = s.received[0].body as HtmlResult;
+      expect(body).toBe(
+        "Getting started\n  Install the   package\n     and run it.",
+      );
+    });
+
+    /**
+     * @case Source whitespace survives on the multi-match path
+     * @preconditions Selector matches several list items, one of them wrapped across lines, extract: "text"
+     * @expectedResult Each entry is trimmed at its ends but keeps the newline and indentation inside it
+     */
+    test("returns source whitespace in every entry of a multi-match result", async () => {
+      const s = spy();
+      const htmlString =
+        "<ul>\n  <li>One</li>\n  <li>Two\n      wrapped</li>\n</ul>";
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("html-text-indented-multi")
+            .from(simple(htmlString))
+            .transform(html({ selector: "li", extract: "text" }))
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const body = s.received[0].body as HtmlResult;
+      expect(body).toEqual(["One", "Two\n      wrapped"]);
+    });
+
+    /**
+     * @case The source role extracts through the same corrected text path
+     * @preconditions An HTML file holds entity-escaped markup, read with .from(html({ path, extract: "text" }))
+     * @expectedResult The escaped markup survives, proving the fix reaches the deferred source parse and not only the transformer
+     */
+    test("source role keeps escaped markup in extracted text", async () => {
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "html-test-"));
+      const testFile = path.join(tempDir, "escaped.html");
+      await fs.writeFile(
+        testFile,
+        "<html><body><pre>type X = Array&lt;string&gt;;</pre></body></html>",
+      );
+
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("html-source-escaped-markup")
+            .from(html({ path: testFile, selector: "pre", extract: "text" }))
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const body = s.received[0].body as HtmlResult;
+      expect(body).toBe("type X = Array<string>;");
+    });
+
+    /**
+     * @case The enricher role extracts through the same corrected text path
+     * @preconditions An HTML file holds entity-escaped markup, read with .enrich(html({ path, selector }))
+     * @expectedResult The escaped markup survives on the enriched field
+     */
+    test("enricher role keeps escaped markup in extracted text", async () => {
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "html-test-"));
+      const testFile = path.join(tempDir, "escaped-enrich.html");
+      await fs.writeFile(
+        testFile,
+        "<html><body><pre>type X = Array&lt;string&gt;;</pre></body></html>",
+      );
+
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("html-enrich-escaped-markup")
+            .from(simple<{ keep: boolean }>({ keep: true }))
+            .enrich(
+              html({ path: testFile, selector: "pre", extract: "text" }),
+              only((code: HtmlResult) => code, "code"),
+            )
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const body = s.received[0].body as { code: string };
+      expect(body.code).toBe("type X = Array<string>;");
+    });
+  });
+
   describe("default and from option", () => {
     /**
      * @case By default uses body.body when body is object (e.g. after http())
