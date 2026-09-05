@@ -1,4 +1,4 @@
-import { randomUUID } from "node:crypto";
+import { createHash, randomUUID } from "node:crypto";
 import { isAbsolute, posix } from "node:path";
 import {
   getExchangeContext,
@@ -310,8 +310,10 @@ function isNormalPath(path: string): boolean {
 const CONTAINER_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
 
 /**
- * `rc-<routeId>-<exchangeId>`, with both ids reduced to the container
- * name charset. A synthetic exchange with no route names itself by its id.
+ * `rc-<routeId>-<exchangeId>-<digest>`, the ids reduced to the container
+ * name charset and followed by a short digest of the originals, so two
+ * ids that differ only in characters the reduction drops still name two
+ * containers. A synthetic exchange with no route names itself by its id.
  *
  * @internal
  */
@@ -320,7 +322,11 @@ export function defaultContainerName(exchange: Exchange<unknown>): string {
   // A synthetic exchange with no id (a bare object in a test) still needs
   // a unique name, or two calls collide on the daemon.
   const id = typeof exchange.id === "string" ? exchange.id : randomUUID();
-  return `rc-${routeId}-${id}`
+  const digest = createHash("sha256")
+    .update(`${routeId}\0${id}`)
+    .digest("hex")
+    .slice(0, 8);
+  return `rc-${routeId}-${id}-${digest}`
     .replace(/[^a-zA-Z0-9_.-]+/g, "-")
     .replace(/^[^a-zA-Z0-9]+/, "rc-");
 }

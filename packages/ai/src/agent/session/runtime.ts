@@ -18,6 +18,7 @@ import { ADAPTER_AGENT_SESSIONS } from "../store.ts";
 import type { ThreadMessage } from "../suspension-state.ts";
 import type { AgentResult } from "../types.ts";
 import { closeUnansweredToolCalls, renderUserMessage } from "./render.ts";
+import { BoundedMap, SESSION_MEMORY_BOUND } from "./bounded.ts";
 import { AgentSessionStore } from "./store.ts";
 import type {
   AgentBackgroundCall,
@@ -117,6 +118,16 @@ export class AgentSessionRuntime {
   private readonly starters = new Map<string, Set<() => void>>();
   /** Sessions that took a post while their turn was ending. */
   private readonly postedDuring = new Set<string>();
+  /**
+   * The last request each session ran on here: what an append that lands
+   * on an idle session without a continuation runs its turn on.
+   */
+  private readonly lastRequests = new BoundedMap<
+    string,
+    AgentTurnRequest<unknown>
+  >(SESSION_MEMORY_BOUND);
+  /** Revivals started by this process and not yet settled. */
+  private readonly revivals = new Set<Promise<unknown>>();
   /** Set at teardown, so the boot drive starts no further revival. */
   private stopping = false;
 
@@ -149,9 +160,13 @@ export class AgentSessionRuntime {
     return runtime;
   }
 
-  /** Stop the boot drive from starting further revivals; called at teardown. */
-  stop(): void {
+  /**
+   * Stop starting revivals and wait for the ones in flight; called at
+   * teardown, before the store they write to is closed.
+   */
+  async stop(): Promise<void> {
     this.stopping = true;
+    await Promise.allSettled([...this.revivals]);
   }
 
   /** Whether this process is running a turn for the session. */
@@ -339,7 +354,7 @@ export class AgentSessionRuntime {
     // before it cleared `active` would otherwise wait for the next
     // message; the turn's cleanup reads the record again for it.
     if (running) this.postedDuring.add(keyOf(key));
-    if (!running && record.park !== undefined) this.revive(key, record.park);
+    else this.deliverIdle(key, record);
     return { depth: record.inbox.length, running };
   }
 
@@ -446,7 +461,7 @@ export class AgentSessionRuntime {
     // before it cleared `active` would otherwise wait for the next
     // message; the turn's cleanup reads the record again for it.
     if (running) this.postedDuring.add(keyOf(key));
-    if (!running && record.park !== undefined) this.revive(key, record.park);
+    else this.deliverIdle(key, record);
     return { depth: record.inbox.length, running };
   }
 
@@ -481,6 +496,9 @@ export class AgentSessionRuntime {
           "Agent session restored at boot: its previous process is gone",
         );
       }
+      // Read again after the awaits above: a stop that landed during them
+      // must not have a revival started under it.
+      if (this.stopping) break;
       if (next.inbox.length > 0) {
         this.revive(key, next.park!);
         revived += 1;
@@ -582,6 +600,8 @@ export class AgentSessionRuntime {
     consumed: Set<string>,
   ): Promise<AgentResult> {
     const { key, exchange, executor } = req;
+    // What an append landing on this session while it is idle runs on.
+    this.lastRequests.set(k, req as AgentTurnRequest<unknown>);
     let after: AgentSessionRecord | undefined;
     try {
       let lostBackground = 0;
@@ -707,23 +727,27 @@ export class AgentSessionRuntime {
         },
       };
     } finally {
-      this.active.delete(k);
       // The boundary: what queued while the turn ran is delivered now, as
       // the next turn. Through the stored continuation when there is one,
       // so the turn runs on the route's own pipeline and its reply reaches
-      // the route's downstream steps; in process otherwise. A post that
-      // landed after this turn's last read is only in the store, so the
-      // record is read again for it.
+      // the route's downstream steps; in process otherwise. The session
+      // stays marked active until the follow-up is scheduled, so no
+      // caller starts a second turn in the gap, and a post that landed
+      // after this turn's last read is read from the store again, as
+      // often as one lands while the reading goes on.
       let boundary = after;
-      if (this.postedDuring.delete(k) && after !== undefined) {
+      while (this.postedDuring.delete(k) && after !== undefined) {
         boundary = (await this.store.load(key).catch(() => undefined)) ?? after;
       }
       if (boundary !== undefined && boundary.inbox.length > 0) {
         if (boundary.park !== undefined) {
+          this.active.delete(k);
           this.revive(key, boundary.park, { k, req });
         } else {
           this.followUpInProcess(k, req);
         }
+      } else {
+        this.active.delete(k);
       }
     }
   }
@@ -813,7 +837,7 @@ export class AgentSessionRuntime {
     if (!suspension) return;
     this.reviving.add(k);
     const token = suspension.signer.mint(park.suspensionId, new Date());
-    reviveSuspension(this.context, { token, result: undefined })
+    const run = reviveSuspension(this.context, { token, result: undefined })
       .catch(async (err: unknown) => {
         this.context.logger.error(
           {
@@ -832,7 +856,29 @@ export class AgentSessionRuntime {
           this.followUpInProcess(fallback.k, fallback.req);
         }
       })
-      .finally(() => this.reviving.delete(k));
+      .finally(() => {
+        this.reviving.delete(k);
+        this.revivals.delete(run);
+      });
+    // Held until settled, so a teardown waits for the store writes a
+    // revival makes rather than closing the store under them.
+    this.revivals.add(run);
+  }
+
+  /**
+   * An append that landed on an idle session must not wait for another
+   * caller: the stored continuation is revived when there is one, and
+   * otherwise the turn is started in process on the last request this
+   * process ran for the session, as a boundary without a park would.
+   */
+  private deliverIdle(key: AgentSessionKey, record: AgentSessionRecord): void {
+    const k = keyOf(key);
+    const last = this.lastRequests.get(k);
+    if (record.park !== undefined) {
+      this.revive(key, record.park, last ? { k, req: last } : undefined);
+    } else if (record.inbox.length > 0 && last && !this.active.has(k)) {
+      this.followUpInProcess(k, last);
+    }
   }
 
   /** The boundary turn without a continuation: started here, tracked by the route for drain. */
@@ -948,7 +994,18 @@ function encodeResult(
   "status" | "result" | "error"
 > {
   try {
-    const text = JSON.stringify(result);
+    // A non-finite number serialises as null, which would read as a
+    // result the route never produced; refused here as the suspension
+    // serializer refuses it.
+    const text = JSON.stringify(result, (_key, value: unknown) =>
+      typeof value === "number" && !Number.isFinite(value)
+        ? (() => {
+            throw new Error(
+              `a non-finite number (${String(value)}) has no JSON form`,
+            );
+          })()
+        : value,
+    );
     return {
       status: "completed",
       result: text === undefined ? null : (JSON.parse(text) as unknown),

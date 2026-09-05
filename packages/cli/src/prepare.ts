@@ -36,15 +36,18 @@ export type Prepared =
 /** Resolve the settings and build the client, or say why that failed. */
 export function prepare(overrides: SettingsOverrides): Prepared {
   let settings: ResolvedSettings;
+  let client: OpsClient;
   try {
     settings = resolveSettings(overrides);
+    // The client refuses a settings combination the resolver accepts one
+    // key at a time (a token over plain http); the same usage answer.
+    client = createOpsClient(settings);
   } catch (error: unknown) {
     if (error instanceof SettingsError) {
       return { ok: false, error: error.message };
     }
     throw error;
   }
-  const client = createOpsClient(settings);
   return {
     ok: true,
     settings,

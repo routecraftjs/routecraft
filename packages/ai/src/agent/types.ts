@@ -370,9 +370,9 @@ export interface AgentOptions<T = unknown> extends LlmSamplingOptions {
    * The id is 1 to 128 characters of letters, digits, `.`, `_`, `:` or
    * `-`, starting with a letter or digit (`RC5003` otherwise). It is
    * rendered into the system prompt and keys the stored record, so a value
-   * taken from a message is bounded before it reaches either; map a
-   * subject or a reference that carries other characters onto this shape
-   * first.
+   * taken from a message is bounded before it reaches either. The runtime
+   * refuses and does not map: a subject or a reference that carries other
+   * characters is normalised onto this shape by the caller before dispatch.
    *
    * Two limits to design around. The one-turn bound is per process: two
    * instances sharing one store are not coordinated, and a turn marker set

@@ -281,6 +281,11 @@ describe("contributed management resources", () => {
     const head = await call(port, "/ops/widgets", { method: "HEAD" });
     expect(head.status).toBe(200);
     expect(head.body).toBeUndefined();
+    // HEAD answers the status GET would, so a bad page query is still 400.
+    const badHead = await call(port, "/ops/widgets?limit=0", {
+      method: "HEAD",
+    });
+    expect(badHead.status).toBe(400);
     expect(lists).toBe(0);
     await expect(
       testContext()

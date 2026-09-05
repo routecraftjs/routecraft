@@ -88,7 +88,15 @@ export async function chatCommand(
 
   const { client, format, settings } = prepared;
   const session = options.session ?? randomUUID();
-  const write = options.write ?? lineTo(process.stdout);
+  const sink = options.write ?? lineTo(process.stdout);
+  // Any writer failure is the output failing, whatever the writer threw.
+  const write: ChatWriter = async (text) => {
+    try {
+      await sink(text);
+    } catch (err: unknown) {
+      throw new OutputClosed(err instanceof Error ? err.message : String(err));
+    }
+  };
   const writeStderr = options.writeStderr ?? lineTo(process.stderr);
 
   if (format === "pretty") {
@@ -99,14 +107,34 @@ export async function chatCommand(
     await writeStderr(`Session ${session}: reattach with --session ${session}`);
   }
 
-  for await (const raw of options.input ?? lines()) {
-    const message = raw.trim();
-    if (message === "") continue;
-    const outcome = await turn(client, route, session, message, format, write);
-    if (outcome !== undefined) return outcome;
+  try {
+    for await (const raw of options.input ?? lines()) {
+      const message = raw.trim();
+      if (message === "") continue;
+      const outcome = await turn(
+        client,
+        route,
+        session,
+        message,
+        format,
+        write,
+      );
+      if (outcome !== undefined) return outcome;
+    }
+  } catch (error: unknown) {
+    if (!(error instanceof OutputClosed)) throw error;
+    // The replies have nowhere to go; the conversation itself is intact
+    // in the instance and reattaches with the same session.
+    return {
+      code: EXEC_EXIT.failed,
+      error: `Standard output could not be written: ${error.message}. The conversation is intact; reattach with --session ${session}.`,
+    };
   }
   return { code: EXEC_EXIT.ok };
 }
+
+/** A write the output stream refused, distinguished from a route failure. */
+class OutputClosed extends Error {}
 
 /** One message: dispatch, print, and say whether the loop must end. */
 async function turn(
@@ -131,16 +159,28 @@ async function turn(
     return undefined;
   } catch (error: unknown) {
     if (!(error instanceof OpsClientError)) throw error;
-    // The dispatch surface answers 500 for a route that ran and failed, and
-    // that failure is this message's, not the conversation's. Every other
-    // status (409 for a route with no dispatch door, a proxy's 502) is
-    // about the command, not the message.
-    if (error.kind === "error" && error.status === 500) {
+    // The dispatch surface answers 500 with `{ error: "dispatch failed" }`
+    // for a route that ran and failed, and that failure is this message's,
+    // not the conversation's. Every other answer (409 for a route with no
+    // dispatch door, a proxy's 502, a 500 from something that is not the
+    // door) is about the command, not the message.
+    if (isDispatchFailure(error)) {
       await write(renderFailure(error, format));
       return undefined;
     }
     return { code: failureCode(error), error: error.message };
   }
+}
+
+/** The dispatch surface's own answer for a route that ran and threw. */
+function isDispatchFailure(error: OpsClientError): boolean {
+  return (
+    error.kind === "error" &&
+    error.status === 500 &&
+    typeof error.detail === "object" &&
+    error.detail !== null &&
+    (error.detail as { error?: unknown }).error === "dispatch failed"
+  );
 }
 
 /**
@@ -183,11 +223,15 @@ function renderReply(reply: AgentShapedReply, format: OutputFormat): string {
   return reply.text;
 }
 
-/** A writer whose promise settles once the stream has taken the line. */
+/**
+ * A writer whose promise settles once the stream has taken the line, and
+ * rejects when it could not: a closed pipe must end the conversation
+ * rather than let replies go on being sent into nothing.
+ */
 function lineTo(stream: NodeJS.WriteStream): ChatWriter {
   return (text) =>
-    new Promise<void>((resolve) => {
-      stream.write(`${text}\n`, () => resolve());
+    new Promise<void>((resolve, reject) => {
+      stream.write(`${text}\n`, (err) => (err ? reject(err) : resolve()));
     });
 }
 

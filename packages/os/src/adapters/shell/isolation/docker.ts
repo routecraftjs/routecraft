@@ -272,9 +272,10 @@ export function createDockerTier(
 
         let exited: Promise<{ StatusCode: number }> | undefined;
         let drained: Promise<void> = Promise.resolve();
+        let output: NodeJS.ReadableStream | undefined;
         let started = false;
         try {
-          const output = await container.attach({
+          output = await container.attach({
             stream: true,
             stdout: true,
             stderr: true,
@@ -332,12 +333,23 @@ export function createDockerTier(
           await kill("SIGKILL");
           throw cause;
         }
+        // The command is done: a deadline that fires during the drain
+        // below would report a finished command as timed out.
+        disarm();
         // The exit lands before the last of the output does: the daemon
         // closes the attach stream after the wait answers, and a result
         // read at the exit drops whatever was still in flight. Bounded,
         // because a daemon that never closes the stream must not hold the
-        // exchange once the command is known to be gone.
-        await Promise.race([drained, delay(ATTACH_DRAIN_MS)]);
+        // exchange once the command is known to be gone; a stream still
+        // open at the bound is destroyed so it neither leaks nor keeps
+        // feeding a buffer nobody reads.
+        const drainedInTime = await Promise.race([
+          drained.then(() => true),
+          delay(ATTACH_DRAIN_MS).then(() => false),
+        ]);
+        if (!drainedInTime) {
+          (output as { destroy?: () => void } | undefined)?.destroy?.();
+        }
         return {
           stdout: stdout.result(),
           stderr: stderr.result(),

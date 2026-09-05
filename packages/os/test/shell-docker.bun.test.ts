@@ -728,7 +728,14 @@ describe("container options on a host tier", () => {
       id: "abc:def ghi",
     } as Exchange<unknown>);
     expect(name).toMatch(/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/);
-    expect(name).toBe("rc-route-abc-def-ghi");
+    expect(name).toMatch(/^rc-route-abc-def-ghi-[0-9a-f]{8}$/);
+    // Two ids that differ only in characters the reduction drops must
+    // still name two containers.
+    const twin = defaultContainerName({
+      id: "abc/def ghi",
+    } as Exchange<unknown>);
+    expect(twin).not.toBe(name);
+    expect(twin.slice(0, -9)).toBe(name.slice(0, -9));
   });
 });
 

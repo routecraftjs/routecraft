@@ -1,3 +1,4 @@
+import { BoundedSet, SESSION_MEMORY_BOUND } from "./bounded.ts";
 import {
   rcCodeOf,
   rcError,
@@ -46,7 +47,7 @@ export function sessionRecordId(key: AgentSessionKey): string {
 
 export class AgentSessionStore {
   /** Record ids this process has confirmed in the index. */
-  private readonly indexed = new Set<string>();
+  private readonly indexed = new BoundedSet<string>(SESSION_MEMORY_BOUND);
 
   constructor(private readonly store: SuspensionStore) {}
 

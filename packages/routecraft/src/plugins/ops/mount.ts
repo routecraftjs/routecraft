@@ -13,6 +13,7 @@
  * decision about who may act lives in `tier.ts`.
  */
 
+import { parsePageQuery } from "./pagination.ts";
 import { isRoutecraftError, rcCodeOf } from "../../brand";
 import { missingCredentialReason } from "../http/auth";
 import {
@@ -264,11 +265,15 @@ export function createManagementHandler(
       }
       try {
         if (segments.length === 0) {
+          const query = Object.fromEntries(url.searchParams.entries());
           // A HEAD carries no body, and a contributed listing costs the
           // contributor a read per item; the route listing it mirrors
-          // is a scan, so this is where the cost would be new.
-          if (req.method === "HEAD") return emptyOk();
-          const query = Object.fromEntries(url.searchParams.entries());
+          // is a scan, so this is where the cost would be new. The page
+          // query is still checked, so HEAD answers the status GET would.
+          if (req.method === "HEAD") {
+            parsePageQuery(query);
+            return emptyOk();
+          }
           return jsonResponse(await resource.list(query), { status: 200 });
         }
         const item = await resource.describe(segments);

@@ -339,7 +339,9 @@ export async function buildVercelTools(
  * @internal
  */
 function errorMessage(err: unknown): string {
-  return err instanceof Error ? err.message : String(err);
+  if (err instanceof Error) return err.message;
+  const message = (err as { message?: unknown } | null)?.message;
+  return typeof message === "string" ? message : String(err);
 }
 
 function errorName(err: unknown): string {

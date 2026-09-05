@@ -379,7 +379,7 @@ describe("agent sessions", () => {
 
   /**
    * @case A context stopped with a non-empty inbox, then a new context over the same store: the next turn consumes the inbox
-   * @preconditions Context A posts two inbox entries to an idle session through the runtime and stops; context B is built over the same store
+   * @preconditions Two inbox entries are posted to an idle session through a runtime that never ran a turn for it (as another process would, so nothing delivers them in process) and context A stops; context B is built over the same store
    * @expectedResult B's first turn for the session starts with one user message carrying the two queued parts and then the new message. With the durable inbox write removed this fails: B sees only the new message
    */
   test("an inbox survives a restart and is consumed by the next turn", async () => {
@@ -388,7 +388,10 @@ describe("agent sessions", () => {
     await t.startAndWaitReady();
     llm.script.push({ text: "ok" });
     await send(t, { session: "s", message: "first" });
-    const runtimeA = AgentSessionRuntime.for(t.ctx);
+    const runtimeA = new AgentSessionRuntime(
+      t.ctx,
+      new AgentSessionStore(store),
+    );
     await runtimeA.post(
       { agent: "max", session: "s" },
       { kind: "message", content: "preview is up", by: "ci" },
@@ -1099,6 +1102,127 @@ describe("agent sessions", () => {
       executor,
       park: async () => ({ suspensionId: "not-a-record", routeId: "chat" }),
     });
+    const deadline = Date.now() + 5_000;
+    while (seen.length < 2 && Date.now() < deadline) await sleep(5);
+    expect(seen).toHaveLength(2);
+    expect(JSON.stringify(seen[1])).toContain("the build finished");
+  });
+
+  /**
+   * @case A message arriving while the boundary read is pending is queued, not run beside the ending turn
+   * @preconditions A turn is held; a post lands during it; the store's load is slowed so the boundary read takes a while; a new message arrives in that window
+   * @expectedResult The new message is acknowledged as queued, no second run overlaps the first, and one follow-up run carries both the post and the message
+   */
+  test("the session stays active through the boundary read", async () => {
+    const store = new MemorySuspensionStore();
+    t = await contextWith(store, spy()).build();
+    await t.startAndWaitReady();
+    const sessions = new AgentSessionStore(store);
+    const realLoad = sessions.load.bind(sessions);
+    let slowLoads = 0;
+    sessions.load = async (key) => {
+      if (slowLoads > 0) {
+        slowLoads -= 1;
+        await sleep(100);
+      }
+      return realLoad(key);
+    };
+    const runtime = new AgentSessionRuntime(t.ctx, sessions);
+    const seen: unknown[] = [];
+    let inRun = 0;
+    let overlap = 0;
+    let releaseRun: (() => void) | undefined;
+    const executor = {
+      run: (messages: unknown) =>
+        new Promise<AgentResult>((resolve) => {
+          seen.push(messages);
+          inRun += 1;
+          overlap = Math.max(overlap, inRun);
+          const done = (): void => {
+            inRun -= 1;
+            resolve({ text: "ok" } as AgentResult);
+          };
+          if (seen.length === 1) releaseRun = done;
+          else done();
+        }),
+      thread: () => undefined,
+    };
+    const exchange = new DefaultExchange(t.ctx, { body: {} });
+    const key = { agent: "max", session: "boundary" };
+    const first = runtime.turn({
+      key,
+      exchange,
+      message: "a",
+      by: null,
+      interrupt: false,
+      executor,
+    });
+    await sleep(10);
+    await runtime.post(key, { kind: "message", content: "posted", by: null });
+    slowLoads = 1;
+    releaseRun!();
+    // Inside the boundary read: the first run has returned, its cleanup
+    // is waiting on the slowed load, and `active` must still say so.
+    await sleep(20);
+    expect(runtime.isRunning(key)).toBe(true);
+    const third = await runtime.turn({
+      key,
+      exchange,
+      message: "c",
+      by: null,
+      interrupt: false,
+      executor,
+    });
+    expect(third.session?.status).toBe("queued");
+    await first;
+    const deadline = Date.now() + 5_000;
+    while (seen.length < 2 && Date.now() < deadline) await sleep(5);
+    await sleep(50);
+    expect(seen).toHaveLength(2);
+    expect(overlap).toBe(1);
+    const followUp = JSON.stringify(seen[1]);
+    expect(followUp).toContain("posted");
+    expect(followUp).toMatch(/\\nc"/);
+  });
+
+  /**
+   * @case An append landing on an idle session with no continuation starts the next turn on its own
+   * @preconditions One turn ran to completion with nothing outstanding, so no continuation is stored; a message is then posted through the runtime rather than sent
+   * @expectedResult A second run starts without any caller sending a message, carrying the posted message
+   */
+  test("an append on an idle session is delivered without a caller", async () => {
+    const store = new MemorySuspensionStore();
+    t = await contextWith(store, spy()).build();
+    await t.startAndWaitReady();
+    const runtime = new AgentSessionRuntime(
+      t.ctx,
+      new AgentSessionStore(store),
+    );
+    const seen: unknown[] = [];
+    const executor = {
+      run: (messages: unknown) => {
+        seen.push(messages);
+        return Promise.resolve({ text: "ok" } as AgentResult);
+      },
+      thread: () => undefined,
+    };
+    const exchange = new DefaultExchange(t.ctx, { body: {} });
+    const key = { agent: "max", session: "idle-append" };
+    await runtime.turn({
+      key,
+      exchange,
+      message: "a",
+      by: null,
+      interrupt: false,
+      executor,
+    });
+    expect(runtime.isRunning(key)).toBe(false);
+    const posted = await runtime.post(key, {
+      kind: "message",
+      content: "the build finished",
+      by: null,
+    });
+    expect(posted.running).toBe(false);
     const deadline = Date.now() + 5_000;
     while (seen.length < 2 && Date.now() < deadline) await sleep(5);
     expect(seen).toHaveLength(2);

@@ -909,8 +909,13 @@ function toolOutputPart(settled: NonNullable<TrackedToolCall["settled"]>): {
 } {
   if (!settled.ok) return { type: "error-text", value: settled.message };
   try {
-    const value: unknown = JSON.parse(JSON.stringify(settled.output) ?? "null");
-    return { type: "json", value };
+    const serialized = JSON.stringify(settled.output);
+    // `undefined` has no JSON form; recording it as null would hand the
+    // model a result the tool never produced.
+    if (serialized === undefined) {
+      return { type: "text", value: String(settled.output) };
+    }
+    return { type: "json", value: JSON.parse(serialized) as unknown };
   } catch {
     return { type: "text", value: String(settled.output) };
   }

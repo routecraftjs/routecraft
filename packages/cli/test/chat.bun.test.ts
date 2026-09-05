@@ -372,3 +372,63 @@ describe("craft chat", () => {
     expect(result.error).toMatch(/\{ session, message \}/);
   });
 });
+
+describe("craft chat output and non-door failures", () => {
+  /**
+   * @case A reply that cannot be written ends the conversation as an output failure
+   * @preconditions Dispatch open; the injected writer rejects on the first reply
+   * @expectedResult The command returns the failed code with a message naming the output and the session to reattach with, and no further message is sent
+   */
+  test("a closed output ends the loop with the session named", async () => {
+    await start({ dispatch: true });
+    const result = await chatCommand("max", {
+      url,
+      session: "s",
+      format: "raw",
+      input: ["one", "two"],
+      write: () => Promise.reject(new Error("EPIPE: broken pipe")),
+      ...isolated(),
+    });
+    expect(result.code).toBe(EXEC_EXIT.failed);
+    expect(result.error).toMatch(/Standard output could not be written/);
+    expect(result.error).toMatch(/EPIPE/);
+    expect(result.error).toMatch(/--session s/);
+    expect(received).toHaveLength(1);
+  });
+
+  /**
+   * @case A 500 that is not the dispatch door's own failure ends the command
+   * @preconditions A bare HTTP server answering 500 with a body that lacks the door's { error: "dispatch failed" } shape
+   * @expectedResult The command ends after the first line with a non-zero code and the server saw one request
+   */
+  test("a 500 without the door's shape is a command failure", async () => {
+    const { createServer } = await import("node:http");
+    let requests = 0;
+    const server = createServer((_req, res) => {
+      requests += 1;
+      res.writeHead(500, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "upstream exploded" }));
+    });
+    await new Promise<void>((resolve) =>
+      server.listen(0, "127.0.0.1", resolve),
+    );
+    const address = server.address();
+    const port = typeof address === "object" && address ? address.port : 0;
+    try {
+      const out: string[] = [];
+      const result = await chatCommand("max", {
+        url: `http://127.0.0.1:${String(port)}`,
+        session: "s",
+        format: "raw",
+        input: ["one", "two"],
+        write: (t) => out.push(t),
+        ...isolated(),
+      });
+      expect(result.code).not.toBe(EXEC_EXIT.ok);
+      expect(requests).toBe(1);
+      expect(out).toEqual([]);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+});

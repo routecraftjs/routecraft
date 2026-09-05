@@ -57,3 +57,18 @@ describe("ops client", () => {
     );
   });
 });
+
+const { prepare } = await import("../src/prepare");
+
+describe("prepare", () => {
+  /**
+   * @case A token over plain http to a remote host is a usage answer, not a crash
+   * @preconditions Overrides naming http://ops.example with a token, which the client refuses at construction
+   * @expectedResult prepare returns ok: false with the refusal's message, the same shape a settings problem gets
+   */
+  test("turns the client's refusal into the usage result", () => {
+    const prepared = prepare({ url: "http://ops.example", token: "t" });
+    expect(prepared.ok).toBe(false);
+    if (!prepared.ok) expect(prepared.error).toMatch(/clear text/);
+  });
+});

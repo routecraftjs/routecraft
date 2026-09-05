@@ -302,9 +302,11 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
      * the context let go of it; it is told to stop and waited for.
      */
     async teardown(ctx: CraftContext) {
-      ctx.getStore(ADAPTER_AGENT_SESSIONS)?.stop();
       await boots.get(ctx);
       boots.delete(ctx);
+      // After the boot walk, so a revival the walk was starting when the
+      // stop landed is in the set the runtime waits for.
+      await ctx.getStore(ADAPTER_AGENT_SESSIONS)?.stop();
     },
   };
 }
