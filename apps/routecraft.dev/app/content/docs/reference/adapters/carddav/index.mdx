@@ -6,7 +6,7 @@ title: carddav
 [← All adapters](/docs/reference/adapters)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 carddav(options?: CarddavServerOptions): Source<VCardBody> & Enricher<unknown, VCardBody[]>
 carddav(options: CarddavClientOptions & { action: 'save' | 'create' | 'update' }): Destination<VCardBody>
 carddav(options: CarddavClientOptions & { action: 'delete' }): Destination<unknown>
@@ -45,7 +45,7 @@ export const craftConfig = defineConfig({
 
 **Read (`.from()`):** no `action`. Emits one `VCardBody` per address-book entry. This is a one-shot fetch-all; pair it with a scheduler for periodic reads.
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 craft()
   .id('contacts-export')
   .from(carddav())
@@ -60,7 +60,7 @@ craft().from(carddav({ account: 'work', addressBook: 'Colleagues', limit: 500 })
 
 **Read (`.enrich()`):** no `action`. Fetches all contacts; the `VCardBody[]` replaces the body by default (pass an aggregator such as `only()` to merge onto the triggering exchange instead).
 
-```ts
+```ts skip="fragment: writeCsv is illustrative"
 craft()
   .from(cron('0 2 * * *'))
   .enrich(carddav())
@@ -82,7 +82,7 @@ craft()
 
 **Delete (`.to()`):** `action: 'delete'` removes the contact resolved from the read headers (`routecraft.carddav.url`/`uid`), the body's `UID`, or a custom `target` extractor. The send is void: the body flows through unchanged, and the deleted resource's identity lands on the receipt headers (`routecraft.carddav.url`, `routecraft.carddav.uid`). No match raises `RC5014`.
 
-```ts
+```ts skip="fragment: isStale, myUrlFor are illustrative"
 craft()
   .from(carddav())
   .filter((body) => isStale(VCard.wrap(body)))
@@ -110,7 +110,7 @@ The body is a plain `VCardBody`: a `version` and an ordered list of properties (
 
 Wrap a body in a `VCard` for ergonomic reads and edits. The wrapper edits the underlying data in place; `.data` gives the plain body back.
 
-```ts
+```ts skip="fragment: rawVCardString is illustrative"
 import { VCard } from '@routecraft/routecraft'
 
 const card = VCard.parse(rawVCardString)   // a wrapper; .data is the plain body
@@ -152,7 +152,7 @@ card.toString()                 // serialize to wire form
 
 **Bring your own type.** If you want a typed shape, derive it in a `.transform()` and validate with your schema of choice, the same way you would with JSON from an HTTP endpoint:
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .from(carddav())
 .transform((body) => {
   const card = VCard.wrap(body)

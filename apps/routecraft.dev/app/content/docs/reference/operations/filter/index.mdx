@@ -6,7 +6,7 @@ title: filter
 [← All operations](/docs/reference/operations)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 filter(fn: Filter<Current> | CallableFilter<Current>): RouteBuilder<Current>
 ```
 
@@ -14,7 +14,7 @@ Filter exchanges based on a predicate. The predicate receives the full `Exchange
 
 Return `true` to keep the exchange, `false` to drop it, or `{ reason: "..." }` to drop with an explanation that is recorded in telemetry and shown in the TUI.
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Simple boolean filter
 .filter((exchange) => exchange.body.isActive)
 

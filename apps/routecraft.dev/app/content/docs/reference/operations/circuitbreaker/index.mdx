@@ -6,7 +6,7 @@ title: circuitBreaker
 [← All operations](/docs/reference/operations)
 </Lead>
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 circuitBreaker(options: {
   failureThreshold: number
   window?: Duration
@@ -20,7 +20,7 @@ circuitBreaker(options: {
 
 Stop hammering a downstream that is already failing. The breaker counts failures over a sliding window; once they reach `failureThreshold` it trips OPEN and fast-fails subsequent calls (returning a `fallback`, or throwing `RC5025`) without running the protected work. After `cooldown` it goes HALF-OPEN and lets a probe through: a success closes it, a failure re-opens it.
 
-```ts
+```ts skip="fragment: source, formatReceipt are illustrative"
 craft()
   .id('charge-customer')
   .from(source)
@@ -66,7 +66,7 @@ craft()
 
 **After `.from()` (step scope):** the breaker wraps only the immediately-next step. Later steps run normally.
 
-```ts
+```ts skip="fragment: formatResponse is illustrative"
 craft()
   .id('enrich-order')
   .from(direct())

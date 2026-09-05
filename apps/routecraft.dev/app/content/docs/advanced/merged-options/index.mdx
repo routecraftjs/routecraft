@@ -34,7 +34,7 @@ export const craftConfig: CraftConfig = {
 
 Now every `cron()` source inherits `timezone: 'UTC'` and `maxJitter: 2000` unless overridden:
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Inherits timezone: 'UTC' and maxJitter: 2000 from config
 .from(cron('@daily'))
 
@@ -115,7 +115,7 @@ export interface MyAdapterOptions {
 
 Use `Symbol.for()` and augment `StoreRegistry` so the key is typed:
 
-```ts
+```ts skip="fragment: MyAdapterOptions is illustrative"
 import type { StoreRegistry } from '@routecraft/routecraft'
 
 export const MY_ADAPTER_OPTIONS = Symbol.for('acme.adapter.my-adapter.options')
@@ -129,7 +129,7 @@ declare module '@routecraft/routecraft' {
 
 ### 3. Implement `MergedOptions<T>` on your adapter class
 
-```ts
+```ts skip="fragment: MyAdapterOptions, MY_ADAPTER_OPTIONS are illustrative"
 import { type MergedOptions, type CraftContext } from '@routecraft/routecraft'
 
 class MyAdapter implements Destination<unknown>, MergedOptions<MyAdapterOptions> {
@@ -162,7 +162,7 @@ class MyAdapter implements Destination<unknown>, MergedOptions<MyAdapterOptions>
 
 For adapters in external packages, ship a companion plugin so users have a typed, discoverable API:
 
-```ts
+```ts skip="fragment: MyAdapterOptions, MY_ADAPTER_OPTIONS are illustrative"
 import type { CraftPlugin, CraftContext } from '@routecraft/routecraft'
 
 export function myAdapterPlugin(defaultOptions: Partial<MyAdapterOptions>): CraftPlugin {
@@ -178,7 +178,7 @@ export function myAdapterPlugin(defaultOptions: Partial<MyAdapterOptions>): Craf
 
 Export the plugin and the store key from your package so consumers can use either the plugin (recommended) or set the store directly for advanced cases.
 
-```ts
+```ts skip="fragment: myAdapterPlugin, MY_ADAPTER_OPTIONS are illustrative"
 export { myAdapterPlugin, MY_ADAPTER_OPTIONS }
 ```
 

@@ -31,7 +31,7 @@ Despite the name, `shell()` does not run a shell. It spawns the named program di
 
 This is the security boundary, and it is stronger than escaping. If you want shell interpretation, ask for it visibly:
 
-```ts
+```ts skip="fragment: script is illustrative"
 shell('bash', ['-c', script])
 ```
 
@@ -108,7 +108,7 @@ Note how this interacts with `network: true`. Granting egress to a command that 
 - **Home**: `HOME` is a private tmpfs inside the container, mode `0700` and owned by the container user, holding nothing of the host's; the baseline's promise on the host tiers, kept where the host's private directory cannot be seen.
 - **Lifetime**: one container per command, removed when it exits (`--rm`). No pool and no reuse; a warm pool is a later decision with a benchmark behind it.
 
-```ts
+```ts skip="fragment: RunInput are illustrative"
 craft()
   .id('sandbox-run')
   .description('Run a command in a container mounted on the session workspace')
@@ -179,13 +179,13 @@ Per-call options beat the `ROUTECRAFT_SHELL_ISOLATION` environment override, whi
 
 ## The result
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 { stdout: string, stderr: string, exitCode: number, signal?: string, truncated: boolean }
 ```
 
 `ShellResult` is the same on every tier. A timeout stops the command (or the container) and reports [`OS1003`](/docs/reference/errors) the same way everywhere. A non-zero exit throws by default. For commands whose exit code is data rather than failure, read it off the result instead:
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .enrich(shell('grep', ['-q', 'TODO', 'src'], { failOnNonZero: false }))
 ```
 

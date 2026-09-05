@@ -81,7 +81,7 @@ The evidence is also untrusted input: the request and the agent's account can co
 
 The default placement: run the judge after the dispatch and branch on the verdict.
 
-```ts
+```ts skip="multi-file: imports a sibling file the page describes in prose"
 import { agent, type AgentResult } from '@routecraft/ai'
 import {
   craft,
@@ -135,7 +135,7 @@ The downstream judge has one structural limit: by the time it says `met: false`,
 
 When the agent should get the chance to correct itself before the dispatch resolves, move the same judge into the agent's [`validate`](/docs/reference/plugins/agentplugin) hook. Returning a string from `validate` sends the agent back for another turn with that string as a corrective message, conversation intact, sharing the `maxTurns` budget:
 
-```ts
+```ts skip="fragment: Judgement is illustrative"
 agent({
   model: 'anthropic:claude-sonnet-4-6',
   system: '...',

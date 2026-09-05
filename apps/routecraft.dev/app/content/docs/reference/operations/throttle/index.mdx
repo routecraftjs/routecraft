@@ -6,7 +6,7 @@ title: throttle
 [← All operations](/docs/reference/operations)
 </Lead>
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 throttle(options: {
   rate: number
   per?: 'second' | 'minute' | 'hour' | 'day' | Duration
@@ -20,7 +20,7 @@ throttle(options: {
 
 Rate-limit an operation to a maximum number of calls per time window, so a route does not overwhelm a downstream API or trip its rate limits. Exchanges that exceed the rate are paced (delayed), never dropped.
 
-```ts
+```ts skip="fragment: source is illustrative"
 craft()
   .id('rate-limited-api')
   .from(source)
@@ -49,7 +49,7 @@ Invalid options are rejected at build time (`RC5003`).
 
 By default an over-limit exchange is **delayed** (paced) until a token frees: this smooths bursty traffic into a steady rate and never drops an exchange. Set `mode: 'reject'` to instead **fail fast** -- the exchange throws `RC5013` immediately (emitting `route:throttle:rejected`), which a source can translate into a `429` and which a route-scope `.error()` can catch. Reject does not consume a token, and it avoids the unbounded in-flight buffering that delay can accumulate under a source that pulls faster than the rate.
 
-```ts
+```ts skip="fragment: httpSource, handler are illustrative"
 craft()
   .from(httpSource)
   .throttle({ rate: 100, per: 'minute', mode: 'reject' }) // 429 over the limit
@@ -60,7 +60,7 @@ craft()
 
 By default `.throttle()` is a single bucket shared across the whole route (a global limit). Pass a `key` selector to give each distinct key its own independent bucket, so one caller cannot consume another's allowance:
 
-```ts
+```ts skip="fragment: source, destination are illustrative"
 craft()
   .from(source)
   // 10 requests/second PER authenticated principal
@@ -78,7 +78,7 @@ The per-key buckets live in an LRU bounded by `maxKeys`, and an idle key's bucke
 
 Multiple `.throttle()` calls compose: an exchange must be admitted by **all** of them. Use this to combine a global ceiling with per-key limits:
 
-```ts
+```ts skip="fragment: clientIp, mcpTool, destination are illustrative"
 craft()
   .throttle({ rate: 1000, per: 'minute' })                                 // global ceiling
   .throttle({ rate: 60,   per: 'minute', key: (ex) => ex.principal?.sub }) // per-user
@@ -98,7 +98,7 @@ craft()
 
 **Stacking with other wrappers:** Wrappers stack outside-in in declaration order (first-declared outermost):
 
-```ts
+```ts skip="fragment: source is illustrative"
 // Each retry attempt is rate-limited: the throttle is re-entered per attempt.
 craft()
   .from(source)

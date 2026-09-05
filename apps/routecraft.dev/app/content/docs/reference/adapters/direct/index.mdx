@@ -6,7 +6,7 @@ title: direct
 [← All adapters](/docs/reference/adapters)
 </Lead>
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Source (endpoint = route id). Body types are unknown at the adapter
 // layer; schemas live on the route builder via `.input()` / `.output()`.
 direct(options?: Partial<DirectServerOptions>): Source<unknown>
@@ -29,7 +29,7 @@ Enable synchronous inter-route communication. Perfect for composable route archi
 
 Discovery metadata (`.title()`, `.description()`) and schemas (`.input()`, `.output()`) live on the route builder, not the adapter. The framework validates `.input()` before the pipeline runs and `.output()` before the primary destination fires -- any source adapter (direct, mcp, future ones) inherits this validation automatically.
 
-```ts
+```ts skip="fragment: source, processData, businessLogic are illustrative"
 // Producer route that sends to a direct endpoint
 craft()
   .id('data-producer')
@@ -102,7 +102,7 @@ craft()
 - `channelType` - Custom direct channel implementation (default: in-memory). Per-route override of the context-level default.
 - `internal` - Close the route's external doors (default: `false`). An internal route keeps its in-process endpoint, so `direct('id')` enrichers and `forward()` compose against it unchanged, but it skips the capability registry: it is not dispatchable through the [ops management API](/docs/reference/plugins/opsplugin#management-api) (the listing shows `dispatchable: false`, a dispatch refuses with [`RC5060`](/docs/reference/errors#rc-5060) naming the declaration) and a `directTool` naming it fails `context.start()` with the remedy. Declare it on a trusting subroutine whose boundary route carries `.input()`, `.description()` and `.authorize()` for it:
 
-```ts
+```ts skip="fragment: resolveOrder is illustrative"
 // The boundary owns validation and authorization; the subroutine trusts it.
 craft()
   .id('resolve-order')
@@ -145,7 +145,7 @@ Direct routes support StandardSchema validation for type safety. Behavior depend
 
 Without a schema, all data passes through unchanged:
 
-```ts
+```ts skip="fragment: processUser is illustrative"
 craft()
   .id('user-processor')
   .from(direct())  // No schema -- all data passes through
@@ -162,7 +162,7 @@ Zod 4 uses different object constructors to control extra field handling:
 | `z.looseObject()` | Preserved | Flexible schemas, passthrough |
 | `z.strictObject()` | Error (RC5002) | Reject unexpected fields |
 
-```ts
+```ts skip="fragment: processUser is illustrative"
 import { z } from 'zod'
 
 // z.object() - strips extra fields (default behavior)
@@ -183,7 +183,7 @@ craft()
 // RC5002: { userId: '...', missing: 'action' }
 ```
 
-```ts
+```ts skip="fragment: processUser is illustrative"
 // z.looseObject() - preserves extra fields
 const looseSchema = z.looseObject({
   userId: z.string().uuid(),
@@ -200,7 +200,7 @@ craft()
 //    All fields preserved including extra
 ```
 
-```ts
+```ts skip="fragment: processUser is illustrative"
 // z.strictObject() - rejects extra fields with error
 const veryStrictSchema = z.strictObject({
   userId: z.string().uuid(),
@@ -221,7 +221,7 @@ craft()
 
 Without `input.headers`, all headers pass through unchanged. When specified, the same Zod 4 rules apply, with one twist: validated header values are always merged over the original request headers, so caller-supplied pass-through keys survive schemas that would normally strip them.
 
-```ts
+```ts skip="fragment: handleRequest are illustrative"
 // No header schema - all headers pass through unchanged
 craft()
   .id('api-handler')
@@ -284,7 +284,7 @@ craft()
 
 Each direct route registers in `ADAPTER_DIRECT_REGISTRY` so in-process agents can discover and document the routes available in the current context:
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 import { ADAPTER_DIRECT_REGISTRY } from '@routecraft/routecraft'
 
 craft()

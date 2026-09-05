@@ -6,13 +6,13 @@ title: simple
 [← All adapters](/docs/reference/adapters)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 simple<T>(producer: (() => T | Promise<T>) | T): Source<T>
 ```
 
 Create a static or dynamic data source. When the producer returns an **array**, each element becomes a separate exchange processed independently through the pipeline.
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Static value
 .id('hello-route')
 .from(simple('Hello, World!'))

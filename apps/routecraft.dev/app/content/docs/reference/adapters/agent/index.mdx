@@ -113,7 +113,7 @@ The id is the record key in `agentPlugin({ agents: { [id]: {...} } })`.
 
 Without `session`, an agent run is one turn from a fresh prompt and nothing is remembered. With it, one route serves as many conversations as there are session ids, and each is a record in the store rather than a process: kill the instance, start it again, and the next message continues where the last one stopped.
 
-```ts
+```ts skip="fragment: readFileSync, DeploymentStatus, github are illustrative"
 const MaxMessage = z.object({
   session: z.string(),
   message: z.string(),
@@ -184,7 +184,7 @@ Every session is listable on the management API at [`GET /ops/agent-sessions`](/
 
 `stream: true` replaces that result with an `AgentStream`, an async iterable of `AgentDelta` handed over before the run starts. Iterating it is what starts the run, so the first `next()` is where the model begins writing. The [http source frames an async iterable as Server-Sent Events](/docs/reference/adapters/http#streaming-responses-sse), so a token-by-token endpoint is one declarative route:
 
-```typescript
+```typescript skip="fragment: ChatInput, aria are illustrative"
 craft()
   .id('chat-stream')
   .input({ body: ChatInput })

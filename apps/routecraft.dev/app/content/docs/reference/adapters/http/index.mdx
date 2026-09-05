@@ -15,7 +15,7 @@ The discriminator is the presence of `path` (source) vs `url` (client).
 
 ## HTTP source (inbound)
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 http(options: HttpServerOptions): Source<HttpRequestBody>
 ```
 
@@ -46,7 +46,7 @@ export const craftConfig = defineConfig({
 })
 ```
 
-```ts
+```ts skip="fragment: loadOrder, createOrderSchema, saveOrder are illustrative"
 // routes/orders.ts
 import { craft, http, noop, DefaultExchange } from '@routecraft/routecraft'
 
@@ -157,7 +157,7 @@ and each yielded value becomes one SSE frame. There is no `sse()` adapter and
 no separate mode: SSE is an HTTP response, so it is one more row in the table
 above and the whole pre-from chain still applies once, at request entry.
 
-```ts
+```ts skip="fragment: watchOrder is illustrative"
 craft()
   .id("order-events")
   .from(http({ path: "/orders/:id/events", method: "GET" }))
@@ -227,7 +227,7 @@ A streaming response is exempt from the listener's idle reaper, which is
 otherwise the only limit on how long a connection may sit open. Two options on
 the server definition put a ceiling back:
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 servers: {
   public: {
     port: 3000,
@@ -341,7 +341,7 @@ pending `return()` lands. Hold the source's promise across the race rather than
 starting a fresh one each pass, or a keep-alive tick abandons the event that was
 already in flight.
 
-```ts
+```ts skip="fragment: nextEvent are illustrative"
 const KEEP_ALIVE = Symbol("keep-alive");
 
 function withWake<T>(pending: Promise<T>, ms: number): Promise<T | typeof KEEP_ALIVE> {
@@ -394,7 +394,7 @@ These two never fail, so neither can tell an orchestrator to restart or derotate
 
 Every built-in takes the same `{ enabled?, requireAuth? }` shape under `http: { builtins }`. Inspired by Spring Boot Actuator's `management.endpoint.<name>.enabled` plus `show-details: when-authorized`, compressed to a single boolean for the auth gate.
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 defineConfig({
   servers: { default: { port: 8080 } },
   http: {
@@ -428,7 +428,7 @@ Defaults match security best practice per endpoint:
 
 `builtins.openapi.info` populates the OpenAPI document's `info` object. When omitted, `title` and `version` auto-detect from the nearest `package.json` (walks up from `process.cwd()`); supply either field explicitly to override.
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 builtins: {
   openapi: {
     info: {
@@ -465,7 +465,7 @@ OAuth 2.1 is reserved in the auth union for a future release.
 
 The mount, not the route, decides authentication. `http.mounts` declares named path-scoped surfaces, each a complete self-description (`path`, `server`, `auth`); each is a wall or public, and routes belong to exactly one:
 
-```typescript
+```typescript skip="fragment: not a complete statement on its own"
 defineConfig({
   servers: { default: { port: 8080, auth: jwks({ ... }) } },
   http: {
@@ -522,7 +522,7 @@ Webhook providers (GitHub, Stripe, and others) HMAC-sign the exact bytes they PO
 
 **Built-in verification (preferred).** Declare the check on the source and the plugin verifies the raw bytes before any route step runs. A missing, invalid, or expired signature returns `401 { error: "unauthorized", reason }` and emits `auth:rejected` with `scheme: "signature"`. Comparison is timing-safe.
 
-```typescript
+```typescript skip="fragment: handlePush, handlePaymentEvent, toInboundMessage are illustrative"
 // GitHub: X-Hub-Signature-256 = "sha256=<hmac-sha256-hex>"
 export const githubHook = craft()
   .id('github-hook')
@@ -592,7 +592,7 @@ Rules enforced at construction (`RC5003` from the `http({...})` call site): `sig
 
 **Manual verification (escape hatch).** For providers whose scheme is not built in, opt in to the raw bytes and verify in a route step. Note the semantics differ from the built-in gate: `.filter()` drops an unsigned or invalid delivery (the exchange ends with a `route:exchange:dropped` event and the sender receives the route's normal empty response), it does not return 401 or raise RC5039. That is usually fine for webhooks, since providers only distinguish 2xx from non-2xx, but if you need an explicit 401 use the built-in `signature` option or set the response status yourself before dropping.
 
-```typescript
+```typescript skip="fragment: a chain shown without its route"
 .from(http({ path: '/hooks/custom', method: 'POST', rawBody: true }))
 .filter((ex) => {
   const signature = ex.headers['routecraft.http.rawHeaders']?.['x-custom-signature']
@@ -609,7 +609,7 @@ A webhook sender is not waiting for your pipeline. Bird treats anything past a f
 
 `respond` is a function that decides when the caller is answered, and with what. It is called once per request, after every gate has passed and after the pipeline has been started, and the response is sent when it returns. So the function itself decides whether the caller waits:
 
-```typescript
+```typescript skip="fragment: isPing is illustrative"
 // Acknowledge and process. `finished` is never touched, so the answer goes
 // out now and the pipeline keeps running.
 respond: () => ({ status: 202 })
@@ -625,7 +625,7 @@ respond: ({ request }) => isPing(request.body) ? { status: 202 } : undefined
 
 The webhook case in full:
 
-```typescript
+```typescript skip="fragment: reportDeliveryFailure, handleDelivery are illustrative"
 export const birdHook = craft()
   .id('bird-hook')
   // Route scope: both sit before .from(), so they bound and guard the whole
@@ -688,7 +688,7 @@ See [Server events](/docs/reference/events#server-events) and [HTTP plugin event
 
 ## HTTP client (outbound)
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 http<T, R>(options: HttpClientOptions<T>): Enricher<T, HttpResult<R>>
 ```
 
@@ -696,7 +696,7 @@ Make HTTP requests. Returns an `Enricher` (a pull-in) whose `fetch` produces an 
 
 **With `.enrich()` (result replaces the body by default):**
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Static GET request - the HttpResult replaces the body
 .enrich(http({
   method: 'GET',
@@ -729,7 +729,7 @@ Make HTTP requests. Returns an `Enricher` (a pull-in) whose `fetch` produces an 
 
 `.to(http(...))` invokes the client's `fetch` and replaces the exchange body with the `HttpResult`. To merge or preserve the original exchange body, use `.enrich()` with an aggregator instead; to call an endpoint purely for the side effect, use `.tap()` (the result is discarded).
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .to(http({
   method: 'POST',
   url: 'https://api.example.com/webhook',
@@ -768,7 +768,7 @@ Make HTTP requests. Returns an `Enricher` (a pull-in) whose `fetch` produces an 
 
 `maxBodySize` caps the response body at 10 MB by default. It is the same name and the same number as the [http plugin's inbound cap](/docs/reference/plugins/httpplugin), because it is the same concept on the other side of the framework.
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .enrich(http({ url: (ex) => ex.body.url, maxBodySize: 2_000_000 }))
 ```
 
@@ -785,7 +785,7 @@ The cap applies to error responses too, so a `500` answering with a gigabyte is 
 
 To opt out entirely, say so by name:
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .enrich(http({ url, maxBodySize: Infinity }))
 ```
 
@@ -803,7 +803,7 @@ The corruption is silent and asymmetric, which is what makes it dangerous. A JPE
 
 `responseBody: 'bytes'` turns the decoding off:
 
-```typescript
+```typescript skip="fragment: a chain shown without its route"
 .enrich(
   http<Delivery, Uint8Array>({ url: (ex) => ex.body.mediaUrl, responseBody: 'bytes' }),
   only((r) => r.body, 'media'),

@@ -100,7 +100,7 @@ const SendEmailInput = z.object({
 
 **A policy gate.** Business rules as code, the same idea as the policy layer in front of any other service. This is the line that turns "please only email colleagues" from a request into a fact:
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .filter((ex) => {
   if (!ex.body.to.endsWith('@company.com')) {
     return { reason: 'recipient outside company domain' }

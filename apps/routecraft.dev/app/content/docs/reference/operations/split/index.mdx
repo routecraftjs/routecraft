@@ -6,7 +6,7 @@ title: split
 [← All operations](/docs/reference/operations)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 split<Item = Current extends Array<infer U> ? U : never>(
   fn?: Splitter<Current, Item> | (exchange: Exchange<Current>) => Exchange<Item>[]
 ): RouteBuilder<Item>
@@ -16,7 +16,7 @@ Fan-out into multiple exchanges. Use `.split(adapter | (exchange) => Exchange[])
 
 If no splitter is provided, array bodies are split into one exchange per element; non-array bodies become a single exchange. The framework maintains `routecraft.split_hierarchy` headers for aggregation.
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Split array automatically
 .split() // [1, 2, 3] becomes three exchanges: 1, 2, 3
 

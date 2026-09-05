@@ -6,13 +6,13 @@ title: delay
 [← All operations](/docs/reference/operations)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 delay(duration: Duration): RouteBuilder<Current>
 ```
 
 Wait a fixed time before the next operation runs. Pass-through: the exchange is unchanged by the wait, and the body type flows through untouched.
 
-```ts
+```ts skip="fragment: source, operation, destination are illustrative"
 craft()
   .id('paced-processor')
   .from(source)
@@ -30,7 +30,7 @@ craft()
 
 **Stacking:** Wrappers stack outside-in in declaration order (first-declared outermost), so the position relative to other wrappers decides what is repeated:
 
-```ts
+```ts skip="fragment: source is illustrative"
 // Wait before EVERY attempt: retry re-runs the delay-wrapped step.
 craft()
   .id('paced-retry')

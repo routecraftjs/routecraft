@@ -6,14 +6,14 @@ title: file
 [← All adapters](/docs/reference/adapters)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 file(options: FileOptions): FileAdapter // Source<string> & Destination<unknown> & Enricher<unknown, string>
 ```
 
 Read and write plain text files. For structured data, use `json` or `csv` adapters. One factory, one type; the operation keyword selects the role: `.from()` reads, `.to()` writes, `.enrich()` reads mid-route.
 
 **Source role** (reads files):
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Read file once
 .from(file({ path: './input.txt' }))
 
@@ -22,7 +22,7 @@ Read and write plain text files. For structured data, use `json` or `csv` adapte
 ```
 
 **Destination role** (writes files). The send is void: the body flows through the `.to()` step unchanged.
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Write to file (overwrite)
 .to(file({ path: './output.txt' }))
 
@@ -54,7 +54,7 @@ Passing both `append: true` and `delete: true` throws `RC5003` at construction.
 
 **Read mid-route:** The adapter is also an enricher whose `fetch` returns the file content, so you can read a file partway through a route with `.enrich()`. The content replaces the body; pass an aggregator such as `only()` to merge instead. Unlike the source role, the fetch role accepts dynamic (function) paths, because the exchange exists when the read runs.
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Replace the body with the file content
 .enrich(file({ path: './config.txt' }))
 
@@ -67,7 +67,7 @@ Passing both `append: true` and `delete: true` throws `RC5003` at construction.
 
 **Chunked mode:** When `chunked: true`, the file source emits one exchange per line. Each exchange includes `FileHeaders.LINE` (1-based line number) and `FileHeaders.PATH` headers. Chunking concerns the source role only; the send/fetch roles are identical under `chunked`.
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Per-line emission
 .from(file({ path: './big.txt', chunked: true }))
 ```

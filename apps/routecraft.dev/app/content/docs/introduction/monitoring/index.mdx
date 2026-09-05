@@ -10,7 +10,7 @@ Log and observe your capabilities at runtime.
 
 Use `tap(log())` anywhere in a capability to emit a structured log of the current exchange without altering it. Use `tap(debug())` for verbose output you only want visible at debug level. Both can also be used as a final destination with `.to()`.
 
-```ts
+```ts skip="fragment: enrichOrder is illustrative"
 import { craft, simple, log, debug } from '@routecraft/routecraft'
 
 export default craft()
@@ -34,7 +34,7 @@ craft --log-level debug run ./capabilities/orders.ts
 
 Use the `on` property in `craft.config.ts` to react to lifecycle and error events without writing a plugin:
 
-```ts
+```ts skip="fragment: alerts is illustrative"
 // craft.config.ts
 import type { CraftConfig } from '@routecraft/routecraft'
 
@@ -59,7 +59,7 @@ For the full event catalog see the [Events reference](/docs/reference/events).
 
 If event subscriptions in `craft.config.ts` become unwieldy, extract them into a plugin so they can be reused across projects:
 
-```ts
+```ts skip="fragment: metrics, alerts are illustrative"
 // plugins/monitoring.ts
 import { type CraftContext } from '@routecraft/routecraft'
 
@@ -84,7 +84,7 @@ export default function monitoring(ctx: CraftContext) {
 
 Then register it in `craft.config.ts`:
 
-```ts
+```ts skip="multi-file: imports a sibling file the page describes in prose"
 import monitoring from './plugins/monitoring'
 import type { CraftConfig } from '@routecraft/routecraft'
 
@@ -160,7 +160,7 @@ bun add @opentelemetry/sdk-trace-base @opentelemetry/exporter-trace-otlp-http
 
 Then configure a `TracerProvider` and pass it to `telemetry()`. Here is an example using [Better Stack](https://betterstack.com/):
 
-```ts
+```ts skip="third-party: @opentelemetry/sdk-trace-base is not a dependency of the docs site"
 import { telemetry } from '@routecraft/routecraft'
 import { BasicTracerProvider, BatchSpanProcessor } from '@opentelemetry/sdk-trace-base'
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'

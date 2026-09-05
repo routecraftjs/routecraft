@@ -16,7 +16,7 @@ Events are the primary hook for cross-cutting concerns: logging, metrics, tracin
 
 The simplest way to react to events is via the `on` property in `craft.config.ts`. This works with `craft run` out of the box -- no plugin required.
 
-```ts
+```ts skip="fragment: alerts is illustrative"
 // craft.config.ts
 import type { CraftConfig } from '@routecraft/routecraft'
 
@@ -65,7 +65,7 @@ export default function loggerPlugin(ctx: CraftContext) {
 
 Use `context.once` when you only need the first occurrence:
 
-```ts
+```ts skip="fragment: ctx is illustrative"
 ctx.once('context:started', () => {
   console.log('Ready -- fires once only')
 })
@@ -73,7 +73,7 @@ ctx.once('context:started', () => {
 
 To unsubscribe, call the function returned by `context.on`:
 
-```ts
+```ts skip="fragment: ctx, handler are illustrative"
 const unsub = ctx.on('route:started', handler)
 unsub() // stops receiving events
 ```
@@ -96,7 +96,7 @@ Event names are a fixed, finite set: identity (the route id, the plugin id, the 
 
 Subscribe to exact names; narrow to one capability with `forRoute()` (or any payload predicate). The catch-all `'*'` observes every event for audit-style sinks.
 
-```ts
+```ts skip="fragment: ctx, audit, alerts are illustrative"
 import { forRoute } from '@routecraft/routecraft'
 
 // Every event emitted by the runtime
@@ -168,7 +168,7 @@ One adapter instance serves every exchange on the route, so derive metadata from
 
 ### Log every exchange result
 
-```ts
+```ts skip="fragment: ctx are illustrative"
 ctx.on('route:exchange:completed', ({ details: { routeId, exchangeId, duration } }) => {
   logger.info({ routeId, exchangeId, duration }, 'exchange completed')
 })
@@ -180,7 +180,7 @@ ctx.on('route:exchange:failed', ({ details: { routeId, exchangeId, error } }) =>
 
 ### Count retries
 
-```ts
+```ts skip="fragment: ctx, metrics are illustrative"
 ctx.on('route:retry:attempt', ({ details: { routeId, attemptNumber } }) => {
   metrics.increment(`retry.attempt`, { routeId })
 })
@@ -188,7 +188,7 @@ ctx.on('route:retry:attempt', ({ details: { routeId, attemptNumber } }) => {
 
 ### Alert on batch flush
 
-```ts
+```ts skip="fragment: ctx, alerts are illustrative"
 ctx.on('route:batch:flushed', ({ details: { routeId, batchSize, reason } }) => {
   if (reason === 'time' && batchSize < 10) {
     alerts.warn(`Low throughput on ${routeId}: only ${batchSize} items in batch`)

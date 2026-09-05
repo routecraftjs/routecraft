@@ -12,7 +12,7 @@ import { group } from '@routecraft/routecraft'
 
 Transformer that groups an array into clusters using a comparator. Use with `.transform(group(options))`. By default it reads the body as the array and replaces the body with the array of clusters; use `from` / `to` to read and write sub-fields, and `map` to shape each cluster.
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .transform(group({
   comparator: cosine({ field: 'embedding', threshold: 0.82 }),
   from: (body) => body.items,

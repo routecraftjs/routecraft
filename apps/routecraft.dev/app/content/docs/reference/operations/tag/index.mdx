@@ -6,7 +6,7 @@ title: tag
 [← All operations](/docs/reference/operations)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 tag(value: Tag | Tag[]): RouteBuilder<Current>
 ```
 
@@ -24,7 +24,7 @@ tools((catalog) =>
 
 The `KnownTag` literals `"read-only"`, `"destructive"`, `"idempotent"`, and `"open-world"` autocomplete; any other string is also accepted. On a route exposed via `from(mcp())`, these four tags also derive the corresponding MCP tool annotation hints (`readOnlyHint`, `destructiveHint`, `idempotentHint`, `openWorldHint`).
 
-```ts
+```ts skip="fragment: listOrders, deleteOrder are illustrative"
 craft()
   .id('list-orders')
   .tag('read-only')

@@ -27,7 +27,7 @@ When an AI agent calls `send-email`, it executes exactly this pipeline. You defi
 
 Every capability follows the same shape:
 
-```ts
+```ts skip="fragment: source, fn, destination are illustrative"
 craft()
   .id("capability-id")   // Unique identifier
   .from(source)          // Where data enters
@@ -49,19 +49,19 @@ The `.from()` adapter determines how a capability is triggered:
 
 **Request-driven** -- responds to an inbound call and returns a result:
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .from(http({ path: "/users", method: "GET" }))
 ```
 
 **Scheduled** -- runs on a timer, no caller to respond to:
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .from(timer({ interval: 60_000 }))
 ```
 
 **One-shot** -- processes a fixed payload and completes:
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .from(simple({ report: "daily-summary" }))
 ```
 
@@ -95,7 +95,7 @@ Using multiple `.to()` calls on a single capability is supported but not recomme
 
 </Callout>
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .to(log())                              // Print to console
 .to(http({ url: "https://api.com" }))  // POST to external API
 .to(json({ path: "./output.json" }))   // Write to file
@@ -106,7 +106,7 @@ Using multiple `.to()` calls on a single capability is supported but not recomme
 
 A single `craft()` call can define multiple capabilities by chaining `.id().from().to()` blocks. This is useful for grouping related capabilities that belong to the same domain.
 
-```ts
+```ts skip="fragment: mapCalendarEvents, eventSchema, googleCalendar are illustrative"
 // capabilities/calendar.ts
 export default craft()
   .id("calendar.fetch-events")
@@ -126,7 +126,7 @@ Each `.id()` starts a new capability definition. Every ID must be unique -- it i
 
 Capabilities can pass data to each other using `direct()`. This keeps each capability focused on a single concern:
 
-```ts
+```ts skip="fragment: fetchNewOrders, fulfillOrder are illustrative"
 // capabilities/fetch-orders.ts
 export default craft()
   .id("fetch-orders")

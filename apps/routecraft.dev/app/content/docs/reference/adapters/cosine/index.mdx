@@ -12,7 +12,7 @@ import { cosine } from '@routecraft/routecraft'
 
 Comparator that groups items by cosine similarity of a numeric vector field. Pass it to `group({ comparator: cosine(options) })`.
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .transform(group({
   comparator: cosine({ field: 'embedding', threshold: 0.85 }),
   from: (body) => body.items,

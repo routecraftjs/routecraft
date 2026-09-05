@@ -12,7 +12,7 @@ import { llm } from '@routecraft/ai'
 
 Call a language model and get text or structured output. Requires `llmPlugin()` in your context plugins.
 
-```ts
+```ts skip="fragment: source are illustrative"
 import { llm } from '@routecraft/ai'
 
 type Document = { content: string; text: string }
@@ -84,7 +84,7 @@ Provider credentials are configured once in `llmPlugin()` and shared across all 
 
 A user prompt can be an array of content parts instead of a string, so a route that receives a voice note or an image hands it to the model directly rather than transcribing it first.
 
-```ts
+```ts skip="fragment: source is illustrative"
 craft()
   .id('answer-voice-note')
   .from<{ audio: string; caption: string }>(source)
@@ -120,7 +120,7 @@ Two behaviours worth knowing before you reach for a `URL`:
 
 Reasoning effort is the main cost and latency dial on a current model, and it belongs per call rather than per deployment: a narrow classifier and a hard agent turn want opposite settings against the same model id.
 
-```ts
+```ts skip="fragment: source is illustrative"
 craft()
   .id('classify')
   .from(source)
@@ -158,7 +158,7 @@ Leave `reasoning` unset and nothing is sent, so the provider's own default appli
 
 `providerOptions` is forwarded to the SDK verbatim, keyed by the SDK's provider namespace. Use it for anything the normalised options cannot say, such as Anthropic's thinking token budget:
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .enrich(llm('anthropic:claude-sonnet-4-6', {
   providerOptions: {
     anthropic: { thinking: { type: 'enabled', budgetTokens: 8192 } },
@@ -170,7 +170,7 @@ The namespace is the SDK's, which is not always the Routecraft provider id: `gem
 
 **`providerOptions` wins over `reasoning` for the settings it names.** The two merge per namespace and per setting inside it, so naming one setting replaces the mapped one and leaves the rest:
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .enrich(llm('gemini:gemini-3-pro-preview', {
   reasoning: 'high',              // maps to thinkingConfig.thinkingLevel: 'high'
   providerOptions: {

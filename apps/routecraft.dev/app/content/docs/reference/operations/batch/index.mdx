@@ -6,13 +6,13 @@ title: batch
 [← All operations](/docs/reference/operations)
 </Lead>
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 batch(options?: { size?: number; flushInterval?: Duration }): RouteBuilder<Current>
 ```
 
 Process exchanges in batches instead of one at a time. Useful for bulk operations like database inserts or API batch requests.
 
-```ts
+```ts skip="fragment: saveToDB is illustrative"
 craft()
   .id('bulk-processor')
   .batch({ size: 50, flushInterval: 5000 })

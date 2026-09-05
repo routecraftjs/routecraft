@@ -96,7 +96,7 @@ export default defineConfig({
 
 Mint with anything that signs HS256, for example [jose](https://github.com/panva/jose):
 
-```ts
+```ts skip="third-party: jose is not a dependency of the docs site"
 // mint-token.ts (operator tooling, not part of the app)
 import { SignJWT } from 'jose'
 
@@ -163,7 +163,7 @@ export default {
 
 Routecraft ships with a built-in `jwt()` helper that verifies JWT signatures using `node:crypto` (zero dependencies). `issuer` and `audience` are required to prevent cross-issuer and cross-audience replay. Both accept a single string or an array of accepted values. Use `audience: "*"` only when you explicitly want to skip audience validation.
 
-```ts
+```ts skip="fragment: fs is illustrative"
 import { jwt } from '@routecraft/ai'
 
 // HMAC (HS256, default)
@@ -216,7 +216,7 @@ auth: jwks({
 
 For API keys, opaque tokens, or any other scheme, pass a `validator` function. Throw to reject; return a `Principal` to accept. A rejected credential answers `401`, but a throw that names an infrastructure failure (an unreachable JWKS endpoint, a failed `userinfo` fetch) answers `500` on every auth mode, so a client retries rather than discarding a credential that is probably valid:
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 auth: {
   validator: async (token) => {
     const user = await db.verifyApiKey(token)
@@ -265,7 +265,7 @@ mcpPlugin({
 
 For opaque tokens or custom introspection, pass a raw `verify` function instead:
 
-```ts
+```ts skip="fragment: myIntrospectionCall is illustrative"
 auth: oauth({
   issuer: 'https://idp.example.com',
   verify: async (token) => {
@@ -319,7 +319,7 @@ mcpPlugin({
 
 **Shape 3: custom function** for non-OIDC backends (WorkOS / Clerk Backend API, internal DB, etc.). Sub-invariant enforcement is the caller's responsibility in this mode.
 
-```ts
+```ts skip="fragment: myService is illustrative"
 mcpPlugin({
   transport: 'http',
   auth: jwks({ jwksUrl, issuer: 'https://idp.example.com', audience }),
@@ -443,7 +443,7 @@ When an agent (or any delegate) exercises a user's authority, the principal reco
 
 Every route then declares who may drive it via [`authorize()`](/docs/reference/operations/authorize):
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Humans only (this is the default: actor 'none')
 .authorize({ roles: ['finance'], actor: 'none' })
 

@@ -80,7 +80,7 @@ security decision, not a convenience. `.authenticate()` and the `authenticate()`
 trusts, so the rule flags every mint site and you sanction the legitimate ones
 explicitly, either with a scoped disable comment carrying a justification:
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // eslint-disable-next-line @routecraft/routecraft/restrict-principal-minting -- channel boundary: DKIM-verified sender
 .authenticate(mintFromSender)
 ```
@@ -126,7 +126,7 @@ packages/
   shared/                    # shared code: bare @scope/* imports, always allowed
 ```
 
-```ts
+```ts skip="multi-file: imports a sibling file the page describes in prose"
 // from apps/agent/capabilities/employees/onboard/route.ts
 
 // Good

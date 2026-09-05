@@ -6,7 +6,7 @@ title: sample
 [← All operations](/docs/reference/operations)
 </Lead>
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 sample(options: { every: number } | { interval: Duration }): RouteBuilder<Current>
 ```
 
@@ -14,7 +14,7 @@ Reduce data volume from a high-frequency source by passing a representative subs
 
 Pass exactly one of `every` or `interval`; they are mutually exclusive (a sampler is either count-based or time-based). Sampler state (the counter or the window timestamp) is per-route.
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Count-based: take every 5th exchange
 .sample({ every: 5 })
 

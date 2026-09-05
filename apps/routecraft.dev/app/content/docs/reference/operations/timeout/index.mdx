@@ -6,7 +6,7 @@ title: timeout
 [← All operations](/docs/reference/operations)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 timeout(duration: Duration): RouteBuilder<Current>
 ```
 
@@ -14,7 +14,7 @@ Bound the next operation with a deadline. When the operation settles in time its
 
 **Mental model:** Dual-mode. After `.from()` it wraps the immediately-next step. Before `.from()` it bounds each run of the whole pipeline (pre-from filter chain position 8, inside `.retry()` so every attempt gets its own deadline).
 
-```ts
+```ts skip="fragment: source, format are illustrative"
 // Step scope: bound one slow call
 craft()
   .id('timeout-protected')
@@ -39,7 +39,7 @@ craft()
 
 **Cancellation via `AbortSignal`:** Promises cannot be cancelled, so the abandoned operation's eventual result is always discarded. But the wrapped step does receive an `AbortSignal` on its step context that fires when the deadline expires (abort reason: the `RC5011` error). Forward it into cancellation-aware IO so the abandoned work actually stops instead of running to completion in the background:
 
-```ts
+```ts skip="fragment: source, url are illustrative"
 craft()
   .id('cancellable')
   .from(source)
@@ -59,7 +59,7 @@ Every function-form step receives the signal context as its trailing argument: `
 
 Place `.timeout()` BEFORE `.from()` to bound each run of the entire pipeline:
 
-```ts
+```ts skip="fragment: slowUpstream, format are illustrative"
 craft()
   .id('bounded-pipeline')
   .retry({ maxAttempts: 2 })

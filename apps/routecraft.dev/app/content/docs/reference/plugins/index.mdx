@@ -96,7 +96,7 @@ A `stop()` that lands mid-boot waits for the hook that is still running before i
 
 A hook may shut the context down, but it must never `await` its own `stop()`: the hook would wait for a shutdown that is waiting for the hook, and neither settles. Use `throw` to abort the boot with a reason, which unwinds through the teardown walk and surfaces the error, or call `ctx.stop()` without awaiting it to stand the context down without failing the boot. The rule is documented rather than enforced, and awaiting it hangs at boot on the first run.
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 async start(ctx: CraftContext) {
   // Abort the boot, with the reason reaching the operator:
   if (!configured) throw new Error("mail credentials missing");

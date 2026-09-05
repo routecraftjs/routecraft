@@ -14,7 +14,7 @@ Routecraft ships empty marker interfaces. You augment them in your project via `
 
 **With registry:**
 
-```ts
+```ts skip="fragment: PaymentRequest, OrderRequest, NotificationPayload are illustrative"
 // src/types/routecraft.d.ts
 declare module '@routecraft/routecraft' {
   interface DirectEndpointRegistry {
@@ -27,7 +27,7 @@ declare module '@routecraft/routecraft' {
 
 Now:
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .to(direct('payments'))       // OK
 .to(direct('orders'))         // OK
 .to(direct('invoices'))       // red line: 'invoices' not in registry
@@ -43,7 +43,7 @@ craft()
 
 The value type in the registry (`PaymentRequest`, `OrderRequest`, etc.) is used by `ResolveBody` to infer the body type when calling `direct(endpoint)` as a destination. When you write `.to(direct('payments'))`, TypeScript constrains the exchange body to `PaymentRequest`. Set values to the actual request body type for full inference:
 
-```ts
+```ts skip="fragment: PaymentRequest is illustrative"
 interface DirectEndpointRegistry {
   'payments': PaymentRequest;
 }
@@ -120,7 +120,7 @@ mcp('unknown-server:tool')      // red line: 'unknown-server' not in registry
 
 A single declaration file for your project:
 
-```ts
+```ts skip="multi-file: imports a sibling file the page describes in prose"
 // src/types/routecraft.d.ts
 import type { PaymentRequest, OrderRequest } from '../domain';
 

@@ -6,7 +6,7 @@ title: concurrency
 [← All operations](/docs/reference/operations)
 </Lead>
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 concurrency(options: {
   max: number
   mode?: 'queue' | 'reject'
@@ -19,7 +19,7 @@ concurrency(options: {
 
 Bound how many exchanges run an operation AT ONCE (a bulkhead). Where `.throttle()` caps a RATE (calls per time window), `.concurrency()` caps SIMULTANEITY (how many are in flight at the same instant): protect a connection pool, a memory-bound step, or a downstream with a hard concurrency cap. The two compose but are not substitutes, a 10/sec throttle still allows unbounded simultaneous calls if each is slow.
 
-```ts
+```ts skip="fragment: source, formatReceipt are illustrative"
 craft()
   .id('reserve-inventory')
   .from(source)
@@ -52,7 +52,7 @@ Like the other resilience wrappers, position decides scope.
 
 **Before `.from()` (route scope):** the bulkhead bounds the whole pipeline at the INNERMOST resilience position, inside `.retry()` and `.timeout()`. Innermost means a slot is acquired per attempt and released between retry backoffs, so a scarce slot is never held while a retry sleeps.
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 craft()
   .id('bounded-pipeline')
   .concurrency({ max: 10 })
@@ -62,7 +62,7 @@ craft()
 
 **After `.from()` (step scope):** the bulkhead wraps only the immediately-next step. Later steps run unbounded.
 
-```ts
+```ts skip="fragment: formatResponse is illustrative"
 craft()
   .id('enrich-order')
   .from(direct())
@@ -81,7 +81,7 @@ The slot pool is shared across every exchange on the route, not per exchange, so
 
 When the bulkhead rejects (reject mode, or a full `maxQueue`) it throws `RC5026`, which flows to a route-scope `.error()` handler if one is defined, so you can shed load deliberately (for example return a `503`):
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .error((err) => {
   if (err.rc === 'RC5026') throw err // surface backpressure to the caller
   throw err
@@ -90,7 +90,7 @@ When the bulkhead rejects (reject mode, or a full `maxQueue`) it throws `RC5026`
 
 `RC5026` is retryable: a slot frees as soon as in-flight work completes, so an enclosing `.retry()` (which sits OUTSIDE the bulkhead) can back off and re-acquire one. That gives a useful composition, "do not queue indefinitely, retry-with-backoff instead":
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .retry({ maxAttempts: 4, backoff: 50, factor: 2 })
 .concurrency({ max: 8, mode: 'reject' })
 .to(http({ url }))

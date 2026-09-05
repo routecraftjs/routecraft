@@ -6,7 +6,7 @@ title: error
 [← All operations](/docs/reference/operations)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 error(handler: (error: unknown, exchange: Exchange, forward: ForwardFn) => unknown | Promise<unknown>): this
 ```
 
@@ -25,7 +25,7 @@ The error handler can:
 - Call `forward(endpoint, payload)` to delegate to a direct route and return its result
 - Rethrow the error to propagate it to the context level
 
-```ts
+```ts skip="fragment: source, mightFail, destination are illustrative"
 // Log and swallow
 craft()
   .id('with-error-handler')
@@ -68,7 +68,7 @@ craft()
 
 `.error()` is dual-mode. Chained AFTER `.from()` it becomes a **wrapper** around the immediately next step instead of a route-level catch-all. On wrapped-step success the pipeline continues unchanged. On wrapped-step failure the handler runs, its return value replaces `exchange.body`, and the pipeline continues with the next step. Subsequent steps see the recovery as if nothing went wrong.
 
-```ts
+```ts skip="fragment: prepareRequest, database are illustrative"
 // Recover from one flaky call, keep processing
 craft()
   .id('resilient-pipeline')
@@ -83,7 +83,7 @@ The handler signature is identical in both positions: `(error, exchange, forward
 
 **Cascade rule.** When a step-scope handler itself throws, the wrapper rethrows. The route-scope handler (when set) catches it; otherwise the default error path fires (`route:error`, `context:error`, `route:exchange:failed`). The route is NOT stopped.
 
-```ts
+```ts skip="fragment: prepareRequest, database are illustrative"
 craft()
   .id('with-safety-net')
   .error((err, ex, forward) => forward('errors.catchall', ex.body))  // route scope

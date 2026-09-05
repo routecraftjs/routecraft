@@ -18,7 +18,7 @@ Every capability starts with a source adapter in `.from()` and ends with a desti
 
 A source produces data and starts the flow. It goes in `.from()`.
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Triggered by a timer
 .from(timer({ interval: 60_000 }))
 
@@ -33,7 +33,7 @@ A source produces data and starts the flow. It goes in `.from()`.
 
 A destination pushes the exchange out to an external system. It goes in `.to()`. The push is void: the body flows through unchanged, and a receipt (a message id, an etag) lands on headers.
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .to(log())
 .to(json({ path: './output.json' }))
 .to(jsonl({ path: './events.jsonl', append: true }))
@@ -44,7 +44,7 @@ A destination pushes the exchange out to an external system. It goes in `.to()`.
 
 An enricher pulls a value in per exchange -- an HTTP GET, a file read, a lookup on another capability. It goes in `.enrich()`, where the fetched value replaces the body (or feeds an aggregator such as `only()` to merge). `.to()` accepts an enricher too: the result replaces the body there as well.
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .enrich(http({ url: 'https://api.example.com/users/1' }))
 .to(http({ method: 'POST', url: 'https://api.example.com/events' }))
 .to(direct('next-stage'))
@@ -54,7 +54,7 @@ An enricher pulls a value in per exchange -- an HTTP GET, a file read, a lookup 
 
 A processor sits in the middle of a pipeline and modifies the exchange. It goes in `.process()`.
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .process(myCustomProcessor)
 ```
 
@@ -64,7 +64,7 @@ Any destination or enricher can also be passed to `.tap()`. The `.tap()` operati
 
 Most adapters accept an options object. Options can be static values or functions that derive a value from the exchange at runtime.
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Static
 .to(http({ method: 'POST', url: 'https://api.example.com/events' }))
 
@@ -90,7 +90,7 @@ export const craftConfig: CraftConfig = {
 
 ```
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // capability file -- timezone and maxJitter come from the config
 .from(cron('@daily'))
 

@@ -6,13 +6,13 @@ title: spy
 [← All adapters](/docs/reference/adapters)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 spy<T>(): SpyAdapter<T>
 ```
 
 Records all exchanges passing through it. Use as a destination (`.to()` / `.tap()`, void send), enricher (`.enrich()`; the fetch face returns the current body, so a bare `.enrich(spy())` observes without changing it), or processor to capture and assert on pipeline output.
 
-```ts
+```ts skip="fragment: expect are illustrative"
 import { spy } from '@routecraft/testing'
 
 const spyAdapter = spy()

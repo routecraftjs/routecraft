@@ -6,7 +6,7 @@ title: suspend
 [← All operations](/docs/reference/operations)
 </Lead>
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 suspend(options: {
   schema?: StandardSchemaV1
   ttl?: Duration
@@ -16,7 +16,7 @@ suspend(options: {
 
 Park the exchange durably and exit the pipeline. The run that reaches a `.suspend()` ends there and replies immediately; the exchange continues from the next step later, when [`.resume()`](/docs/reference/operations/resume) arrives with the payload.
 
-```ts
+```ts skip="fragment: PayoutRequest, Approval, executePayout are illustrative"
 craft()
   .id('payout')
   .input({ body: PayoutRequest })
@@ -104,7 +104,7 @@ What it does guarantee is the part you cannot build from outside:
 
 So the decision lives on the resuming route, in [`.resume({ authorize })`](/docs/reference/operations/resume#securing-resume), and `meta` is how the park carries whatever that decision needs:
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .tap(direct('notify-approver'))
 .suspend({
   schema: Approval,

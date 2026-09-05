@@ -6,7 +6,7 @@ title: delegate
 [← All operations](/docs/reference/operations)
 </Lead>
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 delegate(resolver: (exchange: Exchange<Current>) => DelegationClaims | undefined | Promise<DelegationClaims | undefined>, options?: { otherwise?: 'drop' | 'keep' }): RouteBuilder<Current>
 ```
 
@@ -40,7 +40,7 @@ An agent's own scopes say what it may do **as itself**, which is a different que
 
 Consider a capability backed by a shared system account (an API key to a knowledge base, an HR system, a billing provider). There is no "the agent's own write access" for a scope to attach to: one credential serves everyone, and the only real question is whether the caller may invoke the write route. An agent that is deliberately read-only by default holds no `kb:write`, so intersecting its scopes would strip the very grant a user just issued.
 
-```ts
+```ts skip="fragment: userWithWrite is illustrative"
 // The agent may never write on its own. A user can still grant it.
 const readOnlyAgent = { subject: 'agent:zoe', subjectProfile: 'ai_agent', scopes: ['kb:read'] }
 delegate(userWithWrite, readOnlyAgent, { scopes: ['kb:write'] }).scopes // ['kb:write']
@@ -59,7 +59,7 @@ Failure modes:
 
 Delegation state can only be established here. [`authenticate()`](/docs/reference/operations/authenticate) rejects `actor` and `grantId` claims with [`RC5024`](/docs/reference/errors#rc-5024), so spreading a delegated principal back through a mint cannot fabricate a chain while skipping the `mayAct` check and the scope intersection. (`mayAct` itself is accepted at mint: it describes the subject, like roles, and is legitimately established when identity is resolved from a directory or grant store.)
 
-```ts
+```ts skip="fragment: mailPrincipal, grants are illustrative"
 import { agent } from '@routecraft/ai'
 import { craft, mail } from '@routecraft/routecraft'
 

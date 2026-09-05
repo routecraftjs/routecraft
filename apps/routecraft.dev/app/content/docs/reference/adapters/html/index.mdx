@@ -6,7 +6,7 @@ title: html
 [← All adapters](/docs/reference/adapters)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 html(options: HtmlOptions): Transformer   // no path: extract from the HTML string in the body
 html(options: HtmlOptions & { path }): HtmlAdapter   // Source<HtmlResult> & Destination<unknown> & Enricher<unknown, HtmlResult>
 ```
@@ -16,7 +16,7 @@ Extract data from HTML using CSS selectors (powered by cheerio), or read/write H
 "Presence" means the key was **supplied**, not that it holds something truthy. Only an omitted `path` selects the transformer role; a supplied `path` that is empty or `undefined` is refused with `RC5003` rather than silently demoted to a transformer that would ignore every file option passed alongside it.
 
 **Transformer role** (in-memory HTML parsing):
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Extract text from title
 .transform(html({ selector: 'title', extract: 'text' }))
 
@@ -43,7 +43,7 @@ Extract data from HTML using CSS selectors (powered by cheerio), or read/write H
 ```
 
 **Source role** (read HTML files and extract):
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Read HTML file and extract title
 .from(html({
   path: './page.html',
@@ -63,7 +63,7 @@ Extract data from HTML using CSS selectors (powered by cheerio), or read/write H
 
 **Read mid-route** (extract from an HTML file partway through a route): The adapter is also an enricher whose `fetch` reads the file and extracts via the selector, so `.enrich()` can pull the result in. The extracted value replaces the body; pass an aggregator such as `only()` to merge instead. The fetch role accepts dynamic (function) paths. Extraction failures throw and surface through the pipeline (the `onParseError` lifecycle controls apply to the source role only).
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Replace the body with the extracted value
 .enrich(html({ path: './page.html', selector: 'title' }))
 
@@ -75,7 +75,7 @@ Extract data from HTML using CSS selectors (powered by cheerio), or read/write H
 ```
 
 **Destination role** (write HTML files). The send is void: the body flows through the `.to()` step unchanged.
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Write HTML string to file
 .to(html({ path: './output.html' }))
 
@@ -125,7 +125,7 @@ Passing both `append: true` and `delete: true` throws `RC5003` at construction.
 
   Two things to know about the value you get back. Entities are decoded, so a page that escapes markup (`Array&lt;string&gt;`) yields it as written (`Array<string>`); the result is unsanitised, and it is the route's job to escape it at the sink before writing it into HTML or into a line-structured format. And whitespace inside the match survives, so a `<pre>` keeps its line breaks and an ordinary indented page yields the source indentation and newlines between its elements. Collapse it in the route when you want one line. A selector that matches a single element yields a string, and the second type parameter names that, so the transform after it does not have to handle the array case:
 
-  ```ts
+  ```ts skip="fragment: a chain shown without its route"
   .transform(html<unknown, string>({ selector: '.card', extract: 'text' }))
   .transform((text) => text.replace(/\s+/g, ' '))
   ```

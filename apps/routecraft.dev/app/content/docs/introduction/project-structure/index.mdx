@@ -123,7 +123,7 @@ Capabilities never import each other's internal files. To call one capability fr
 use [`direct()`](/docs/advanced/composing-capabilities) with the callee's id, and import its
 types from its `route.ts`:
 
-```ts
+```ts skip="multi-file: imports a sibling file the page describes in prose"
 // capabilities/reports/daily-summary/route.ts
 import { craft, direct } from '@routecraft/routecraft'
 import { type SendEmailInput } from '../../comms/send-email/route'

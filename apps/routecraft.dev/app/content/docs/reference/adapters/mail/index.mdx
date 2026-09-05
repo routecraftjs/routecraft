@@ -6,7 +6,7 @@ title: mail
 [← All adapters](/docs/reference/adapters)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 mail(folder: string, options?: MailServerOptions): MailFolderAdapter
 mail(options: MailServerOptions & { folder: string }): MailFolderAdapter
 mail(action: MailAction): Destination<unknown>
@@ -17,7 +17,7 @@ Read email via IMAP, send via SMTP, or perform IMAP operations. Which role you g
 
 Naming a folder returns one read adapter, `MailFolderAdapter`, that carries both read roles. The operation keyword picks between them: `.from()` subscribes over IMAP IDLE or polling, `.enrich()` fetches a batch mid-route. The second argument only fills in options, so all four combinations below are valid:
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .from(mail('INBOX'))                     // subscribe with defaults
 .from(mail('INBOX', { markSeen: true }))
 .enrich(mail('INBOX'))                   // fetch with defaults
@@ -48,7 +48,7 @@ craft()
 - **IDLE (default):** the server pushes notifications when new mail arrives. The `\Seen` flag is the cross-cycle dedupe state, so each message is delivered exactly once per subscription. IDLE is the right default for "process each new email once" workloads.
 - **Poll (opt-in):** set `pollInterval` to fetch on a cadence instead of IDLE. Required whenever you opt out of the `\Seen` dedupe model (`markSeen: false` or `unseen: false`), for example to re-evaluate the inbox on every cycle and rely on a folder move as the done-signal. IDLE has no cycle boundary, so combining it with those overrides would refetch the entire folder on every inbound message; the source throws `RC5003` at startup to prevent this footgun.
 
-```ts
+```ts skip="fragment: matchesCriteria, processMessage are illustrative"
 // Re-evaluate the inbox every minute; archive a message to mark it done.
 // If you later extend `matchesCriteria`, previously-unmatched mail that is
 // still in INBOX is picked up on the next cycle.
@@ -70,7 +70,7 @@ The `\Seen` flag is written per-message **after** the handler resolves successfu
 
 Because the initial connect retries too, the source signals readiness before the first connection succeeds: an IMAP server that is unreachable at route start leaves the route running in a degraded-but-recovering state, and `route:started` does not guarantee the mailbox was reachable. When the attempts cap is exhausted the source gives up with `RC5010` and the route stops; subscribe to [`route:source:failed`](/docs/reference/events) to alarm on a dead channel. Set `reconnect: { maxAttempts: Infinity }` for a channel that must never give up, or `reconnect: false` to disable recovery and fail on the first connection error.
 
-```ts
+```ts skip="fragment: processMessage is illustrative"
 // A long-lived agent channel: keep retrying forever, alarm via events.
 craft()
   .id('inbox-agent')
@@ -122,7 +122,7 @@ craft()
 
 **IMAP operations:** Call with a `MailAction` object to move, copy, delete, flag, unflag, or append messages.
 
-```ts
+```ts skip="fragment: processMessage is illustrative"
 // Archive after processing
 craft()
   .id('archive-processed')
@@ -164,7 +164,7 @@ export const craftConfig: CraftConfig = {
 }
 ```
 
-```ts
+```ts skip="multi-file: imports a sibling file the page describes in prose"
 // capabilities/inbox-watcher.ts
 export { craftConfig } from '../craft.config'
 import { craft, mail, log } from '@routecraft/routecraft'
@@ -177,7 +177,7 @@ export default craft()
 
 When multiple accounts are configured, select one per adapter call with the `account` option:
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .from(mail('INBOX', { account: 'support' }))
 .to(mail({ account: 'notifications' }))
 ```

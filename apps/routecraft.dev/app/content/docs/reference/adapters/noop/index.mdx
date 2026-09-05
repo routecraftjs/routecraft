@@ -6,13 +6,13 @@ title: noop
 [← All adapters](/docs/reference/adapters)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 noop<T>(): Destination<T>
 ```
 
 A no-operation adapter that discards messages. Useful for testing, development, or conditional routing.
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Conditional destination based on environment
 .to(process.env.NODE_ENV === 'production' ? realDestination() : noop())
 

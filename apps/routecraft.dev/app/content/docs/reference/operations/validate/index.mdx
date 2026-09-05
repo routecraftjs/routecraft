@@ -6,7 +6,7 @@ title: validate
 [← All operations](/docs/reference/operations)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 validate<R = Current>(validator: Validator<Current, R> | CallableValidator<Current, R>): RouteBuilder<R>
 ```
 
@@ -14,7 +14,7 @@ Validate the exchange body using a Validator adapter or callable function. On su
 
 For Standard Schema validation, use the `.schema()` sugar or pass the `schema()` factory.
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Custom validator
 .validate((exchange) => {
   if (!exchange.body.email) throw new Error("email required");

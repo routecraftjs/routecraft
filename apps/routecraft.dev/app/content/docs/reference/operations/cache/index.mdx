@@ -9,7 +9,7 @@ titleBadges:
 [← All operations](/docs/reference/operations)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 cache(options?: CacheOptions): RouteBuilder<Current>
 ```
 
@@ -17,7 +17,7 @@ Cache and reuse the result of an expensive operation. When a cached value exists
 
 **Mental model:** Dual-mode. After `.from()` it wraps the immediately-next step. Before `.from()` it caches the entire route's terminal output keyed by the source message; on a hit the whole pipeline is skipped and the cached body is returned to the source.
 
-```ts
+```ts skip="fragment: source, expensiveOperation, destination are illustrative"
 // Default: key derived from body hash, process-wide in-memory provider
 craft()
   .id('document-processor')
@@ -82,7 +82,7 @@ craft()
 
 Place `.cache()` BEFORE `.from()` to cache the entire route's terminal output (the body returned to the source) keyed by the source-emitted message.
 
-```ts
+```ts skip="fragment: weatherApi, formatForecast are illustrative"
 craft()
   .id('weather')
   .cache({ ttl: 60_000 })
@@ -102,7 +102,7 @@ On a hit, **the whole pipeline is skipped** (no `.enrich`, no `.transform`, no `
 
 **Cache key partitions the *data*, not the authorization.** Pick the key based on what the cached response represents:
 
-```ts
+```ts skip="fragment: loadEmployees, loadLeaveForUser are illustrative"
 // Shared role-gated data: every authorized caller sees the same list.
 // Default body-hash key is correct.
 craft()

@@ -12,7 +12,7 @@ The `direct()` adapter is an in-process channel that lets one capability hand of
 
 The simplest pattern: one capability fetches data, passes it to a processor, which passes it to a notifier.
 
-```ts
+```ts skip="fragment: fetchNewOrders is illustrative"
 // capabilities/fetch-orders.ts
 export default craft()
   .id('orders.fetch')
@@ -21,7 +21,7 @@ export default craft()
   .to(direct('orders.process'))
 ```
 
-```ts
+```ts skip="fragment: fulfillOrder is illustrative"
 // capabilities/process-orders.ts
 export default craft()
   .id('orders.process')
@@ -83,7 +83,7 @@ export default craft()
   .to(direct((exchange) => `jobs.${exchange.body.priority}`))
 ```
 
-```ts
+```ts skip="fragment: processUrgent is illustrative"
 // capabilities/high-priority.ts
 export default craft()
   .id('jobs.high')
@@ -92,7 +92,7 @@ export default craft()
   .to(log())
 ```
 
-```ts
+```ts skip="fragment: processNormal is illustrative"
 // capabilities/normal-priority.ts
 export default craft()
   .id('jobs.normal')
@@ -105,7 +105,7 @@ export default craft()
 
 Title, description, and request / response schemas are route-level concerns declared on the builder. The framework validates `.input()` against every incoming message before the pipeline runs, and `.output()` against the final exchange before the primary destination fires. Any source adapter inherits this validation, and any discovery-aware adapter (`direct`, `mcp`) mirrors the same metadata into its registry so agents, docs, and observability see one consistent view.
 
-```ts
+```ts skip="fragment: fulfillOrder is illustrative"
 import { z } from 'zod'
 
 export default craft()
@@ -130,7 +130,7 @@ Swap `direct()` for `mcp()` (or, in the future, `agent()`) without moving any me
 
 Omit `.id()` to make a capability discoverable by agents but unreferenceable from code. The route still registers in the direct registry (agents can find it by description and schemas), but its endpoint is a random UUID that cannot be typed into `direct('...')` on the destination side.
 
-```ts
+```ts skip="fragment: fetchSnippets is illustrative"
 export default craft()
   .title('Knowledge base lookup')
   .description('Retrieve internal documentation snippets by query')

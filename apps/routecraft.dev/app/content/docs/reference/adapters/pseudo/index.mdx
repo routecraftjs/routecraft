@@ -6,7 +6,7 @@ title: pseudo
 [← All adapters](/docs/reference/adapters)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 pseudo<Opts>(name?: string, options?: PseudoOptions): PseudoFactory<Opts>
 pseudo<Opts>(name: string, options: PseudoKeyedOptions): PseudoKeyedFactory<Opts>
 ```
@@ -49,7 +49,7 @@ craft()
 
 **Keyed (string-first) signature:** use `args: "keyed"` when the real adapter takes a key then options (e.g. queue name, table name):
 
-```ts
+```ts skip="fragment: source is illustrative"
 const queue = pseudo<{ ttl?: number }>("queue", { args: "keyed" });
 
 craft()
@@ -66,7 +66,7 @@ craft()
 
 **Replacing with a real adapter:** keep the same call shape; only the import changes:
 
-```ts
+```ts skip="third-party: @routecraft/mcp-adapter is not a dependency of the docs site"
 // Before (pseudo)
 import { pseudo } from "@routecraft/testing";
 const mcp = pseudo<McpCallOptions>("mcp");

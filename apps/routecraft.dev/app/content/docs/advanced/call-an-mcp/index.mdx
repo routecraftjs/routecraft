@@ -74,7 +74,7 @@ Bare `.enrich(mcp(...))` behaves like `.to()`: the tool result replaces the body
 
 By default, the exchange body is passed as-is to the tool. Use the `args` option to map the body to the exact shape the tool expects:
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .to(mcp('browser:navigate', {
   args: (exchange) => ({ url: exchange.body.targetUrl }),
 }))
@@ -84,7 +84,7 @@ By default, the exchange body is passed as-is to the tool. Use the `args` option
 
 If you only need to call a single external tool and do not want to register it globally, pass the URL directly:
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .to(mcp({ url: 'http://127.0.0.1:8089/mcp', tool: 'navigate' }))
 ```
 

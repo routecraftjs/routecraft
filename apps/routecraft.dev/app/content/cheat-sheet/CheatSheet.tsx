@@ -91,7 +91,7 @@ bun add -g @routecraft/cli`}</CheatCode>
             eyebrow="Concept"
             title="Route + Context"
           >
-            <CheatCode>{`import { craft, ContextBuilder } from '@routecraft/routecraft'
+            <CheatCode skip="fragment: source, destination are illustrative">{`import { craft, ContextBuilder } from '@routecraft/routecraft'
 
 const route = craft()
   .id('my-route')
@@ -118,7 +118,7 @@ await ctx.stop()`}</CheatCode>
               Chain operations to build a type-safe pipeline. Types flow through
               each step.
             </p>
-            <CheatCode>{`craft()
+            <CheatCode skip="fragment: not a complete statement on its own">{`craft()
   .id('pipeline')                  // unique route name
   .title('Pipeline')               // display name (agents, docs)
   .description('...')              // doc string used in errors
@@ -144,7 +144,7 @@ await ctx.stop()`}</CheatCode>
           </CheatSection>
 
           <CheatSection id="sources" eyebrow="Inputs" title="Sources">
-            <CheatCode>{`// Static value or async function
+            <CheatCode skip="fragment: not a complete statement on its own">{`// Static value or async function
 .from(simple({ hello: 'world' }))
 .from(simple(() => fetch('/api')))
 
@@ -182,7 +182,7 @@ await ctx.stop()`}</CheatCode>
             eyebrow="Outputs"
             title="Destinations"
           >
-            <CheatCode>{`// Log to console
+            <CheatCode skip="fragment: not a complete statement on its own">{`// Log to console
 .to(log())
 .to(debug(ex => ex.body))
 
@@ -218,14 +218,14 @@ await ctx.stop()`}</CheatCode>
           </CheatSection>
 
           <CheatSection id="exchanges" eyebrow="Envelope" title="Exchanges">
-            <CheatCode>{`type Exchange<T> = {
+            <CheatCode skip="fragment: Logger is illustrative">{`type Exchange<T> = {
   id: string
   body: T
   headers: ExchangeHeaders
   logger: Logger
 }`}</CheatCode>
             <CheatLabel>Access patterns</CheatLabel>
-            <CheatCode>{`// .transform() gets the body
+            <CheatCode skip="fragment: not a complete statement on its own">{`// .transform() gets the body
 .transform(body => body.toUpperCase())
 
 // .process() gets the full exchange
@@ -261,7 +261,7 @@ await ctx.stop()`}</CheatCode>
               First matching <code>when</code> wins. <code>halt()</code>{' '}
               short-circuits the branch.
             </p>
-            <CheatCode>{`import { when, otherwise } from '@routecraft/routecraft'
+            <CheatCode skip="fragment: source, urgentQueue, reviewQueue are illustrative">{`import { when, otherwise } from '@routecraft/routecraft'
 
 craft()
   .from(source)
@@ -281,7 +281,7 @@ craft()
             eyebrow="Lookup"
             title="Enrich (fetch &amp; merge)"
           >
-            <CheatCode>{`// Default: deep merge
+            <CheatCode skip="fragment: not a complete statement on its own">{`// Default: deep merge
 .enrich(http({ url: '/api/user' }))
 
 // Custom merge strategy
@@ -324,7 +324,7 @@ craft()
             eyebrow="Observability"
             title="Events system"
           >
-            <CheatCode>{`// Context lifecycle
+            <CheatCode skip="fragment: ctx are illustrative">{`// Context lifecycle
 ctx.on('context:started', () => {})
 ctx.on('context:error', ({ details }) => {
   // { error, route?, exchange? }
@@ -355,7 +355,7 @@ ctx.on('plugin:*:started', () => {})`}</CheatCode>
             eyebrow="Recovery"
             title="Error handling"
           >
-            <CheatCode>{`craft()
+            <CheatCode skip="fragment: source, destination are illustrative">{`craft()
   .error((error, exchange, forward) => {
     // Return a recovery value
     return { recovered: true }
@@ -380,7 +380,7 @@ RC9xxx  Testing`}</CheatCode>
             eyebrow="Runtime"
             title="Context &amp; plugins"
           >
-            <CheatCode>{`const ctx = await new ContextBuilder()
+            <CheatCode skip="fragment: value, route1, route2 are illustrative">{`const ctx = await new ContextBuilder()
   .with({
     crm: { timezone: 'UTC' },   // your own augmented key
     mail: { accounts: { /* ... */ } },
@@ -490,7 +490,7 @@ craft()
   .enrich(http({ url: ex => ex.body.url }))
   .to(log())`}</CheatCode>
             <CheatLabel>Call an MCP server</CheatLabel>
-            <CheatCode>{`// As a destination (invoke a remote tool)
+            <CheatCode skip="fragment: not a complete statement on its own">{`// As a destination (invoke a remote tool)
 .to(mcp('github', 'search'))`}</CheatCode>
             <CheatLabel>Protect with auth</CheatLabel>
             <CheatCode>{`import { jwt } from '@routecraft/routecraft'

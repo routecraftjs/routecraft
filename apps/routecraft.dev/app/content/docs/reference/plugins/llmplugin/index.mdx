@@ -63,7 +63,7 @@ Requires the `@ai-sdk/openai-compatible` peer (`bun add @ai-sdk/openai-compatibl
 
 The `custom` provider is an escape hatch for running `llm()` or `agent()` against a model the built-in providers do not cover, including a deterministic in-process model for tests or offline demos. Supply an AI SDK `LanguageModel` directly, or a factory that receives the model name:
 
-```ts
+```ts skip="third-party: ai/test is not a dependency of the docs site"
 import { MockLanguageModelV3 } from 'ai/test'
 
 llmPlugin({

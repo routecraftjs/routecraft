@@ -6,13 +6,13 @@ title: header
 [← All operations](/docs/reference/operations)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 header(key: string, valueOrFn: HeaderValue | ((exchange: Exchange<Current>) => HeaderValue | Promise<HeaderValue>)): RouteBuilder<Current>
 ```
 
 Set or override a header on the exchange. The body remains unchanged.
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Static header
 .header('x-env', 'prod')
 

@@ -64,7 +64,7 @@ When you build a context with `ContextBuilder`, you get back both the `context` 
 
 This means you can embed Routecraft as a library inside any application. The routes hold your business logic; the surrounding code handles I/O, user interaction, or HTTP plumbing.
 
-```ts
+```ts skip="fragment: myRoutes is illustrative"
 import { ContextBuilder } from '@routecraft/routecraft';
 
 const { context, client } = await new ContextBuilder()
@@ -88,7 +88,7 @@ const result = await client.sendDirect('greet', { name: 'World' });
 
 Use [Commander](https://github.com/tj/commander.js) (or any CLI framework) to parse arguments, then dispatch into routes via `client.sendDirect()`. This gives you full control over help text, subcommands, and shell completion while keeping business logic in Routecraft routes.
 
-```ts
+```ts skip="third-party: commander is not a dependency of the docs site"
 import { Command } from 'commander';
 import { direct, craft, noop, ContextBuilder } from '@routecraft/routecraft';
 
@@ -181,7 +181,7 @@ context.start().catch(console.error);
 export { client };
 ```
 
-```ts
+```ts skip="multi-file: imports a sibling file the page describes in prose"
 // app/api/greet/route.ts
 import { client } from '@/lib/routecraft';
 
@@ -194,7 +194,7 @@ export async function POST(request: Request) {
 
 ### Express
 
-```ts
+```ts skip="third-party: express is not a dependency of the docs site"
 import express from 'express';
 import { ContextBuilder, direct, craft, noop } from '@routecraft/routecraft';
 

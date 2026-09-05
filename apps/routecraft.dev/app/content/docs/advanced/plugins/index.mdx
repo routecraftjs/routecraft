@@ -55,7 +55,7 @@ export default {
 
 Pass plugins in `craft.config.ts`:
 
-```ts
+```ts skip="multi-file: imports a sibling file the page describes in prose"
 // craft.config.ts
 import type { CraftConfig } from '@routecraft/routecraft'
 import logger from './plugins/logger'
@@ -73,7 +73,7 @@ The most common use of plugins and context configuration is setting default opti
 
 Core adapters have dedicated fields on `CraftConfig`:
 
-```ts
+```ts skip="fragment: KafkaChannel is illustrative"
 // craft.config.ts
 export const craftConfig: CraftConfig = {
   cron: { timezone: 'UTC', maxJitter: 2000 },

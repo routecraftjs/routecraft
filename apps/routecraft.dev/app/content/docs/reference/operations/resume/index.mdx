@@ -6,7 +6,7 @@ title: resume
 [← All operations](/docs/reference/operations)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 resume(
   map?: (exchange: Exchange<Current>) => ResumeRequest | Promise<ResumeRequest>,
   options?: { authorize?: ResumeAuthorizer },
@@ -18,7 +18,7 @@ resume(options: {
 
 Revive an exchange parked by [`.suspend()`](/docs/reference/operations/suspend) and run its continuation.
 
-```ts
+```ts skip="fragment: mailPrincipal, tokenFrom are illustrative"
 // Preferred: map the ingress exchange to the payload it carries.
 craft()
   .id('approval-replies')
@@ -83,7 +83,7 @@ Routecraft ships no answer to who may. It has no notion of an approver, a role, 
 
 The whole contract in one line: **the acknowledgment carries the contract, the record carries the context, and nothing spends the link except a valid, authorized resume winning the claim.**
 
-```ts
+```ts skip="fragment: mapPayload, yourPolicy are illustrative"
 craft()
   .id('approvals')
   .from(http({ path: '/approvals', method: 'POST', auth: 'required' }))
@@ -154,7 +154,7 @@ That guard is the pattern, not decoration. Every hook you write is the whole gat
 
 **Channel segmentation.** Several classes of park share a context under different transport auth, and each door serves only its own:
 
-```ts
+```ts skip="fragment: financeIngress, mapPayload, opsIngress are illustrative"
 // .suspend({ schema: Approval, meta: { channel: 'finance' } })
 const servesChannel = (channel: string) => ({
   authorize: ({ record }) => (record.meta as { channel?: string })?.channel === channel,

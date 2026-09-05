@@ -6,7 +6,7 @@ title: enabled
 [← All operations](/docs/reference/operations)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 enabled(
   predicate: () => boolean | string | Promise<boolean | string>,
   options?: {
@@ -20,7 +20,7 @@ Gate a route on a predicate. A route whose predicate is false is **disabled**: r
 
 This is the state a capability without its credentials never had. Without it such a route either registers and fails when something calls it, or is commented out by hand, and a route that is missing looks exactly like one that is deliberately off, though only the first is an incident.
 
-```ts
+```ts skip="fragment: env are illustrative"
 craft()
   .id('mail-inbound')
   .description('Triage inbound mail')
@@ -46,7 +46,7 @@ The predicate may be async; the boot waits for the verdict rather than racing it
 
 The agent tool list is derived from what the context has enabled, so a disabled capability is simply never offered to the model. That is what makes "the agent cannot use this until I supply credentials" true by construction rather than by the model behaving well.
 
-```ts
+```ts skip="fragment: ctx is illustrative"
 ctx.capabilities() // the disabled route's endpoint is absent
 ```
 
@@ -60,7 +60,7 @@ So a route being off keeps everyone out, and a route being on lets everyone in w
 
 ## Refresh cadence
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .enabled(predicate)                            // manual (default)
 .enabled(predicate, { refresh: 'manual' })     // manual, said explicitly
 .enabled(predicate, { refresh: '5m' })         // interval
@@ -73,7 +73,7 @@ So a route being off keeps everyone out, and a route being on lets everyone in w
 
 Omitting `refresh` and passing `'manual'` mean exactly the same thing. The sentinel exists for a **computed** cadence, where it says what it means instead of assembling the options object conditionally:
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .enabled(predicate, { refresh: pollCadence ?? 'manual' })
 ```
 
@@ -91,7 +91,7 @@ The cron check happens at startup rather than at build time because `croner` is 
 
 `drainGrace` sets how long in-flight exchanges may keep running after the route stops intaking, before execution is abandoned. It defaults to [`shutdown.timeout`](/docs/reference/configuration#shutdown), because a disable is a per-route shutdown and one knob for both is what an operator expects to find.
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .enabled(predicate, { drainGrace: '2m' })      // this pipeline is slow
 .enabled(predicate, { drainGrace: 'never' })   // never abandon an exchange
 ```
@@ -102,7 +102,7 @@ Set it per route when you know what your own in-flight work costs: a route whose
 
 ## Re-evaluating on demand
 
-```ts
+```ts skip="fragment: ctx are illustrative"
 await ctx.reevaluateEnablement('mail-inbound') // one route
 await ctx.reevaluateEnablement()               // every declaring route
 ```

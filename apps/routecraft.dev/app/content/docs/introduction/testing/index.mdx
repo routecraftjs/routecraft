@@ -10,7 +10,7 @@ Test your capabilities with fast unit tests and optional E2E runs.
 
 Use `testContext()` to build a test context and `t.test()` to run the full lifecycle (start, wait for routes ready, drain, stop). Assert after `await t.test()`:
 
-```ts
+```ts skip="multi-file: imports a sibling file the page describes in prose"
 import { describe, it, expect, vi } from "vitest";
 import { testContext, type TestContext } from "@routecraft/testing";
 import helloRoute from "../capabilities/hello-world";
@@ -52,7 +52,7 @@ export default defineConfig({
 
 Use `testContext()` and `t.test()` for the recommended flow. `t.test()` runs start → wait for all routes ready → drain → stop, so you don't need manual timeouts for direct/simple routes:
 
-```ts
+```ts skip="multi-file: imports a sibling file the page describes in prose"
 import { testContext, type TestContext } from "@routecraft/testing";
 import routes from "../capabilities/hello-world"; // your capability export
 
@@ -78,7 +78,7 @@ When your route uses an adapter that talks to an external system -- `mail()`, `h
 
 Use `mockAdapter()` and `testContext().override()` instead. You import the factory (`mail`, `http`, ...), describe how it should behave in the test, and register the mock on the test context. The route stays unchanged.
 
-```ts
+```ts skip="multi-file: imports a sibling file the page describes in prose"
 import { mail } from "@routecraft/routecraft";
 import {
   mockAdapter,
@@ -146,7 +146,7 @@ it("moves spam and replies to friends", async () => {
 
 ### Inspecting recorded calls
 
-```ts
+```ts skip="fragment: mailMock are illustrative"
 mailMock.calls.source   // [{ args, yielded }]   -- per subscribe call
 mailMock.calls.send     // [{ args, exchange, result }]
                          //   exchange = { id, body, headers } snapshot
@@ -180,7 +180,7 @@ const httpMock = mockAdapter(http, {
 
 One mock covers every call site of the factory. Discriminate inside `send` using `args`, or chain `vi.fn()` implementations for ordered responses:
 
-```ts
+```ts skip="fragment: vi is illustrative"
 const httpMock = mockAdapter(http, {
   send: vi.fn()
     .mockResolvedValueOnce({ status: 200, body: { ok: true } })
@@ -269,7 +269,7 @@ test('logs messages correctly', async () => {
 
 Filter logs by route id (from `LogAdapter` headers):
 
-```ts
+```ts skip="fragment: t is illustrative"
 const infoCalls = t.logger.info.mock.calls.map((c) => c[0]);
 const logsForRoute = infoCalls.filter(
   (arg) => typeof arg === "object" && arg != null && "headers" in arg && (arg as any).headers?.["routecraft.route"] === "channel-adapter-1",
@@ -278,7 +278,7 @@ const logsForRoute = infoCalls.filter(
 
 ### Test custom sources that await the final exchange
 
-```ts
+```ts skip="fragment: expect are illustrative"
 import { testContext, spy } from "@routecraft/testing";
 import { craft } from "@routecraft/routecraft";
 
@@ -313,7 +313,7 @@ expect(spyAdapter.received[0].body).toBe("HELLO!");
 
 Use `.routesReadyTimeout(ms)` to give timer or slow-starting routes more time to become ready before `t.test()` proceeds:
 
-```ts
+```ts skip="fragment: timerRoute is illustrative"
 const t = await testContext()
   .routesReadyTimeout(500)
   .routes(timerRoute)
@@ -323,7 +323,7 @@ await t.test();
 
 For cases where you need precise control over the run window, drive the lifecycle manually:
 
-```ts
+```ts skip="fragment: timerRoute is illustrative"
 const t = await testContext().routes(timerRoute).build();
 const execution = t.ctx.start();
 await new Promise((r) => setTimeout(r, 150));
@@ -335,7 +335,7 @@ await execution;
 
 ### Spy adapter assertions
 
-```ts
+```ts skip="fragment: expect, spyAdapter are illustrative"
 // Basic assertions
 expect(spyAdapter.received).toHaveLength(3);
 expect(spyAdapter.calls.send).toBe(3);
@@ -355,7 +355,7 @@ expect(lastExchange.body).toHaveProperty("additional");
 
 ### Using spy as processor or enricher
 
-```ts
+```ts skip="fragment: expect are illustrative"
 // Test processing behavior
 const processSpy = spy();
 const route = craft()
@@ -384,7 +384,7 @@ expect(enrichSpy.calls.enrich).toBe(1);
 
 ### Route validation
 
-```ts
+```ts skip="fragment: expect is illustrative"
 // Ensure a route id is set after build
 const r = craft().id("x").from(simple("y")).to(spy());
 expect(r.build()[0].id).toBe("x");
@@ -392,7 +392,7 @@ expect(r.build()[0].id).toBe("x");
 
 ### Multiple spies in one route
 
-```ts
+```ts skip="fragment: expect are illustrative"
 const transformSpy = spy();
 const destinationSpy = spy();
 
@@ -414,7 +414,7 @@ expect(destinationSpy.received[0].body).toBe("start"); // Assuming spy processes
 
 ### Headers and correlation
 
-```ts
+```ts skip="fragment: exchange, expect are illustrative"
 const captured: string[] = [];
 // inside a .process/.tap
 captured.push(exchange.headers["routecraft.correlation_id"] as string);

@@ -12,7 +12,7 @@ By default, when a step throws an unhandled error, Routecraft logs it and emits 
 
 Define `.error()` before `.from()`. When any step in the pipeline throws, the handler is invoked instead:
 
-```ts
+```ts skip="fragment: fetchOrders, processOrder are illustrative"
 craft()
   .id('process-orders')
   .error((error, exchange) => {
@@ -37,7 +37,7 @@ The handler's return value becomes the route's final exchange body. The pipeline
 
 The third parameter, `forward`, sends a payload to another capability by route id and returns its result. It uses the direct adapter channel internally -- no extra transport or configuration is needed.
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 forward(routeId: string, payload: unknown): Promise<unknown>
 ```
 
@@ -64,7 +64,7 @@ The same applies to the `forward` handed to a `.circuitBreaker()` fallback and t
 
 ### Example: delegate to a dedicated error capability
 
-```ts
+```ts skip="fragment: fetchOrders, processOrder are illustrative"
 // capabilities/process-orders.ts
 craft()
   .id('process-orders')
@@ -103,7 +103,7 @@ In this example, `forward('errors.orders', ...)` sends the failure payload to `e
 
 If you only need to log or return a static fallback, you do not need `forward` at all. Just return a value directly:
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .error((error) => {
   return { status: 'failed', reason: (error as Error).message }
 })
@@ -113,7 +113,7 @@ If you only need to log or return a static fallback, you do not need `forward` a
 
 `.error()` is dual-mode. Chained AFTER `.from()` it wraps the **immediately next step** instead of the whole route. On wrapped-step success the pipeline continues unchanged. On wrapped-step failure the handler runs, its return value replaces `exchange.body`, and the pipeline continues with the next step.
 
-```ts
+```ts skip="fragment: prepareRequest, database are illustrative"
 craft()
   .id('resilient-pipeline')
   .from(timer({ interval: 60_000 }))
@@ -131,7 +131,7 @@ The handler signature is identical to the route-scope form: `(error, exchange, f
 
 Step handlers are local recovery; route handlers are the safety net. Use both:
 
-```ts
+```ts skip="fragment: prepareRequest, database are illustrative"
 craft()
   .id('with-safety-net')
   .error((err, ex, forward) => forward('errors.catchall', ex.body))   // route scope
@@ -185,7 +185,7 @@ The two outcomes differ in what else fires alongside them:
 
 Use `ctx.on()` with the exact event name. The event bus **rejects wildcard patterns** (`route:*`, `route:**`, ...): since identity lives in the payload, subscribing to an exact name already observes every route, and `forRoute(routeId, handler)` narrows a subscription to one route:
 
-```ts
+```ts skip="fragment: myRoutes, alertOps are illustrative"
 import { forRoute } from '@routecraft/routecraft'
 
 const ctx = new ContextBuilder()
@@ -208,7 +208,7 @@ const ctx = new ContextBuilder()
 
 For a catch-all, subscribe to `context:error`. This fires for all unhandled errors and for handler failures:
 
-```ts
+```ts skip="fragment: ctx is illustrative"
 ctx.on('context:error', ({ details }) => {
   console.error('Unhandled error:', details.error)
 })

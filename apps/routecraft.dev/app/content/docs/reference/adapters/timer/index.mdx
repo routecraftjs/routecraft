@@ -6,7 +6,7 @@ title: timer
 [← All adapters](/docs/reference/adapters)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 timer(options?: TimerOptions): Source<undefined>
 ```
 
@@ -14,7 +14,7 @@ Trigger routes at a regular interval. Produces `undefined` as the message body.
 
 For a wall-clock schedule ("every weekday at 09:00"), use [`cron()`](/docs/reference/adapters/cron), which understands timezones. `timer()` measures elapsed time, not clock time.
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Simple interval (every second)
 .id('ticker')
 .from(timer({ interval: 1000 }))

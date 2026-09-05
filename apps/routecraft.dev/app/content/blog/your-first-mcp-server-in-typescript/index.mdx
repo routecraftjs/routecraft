@@ -127,7 +127,7 @@ export const store = {
 
 Now the `notes_list` capability. Create `capabilities/notes/list-notes/route.ts`:
 
-```ts
+```ts skip="multi-file: imports a sibling file the page describes in prose"
 // capabilities/notes/list-notes/route.ts
 import { mcp } from '@routecraft/ai'
 import { craft } from '@routecraft/routecraft'
@@ -163,7 +163,7 @@ That's the whole pattern: input schema in, transform out. Adapters on either end
 
 Same shape, different verb. Create `capabilities/notes/create-note/route.ts`:
 
-```ts
+```ts skip="multi-file: imports a sibling file the page describes in prose"
 // capabilities/notes/create-note/route.ts
 import { mcp } from '@routecraft/ai'
 import { craft } from '@routecraft/routecraft'
@@ -187,7 +187,7 @@ export default craft()
 
 Register both in `capabilities/index.ts`:
 
-```ts
+```ts skip="multi-file: imports a sibling file the page describes in prose"
 // capabilities/index.ts
 import listNotes from './notes/list-notes/route'
 import createNote from './notes/create-note/route'
@@ -222,7 +222,7 @@ export const craftConfig = defineConfig({
 
 `craft run` executes `index.ts`, and a fresh project starts with an empty route list. Point it at the capabilities you just registered:
 
-```ts
+```ts skip="multi-file: imports a sibling file the page describes in prose"
 // index.ts
 export { craftConfig } from "./craft.config.js";
 import capabilities from "./capabilities/index.js";

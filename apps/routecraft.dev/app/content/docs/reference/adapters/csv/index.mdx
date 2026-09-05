@@ -6,7 +6,7 @@ title: csv
 [← All adapters](/docs/reference/adapters)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 csv(options?: CsvTransformerOptions): Transformer   // no path: parse a CSV string in the body
 csv(options: CsvFileOptions & { chunked: true }): CsvChunkedAdapter // Source<CsvRow> & Destination<unknown> & Enricher<unknown, CsvData>
 csv(options: CsvFileOptions): CsvAdapter   // Source<CsvData> & Destination<unknown> & Enricher<unknown, CsvData>
@@ -21,7 +21,7 @@ bun add papaparse
 ```
 
 **Transformer role** (parse a CSV string already in the body):
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Parse a CSV string (e.g. an http() response body) into rows
 .transform(csv())
 
@@ -33,7 +33,7 @@ bun add papaparse
 ```
 
 **Source role** (read CSV files):
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Read CSV with headers
 .from(csv({ path: './data.csv', header: true }))
 // Emits array of objects: [{ name: 'Alice', age: '30' }, ...]
@@ -53,7 +53,7 @@ bun add papaparse
 
 **Read mid-route** (read + parse a CSV file partway through a route): The adapter is also an enricher whose `fetch` reads and parses the file, so `.enrich()` can pull the rows in. The rows replace the body; pass an aggregator such as `only()` to merge instead. The fetch role accepts dynamic (function) paths. Parse failures throw and surface through the pipeline (the `onParseError` lifecycle controls apply to the source role only).
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Replace the body with the parsed rows
 .enrich(csv({ path: './data.csv' }))
 
@@ -65,7 +65,7 @@ bun add papaparse
 ```
 
 **Destination role** (write CSV files). The send is void: the body flows through the `.to()` step unchanged.
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Write array of objects to CSV
 .to(csv({
   path: './output.csv',
@@ -129,7 +129,7 @@ Passing both `append: true` and `delete: true` throws `RC5003` at construction.
 - **Source** (`chunked: true`): Emits one exchange per row with `CsvHeaders.ROW` (1-based row number) and `CsvHeaders.PATH` headers. Chunking concerns the source role only; the send/fetch roles are unchanged. With `onParseError: 'fail'` (default) malformed rows are routed through the route's `.error()` handler and the stream continues; `'abort'` reverts to fail-fast on the first bad row; `'drop'` emits `exchange:dropped` with `reason: 'parse-failed'`.
 - **Destination**: Writes exchange body (array of objects/arrays) as CSV; overwrite by default. With `append: true`, the header row is only written when the file does not exist yet
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Per-row emission
 .from(csv({ path: './big.csv', chunked: true }))
 ```

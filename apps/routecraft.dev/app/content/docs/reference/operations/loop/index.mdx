@@ -9,13 +9,13 @@ titleBadges:
 [← All operations](/docs/reference/operations)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 loop(condition: (body: Current, iteration: number) => boolean, maxIterations?: number): RouteBuilder<Current>
 ```
 
 Repeat the subsequent operations while the condition remains true. Includes safeguards to prevent infinite loops.
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .loop(
   (data, iteration) => data.hasMore && iteration < 10,
   10 // max iterations safeguard

@@ -6,7 +6,7 @@ title: authenticate
 [← All operations](/docs/reference/operations)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 authenticate(resolver: (exchange: Exchange<Current>) => PrincipalClaims | undefined | Promise<PrincipalClaims | undefined>): RouteBuilder<Current>
 ```
 
@@ -18,7 +18,7 @@ Only `subject` is required; `kind` defaults to `"custom"` and `scheme` to `"cust
 
 `.authenticate()` establishes **identification**: who the caller is. It answers nothing about delegation. When an agent should act on the authenticated caller's behalf, follow it with [`.delegate()`](/docs/reference/operations/delegate), which marks the actor and narrows scopes under a consent record; minting a principal from a channel identifier alone and handing it to an agent gives the agent the caller's full authority with no consent trail.
 
-```ts
+```ts skip="fragment: verifiedSenders, dest are illustrative"
 // Mint identity from a verified inbound email, then authorize it
 craft()
   .from(mail('INBOX'))

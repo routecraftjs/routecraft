@@ -157,7 +157,7 @@ Entries are local paths (relative to the agent file) or `npm:` package refs. `ag
 
 Blocks are an agent's contribution to its system context, expressed as a `Blocks` record (`{ [name: string]: BlockBody | Blocks | false }`) keyed by block name. A value is either a single block (a `BlockBody` leaf) or a nested `Blocks` group. A leaf is either always injected into the system prompt (`mode: "inject"`) or surfaced as a synthetic loader tool the model invokes on demand (`mode: "progressive"`, the default for `skills`). They replace the 0.5 `skills` field and unify with memory, identity, instructions, and any future system-prompt contribution.
 
-```ts
+```ts skip="fragment: TenantConfig is illustrative"
 import { agent, skills } from '@routecraft/ai'
 
 agent({
@@ -198,7 +198,7 @@ The block's name is the record key (not a field on the body). Names starting wit
 
 A block value may be a nested `Blocks` record instead of a single body. This keeps a named collection, such as the skills returned by `skills({ source })`, grouped under one key rather than dissolving into the top-level namespace:
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 blocks: {
   skills: await skills({ source: './skills' }), // a group of progressive leaves
   tone: { mode: 'inject', value: 'Be terse.' }, // a single leaf
@@ -215,7 +215,7 @@ Grouping also isolates collisions: a skill named `tone` inside the `skills` grou
 
 Set a name to `false` to drop a default block from a specific agent:
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 agent({
   ...,
   blocks: {
@@ -323,7 +323,7 @@ const out = await testFn(greet, { name: 'alice' })
 
 Tags, the `tools([...])` selector, the builder helpers, and the context-level `defaultOptions` bag compose to give an agent a typed, whitelisted set of capabilities.
 
-```ts
+```ts skip="fragment: requireApproval is illustrative"
 import { agentPlugin, agent, directTool, tools } from '@routecraft/ai'
 import { z } from 'zod'
 
@@ -469,7 +469,7 @@ When to hand an agent a raw `MCP(...)` tool versus a wrapped `Direct(...)` route
 
 A build or a test run takes minutes, and a tool call holds the agent's turn until its route returns, so the person talking to the agent waits too. `directTool(routeId, { background: true })` changes how the agent awaits the route, and nothing about the route:
 
-```ts
+```ts skip="fragment: readFileSync is illustrative"
 agentPlugin({
   functions: {
     sandboxRun: directTool('sandbox-run', { background: true }),
@@ -627,7 +627,7 @@ Two ways for a handler to wait on a human, chosen by how long the wait is:
 
 A blocking tool handler:
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 {
   description: "Ask a human for approval via email; wait up to 15 min.",
   input: z.object({ question: z.string() }),
@@ -655,7 +655,7 @@ Agents emit on three distinct channels with different shapes and use cases:
 
 All events also carry `routeId`, `exchangeId`, `correlationId`. Narrow to one route with `forRoute(routeId, handler)` or any payload predicate.
 
-```ts
+```ts skip="fragment: ctx, metrics are illustrative"
 ctx.on("route:agent:tool:invoked", ({ details }) => {
   console.log(`[${details.routeId}] tool ${details.toolName} called with`, details._snapshot.input);
 });
@@ -668,7 +668,7 @@ ctx.on("route:agent:finished", ({ details }) => {
 
 **2. `stream: true`** (per-dispatch, opt-in): the dispatch produces the deltas instead of the consolidated `AgentResult`. This is the shortest path from a prompt to a token-by-token reply, because an `AsyncIterable` body is exactly what the [http source frames as SSE](/docs/reference/adapters/http#streaming-responses-sse):
 
-```ts
+```ts skip="fragment: ChatInput, aria are illustrative"
 craft()
   .id("chat-stream")
   .input({ body: ChatInput })
@@ -688,7 +688,7 @@ The trade is the result. `text`, `output`, `usage` and `toolCalls` are consolida
 
 **3. `onDelta` callback** (per-dispatch, opt-in): the push form of the same thing. Token-level deltas, directed delivery, back-pressure-aware. Use it when the sink is something other than the route's own output. Setting both `stream` and `onDelta` is refused at construction.
 
-```ts
+```ts skip="fragment: sse is illustrative"
 agent({
   model: "openai:gpt-4o",
   system: "Be helpful.",
@@ -717,7 +717,7 @@ Behaviour notes:
 
 For named agents that share a definition across requests, accept `onDelta` at the call site:
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .to(agent("summariser", { onDelta: (d) => sse.send(d.text) }))
 ```
 

@@ -6,7 +6,7 @@ title: retry
 [← All operations](/docs/reference/operations)
 </Lead>
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 retry(options?: {
   maxAttempts?: number;
   backoff?: Duration;
@@ -21,7 +21,7 @@ Re-attempt a failing operation with configurable backoff, so transient failures 
 
 **Mental model:** Dual-mode. After `.from()` it wraps the immediately-next step. Before `.from()` it re-runs the whole pipeline on failure (pre-from filter chain position 7, outside `.timeout()` and inside `.error()`).
 
-```ts
+```ts skip="fragment: source, format are illustrative"
 craft()
   .id('resilient-processor')
   .from(source)
@@ -65,7 +65,7 @@ See the [errors reference](/docs/reference/errors) for which errors are retryabl
 
 Override with a custom predicate when needed:
 
-```ts
+```ts skip="fragment: source, operation, destination are illustrative"
 // Retry everything, including non-retryable errors
 craft()
   .id('retry-all')
@@ -90,7 +90,7 @@ craft()
 
 Place `.retry()` BEFORE `.from()` to re-run the entire pipeline on failure:
 
-```ts
+```ts skip="fragment: flakyUpstream, format are illustrative"
 craft()
   .id('resilient-pipeline')
   .retry({ maxAttempts: 3, backoff: 2000, factor: 2, maxBackoff: 10_000 })
