@@ -28,14 +28,6 @@ export function getHtml<T>(
   return getBodyText(body, from, "html");
 }
 
-/** Strip HTML tags so only plain text remains. Used as a safeguard for text extraction. */
-export function stripHtmlTags(s: string): string {
-  return s
-    .replace(/<[^>]*>/g, "")
-    .replace(/\s+/g, " ")
-    .trim();
-}
-
 /**
  * Core HTML extraction logic shared by transformer and source adapters.
  *
@@ -66,12 +58,8 @@ export async function extractHtml<T, R>(
   const $el = $(selector);
   const length = $el.length;
 
-  const isTextExtract =
-    extract === "text" || extract === "innerText" || extract === "textContent";
   const textFrom = ($node: ReturnType<typeof $>) =>
-    isTextExtract
-      ? $node.clone().find("style, script").remove().end().text().trim()
-      : $node.text().trim();
+    $node.clone().find("style, script").remove().end().text().trim();
 
   const getOne = (): string => {
     if (
@@ -79,7 +67,7 @@ export async function extractHtml<T, R>(
       extract === "innerText" ||
       extract === "textContent"
     )
-      return stripHtmlTags(textFrom($el));
+      return textFrom($el);
     if (extract === "html") return $el.html()?.trim() ?? "";
     if (extract === "attr") return $el.attr(attr!) ?? "";
     if (extract === "outerHtml") return $el.prop("outerHTML") ?? "";
@@ -94,7 +82,7 @@ export async function extractHtml<T, R>(
         extract === "innerText" ||
         extract === "textContent"
       )
-        values.push(stripHtmlTags(textFrom($e)));
+        values.push(textFrom($e));
       else if (extract === "html") values.push($e.html()?.trim() ?? "");
       else if (extract === "attr") values.push($e.attr(attr!) ?? "");
       else if (extract === "outerHtml") values.push($e.prop("outerHTML") ?? "");

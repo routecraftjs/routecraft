@@ -12,12 +12,19 @@ export interface HtmlOptions<T = unknown, R = unknown> {
   selector?: string;
   /**
    * What to extract. Default: "text".
-   * - text: cheerio .text() (all descendant text), trimmed
+   * - text: cheerio .text() (all descendant text), trimmed, with
+   *   `style` and `script` subtrees removed
    * - html: inner HTML (cheerio .html())
    * - attr: attribute value (requires attr option)
    * - outerHtml: element including its tag (cheerio .prop('outerHTML'))
-   * - innerText: text only, no HTML (cheerio .text()); server-side no layout so same as textContent
-   * - textContent: text only, no HTML (cheerio .text())
+   * - innerText: same as textContent; server-side there is no layout
+   * - textContent: identical to "text"
+   *
+   * The three text modes return the page's text decoded and unsanitised.
+   * Entities are resolved, so a page that escaped markup yields it as
+   * written, and whitespace inside the match survives: only the ends are
+   * trimmed. Escape the value at the sink before writing it into HTML or
+   * into any line-structured format.
    */
   extract?:
     "text" | "html" | "attr" | "outerHtml" | "innerText" | "textContent";
