@@ -157,6 +157,12 @@ export class AgentSessionRuntime {
       new AgentSessionStore(suspension.store),
     );
     context.setStore(ADAPTER_AGENT_SESSIONS, runtime);
+    // Latched as shutdown begins, before the routes drain, so a completion
+    // or a post landing during the drain starts no turn on it; the plugin's
+    // teardown awaits the same stop() again for the revivals in flight.
+    context.on("context:stopping", () => {
+      void runtime.stop();
+    });
     return runtime;
   }
 
@@ -251,6 +257,19 @@ export class AgentSessionRuntime {
     // failed before reaching the inbox failed on the store, and starting
     // another against the same fault would spin.
     for (;;) {
+      // Once shutdown began, a turn nobody is running must not be started
+      // here either: the message is in the record for the next process.
+      if (!this.active.has(k) && this.stopping) {
+        return {
+          text: "",
+          session: {
+            agent: req.key.agent,
+            id: req.key.session,
+            status: "queued",
+            queued: (await this.store.load(req.key))?.inbox.length ?? 0,
+          },
+        };
+      }
       const current = this.active.get(k) ?? (await this.nextTurn(k, req, id));
       const result = await current.outcome;
       if (current.consumed.has(id)) return result;

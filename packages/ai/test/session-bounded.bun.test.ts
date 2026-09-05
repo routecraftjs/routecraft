@@ -24,9 +24,9 @@ describe("bounded session memory", () => {
   });
 
   /**
-   * @case A read refreshes an entry whatever its value, and a pinned entry survives evictions until unpinned
-   * @preconditions A map bounded at 2 holding a (value undefined) and b; a is read, then c is set; then a is pinned and d, e are set; then a is unpinned and f is set
-   * @expectedResult After c: b is gone and a stays (the read refreshed it despite its undefined value). While pinned, a outlives d and e. Once unpinned, the next set forgets it
+   * @case A read refreshes an entry whatever its value, a pinned entry survives evictions until unpinned, and pins never count against the bound
+   * @preconditions A map bounded at 2 holding a (value undefined) and b; a is read, then c is set; a is pinned and d, e are set; a is unpinned; then in a fresh map bounded at 2, a and b are pinned and c is set
+   * @expectedResult After c: b is gone and a stays (the read refreshed it despite its undefined value). While a is pinned it is out of the count, so two more sets keep a and forget c. The unpin trims a. With every slot pinned, a new entry still lands and stays
    */
   test("a map refreshes on read and keeps a pinned entry", () => {
     const map = new BoundedMap<string, number | undefined>(2);
@@ -39,11 +39,24 @@ describe("bounded session memory", () => {
     map.pin("a");
     map.set("d", 3);
     map.set("e", 4);
+    // Pinning keeps a through two more inserts and out of the count, so
+    // c is the one forgotten and d, e both fit.
+    expect(map.has("a")).toBe(true);
+    expect(map.has("c")).toBe(false);
+    expect(map.get("d")).toBe(3);
     expect(map.get("e")).toBe(4);
     map.unpin("a");
-    map.set("f", 5);
-    map.set("g", 6);
-    expect(map.get("f")).toBe(5);
-    expect(map.get("g")).toBe(6);
+    expect(map.has("a")).toBe(false);
+    expect(map.has("d")).toBe(true);
+
+    const full = new BoundedMap<string, number>(2);
+    full.set("a", 1);
+    full.set("b", 2);
+    full.pin("a");
+    full.pin("b");
+    full.set("c", 3);
+    expect(full.get("c")).toBe(3);
+    expect(full.get("a")).toBe(1);
+    expect(full.get("b")).toBe(2);
   });
 });

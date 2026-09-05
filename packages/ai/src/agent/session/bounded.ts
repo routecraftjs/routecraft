@@ -29,10 +29,11 @@ export class BoundedSet<T> {
 
 /**
  * A map with the same forgetting rule as {@link BoundedSet}, plus pins: a
- * pinned key is never the one forgotten, for an entry the owner knows it
- * will need (a session with work outstanding and no stored continuation,
- * whose next turn can only run on the request kept here). The bound then
- * applies to the unpinned entries.
+ * pinned key is never forgotten, for an entry the owner knows it will
+ * need (a session with work outstanding and no stored continuation,
+ * whose next turn can only run on the request kept here). The bound
+ * counts the unpinned entries only, so pinned ones never crowd out a new
+ * entry, and an unpin trims what the pin was holding open.
  *
  * @internal
  */
@@ -41,6 +42,10 @@ export class BoundedMap<K, V> {
   private readonly pinned = new Set<K>();
 
   constructor(private readonly bound: number) {}
+
+  has(key: K): boolean {
+    return this.entries.has(key);
+  }
 
   get(key: K): V | undefined {
     if (!this.entries.has(key)) return undefined;
@@ -53,13 +58,7 @@ export class BoundedMap<K, V> {
   set(key: K, value: V): void {
     this.entries.delete(key);
     this.entries.set(key, value);
-    if (this.entries.size > this.bound) {
-      for (const candidate of this.entries.keys()) {
-        if (this.pinned.has(candidate)) continue;
-        this.entries.delete(candidate);
-        break;
-      }
-    }
+    this.trimUnpinned();
   }
 
   /** Keep the entry through evictions until {@link unpin}. */
@@ -69,6 +68,17 @@ export class BoundedMap<K, V> {
 
   unpin(key: K): void {
     this.pinned.delete(key);
+    this.trimUnpinned();
+  }
+
+  private trimUnpinned(): void {
+    while (this.entries.size - this.pinned.size > this.bound) {
+      for (const candidate of this.entries.keys()) {
+        if (this.pinned.has(candidate)) continue;
+        this.entries.delete(candidate);
+        break;
+      }
+    }
   }
 }
 
