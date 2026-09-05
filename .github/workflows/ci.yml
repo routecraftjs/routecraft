@@ -273,7 +273,10 @@ jobs:
       # so an example naming an option that does not exist ships unnoticed.
       # This compiles them against the workspace packages. It runs before the
       # site build because it needs neither the build nor the browser, so a
-      # broken example fails in about fifteen seconds rather than after them.
+      # broken example is reported without waiting for either. Cost is well
+      # under a minute on the machines it has been measured on, and it is not
+      # worth quoting a number here: it is one TypeScript program per pass over
+      # the whole of `packages/*`, so it tracks the runner, not the corpus.
       - name: Check the documentation's code examples
         working-directory: apps/routecraft.dev
         run: bun run check:examples

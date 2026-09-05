@@ -148,9 +148,14 @@ describe('compileBlocks', () => {
 })
 
 describe('module augmentation', () => {
+  // Three TypeScript programs: the export map, then the shared and isolated
+  // passes. Each carries the whole of `packages/*` and the lib files, which the
+  // source cache parses once but still binds per program. That is about three
+  // seconds here, and Bun's default budget is five, too thin a margin to leave
+  // to whichever machine runs CI.
   /**
    * @case One block's module augmentation does not validate another block's code
-   * @preconditions One block augments DirectEndpointRegistry with 'leaked'; a separate block sends to direct('leaked') without augmenting anything
+   * @preconditions One block augments StoreRegistry with 'leaked'; a separate block calls store('leaked') without augmenting anything
    * @expectedResult The second block fails, because an augmentation on one page must not silently make another page's example valid
    */
   test('an augmentation does not leak into another block', () => {
@@ -170,5 +175,5 @@ describe('module augmentation', () => {
     expect(consumer.diagnostics.map((d) => d.message).join(' ')).toContain(
       'StoreRegistry',
     )
-  })
+  }, 20_000)
 })

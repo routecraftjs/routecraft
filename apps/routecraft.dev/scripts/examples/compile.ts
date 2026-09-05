@@ -195,6 +195,44 @@ function augmentsGlobalScope(code: string): boolean {
 }
 
 /**
+ * Lib and package sources parsed once and shared by every program in a run.
+ *
+ * Each block that augments module scope needs its own program, and each of
+ * those otherwise re-parses the whole of `packages/*` and the lib files from
+ * nothing. That parse is almost all of a program's cost here, since the blocks
+ * themselves are a few lines each. Only files outside the work directory are
+ * cached: the generated block files are rewritten between the two passes, so
+ * caching those would hand the second pass the first pass's text.
+ */
+const parsedSources = new Map<
+  string,
+  import('typescript').SourceFile | undefined
+>()
+
+function cachingHost(
+  options: import('typescript').CompilerOptions,
+  workDir: string,
+): import('typescript').CompilerHost {
+  const host = ts.createCompilerHost(options)
+  const readSourceFile = host.getSourceFile.bind(host)
+
+  host.getSourceFile = (name, languageVersion, onError, shouldCreate) => {
+    if (path.resolve(name).startsWith(workDir)) {
+      return readSourceFile(name, languageVersion, onError, shouldCreate)
+    }
+    if (!parsedSources.has(name)) {
+      parsedSources.set(
+        name,
+        readSourceFile(name, languageVersion, onError, shouldCreate),
+      )
+    }
+    return parsedSources.get(name)
+  }
+
+  return host
+}
+
+/**
  * Runs one program over the given files and returns their diagnostics.
  *
  * Each program is built fresh. Chaining them through `oldProgram` looks like an
@@ -205,8 +243,14 @@ function augmentsGlobalScope(code: string): boolean {
 function run(
   files: string[],
   options: import('typescript').CompilerOptions,
+  workDir: string,
 ): Map<string, import('typescript').Diagnostic[]> {
-  return diagnosticsByFile(ts.createProgram(files, options), files)
+  const program = ts.createProgram(
+    files,
+    options,
+    cachingHost(options, workDir),
+  )
+  return diagnosticsByFile(program, files)
 }
 
 /**
@@ -216,6 +260,7 @@ function run(
 function checkAll(
   generated: readonly Generated[],
   options: import('typescript').CompilerOptions,
+  workDir: string,
 ): Map<string, import('typescript').Diagnostic[]> {
   const shared = generated.filter((g) => !augmentsGlobalScope(g.block.code))
   const isolated = generated.filter((g) => augmentsGlobalScope(g.block.code))
@@ -226,13 +271,14 @@ function checkAll(
     for (const [file, diagnostics] of run(
       shared.map((g) => g.file),
       options,
+      workDir,
     )) {
       all.set(file, diagnostics)
     }
   }
 
   for (const item of isolated) {
-    for (const [file, diagnostics] of run([item.file], options))
+    for (const [file, diagnostics] of run([item.file], options, workDir))
       all.set(file, diagnostics)
   }
 
@@ -351,7 +397,7 @@ export function compileBlocks(
 
   // Pass one establishes which names do not resolve; pass two checks the block
   // with those names imported.
-  const first = checkAll(generated, options_)
+  const first = checkAll(generated, options_, workDir)
   for (const item of generated) {
     const names = unresolvedNames(first.get(path.resolve(item.file)) ?? [])
     const seeds = augmentedModules(item.block.code).map(
@@ -361,7 +407,7 @@ export function compileBlocks(
     if (prelude.length) write(item, prelude)
   }
 
-  const second = checkAll(generated, options_)
+  const second = checkAll(generated, options_, workDir)
 
   const outcomes = new Map<ExampleBlock, BlockOutcome>()
   for (const item of generated) {
