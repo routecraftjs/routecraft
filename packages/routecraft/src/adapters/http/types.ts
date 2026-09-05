@@ -47,6 +47,60 @@ export type QueryParams = Record<string, string | number | boolean>;
  */
 export type HttpRedirectMode = "follow" | "manual" | "error";
 
+/**
+ * What the client accepts as a request body.
+ *
+ * Deliberately not `unknown`: a union containing `unknown` collapses to
+ * `unknown`, which took the contextual parameter type off the callback form of
+ * {@link HttpClientOptions.body} and made every call site annotate its own
+ * exchange by hand. Anything a `fetch` body can be is here, plus the plain
+ * values the client serialises to JSON for you.
+ *
+ * `object` is deliberately broad. Narrowing it to `Record<string, unknown>`
+ * would make a callback's return type checked, but it also refuses an
+ * interface-typed body, which is the ordinary case: an `interface` has no
+ * implicit index signature where an otherwise identical `type` alias does, so
+ * the two spellings of the same shape would stop behaving alike. It refuses
+ * arrays, class instances and Maps too, all of which the client serialises
+ * correctly, and
+ * `object & { call?: never }` refuses a plain object literal because the
+ * intersection triggers excess-property checking. So the value arm admits
+ * functions and a callback's return goes unchecked; the contextual parameter
+ * type it exists for still works.
+ *
+ * `undefined` is a member rather than only the property being optional,
+ * because the callback form has to be able to decide per exchange that there
+ * is no body to send (`body: (ex) => ex.body.attachment ?? undefined`). The
+ * client sends none for it, as it always has.
+ */
+export type HttpRequestPayload =
+  | string
+  | number
+  | boolean
+  | null
+  | undefined
+  | object
+  | Uint8Array
+  | ArrayBuffer
+  | URLSearchParams
+  | FormData;
+
+/**
+ * How the client hands the response body to the route.
+ *
+ * - `"text"` (the default): decoded as UTF-8, then parsed as JSON when the
+ *   response says it is JSON. What every route got before this option existed.
+ * - `"bytes"`: the body is a `Uint8Array` of exactly what arrived, with no
+ *   decoding and no JSON parsing. Required for anything that is not text,
+ *   because UTF-8 decoding is lossy in one direction: an invalid sequence
+ *   becomes U+FFFD and the original bytes cannot be recovered.
+ *
+ * Chosen explicitly rather than sniffed from the content type, which would
+ * silently change the body type of an existing route that happens to receive
+ * `application/octet-stream` and reads it as a string today.
+ */
+export type HttpResponseBodyMode = "text" | "bytes";
+
 export interface HttpClientOptions<T = unknown> {
   method?: HttpMethod;
   url: string | ((exchange: Exchange<T>) => string);
@@ -54,7 +108,7 @@ export interface HttpClientOptions<T = unknown> {
     | Record<string, string>
     | ((exchange: Exchange<T>) => Record<string, string>);
   query?: QueryParams | ((exchange: Exchange<T>) => QueryParams);
-  body?: unknown | ((exchange: Exchange<T>) => unknown);
+  body?: HttpRequestPayload | ((exchange: Exchange<T>) => HttpRequestPayload);
   /** Abandon the request after this long. No deadline when unset. */
   timeout?: Duration;
   throwOnHttpError?: boolean;
@@ -81,6 +135,23 @@ export interface HttpClientOptions<T = unknown> {
    * {@link HttpRedirectMode}.
    */
   redirect?: HttpRedirectMode;
+  /**
+   * How to hand the response body to the route. Defaults to `"text"`, which
+   * is what every route did before this option existed.
+   *
+   * Use `"bytes"` for anything that is not text. The default decodes the
+   * response as UTF-8, and that is lossy in one direction: a JPEG's leading
+   * `ff d8 ff e0` is not valid UTF-8, so each byte becomes U+FFFD and
+   * re-encodes as three bytes. The corruption is silent and asymmetric,
+   * which is what makes it dangerous: an Ogg page header is ASCII, so a
+   * voice note survives while an image beside it does not.
+   *
+   * `maxBodySize` and `timeout` apply unchanged; the cap counts bytes as
+   * they arrive on both modes.
+   *
+   * @see {@link HttpResponseBodyMode}
+   */
+  responseBody?: HttpResponseBodyMode;
 }
 
 export type HttpResult<T = string | unknown> = {
@@ -366,7 +437,11 @@ export interface HttpResponseDescriptor {
 export interface HttpRespondRequest {
   /** Parsed request body, by the same content-type rules the route sees. */
   body: HttpRequestBody;
-  /** Raw request headers, lower-cased. */
+  /**
+   * Raw request headers, lower-cased and unfiltered, so `authorization`
+   * arrives verbatim wherever the caller sent one. A responder that logs or
+   * echoes this map leaks the bearer; read `principal` for identity instead.
+   */
   headers: Readonly<Record<string, string>>;
   /** Resolved path parameters. */
   params: Readonly<Record<string, string>>;

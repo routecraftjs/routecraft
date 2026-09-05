@@ -755,11 +755,12 @@ Make HTTP requests. Returns an `Enricher` (a pull-in) whose `fetch` produces an 
 | `url` | `string \| (exchange) => string` | -- | Yes | Target URL (string or derived from exchange) |
 | `headers` | `Record<string,string> \| (exchange) => Record<string,string>` | `{}` | No | Request headers |
 | `query` | `Record<string,string\|number\|boolean> \| (exchange) => Query` | `{}` | No | Query parameters appended to URL |
-| `body` | `unknown \| (exchange) => unknown` | -- | No | Request body (JSON serialized when not string/binary) |
+| `body` | `HttpRequestPayload \| (exchange) => HttpRequestPayload` | -- | No | Request body (JSON serialized when not string/binary) |
 | `throwOnHttpError` | `boolean` | `true` | No | Throw when response is non-2xx. A 3xx under `redirect: 'manual'` is exempt: it is the outcome the route asked for. |
 | `timeout` | `Duration` | -- | No | Request timeout |
 | `maxBodySize` | `number` | `10485760` (10 MB) | No | Maximum response body in bytes; `Infinity` for no limit. Larger responses fail the exchange with [`RC5061`](/docs/reference/errors#rc-5061). See [Response size limit](#response-size-limit). |
 | `redirect` | `'follow' \| 'manual' \| 'error'` | `'follow'` | No | What to do with a 3xx. See [Redirect policy](#redirect-policy). |
+| `responseBody` | `'text' \| 'bytes'` | `'text'` | No | How the response body reaches the route. `'bytes'` hands over a `Uint8Array` with no decoding and no JSON parsing. See [Binary responses](#binary-responses). |
 
 **Returns:** `HttpResult` object with `status`, `headers`, `body`, and `url`.
 
@@ -793,6 +794,27 @@ Zero and negative values are refused at the `http({...})` call site rather than 
 <Callout type="warning">
   The 10 MB default applies to routes that never set the option. A route already moving larger payloads through `http()` needs `maxBodySize` raised to keep working.
 </Callout>
+
+### Binary responses
+
+The client decodes a response as UTF-8 by default and hands the route a string, parsing JSON when the response says it is JSON. That is right for text and wrong for everything else, because UTF-8 decoding is lossy in one direction: an invalid sequence becomes U+FFFD and re-encodes as three bytes, so the original is gone.
+
+The corruption is silent and asymmetric, which is what makes it dangerous. A JPEG begins `ff d8 ff e0`, which is not valid UTF-8, so it is destroyed. An Ogg page header is the ASCII `OggS`, so a voice note passes through unharmed. A route fetching both sees one work and the other fail, which reads as a problem with the file rather than with the transport.
+
+`responseBody: 'bytes'` turns the decoding off:
+
+```typescript
+.enrich(
+  http<Delivery, Uint8Array>({ url: (ex) => ex.body.mediaUrl, responseBody: 'bytes' }),
+  only((r) => r.body, 'media'),
+)
+```
+
+The body is a `Uint8Array` of exactly what arrived, with no JSON parsing. Name it in the call's type arguments, `http<In, Uint8Array>({ ... })`: the option does not change the result type, because an option value that selects an adapter's type is what the adapter Option Laws forbid, and every way of expressing it here either mistypes the two-type-argument form the examples use or refuses an options object built programmatically. `maxBodySize` and `timeout` apply unchanged, counting bytes as they arrive, and an oversized body still fails with [`RC5061`](/docs/reference/errors#rc-5061). With `throwOnHttpError` the failure message names the body's size and content type rather than quoting it, since decoding it for the message would reintroduce the corruption this mode exists to avoid.
+
+The mode is explicit rather than sniffed from the content type. Choosing by content type would silently change the body type of an existing route that receives `application/octet-stream` today and reads it as a string.
+
+Streaming the response to the route is a different thing and is not available: the body is buffered under the cap either way.
 
 ### Redirect policy
 
