@@ -381,9 +381,8 @@ RC9xxx  Testing`}</CheatCode>
             title="Context &amp; plugins"
           >
             <CheatCode>{`const ctx = await new ContextBuilder()
-  .add({
-    crm: { timezone: 'UTC' },
-    direct: { channelType: 'memory' },
+  .with({
+    crm: { timezone: 'UTC' },   // your own augmented key
     mail: { accounts: { /* ... */ } },
     plugins: [myPlugin],
   })
@@ -411,6 +410,7 @@ const myPlugin: CraftPlugin = {
 // Basic call (user prompt defaults to body)
 craft()
   .id('text-in')
+  .input({ body: z.object({ text: z.string() }) })
   .from(direct())
   .to(llm('anthropic:claude-sonnet-4-6', {
     system: 'Summarize concisely',
@@ -439,6 +439,7 @@ craft()
 
 craft()
   .id('assistant')
+  .input({ body: z.object({ message: z.string() }) })
   .from(direct())
   .to(agent({
     model: 'anthropic:claude-sonnet-4-6',
