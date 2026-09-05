@@ -88,7 +88,8 @@ export function directory(
  *
  * // List a directory mid-route, e.g. inside a direct() capability
  * craft()
- *   .from(direct("search-notes"))
+ *   .id("search-notes")
+ *   .from(direct())
  *   .to(directory({ path: "./notes", recursive: true }))
  *   .transform((entries) => entries.filter((e) => e.ext === ".md"))
  *   .to(log());

@@ -17,7 +17,7 @@ import { shell, untrusted } from '@routecraft/os'
 
 craft()
   .id('clone-repo')
-  .from(direct('clone'))
+  .from(direct())
   .enrich(shell('git', (ex) => ['clone', untrusted(ex.body.url), '/work'], {
     network: true,
     timeout: 60_000,
