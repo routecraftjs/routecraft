@@ -172,6 +172,11 @@ export class AgentSessionRuntime {
    */
   async stop(): Promise<void> {
     this.stopping = true;
+    // A caller waiting on a revival's start would otherwise sit out the
+    // revival bound; woken now, it reads the latch and answers queued.
+    for (const waiters of [...this.starters.values()]) {
+      for (const notify of [...waiters]) notify();
+    }
     await Promise.allSettled([...this.revivals]);
   }
 
@@ -337,7 +342,7 @@ export class AgentSessionRuntime {
     };
   }
 
-  /** The next turn registered for `k`, or `undefined` at the bound or when cancelled. */
+  /** The next turn registered for `k`, or `undefined` at the bound, when cancelled, or at stop(). */
   private awaitStart(
     k: string,
     timeoutMs: number,

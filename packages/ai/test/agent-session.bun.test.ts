@@ -46,6 +46,44 @@ type ChatMessage = z.infer<typeof ChatMessage>;
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
+/** A hold the test opens, so a patched store call waits for a point in the sequence rather than a clock. */
+function gate(): { wait: Promise<void>; open: () => void } {
+  let open!: () => void;
+  const wait = new Promise<void>((resolve) => {
+    open = resolve;
+  });
+  return { wait, open };
+}
+
+/** Patches `load` so the reads named in `gates` wait to be opened; `entered` counts reads made since the gates were set. */
+function gateLoads(sessions: AgentSessionStore): {
+  realLoad: AgentSessionStore["load"];
+  gates: Array<Promise<void> | undefined>;
+  entered: () => number;
+} {
+  const realLoad = sessions.load.bind(sessions);
+  const gates: Array<Promise<void> | undefined> = [];
+  let entered = 0;
+  sessions.load = async (key) => {
+    if (gates.length > 0) {
+      entered += 1;
+      const hold = gates.shift();
+      if (hold) await hold;
+    }
+    return realLoad(key);
+  };
+  return { realLoad, gates, entered: () => entered };
+}
+
+async function until(
+  condition: () => boolean | Promise<boolean>,
+  ms = 5_000,
+): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (!(await condition()) && Date.now() < deadline) await sleep(1);
+  expect(await condition()).toBe(true);
+}
+
 /**
  * A tool the test holds open. `release()` lets the call finish; the
  * abort signal rejects it, so an interrupt is observable as the tool
@@ -1306,7 +1344,7 @@ describe("agent sessions", () => {
 
   /**
    * @case Shutdown beginning while a waiting caller looks for the next turn starts none
-   * @preconditions Turn one is held; a second caller interrupts and waits for the turn that consumes its message; the inbox is emptied under the ending turn so its boundary schedules no follow-up, then the message is put back so the caller has a turn to wait for; the store's load is slowed so the caller is inside nextTurn's record read when stop() is called
+   * @preconditions Turn one is held; a second caller interrupts and waits for the turn that consumes its message; the inbox is emptied under the ending turn so its boundary schedules no follow-up, then the message is put back so the caller has a turn to wait for; the caller's two reads are held at gates the test opens, so stop() lands while the caller is inside nextTurn's record read, observed rather than timed
    * @expectedResult The waiting caller is answered "queued" with its message still in the record, exactly one executor run happened, and no turn is running
    */
   test("shutdown during the next-turn read starts no turn", async () => {
@@ -1314,15 +1352,7 @@ describe("agent sessions", () => {
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(store);
-    const realLoad = sessions.load.bind(sessions);
-    let slowLoads = 0;
-    sessions.load = async (key) => {
-      if (slowLoads > 0) {
-        slowLoads -= 1;
-        await sleep(100);
-      }
-      return realLoad(key);
-    };
+    const { realLoad, gates, entered } = gateLoads(sessions);
     const runtime = new AgentSessionRuntime(t.ctx, sessions);
     let runs = 0;
     const executor = {
@@ -1341,23 +1371,22 @@ describe("agent sessions", () => {
     const first = runtime.turn({ ...request, message: "a", interrupt: false });
     await sleep(10);
     const second = runtime.turn({ ...request, message: "b", interrupt: true });
-    const deadline = Date.now() + 1_000;
-    while (
-      ((await sessions.load(key))?.inbox.length ?? 0) === 0 &&
-      Date.now() < deadline
-    ) {
-      await sleep(1);
-    }
-    const [queuedEntry] = (await sessions.load(key))?.inbox ?? [];
+    await until(async () => ((await realLoad(key))?.inbox.length ?? 0) > 0);
+    const [queuedEntry] = (await realLoad(key))?.inbox ?? [];
     await sessions.update(key, (r) => ({ ...r, inbox: [] }));
-    // The waiting caller's next two reads are slowed: its inbox check once
+    // The waiting caller's next two reads are held: its inbox check once
     // turn one ends, then the record read inside nextTurn.
-    slowLoads = 2;
+    const inboxRead = gate();
+    const recordRead = gate();
+    gates.push(inboxRead.wait, recordRead.wait);
     const one = await first;
     expect(one.session?.status).toBe("interrupted");
     await sessions.update(key, (r) => ({ ...r, inbox: [queuedEntry!] }));
-    await sleep(150);
-    await runtime.stop();
+    inboxRead.open();
+    await until(() => entered() === 2);
+    const stopped = runtime.stop();
+    recordRead.open();
+    await stopped;
     const two = await Promise.race([
       second,
       sleep(2_000).then(() => "spinning" as const),
@@ -1369,6 +1398,75 @@ describe("agent sessions", () => {
     expect(runs).toBe(1);
     expect(runtime.isRunning(key)).toBe(false);
     expect((await sessions.load(key))?.inbox).toHaveLength(1);
+  });
+
+  /**
+   * @case Shutdown wakes a caller waiting for a stored continuation's revival, instead of leaving it to the revival bound
+   * @preconditions Turn one is held and can store a continuation; a second caller interrupts and waits; the turn ends with the message queued and a continuation stored whose revival fails (its id is not a real suspension), with the release of that continuation held at a gate so the record keeps naming it; the caller's record read inside nextTurn is held at a gate, and stop() is called once the caller is inside it
+   * @expectedResult The caller is answered "queued" at once rather than after the 30 s bound, exactly one executor run happened, no turn is running, the message is still in the record, and the continuation is released once the gate opens
+   */
+  test("stop wakes a caller waiting on a revival", async () => {
+    const store = new MemorySuspensionStore();
+    t = await contextWith(store, spy()).build();
+    await t.startAndWaitReady();
+    const sessions = new AgentSessionStore(store);
+    const { realLoad, gates, entered } = gateLoads(sessions);
+    const releasing = gate();
+    const realRelease = sessions.releasePark.bind(sessions);
+    sessions.releasePark = async (id, reason) => {
+      await releasing.wait;
+      return realRelease(id, reason);
+    };
+    const runtime = new AgentSessionRuntime(t.ctx, sessions);
+    let runs = 0;
+    const executor = {
+      run: (_messages: unknown, interrupt: AbortSignal) =>
+        new Promise<AgentResult>((_resolve, reject) => {
+          runs += 1;
+          interrupt.addEventListener("abort", () =>
+            setTimeout(() => reject(new Error("aborted")), 50),
+          );
+        }),
+      thread: () => undefined,
+    };
+    const exchange = new DefaultExchange(t.ctx, { body: {} });
+    const key = { agent: "max", session: "stopping-wake" };
+    const request = {
+      key,
+      exchange,
+      by: null,
+      executor,
+      park: async () => ({ suspensionId: "not-a-record", routeId: "chat" }),
+    };
+    const first = runtime.turn({ ...request, message: "a", interrupt: false });
+    await sleep(10);
+    const second = runtime.turn({ ...request, message: "b", interrupt: true });
+    await until(async () => ((await realLoad(key))?.inbox.length ?? 0) > 0);
+    // The caller's inbox check runs free; its record read inside nextTurn
+    // is held, and the release of the failed revival's continuation with it.
+    const recordRead = gate();
+    gates.push(undefined, recordRead.wait);
+    const one = await first;
+    expect(one.session?.status).toBe("interrupted");
+    await until(() => entered() === 2);
+    expect((await realLoad(key))?.park).toBeDefined();
+    const stopped = runtime.stop();
+    recordRead.open();
+    const two = await Promise.race([
+      second,
+      sleep(2_000).then(() => "spinning" as const),
+    ]);
+    expect(two).toMatchObject({
+      text: "",
+      session: { status: "queued", queued: 1 },
+    });
+    releasing.open();
+    await stopped;
+    expect(runs).toBe(1);
+    expect(runtime.isRunning(key)).toBe(false);
+    const record = await realLoad(key);
+    expect(record?.park).toBeUndefined();
+    expect(record?.inbox).toHaveLength(1);
   });
 
   /**
