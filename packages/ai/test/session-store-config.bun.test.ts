@@ -9,6 +9,7 @@ import {
 import { testContext, type TestContext } from "@routecraft/testing";
 import { agentPlugin, llmPlugin } from "../src/index.ts";
 import {
+  AgentSessionRuntime,
   MemorySessionStore,
   SESSION_STORE_ENV,
   SqliteSessionStore,
@@ -184,6 +185,23 @@ describe("session store resolution", () => {
     expect(resolved?.store).toBe(own);
     expect(resolved?.configured).toBe(true);
     expect(resolved?.backend).toBe("custom");
+  });
+
+  /**
+   * @case An inline session with no session-owning plugin resolves its store the way the plugins do, environment included
+   * @preconditions A context with a suspension block and neither agentPlugin() nor a sessions key; ROUTECRAFT_SESSION_STORE=memory; the runtime is created for the context and used once
+   * @expectedResult The context's resolved store reports the memory backend after that use and is unconfigured
+   */
+  test("the inline fallback resolves like the plugins", async () => {
+    process.env[SESSION_STORE_ENV] = "memory";
+    t = await testContext()
+      .with({ suspension: { store: new MemorySuspensionStore() } })
+      .build();
+    const runtime = AgentSessionRuntime.for(t.ctx);
+    expect(await runtime.store.list()).toEqual([]);
+    const resolved = t.ctx.getStore(ADAPTER_AGENT_SESSION_STORE);
+    expect(resolved?.backend).toBe("memory");
+    expect(resolved?.configured).toBe(false);
   });
 
   /**

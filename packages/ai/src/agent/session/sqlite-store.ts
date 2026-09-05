@@ -29,10 +29,11 @@ const BUSY_TIMEOUT_MS = 5_000;
 /**
  * Forward-only migrations from `PRAGMA user_version`; index `n` migrates
  * version `n` to `n + 1`, so a fresh file runs them all and an up-to-date
- * one runs none. Opening the store is the migrate step.
+ * one runs none. Opening the store is the migrate step. Idempotent, so two
+ * instances opening one fresh file on a shared volume both come up.
  */
 const MIGRATIONS: ReadonlyArray<string> = [
-  `CREATE TABLE agent_sessions (
+  `CREATE TABLE IF NOT EXISTS agent_sessions (
      agent      TEXT    NOT NULL,
      session    TEXT    NOT NULL,
      version    INTEGER NOT NULL,
@@ -120,15 +121,18 @@ export class SqliteSessionStore implements SessionStore {
   }
 
   async get(key: AgentSessionKey): Promise<StoredSession | undefined> {
-    const row = this.guard("read", () =>
-      this.#db
+    // Parsed inside the guard: a row whose JSON is unreadable is a store
+    // failure to the caller, not a SyntaxError.
+    return this.guard("read", () => {
+      const row = this.#db
         .prepare(
           "SELECT version, record FROM agent_sessions WHERE agent = ? AND session = ?",
         )
-        .get(key.agent, key.session),
-    ) as { version: number; record: string } | undefined | null;
-    if (!row) return undefined;
-    return { value: JSON.parse(row.record) as unknown, version: row.version };
+        .get(key.agent, key.session) as
+        { version: number; record: string } | undefined | null;
+      if (!row) return undefined;
+      return { value: JSON.parse(row.record) as unknown, version: row.version };
+    });
   }
 
   async create(

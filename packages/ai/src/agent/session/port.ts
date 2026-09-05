@@ -50,7 +50,11 @@ export interface SessionStore {
     expectedVersion: number,
     value: unknown,
   ): Promise<SessionCasResult>;
-  /** Every key the store holds, ordered by agent then session. */
+  /**
+   * Every key the store holds, ordered by agent then session in code point
+   * order (what SQLite's binary collation gives UTF-8 text), so every
+   * backend enumerates identically.
+   */
   keys(): Promise<AgentSessionKey[]>;
   /** Release what the store holds open. Idempotent. */
   close(): Promise<void>;

@@ -20,10 +20,8 @@ import {
   type AgentResult,
   type FnHandlerContext,
 } from "../src/index.ts";
-import {
-  AgentSessionRuntime,
-  MemorySessionStore,
-} from "../src/agent/session/index.ts";
+import { AgentSessionRuntime } from "../src/agent/session/index.ts";
+import { recordsFor } from "./helpers/session-stores.ts";
 import { AgentSessionStore } from "../src/agent/session/store.ts";
 import { INTERRUPTED_TOOL_MESSAGE } from "../src/agent/run.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
@@ -161,21 +159,6 @@ function routes(sink: ReturnType<typeof spy>): RouteDefinition[] {
       .to(sink)
       .build(),
   ];
-}
-
-/**
- * The session store paired with a suspension store, so a "restart" built
- * over the same suspension store sees the same sessions, as one deployment
- * reopening both files would.
- */
-const recordStores = new WeakMap<MemorySuspensionStore, MemorySessionStore>();
-function recordsFor(store: MemorySuspensionStore): MemorySessionStore {
-  let records = recordStores.get(store);
-  if (!records) {
-    records = new MemorySessionStore();
-    recordStores.set(store, records);
-  }
-  return records;
 }
 
 function contextWith(

@@ -154,22 +154,26 @@ export async function createSessionStore(
 }
 
 /**
- * The context's session store, resolving the unprobed default when no
- * plugin has: the inline `agent({ session })` form needs no `agentPlugin()`,
- * and a store must exist by the time its first turn runs.
+ * The context's session store, resolving the default when no plugin has:
+ * the inline `agent({ session })` form needs no `agentPlugin()`, and a
+ * store must exist by the time its first turn runs. The resolution is the
+ * same one the plugins run ({@link createSessionStore} with no block: the
+ * environment variable, the driver probe, the memory fallback), deferred to
+ * the first use because this is called synchronously, and closed once the
+ * context has stopped since no plugin owns it.
  *
  * @internal
  */
 export function sessionStoreOf(context: CraftContext): SessionStore {
   const existing = context.getStore(ADAPTER_AGENT_SESSION_STORE);
   if (existing) return existing.store;
-  const fallback = resolved(
-    new DeferredSqliteSessionStore(DEFAULT_SESSION_DB_PATH),
-    "sqlite",
-    true,
-    false,
+  const fallback = new LazyResolvedSessionStore(() =>
+    createSessionStore(context, {}, false),
   );
   context.setStore(ADAPTER_AGENT_SESSION_STORE, fallback);
+  context.on("context:stopped", () => {
+    void fallback.close();
+  });
   return fallback.store;
 }
 
@@ -221,6 +225,79 @@ function resolved(
       await store.close();
     },
   };
+}
+
+/**
+ * A store resolved on first use. Stands in for the context's store until
+ * something touches it, then delegates to whatever the resolution chose,
+ * and reports that choice from then on.
+ */
+class LazyResolvedSessionStore implements ResolvedSessionStore, SessionStore {
+  #inner: Promise<ResolvedSessionStore> | undefined;
+  #closed = false;
+
+  constructor(private readonly open: () => Promise<ResolvedSessionStore>) {}
+
+  get store(): SessionStore {
+    return this;
+  }
+
+  get backend(): ResolvedSessionStore["backend"] {
+    return this.#chosen?.backend ?? "sqlite";
+  }
+
+  get ownsStore(): boolean {
+    return this.#chosen?.ownsStore ?? true;
+  }
+
+  readonly configured = false;
+
+  /** The resolution once it settled; undefined while it has not run or is still running. */
+  #chosen: ResolvedSessionStore | undefined;
+
+  async get(key: AgentSessionKey): Promise<StoredSession | undefined> {
+    return (await this.resolve()).store.get(key);
+  }
+
+  async create(
+    key: AgentSessionKey,
+    value: unknown,
+  ): Promise<SessionCasResult> {
+    return (await this.resolve()).store.create(key, value);
+  }
+
+  async replace(
+    key: AgentSessionKey,
+    expectedVersion: number,
+    value: unknown,
+  ): Promise<SessionCasResult> {
+    return (await this.resolve()).store.replace(key, expectedVersion, value);
+  }
+
+  async keys(): Promise<AgentSessionKey[]> {
+    return (await this.resolve()).store.keys();
+  }
+
+  async close(): Promise<void> {
+    if (this.#closed) return;
+    this.#closed = true;
+    if (this.#inner) await (await this.#inner).close();
+  }
+
+  private resolve(): Promise<ResolvedSessionStore> {
+    this.#inner ??= this.open().then(
+      (chosen) => {
+        this.#chosen = chosen;
+        return chosen;
+      },
+      (err: unknown) => {
+        // A failed resolution is not the store's state; the next use retries.
+        this.#inner = undefined;
+        throw err;
+      },
+    );
+    return this.#inner;
+  }
 }
 
 /**

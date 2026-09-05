@@ -17,6 +17,7 @@ export type { AgentSuspendOptions, AgentSuspendSentinel } from "./suspend.ts";
 export type { AgentStepState, ThreadMessage } from "./suspension-state.ts";
 export type {
   AgentInboxMessage,
+  AgentSessionKey,
   AgentSessionOutcome,
   AgentSessionsConfig,
   AgentSessionSummary,

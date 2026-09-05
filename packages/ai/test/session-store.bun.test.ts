@@ -96,22 +96,29 @@ function contractSuite(name: string, open: () => Promise<SessionStore>): void {
     });
 
     /**
-     * @case Keys enumerate in agent then session order and round-trip every character a session id or agent name may carry
-     * @preconditions Records for three keys written out of order, one carrying a colon, a percent sign and non-ASCII letters
-     * @expectedResult keys() answers the three keys sorted by agent then session, each character intact
+     * @case Keys enumerate in agent then session order, in code point order, and round-trip every character a session id or agent name may carry
+     * @preconditions Records for five keys written out of order: one carrying a colon, a percent sign and non-ASCII letters, one agent named with a character outside the Basic Multilingual Plane (U+1F600) and one inside its upper range (U+FB01), which UTF-16 code-unit comparison orders the other way round
+     * @expectedResult keys() answers the keys sorted by agent then session with U+FB01 before U+1F600, each character intact
      */
-    test("keys are ordered and round-trip", async () => {
+    test("keys are ordered by code point and round-trip", async () => {
       store = await open();
       const odd = { agent: "zoë", session: "ticket:42%done" };
+      const astral = { agent: "\u{1F600}", session: "s" };
+      const upperBmp = { agent: "\uFB01", session: "s" };
       await store.create({ agent: "max", session: "b" }, {});
+      await store.create(astral, {});
       await store.create(odd, {});
+      await store.create(upperBmp, {});
       await store.create({ agent: "max", session: "a" }, {});
       expect(await store.keys()).toEqual([
         { agent: "max", session: "a" },
         { agent: "max", session: "b" },
         odd,
+        upperBmp,
+        astral,
       ]);
       expect(await store.get(odd)).toEqual({ value: {}, version: 1 });
+      expect(await store.get(astral)).toEqual({ value: {}, version: 1 });
     });
 
     /**

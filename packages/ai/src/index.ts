@@ -163,6 +163,7 @@ export type {
   AgentPrincipalRenderer,
   AgentRegisteredOptions,
   AgentResult,
+  AgentSessionKey,
   AgentSessionOutcome,
   AgentSessionsConfig,
   AgentInterruptSource,

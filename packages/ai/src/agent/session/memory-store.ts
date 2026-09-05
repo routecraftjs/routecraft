@@ -50,7 +50,9 @@ export class MemorySessionStore implements SessionStore {
     return [...this.#records.keys()]
       .map(unslot)
       .sort(
-        (a, b) => compare(a.agent, b.agent) || compare(a.session, b.session),
+        (a, b) =>
+          compareCodePoints(a.agent, b.agent) ||
+          compareCodePoints(a.session, b.session),
       );
   }
 
@@ -72,8 +74,24 @@ function unslot(id: string): AgentSessionKey {
   };
 }
 
-function compare(a: string, b: string): number {
-  return a < b ? -1 : a > b ? 1 : 0;
+/**
+ * Code point order, which is the order SQLite's binary collation gives
+ * UTF-8 text, so the two backends enumerate identically. The `<` operator
+ * compares UTF-16 code units and puts a character outside the Basic
+ * Multilingual Plane before one in its upper range, which SQLite does not.
+ */
+function compareCodePoints(a: string, b: string): number {
+  let i = 0;
+  let j = 0;
+  while (i < a.length && j < b.length) {
+    const x = a.codePointAt(i) as number;
+    const y = b.codePointAt(j) as number;
+    if (x !== y) return x < y ? -1 : 1;
+    i += x > 0xffff ? 2 : 1;
+    j += y > 0xffff ? 2 : 1;
+  }
+  if (i >= a.length && j >= b.length) return 0;
+  return i >= a.length ? -1 : 1;
 }
 
 function clone<T>(value: T): T {

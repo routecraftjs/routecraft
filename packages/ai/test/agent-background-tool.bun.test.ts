@@ -19,7 +19,7 @@ import {
   type BackgroundToolHandle,
   type FnHandlerContext,
 } from "../src/index.ts";
-import { MemorySessionStore } from "../src/agent/session/index.ts";
+import { recordsFor } from "./helpers/session-stores.ts";
 import { AgentSessionRuntime } from "../src/agent/session/index.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
 import { MODEL } from "./helpers/suspend-fixtures.ts";
@@ -94,17 +94,6 @@ const whoami = {
   input: z.object({}),
   handler: (_input: unknown, ctx: FnHandlerContext) => ctx.session ?? null,
 };
-
-/** The session store paired with a suspension store, so a restart over the same stores sees the same sessions. */
-const recordStores = new WeakMap<MemorySuspensionStore, MemorySessionStore>();
-function recordsFor(store: MemorySuspensionStore): MemorySessionStore {
-  let records = recordStores.get(store);
-  if (!records) {
-    records = new MemorySessionStore();
-    recordStores.set(store, records);
-  }
-  return records;
-}
 
 function contextWith(
   store: MemorySuspensionStore,
