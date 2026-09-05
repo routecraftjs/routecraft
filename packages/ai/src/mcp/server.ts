@@ -133,17 +133,29 @@ function toolErrorLogMessage(error: unknown): string {
 }
 
 /**
- * Client-facing message for a failed tool call: includes the RC cause
- * (e.g. schema field errors) but never stack traces or internal details.
+ * Client-facing message for a failed tool call: the RC message plus the
+ * cause when the cause adds something, and never stack traces or internal
+ * details.
+ *
+ * Each piece of text appears once. A plain error thrown by a step reaches
+ * here as RC5001 with the error itself as the cause and its message as the
+ * RC message, and several core sites embed the cause's text in the RC
+ * message they build, so appending the cause blindly repeated the same
+ * text in every such tool error. Derived from the error alone so a caller
+ * cannot hand it a message the containment test was never meant for.
  */
-function toolErrorUserMessage(error: unknown, logMsg: string): string {
-  if (isRoutecraftError(error)) {
-    const cause = (error as { cause?: Error }).cause;
-    if (cause?.message) {
-      return `${logMsg}: ${cause.message}`;
-    }
-  }
-  return logMsg;
+function toolErrorUserMessage(error: unknown): string {
+  const message = toolErrorLogMessage(error);
+  if (!isRoutecraftError(error)) return message;
+  const cause = (error as { cause?: Error }).cause?.message;
+  if (!cause || message.includes(cause)) return message;
+  if (cause.includes(message)) return cause;
+  return `${message}: ${cause}`;
+}
+
+/** The wire result for a tool call that did not answer, a decline or a failure. */
+function toolErrorResult(text: string): McpToolCallResult {
+  return { content: [{ type: "text", text: `Error: ${text}` }], isError: true };
 }
 
 /** Resolved options with defaults applied (internal use). */
@@ -1334,10 +1346,7 @@ export class McpServer {
       reason: message,
     });
 
-    return {
-      content: [{ type: "text", text: `Error: ${message}` }],
-      isError: true,
-    };
+    return toolErrorResult(message);
   }
 
   /**
@@ -1369,12 +1378,7 @@ export class McpServer {
           tool: toolName,
           error: err.message,
         });
-        return {
-          isError: true,
-          content: [
-            { type: "text", text: `Error: Tool not found: ${toolName}` },
-          ],
-        };
+        return toolErrorResult(err.message);
       }
 
       this.context.logger.debug(
@@ -1469,15 +1473,7 @@ export class McpServer {
         error: logMsg,
       });
 
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Error: ${toolErrorUserMessage(error, logMsg)}`,
-          },
-        ],
-        isError: true,
-      };
+      return toolErrorResult(toolErrorUserMessage(error));
     }
   }
 
@@ -1571,10 +1567,7 @@ export class McpServer {
         ? `Proxied tool "${proxied.exposedName}" could not be called.`
         : logMsg;
 
-      return {
-        content: [{ type: "text", text: `Error: ${clientText}` }],
-        isError: true,
-      };
+      return toolErrorResult(clientText);
     }
   }
 }
