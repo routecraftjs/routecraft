@@ -31,7 +31,7 @@ Type-safe integration and automation framework. Monorepo with Bun workspaces (>=
 
 Detailed coding standards for contributors live in `.standards/`:
 
-- [Positioning](.standards/positioning.md) -- what Routecraft is for and what it is not: the framework enables a capability and never owns it; protocols and cross-cutting operations earn framework time, products and vendors get connected; the three questions before any addition, the four homes a capability lands in, and a named consumer as the demand test
+- [Positioning](.standards/positioning.md) -- what Routecraft is for and what it is not: the framework enables a capability and never owns it; protocols and cross-cutting operations earn framework time, products and vendors get connected; the three questions before any addition, the four homes a capability lands in, a named consumer as the demand test, and the check as a challenge a consumer may overrule with a recorded reason, never a veto
 - [Adapter Architecture](.standards/adapter-architecture.md) -- patterns, file structure, facade, authoring guide
 - [Exchange State Model](.standards/exchange-state-model.md) -- where state lives on an exchange (`body`/`headers` vs derivations), halt/continue contract
 - [Naming Policy](.standards/naming-policy.md) -- Source/Destination vs Server/Client conventions

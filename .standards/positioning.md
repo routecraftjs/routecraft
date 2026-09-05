@@ -29,7 +29,7 @@ Two cases fix the bar.
 - **Docker in the built-in sandbox clears it.** Writing a custom isolation adapter from scratch was always possible, and still is. Adding Docker to the shipped sandbox removed a large amount of effort from everyone who builds an agent on the framework. That is the shape a framework addition should have.
 - **A helper that saves ten lines does not.** It is defensible in isolation every time, and the accumulation of such helpers is what turns a framework into the thing that does things. The answer to it is an example, a documentation page and a blog post: readers copy it, learn how it is done, and the framework does not carry it.
 
-When a bought service eventually costs more than building would, the answer is a product built and sold beside the framework. It still does not go into a `@routecraft/*` package.
+When a bought service eventually costs more than building would, the answer is a product built and sold beside the framework. It still does not go into a `@routecraft/*` package. From the framework's side that product is home 1 in section 6: a service reached with `mcp()` or `http()`, whoever happens to run it.
 
 ## 4. Protocol, operation, or product
 
