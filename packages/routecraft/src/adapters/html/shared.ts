@@ -58,12 +58,8 @@ export async function extractHtml<T, R>(
   const $el = $(selector);
   const length = $el.length;
 
-  const isTextExtract =
-    extract === "text" || extract === "innerText" || extract === "textContent";
   const textFrom = ($node: ReturnType<typeof $>) =>
-    isTextExtract
-      ? $node.clone().find("style, script").remove().end().text().trim()
-      : $node.text().trim();
+    $node.clone().find("style, script").remove().end().text().trim();
 
   const getOne = (): string => {
     if (
