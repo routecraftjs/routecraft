@@ -24,7 +24,7 @@ The framework's job is to make hard things easy to build. It is not the thing th
 
 The distinction is about where code lives, not about ambition. Routecraft must **enable** a route to drive a remote execution environment. It must never **own** the fleet, the provisioning policy, the quota or the bill. The same sentence holds for browser automation, memory, message delivery and every other capability some vendor already sells: the framework carries the seam, and the seam is measured by how much effort it removes from the person building on it.
 
-Two shipped cases fix the bar.
+Two cases fix the bar.
 
 - **Docker in the built-in sandbox clears it.** Writing a custom isolation adapter from scratch was always possible, and still is. Adding Docker to the shipped sandbox removed a large amount of effort from everyone who builds an agent on the framework. That is the shape a framework addition should have.
 - **A helper that saves ten lines does not.** It is defensible in isolation every time, and the accumulation of such helpers is what turns a framework into the thing that does things. The answer to it is an example, a documentation page and a blog post: readers copy it, learn how it is done, and the framework does not carry it.
@@ -33,7 +33,7 @@ When a bought service eventually costs more than building would, the answer is a
 
 ## 4. Protocol, operation, or product
 
-The fast test, and the one to reach for first. Everything falls into one of three kinds, and the kind decides the answer before any further reasoning:
+The fast classification test, applied once section 3 is cleared. Everything falls into one of three kinds, and the kind decides the answer before any further reasoning:
 
 - **A protocol** (HTTP, MCP, WebSocket, AMQP, MQTT, SSE, OAuth, a codec). **Build it.** A protocol reaches every system that speaks it, so the work pays off across every integration that will ever exist. This is why protocol-level work outranks everything else in the framework.
 - **A cross-cutting operation** (retry, cache, throttle, timeout, circuit breaker, split, dedupe, error handling). **Build it.** Every connector benefits from it, and the framework is the only place it can sit where an author reading a route can see it and change it.
