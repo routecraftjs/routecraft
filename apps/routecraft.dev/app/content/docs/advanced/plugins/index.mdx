@@ -42,8 +42,8 @@ lifecycle phase. The phases are `apply`, `start` and `teardown`:
 // plugins/metrics.ts
 import { type CraftContext, type CraftPlugin } from '@routecraft/routecraft'
 
-// Declaring the key types what goes in and what comes back out, so readers
-// do not have to cast.
+// Declaring the key types for what goes in and what comes back out, so
+// readers do not have to cast.
 declare module '@routecraft/routecraft' {
   interface StoreRegistry {
     'metrics.counters': { started: number; errors: number }

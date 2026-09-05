@@ -295,6 +295,31 @@ describe('extractCheatCode', () => {
   })
 
   /**
+   * @case A misspelled marker attribute on a TypeScript block is rejected
+   * @preconditions `<CheatCode skipp="typo">`, matching neither `skip` nor `expect-error`
+   * @expectedResult Throws, so a typo cannot silently read as no marker at all
+   */
+  test('a misspelled marker attribute is an error', () => {
+    const source = '<CheatCode skipp="typo">{`const a = 1`}</CheatCode>'
+
+    expect(() => extractCheatCode(TSX, source)).toThrow(
+      /unrecognised CheatCode attribute/,
+    )
+  })
+
+  /**
+   * @case A className prop is not mistaken for an unrecognised marker
+   * @preconditions `<CheatCode className="foo">`, a real prop the component accepts
+   * @expectedResult Extracted without error
+   */
+  test('className is not rejected as an unrecognised attribute', () => {
+    const source = '<CheatCode className="foo">{`const a = 1`}</CheatCode>'
+    const blocks = extractCheatCode(TSX, source)
+
+    expect(blocks[0].marker).toEqual({ kind: 'check' })
+  })
+
+  /**
    * @case A block claiming both markers is rejected
    * @preconditions `<CheatCode>` carries skip and expect-error together
    * @expectedResult MarkerError, because the two demand opposite outcomes

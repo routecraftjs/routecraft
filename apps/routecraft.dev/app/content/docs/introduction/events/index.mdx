@@ -25,7 +25,7 @@ export const craftConfig: CraftConfig = {
     'context:started': ({ ts }) => {
       console.log(`Context ready at ${ts}`)
     },
-    'error': ({ details: { error, route } }) => {
+    'context:error': ({ details: { error, route } }) => {
       console.error(`Error in ${route?.definition.id ?? 'context'}`, error)
     },
     'route:exchange:failed': ({ details: { routeId, error } }) => {

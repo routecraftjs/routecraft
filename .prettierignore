@@ -57,5 +57,5 @@ apps/routecraft.dev/app/content/
 # Compilable fixtures the documentation example typecheck generates from the
 # fenced blocks (apps/routecraft.dev/scripts/check-examples.ts). They are
 # extracted verbatim, so many are fragments that are not parseable on their
-# own, and they exist only for the length of a run.
+# own, and they persist on disk until the next run overwrites them.
 apps/routecraft.dev/.docs-typecheck*/

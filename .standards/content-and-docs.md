@@ -310,8 +310,10 @@ because it would render the released channel with the released shell, which is e
 
 ## Code examples compile, or say why they cannot
 
-Every fenced `ts` block under `app/content/`, and every `<CheatCode>` block in
-the cheat sheet, is compiled against the workspace packages by
+Every fenced `ts` block in authored content under `app/content/` (the
+generated `docs-next` tree is excluded, since nobody edits it directly), and
+every `<CheatCode>` block in the cheat sheet, is compiled against the
+workspace packages by
 `apps/routecraft.dev/scripts/check-examples.ts`, wired into the `docs-site` CI
 job. The pages here are the ones a reader copies from, and before this existed a
 fenced block was prose to every check the repository ran: an example naming an

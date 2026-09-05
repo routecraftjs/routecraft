@@ -1,4 +1,6 @@
-import { describe, expect, test } from 'bun:test'
+import { afterEach, describe, expect, test } from 'bun:test'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import * as os from 'node:os'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
 
@@ -51,17 +53,43 @@ describe('authoredMdxPaths', () => {
   /**
    * @case Discovery returns authored pages and never a generated one
    * @preconditions The repository's own content directory, which holds docs-next only after a build
-   * @expectedResult Every returned path is absolute, ends in .mdx, and none sits under docs-next
+   * @expectedResult Every returned path is absolute and ends in .mdx
    */
-  test('generated pages are never returned', () => {
+  test('returns absolute paths to every authored page', () => {
     const paths = authoredMdxPaths(CONTENT)
 
     expect(paths.length).toBeGreaterThan(0)
     expect(paths.every((p) => path.isAbsolute(p) && p.endsWith('.mdx'))).toBe(
       true,
     )
-    expect(
-      paths.some((p) => p.includes(`${path.sep}docs-next${path.sep}`)),
-    ).toBe(false)
+  })
+
+  let tmpDir: string | undefined
+
+  afterEach(() => {
+    if (tmpDir) rmSync(tmpDir, { recursive: true, force: true })
+    tmpDir = undefined
+  })
+
+  /**
+   * @case A docs-next tree sitting alongside authored content is excluded
+   * @preconditions A fixture directory with one authored page and one page under docs-next, the
+   *   shape a real checkout only takes on after `bun run generate` has run once
+   * @expectedResult Only the authored page is returned, proving the exclusion runs rather than
+   *   the assertion merely holding because docs-next was absent
+   */
+  test('generated pages are never returned', () => {
+    tmpDir = mkdtempSync(path.join(os.tmpdir(), 'sources-test-'))
+    mkdirSync(path.join(tmpDir, 'docs', 'guide'), { recursive: true })
+    mkdirSync(path.join(tmpDir, 'docs-next', 'guide'), { recursive: true })
+    writeFileSync(path.join(tmpDir, 'docs', 'guide', 'index.mdx'), '# authored')
+    writeFileSync(
+      path.join(tmpDir, 'docs-next', 'guide', 'index.mdx'),
+      '# generated',
+    )
+
+    const paths = authoredMdxPaths(tmpDir)
+
+    expect(paths).toEqual([path.join(tmpDir, 'docs', 'guide', 'index.mdx')])
   })
 })

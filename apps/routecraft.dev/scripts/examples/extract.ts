@@ -205,6 +205,26 @@ export function extractCheatCode(file: string, source: string): ExampleBlock[] {
     // matter in the first place.
     const marker: string[] = []
     if (isTypeScript(language)) {
+      // Every attribute is checked, not just the two marker names: a typo
+      // such as `skipp="..."` would otherwise match neither regex below and
+      // be silently read as no marker at all, which is the exact failure the
+      // fence path's `parseMarker` already refuses to allow.
+      const KNOWN_ATTRIBUTES = new Set([
+        'language',
+        'className',
+        'skip',
+        'expect-error',
+      ])
+      for (const found of attrs.matchAll(/([\w-]+)="[^"]*"/g)) {
+        if (!KNOWN_ATTRIBUTES.has(found[1])) {
+          throw new MarkerError(
+            file,
+            fenceLine,
+            `unrecognised CheatCode attribute \`${found[1]}\`. Use \`skip="reason"\` or \`expect-error="reason"\`.`,
+          )
+        }
+      }
+
       const skip = /\bskip="([^"]*)"/.exec(attrs)
       if (skip) marker.push(`skip="${skip[1]}"`)
       const expectError = /\bexpect-error="([^"]*)"/.exec(attrs)

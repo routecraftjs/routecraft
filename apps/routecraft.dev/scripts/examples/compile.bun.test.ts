@@ -1,4 +1,4 @@
-import { afterAll, describe, expect, test } from 'bun:test'
+import { afterAll, beforeAll, describe, expect, test } from 'bun:test'
 import { rmSync } from 'node:fs'
 import * as path from 'node:path'
 import { fileURLToPath } from 'node:url'
@@ -35,33 +35,43 @@ function run(blocks: ExampleBlock[]): BlockOutcome[] {
 }
 
 describe('compileBlocks', () => {
-  const outcomes = run([
-    block(
-      "craft()\n  .id('ok')\n  .from(json({ path: './in.json' }))\n  .to(log())",
-    ),
-    block(
-      "craft()\n  .id('bad')\n  .from(json({ file: './in.json' }))\n  .to(log())",
-    ),
-    block('this is not typescript at all !!!', {
-      kind: 'skip',
-      reason: 'fragment: prose',
-    }),
-    block("craft().from(json({ file: './in.json' }))", {
-      kind: 'expect-error',
-      reason: 'json() takes path, not file',
-    }),
-    block('const a: number = 1\nconsole.log(a)', {
-      kind: 'expect-error',
-      reason: 'this actually compiles',
-    }),
-    block(
-      "craft()\n  .id('events')\n  .from(event('route:error'))\n  .to(log())",
-    ),
-    block(
-      "craft()\n  .id('outgrown')\n  .from(json({ path: './in.json' }))\n  .to(log())",
-      { kind: 'skip', reason: 'fragment: this block has outgrown its excuse' },
-    ),
-  ])
+  let outcomes: BlockOutcome[]
+
+  beforeAll(() => {
+    outcomes = run([
+      block(
+        "craft()\n  .id('ok')\n  .from(json({ path: './in.json' }))\n  .to(log())",
+      ),
+      block(
+        "craft()\n  .id('bad')\n  .from(json({ file: './in.json' }))\n  .to(log())",
+      ),
+      block('this is not typescript at all !!!', {
+        kind: 'skip',
+        reason: 'fragment: prose',
+      }),
+      block("craft().from(json({ file: './in.json' }))", {
+        kind: 'expect-error',
+        reason: 'json() takes path, not file',
+      }),
+      block('const a: number = 1\nconsole.log(a)', {
+        kind: 'expect-error',
+        reason: 'this actually compiles',
+      }),
+      block(
+        "craft()\n  .id('events')\n  .from(event('route:error'))\n  .to(log())",
+      ),
+      block(
+        "craft()\n  .id('outgrown')\n  .from(json({ path: './in.json' }))\n  .to(log())",
+        {
+          kind: 'skip',
+          reason: 'fragment: this block has outgrown its excuse',
+        },
+      ),
+    ])
+    // Binding a whole compile pass (packages/* plus lib files) against Bun's
+    // default 5000ms hook budget is too thin a margin to leave to whichever
+    // machine runs CI.
+  }, 20_000)
 
   /**
    * @case A block naming package exports without importing them still compiles

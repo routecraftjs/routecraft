@@ -15,6 +15,7 @@ Run a command and produce its output, isolated by default. The adapter is an enr
 
 ```ts
 import { shell, untrusted } from '@routecraft/os'
+import { z } from 'zod'
 
 craft()
   .id('clone-repo')

@@ -394,7 +394,7 @@ These two never fail, so neither can tell an orchestrator to restart or derotate
 
 Every built-in takes the same `{ enabled?, requireAuth? }` shape under `http: { builtins }`. Inspired by Spring Boot Actuator's `management.endpoint.<name>.enabled` plus `show-details: when-authorized`, compressed to a single boolean for the auth gate.
 
-```ts skip="fragment: not a complete statement on its own"
+```ts skip="fragment: '...' is a placeholder, not valid syntax"
 defineConfig({
   servers: { default: { port: 8080 } },
   http: {
@@ -465,7 +465,7 @@ OAuth 2.1 is reserved in the auth union for a future release.
 
 The mount, not the route, decides authentication. `http.mounts` declares named path-scoped surfaces, each a complete self-description (`path`, `server`, `auth`); each is a wall or public, and routes belong to exactly one:
 
-```typescript skip="fragment: not a complete statement on its own"
+```typescript skip="fragment: '...' is a placeholder, not valid syntax"
 defineConfig({
   servers: { default: { port: 8080, auth: jwks({ ... }) } },
   http: {

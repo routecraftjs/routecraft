@@ -123,7 +123,7 @@ It compiles every fenced `ts` block on the docs site against the workspace packa
 ```ts expect-error="json() takes path, not file"
 ````
 
-Use `skip` when the block is not a complete program, such as a chain shown without its route or a type signature written for reference. Use `expect-error` when the block is meant to be wrong, which is what a migration guide's "before" example is. Both need a non-empty reason, and both are checked: if a block carrying either marker turns out to compile, the build fails, so a marker cannot be carried through a rewrite and quietly leave the block unchecked.
+Use `skip` when the block is not a complete program and therefore does not compile, such as a chain shown without its route or a method signature shown as reference prose (`agent(options): Enricher<T, R>`, not a statement a program can contain). A standalone `type` alias or `interface` is a complete program and compiles on its own, so it does not qualify. Use `expect-error` when the block is meant to be wrong, which is what a migration guide's "before" example is. Both need a non-empty reason, and both are checked: if a block carrying either marker turns out to compile, the build fails, so a marker cannot be carried through a rewrite and quietly leave the block unchecked.
 
 Include in your PR description:
 
