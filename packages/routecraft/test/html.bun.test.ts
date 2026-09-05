@@ -303,6 +303,128 @@ describe("HTML Adapter", () => {
       const body = s.received[0].body as HtmlResult;
       expect(body).toBe("type X = Array&lt;string&gt;;");
     });
+
+    /**
+     * @case An ordinary indented page yields its source whitespace
+     * @preconditions Selector matches a container whose children are indented across several lines, extract: "text"
+     * @expectedResult Inner newlines and indentation are returned as the source has them; only the ends are trimmed
+     */
+    test("returns source whitespace from an indented container", async () => {
+      const s = spy();
+      const htmlString =
+        '<div class="card">\n  <h2>Getting started</h2>\n  <p>Install the   package\n     and run it.</p>\n</div>';
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("html-text-indented-prose")
+            .from(simple(htmlString))
+            .transform(html({ selector: ".card", extract: "text" }))
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const body = s.received[0].body as HtmlResult;
+      expect(body).toBe(
+        "Getting started\n  Install the   package\n     and run it.",
+      );
+    });
+
+    /**
+     * @case Source whitespace survives on the multi-match path
+     * @preconditions Selector matches several list items, one of them wrapped across lines, extract: "text"
+     * @expectedResult Each entry is trimmed at its ends but keeps the newline and indentation inside it
+     */
+    test("returns source whitespace in every entry of a multi-match result", async () => {
+      const s = spy();
+      const htmlString =
+        "<ul>\n  <li>One</li>\n  <li>Two\n      wrapped</li>\n</ul>";
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("html-text-indented-multi")
+            .from(simple(htmlString))
+            .transform(html({ selector: "li", extract: "text" }))
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const body = s.received[0].body as HtmlResult;
+      expect(body).toEqual(["One", "Two\n      wrapped"]);
+    });
+
+    /**
+     * @case The source role extracts through the same corrected text path
+     * @preconditions An HTML file holds entity-escaped markup, read with .from(html({ path, extract: "text" }))
+     * @expectedResult The escaped markup survives, proving the fix reaches the deferred source parse and not only the transformer
+     */
+    test("source role keeps escaped markup in extracted text", async () => {
+      const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "html-test-"));
+      const testFile = path.join(tempDir, "escaped.html");
+      await fs.writeFile(
+        testFile,
+        "<html><body><pre>type X = Array&lt;string&gt;;</pre></body></html>",
+      );
+
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("html-source-escaped-markup")
+            .from(html({ path: testFile, selector: "pre", extract: "text" }))
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const body = s.received[0].body as HtmlResult;
+      expect(body).toBe("type X = Array<string>;");
+
+      await fs.rm(tempDir, { recursive: true, force: true });
+    });
+
+    /**
+     * @case The enricher role extracts through the same corrected text path
+     * @preconditions An HTML file holds entity-escaped markup, read with .enrich(html({ path, selector }))
+     * @expectedResult The escaped markup survives on the enriched field
+     */
+    test("enricher role keeps escaped markup in extracted text", async () => {
+      const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "html-test-"));
+      const testFile = path.join(tempDir, "escaped-enrich.html");
+      await fs.writeFile(
+        testFile,
+        "<html><body><pre>type X = Array&lt;string&gt;;</pre></body></html>",
+      );
+
+      const s = spy();
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("html-enrich-escaped-markup")
+            .from(simple<{ keep: boolean }>({ keep: true }))
+            .enrich(
+              html({ path: testFile, selector: "pre", extract: "text" }),
+              only((code: HtmlResult) => code, "code"),
+            )
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const body = s.received[0].body as { code: string };
+      expect(body.code).toBe("type X = Array<string>;");
+
+      await fs.rm(tempDir, { recursive: true, force: true });
+    });
   });
 
   describe("default and from option", () => {
