@@ -1268,6 +1268,155 @@ describe("agent sessions", () => {
   });
 
   /**
+   * @case A message sent to an idle session after shutdown began is kept for the next process, not run
+   * @preconditions One turn ran to completion; stop() was called; a caller then sends a message through turn()
+   * @expectedResult The caller is answered "queued" with the message counted, no second run starts, and the record's inbox holds the message
+   */
+  test("a message after stop is queued, not run", async () => {
+    const store = new MemorySuspensionStore();
+    t = await contextWith(store, spy()).build();
+    await t.startAndWaitReady();
+    const sessions = new AgentSessionStore(store);
+    const runtime = new AgentSessionRuntime(t.ctx, sessions);
+    let runs = 0;
+    const executor = {
+      run: () => {
+        runs += 1;
+        return Promise.resolve({ text: "ok" } as AgentResult);
+      },
+      thread: () => undefined,
+    };
+    const exchange = new DefaultExchange(t.ctx, { body: {} });
+    const key = { agent: "max", session: "stopping-turn" };
+    const request = { key, exchange, by: null, interrupt: false, executor };
+    await runtime.turn({ ...request, message: "a" });
+    await runtime.stop();
+    const late = await runtime.turn({ ...request, message: "late" });
+    expect(late).toMatchObject({
+      text: "",
+      session: { status: "queued", queued: 1 },
+    });
+    await sleep(50);
+    expect(runs).toBe(1);
+    expect(runtime.isRunning(key)).toBe(false);
+    const inbox = (await sessions.load(key))?.inbox ?? [];
+    expect(inbox).toHaveLength(1);
+    expect(inbox[0]).toMatchObject({ kind: "message", content: "late" });
+  });
+
+  /**
+   * @case Shutdown beginning while a waiting caller looks for the next turn starts none
+   * @preconditions Turn one is held; a second caller interrupts and waits for the turn that consumes its message; the inbox is emptied under the ending turn so its boundary schedules no follow-up, then the message is put back so the caller has a turn to wait for; the store's load is slowed so the caller is inside nextTurn's record read when stop() is called
+   * @expectedResult The waiting caller is answered "queued" with its message still in the record, exactly one executor run happened, and no turn is running
+   */
+  test("shutdown during the next-turn read starts no turn", async () => {
+    const store = new MemorySuspensionStore();
+    t = await contextWith(store, spy()).build();
+    await t.startAndWaitReady();
+    const sessions = new AgentSessionStore(store);
+    const realLoad = sessions.load.bind(sessions);
+    let slowLoads = 0;
+    sessions.load = async (key) => {
+      if (slowLoads > 0) {
+        slowLoads -= 1;
+        await sleep(100);
+      }
+      return realLoad(key);
+    };
+    const runtime = new AgentSessionRuntime(t.ctx, sessions);
+    let runs = 0;
+    const executor = {
+      run: (_messages: unknown, interrupt: AbortSignal) =>
+        new Promise<AgentResult>((_resolve, reject) => {
+          runs += 1;
+          interrupt.addEventListener("abort", () =>
+            setTimeout(() => reject(new Error("aborted")), 50),
+          );
+        }),
+      thread: () => undefined,
+    };
+    const exchange = new DefaultExchange(t.ctx, { body: {} });
+    const key = { agent: "max", session: "stopping-next" };
+    const request = { key, exchange, by: null, executor };
+    const first = runtime.turn({ ...request, message: "a", interrupt: false });
+    await sleep(10);
+    const second = runtime.turn({ ...request, message: "b", interrupt: true });
+    const deadline = Date.now() + 1_000;
+    while (
+      ((await sessions.load(key))?.inbox.length ?? 0) === 0 &&
+      Date.now() < deadline
+    ) {
+      await sleep(1);
+    }
+    const [queuedEntry] = (await sessions.load(key))?.inbox ?? [];
+    await sessions.update(key, (r) => ({ ...r, inbox: [] }));
+    // The waiting caller's next two reads are slowed: its inbox check once
+    // turn one ends, then the record read inside nextTurn.
+    slowLoads = 2;
+    const one = await first;
+    expect(one.session?.status).toBe("interrupted");
+    await sessions.update(key, (r) => ({ ...r, inbox: [queuedEntry!] }));
+    await sleep(150);
+    await runtime.stop();
+    const two = await Promise.race([
+      second,
+      sleep(2_000).then(() => "spinning" as const),
+    ]);
+    expect(two).toMatchObject({
+      text: "",
+      session: { status: "queued", queued: 1 },
+    });
+    expect(runs).toBe(1);
+    expect(runtime.isRunning(key)).toBe(false);
+    expect((await sessions.load(key))?.inbox).toHaveLength(1);
+  });
+
+  /**
+   * @case A continuation whose revival fails after shutdown began starts no in-process follow-up
+   * @preconditions A turn is held while a message is posted, so it ends with the message queued and stores a continuation that cannot be revived (its id is not a real suspension); stop() is called before the failed revival is handled
+   * @expectedResult No second run starts, the record no longer names the continuation, and the inbox keeps the message
+   */
+  test("a revival failing after stop starts no follow-up", async () => {
+    const store = new MemorySuspensionStore();
+    t = await contextWith(store, spy()).build();
+    await t.startAndWaitReady();
+    const sessions = new AgentSessionStore(store);
+    const runtime = new AgentSessionRuntime(t.ctx, sessions);
+    let runs = 0;
+    let releaseRun: (() => void) | undefined;
+    const executor = {
+      run: () =>
+        new Promise<AgentResult>((resolve) => {
+          runs += 1;
+          releaseRun = () => resolve({ text: "ok" } as AgentResult);
+        }),
+      thread: () => undefined,
+    };
+    const exchange = new DefaultExchange(t.ctx, { body: {} });
+    const key = { agent: "max", session: "stopping-revive" };
+    const first = runtime.turn({
+      key,
+      exchange,
+      message: "start",
+      by: null,
+      interrupt: false,
+      executor,
+      park: async () => ({ suspensionId: "not-a-record", routeId: "chat" }),
+    });
+    await sleep(10);
+    await runtime.post(key, { kind: "message", content: "late", by: null });
+    releaseRun!();
+    await first;
+    await runtime.stop();
+    await sleep(50);
+    expect(runs).toBe(1);
+    expect(runtime.isRunning(key)).toBe(false);
+    const record = await sessions.load(key);
+    expect(record?.park).toBeUndefined();
+    expect(record?.inbox.map((m) => m.kind)).toEqual(["message"]);
+  });
+
+  /**
    * @case A parallel tool batch cut short keeps the sibling that finished, with its result
    * @preconditions The model calls quick and slow together; quick answers at once, slow is held; the turn is interrupted before the step commits
    * @expectedResult The next turn's thread carries both calls, quick paired with its json result "fast done" and slow with an error result, so the model neither repeats the finished work nor loses its output

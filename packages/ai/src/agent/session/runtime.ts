@@ -193,7 +193,10 @@ export class AgentSessionRuntime {
   async turn<T>(req: AgentTurnRequest<T>): Promise<AgentResult> {
     const k = keyOf(req.key);
     const running = this.active.get(k);
-    if (!running) {
+    // A continuation revived before shutdown began still runs here, held
+    // by stop() until it settles; a caller's message on an idle session
+    // after that point is kept in the record for the next process.
+    if (!running && (req.message === undefined || !this.stopping)) {
       return this.start(k, req, req.message).outcome;
     }
     if (req.message === undefined) {
@@ -233,6 +236,7 @@ export class AgentSessionRuntime {
       depth: record.inbox.length,
       interrupt: req.interrupt,
     });
+    if (!running) return this.queued(req.key, record.inbox.length);
     if (req.interrupt) {
       running.controller.abort(INTERRUPT_REASON);
       this.emit(req.exchange, "route:agent:session:interrupted", {
@@ -240,15 +244,7 @@ export class AgentSessionRuntime {
         session: req.key.session,
       });
     } else if (this.active.get(k) === running) {
-      return {
-        text: "",
-        session: {
-          agent: req.key.agent,
-          id: req.key.session,
-          status: "queued",
-          queued: record.inbox.length,
-        },
-      };
+      return this.queued(req.key, record.inbox.length);
     }
     // The turn ended while the message was being written, or this caller
     // interrupted it: either way the message is in the inbox and is
@@ -260,17 +256,13 @@ export class AgentSessionRuntime {
       // Once shutdown began, a turn nobody is running must not be started
       // here either: the message is in the record for the next process.
       if (!this.active.has(k) && this.stopping) {
-        return {
-          text: "",
-          session: {
-            agent: req.key.agent,
-            id: req.key.session,
-            status: "queued",
-            queued: (await this.store.load(req.key))?.inbox.length ?? 0,
-          },
-        };
+        return this.queued(
+          req.key,
+          (await this.store.load(req.key))?.inbox.length ?? 0,
+        );
       }
       const current = this.active.get(k) ?? (await this.nextTurn(k, req, id));
+      if (current === undefined) continue;
       const result = await current.outcome;
       if (current.consumed.has(id)) return result;
       if (this.active.has(k)) continue;
@@ -300,13 +292,14 @@ export class AgentSessionRuntime {
    * revival is what keeps the boundary turn on the route's own pipeline;
    * a revival that never reaches this runtime (a step ahead of the agent
    * failed) is given up on after a bound and the turn started in process,
-   * so a waiting caller is never stranded on it.
+   * so a waiting caller is never stranded on it. Nothing once shutdown
+   * began while this waited: the caller answers `queued` then.
    */
   private async nextTurn<T>(
     k: string,
     req: AgentTurnRequest<T>,
     messageId: string,
-  ): Promise<ActiveTurn> {
+  ): Promise<ActiveTurn | undefined> {
     // Registered before the read: a revival can start its turn while the
     // record is being read, and a waiter registered after that start
     // would wait on one that has already happened.
@@ -326,7 +319,22 @@ export class AgentSessionRuntime {
     } else {
       wait.cancel();
     }
-    return this.active.get(k) ?? this.start(k, req, undefined);
+    const live = this.active.get(k);
+    if (live !== undefined || this.stopping) return live;
+    return this.start(k, req, undefined);
+  }
+
+  /** The acknowledgement of a message left in the inbox for a later turn. */
+  private queued(key: AgentSessionKey, depth: number): AgentResult {
+    return {
+      text: "",
+      session: {
+        agent: key.agent,
+        id: key.session,
+        status: "queued",
+        queued: depth,
+      },
+    };
   }
 
   /** The next turn registered for `k`, or `undefined` at the bound or when cancelled. */
@@ -920,6 +928,9 @@ export class AgentSessionRuntime {
 
   /** The boundary turn without a continuation: started here, tracked by the route for drain. */
   private followUpInProcess<T>(k: string, req: AgentTurnRequest<T>): void {
+    // A revival that failed after shutdown began lands here too; the
+    // messages stay in the record, as on every other path once stopping.
+    if (this.stopping) return;
     const next = this.start(k, req, undefined);
     const route = getExchangeRoute(req.exchange);
     if (route) {
