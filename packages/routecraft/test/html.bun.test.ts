@@ -176,6 +176,135 @@ describe("HTML Adapter", () => {
     });
   });
 
+  describe("text extraction fidelity", () => {
+    /**
+     * @case Escaped markup inside a <pre> survives text extraction
+     * @preconditions Body is HTML whose text content contains entity-escaped angle brackets, extract: "text"
+     * @expectedResult The decoded angle brackets and the content between them are returned intact
+     */
+    test("keeps escaped markup in extracted text", async () => {
+      const s = spy();
+      const htmlString = "<pre>type X = Array&lt;string&gt;;</pre>";
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("html-text-escaped-markup")
+            .from(simple(htmlString))
+            .transform(html({ selector: "pre", extract: "text" }))
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const body = s.received[0].body as HtmlResult;
+      expect(body).toBe("type X = Array<string>;");
+    });
+
+    /**
+     * @case A multi-line <pre> keeps its line breaks under text extraction
+     * @preconditions Body is HTML with a <pre> spanning several lines and indented, extract: "text"
+     * @expectedResult Newlines and inner indentation are preserved; only leading and trailing whitespace is trimmed
+     */
+    test("preserves newlines and indentation in extracted text", async () => {
+      const s = spy();
+      const htmlString = "<pre>function f() {\n  return 1;\n}</pre>";
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("html-text-multiline")
+            .from(simple(htmlString))
+            .transform(html({ selector: "pre", extract: "text" }))
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const body = s.received[0].body as HtmlResult;
+      expect(body).toBe("function f() {\n  return 1;\n}");
+    });
+
+    /**
+     * @case <style> and <script> subtrees are still excluded from text extraction
+     * @preconditions Selector matches a container holding style, script and visible text, extract: "text"
+     * @expectedResult Only the visible text is returned; neither CSS nor script source appears
+     */
+    test("still removes style and script content from extracted text", async () => {
+      const s = spy();
+      const htmlString =
+        '<div class="wrap"><style>.hide { display: none; }</style><p>Visible</p><script>alert("hi");</script></div>';
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("html-text-style-script")
+            .from(simple(htmlString))
+            .transform(html({ selector: ".wrap", extract: "text" }))
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const body = s.received[0].body as HtmlResult;
+      expect(body).toBe("Visible");
+    });
+
+    /**
+     * @case Escaped markup survives on the multi-match path
+     * @preconditions Selector matches several elements, each containing entity-escaped angle brackets, extract: "text"
+     * @expectedResult Every array entry carries its decoded angle brackets intact
+     */
+    test("keeps escaped markup in every entry of a multi-match result", async () => {
+      const s = spy();
+      const htmlString =
+        "<pre>List&lt;T&gt;</pre><pre>Promise&lt;void&gt;</pre><pre>a &lt; b</pre>";
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("html-text-escaped-multi")
+            .from(simple(htmlString))
+            .transform(html({ selector: "pre", extract: "text" }))
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const body = s.received[0].body as HtmlResult;
+      expect(body).toEqual(["List<T>", "Promise<void>", "a < b"]);
+    });
+
+    /**
+     * @case extract "html" is unaffected by the text-extraction change
+     * @preconditions Same escaped-markup body as the text case, extract: "html"
+     * @expectedResult The raw inner HTML is returned with its entities still encoded
+     */
+    test("extract html still returns the raw encoded markup", async () => {
+      const s = spy();
+      const htmlString = "<pre>type X = Array&lt;string&gt;;</pre>";
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("html-html-escaped-markup")
+            .from(simple(htmlString))
+            .transform(html({ selector: "pre", extract: "html" }))
+            .to(s),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const body = s.received[0].body as HtmlResult;
+      expect(body).toBe("type X = Array&lt;string&gt;;");
+    });
+  });
+
   describe("default and from option", () => {
     /**
      * @case By default uses body.body when body is object (e.g. after http())

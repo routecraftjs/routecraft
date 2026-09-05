@@ -12,7 +12,8 @@ export interface HtmlOptions<T = unknown, R = unknown> {
   selector?: string;
   /**
    * What to extract. Default: "text".
-   * - text: cheerio .text() (all descendant text), trimmed
+   * - text: cheerio .text() (all descendant text), trimmed, with
+   *   `style` and `script` subtrees removed
    * - html: inner HTML (cheerio .html())
    * - attr: attribute value (requires attr option)
    * - outerHtml: element including its tag (cheerio .prop('outerHTML'))
