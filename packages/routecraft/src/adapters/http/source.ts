@@ -43,6 +43,20 @@ function normalizeMethod(options: HttpServerOptions): HttpMethod {
 }
 
 /**
+ * Refuse a `respond` that is not callable. An options object built
+ * programmatically (or by an untyped caller) would otherwise register a route
+ * whose responder throws on the first request, which is a 500 per delivery
+ * rather than a boot failure.
+ */
+function assertRespondCallable(options: HttpServerOptions): void {
+  if (options.respond !== undefined && typeof options.respond !== "function") {
+    throw rcError("RC5003", undefined, {
+      message: `http() source: respond must be a function, received ${typeof options.respond}. It is called once per request and returns the response to send, e.g. respond: () => ({ status: 202 }).`,
+    });
+  }
+}
+
+/**
  * Join a mount prefix and a mount-relative route path into the full request
  * pattern. `"/"` plus `"/orders"` is `/orders`; `"/api"` plus `"/orders"`
  * is `/api/orders`.
@@ -72,6 +86,7 @@ export class HttpSourceAdapter implements Source<HttpRequestBody> {
     // Validate the method unconditionally so an unsupported or non-string
     // method fails here, not as a dead route at subscribe time.
     normalizeMethod(options);
+    assertRespondCallable(options);
 
     // Auth is mount-owned; the removed per-route auth modes fail loudly so
     // an untyped caller migrating from 0.6 learns the new model instead of
@@ -146,6 +161,21 @@ export class HttpSourceAdapter implements Source<HttpRequestBody> {
     }
     const registry = mount.registry;
 
+    const respond = this.options.respond;
+    if (respond !== undefined && meta?.bufferedConsumer === true) {
+      // A buffering consumer parks the message instead of starting the
+      // pipeline, so the route never counts it as in flight and a graceful
+      // shutdown drains past it: an answer already sent would outlive the
+      // delivery, and a sender that received one does not redeliver. Nothing
+      // here can tell whether this particular responder would have awaited
+      // the pipeline, because that is decided inside the function at request
+      // time, so the refusal covers every responder.
+      throw rcError("RC5003", undefined, {
+        message:
+          "http() source: respond cannot be combined with a batching route. A batched message waits in the buffer instead of running, so it is not in-flight work and a graceful shutdown discards it, while the responder has already answered. Drop .batch() from this route, or drop respond and let the framework answer with the pipeline's result.",
+      });
+    }
+
     const method = normalizeMethod(this.options);
     // Route paths are relative to the mount prefix; the matcher covers the
     // full request path so dispatch and OpenAPI need no join at read time.
@@ -160,6 +190,7 @@ export class HttpSourceAdapter implements Source<HttpRequestBody> {
       requiresPrincipal: meta?.requiresPrincipal === true,
       rawBody: this.options.rawBody ?? false,
       signature: this.options.signature,
+      respond,
       discovery: meta?.discovery,
       handler: (body, headers) =>
         sub.emit({
