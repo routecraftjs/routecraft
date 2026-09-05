@@ -5,7 +5,7 @@ body:
   - type: markdown
     attributes:
       value: |
-        The first three fields are the whole proposal for a reader with one minute. Keep them short; the reasoning goes at the bottom.
+        The TLDR, today, after and the route as it reads are the whole proposal for a reader with one minute. Keep them short; the reasoning goes at the bottom.
   - type: input
     id: tldr
     attributes:
