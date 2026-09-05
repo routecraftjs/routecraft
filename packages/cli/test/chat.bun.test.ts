@@ -371,6 +371,60 @@ describe("craft chat", () => {
     expect(result.error).toMatch(/--session/);
     expect(result.error).toMatch(/\{ session, message \}/);
   });
+
+  /**
+   * @case On a terminal the flagless form is refused until the interactive mode exists, and nothing is sent
+   * @preconditions Dispatch open; the input is declared a terminal; --print not passed
+   * @expectedResult Exit 2 with a message naming --print, and the route received nothing
+   */
+  test("refuses a terminal without --print", async () => {
+    await start({ dispatch: true });
+    const out: string[] = [];
+    const result = await chatCommand("max", {
+      url,
+      session: "s",
+      terminal: true,
+      input: ["hello"],
+      write: (t) => out.push(t),
+      ...isolated(),
+    });
+    expect(result.code).toBe(EXEC_EXIT.usage);
+    expect(result.error).toMatch(/--print/);
+    expect(result.error).toMatch(/not built yet/);
+    expect(received).toEqual([]);
+    expect(out).toEqual([]);
+  });
+
+  /**
+   * @case On a terminal --print runs the line loop, and a pipe needs no flag
+   * @preconditions Dispatch open; one run declares a terminal with print set, one injects input with no flag and no terminal declaration
+   * @expectedResult Both runs exit 0 and deliver their message
+   */
+  test("--print on a terminal and a pipe without it both run", async () => {
+    await start({ dispatch: true });
+    const printed = await chatCommand("max", {
+      url,
+      session: "s",
+      terminal: true,
+      print: true,
+      input: ["from a terminal"],
+      write: () => undefined,
+      ...isolated(),
+    });
+    expect(printed.code).toBe(EXEC_EXIT.ok);
+    const piped = await chatCommand("max", {
+      url,
+      session: "s",
+      input: ["from a pipe"],
+      write: () => undefined,
+      ...isolated(),
+    });
+    expect(piped.code).toBe(EXEC_EXIT.ok);
+    expect(received.map((r) => r.message)).toEqual([
+      "from a terminal",
+      "from a pipe",
+    ]);
+  });
 });
 
 describe("craft chat output and non-door failures", () => {

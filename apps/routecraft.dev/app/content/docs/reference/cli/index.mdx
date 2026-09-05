@@ -257,19 +257,22 @@ craft chat [options] <route>
 
 A loop over the same primitive `exec` uses: every line is a dispatch of `{ session, message }` to the route fronting the agent, through the [management API](/docs/reference/plugins/opsplugin#management-api), and the reply is printed. The terminal owns nothing. The conversation lives in the instance's store under the session id, so the loop can be killed and reattached with the same id, from here or from another machine, and a webhook or a mail reply can post into the same session while it is open.
 
+What ships in 0.7.0 is the **print mode**: `--print` (`-p`) runs the line loop with no interface around it, and piped input implies it. The flagless form on a terminal is reserved for the interactive chat interface and refuses with `exec`'s usage exit code until that ships, so a script written today against `--print` keeps its behaviour when the flagless form starts drawing a screen.
+
 Options:
 
 | Option | Description |
 | --- | --- |
 | `<route>` | The route fronting the agent: one that takes `{ session, message }` and dispatches `agent(name, { session })` |
+| `-p, --print` | Run the line loop without an interface. Required on a terminal until the interactive mode ships; implied when standard input is not a terminal |
 | `--session <id>` | The conversation to continue. A fresh id is minted and printed at the start when omitted: in the `pretty` header, or on standard error under `json` and `raw` so standard output stays replies only |
 | `--url <url>` | Ops server base URL. Defaults to the [settings file](#settings-file), else `http://127.0.0.1:8080` |
 | `--token <token>` | Bearer credential presented at the management door |
 | `--format <format>` | `pretty` (default), `json` (the whole dispatch outcome per line), or `raw` (the reply text only) |
 
 ```bash
-craft chat max
-craft chat max --session feature-login
+craft chat max --print
+craft chat max --print --session feature-login
 echo "what is left on the branch?" | craft chat max --session feature-login --format raw
 ```
 

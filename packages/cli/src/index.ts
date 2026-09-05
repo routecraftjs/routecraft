@@ -316,8 +316,9 @@ program
  * the agent, so the app's own guardrails run on every message.
  *
  * Example:
- * craft chat max
- * craft chat max --session feature-login
+ * craft chat max --print
+ * craft chat max --print --session feature-login
+ * echo "what is left?" | craft chat max --session feature-login --format raw
  */
 program
   .command("chat")
@@ -325,6 +326,10 @@ program
     "Talk to an agent session on a running instance, one message per line",
   )
   .argument("[route]", "Route fronting the agent (takes { session, message })")
+  .option(
+    "-p, --print",
+    "Run the line loop without an interface (required on a terminal until the interactive mode ships; implied by piped input)",
+  )
   .option("--session <id>", "Conversation to continue; a fresh id otherwise")
   .option("--url <url>", "Ops server base URL of the target instance")
   .option("--token <token>", "Bearer credential for the management door")
@@ -333,6 +338,7 @@ program
     async (
       route: string | undefined,
       options: {
+        print?: boolean;
         session?: string;
         url?: string;
         token?: string;

@@ -14,6 +14,13 @@
  * `.input()` and `.throttle()` run per message. Addressing an agent by its
  * registry name with no route in front is #599's open question and is not
  * built here.
+ *
+ * What is built is the print mode, `--print`: the line loop with no
+ * interface around it. The flagless form on a terminal is reserved for the
+ * interactive chat interface and refuses until that ships, so a script
+ * written today against `--print` keeps its behaviour when the flagless
+ * form starts drawing a screen. Piped input is the print case by
+ * definition and needs no flag.
  */
 
 import { randomUUID } from "node:crypto";
@@ -35,6 +42,18 @@ export type ChatWriter = (text: string) => unknown;
 export interface ChatOptions extends SettingsOverrides {
   /** The conversation to continue. A fresh id is minted and printed when absent. */
   session?: string;
+  /**
+   * Run the line loop without an interface. Required on a terminal until
+   * the interactive mode exists; implied when the input is not a terminal.
+   */
+  print?: boolean;
+  /**
+   * Whether the input is a terminal. Defaults to standard input's own
+   * answer when no `input` is injected, and to false when one is: an
+   * injected iterable is a pipe by definition. Injectable so a test can
+   * stand at a terminal without one.
+   */
+  terminal?: boolean;
   /**
    * The messages, one per item. Defaults to the lines of standard input.
    * Injectable so a test can drive a conversation without a terminal.
@@ -84,6 +103,12 @@ export async function chatCommand(
   if (!prepared.ok) return { code: EXEC_EXIT.usage, error: prepared.error };
   if (route === undefined || route.trim() === "") {
     return { code: EXEC_EXIT.usage, error: USAGE };
+  }
+  const terminal =
+    options.terminal ??
+    (options.input === undefined && process.stdin.isTTY === true);
+  if (terminal && options.print !== true) {
+    return { code: EXEC_EXIT.usage, error: INTERACTIVE_NOT_BUILT };
   }
 
   const { client, format, settings } = prepared;
@@ -246,10 +271,15 @@ async function* lines(): AsyncIterable<string> {
   }
 }
 
+/** The flagless form on a terminal, refused until the interactive mode exists. */
+export const INTERACTIVE_NOT_BUILT =
+  "craft chat's interactive mode is not built yet. Pass --print (-p) for the line loop: one message per line on standard input, replies on standard output. Piped input needs no flag.";
+
 const USAGE = [
   "Usage: craft chat [options] <route>",
   "",
   "Options:",
+  "  -p, --print        Run the line loop without an interface (required on a terminal until the interactive mode ships; implied by piped input)",
   "  --session <id>     Conversation to continue (default: a fresh id, printed at the start)",
   "  --url <url>        Instance ops server (default: the settings file, else http://127.0.0.1:8080)",
   "  --token <token>    Bearer credential presented at the management door",
