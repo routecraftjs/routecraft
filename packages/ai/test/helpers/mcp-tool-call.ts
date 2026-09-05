@@ -3,7 +3,7 @@ import type { McpServer } from "../../src/mcp/server.ts";
 /** Shape of the tool result the server hands back to a client. */
 export type ToolResult = {
   content: Array<{ type: string; text: string }>;
-  structuredContent?: Record<string, unknown>;
+  structuredContent?: unknown;
   isError?: boolean;
 };
 
