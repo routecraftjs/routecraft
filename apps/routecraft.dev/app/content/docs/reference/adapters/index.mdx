@@ -20,7 +20,7 @@ All three modes are observable on the events bus, parse failures are never silen
 | `'abort'` | `exchange:started` to `exchange:failed` for the bad item, then the source rejects and `context:error` fires. | Atomic-load semantics where partial data is unacceptable. |
 | `'drop'` | `exchange:started` to `exchange:dropped` with `reason: 'parse-failed'`. No `.error()` invocation. Streaming adapters continue. | Lossy upstreams (scraping, public feeds) where malformed items are expected but should still be counted. |
 
-```ts
+```ts skip="fragment: db, load, ctx are illustrative"
 // Default: route per-line parse errors through .error(), keep streaming.
 craft()
   .from(jsonl({ path: './events.jsonl', chunked: true }))

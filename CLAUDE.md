@@ -45,7 +45,7 @@ Detailed coding standards for contributors live in `.standards/`:
 - [Pre-from Filter Chain](.standards/pre-from-filter-chain.md) -- fixed ordered chain at route scope (`error` / `authorize` / `parse` / `input` / `throttle` / `circuitBreaker` / `retry` / `timeout` / `concurrency` / `cacheCheck` / pipeline / `cacheStore`); framework picks the order, and every position is filled by a shipped operation
 - [Security](.standards/security.md) -- JWT / JWKS verification, principal propagation, bearer-token handling, `userinfo` enrichment, RFC 9728 metadata, `authorize()` semantics
 - [API Stability](.standards/api-stability.md) -- the v0 policy: the whole public API is unstable, so we tag only `@internal` and `@deprecated`; per-symbol `@experimental` / `@beta` / `@stable` tiers arrive at v1
-- [Content and Docs](.standards/content-and-docs.md) -- where content belongs across docs and blog (the five surfaces), introduction-vs-advanced depth axis, code-lives-once, nav-matches-folders, the `route.ts` and management-surface naming exceptions, constrained-MDX authoring rule, redirect constraint
+- [Content and Docs](.standards/content-and-docs.md) -- where content belongs across docs and blog (the five surfaces), introduction-vs-advanced depth axis, code-lives-once, nav-matches-folders, the `route.ts` and management-surface naming exceptions, constrained-MDX authoring rule, the compile-or-say-why rule for code examples, redirect constraint
 
 ## Merge Checklist
 

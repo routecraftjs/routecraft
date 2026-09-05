@@ -10,7 +10,7 @@ The steps that transform, filter, and route data inside a capability.
 
 Operations are the verbs of the DSL. They run in the order you write them -- the exchange passes through each one in sequence.
 
-```ts
+```ts skip="fragment: normalise, destination are illustrative"
 craft()
   .id('process-order')
   .from(timer({ interval: 60_000 }))
@@ -51,7 +51,7 @@ Wrappers modify the behaviour of the **next operation only**. They do not stand 
 
 Multiple wrappers can be stacked. They apply in outside-in order, so the first listed is the outermost. This means the order changes the semantics:
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Each retry attempt gets a fresh 5s timeout
 .retry({ maxAttempts: 3 })
 .timeout(5000)

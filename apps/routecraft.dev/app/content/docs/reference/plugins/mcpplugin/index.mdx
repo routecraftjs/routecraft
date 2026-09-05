@@ -175,7 +175,7 @@ auth: jwt({
 
 **Custom validator:**
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 auth: {
   validator: async (token) => {
     const user = await db.verifyApiKey(token)
@@ -224,7 +224,7 @@ Passing `jwks(...)` straight to `auth` works identically. Reach for `oauth()` wh
 
 **Custom verification (opaque tokens, introspection, etc.):**
 
-```ts
+```ts skip="third-party: jose is not a dependency of the docs site"
 import { mcpPlugin, oauth } from '@routecraft/ai'
 import { jwtVerify, createRemoteJWKSet } from 'jose'
 

@@ -6,7 +6,7 @@ title: tap
 [← All operations](/docs/reference/operations)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 tap(target: Destination<Current> | Enricher<Current, unknown> | CallableEnricher<Current, unknown>): RouteBuilder<Current>
 ```
 
@@ -17,7 +17,7 @@ The tap receives a **deep copy** of the exchange with:
 - Cloned body and headers
 - Correlation ID preserved for traceability back to parent exchange
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Simple function-based tapping
 .tap(log()) // Built-in logging
 .tap((exchange) => console.log('Processing:', exchange.body))

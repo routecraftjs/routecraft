@@ -6,13 +6,13 @@ title: description
 [← All operations](/docs/reference/operations)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 description(value: string): RouteBuilder<Current>
 ```
 
 Set a human-readable description for the next route. Used by discovery-aware adapters when exposing the route to external consumers such as agents and MCP clients.
 
-```ts
+```ts skip="fragment: saveOrder is illustrative"
 craft()
   .id('ingest')
   .description('Validate and persist an inbound order')

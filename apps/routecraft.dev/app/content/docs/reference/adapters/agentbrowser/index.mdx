@@ -20,7 +20,8 @@ import { agentBrowser } from '@routecraft/os'
 craft()
   .id('scrape-page')
   .from(simple({ url: 'https://example.com' }))
-  .to(agentBrowser('open', { url: (ex) => ex.body.url }))
+  // explicit body type at .to() until #726
+  .to(agentBrowser<{ url: string }>('open', { url: (ex) => ex.body.url }))
   .enrich(agentBrowser('snapshot', { json: true }))
   .to(log())
 // Result replaces the body: { stdout: '...', parsed: { snapshot: '...', refs: {...} }, exitCode: 0 }
@@ -28,7 +29,7 @@ craft()
 
 **Click an element and get text:**
 
-```ts
+```ts skip="fragment: source is illustrative"
 craft()
   .id('click-and-read')
   .from(source)
@@ -50,7 +51,7 @@ craft()
 
 **Close the session explicitly:**
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .to(agentBrowser('close'))
 ```
 

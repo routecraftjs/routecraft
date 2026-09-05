@@ -47,7 +47,7 @@ Outside in (position 1 wraps everything below):
 
 These three routes behave identically:
 
-```ts
+```ts skip="fragment: loadEmployees are illustrative"
 craft()
   .id('list-employees')
   .authorize({ roles: ['hr'] })
@@ -86,7 +86,7 @@ run in.
 Filters 2-9 propagate failures upward by throwing. `.error()` is
 the outermost catch:
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .error((err) => {
   // Deterministic rejections: re-throw so the source can translate
   // (e.g. HTTP returns 401, 403, or 400). Do not collapse the authorize
@@ -145,7 +145,7 @@ A route-scope `.retry()` applies to execution two, so the steps after a `.suspen
 
 Inside the continuation, step-scope wrappers work normally, and because a wrapper wraps the immediately following step, a nesting operation groups a whole block under one:
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .suspend({ schema: Approval, ttl: '72h' })
 .retry({ maxAttempts: 3 })
 .choice(otherwise((b) => b
@@ -156,7 +156,7 @@ Inside the continuation, step-scope wrappers work normally, and because a wrappe
 
 When you want the positions that stay off, hand the continuation to a route that has them:
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .suspend({ schema: Approval, ttl: '72h' })
 .to(direct('execute-payout'))
 

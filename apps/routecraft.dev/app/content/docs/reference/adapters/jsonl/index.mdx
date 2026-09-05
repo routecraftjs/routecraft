@@ -6,7 +6,7 @@ title: jsonl
 [← All adapters](/docs/reference/adapters)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 jsonl<T, R>(options?: JsonlTransformerOptions): Transformer   // no path: parse a JSONL string in the body
 jsonl<T>(options: JsonlFileOptions & { chunked: true }): JsonlChunkedAdapter<T> // Source<T> & Destination<unknown> & Enricher<unknown, T[]>
 jsonl<T>(options: JsonlFileOptions): JsonlAdapter<T> // Source<T[]> & Destination<unknown> & Enricher<unknown, T[]>
@@ -17,7 +17,7 @@ Read and write [JSON Lines](https://jsonlines.org/) files (one JSON object per l
 "Presence" means the key was **supplied**, not that it holds something truthy. Only an omitted `path` selects the transformer role; a supplied `path` that is empty or `undefined` is refused with `RC5003` rather than silently demoted to a transformer that would ignore every file option passed alongside it.
 
 **Transformer role** (parse a JSONL string already in the body):
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Parse a JSONL string (e.g. an http() response body) into an array
 .transform(jsonl())
 
@@ -29,7 +29,7 @@ Read and write [JSON Lines](https://jsonlines.org/) files (one JSON object per l
 ```
 
 **Source role** (read JSONL files):
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Read all lines as array
 .from(jsonl({ path: './events.jsonl' }))
 // Emits: [{ type: 'click', ts: 1 }, { type: 'view', ts: 2 }, ...]
@@ -47,7 +47,7 @@ Read and write [JSON Lines](https://jsonlines.org/) files (one JSON object per l
 
 **Read mid-route** (read + parse a JSONL file partway through a route): The adapter is also an enricher whose `fetch` reads and parses the file, so `.enrich()` can pull the array in. The array replaces the body; pass an aggregator such as `only()` to merge instead. The fetch role accepts dynamic (function) paths. Parse failures throw and surface through the pipeline (the `onParseError` lifecycle controls apply to the source role only).
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Replace the body with the parsed array
 .enrich(jsonl<Event>({ path: './events.jsonl' }))
 
@@ -66,7 +66,7 @@ The send role overwrites the file by default. Appending (the pre-role-model defa
 
 </Callout>
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Overwrite file (default)
 .to(jsonl({ path: './output.jsonl' }))
 

@@ -40,7 +40,7 @@ Capabilities can be fully **deterministic** (the same input always produces the 
 
 Routecraft uses a **fluent DSL (Domain-Specific Language)** to author capabilities. It reads like a pipeline:
 
-```ts
+```ts skip="fragment: source, fn, destination are illustrative"
 craft()
   .from(source)
   .transform(fn)

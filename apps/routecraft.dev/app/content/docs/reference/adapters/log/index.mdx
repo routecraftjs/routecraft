@@ -6,13 +6,13 @@ title: log
 [← All adapters](/docs/reference/adapters)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 log<T>(formatter?: (exchange: Exchange<T>) => unknown, options?: LogOptions): Destination<T>
 ```
 
 Log messages to the console. Can be used as a destination with `.to()` or for side effects with `.tap()`. The send is void: the body flows through a `.to(log())` step unchanged.
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Log final result (default: logs exchange ID, body, and headers at info level)
 .to(log())
 

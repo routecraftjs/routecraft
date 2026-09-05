@@ -6,7 +6,7 @@ title: cron
 [← All adapters](/docs/reference/adapters)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 cron(expression: string, options?: CronOptions): Source<undefined>
 ```
 
@@ -14,7 +14,7 @@ Trigger routes on a cron schedule with timezone support. Produces `undefined` as
 
 Supports standard 5-field cron (minute granularity), extended 6-field (second granularity), and nicknames (`@daily`, `@weekly`, `@hourly`, `@monthly`, `@yearly`, `@annually`, `@midnight`).
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Every 5 minutes
 .id('poller')
 .from(cron('*/5 * * * *'))

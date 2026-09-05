@@ -12,7 +12,7 @@ fluent builder closures so sub-pipeline path builders inside `.choice()` and
 `.multicast()` keep their parameter on the arrow line instead of indenting a
 level for every closure:
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .choice(
   when(isUrgent, (b) => b.to(urgent)),
   otherwise((b) => b),

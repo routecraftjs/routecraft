@@ -14,7 +14,7 @@ One limit before the rest: an agent dispatched with a [session](/docs/reference/
 
 `ctx.suspend()` on the handler context is the whole protocol. Return its sentinel immediately:
 
-```ts
+```ts skip="fragment: sendApprovalRequest, Approval are illustrative"
 agentPlugin({
   functions: {
     askApproval: {
@@ -91,7 +91,7 @@ nowhere else to go.
 
 `replaceParkedThread` does that swap safely:
 
-```ts
+```ts skip="fragment: store, suspensionId, summariseOldTurns are illustrative"
 import { replaceParkedThread } from "@routecraft/ai";
 
 const result = await replaceParkedThread(store, suspensionId, async (messages) =>

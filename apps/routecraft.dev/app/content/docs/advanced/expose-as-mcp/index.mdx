@@ -253,7 +253,7 @@ An exact ref and a wildcard covering the same remote tool compose: the exact ent
 
 A proxy entry can carry a `guard`, the same per-tool check the agent's `tools([{ name, guard }])` supports. It runs before the call dispatches, receives the raw tool arguments and a handler context carrying the MCP caller's read-only `principal` (populated by the HTTP transport's `auth`), and rejects the call by throwing (the client sees an `isError` result). Unlike agent tools, no schema validation runs before a proxy guard (the remote server validates after it), so treat the input as untrusted and check structure before dereferencing:
 
-```ts
+```ts skip="fragment: one property of the mcpPlugin options"
 proxy: [
   {
     ref: 'billing:search',

@@ -38,7 +38,7 @@ Every PR must pass these jobs before merge. The first column matches the GitHub 
 | `validate` | `bun run format && bun run typecheck && bun run lint && bunx madge --circular .` | Prettier drift, TS errors, ESLint violations, circular imports. |
 | `test` | `bun run test:coverage` (runs `bun:test` for `*.bun.test.{ts,tsx}` then vitest for the rest, both excluding `**/integration.test.ts` and `**/test/cross-runtime/**`) | Unit-test regressions, coverage report uploaded as artifact. |
 | `build` | `bun run build` and `bun run limit:size` | Build failures, bundle size regressions (size-limit). |
-| `docs-site` | The site's own `typecheck` and `lint`, a build, `check-links`, then the Playwright acceptance suite against that build | The site's checks are not in the root `validate` job, which typechecks the packages only. Catches broken app types, dead internal links and anchors, and the URL space, channel, metadata and rendering contracts the migration was held to. Runs on the `docs` paths filter in ci.yml: `apps/routecraft.dev/**`, `packages/**` (the reference catalogues are generated from them), `bun.lock` and `.github/workflows/**`. |
+| `docs-site` | The site's own `typecheck` and `lint`, `check-examples`, a build, `check-links`, then the Playwright acceptance suite against that build | The site's checks are not in the root `validate` job, which typechecks the packages only. Catches broken app types, an example naming an option, symbol or literal that does not exist, dead internal links and anchors, and the URL space, channel, metadata and rendering contracts the migration was held to. `check-examples` runs before the build because it needs neither the build nor the browser. Runs on the `docs` paths filter in ci.yml: `apps/routecraft.dev/**`, `packages/**` (the reference catalogues are generated from them), `bun.lock` and `.github/workflows/**`. |
 | `scaffolder-smoke` | `bun run test:integration` twice (`TEST_PACKAGE_MANAGER=bun`, then `=npm`) | End-to-end scaffolder flow: `create-routecraft` -> install -> `bunx tsc --noEmit` -> `bunx craft run` (npm arm skips the run since `craft` is Bun-only). Catches CLI binary regressions, scaffolder template drift, package-manager-specific install failures. |
 | `embedding-smoke` | `node .github/scripts/smoke-test-embedding.mjs` | Library embeds into a plain Node app: `npm pack` + `npm install` + `node --experimental-strip-types runner.ts`. Includes a negative arm asserting `RC5017` fires when `cron()` is used without `croner` installed. Catches Node compatibility regressions in the core library and the optional-peer contract. |
 | `adapter-cross-runtime (bun)` | `bun run test:cross-runtime` (matches `**/test/cross-runtime/**/*.test.ts`) | Adapter tests that must produce identical observable behaviour under Bun and Node. Bun arm runs the suite under Bun. |
@@ -153,6 +153,25 @@ bun run build      # all packages
 ```
 
 Or the bundled `bun run all`, which runs `lint --fix`, `format:write`, `typecheck`, `build`, `test` in one pass.
+
+Touching the docs site adds one more, run from `apps/routecraft.dev`:
+
+```sh
+bun run check:examples  # compiles the docs' TypeScript examples
+```
+
+It is not in `bun run all`, because it needs the site's own dependencies and
+`all` is the packages' gate. A fenced `ts` block must compile, or its fence must
+say why it cannot:
+
+````
+```ts skip="fragment: dest is illustrative"
+```ts expect-error="json() takes path, not file"
+````
+
+Both markers need a non-empty reason, and both are audited: a `skip` on a block
+that does compile fails the build, so a marker cannot be carried through a
+rewrite and quietly leave the block unchecked.
 
 Integration tests require a tarball + global CLI install and aren't expected to run locally for every PR. CI covers that path.
 

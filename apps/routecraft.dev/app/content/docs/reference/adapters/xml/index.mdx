@@ -6,7 +6,7 @@ title: xml
 [← All adapters](/docs/reference/adapters)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 xml(options?: XmlTransformerOptions): Transformer   // no path: parse an XML string in the body
 xml<T>(options: XmlFileOptions): XmlAdapter<T>   // Source<T> & Destination<unknown> & Enricher<unknown, T>
 ```
@@ -22,7 +22,7 @@ bun add fast-xml-parser
 XML maps to a plain object: each element becomes a key, attributes are kept under the `@_` prefix by default, and text content sits under `#text` when an element also has attributes or children. The same options drive parsing and building, so a read then write round-trip preserves structure.
 
 **Transformer role** (parse an XML string already in the body):
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Parse an XML string (e.g. an http() response body) into an object
 .transform(xml())
 
@@ -34,7 +34,7 @@ XML maps to a plain object: each element becomes a key, attributes are kept unde
 ```
 
 **Source role** (read XML files):
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Read and parse an XML file
 .from(xml({ path: './data.xml' }))
 // <note><to>Alice</to></note> -> { note: { to: 'Alice' } }
@@ -49,7 +49,7 @@ XML maps to a plain object: each element becomes a key, attributes are kept unde
 
 **Read mid-route** (read + parse an XML file partway through a route): The adapter is also an enricher whose `fetch` reads and parses the file, so `.enrich()` can pull the object in. The parsed object replaces the body; pass an aggregator such as `only()` to merge instead. The fetch role accepts dynamic (function) paths. Parse failures throw and surface through the pipeline (the `onParseError` lifecycle controls apply to the source role only).
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Replace the body with the parsed document
 .enrich(xml({ path: './data.xml' }))
 
@@ -61,7 +61,7 @@ XML maps to a plain object: each element becomes a key, attributes are kept unde
 ```
 
 **Destination role** (write XML files). The send is void: the body flows through the `.to()` step unchanged.
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Build the object body into an XML document and write it
 .to(xml({ path: './output.xml' }))
 // { note: { to: 'Alice' } } -> <note><to>Alice</to></note>

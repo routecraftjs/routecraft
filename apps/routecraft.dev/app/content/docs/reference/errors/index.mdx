@@ -85,7 +85,7 @@ Either a step received unsupported input (e.g. `split()` on a non-array), or `fr
 Use a supported operator and verify the step name. For a multi-ingress route, declare `input({ body })` before `from()`, or expose each channel as its own single-source route.
 
 **Example**
-```ts
+```ts skip="fragment: MyBodySchema, handler are illustrative"
 // split requires an array
 craft().from(simple(['a','b'])).split()
 
@@ -121,7 +121,7 @@ The route's abort controller was already aborted or an adapter could not initial
 Ensure the route isn't aborted before `start()`. Verify adapter configuration.
 
 **Example**
-```ts
+```ts skip="fragment: myRoute is illustrative"
 const ctx = await new ContextBuilder().routes(myRoute).build();
 await ctx.start();
 ```
@@ -136,7 +136,7 @@ Invalid configuration, duplicate ids, or missing sources.
 Validate plugin exports and global configuration.
 
 **Example**
-```ts
+```ts skip="fragment: validRoutes is illustrative"
 const ctx = await new ContextBuilder().routes(validRoutes).build()
 await ctx.start()
 ```
@@ -571,7 +571,7 @@ The default `.cache()` key hashes `JSON.stringify(body)`, which fails on bodies 
 **Suggestion**  
 Supply an explicit `key` function that returns a stable string identifier:
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .cache({ key: (e) => String((e.body as { id: unknown }).id) })
 ```
 
@@ -613,7 +613,7 @@ The default `.dedupe()` key hashes `JSON.stringify(body)`, which fails on bodies
 **Suggestion**  
 Supply an explicit `key` function that returns a stable string identifier:
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .dedupe({ key: (e) => String((e.body as { id: unknown }).id) })
 ```
 
@@ -628,7 +628,7 @@ The exchange's principal carries an `actor` (a delegate, typically an agent, act
 **Suggestion**  
 Declare the permitted actor(s) on the route, matching by the `(issuer, subject)` pair:
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .authorize({
   scopes: ['mail:send'],
   actor: ['none', { subject: 'agent:zoe', issuer: 'https://agents.example.com' }],

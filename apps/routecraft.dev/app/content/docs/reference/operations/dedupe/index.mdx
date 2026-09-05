@@ -6,7 +6,7 @@ title: dedupe
 [← All operations](/docs/reference/operations)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 dedupe(options?: DedupeOptions): RouteBuilder<Current>
 ```
 
@@ -14,7 +14,7 @@ Suppress duplicate exchanges based on a key. Duplicate exchanges do not continue
 
 **Mental model:** A persistent, stateful filter. Similar to `filter`, but maintains state across runs to track which keys have been processed.
 
-```ts
+```ts skip="fragment: eventSource, handleEvent, destination are illustrative"
 // Default: key derived from body hash
 craft()
   .id('event-processor')

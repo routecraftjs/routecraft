@@ -38,7 +38,7 @@ Previously, `direct()` source took an explicit endpoint name and discovery metad
 
 **Before (0.4.0):**
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 craft()
   .from(
     direct("ingest", {
@@ -53,7 +53,7 @@ craft()
 
 **After (0.5.0):**
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 craft()
   .id("ingest")
   .title("Ingest orders")
@@ -91,7 +91,7 @@ Rename the export while you are here: the runtime reads a named `craftConfig` ex
 
 **Before (0.4.0):**
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 import type { CraftConfig } from "@routecraft/routecraft"
 
 const config: CraftConfig = {
@@ -103,7 +103,7 @@ export default config
 
 **After (0.5.0):**
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 import { defineConfig } from "@routecraft/routecraft"
 import "@routecraft/ai" // side-effect import enables first-class llm/agent/mcp/embedding keys
 
@@ -116,11 +116,15 @@ export const craftConfig = defineConfig({
 
 If you actually extended the type, switch the `type` alias to an `interface`:
 
-```ts
-// Before
-type MyConfig = CraftConfig & { custom: string }
+**Before:**
 
-// After
+```ts
+type MyConfig = CraftConfig & { custom: string }
+```
+
+**After:**
+
+```ts
 interface MyConfig extends CraftConfig {
   custom: string
 }
@@ -134,7 +138,7 @@ The `mcp-server-options` rule was removed. It enforced the old `mcp(name, { desc
 
 If you have this rule explicitly configured, drop it from your ESLint config:
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // remove this line from rules
 "routecraft/mcp-server-options": "error",
 ```
@@ -147,7 +151,7 @@ Code that mutated the parameter inside `.process()`, a custom `.enrich()` aggreg
 
 **Before (0.4.0):**
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .process((exchange) => {
   exchange.body = { ...exchange.body, hello: "world" };
   exchange.headers["x-stage"] = "processed";
@@ -157,7 +161,7 @@ Code that mutated the parameter inside `.process()`, a custom `.enrich()` aggreg
 
 **After (0.5.0):**
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .process((exchange) => ({
   ...exchange,
   body: { ...exchange.body, hello: "world" },
@@ -199,14 +203,14 @@ These all carried `@experimental` at 0.4.0. If you opted in, here are the rename
 
 **Before (0.4.0):**
 
-```ts
+```ts skip="fragment: message are illustrative"
 console.log(message.text)
 console.log(message.html)
 ```
 
 **After (0.5.0):**
 
-```ts
+```ts skip="fragment: message are illustrative"
 console.log(message.body.text)
 console.log(message.body.html)
 ```
@@ -219,7 +223,7 @@ console.log(message.body.html)
 
 **Before (0.4.0):**
 
-```ts
+```ts expect-error="the 0.4 option names: modelId, systemPrompt, userPrompt, allowedRoutes and allowedMcpServers were all replaced in 0.5"
 agent({
   modelId: "anthropic:claude-opus-4-7",
   systemPrompt: "You are a summariser.",
@@ -252,7 +256,7 @@ Inline `LlmModelConfig` credentials on `agent({...})` are no longer accepted. Pr
 
 **Before (0.4.0):**
 
-```ts
+```ts expect-error="the 0.4 shape: model took an inline provider object, and 0.5 takes a provider-prefixed id string"
 agent({
   model: { provider: "anthropic", apiKey: "...", model: "claude-opus-4-7" },
   // ...
@@ -261,7 +265,7 @@ agent({
 
 **After (0.5.0):**
 
-```ts
+```ts skip="fragment: shows only the options under discussion"
 // Configure the provider once on llmPlugin
 llmPlugin({ providers: { anthropic: { apiKey: "..." } } })
 
@@ -278,7 +282,7 @@ agent({
 
 **Before (0.4.0):**
 
-```ts
+```ts skip="fragment: ResultSchema is illustrative"
 llm("anthropic:claude-opus-4-7", {
   outputSchema: ResultSchema,
   systemPrompt: "You are...",
@@ -288,7 +292,7 @@ llm("anthropic:claude-opus-4-7", {
 
 **After (0.5.0):**
 
-```ts
+```ts skip="fragment: ResultSchema is illustrative"
 llm("anthropic:claude-opus-4-7", {
   output: ResultSchema,
   system: "You are...",
@@ -302,7 +306,7 @@ The result body still exposes `text`, `output`, and `usage` — no shape change 
 
 **Before (0.4.0):**
 
-```ts
+```ts expect-error="the 0.4 call: embedding no longer accepts an empty options object, using is required in 0.5"
 embedding("openai:text-embedding-3-small", {})
 // typechecked at compile time, but threw RC5003 at runtime
 ```
@@ -325,7 +329,7 @@ The `mcp()` source no longer takes an endpoint name or descriptive metadata as a
 
 **Before (0.4.0):**
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 craft()
   .from(
     mcp("search", {
@@ -341,7 +345,7 @@ craft()
 
 **After (0.5.0):**
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 craft()
   .id("search")
   .description("Full-text search across documents")
@@ -364,7 +368,7 @@ craft()
 
 **Before (0.4.0):**
 
-```ts
+```ts expect-error="the 0.4 import: these symbols moved to @routecraft/routecraft in 0.5, and AuthPrincipal became Principal"
 import { jwt, jwks, type AuthPrincipal } from "@routecraft/ai"
 ```
 
@@ -417,7 +421,7 @@ This pattern is the foundation for future resilience operations (retry, cache, t
 
 #### Step-scope example: recover from one flaky call
 
-```ts
+```ts skip="fragment: prepareRequest, database are illustrative"
 craft()
   .id("resilient-pipeline")
   .from(timer({ interval: 60_000 }))
@@ -431,7 +435,7 @@ If the `http()` call fails, the step-level handler returns the fallback object a
 
 #### Combined route + step scope
 
-```ts
+```ts skip="fragment: prepareRequest, database are illustrative"
 craft()
   .id("with-safety-net")
   .error((err, ex, forward) => forward("errors.catchall", ex.body)) // route-level
@@ -467,7 +471,7 @@ ESLint rules continue to enforce route-only positioning. Wrapper positioning is 
 
 ### Choice operation
 
-```ts
+```ts skip="fragment: prepUrgent, prepHighValue are illustrative"
 craft()
   .id("dispatch")
   .from(direct())
@@ -487,7 +491,7 @@ Branches share the operations catalog with the parent route via a shared `StepBu
 
 ### Programmatic invocation
 
-```ts
+```ts skip="fragment: context is illustrative"
 import { CraftClient } from "@routecraft/routecraft"
 
 const client = new CraftClient(context)
@@ -508,7 +512,7 @@ The `mcp()` source can now sit behind an OAuth 2.1 authorisation server. The fra
 
 A new route-only `.authorize()` method declares an authorization requirement on a route. It runs at route entry, before any pipeline step, and verifies that the inbound exchange carries an authenticated `principal` and (optionally) that the principal carries every required role and scope.
 
-```ts
+```ts skip="fragment: deleteUserDestination is illustrative"
 craft()
   .id("delete-user")
   .description("Delete a user by id")
@@ -521,7 +525,7 @@ Stack `.authorize()` calls to AND-combine; the first failure short-circuits.
 
 `.authorize()` is **route-only**: it stages onto the next route, same convention as `.id` / `.title` / `.description` / `.input` / `.output` / `.tag` / `.batch`. Calling a pipeline op (`.to`, `.transform`, `.process`, ...) while authorizers are staged but no new `.from()` has opened the next route throws `RC2001` with a message naming `.authorize` among the staging ops that need a `.from()` to follow. For a mid-pipeline check, drop down to the validator form -- useful when you swap the principal in a `.process()` step or want to gate a `.choice()` branch:
 
-```ts
+```ts skip="fragment: attachEmailPrincipal, yourDestination are illustrative"
 import { authorize } from "@routecraft/routecraft"
 
 craft()

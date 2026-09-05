@@ -6,7 +6,7 @@ title: aggregate
 [← All operations](/docs/reference/operations)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 aggregate<R>(fn?: Aggregator<Current, R> | CallableAggregator<Current, R>): RouteBuilder<R>
 ```
 
@@ -14,7 +14,7 @@ Combine multiple exchanges into a single result. Useful after `split` to recombi
 
 If no aggregator is provided, exchange bodies are automatically collected into an array. **If any body is an array, all arrays are flattened and combined with scalar values into a single flattened array.**
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Automatically collect bodies into an array
 .split()
 .process((exchange) => ({ ...exchange, body: exchange.body * 2 }))

@@ -6,13 +6,13 @@ title: dispatch
 [← All operations](/docs/reference/operations)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 dispatch(strategy, ...targets): RouteBuilder<Current>
 ```
 
 Run **exactly one** of several targets, chosen by a load-balancing strategy. The sibling of `multicast` (all targets) and `choice` (one target by predicate); dispatch is one target by strategy. A target is a bare destination, a sub-pipeline callback `(b) => b...` (the same path surface as `multicast`), or either wrapped in `weighted(...)` to co-locate a relative weight.
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .from(http("/jobs"))
 .dispatch("round-robin", workerA, workerB, workerC)
 .to(next); // runs on the original exchange after the selected target settles
@@ -27,7 +27,7 @@ The leading strategy argument is **required**: there is no safe default, because
 - **`weighted`** -- distribute by the `weighted()` weights using smooth weighted round-robin, so the distribution matches the weights and is deterministic rather than random. Un-weighted targets default to weight 1.
 - **`sticky`** -- exchanges sharing a `key` go to the same target. New keys are round-robined across targets and remembered in an LRU-bounded affinity map. Object form only, because `key` is required.
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Failover: primary, then secondary if it fails.
 .dispatch("failover", primary, secondary)
 
@@ -48,7 +48,7 @@ A bare destination must be an object destination (`{ send }`); a callable destin
 
 The `sticky` affinity map is bounded by `maxKeys` (default 10,000). When the cap is reached the least-recently-seen key is evicted and its next occurrence is reassigned (possibly to a different target):
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .dispatch({ strategy: "sticky", key: (ex) => ex.body.userId, maxKeys: 50_000 }, a, b)
 ```
 

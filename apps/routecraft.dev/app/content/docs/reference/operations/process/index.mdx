@@ -6,13 +6,13 @@ title: process
 [← All operations](/docs/reference/operations)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 process<Next = Current>(fn: Processor<Current, Next> | CallableProcessor<Current, Next>): RouteBuilder<Next>
 ```
 
 Process the exchange with full access to headers, body, and context. Use when you need more control than `transform`.
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .process((exchange) => {
   const userId = exchange.headers.get('user-id')
   return {

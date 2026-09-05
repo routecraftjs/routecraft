@@ -39,7 +39,7 @@ A non-empty `.description()` is required for every MCP source route (surfaced as
 
 The client is an enricher: in `.to()` and bare `.enrich()` the tool result replaces the body (pass an aggregator such as `only()` to merge instead); `.tap()` discards it.
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Recommended: by server id registered in mcpPlugin({ clients }).
 // Auth is inherited from the client config automatically.
 .enrich(mcp('browser:browser_navigate', { args: (ex) => ({ url: ex.body.url }) }))
@@ -71,7 +71,7 @@ All other tool metadata (title, description, input / output schemas) comes from 
 
 A route that declares `.output({ body })` advertises that schema as the tool's `outputSchema`, and a client is entitled to parse the result's `structuredContent` against it. The server therefore checks the body it is about to publish and refuses to return one the schema rejects:
 
-```ts
+```ts skip="fragment: loadUsers is illustrative"
 craft()
   .id('list-users')
   .description('List users')
@@ -108,7 +108,7 @@ These mirror the [MCP specification (2025-03-26) `ToolAnnotations`](https://mode
 
 **Derived from route tags:** the four behavior hints are also derived from the route's `.tag()` values, so you declare the fact once instead of as both a tag and an annotation. `read-only` sets `readOnlyHint`, `destructive` sets `destructiveHint`, `idempotent` sets `idempotentHint`, and `open-world` sets `openWorldHint`. Explicit `annotations` passed to `mcp()` override the derived values per-key.
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // These two routes expose the same annotations to MCP clients:
 .tag('read-only').tag('open-world').from(mcp())
 .from(mcp({ annotations: { readOnlyHint: true, openWorldHint: true } }))
@@ -135,7 +135,7 @@ These mirror the [MCP specification (2025-03-26) `ToolAnnotations`](https://mode
 
 Each `.from(mcp(...))` route registers in `MCP_LOCAL_TOOL_REGISTRY` so the MCP server can list and invoke it via the MCP protocol:
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 import { MCP_LOCAL_TOOL_REGISTRY } from '@routecraft/ai'
 
 const ctx = await new ContextBuilder().routes(...).build()

@@ -52,7 +52,7 @@ It is the only authored time option in the framework that is not a `Duration`.
 
 A route can declare whether it runs at all:
 
-```ts
+```ts skip="fragment: env are illustrative"
 craft()
   .id('mail-inbound')
   .enabled(() =>
@@ -146,7 +146,7 @@ const config: CraftConfig = {
 
 Sets the channel implementation used by all `direct()` endpoints in this context. Use this to swap the default in-memory channels for a distributed implementation (e.g. Kafka, Redis).
 
-```ts
+```ts skip="third-party: my-kafka-adapter is not a dependency of the docs site"
 import { KafkaChannel } from 'my-kafka-adapter'
 
 const config: CraftConfig = {

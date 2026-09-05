@@ -6,7 +6,7 @@ title: authorize
 [← All operations](/docs/reference/operations)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 authorize(options?: AuthorizeOptions): RouteBuilder<Current>
 ```
 
@@ -38,7 +38,7 @@ Match actors by the `(issuer, subject)` pair: a bare `subject` matches a same-na
 
 `scopes` is an AND over exact strings. Where a scope family has narrowing variants that are interchangeable at the door, `anyScope` is the OR:
 
-```ts
+```ts skip="fragment: leaveDestination is illustrative"
 craft()
   .id('read-leave')
   .authorize({ anyScope: ['leave:read', 'leave:read:self', 'leave:read:base'] })
@@ -54,7 +54,7 @@ Given both, `scopes` and `anyScope` compose as an AND of the two conditions: eve
 
 `scopes` and `anyScope` read the subject's ring. On a delegated call, `effective: true` widens them to the subject's ring plus the OUTERMOST actor's:
 
-```ts
+```ts skip="fragment: summarise is illustrative"
 // Zoe may read the restricted mailbox under her own standing authority.
 // The caller she is acting for need not hold that scope themselves.
 craft()
@@ -113,7 +113,7 @@ Because stacked `.authorize()` calls AND-combine, **every** guard on a route car
 
 </Callout>
 
-```ts
+```ts skip="fragment: deleteUserDestination is illustrative"
 import { craft, mcp } from '@routecraft/routecraft'
 
 // Route-entry guard: authentication at the source boundary,
@@ -126,7 +126,7 @@ craft()
   .to(deleteUserDestination)
 ```
 
-```ts
+```ts skip="fragment: billingDestination is illustrative"
 // Stacked authorizers (AND-combined; first failure short-circuits)
 craft()
   .id('billing-admin')
@@ -136,7 +136,7 @@ craft()
   .to(billingDestination)
 ```
 
-```ts
+```ts skip="fragment: deleteInvoice, writeNote are illustrative"
 // Delegation-aware declarations: the same grammar covers a person
 // acting directly, an agent acting on a person's behalf, and an agent
 // acting under its own standing authority.
@@ -167,7 +167,7 @@ craft()
   .to(writeNote)
 ```
 
-```ts
+```ts skip="fragment: deriveTenant, yourDestination are illustrative"
 // Mid-pipeline check: route mints a principal from an inbound email
 // with .authenticate() and authorizes it. authorize() trusts only
 // principals minted this way (or attached by a source verifier); a

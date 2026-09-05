@@ -6,7 +6,7 @@ title: enrich
 [← All operations](/docs/reference/operations)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 enrich<R>(
   enricher: Enricher<Current, R> | CallableEnricher<Current, R>,
   aggregator?: (original: Exchange<Current>, result: R) => Exchange<...>
@@ -27,7 +27,7 @@ Bare `.enrich(x)` replaces the body with the fetched value. Under the old role m
 
 **Default behavior (result replaces the body):**
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Enrich with inline function - the returned value becomes the body
 .enrich(async (exchange) => ({
   profile: await fetchUserProfile(exchange.body.userId),
@@ -45,7 +45,7 @@ Bare `.enrich(x)` replaces the body with the fetched value. Under the old role m
 
 **Merging with `only(getValue, into?)`:**
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Merge a single extracted value under a key (body type becomes Current & { userName: ... })
 .enrich(http({ url: 'https://api.example.com/user' }), only((r) => r.body?.name, "userName"))
 
@@ -59,7 +59,7 @@ Bare `.enrich(x)` replaces the body with the fetched value. Under the old role m
 
 `none()` returns a no-op aggregator that leaves the exchange unchanged, so the enrichment result is ignored. Use it when you only need the fetch's side effect (warming a cache, pinging an API) while still gating the pipeline on it.
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .enrich(http({ url: "https://api.example.com/ping" }), none())
 ```
 
@@ -67,7 +67,7 @@ Bare `.enrich(x)` replaces the body with the fetched value. Under the old role m
 
 A custom aggregator receives the original exchange and the fetched value, and returns the (derived) exchange.
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Store result under a specific key
 .enrich(
   http({ url: 'https://api.example.com/profile' }),

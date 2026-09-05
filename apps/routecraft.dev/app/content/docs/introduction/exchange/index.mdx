@@ -95,7 +95,7 @@ Chunked file-based adapters set additional headers on each emitted exchange:
 
 Framework keys live on the exported `HeadersKeys` constant; each adapter exports its own key object (`TimerHeaders`, `CronHeaders`, `FileHeaders`, `CsvHeaders`, `JsonlHeaders`, `MailHeaders`, ...) for type-safe access:
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 import { JsonlHeaders } from '@routecraft/routecraft'
 
 .process((exchange) => {
@@ -111,13 +111,13 @@ Most operations give you a choice: work with just the body, or the full exchange
 
 **Body only** with `.transform()`:
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .transform((body) => body.toUpperCase())
 ```
 
 **Full exchange** with `.process()`:
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .process((exchange) => {
   const tenantId = exchange.headers['x-tenant']
   return { ...exchange, body: { ...exchange.body, tenantId } }
@@ -126,7 +126,7 @@ Most operations give you a choice: work with just the body, or the full exchange
 
 **Full exchange** with `.filter()`:
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .filter((exchange) => exchange.headers['x-priority'] === 'high')
 ```
 
@@ -138,7 +138,7 @@ The exchange is immutable. `DefaultExchange` shallow-freezes the wrapper, its he
 
 Operations that change the exchange return a new one by copy-on-write (spread) rather than mutating in place. The framework re-wraps the returned plain object back into a proper instance, preserving the context binding, route binding, and `id`.
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Correct: copy-on-write
 .process((exchange) => ({
   ...exchange,
@@ -160,7 +160,7 @@ Returning the same `exchange` unchanged is still a valid no-op pass-through. For
 
 When you `.tap()`, the tap receives a **deep copy** of the exchange with a new ID. The correlation ID is preserved so you can trace the tap back to its parent exchange. The main pipeline continues immediately without waiting for the tap.
 
-```ts
+```ts skip="fragment: source, auditLog, destination are illustrative"
 craft()
   .id('order-pipeline')
   .from(source)

@@ -44,9 +44,9 @@ Per-route authorization uses the existing [`.authorize({ roles, scopes })`](/doc
 Custom plugins can join the same listener during `apply()`:
 
 ```ts
-import { requireWebIngress } from '@routecraft/routecraft'
+import { requireWebIngress, type CraftPlugin } from '@routecraft/routecraft'
 
-const healthPlugin = {
+const healthPlugin: CraftPlugin = {
   name: 'health',
   apply(ctx) {
     const ingress = requireWebIngress(ctx, 'public')

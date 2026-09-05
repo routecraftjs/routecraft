@@ -6,13 +6,13 @@ title: debug
 [← All adapters](/docs/reference/adapters)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 debug<T>(formatter?: (exchange: Exchange<T>) => unknown, options?: Omit<LogOptions, "level">): Destination<T>
 ```
 
 Convenience helper for debug-level logging. Equivalent to `log(formatter, { level: 'debug' })`.
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Log at debug level (default format)
 .tap(debug())
 

@@ -6,7 +6,7 @@ title: pseudo
 [← All adapters](/docs/reference/adapters)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 pseudo<Opts>(name?: string, options?: PseudoOptions): PseudoFactory<Opts>
 pseudo<Opts>(name: string, options: PseudoKeyedOptions): PseudoKeyedFactory<Opts>
 ```
@@ -20,7 +20,9 @@ import { craft, timer, log } from "@routecraft/routecraft";
 import { pseudo } from "@routecraft/testing";
 
 // Option types (move to real adapter package later)
-interface McpCallOptions {
+// A type alias, not an interface: only an alias gets the implicit index
+// signature that `Record<string, unknown>` constraints require.
+type McpCallOptions = {
   server: string;
   tool: string;
   args?: Record<string, unknown>;
@@ -43,13 +45,13 @@ craft()
       args: { query: "is:unread" },
     }),
   )
-  .split((r) => r.messages)
+  .split((ex) => ex.body.messages)
   .tap(log());
 ```
 
 **Keyed (string-first) signature:** use `args: "keyed"` when the real adapter takes a key then options (e.g. queue name, table name):
 
-```ts
+```ts skip="fragment: source is illustrative"
 const queue = pseudo<{ ttl?: number }>("queue", { args: "keyed" });
 
 craft()
@@ -66,7 +68,7 @@ craft()
 
 **Replacing with a real adapter:** keep the same call shape; only the import changes:
 
-```ts
+```ts skip="third-party: @routecraft/mcp-adapter is not a dependency of the docs site"
 // Before (pseudo)
 import { pseudo } from "@routecraft/testing";
 const mcp = pseudo<McpCallOptions>("mcp");

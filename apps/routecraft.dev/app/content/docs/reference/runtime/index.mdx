@@ -36,10 +36,12 @@ A few features of the library are Bun-only because they depend on Bun built-ins 
 
 ```ts
 import { ContextBuilder, craft, direct, log } from "@routecraft/routecraft";
+import { z } from "zod";
 
 const route = craft()
   .id("greet")
-  .from(direct<{ name: string }>())
+  .input({ body: z.object({ name: z.string() }) })
+  .from(direct())
   .transform((body) => `Hello, ${body.name}!`)
   .to(log());
 

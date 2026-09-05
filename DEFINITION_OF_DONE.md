@@ -144,6 +144,7 @@ The checklists below apply to **packages that ship code**: anything under `packa
 > [app README](apps/routecraft.dev/README.md).
 
 - [ ] Content uses only the components registered in `app/components/mdx.tsx`. No imports inside a content file, no ad-hoc inline JSX. A component the page needs is registered first
+- [ ] `bun run check:examples` passes. Every fenced `ts` block compiles against the workspace packages, or its fence carries `skip="reason"` (not a complete program) or `expect-error="reason"` (meant to be wrong, as a migration guide's "before" block is). Both markers are audited: one on a block that does compile fails the build
 - [ ] New versioned content is under `app/content/docs` (pages, and row data under `_data`), not in a component. Anything else a docs page renders builds from main and is not pinned to a release
 - [ ] A surface the released channel must pin is added to `PINNED` in `scripts/freeze-docs.ts` and given a next-channel mirror, the way `public/screenshots` has one
 - [ ] A change to the release path (freeze, generators, prerender list, Dockerfile) is exercised locally as a production build: `bun scripts/freeze-docs.ts <tag>`, `docker build`, `docker run`, then `bun scripts/freeze-docs.ts --restore`

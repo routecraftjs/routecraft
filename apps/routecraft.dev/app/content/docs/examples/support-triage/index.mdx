@@ -30,7 +30,13 @@ export default craft()
   .description('Look up a customer and their plan by email address')
   .input({ body: LookupInput })
   .from(direct())
-  .to(http({ method: 'GET', url: (ex) => `https://api.example.com/customers/${ex.body.email}` }))
+  // explicit body type at .to() until #726
+  .to(
+    http<LookupInput>({
+      method: 'GET',
+      url: (ex) => `https://api.example.com/customers/${ex.body.email}`,
+    }),
+  )
 ```
 
 ```ts

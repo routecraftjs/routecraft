@@ -12,7 +12,7 @@ Full catalog of lifecycle and runtime events emitted by the Routecraft context.
 
 All events share the same envelope:
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 {
   ts: string       // ISO timestamp
   context: CraftContext
@@ -315,7 +315,7 @@ Synthetic block-loader invocations (`_block__load__<blockName>` tools) emit on t
 
 Subscribe to the exact names (`route:agent:tool:invoked`, `route:agent:block:loaded`, `route:agent:finished`, ...) and filter by `details.routeId` (or `forRoute(routeId, handler)`) for cross-cutting telemetry, dashboards, and TUIs.
 
-```ts
+```ts skip="fragment: ctx, metrics are illustrative"
 ctx.on('route:agent:tool:invoked', ({ details }) => {
   log.info({ tool: details.toolName }, 'Agent called tool');
 });
@@ -348,7 +348,7 @@ What follows depends on the adapter's `onParseError` mode:
 
 Subscribe with a glob to count source parse failures across all routes:
 
-```ts
+```ts skip="fragment: ctx, metrics are illustrative"
 ctx.on('route:step:failed', ({ details }) => {
   if (details.operation === 'parse') metrics.increment('source.parse.failed');
 });

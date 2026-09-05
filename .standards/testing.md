@@ -94,7 +94,7 @@ have been checked:
 |---|---|
 | JSDoc `@example` and `@param` blocks | Comments. Never compiled, but they are what hover documentation and the published reference show. |
 | Package `README.md` files | Prose in every package, not just the one that owns the option. |
-| Docs site content under `apps/routecraft.dev/app/content/` | MDX. **Excludes `baseline/`, which is a frozen historical capture consumed by `compare-baseline.ts`; rewriting it corrupts the baseline.** |
+| Docs site content under `apps/routecraft.dev/app/content/` | **Mostly covered since the example typecheck landed:** `bun run check:examples` compiles every fenced `ts` block and every `<CheatCode>` block against the workspace packages, so a renamed option fails CI there. What it still misses is the blocks carrying a `skip="reason"` marker, which are not complete programs and are never compiled; the marker is audited, so a stale one fails the build, but the code inside a genuine fragment is unchecked prose. It also misses `bash`, `json` and `text` fences. **Excludes `baseline/`, which is a frozen historical capture consumed by `compare-baseline.ts`; rewriting it corrupts the baseline, and the gate never reads it.** |
 | ESLint `RuleTester` fixtures | The route code in those tests is a STRING. No compiler ever reads it, so a fixture happily teaches an API that no longer exists. |
 | Test JSDoc `@case` / `@preconditions` / `@expectedResult` | Section 2 makes these documentation. A tag naming a removed option is a wrong doc, not a cosmetic slip. |
 | **Any test helper that redeclares an options shape** | See below. This is the one that silently changes behaviour. |

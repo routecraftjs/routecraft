@@ -6,13 +6,13 @@ title: id
 [← All operations](/docs/reference/operations)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 id(routeId: string): RouteBuilder<Current>
 ```
 
 Set the unique identifier for the next route. Place before `from()`. If called after a route already exists, it is staged and applies to the next `from()` (it does not rename the current route).
 
-```ts
+```ts skip="fragment: source, destination, otherSource are illustrative"
 craft()
   .id('data-processor')
   .from(source)

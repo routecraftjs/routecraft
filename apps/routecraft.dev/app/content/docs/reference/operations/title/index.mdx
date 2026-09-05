@@ -6,13 +6,13 @@ title: title
 [← All operations](/docs/reference/operations)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 title(value: string): RouteBuilder<Current>
 ```
 
 Set a human-readable title for the next route. Mirrored into the `direct` / `mcp` registries so discovery consumers (agents, MCP clients, docs) can display it alongside the id. Place before `from()`.
 
-```ts
+```ts skip="fragment: saveOrder is illustrative"
 craft()
   .id('ingest')
   .title('Ingest orders')

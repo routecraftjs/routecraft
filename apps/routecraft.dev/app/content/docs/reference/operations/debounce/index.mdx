@@ -6,13 +6,13 @@ title: debounce
 [← All operations](/docs/reference/operations)
 </Lead>
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 debounce(options: { wait: Duration; key?; maxWait? }): RouteBuilder<Current>
 ```
 
 Suppress bursts of exchanges, releasing only the **last** one in a burst after a quiet period. Useful when only the final state matters: file-system change batching, search-as-you-type, or collapsing a flurry of webhook retries.
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .id('file-watcher')
 .from(file({ path: './config', watch: true }))
 .debounce({ wait: 500 }) // wait for editing to finish
@@ -28,7 +28,7 @@ Each arrival is held (not passed downstream) and resets a `wait` quiet timer; a 
 - **`key`** -- a selector that debounces independently per group, e.g. one window per file path: `key: (ex) => ex.body.filePath`. When omitted, the whole route shares a single window.
 - **`maxWait`** -- an upper bound on how long an exchange may be held, measured from the START of its burst and never reset. It guarantees eventual release under continuous activity (otherwise a steady stream of arrivals could reset `wait` forever and starve the trailing edge). Must be `>= wait`.
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // Per-path debounce with a 5s ceiling on continuous edits.
 .debounce({ wait: 500, key: (ex) => ex.body.filePath, maxWait: 5000 })
 ```

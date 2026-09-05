@@ -183,7 +183,7 @@ Dispatching creates an exchange, so the exchange is a sub-resource of the route 
 | `true` | Open. No credential is required for this tier |
 | `'some:scope'` | The caller's principal must carry that scope |
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 ops: {
   auth: jwt({ secret: process.env.OPS_SECRET!, issuer, audience }),
   tiers: {
@@ -318,7 +318,7 @@ A park is an outcome and not an error. The response is the standard [`Suspended`
 
 Core knows routes, exchanges and events. What an ecosystem package keeps alongside them is listable through the same door and the same tier without core learning what it is: a plugin registers a read-only resource from its `apply()`, and the mount serves it at `GET /ops/{name}` (the collection, with the query string handed to the contributor as its filter) and `GET /ops/{name}/{segment...}` (one item, addressed by the decoded path segments). Admission is the introspection tier's, exactly as for the route listing, and a write answers 405.
 
-```ts
+```ts skip="fragment: ctx, widgets are illustrative"
 import { registerOpsResource } from '@routecraft/routecraft'
 
 registerOpsResource(ctx, {
@@ -372,7 +372,7 @@ export const mailHealth = defineIndicator({
 
 Register it so a push has somewhere to land:
 
-```ts
+```ts skip="fragment: mailHealth is illustrative"
 export const craftConfig = defineConfig({
   servers: { ops: { host: '0.0.0.0', port: 9090 } },
   ops: { server: 'ops', indicators: [mailHealth] },
@@ -428,7 +428,7 @@ Source death and staleness stay independent on purpose. A dead scheduler takes t
 
 For a probe checking several subsystems, or a business route flagging a dependency mid-flight, push through the handle from any `.process()` or `.error()` step:
 
-```ts
+```ts skip="fragment: mailHealth are illustrative"
 mailHealth.down({ subsystem: 'imap' })
 mailHealth.up()
 mailHealth.inactive()   // parked for maintenance: reports inactive, never pages
@@ -452,7 +452,7 @@ It is also the validator the [management tiers](#management-api) identify their 
 
 `auth: false` carries the [server plugin's](/docs/reference/plugins/serversplugin) meaning unchanged: this mount declares no wall, while the inherited validator stays reachable for anything that pulls identity rather than demanding it. So the details gate still admits an authenticated caller, and a scope-gated tier, which does demand one, is refused at boot as a contradiction rather than quietly enforced through a validator the mount opted out of.
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 // One listener, no server-wide validator: the gate is the ops mount's own.
 ops: {
   auth: { kind: 'apiKey', in: 'header', name: 'x-ops-key', keys: [process.env.OPS_KEY!] },

@@ -6,13 +6,13 @@ title: multicast
 [← All operations](/docs/reference/operations)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 multicast(...paths: Path<Current>[]): RouteBuilder<Current>
 ```
 
 Fan the exchange out to multiple independent paths in parallel. Each path is either a bare destination or a sub-pipeline callback `(b) => b...` (the same path surface as `choice`). Every path receives its own deep clone of the exchange (fresh id, preserved correlation id) and runs as an isolated nested pipeline.
 
-```ts
+```ts skip="fragment: a chain shown without its route"
 .from(http("/orders"))
 .multicast(
   queue("audit"), // bare destination

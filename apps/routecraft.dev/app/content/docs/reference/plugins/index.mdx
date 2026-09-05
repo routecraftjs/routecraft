@@ -18,25 +18,30 @@ Core adapter defaults (`cron`, `direct`) are set via dedicated fields on `CraftC
 
 Importing `@routecraft/ai` augments `CraftConfig` with first-class keys for the AI plugins. Setting `llm`, `mcp`, `embedding`, `agent`, or `sessions` on the config is equivalent to pushing the corresponding plugin onto `plugins: []` (`sessions` maps to `sessionsPlugin`, documented under [Configuration](/docs/reference/configuration#sessions)). Lifecycle (`apply`, `start`, `teardown`, plugin events) is identical.
 
+Still supported, and what you want for shared plugin instances or
+programmatic composition:
+
 ```ts
-// Before (still supported, use this for shared plugin instances or programmatic composition)
 import { defineConfig } from '@routecraft/routecraft'
 import { llmPlugin, mcpPlugin } from '@routecraft/ai'
 
 export const craftConfig = defineConfig({
   plugins: [
     llmPlugin({ providers: { openai: { apiKey: '...' } } }),
-    mcpPlugin({ clients: { /* ... */ } }),
+    mcpPlugin({ clients: {} }),
   ],
 })
+```
 
-// After (recommended for declarative configs)
+Recommended for declarative configs:
+
+```ts
 import { defineConfig } from '@routecraft/routecraft'
 import '@routecraft/ai' // augments CraftConfig
 
 export const craftConfig = defineConfig({
   llm: { providers: { openai: { apiKey: '...' } } },
-  mcp: { clients: { /* ... */ } },
+  mcp: { clients: {} },
 })
 ```
 
@@ -96,7 +101,7 @@ A `stop()` that lands mid-boot waits for the hook that is still running before i
 
 A hook may shut the context down, but it must never `await` its own `stop()`: the hook would wait for a shutdown that is waiting for the hook, and neither settles. Use `throw` to abort the boot with a reason, which unwinds through the teardown walk and surfaces the error, or call `ctx.stop()` without awaiting it to stand the context down without failing the boot. The rule is documented rather than enforced, and awaiting it hangs at boot on the first run.
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 async start(ctx: CraftContext) {
   // Abort the boot, with the reason reaching the operator:
   if (!configured) throw new Error("mail credentials missing");

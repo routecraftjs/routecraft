@@ -8,11 +8,21 @@ Read a CSV file and send each row to an API.
 
 ```ts
 import { craft, csv, http } from '@routecraft/routecraft'
+import { z } from 'zod'
+
+const customer = z.object({
+  first_name: z.string(),
+  last_name: z.string(),
+  email: z.string(),
+  status: z.string(),
+})
 
 export default craft()
   .id('file-to-http')
+  .input({ body: z.array(customer) })
   .from(csv({ path: './customers.csv', header: true }))
-  .filter(row => row.status === 'active')
+  .split()
+  .filter(ex => ex.body.status === 'active')
   .transform(row => ({
     name: row.first_name + ' ' + row.last_name,
     email: row.email,

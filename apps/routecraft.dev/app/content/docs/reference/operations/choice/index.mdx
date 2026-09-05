@@ -6,7 +6,7 @@ title: choice
 [← All operations](/docs/reference/operations)
 </Lead>
 
-```ts
+```ts skip="signature: a type signature, not a statement"
 choice<Out = Current>(
   ...descriptors: ChoiceDescriptor<Current, Out>[]
 ): RouteBuilder<Out>
@@ -16,7 +16,7 @@ Conditionally route exchanges through one of several branches. Branches are pass
 
 Matched branches inline their steps before the remaining main-pipeline steps, so the exchange converges back into the main flow after the choice. A branch that ends in `b.halt()` short-circuits: the exchange is dropped with `reason: "halted"` and the main pipeline does not resume for it.
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 import { when, otherwise } from "@routecraft/routecraft";
 
 .from(incomingOrders)
@@ -42,7 +42,7 @@ Every branch produces a body type that the choice's output `Out` is checked agai
 
 When all branches produce the same type (the common case), `Out` defaults to that type and you write nothing extra. When branches produce **different** types, name the choice output as the union and narrow it downstream:
 
-```ts
+```ts skip="fragment: not a complete statement on its own"
 type Report = { tag: "report"; n: number };
 type Audit = { tag: "audit"; who: string };
 

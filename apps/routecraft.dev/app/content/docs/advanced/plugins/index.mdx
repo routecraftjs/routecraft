@@ -29,33 +29,46 @@ export default function loggerPlugin(context: CraftContext) {
     context.logger.info(`Started: ${route.definition.id}`)
   })
 
-  context.on('error', ({ details: { error, route } }) => {
-    context.logger.error(error, `Error in ${route?.definition.id ?? 'context'}`)
+  context.on('context:error', ({ details: { error } }) => {
+    context.logger.error(error, 'Context error')
   })
 }
 ```
 
-Or as an object if you need a `register` step:
+Or as an object, which is what you need when the plugin has more than one
+lifecycle phase. The phases are `apply`, `start` and `teardown`:
 
 ```ts
 // plugins/metrics.ts
+import { type CraftContext, type CraftPlugin } from '@routecraft/routecraft'
+
+// Declaring the key types for what goes in and what comes back out, so
+// readers do not have to cast.
+declare module '@routecraft/routecraft' {
+  interface StoreRegistry {
+    'metrics.counters': { started: number; errors: number }
+  }
+}
+
 export default {
-  async register(context: CraftContext) {
+  name: 'metrics',
+
+  async apply(context: CraftContext) {
     context.setStore('metrics.counters', { started: 0, errors: 0 })
 
-    context.on('route:started', ({ context }) => {
-      const counters = context.getStore('metrics.counters') as any
-      counters.started += 1
+    context.on('route:started', () => {
+      const counters = context.getStore('metrics.counters')
+      if (counters) counters.started += 1
     })
   },
-}
+} satisfies CraftPlugin
 ```
 
 ## Registering a plugin
 
 Pass plugins in `craft.config.ts`:
 
-```ts
+```ts skip="multi-file: imports a sibling file the page describes in prose"
 // craft.config.ts
 import type { CraftConfig } from '@routecraft/routecraft'
 import logger from './plugins/logger'
@@ -73,7 +86,7 @@ The most common use of plugins and context configuration is setting default opti
 
 Core adapters have dedicated fields on `CraftConfig`:
 
-```ts
+```ts skip="fragment: KafkaChannel is illustrative"
 // craft.config.ts
 export const craftConfig: CraftConfig = {
   cron: { timezone: 'UTC', maxJitter: 2000 },
@@ -90,7 +103,7 @@ export const craftConfig: CraftConfig = {
   cron: { timezone: 'UTC' },
   plugins: [
     llmPlugin({
-      providers: { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY } },
+      providers: { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY! } },
       defaultOptions: { temperature: 0.7 },
     }),
   ],
@@ -129,7 +142,7 @@ The plugin starts each subprocess when the context starts and tears them down wh
 
 ## Lifecycle events
 
-Plugins subscribe to events using `context.on(eventName, handler)`. Common events include `route:started`, `route:stopped`, `context:started`, `context:stopped`, and `error`. See the [Events reference](/docs/reference/events) for the full list.
+Plugins subscribe to events using `context.on(eventName, handler)`. Common events include `route:started`, `route:stopped`, `context:started`, `context:stopped`, and `context:error`. See the [Events reference](/docs/reference/events) for the full list.
 
 ## Dynamically registering capabilities
 
