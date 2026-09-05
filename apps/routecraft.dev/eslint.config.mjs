@@ -17,8 +17,7 @@ const config = [
       'app/content/docs-next/**',
       // Fixtures the example typecheck generates from the fenced blocks.
       // Extracted verbatim, so many are fragments that do not parse alone.
-      '.docs-typecheck/**',
-      '.docs-typecheck-test/**',
+      '.docs-typecheck*/**',
       'public/**',
       'baseline/**',
       'test-results/**',

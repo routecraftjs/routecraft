@@ -127,6 +127,45 @@ const FENCE = /^\s*(```+|~~~+)/
 const EXAMPLE_MARKER =
   /^(\s*(?:```+|~~~+)[a-zA-Z0-9-]+)\s+(?:skip|expect-error)="[^"]*"\s*$/
 
+/**
+ * Marks the lines that genuinely open a top-level fence, as opposed to a line
+ * that merely looks like one while sitting inside a wider fence.
+ *
+ * `fenceMask` marks every line between an opening and closing delimiter as
+ * "fenced", including an inner delimiter shown as literal text inside an
+ * outer one (the contribution guide's own worked example of the marker
+ * syntax does exactly this, nesting two illustrative ```ts fences inside a
+ * ```` block so they render as text rather than being parsed). Stripping
+ * `EXAMPLE_MARKER` from every fenced line therefore corrupted that page: the
+ * inner lines are shaped exactly like a marked fence opening, and the strip
+ * ran on them too, deleting the marker text the page exists to show.
+ *
+ * Recomputing the fence state independently, rather than reusing `fenceMask`,
+ * keeps this fix scoped to the one call site that needs it and leaves the
+ * audit function's use of `fenceMask` untouched.
+ */
+function fenceOpenMask(lines: string[]): boolean[] {
+  const mask: boolean[] = []
+  let fence: string | null = null
+
+  for (const line of lines) {
+    const match = FENCE.exec(line)
+    if (!match) {
+      mask.push(false)
+      continue
+    }
+    if (fence === null) {
+      fence = match[1]
+      mask.push(true)
+      continue
+    }
+    if (match[1].startsWith(fence)) fence = null
+    mask.push(false)
+  }
+
+  return mask
+}
+
 /** MDX's ESM block. Content carries none today; the contract forbids one. */
 const ESM_STATEMENT =
   /^(?:import\s+[^'"]*\s+from\s+['"][^'"]+['"];?|import\s+['"][^'"]+['"];?|export\s+(?:default|const|let|var|function|class|\*|\{).*)$/
@@ -222,6 +261,7 @@ export function cleanMdx(source: string, title?: string): string {
   const body = source.replace(/^---[\s\S]*?---\n*/, '')
   const lines = body.split('\n')
   const fenced = fenceMask(lines)
+  const opensFence = fenceOpenMask(lines)
   const out: string[] = []
 
   let index = 0
@@ -229,7 +269,7 @@ export function cleanMdx(source: string, title?: string): string {
     const line = lines[index]
 
     if (fenced[index]) {
-      out.push(line.replace(EXAMPLE_MARKER, '$1'))
+      out.push(opensFence[index] ? line.replace(EXAMPLE_MARKER, '$1') : line)
       index += 1
       continue
     }
