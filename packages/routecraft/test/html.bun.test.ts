@@ -177,6 +177,18 @@ describe("HTML Adapter", () => {
   });
 
   describe("text extraction fidelity", () => {
+    let tempDir: string;
+
+    afterEach(async () => {
+      if (tempDir) {
+        try {
+          await fs.rm(tempDir, { recursive: true, force: true });
+        } catch {
+          // Ignore cleanup errors
+        }
+      }
+    });
+
     /**
      * @case Escaped markup inside a <pre> survives text extraction
      * @preconditions Body is HTML whose text content contains entity-escaped angle brackets, extract: "text"
@@ -364,7 +376,7 @@ describe("HTML Adapter", () => {
      * @expectedResult The escaped markup survives, proving the fix reaches the deferred source parse and not only the transformer
      */
     test("source role keeps escaped markup in extracted text", async () => {
-      const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "html-test-"));
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "html-test-"));
       const testFile = path.join(tempDir, "escaped.html");
       await fs.writeFile(
         testFile,
@@ -386,8 +398,6 @@ describe("HTML Adapter", () => {
 
       const body = s.received[0].body as HtmlResult;
       expect(body).toBe("type X = Array<string>;");
-
-      await fs.rm(tempDir, { recursive: true, force: true });
     });
 
     /**
@@ -396,7 +406,7 @@ describe("HTML Adapter", () => {
      * @expectedResult The escaped markup survives on the enriched field
      */
     test("enricher role keeps escaped markup in extracted text", async () => {
-      const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "html-test-"));
+      tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "html-test-"));
       const testFile = path.join(tempDir, "escaped-enrich.html");
       await fs.writeFile(
         testFile,
@@ -422,8 +432,6 @@ describe("HTML Adapter", () => {
 
       const body = s.received[0].body as { code: string };
       expect(body.code).toBe("type X = Array<string>;");
-
-      await fs.rm(tempDir, { recursive: true, force: true });
     });
   });
 

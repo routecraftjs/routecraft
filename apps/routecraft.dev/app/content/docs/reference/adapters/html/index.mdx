@@ -123,11 +123,11 @@ Passing both `append: true` and `delete: true` throws `RC5003` at construction.
 **Extract types:**
 - `text` / `innerText` / `textContent`: Plain text content, with `<style>` and `<script>` subtrees removed and the result trimmed. `innerText` and `textContent` are aliases of `text`; there is no layout server-side to tell them apart.
 
-  Two things to know about the value you get back. Entities are decoded, so a page that escapes markup (`Array&lt;string&gt;`) yields it as written (`Array<string>`); the result is unsanitised, and it is the route's job to escape it at the sink before writing it into HTML or into a line-structured format. And whitespace inside the match survives, so a `<pre>` keeps its line breaks and an ordinary indented page yields the source indentation and newlines between its elements. Collapse it in the route when you want one line:
+  Two things to know about the value you get back. Entities are decoded, so a page that escapes markup (`Array&lt;string&gt;`) yields it as written (`Array<string>`); the result is unsanitised, and it is the route's job to escape it at the sink before writing it into HTML or into a line-structured format. And whitespace inside the match survives, so a `<pre>` keeps its line breaks and an ordinary indented page yields the source indentation and newlines between its elements. Collapse it in the route when you want one line. A selector that matches a single element yields a string, and the second type parameter names that, so the transform after it does not have to handle the array case:
 
   ```ts
-  .transform(html({ selector: '.card', extract: 'text' }))
-  .transform((text: string) => text.replace(/\s+/g, ' '))
+  .transform(html<unknown, string>({ selector: '.card', extract: 'text' }))
+  .transform((text) => text.replace(/\s+/g, ' '))
   ```
 - `html`: Inner HTML content
 - `attr`: Attribute value (requires `attr` option)

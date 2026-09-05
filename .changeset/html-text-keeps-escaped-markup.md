@@ -26,8 +26,8 @@ Only the ends are trimmed, per matched element in the array case. A `<pre>` ther
 **You are affected if** a route compares extracted text to a literal, keys or hashes on it, validates it against a schema, or writes it to a line-oriented sink. There is no compile error and no new option to notice. Collapse it in the route where you want the old shape:
 
 ```ts
-.transform(html({ selector: '.card', extract: 'text' }))
-.transform((text: string) => text.replace(/\s+/g, ' '))
+.transform(html<unknown, string>({ selector: '.card', extract: 'text' }))
+.transform((text) => text.replace(/\s+/g, ' '))
 ```
 
 `<style>` and `<script>` subtrees are still removed from text extraction, which is the part that genuinely needed handling. `extract: "html"`, `"outerHtml"` and `"attr"` are unchanged.
