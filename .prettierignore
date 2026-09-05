@@ -53,3 +53,9 @@ apps/routecraft.dev/app/lib/generated/
 # raw markdown mirrors published under /raw are these bytes with the components
 # stripped. Content is reviewed as prose, not reformatted as code.
 apps/routecraft.dev/app/content/
+
+# Compilable fixtures the documentation example typecheck generates from the
+# fenced blocks (apps/routecraft.dev/scripts/check-examples.ts). They are
+# extracted verbatim, so many are fragments that are not parseable on their
+# own, and they exist only for the length of a run.
+apps/routecraft.dev/.docs-typecheck*/

@@ -15,6 +15,10 @@ const config = [
       'app/routeTree.gen.ts',
       'app/lib/generated/**',
       'app/content/docs-next/**',
+      // Fixtures the example typecheck generates from the fenced blocks.
+      // Extracted verbatim, so many are fragments that do not parse alone.
+      '.docs-typecheck/**',
+      '.docs-typecheck-test/**',
       'public/**',
       'baseline/**',
       'test-results/**',

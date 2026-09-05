@@ -115,6 +115,18 @@ const AUDITED_COMPONENTS = [
 
 const FENCE = /^\s*(```+|~~~+)/
 
+/**
+ * A fence's example-gate marker, which must not reach the raw mirrors.
+ *
+ * `skip` and `expect-error` address `scripts/check-examples.ts`, not the
+ * reader. MDX drops fence meta before rendering, so the marker is already
+ * invisible on the site, but the raw markdown is emitted from the source and
+ * would otherwise carry it into the LLM bundles and the copy-page output,
+ * where it reads as part of the example.
+ */
+const EXAMPLE_MARKER =
+  /^(\s*(?:```+|~~~+)[a-zA-Z0-9-]+)\s+(?:skip|expect-error)="[^"]*"\s*$/
+
 /** MDX's ESM block. Content carries none today; the contract forbids one. */
 const ESM_STATEMENT =
   /^(?:import\s+[^'"]*\s+from\s+['"][^'"]+['"];?|import\s+['"][^'"]+['"];?|export\s+(?:default|const|let|var|function|class|\*|\{).*)$/
@@ -217,7 +229,7 @@ export function cleanMdx(source: string, title?: string): string {
     const line = lines[index]
 
     if (fenced[index]) {
-      out.push(line)
+      out.push(line.replace(EXAMPLE_MARKER, '$1'))
       index += 1
       continue
     }

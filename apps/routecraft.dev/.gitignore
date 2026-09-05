@@ -77,3 +77,7 @@ app/routeTree.gen.ts
 /test-results/
 /playwright-report/
 /blob-report/
+
+# generated fixtures for the documentation example typecheck (scripts/check-examples.ts)
+/.docs-typecheck/
+/.docs-typecheck-test/

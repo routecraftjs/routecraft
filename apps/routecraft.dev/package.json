@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "build": "rm -rf .output && bun run generate && bun --bun vite build",
+    "check:examples": "bun scripts/check-examples.ts",
     "check:links": "bun scripts/check-links.ts",
     "dev": "bun run generate && bun --bun vite dev",
     "figures:export": "bun scripts/export-figures.ts",
@@ -48,6 +49,7 @@
     "@fontsource/ibm-plex-sans": "^5.3.0",
     "@fontsource/jetbrains-mono": "^5.3.0",
     "@markdoc/markdoc": "^0.5.9",
+    "@standard-schema/spec": "^1.1.0",
     "@mdx-js/mdx": "^3.1.1",
     "@mdx-js/rollup": "^3.1.1",
     "@playwright/test": "^1.62.1",
@@ -81,6 +83,7 @@
     "sharp": "^0.35.3",
     "typescript-eslint": "^8.67.0",
     "unist-util-visit": "^5.0.0",
-    "vite": "^8.2.0"
+    "vite": "^8.2.0",
+    "zod": "^4.4.3"
   }
 }
