@@ -198,17 +198,24 @@ export function extractCheatCode(file: string, source: string): ExampleBlock[] {
     const literalLine = source.slice(0, literalStart).split('\n').length
     const language = /language="([^"]*)"/.exec(attrs)?.[1] ?? 'ts'
 
+    // Only the languages this gate compiles own the marker attributes, the
+    // same rule extractFences applies to fence meta. Without it, a malformed
+    // marker on a block the gate was never going to check (a bash or json
+    // CheatCode) throws and aborts the whole run, over a block that did not
+    // matter in the first place.
     const marker: string[] = []
-    const skip = /\bskip="([^"]*)"/.exec(attrs)
-    if (skip) marker.push(`skip="${skip[1]}"`)
-    const expectError = /\bexpect-error="([^"]*)"/.exec(attrs)
-    if (expectError) marker.push(`expect-error="${expectError[1]}"`)
-    if (marker.length > 1) {
-      throw new MarkerError(
-        file,
-        fenceLine,
-        'a block carries both `skip` and `expect-error`; it can only be one.',
-      )
+    if (isTypeScript(language)) {
+      const skip = /\bskip="([^"]*)"/.exec(attrs)
+      if (skip) marker.push(`skip="${skip[1]}"`)
+      const expectError = /\bexpect-error="([^"]*)"/.exec(attrs)
+      if (expectError) marker.push(`expect-error="${expectError[1]}"`)
+      if (marker.length > 1) {
+        throw new MarkerError(
+          file,
+          fenceLine,
+          'a block carries both `skip` and `expect-error`; it can only be one.',
+        )
+      }
     }
 
     // The literal opens on the tag's line, so its first line of code is the next.
@@ -219,7 +226,9 @@ export function extractCheatCode(file: string, source: string): ExampleBlock[] {
       codeLine: literalLine + leading,
       lang: language,
       indent: 0,
-      marker: parseMarker(marker[0] ?? '', file, fenceLine),
+      marker: isTypeScript(language)
+        ? parseMarker(marker[0] ?? '', file, fenceLine)
+        : { kind: 'check' },
       code: unescapeTemplate(raw.replace(/^\n+|\n+$/g, '')),
     })
   }

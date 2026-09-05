@@ -113,11 +113,22 @@ function compilerOptions(
  * Where two packages export the same name the first wins, following the order
  * of {@link WORKSPACE_PACKAGES}, so core beats the satellites.
  */
-export function buildExportMap(repoRoot: string): Map<string, string> {
+export function buildExportMap(
+  repoRoot: string,
+  cache: SourceCache = new Map(),
+): Map<string, string> {
   const entries = WORKSPACE_PACKAGES.map((name) =>
     path.join(repoRoot, `packages/${name}/src/index.ts`),
   )
-  const program = ts.createProgram(entries, compilerOptions(repoRoot))
+  const options = compilerOptions(repoRoot)
+  // Nothing buildExportMap reads is a generated block file, so nothing needs
+  // excluding from the cache: sharing it with the compile passes that follow
+  // is what stops this parse of `packages/*` from happening a second time.
+  const program = ts.createProgram(
+    entries,
+    options,
+    cachingHost(options, cache, new Set()),
+  )
   const checker = program.getTypeChecker()
   const map = new Map<string, string>()
 
@@ -195,38 +206,44 @@ function augmentsGlobalScope(code: string): boolean {
 }
 
 /**
- * Lib and package sources parsed once and shared by every program in a run.
+ * Lib and package sources parsed once and shared by every program built for
+ * one `compileBlocks` call.
  *
  * Each block that augments module scope needs its own program, and each of
  * those otherwise re-parses the whole of `packages/*` and the lib files from
  * nothing. That parse is almost all of a program's cost here, since the blocks
- * themselves are a few lines each. Only files outside the work directory are
- * cached: the generated block files are rewritten between the two passes, so
- * caching those would hand the second pass the first pass's text.
+ * themselves are a few lines each. Scoped to one call rather than held at
+ * module scope: a cache that outlives its run has no invalidation path, and
+ * this module's own tests call `compileBlocks` repeatedly against fixtures
+ * that legitimately differ between calls.
  */
-const parsedSources = new Map<
-  string,
-  import('typescript').SourceFile | undefined
->()
+type SourceCache = Map<string, import('typescript').SourceFile | undefined>
 
 function cachingHost(
   options: import('typescript').CompilerOptions,
-  workDir: string,
+  cache: SourceCache,
+  uncached: ReadonlySet<string>,
 ): import('typescript').CompilerHost {
   const host = ts.createCompilerHost(options)
   const readSourceFile = host.getSourceFile.bind(host)
 
   host.getSourceFile = (name, languageVersion, onError, shouldCreate) => {
-    if (path.resolve(name).startsWith(workDir)) {
+    // The generated block files are rewritten between the two compile
+    // passes, so caching them would hand the second pass the first pass's
+    // text. Matched by resolved path, not by a directory prefix: a prefix
+    // string is one sibling directory name away from a false match (this
+    // module's own work directory and its test fixture's are literally in
+    // that relationship, `.docs-typecheck` and `.docs-typecheck-test`).
+    if (uncached.has(path.resolve(name))) {
       return readSourceFile(name, languageVersion, onError, shouldCreate)
     }
-    if (!parsedSources.has(name)) {
-      parsedSources.set(
+    if (!cache.has(name)) {
+      cache.set(
         name,
         readSourceFile(name, languageVersion, onError, shouldCreate),
       )
     }
-    return parsedSources.get(name)
+    return cache.get(name)
   }
 
   return host
@@ -243,12 +260,13 @@ function cachingHost(
 function run(
   files: string[],
   options: import('typescript').CompilerOptions,
-  workDir: string,
+  cache: SourceCache,
+  uncached: ReadonlySet<string>,
 ): Map<string, import('typescript').Diagnostic[]> {
   const program = ts.createProgram(
     files,
     options,
-    cachingHost(options, workDir),
+    cachingHost(options, cache, uncached),
   )
   return diagnosticsByFile(program, files)
 }
@@ -260,10 +278,11 @@ function run(
 function checkAll(
   generated: readonly Generated[],
   options: import('typescript').CompilerOptions,
-  workDir: string,
+  cache: SourceCache,
 ): Map<string, import('typescript').Diagnostic[]> {
   const shared = generated.filter((g) => !augmentsGlobalScope(g.block.code))
   const isolated = generated.filter((g) => augmentsGlobalScope(g.block.code))
+  const uncached = new Set(generated.map((g) => path.resolve(g.file)))
 
   const all = new Map<string, import('typescript').Diagnostic[]>()
 
@@ -271,14 +290,20 @@ function checkAll(
     for (const [file, diagnostics] of run(
       shared.map((g) => g.file),
       options,
-      workDir,
+      cache,
+      uncached,
     )) {
       all.set(file, diagnostics)
     }
   }
 
   for (const item of isolated) {
-    for (const [file, diagnostics] of run([item.file], options, workDir))
+    for (const [file, diagnostics] of run(
+      [item.file],
+      options,
+      cache,
+      uncached,
+    ))
       all.set(file, diagnostics)
   }
 
@@ -392,12 +417,13 @@ export function compileBlocks(
 
   for (const item of generated) write(item, [])
 
-  const exports = buildExportMap(repoRoot)
+  const cache: SourceCache = new Map()
+  const exports = buildExportMap(repoRoot, cache)
   const options_ = compilerOptions(repoRoot)
 
   // Pass one establishes which names do not resolve; pass two checks the block
   // with those names imported.
-  const first = checkAll(generated, options_, workDir)
+  const first = checkAll(generated, options_, cache)
   for (const item of generated) {
     const names = unresolvedNames(first.get(path.resolve(item.file)) ?? [])
     const seeds = augmentedModules(item.block.code).map(
@@ -407,7 +433,7 @@ export function compileBlocks(
     if (prelude.length) write(item, prelude)
   }
 
-  const second = checkAll(generated, options_, workDir)
+  const second = checkAll(generated, options_, cache)
 
   const outcomes = new Map<ExampleBlock, BlockOutcome>()
   for (const item of generated) {

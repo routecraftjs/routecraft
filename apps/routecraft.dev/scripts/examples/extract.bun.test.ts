@@ -236,6 +236,21 @@ describe('extractCheatCode', () => {
   })
 
   /**
+   * @case A malformed marker on a non-TypeScript block is ignored, not an error
+   * @preconditions `<CheatCode language="bash" skip="">`, a block the gate never compiles anyway
+   * @expectedResult Block extracts with a "check" marker rather than throwing, matching extractFences'
+   *   rule that only the languages the gate compiles own the marker attributes
+   */
+  test('a malformed marker on a non-TypeScript block does not throw', () => {
+    const source =
+      '<CheatCode language="bash" skip="">{`bun install`}</CheatCode>'
+    const blocks = extractCheatCode(TSX, source)
+
+    expect(blocks[0].lang).toBe('bash')
+    expect(blocks[0].marker).toEqual({ kind: 'check' })
+  })
+
+  /**
    * @case An explicit language prop is honoured
    * @preconditions `<CheatCode language="bash">`
    * @expectedResult Block language is "bash" and isTypeScript rejects it
