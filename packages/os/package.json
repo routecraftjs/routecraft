@@ -26,15 +26,15 @@
     "@routecraft/routecraft": "workspace:*",
     "@routecraft/testing": "workspace:*",
     "@types/dockerode": "^4.0.1",
-    "agent-browser": "^0.17.1",
+    "agent-browser": "^0.34.0",
     "dockerode": "^5.0.1",
     "execa": "^9.6.0",
     "shescape": "^3.0.2",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   },
   "peerDependencies": {
     "@routecraft/routecraft": ">=0.7.0-0 <1.0.0",
-    "agent-browser": "^0.17.1",
+    "agent-browser": "^0.34.0",
     "dockerode": "^5.0.1",
     "execa": "^9.6.0",
     "shescape": "^3.0.2"
