@@ -72,7 +72,9 @@ export interface AgentTurnRequest<T = unknown> {
    * from (inside a fan-out), in which case queued messages run in process
    * and a completion waits for the next message.
    */
-  readonly park?: () => Promise<AgentSessionPark>;
+  readonly park?: (
+    announce: (park: AgentSessionPark) => Promise<void>,
+  ) => Promise<AgentSessionPark>;
   /** The stored continuation this exchange revives, when it is one. */
   readonly revived?: string;
 }
@@ -513,10 +515,50 @@ export class AgentSessionRuntime {
     let revived = 0;
     let lostBackground = 0;
     for (const key of await this.store.list()) {
-      // Teardown while the boot is still walking the index: what is not
+      // Teardown while the boot is still walking the store: what is not
       // yet driven waits for the next boot, as it did for this one.
       if (this.stopping) break;
-      const record = await this.store.load(key);
+      let record = await this.store.load(key);
+      if (
+        record?.parking !== undefined &&
+        record.park?.suspensionId !== record.parking.suspensionId &&
+        // A turn running here right now is between its own two writes,
+        // which reads exactly like the crash below; it clears the field
+        // itself on both its arms.
+        !this.active.has(keyOf(key))
+      ) {
+        // The previous process died between announcing the park and naming
+        // it: the park, if it got written, is referenced by nothing else.
+        const orphan = record.parking.suspensionId;
+        let released = true;
+        try {
+          await this.store.releasePark(
+            orphan,
+            "agent session park announced but never named",
+          );
+        } catch (err: unknown) {
+          // The reference is the only way back to this park, so it stays on
+          // the record and the next boot tries again. A park the previous
+          // process never got as far as writing settles quietly instead.
+          released = false;
+          this.context.logger.warn(
+            {
+              err,
+              agent: key.agent,
+              session: key.session,
+              suspensionId: orphan,
+            },
+            "Agent session continuation left unnamed could not be released; the next boot retries",
+          );
+        }
+        if (released) {
+          record = await this.store.update(key, withoutParking);
+          this.context.logger.info(
+            { agent: key.agent, session: key.session, suspensionId: orphan },
+            "Agent session continuation left unnamed by the previous process was released",
+          );
+        }
+      }
       if (record?.park === undefined) continue;
       let next = record;
       if (record.turn !== undefined || record.background.length > 0) {
@@ -820,8 +862,14 @@ export class AgentSessionRuntime {
     }
     if (record.park !== undefined || req.park === undefined) return record;
     let park: AgentSessionPark;
+    let announced: AgentSessionPark | undefined;
     try {
-      park = await req.park();
+      // The record names the park before the park exists, so a crash
+      // between the two writes leaves a reference the boot releases.
+      park = await req.park(async (pending) => {
+        announced = pending;
+        await this.store.update(req.key, (r) => ({ ...r, parking: pending }));
+      });
     } catch (err: unknown) {
       // Without a continuation the queued messages run in process and a
       // completion waits for the next message: the shape sessions had
@@ -830,11 +878,27 @@ export class AgentSessionRuntime {
         { err, agent: req.key.agent, session: req.key.session },
         "Agent session continuation could not be stored; completions wait for the next message",
       );
-      return record;
+      // A failure after the announce may leave a park behind, and the
+      // record is about to stop naming it. Settled here rather than left
+      // for a boot that will no longer find a reference to it.
+      if (announced !== undefined) {
+        await this.store
+          .releasePark(
+            announced.suspensionId,
+            "agent session park announced but never named",
+          )
+          .catch(() => undefined);
+      }
+      return await this.store
+        .update(req.key, withoutParking)
+        .catch(() => withoutParking(record));
     }
     let updated: AgentSessionRecord;
     try {
-      updated = await this.store.update(req.key, (r) => ({ ...r, park }));
+      updated = await this.store.update(req.key, (r) => ({
+        ...withoutParking(r),
+        park,
+      }));
     } catch (err: unknown) {
       // Nothing names the continuation now, so nothing will ever revive
       // it; settled before the store failure reaches the caller.
@@ -1029,6 +1093,13 @@ function withoutTurn(record: AgentSessionRecord): AgentSessionRecord {
 function withoutPark(record: AgentSessionRecord): AgentSessionRecord {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructure to omit
   const { park: _park, ...rest } = record;
+  return rest;
+}
+
+function withoutParking(record: AgentSessionRecord): AgentSessionRecord {
+  if (record.parking === undefined) return record;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructure to omit
+  const { parking: _parking, ...rest } = record;
   return rest;
 }
 

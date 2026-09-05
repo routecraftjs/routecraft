@@ -41,6 +41,12 @@ const DEFAULT_ROUTES_READY_TIMEOUT_MS = 200;
  * directory. Both defaults are overridable, so a test that wants the
  * durable backend (the kill-restart proof does) passes an explicit `store`.
  *
+ * Agent sessions are deliberately NOT defaulted here, though their store
+ * writes a file on the first session too: the key belongs to
+ * `@routecraft/ai`, and substituting it would hide the resolution the ai
+ * package's own tests exist to prove. A test that holds a conversation
+ * passes `sessions: { store: "memory" }`.
+ *
  * `allowEphemeralSecret` is deliberately not on `SuspensionConfig`: it
  * relaxes a security gate, so it must not be reachable from a user's
  * `defineConfig`. This is the one place that supplies it. The seam is the

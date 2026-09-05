@@ -328,7 +328,9 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
       const routeId = route?.definition.id;
       const park =
         site !== undefined && routeId !== undefined
-          ? async (): Promise<AgentSessionPark> => {
+          ? async (
+              announce: (park: AgentSessionPark) => Promise<void>,
+            ): Promise<AgentSessionPark> => {
               const { suspensionId } = await parkAside(
                 context,
                 exchange,
@@ -340,6 +342,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
                   session: sessionKey.session,
                   suspensionId: id,
                 }),
+                (id) => announce({ suspensionId: id, routeId }),
               );
               return { suspensionId, routeId };
             }

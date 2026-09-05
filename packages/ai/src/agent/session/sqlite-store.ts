@@ -1,7 +1,11 @@
 import { mkdirSync } from "node:fs";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { dirname } from "node:path";
 import {
+  isRoutecraftError,
+  isSqliteBusy,
+  migrateSqlite,
   rcError,
+  resolveDatabasePath,
   resolveSqliteDriver,
   type ResolvedSqliteDriver,
   type SqliteDatabase,
@@ -29,8 +33,9 @@ const BUSY_TIMEOUT_MS = 5_000;
 /**
  * Forward-only migrations from `PRAGMA user_version`; index `n` migrates
  * version `n` to `n + 1`, so a fresh file runs them all and an up-to-date
- * one runs none. Opening the store is the migrate step. Idempotent, so two
- * instances opening one fresh file on a shared volume both come up.
+ * one runs none. Opening the store is the migrate step, and the shared
+ * runner applies them inside one transaction, so two instances opening one
+ * fresh file on a shared volume both come up.
  */
 const MIGRATIONS: ReadonlyArray<string> = [
   `CREATE TABLE IF NOT EXISTS agent_sessions (
@@ -88,12 +93,7 @@ export class SqliteSessionStore implements SessionStore {
       SESSION_SQLITE_CONSUMER,
       options.loaders,
     );
-    const path =
-      options.path === ":memory:"
-        ? options.path
-        : isAbsolute(options.path)
-          ? options.path
-          : resolve(process.cwd(), options.path);
+    const path = resolveDatabasePath(options.path);
     let db: SqliteDatabase;
     try {
       if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
@@ -104,7 +104,7 @@ export class SqliteSessionStore implements SessionStore {
       });
     }
     try {
-      initialise(db);
+      initialise(db, path);
     } catch (cause) {
       // The handle exists but no store owns it yet, so nothing else would
       // ever close it; release it before the error propagates.
@@ -113,6 +113,7 @@ export class SqliteSessionStore implements SessionStore {
       } catch {
         // Already unusable; the original cause is what matters.
       }
+      if (isRoutecraftError(cause)) throw cause;
       throw rcError("AI1012", cause, {
         message: `The agent session store at "${path}" could not be migrated to schema version ${SCHEMA_VERSION}.`,
       });
@@ -212,7 +213,7 @@ export class SqliteSessionStore implements SessionStore {
       return run();
     } catch (cause) {
       throw rcError("AI1012", cause, {
-        message: busy(cause)
+        message: isSqliteBusy(cause)
           ? `The agent session store was busy during a ${operation}.`
           : `The agent session store failed a ${operation}.`,
       });
@@ -220,34 +221,25 @@ export class SqliteSessionStore implements SessionStore {
   }
 }
 
-function initialise(db: SqliteDatabase): void {
+function initialise(db: SqliteDatabase, path: string): void {
   // WAL lets a reader (the management resource) proceed under a writer.
   db.exec("PRAGMA journal_mode = WAL");
+  // Set explicitly because the drivers disagree: better-sqlite3 defaults to
+  // 5s, bun:sqlite to 0, so without it a second writer fails instantly on
+  // one runtime and waits on the other.
   db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
-  const row = db.prepare("PRAGMA user_version").get() as
-    { user_version?: number } | undefined;
-  const current = row?.user_version ?? 0;
-  if (current > SCHEMA_VERSION) {
-    throw new Error(
-      `schema version ${current} is newer than this build's ${SCHEMA_VERSION}`,
-    );
-  }
-  for (let version = current; version < SCHEMA_VERSION; version++) {
-    db.exec(MIGRATIONS[version] as string);
-  }
-  // Interpolated rather than bound: PRAGMA does not accept parameters.
-  if (current !== SCHEMA_VERSION)
-    db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
-}
-
-function busy(cause: unknown): boolean {
-  const code = (cause as { code?: unknown } | null)?.code;
-  if (typeof code === "string" && /^SQLITE_BUSY|^SQLITE_LOCKED/.test(code)) {
-    return true;
-  }
-  return /database is locked|database table is locked|SQLITE_BUSY|SQLITE_LOCKED/i.test(
-    messageOf(cause),
-  );
+  migrateSqlite(db, {
+    schemaVersion: SCHEMA_VERSION,
+    migrations: MIGRATIONS,
+    onFailure: (failure) =>
+      failure.kind === "downgrade"
+        ? rcError("AI1012", undefined, {
+            message: `The agent session store at "${path}" is on schema version ${failure.current}, newer than this build understands (${SCHEMA_VERSION}). Run the newer Routecraft build, or point sessions.store at a fresh file.`,
+          })
+        : rcError("AI1012", failure.cause, {
+            message: `The agent session store at "${path}" could not be migrated to schema version ${SCHEMA_VERSION}.`,
+          }),
+  });
 }
 
 function messageOf(cause: unknown): string {

@@ -236,6 +236,8 @@ function describeRecord(
  *
  * @param stepState - Built from the suspension id, so the state a revival
  *   hands back can name the record it came from
+ * @param announce - Awaited with the id before the record is written, so
+ *   the caller's own record can name the park from the first write on
  * @returns The suspension id, which `reviveSuspension` takes back
  * @throws RC5052 without a suspension runtime, RC5042 when the exchange
  *   cannot be persisted, RC5044 when the store write fails
@@ -248,6 +250,7 @@ export async function parkAside(
   site: SuspendRequest["site"],
   routeId: string,
   stepState: (suspensionId: string) => unknown,
+  announce?: (suspensionId: string) => Promise<void>,
 ): Promise<{ suspensionId: string }> {
   const runtime = context.getStore(SUSPENSION_RUNTIME);
   if (!runtime) {
@@ -264,6 +267,11 @@ export async function parkAside(
     { site, stepState: stepState(id) },
     undefined,
   );
+  // The caller learns the id before the record exists, so what it keeps
+  // can name the park from the first write on: a crash between the two
+  // leaves a reference to release, not a record nothing points at, and an
+  // aside park has no expiry to retire it otherwise.
+  if (announce) await announce(id);
   await runtime.store.create(record);
   // The run goes on with this exchange, and its headers are frozen: the
   // successor sequence the record carries is noted on the exchange too,

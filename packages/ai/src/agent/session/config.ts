@@ -1,7 +1,7 @@
 import { existsSync } from "node:fs";
-import { isAbsolute, resolve } from "node:path";
 import {
   rcError,
+  resolveDatabasePath,
   resolveSqliteDriver,
   type CraftContext,
   type CraftPlugin,
@@ -70,8 +70,12 @@ export interface ResolvedSessionStore {
   /**
    * `custom` is a store the caller supplied; reporting it as `sqlite` would
    * mislead exactly the operator who configured a backend deliberately.
+   * `unresolved` is the lazy form before anything touched it, which is the
+   * one state where the answer is not yet known.
    */
-  readonly backend: "sqlite" | "memory" | "custom";
+  readonly backend: "sqlite" | "memory" | "custom" | "unresolved";
+  /** Which sqlite driver opened it, where one did. */
+  readonly driver?: string;
   /**
    * False when the caller supplied the store, in which case they own its
    * lifecycle and teardown must not close it.
@@ -113,27 +117,26 @@ export async function createSessionStore(
     config.store ??
     (fromEnv !== undefined && fromEnv !== "" ? fromEnv : undefined);
 
-  if (
-    chosen !== undefined &&
-    typeof chosen === "object" &&
-    "replace" in chosen
-  ) {
-    return resolved(chosen, "custom", false, configured);
+  if (chosen !== undefined && typeof chosen === "object") {
+    if (isSessionStore(chosen)) {
+      return announce(context, resolved(chosen, "custom", false, configured));
+    }
+    return announce(
+      context,
+      await openSqlite(pathOf(chosen), config.loaders, configured),
+    );
   }
   if (chosen === "memory") {
-    return resolved(new MemorySessionStore(), "memory", true, configured);
+    return announce(
+      context,
+      resolved(new MemorySessionStore(), "memory", true, configured),
+    );
   }
   if (chosen !== undefined) {
-    const path = typeof chosen === "object" ? chosen.path : chosen;
-    const store = await SqliteSessionStore.open({
-      path,
-      ...(config.loaders ? { loaders: config.loaders } : {}),
-    });
-    context.logger.debug(
-      { backend: "sqlite", driver: store.driver, path },
-      "Agent session store opened",
+    return announce(
+      context,
+      await openSqlite(pathOf(chosen), config.loaders, configured),
     );
-    return resolved(store, "sqlite", true, configured);
   }
 
   try {
@@ -143,14 +146,79 @@ export async function createSessionStore(
       { err, path: DEFAULT_SESSION_DB_PATH },
       "No durable agent session store available; conversations will NOT survive a restart. Install better-sqlite3 (Node) or configure sessions: { store } to keep them durable.",
     );
-    return resolved(new MemorySessionStore(), "memory", true, configured);
+    return announce(
+      context,
+      resolved(new MemorySessionStore(), "memory", true, configured),
+    );
   }
-  return resolved(
-    new DeferredSqliteSessionStore(DEFAULT_SESSION_DB_PATH, config.loaders),
-    "sqlite",
-    true,
-    configured,
+  return announce(
+    context,
+    resolved(
+      new DeferredSqliteSessionStore(DEFAULT_SESSION_DB_PATH, config.loaders),
+      "sqlite",
+      true,
+      configured,
+    ),
   );
+}
+
+/**
+ * Whether the value is a backend rather than a location. Every operation is
+ * checked, not one: a near-miss (a method misspelt, a half-written class)
+ * would otherwise be read as a path and reported as a file that cannot be
+ * opened, which points nowhere near the mistake.
+ */
+function isSessionStore(value: object): value is SessionStore {
+  const candidate = value as Record<string, unknown>;
+  return (["get", "create", "replace", "keys", "close"] as const).every(
+    (operation) => typeof candidate[operation] === "function",
+  );
+}
+
+/** The location a config value names, refusing what names nothing. */
+function pathOf(chosen: string | { path: string } | object): string {
+  const path =
+    typeof chosen === "object" ? (chosen as { path?: unknown }).path : chosen;
+  if (typeof path !== "string" || path.trim() === "") {
+    throw rcError("RC5003", undefined, {
+      message: `sessions: { store } takes a file path, { path }, "memory", or a SessionStore with get, create, replace, keys and close. Received ${describe(chosen)}.`,
+    });
+  }
+  return path;
+}
+
+function describe(value: unknown): string {
+  if (typeof value === "string") return `the string "${value}"`;
+  if (value === null) return "null";
+  if (typeof value !== "object") return `a ${typeof value}`;
+  const keys = Object.keys(value);
+  return keys.length === 0
+    ? "an object with no keys"
+    : `an object with ${keys.join(", ")}`;
+}
+
+async function openSqlite(
+  path: string,
+  loaders: SqliteDriverLoaders | undefined,
+  configured: boolean,
+): Promise<ResolvedSessionStore> {
+  const store = await SqliteSessionStore.open({
+    path,
+    ...(loaders ? { loaders } : {}),
+  });
+  return resolved(store, "sqlite", true, configured, store.driver);
+}
+
+/** One startup line per resolution, so the memory fallback shows in the log. */
+function announce(
+  context: CraftContext,
+  choice: ResolvedSessionStore,
+): ResolvedSessionStore {
+  context.logger.debug(
+    { backend: choice.backend, driver: choice.driver },
+    "Agent session store resolved",
+  );
+  return choice;
 }
 
 /**
@@ -200,11 +268,21 @@ export function sessionsPlugin(config: AgentSessionsConfig = {}): CraftPlugin {
         await createSessionStore(ctx, config),
       );
     },
-    async teardown(ctx: CraftContext) {
-      await ctx.getStore(ADAPTER_AGENT_SESSIONS)?.stop();
-      await ctx.getStore(ADAPTER_AGENT_SESSION_STORE)?.close();
-    },
+    teardown: stopSessions,
   };
+}
+
+/**
+ * Stop the session runtime, then release the store it writes to. The order
+ * is the contract: a revival still in flight must not write to a closed
+ * store, and a context that installed `agentPlugin()` waits for its boot
+ * walk before either.
+ *
+ * @internal
+ */
+export async function stopSessions(ctx: CraftContext): Promise<void> {
+  await ctx.getStore(ADAPTER_AGENT_SESSIONS)?.stop();
+  await ctx.getStore(ADAPTER_AGENT_SESSION_STORE)?.close();
 }
 
 function resolved(
@@ -212,6 +290,7 @@ function resolved(
   backend: ResolvedSessionStore["backend"],
   ownsStore: boolean,
   configured: boolean,
+  driver?: string,
 ): ResolvedSessionStore {
   let closed = false;
   return {
@@ -219,6 +298,7 @@ function resolved(
     backend,
     ownsStore,
     configured,
+    ...(driver !== undefined ? { driver } : {}),
     async close() {
       if (closed || !ownsStore) return;
       closed = true;
@@ -243,7 +323,9 @@ class LazyResolvedSessionStore implements ResolvedSessionStore, SessionStore {
   }
 
   get backend(): ResolvedSessionStore["backend"] {
-    return this.#chosen?.backend ?? "sqlite";
+    // Reported rather than guessed: which backend this becomes is not
+    // decided until something uses it, and the default is not always sqlite.
+    return this.#chosen?.backend ?? "unresolved";
   }
 
   get ownsStore(): boolean {
@@ -285,6 +367,13 @@ class LazyResolvedSessionStore implements ResolvedSessionStore, SessionStore {
   }
 
   private resolve(): Promise<ResolvedSessionStore> {
+    // A call after the context released the store must not reopen it.
+    if (this.#closed) {
+      throw rcError("AI1012", undefined, {
+        message:
+          "The agent session store is closed; a call arrived after teardown.",
+      });
+    }
     this.#inner ??= this.open().then(
       (chosen) => {
         this.#chosen = chosen;
@@ -357,10 +446,9 @@ export class DeferredSqliteSessionStore implements SessionStore {
 
   private async reader(): Promise<SqliteSessionStore | undefined> {
     if (this.#opened) return this.#opened;
-    const absolute = isAbsolute(this.path)
-      ? this.path
-      : resolve(process.cwd(), this.path);
-    if (!existsSync(absolute)) return undefined;
+    // The same resolution the open uses, so the probe and the open cannot
+    // look at two different files.
+    if (!existsSync(resolveDatabasePath(this.path))) return undefined;
     return this.open();
   }
 }

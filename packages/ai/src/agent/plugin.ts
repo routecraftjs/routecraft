@@ -15,12 +15,11 @@ import {
   ADAPTER_AGENT_DEFAULT_OPTIONS,
   ADAPTER_AGENT_REGISTRY,
   ADAPTER_AGENT_SESSION_STORE,
-  ADAPTER_AGENT_SESSIONS,
   ADAPTER_AGENT_SESSIONS_BOOT,
   ADAPTER_AGENT_TOOL_POLICIES,
   AGENT_DEFAULT_OPTION_KEYS,
 } from "./store.ts";
-import { createSessionStore } from "./session/config.ts";
+import { createSessionStore, stopSessions } from "./session/config.ts";
 import { AGENT_TOOL_POLICY_KINDS } from "./tools/policy.ts";
 import type {
   AgentToolPolicy,
@@ -318,10 +317,7 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
       boots.delete(ctx);
       // After the boot walk, so a revival the walk was starting when the
       // stop landed is in the set the runtime waits for.
-      await ctx.getStore(ADAPTER_AGENT_SESSIONS)?.stop();
-      // Closed only once every revival has settled, and only if this
-      // context opened it.
-      await ctx.getStore(ADAPTER_AGENT_SESSION_STORE)?.close();
+      await stopSessions(ctx);
     },
   };
 }

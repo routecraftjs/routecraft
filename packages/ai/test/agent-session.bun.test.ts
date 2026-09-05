@@ -1053,6 +1053,212 @@ describe("agent sessions", () => {
   });
 
   /**
+   * @case A continuation the suspension store no longer holds falls back to a turn in process, and the record stops naming it
+   * @preconditions One turn ran with a background call outstanding and stored a real aside park through parkAside, announced on the record first; the park's suspension record is then deleted from the store, as a lost or purged file would leave it; a message is posted to the idle session
+   * @expectedResult The revival fails, the follow-up turn runs in process carrying the posted message, and the record no longer names the deleted park: the background call is still outstanding, so that turn stored a fresh continuation, which the suspension store holds
+   */
+  test("a deleted continuation falls back to a turn in process", async () => {
+    const store = new MemorySuspensionStore();
+    t = await contextWith(store, spy()).build();
+    await t.startAndWaitReady();
+    const sessions = new AgentSessionStore(recordsFor(store), store);
+    const runtime = new AgentSessionRuntime(t.ctx, sessions);
+    const key = { agent: "max", session: "deleted-park" };
+    await sessions.update(key, (r) => ({
+      ...r,
+      background: [
+        { handle: "sandbox-run:1", tool: "run", startedAt: "now", by: null },
+      ],
+    }));
+    const seen: unknown[] = [];
+    const executor = {
+      run: (messages: unknown) => {
+        seen.push(messages);
+        return Promise.resolve({ text: "ok" } as AgentResult);
+      },
+      thread: () => undefined,
+    };
+    const exchange = new DefaultExchange(t.ctx, { body: {} });
+    const announced: string[] = [];
+    await runtime.turn({
+      key,
+      exchange,
+      message: "start",
+      by: null,
+      interrupt: false,
+      executor,
+      park: async (announce) => {
+        const { suspensionId } = await parkAside(
+          t!.ctx,
+          exchange,
+          { position: 0, continuation: [] },
+          "chat",
+          (id) => ({
+            kind: "agent-session-park",
+            agent: key.agent,
+            session: key.session,
+            suspensionId: id,
+          }),
+          async (id) => {
+            announced.push(id);
+            await announce({ suspensionId: id, routeId: "chat" });
+          },
+        );
+        return { suspensionId, routeId: "chat" };
+      },
+    });
+    const parked = await sessions.load(key);
+    expect(parked?.park?.suspensionId).toBe(announced[0]);
+    expect(parked?.parking).toBeUndefined();
+    expect(
+      MemorySuspensionStore.unsafeRecords(store).delete(announced[0]!),
+    ).toBe(true);
+    await runtime.post(key, {
+      kind: "message",
+      content: "the build finished",
+      by: null,
+    });
+    const deadline = Date.now() + 5_000;
+    while (seen.length < 2 && Date.now() < deadline) await sleep(5);
+    expect(seen).toHaveLength(2);
+    expect(JSON.stringify(seen[1])).toContain("the build finished");
+    const after = await sessions.load(key);
+    expect(after?.park?.suspensionId).toBeDefined();
+    expect(after?.park?.suspensionId).not.toBe(announced[0]);
+    expect((await store.get(after!.park!.suspensionId))?.status).toBe(
+      "suspended",
+    );
+  });
+
+  /**
+   * @case A continuation whose write fails after the park was announced is settled, not left live
+   * @preconditions A turn with a background call outstanding whose park callback creates a real aside park, announces it on the record, and then fails, as a store that commits and then reports failure would
+   * @expectedResult The park reads denied rather than staying suspended, and the record names neither a park nor a parking
+   */
+  test("a park announced by a failing write is released", async () => {
+    const store = new MemorySuspensionStore();
+    t = await contextWith(store, spy()).build();
+    await t.startAndWaitReady();
+    const sessions = new AgentSessionStore(recordsFor(store), store);
+    const runtime = new AgentSessionRuntime(t.ctx, sessions);
+    const key = { agent: "max", session: "failed-park" };
+    await sessions.update(key, (r) => ({
+      ...r,
+      background: [
+        { handle: "sandbox-run:1", tool: "run", startedAt: "now", by: null },
+      ],
+    }));
+    const exchange = new DefaultExchange(t.ctx, { body: {} });
+    const announced: string[] = [];
+    await runtime.turn({
+      key,
+      exchange,
+      message: "start",
+      by: null,
+      interrupt: false,
+      executor: {
+        run: () => Promise.resolve({ text: "ok" } as AgentResult),
+        thread: () => undefined,
+      },
+      park: async (announce) => {
+        await parkAside(
+          t!.ctx,
+          exchange,
+          { position: 0, continuation: [] },
+          "chat",
+          (id) => ({
+            kind: "agent-session-park",
+            agent: key.agent,
+            session: key.session,
+            suspensionId: id,
+          }),
+          async (id) => {
+            announced.push(id);
+            await announce({ suspensionId: id, routeId: "chat" });
+          },
+        );
+        // The park is written; what follows it is not.
+        throw new Error("the store committed and then reported a failure");
+      },
+    });
+    expect(announced).toHaveLength(1);
+    expect((await store.get(announced[0]!))?.status).toBe("denied");
+    const record = await sessions.load(key);
+    expect(record?.park).toBeUndefined();
+    expect(record?.parking).toBeUndefined();
+  });
+
+  /**
+   * @case A park the boot cannot release keeps its reference for the next boot
+   * @preconditions A record whose parking names a real park, and a suspension store whose claim fails
+   * @expectedResult driveBoot() leaves the parking field in place and the park unsettled, and warns
+   */
+  test("a park the boot cannot release keeps its reference", async () => {
+    const store = new MemorySuspensionStore();
+    const sink = spy();
+    t = await contextWith(store, sink).build();
+    await t.startAndWaitReady();
+    const sessions = new AgentSessionStore(recordsFor(store), store);
+    const exchange = new DefaultExchange(t.ctx, { body: {} });
+    const key = { agent: "max", session: "unreleasable" };
+    const { suspensionId } = await parkAside(
+      t.ctx,
+      exchange,
+      { position: 0, continuation: [] },
+      "chat",
+      (id) => ({ kind: "agent-session-park", ...key, suspensionId: id }),
+    );
+    await sessions.update(key, (r) => ({
+      ...r,
+      parking: { suspensionId, routeId: "chat" },
+    }));
+    store.claimExpiry = () => {
+      throw new Error("the suspension store is unreachable");
+    };
+    const runtime = new AgentSessionRuntime(t.ctx, sessions);
+    await runtime.driveBoot();
+    expect((await sessions.load(key))?.parking?.suspensionId).toBe(
+      suspensionId,
+    );
+  });
+
+  /**
+   * @case A park the previous process announced but never named is released at boot
+   * @preconditions A real aside park in the suspension store and a session record whose parking field names it with no park, as a crash between the two writes leaves them; a second record's parking names an id that was never created
+   * @expectedResult After driveBoot() the first park reads denied and both records have no parking field, and the boot did not fail on the id that never existed
+   */
+  test("an announced continuation nothing names is released at boot", async () => {
+    const store = new MemorySuspensionStore();
+    t = await contextWith(store, spy()).build();
+    await t.startAndWaitReady();
+    const sessions = new AgentSessionStore(recordsFor(store), store);
+    const exchange = new DefaultExchange(t.ctx, { body: {} });
+    const orphan = { agent: "max", session: "orphan" };
+    const { suspensionId } = await parkAside(
+      t.ctx,
+      exchange,
+      { position: 0, continuation: [] },
+      "chat",
+      (id) => ({ kind: "agent-session-park", ...orphan, suspensionId: id }),
+    );
+    await sessions.update(orphan, (r) => ({
+      ...r,
+      parking: { suspensionId, routeId: "chat" },
+    }));
+    const phantom = { agent: "max", session: "phantom" };
+    await sessions.update(phantom, (r) => ({
+      ...r,
+      parking: { suspensionId: "never-created", routeId: "chat" },
+    }));
+    expect((await store.get(suspensionId))?.status).toBe("suspended");
+    const runtime = new AgentSessionRuntime(t.ctx, sessions);
+    await runtime.driveBoot();
+    expect((await store.get(suspensionId))?.status).toBe("denied");
+    expect((await sessions.load(orphan))?.parking).toBeUndefined();
+    expect((await sessions.load(phantom))?.parking).toBeUndefined();
+  });
+
+  /**
    * @case A post that lands between the turn's park and its cleanup still starts the next turn
    * @preconditions A session with one background call outstanding; the turn parks; the store write that records the park is followed, before the turn sees it, by a post to the inbox; the stored continuation cannot be revived (its id is not a real suspension), so the follow-up runs in process
    * @expectedResult A second executor run starts on its own with the posted message, rather than the session waiting for the next message

@@ -1,5 +1,5 @@
 import { mkdirSync } from "node:fs";
-import { dirname, isAbsolute, resolve } from "node:path";
+import { dirname } from "node:path";
 import { rcError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
 import { stepStateFingerprint } from "./hash.ts";
@@ -11,6 +11,11 @@ import {
   type SqliteDriverLoaders,
   resolveSqliteDriver,
 } from "../shared/sqlite/driver.ts";
+import {
+  isSqliteBusy,
+  migrateSqlite,
+  resolveDatabasePath,
+} from "../shared/sqlite/database.ts";
 import type {
   ExpiredScanCursor,
   NewSuspension,
@@ -163,12 +168,7 @@ export class SqliteSuspensionStore implements SuspensionStore {
     loaders?: SqliteDriverLoaders;
   }): Promise<SqliteSuspensionStore> {
     const driver = await resolveSqliteDriver(SQLITE_CONSUMER, options.loaders);
-    const path =
-      options.path === ":memory:"
-        ? options.path
-        : isAbsolute(options.path)
-          ? options.path
-          : resolve(process.cwd(), options.path);
+    const path = resolveDatabasePath(options.path);
     if (path !== ":memory:") mkdirSync(dirname(path), { recursive: true });
 
     const db = new driver.Database(path);
@@ -230,7 +230,7 @@ export class SqliteSuspensionStore implements SuspensionStore {
       const duplicate = /UNIQUE constraint failed/i.test(
         cause instanceof Error ? cause.message : String(cause),
       );
-      if (busy(cause)) {
+      if (isSqliteBusy(cause)) {
         throw rcError("RC5045", cause, {
           message: `The suspension store was busy while persisting "${record.id}".`,
         });
@@ -370,7 +370,7 @@ export class SqliteSuspensionStore implements SuspensionStore {
       } catch {
         // BEGIN itself failed, so there is no transaction to roll back.
       }
-      throw rcError(busy(cause) ? "RC5045" : "RC5044", cause, {
+      throw rcError(isSqliteBusy(cause) ? "RC5045" : "RC5044", cause, {
         message: `Failed to replace the step state of suspension "${id}" in the sqlite store.`,
       });
     }
@@ -527,7 +527,7 @@ export class SqliteSuspensionStore implements SuspensionStore {
         // BEGIN itself failed, so there is no transaction to roll back.
         // The original cause is the one worth reporting.
       }
-      throw rcError(busy(cause) ? "RC5045" : "RC5044", cause, {
+      throw rcError(isSqliteBusy(cause) ? "RC5045" : "RC5044", cause, {
         message: `Failed to transition suspension "${id}" in the sqlite store.`,
       });
     }
@@ -564,55 +564,25 @@ function initialise(db: SqliteDatabase): void {
 }
 
 /**
- * Apply outstanding migrations inside a transaction, so an interrupted
- * upgrade leaves the file on its previous version rather than half-way
- * between two.
+ * Apply outstanding migrations, mapping a refusal onto the store's own
+ * code. The transaction and the version handling are shared with every
+ * other sqlite store in the repository.
  *
  * @internal
  */
 function migrate(db: SqliteDatabase): void {
-  try {
-    // The version is read INSIDE the write transaction. Two processes
-    // starting against one file would otherwise both read version 0, both
-    // try to create the tables, and the loser fail on an existing table.
-    // For an unconfigured context that failure means falling back to the
-    // non-durable memory store, which is the worst outcome a startup race
-    // could have.
-    db.exec("BEGIN IMMEDIATE");
-    const row = db.prepare("PRAGMA user_version").get() as
-      { user_version?: number } | undefined;
-    const current = row?.user_version ?? 0;
-    // The downgrade guard has to run BEFORE the up-to-date check, not
-    // after: a file written by a newer build satisfies both conditions, so
-    // ordering it second made it unreachable and turned a rollback into a
-    // misleading persist failure on the first suspend.
-    if (current > SCHEMA_VERSION) {
-      throw rcError("RC5044", undefined, {
-        message: `Suspension store schema version ${current} is newer than this build understands (${SCHEMA_VERSION}). Run the newer Routecraft build, or point suspension.store.path at a fresh file.`,
-      });
-    }
-    if (current === SCHEMA_VERSION) {
-      db.exec("COMMIT");
-      return;
-    }
-    for (let version = current; version < SCHEMA_VERSION; version++) {
-      db.exec(MIGRATIONS[version]!);
-    }
-    // Interpolated rather than bound: PRAGMA does not accept parameters.
-    // The value is a module constant, never user input.
-    db.exec(`PRAGMA user_version = ${SCHEMA_VERSION}`);
-    db.exec("COMMIT");
-  } catch (cause) {
-    try {
-      db.exec("ROLLBACK");
-    } catch {
-      // BEGIN itself failed; there is no transaction to roll back.
-    }
-    if (isRoutecraftError(cause)) throw cause;
-    throw rcError("RC5044", cause, {
-      message: "Failed to migrate the suspension store schema.",
-    });
-  }
+  migrateSqlite(db, {
+    schemaVersion: SCHEMA_VERSION,
+    migrations: MIGRATIONS,
+    onFailure: (failure) =>
+      failure.kind === "downgrade"
+        ? rcError("RC5044", undefined, {
+            message: `Suspension store schema version ${failure.current} is newer than this build understands (${SCHEMA_VERSION}). Run the newer Routecraft build, or point suspension.store.path at a fresh file.`,
+          })
+        : rcError("RC5044", failure.cause, {
+            message: "Failed to migrate the suspension store schema.",
+          }),
+  });
 }
 
 /**
@@ -628,28 +598,10 @@ function guard<T>(what: string, run: () => T): T {
     return run();
   } catch (cause) {
     if (isRoutecraftError(cause)) throw cause;
-    throw rcError(busy(cause) ? "RC5045" : "RC5044", cause, {
+    throw rcError(isSqliteBusy(cause) ? "RC5045" : "RC5044", cause, {
       message: `Failed to ${what} in the sqlite store.`,
     });
   }
-}
-
-/**
- * Whether a driver error is SQLite reporting lock contention rather than a
- * permanent fault. Both drivers surface it in the message; better-sqlite3
- * additionally sets a `code`.
- *
- * @internal
- */
-function busy(cause: unknown): boolean {
-  const code = (cause as { code?: unknown } | null)?.code;
-  if (typeof code === "string" && /^SQLITE_BUSY|^SQLITE_LOCKED/.test(code)) {
-    return true;
-  }
-  const message = cause instanceof Error ? cause.message : String(cause);
-  return /database is locked|database table is locked|SQLITE_BUSY|SQLITE_LOCKED/i.test(
-    message,
-  );
 }
 
 /**

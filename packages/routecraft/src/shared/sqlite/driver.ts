@@ -82,10 +82,9 @@ export async function resolveSqliteDriver(
 }
 
 /**
- * Driver loaders, injectable so a test can exercise the absent-peer arm
- * without uninstalling anything.
- *
- * @internal
+ * Driver loaders. Injectable so a store in another package, or a test
+ * exercising the absent-peer arm, supplies its own resolution rather than
+ * the runtime's.
  */
 export interface SqliteDriverLoaders {
   bun(): Promise<SqliteDatabaseConstructor>;

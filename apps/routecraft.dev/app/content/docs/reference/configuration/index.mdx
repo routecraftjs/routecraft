@@ -99,7 +99,7 @@ When `@routecraft/ai` is imported (anywhere in the project), `CraftConfig` is au
 
 ```ts
 import { defineConfig } from '@routecraft/routecraft'
-import '@routecraft/ai' // augments CraftConfig with llm/mcp/embedding/agent
+import '@routecraft/ai' // augments CraftConfig with llm/mcp/embedding/agent/sessions
 
 export const craftConfig = defineConfig({
   llm: {
@@ -289,7 +289,9 @@ export const craftConfig = defineConfig({
 |----------|---------|
 | `ROUTECRAFT_SESSION_STORE` | Store location: a file path, or the literal `memory`. An explicit config value wins. |
 
-The backend is chosen per runtime exactly as the suspension store's is: `bun:sqlite` under Bun, `better-sqlite3` under Node. An explicitly configured path that cannot be opened fails at startup with [`AI1012`](/docs/reference/errors#ai-1012); the unconfigured default falls back to memory with a warning when no driver is available. A store instance you supply is never closed by the context.
+The backend is chosen per runtime exactly as the suspension store's is: `bun:sqlite` under Bun, `better-sqlite3` under Node. An explicitly configured path that cannot be opened fails at startup with [`AI1012`](/docs/reference/errors#ai-1012); the unconfigured default falls back to memory with a warning when no driver is available. A value that names neither a location nor a backend is refused at startup with [`RC5003`](/docs/reference/errors#rc-5003). A store instance you supply is never closed by the context.
+
+Records have no retention: nothing expires a session, so a deployment that opens one per inbound message sizes its volume by how many it will ever open. Retiring a session is not built yet. In tests, `testContext()` substitutes an in-memory suspension store but not a session store, so a test that holds a conversation passes `sessions: { store: 'memory' }` to leave no database behind.
 
 **The signing secret is required, at least 32 bytes, and never generated for you.** A context whose routes can reach a durable suspend fails at startup with [`RC5040`](/docs/reference/errors#rc-5040) when no secret is configured. The secret is deliberately not stored alongside the suspensions: a store compromise must not also yield forgeable resume tokens. `testContext()`, `NODE_ENV=development` and `NODE_ENV=test` mint an ephemeral in-memory key so tests and local iteration need no setup; that key is regenerated on every start, so tokens minted before a restart stop verifying, and the framework warns when it is in use.
 

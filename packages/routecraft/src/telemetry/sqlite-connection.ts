@@ -1,10 +1,11 @@
 import { mkdirSync } from "node:fs";
-import { dirname, resolve, isAbsolute } from "node:path";
+import { dirname } from "node:path";
 import {
   type SqliteDriverLoaders,
   resolveSqliteDriver,
 } from "../shared/sqlite/driver.ts";
 import type { SqliteDatabase } from "../shared/sqlite/types.ts";
+import { resolveDatabasePath } from "../shared/sqlite/database.ts";
 import { ALL_DDL } from "./schema.ts";
 import type { TelemetryLogger } from "./types.ts";
 
@@ -91,9 +92,7 @@ export class SqliteConnection {
     loaders?: SqliteDriverLoaders,
   ): Promise<SqliteConnection | null> {
     const dbPathRaw = options?.dbPath ?? DEFAULT_DB_PATH;
-    const dbPath = isAbsolute(dbPathRaw)
-      ? dbPathRaw
-      : resolve(process.cwd(), dbPathRaw);
+    const dbPath = resolveDatabasePath(dbPathRaw);
     const walMode = options?.walMode !== false;
 
     let Database: TelemetryDatabaseConstructor;

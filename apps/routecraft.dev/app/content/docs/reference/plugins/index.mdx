@@ -16,7 +16,7 @@ Core adapter defaults (`cron`, `direct`) are set via dedicated fields on `CraftC
 
 ## First-class config keys
 
-Importing `@routecraft/ai` augments `CraftConfig` with first-class keys for the AI plugins. Setting `llm`, `mcp`, `embedding`, or `agent` on the config is equivalent to pushing the corresponding plugin onto `plugins: []`. Lifecycle (`apply`, `start`, `teardown`, plugin events) is identical.
+Importing `@routecraft/ai` augments `CraftConfig` with first-class keys for the AI plugins. Setting `llm`, `mcp`, `embedding`, `agent`, or `sessions` on the config is equivalent to pushing the corresponding plugin onto `plugins: []` (`sessions` maps to `sessionsPlugin`, documented under [Configuration](/docs/reference/configuration#sessions)). Lifecycle (`apply`, `start`, `teardown`, plugin events) is identical.
 
 ```ts
 // Before (still supported, use this for shared plugin instances or programmatic composition)

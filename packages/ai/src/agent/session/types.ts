@@ -98,6 +98,14 @@ export interface AgentSessionRecord {
    * later turn that ends with work outstanding keeps the one that exists.
    */
   readonly park?: AgentSessionPark;
+  /**
+   * The continuation about to be stored, named before the park exists and
+   * cleared once `park` names it. A crash between those two writes leaves
+   * this set with `park` unset, which is how the next boot finds an aside
+   * park nothing else references and releases it; an aside park carries no
+   * expiry, so nothing else would.
+   */
+  readonly parking?: AgentSessionPark;
   /** Completed turns. */
   readonly turns: number;
   readonly createdAt: string;

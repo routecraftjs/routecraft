@@ -188,6 +188,48 @@ describe("session store resolution", () => {
   });
 
   /**
+   * @case A store value that names neither a location nor a backend is refused at the boundary
+   * @preconditions sessions: { store } given an object missing one contract operation, an object with no path, and an empty string
+   * @expectedResult Each is RC5003 naming what the key accepts, rather than a driver or path error further in
+   */
+  test("a store that is neither a path nor a backend is RC5003", async () => {
+    t = await testContext()
+      .with({ suspension: { store: new MemorySuspensionStore() } })
+      .build();
+    const halfWritten = {
+      get: () => undefined,
+      create: () => undefined,
+      keys: () => [],
+      close: () => undefined,
+    };
+    for (const store of [
+      halfWritten as never,
+      {} as never,
+      "" as never,
+      "   " as never,
+    ]) {
+      await expect(createSessionStore(t.ctx, { store })).rejects.toThrow(
+        /RC5003|takes a file path/,
+      );
+    }
+  });
+
+  /**
+   * @case The lazy fallback reports no backend until something resolves it
+   * @preconditions A context with a suspension block and no session-owning plugin, read before any session work
+   * @expectedResult The resolved store reports the unresolved backend rather than guessing sqlite
+   */
+  test("the inline fallback reports no backend before it resolves", async () => {
+    t = await testContext()
+      .with({ suspension: { store: new MemorySuspensionStore() } })
+      .build();
+    AgentSessionRuntime.for(t.ctx);
+    expect(t.ctx.getStore(ADAPTER_AGENT_SESSION_STORE)?.backend).toBe(
+      "unresolved",
+    );
+  });
+
+  /**
    * @case An inline session with no session-owning plugin resolves its store the way the plugins do, environment included
    * @preconditions A context with a suspension block and neither agentPlugin() nor a sessions key; ROUTECRAFT_SESSION_STORE=memory; the runtime is created for the context and used once
    * @expectedResult The context's resolved store reports the memory backend after that use and is unconfigured
@@ -202,6 +244,24 @@ describe("session store resolution", () => {
     const resolved = t.ctx.getStore(ADAPTER_AGENT_SESSION_STORE);
     expect(resolved?.backend).toBe("memory");
     expect(resolved?.configured).toBe(false);
+  });
+
+  /**
+   * @case The inline fallback refuses work once the context has stopped, rather than reopening a store it released
+   * @preconditions A context with a suspension block and no session-owning plugin; the runtime is created, the context is stopped, and a session read is attempted afterwards
+   * @expectedResult The read rejects with AI1012 naming a call after teardown
+   */
+  test("the inline fallback stays closed after the context stops", async () => {
+    process.env[SESSION_STORE_ENV] = "memory";
+    const ctx = await testContext()
+      .with({ suspension: { store: new MemorySuspensionStore() } })
+      .build();
+    const runtime = AgentSessionRuntime.for(ctx.ctx);
+    await ctx.stop();
+    await expect(runtime.store.list()).rejects.toMatchObject({
+      rc: "AI1012",
+      message: expect.stringContaining("after teardown"),
+    });
   });
 
   /**

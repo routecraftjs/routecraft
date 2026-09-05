@@ -49,4 +49,50 @@ describe("parkAside", () => {
     expect(await store.get(first.suspensionId)).toBeDefined();
     expect(await store.get(second.suspensionId)).toBeDefined();
   });
+
+  /**
+   * @case The caller learns the id before the record exists, and a failing announcement leaves no record
+   * @preconditions A context with a memory suspension store; one park with an announce hook that records whether the store held the id when it ran; a second park whose announce hook throws
+   * @expectedResult The first hook saw no record for the id and the park then exists under that id; the second park rejects with the hook's error and the store holds no record for it
+   */
+  test("announces the id before the record is written", async () => {
+    const store = new MemorySuspensionStore();
+    t = await testContext()
+      .with({ suspension: { store } })
+      .routes([craft().id("r").from(direct()).to(noop())])
+      .build();
+    await t.startAndWaitReady();
+    const exchange = new DefaultExchange(t.ctx, { body: { n: 1 } });
+    const site = { position: 0, continuation: [] };
+    let existedWhenAnnounced: boolean | undefined;
+    let announced: string | undefined;
+    const first = await parkAside(
+      t.ctx,
+      exchange,
+      site,
+      "r",
+      (id) => ({ id }),
+      async (id) => {
+        announced = id;
+        existedWhenAnnounced = (await store.get(id)) !== undefined;
+      },
+    );
+    expect(announced).toBe(first.suspensionId);
+    expect(existedWhenAnnounced).toBe(false);
+    expect(await store.get(first.suspensionId)).toBeDefined();
+    const before = MemorySuspensionStore.unsafeRecords(store).size;
+    await expect(
+      parkAside(
+        t.ctx,
+        exchange,
+        site,
+        "r",
+        (id) => ({ id }),
+        async () => {
+          throw new Error("record write refused");
+        },
+      ),
+    ).rejects.toThrow(/record write refused/);
+    expect(MemorySuspensionStore.unsafeRecords(store).size).toBe(before);
+  });
 });
