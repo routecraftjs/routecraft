@@ -17,6 +17,7 @@ import {
 } from "../src/mcp/types.ts";
 import { agent, llmPlugin, mcp } from "../src/index.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
+import { callTool } from "./helpers/mcp-tool-call.ts";
 
 // The agent-bearing advertisement test constructs (never dispatches) an
 // agent route, but the barrel is mocked anyway so this file cannot leak a
@@ -32,29 +33,6 @@ const MCP_STORE_KEY =
 
 const Approval = z.object({ approved: z.boolean() });
 const Payout = z.object({ paid: z.boolean() });
-
-type ToolResult = {
-  content: Array<{ type: string; text: string }>;
-  structuredContent?: Record<string, unknown>;
-  isError?: boolean;
-};
-
-/** Call a tool the way the SDK does, bypassing the JSON-RPC transport. */
-async function callTool(
-  srv: McpServer,
-  tool: string,
-  args: Record<string, unknown>,
-): Promise<ToolResult> {
-  return (await (
-    srv as unknown as {
-      handleToolCall(
-        tool: string,
-        args: Record<string, unknown>,
-        principal: undefined,
-      ): Promise<ToolResult>;
-    }
-  ).handleToolCall(tool, args, undefined)) as ToolResult;
-}
 
 describe("MCP carries Suspended (#581)", () => {
   let t: TestContext | undefined;
