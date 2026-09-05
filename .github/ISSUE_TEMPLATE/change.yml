@@ -1,0 +1,55 @@
+name: Change
+description: A new adapter, operator, option or behaviour, or a change to an existing one.
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        The TLDR, today, after and the route as it reads are the whole proposal for a reader with one minute. Keep them short; the reasoning goes at the bottom.
+  - type: input
+    id: tldr
+    attributes:
+      label: TLDR
+      description: One sentence. What a route author gets, and why it belongs in the framework rather than in a route.
+    validations:
+      required: true
+  - type: textarea
+    id: before
+    attributes:
+      label: Today
+      description: What a route author has to do now, one or two lines. "Not possible." is a valid answer.
+    validations:
+      required: true
+  - type: textarea
+    id: after
+    attributes:
+      label: After this change
+      description: What they do instead, one or two lines. Say if existing routes change behaviour or stop compiling.
+    validations:
+      required: true
+  - type: textarea
+    id: dsl
+    attributes:
+      label: How the route reads
+      description: The new or changed surface as it appears in a route. An option, an operator, an adapter, a renamed property, an env var or a CLI flag.
+      render: ts
+      placeholder: |
+        craft()
+          .id("example")
+          .from(http({ path: "/hook", respond: ({ request }) => ({ status: 202 }) }))
+          .to(queue())
+    validations:
+      required: true
+  - type: textarea
+    id: details
+    attributes:
+      label: Details
+      description: Why, the alternatives considered, the constraint from the standards that decides it, and acceptance criteria as a checklist.
+      value: |
+        ## Why
+
+        ## Alternatives
+
+        ## Acceptance
+
+        - [ ]
