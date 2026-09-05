@@ -55,6 +55,8 @@ Each boundary handles the error (does not re-throw it to another boundary). Do n
 | **context.start** | Route start and context start failures | fatal | `{ route?, err }` |
 | **Timer adapter** | Handler error | error | `{ adapter: "timer", err }` |
 | **route.trackTask** | Background task (e.g., tap) rejection | error | `{ err, route }` |
+| **http dispatch (respond)** | A route's `respond` responder threw, or returned a descriptor the dispatcher refused (bad status, streaming body). The caller gets 500; the pipeline it already started keeps running | error | `{ err, routeId, method, path }` |
+| **http dispatch (unread body)** | Cancelling the unread body of a run whose responder answered on its own failed (a locked stream rejects). Warn rather than error: the response is already sent and the only cost is a resource held until GC | warn | `{ err, routeId, method, path }` |
 | **AI server tool handler** | Tool call errors | error | `{ tool, err }` |
 | **Agent tool policy predicate** | An `agentPlugin({ toolPolicy })` predicate threw | error | `{ agent, tool, kind, err }` |
 | **Route enablement predicate** | A `.enabled()` predicate threw. The route is left disabled with the error message as its reason and the boot is never failed, so this log is the only place the stack survives | error | `{ route, err }` |

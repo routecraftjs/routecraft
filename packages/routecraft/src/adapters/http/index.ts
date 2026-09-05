@@ -48,13 +48,23 @@ export function http(options: HttpServerOptions): Source<HttpRequestBody>;
  * keyword enforces the category: `.from(http({ url }))` fails to compile
  * because the client has no `subscribe`.
  *
- * @param options - method, url (string or (exchange) => string), optional headers, query, body, timeout, throwOnHttpError, maxBodySize, redirect
+ * `responseBody: "bytes"` does NOT change this signature's result type. Name
+ * the body yourself: `http<In, Uint8Array>({ url, responseBody: "bytes" })`.
+ * An option value that selects the adapter's type is what Option Law 2
+ * forbids, and the two ways of getting it here both fail: a bytes overload
+ * with one type parameter is skipped by the two-argument form the examples
+ * and templates use, which is then told its body is `Out` while the runtime
+ * hands back bytes, and overloads narrow enough to refuse that also refuse
+ * any options object whose mode is not a literal.
+ *
+ * @param options - method, url (string or (exchange) => string), optional headers, query, body, timeout, throwOnHttpError, maxBodySize, redirect, responseBody
  * @returns An Enricher whose fetch returns { status, headers, body, url }
  *
  * @example
  * ```typescript
  * .to(http({ url: 'https://api.example.com/ingest', method: 'POST', body: (ex) => ex.body }))
  * .enrich(http({ url: (ex) => `https://api.example.com/users/${ex.body.userId}` }), only((r) => r.body, 'user'))
+ * .enrich(http({ url: (ex) => ex.body.mediaUrl, responseBody: 'bytes' }), only((r) => r.body, 'media'))
  * ```
  */
 export function http<T = unknown, R = unknown>(
@@ -79,6 +89,12 @@ export { HttpSourceAdapter } from "./source";
 export type {
   HttpMethod,
   HttpRedirectMode,
+  HttpRequestPayload,
+  HttpResponder,
+  HttpRespondContext,
+  HttpRespondRequest,
+  HttpResponseBodyMode,
+  HttpResponseDescriptor,
   QueryParams,
   HttpClientOptions,
   HttpResult,

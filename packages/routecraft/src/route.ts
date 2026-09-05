@@ -853,6 +853,11 @@ export class DefaultRoute implements Route {
         ? { discovery: this.definition.discovery }
         : {}),
       ...(this.definition.requiresPrincipal ? { requiresPrincipal: true } : {}),
+      // Read from the consumer's own declaration, and resolved here because
+      // this is where the consumer is known rather than in each source.
+      ...(this.definition.consumer.type.buffers === true
+        ? { bufferedConsumer: true }
+        : {}),
     };
 
     // Subscribe every source, each into its own channel. A test-time override

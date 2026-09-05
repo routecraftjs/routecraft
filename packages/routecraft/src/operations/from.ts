@@ -23,6 +23,16 @@ export interface SourceMeta {
    * the authorize step rejects at route entry as before.
    */
   requiresPrincipal?: boolean;
+  /**
+   * The route's consumer may hold a message before the pipeline runs, as
+   * `.batch()` does, so `emit()` returning does not mean work has started or
+   * that the route counts it as in flight.
+   *
+   * A source that acknowledges a delivery on its own authority needs to know
+   * this: it would otherwise report success for a message the route can still
+   * discard at shutdown. Sources that simply await `emit()` can ignore it.
+   */
+  bufferedConsumer?: boolean;
 }
 
 /**
