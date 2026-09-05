@@ -35,38 +35,49 @@ function run(blocks: ExampleBlock[]): BlockOutcome[] {
 }
 
 describe('compileBlocks', () => {
+  const okBlock = block(
+    "craft()\n  .id('ok')\n  .from(json({ path: './in.json' }))\n  .to(log())",
+  )
+  const badOptionBlock = block(
+    "craft()\n  .id('bad')\n  .from(json({ file: './in.json' }))\n  .to(log())",
+  )
+  const proseBlock = block('this is not typescript at all !!!', {
+    kind: 'skip',
+    reason: 'fragment: prose',
+  })
+  const expectedErrorBlock = block(
+    "craft().from(json({ file: './in.json' }))",
+    { kind: 'expect-error', reason: 'json() takes path, not file' },
+  )
+  const falseExpectErrorBlock = block('const a: number = 1\nconsole.log(a)', {
+    kind: 'expect-error',
+    reason: 'this actually compiles',
+  })
+  const domGlobalBlock = block(
+    "craft()\n  .id('events')\n  .from(event('route:error'))\n  .to(log())",
+  )
+  const outgrownSkipBlock = block(
+    "craft()\n  .id('outgrown')\n  .from(json({ path: './in.json' }))\n  .to(log())",
+    { kind: 'skip', reason: 'fragment: this block has outgrown its excuse' },
+  )
+
   let outcomes: BlockOutcome[]
+
+  function outcomeFor(target: ExampleBlock): BlockOutcome {
+    const outcome = outcomes.find((o) => o.block === target)
+    if (!outcome) throw new Error('block missing from compileBlocks output')
+    return outcome
+  }
 
   beforeAll(() => {
     outcomes = run([
-      block(
-        "craft()\n  .id('ok')\n  .from(json({ path: './in.json' }))\n  .to(log())",
-      ),
-      block(
-        "craft()\n  .id('bad')\n  .from(json({ file: './in.json' }))\n  .to(log())",
-      ),
-      block('this is not typescript at all !!!', {
-        kind: 'skip',
-        reason: 'fragment: prose',
-      }),
-      block("craft().from(json({ file: './in.json' }))", {
-        kind: 'expect-error',
-        reason: 'json() takes path, not file',
-      }),
-      block('const a: number = 1\nconsole.log(a)', {
-        kind: 'expect-error',
-        reason: 'this actually compiles',
-      }),
-      block(
-        "craft()\n  .id('events')\n  .from(event('route:error'))\n  .to(log())",
-      ),
-      block(
-        "craft()\n  .id('outgrown')\n  .from(json({ path: './in.json' }))\n  .to(log())",
-        {
-          kind: 'skip',
-          reason: 'fragment: this block has outgrown its excuse',
-        },
-      ),
+      okBlock,
+      badOptionBlock,
+      proseBlock,
+      expectedErrorBlock,
+      falseExpectErrorBlock,
+      domGlobalBlock,
+      outgrownSkipBlock,
     ])
     // Binding a whole compile pass (packages/* plus lib files) against Bun's
     // default 5000ms hook budget is too thin a margin to leave to whichever
@@ -79,8 +90,8 @@ describe('compileBlocks', () => {
    * @expectedResult Outcome is ok, because the imports are synthesised from the packages' exports
    */
   test('missing imports are synthesised', () => {
-    expect(outcomes[0].status).toBe('ok')
-    expect(outcomes[0].diagnostics).toEqual([])
+    expect(outcomeFor(okBlock).status).toBe('ok')
+    expect(outcomeFor(okBlock).diagnostics).toEqual([])
   })
 
   /**
@@ -89,10 +100,12 @@ describe('compileBlocks', () => {
    * @expectedResult Outcome is failed and a diagnostic names the unknown property
    */
   test('an unknown adapter option fails', () => {
-    expect(outcomes[1].status).toBe('failed')
-    expect(outcomes[1].diagnostics.map((d) => d.message).join(' ')).toContain(
-      "'file' does not exist",
-    )
+    expect(outcomeFor(badOptionBlock).status).toBe('failed')
+    expect(
+      outcomeFor(badOptionBlock)
+        .diagnostics.map((d) => d.message)
+        .join(' '),
+    ).toContain("'file' does not exist")
   })
 
   /**
@@ -101,7 +114,7 @@ describe('compileBlocks', () => {
    * @expectedResult Diagnostic carries the .mdx path and a line at or after the block's first line
    */
   test('diagnostics point at the source file and line', () => {
-    const [diagnostic] = outcomes[1].diagnostics
+    const [diagnostic] = outcomeFor(badOptionBlock).diagnostics
 
     expect(diagnostic.file).toEndWith('app/content/docs/fixture/index.mdx')
     expect(diagnostic.line).toBeGreaterThanOrEqual(11)
@@ -109,15 +122,15 @@ describe('compileBlocks', () => {
   })
 
   /**
-   * @case A skipped block is never compiled
+   * @case A skip marker suppresses diagnostics rather than skipping compilation
    * @preconditions Block is not TypeScript at all and carries a skip marker
-   * @expectedResult Outcome is skipped with no diagnostics, so the marker genuinely excludes it
+   * @expectedResult Outcome is skipped with no diagnostics, because a skip status forces
+   *   diagnostics empty even though the block is still compiled, to catch a marker that has
+   *   become unnecessary
    */
-  test('a skip marker excludes the block from compilation', () => {
-    const skipped = outcomes.find((o) => o.status === 'skipped')
-
-    expect(skipped).toBeDefined()
-    expect(skipped?.diagnostics).toEqual([])
+  test('a skip marker reports no diagnostics regardless of the block', () => {
+    expect(outcomeFor(proseBlock).status).toBe('skipped')
+    expect(outcomeFor(proseBlock).diagnostics).toEqual([])
   })
 
   /**
@@ -126,7 +139,7 @@ describe('compileBlocks', () => {
    * @expectedResult Outcome is ok, because the block failed as the marker promised
    */
   test('expect-error passes when the block fails', () => {
-    expect(outcomes[3].status).toBe('ok')
+    expect(outcomeFor(expectedErrorBlock).status).toBe('ok')
   })
 
   /**
@@ -135,7 +148,9 @@ describe('compileBlocks', () => {
    * @expectedResult Outcome is unexpectedly-compiled, so a page cannot go on teaching an error that is not one
    */
   test('expect-error fails when the block compiles', () => {
-    expect(outcomes[4].status).toBe('unexpectedly-compiled')
+    expect(outcomeFor(falseExpectErrorBlock).status).toBe(
+      'unexpectedly-compiled',
+    )
   })
 
   /**
@@ -144,7 +159,7 @@ describe('compileBlocks', () => {
    * @expectedResult Outcome is skip-unnecessary, so a marker carried forward through a rewrite cannot silently stop a block being checked
    */
   test('a skip marker that is no longer earned is reported', () => {
-    expect(outcomes[6].status).toBe('skip-unnecessary')
+    expect(outcomeFor(outgrownSkipBlock).status).toBe('skip-unnecessary')
   })
 
   /**
@@ -153,7 +168,7 @@ describe('compileBlocks', () => {
    * @expectedResult Outcome is ok, proving event() resolved to the adapter rather than to Window.event
    */
   test('a DOM global does not mask a package export', () => {
-    expect(outcomes[5].status).toBe('ok')
+    expect(outcomeFor(domGlobalBlock).status).toBe('ok')
   })
 })
 

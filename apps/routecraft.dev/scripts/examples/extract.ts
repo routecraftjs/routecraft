@@ -175,6 +175,17 @@ function unescapeTemplate(raw: string): string {
 }
 
 /**
+ * Reads one attribute's value out of a `<CheatCode>` attribute list,
+ * accepting either quote style.
+ */
+function attrValue(attrs: string, name: string): string | undefined {
+  const match = new RegExp(`\\b${name}\\s*=\\s*(?:"([^"]*)"|'([^']*)')`).exec(
+    attrs,
+  )
+  return match ? (match[1] ?? match[2]) : undefined
+}
+
+/**
  * Extracts `<CheatCode>` blocks from the cheat sheet component.
  *
  * `language` defaults to `ts`, matching the component's own default, so an
@@ -184,9 +195,11 @@ export function extractCheatCode(file: string, source: string): ExampleBlock[] {
   const blocks: ExampleBlock[] = []
   // Matching a real attribute list rather than "anything but >" keeps a
   // reason containing `>` (an arrow function, a generic) from failing the
-  // match and dropping the block without a word.
+  // match and dropping the block without a word. Both quote styles and
+  // whitespace around `=` are accepted so a valid CheatCode tag never aborts
+  // the whole run just because it wasn't formatted the way the rest are.
   const tag =
-    /<CheatCode((?:\s+[\w-]+="[^"]*")*)\s*>\{`([\s\S]*?)`\}<\/CheatCode>/g
+    /<CheatCode((?:\s+[\w-]+\s*=\s*(?:"[^"]*"|'[^']*'))*)\s*>\{`([\s\S]*?)`\}<\/CheatCode>/g
 
   let match: RegExpExecArray | null
   while ((match = tag.exec(source))) {
@@ -196,7 +209,7 @@ export function extractCheatCode(file: string, source: string): ExampleBlock[] {
     // the line after it. Anchor on the template's own opening backtick.
     const literalStart = match.index + match[0].indexOf('>{`') + 3
     const literalLine = source.slice(0, literalStart).split('\n').length
-    const language = /language="([^"]*)"/.exec(attrs)?.[1] ?? 'ts'
+    const language = attrValue(attrs, 'language') ?? 'ts'
 
     // Only the languages this gate compiles own the marker attributes, the
     // same rule extractFences applies to fence meta. Without it, a malformed
@@ -215,7 +228,9 @@ export function extractCheatCode(file: string, source: string): ExampleBlock[] {
         'skip',
         'expect-error',
       ])
-      for (const found of attrs.matchAll(/([\w-]+)="[^"]*"/g)) {
+      for (const found of attrs.matchAll(
+        /([\w-]+)\s*=\s*(?:"[^"]*"|'[^']*')/g,
+      )) {
         if (!KNOWN_ATTRIBUTES.has(found[1])) {
           throw new MarkerError(
             file,
@@ -225,10 +240,11 @@ export function extractCheatCode(file: string, source: string): ExampleBlock[] {
         }
       }
 
-      const skip = /\bskip="([^"]*)"/.exec(attrs)
-      if (skip) marker.push(`skip="${skip[1]}"`)
-      const expectError = /\bexpect-error="([^"]*)"/.exec(attrs)
-      if (expectError) marker.push(`expect-error="${expectError[1]}"`)
+      const skip = attrValue(attrs, 'skip')
+      if (skip !== undefined) marker.push(`skip="${skip}"`)
+      const expectError = attrValue(attrs, 'expect-error')
+      if (expectError !== undefined)
+        marker.push(`expect-error="${expectError}"`)
       if (marker.length > 1) {
         throw new MarkerError(
           file,
