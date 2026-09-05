@@ -136,9 +136,14 @@ point it back at `latest`.
 ```sh
 bun run typecheck
 bun run lint
-bun run test         # Playwright, against a server you have already started
-bun run check:links  # internal links, against .output/public
+bun run check:examples  # the docs' TypeScript examples, against the workspace packages
+bun run test            # Playwright, against a server you have already started
+bun run check:links     # internal links, against .output/public
 ```
+
+`check:examples` needs neither the build nor a running server, so run it first:
+it is the cheapest way to find out that an example you just wrote does not
+compile.
 
 `test` and `check:links` read the built site, so run `bun run build` and
 `bun run start` first. The acceptance suite compares against `baseline/`, which

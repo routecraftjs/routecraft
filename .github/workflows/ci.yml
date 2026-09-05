@@ -269,6 +269,15 @@ jobs:
           bun run typecheck
           bun run lint
 
+      # The fenced TypeScript in the docs is prose to every other check here,
+      # so an example naming an option that does not exist ships unnoticed.
+      # This compiles them against the workspace packages. It runs before the
+      # site build because it needs neither the build nor the browser, so a
+      # broken example fails in about fifteen seconds rather than after them.
+      - name: Check the documentation's code examples
+        working-directory: apps/routecraft.dev
+        run: bun run check:examples
+
       - name: Restore the Playwright browser
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:

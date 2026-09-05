@@ -308,6 +308,46 @@ to build each channel from its own git ref and merge the exports. That is reject
 because it would render the released channel with the released shell, which is exactly what
 `MIN_FREEZE_VERSION` exists to avoid, and it doubles CI on every main push.
 
+## Code examples compile, or say why they cannot
+
+Every fenced `ts` block under `app/content/`, and every `<CheatCode>` block in
+the cheat sheet, is compiled against the workspace packages by
+`apps/routecraft.dev/scripts/check-examples.ts`, wired into the `docs-site` CI
+job. The pages here are the ones a reader copies from, and before this existed a
+fenced block was prose to every check the repository ran: an example naming an
+option that does not exist survived review and shipped.
+
+A block that is not meant to compile declares that on its fence, with a reason:
+
+````
+```ts skip="fragment: dest is illustrative"
+```ts expect-error="json() takes path, not file"
+````
+
+`skip` means the block is not a complete program: a chain shown without its
+route, a type signature written for reference, an excerpt of one option. It is
+the common case and most of the corpus carries it.
+
+`expect-error` means the block is meant to be wrong and the page depends on it
+being wrong. A migration guide's "before" block is the case it exists for.
+Without it, quietly modernising such a block to make it compile destroys the
+point of the guide, and nothing would notice.
+
+Three rules hold both markers honest:
+
+- A reason is required, and an unrecognised or misspelled marker is an error,
+  not a block that silently stops being checked.
+- Both are audited. If a block carrying either marker turns out to compile, the
+  build fails. A marker cannot be carried through a rewrite and quietly leave
+  the block unchecked, and a page cannot go on teaching an error that the
+  framework has since made valid.
+- Markers own the meta slot only on the languages the gate compiles. Ordinary
+  markdown meta on a `bash` or `json` fence is left alone.
+
+The marker never reaches a reader. MDX drops fence meta before rendering, and
+`clean-mdx.ts` strips it from the raw mirrors under `public/raw/**` so it does
+not reach the LLM bundles or the copy-page output either.
+
 ## Constrained MDX: content may only use registered components
 
 Docs, blog and changelog pages are MDX, and the only components they may use are the ones
