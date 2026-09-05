@@ -165,7 +165,7 @@ No credential-bearing variable reaches a command that did not ask for it. A name
 | `network` | `false` | all | Allow network egress |
 | `mapRootUser` | `false` | all | Root inside the user namespace or the container, instead of yourself |
 | `cwd` | the host process's, or the image's | all | Working directory, static or resolved from the exchange |
-| `env` | `{}` | all | Environment variables by value, static or resolved from the exchange. A grant surface: never derive a variable **name** from data, only a value. On `docker` the values are visible in `docker inspect` |
+| `env` | `{}` | all | Environment variables by value, static or resolved from the exchange. A grant surface: never derive a variable **name** from data, only a value; a name outside `[A-Za-z_][A-Za-z0-9_]*` is refused with `RC5003`. On `docker` the values are visible in `docker inspect` |
 | `passEnv` | `[]` | all | Parent variables to forward by name |
 | `stdin` | closed | all | Bytes written to standard input before the command reads, then closed, static or resolved from the exchange. The place for a token that must appear nowhere else: on stdin it reaches the command and nothing besides it, where in `env` it is in `docker inspect` and in `args` it is in the process list |
 | `timeout` | none | all | Duration before the command and its children are killed, static or resolved from the exchange, so two exchanges through one step can carry different deadlines |

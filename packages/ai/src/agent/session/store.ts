@@ -45,6 +45,9 @@ export function sessionRecordId(key: AgentSessionKey): string {
 }
 
 export class AgentSessionStore {
+  /** Record ids this process has confirmed in the index. */
+  private readonly indexed = new Set<string>();
+
   constructor(private readonly store: SuspensionStore) {}
 
   /** The stored record, or `undefined` for a session the store has never seen. */
@@ -60,6 +63,11 @@ export class AgentSessionStore {
    * hold a live continuation for a turn that already happened.
    */
   async releasePark(suspensionId: string, reason: string): Promise<void> {
+    // Claim first: `markDenied` only leaves `expiring`, and a record nothing
+    // revives is still `suspended`. Losing the claim means another party
+    // settled it already, and that outcome stands.
+    const claim = await this.store.claimExpiry(suspensionId, new Date());
+    if (!claim.won) return;
     await this.store.markDenied(suspensionId, reason);
   }
 
@@ -86,10 +94,23 @@ export class AgentSessionStore {
       key,
       parse: (slot) => parseSessionRecord(slot, key),
       empty: () => emptyRecord(key),
-      mutate: (current) => stamped(mutate(current)),
+      mutate: (current) => {
+        const next = mutate(current);
+        // Unchanged input passes through untouched, which is what lets the
+        // compare-and-swap skip the write for a no-op.
+        return next === current ? current : stamped(next);
+      },
       exhausted: `Agent session "${key.session}" of "${key.agent}" could not be written after ${CAS_ATTEMPTS} attempts: another writer kept winning the compare-and-swap.`,
     });
-    if (created) await this.index(key);
+    // Indexed on creation and once more per process on the first write to
+    // a record this process has not indexed: a record whose index write
+    // failed after its own succeeded is repaired by its next write rather
+    // than hidden from the listing for good.
+    const id = sessionRecordId(key);
+    if (created || !this.indexed.has(id)) {
+      await this.index(key);
+      this.indexed.add(id);
+    }
     return value;
   }
 

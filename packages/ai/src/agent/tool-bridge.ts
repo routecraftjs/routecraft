@@ -70,6 +70,20 @@ export interface AgentSuspensionWiring {
  *
  * @internal
  */
+/**
+ * A tool call of the step in progress, kept until the step is committed
+ * to the thread. A call that has settled keeps its outcome, because a
+ * cancellation between a sibling's completion and the step's commit would
+ * otherwise drop the finished call along with its result.
+ *
+ * @internal
+ */
+export interface TrackedToolCall {
+  toolName: string;
+  input: unknown;
+  settled?: { ok: true; output: unknown } | { ok: false; message: string };
+}
+
 export async function buildVercelTools(
   resolved: ResolvedTool[],
   ctx: CraftContext | undefined,
@@ -77,7 +91,7 @@ export async function buildVercelTools(
   dispatchIdentity?: AgentDispatchIdentity,
   principal?: Principal,
   suspensions?: AgentSuspensionBridge,
-  inFlight?: Map<string, { toolName: string; input: unknown }>,
+  inFlight?: Map<string, TrackedToolCall>,
   session?: AgentRunSession,
 ): Promise<Record<string, unknown>> {
   if (resolved.length === 0)
@@ -232,6 +246,11 @@ export async function buildVercelTools(
               });
             }
           }
+          inFlight?.set(toolCallId, {
+            toolName: r.name,
+            input,
+            settled: { ok: true, output },
+          });
           return output;
         } catch (err) {
           // The throw form of the suspend signal, honoured as an escape
@@ -259,6 +278,11 @@ export async function buildVercelTools(
                 duration: Date.now() - start,
               });
             }
+            inFlight?.set(toolCallId, {
+              toolName: r.name,
+              input,
+              settled: { ok: true, output: SUSPENDED_TOOL_PLACEHOLDER },
+            });
             return SUSPENDED_TOOL_PLACEHOLDER;
           }
           if (ctx && dispatchIdentity) {
@@ -292,9 +316,12 @@ export async function buildVercelTools(
               });
             }
           }
+          inFlight?.set(toolCallId, {
+            toolName: r.name,
+            input,
+            settled: { ok: false, message: errorMessage(err) },
+          });
           throw err;
-        } finally {
-          inFlight?.delete(toolCallId);
         }
       },
     });
@@ -311,6 +338,10 @@ export async function buildVercelTools(
  *
  * @internal
  */
+function errorMessage(err: unknown): string {
+  return err instanceof Error ? err.message : String(err);
+}
+
 function errorName(err: unknown): string {
   if (err instanceof Error) return err.name || "Error";
   return typeof err;

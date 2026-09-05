@@ -479,7 +479,7 @@ agentPlugin({
       description: 'Max, the development agent',
       system: readFileSync('agents/max.md', 'utf-8'),
       maxTurns: 200,
-      tools: tools(['sandboxRun', 'github-create-pr']),
+      tools: tools(['sandboxRun', 'Direct(github-create-pr)']),
     },
   },
 })

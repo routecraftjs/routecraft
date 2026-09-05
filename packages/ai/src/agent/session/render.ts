@@ -41,7 +41,7 @@ export function sessionSystemBlock(key: AgentSessionKey): string {
 export function renderUserMessage(
   inbox: readonly AgentInboxMessage[],
   incoming: string | LlmPromptPart[] | undefined,
-  by: string,
+  by: string | null,
 ): ThreadMessage {
   if (inbox.length === 0 && typeof incoming === "string") {
     return { role: "user", content: incoming };
@@ -60,7 +60,7 @@ export function renderUserMessage(
  */
 function attributed(
   content: string | LlmPromptPart[],
-  by: string,
+  by: string | null,
 ): LlmPromptPart[] {
   const heading = `[Message from ${describeSubject(by)}]`;
   if (typeof content === "string") {
@@ -69,8 +69,8 @@ function attributed(
   return [{ type: "text", text: heading }, ...content];
 }
 
-function describeSubject(by: string | undefined): string {
-  return by === undefined || by === "anonymous"
+function describeSubject(by: string | null | undefined): string {
+  return by === undefined || by === null
     ? "an anonymous caller"
     : `"${oneLine(by)}"`;
 }

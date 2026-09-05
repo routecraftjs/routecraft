@@ -30,7 +30,6 @@
     "cheerio": "^1.2.0",
     "commander": "^14.0.3",
     "croner": "^10.0.1",
-    "dockerode": "^5.0.1",
     "dotenv": "^17.4.2",
     "fast-xml-parser": "^5.10.1",
     "imapflow": "^1.4.7",

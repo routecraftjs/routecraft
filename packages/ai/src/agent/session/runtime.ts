@@ -19,7 +19,6 @@ import type { ThreadMessage } from "../suspension-state.ts";
 import type { AgentResult } from "../types.ts";
 import { closeUnansweredToolCalls, renderUserMessage } from "./render.ts";
 import { AgentSessionStore } from "./store.ts";
-import { ANONYMOUS } from "./types.ts";
 import type {
   AgentBackgroundCall,
   AgentInboxMessage,
@@ -61,8 +60,8 @@ export interface AgentTurnRequest<T = unknown> {
    * the inbox alone: the completion, or the messages that queued.
    */
   readonly message?: string | LlmPromptPart[];
-  /** The subject of the exchange's principal, or `"anonymous"`. */
-  readonly by: string;
+  /** The subject of the exchange's principal, or `null` when it carries none. */
+  readonly by: string | null;
   readonly interrupt: boolean;
   readonly executor: AgentTurnExecutor;
   /**
@@ -116,6 +115,10 @@ export class AgentSessionRuntime {
   private readonly reviving = new Set<string>();
   /** Callers waiting for the next turn to start on a session. */
   private readonly starters = new Map<string, Set<() => void>>();
+  /** Sessions that took a post while their turn was ending. */
+  private readonly postedDuring = new Set<string>();
+  /** Set at teardown, so the boot drive starts no further revival. */
+  private stopping = false;
 
   constructor(
     private readonly context: CraftContext,
@@ -144,6 +147,11 @@ export class AgentSessionRuntime {
     );
     context.setStore(ADAPTER_AGENT_SESSIONS, runtime);
     return runtime;
+  }
+
+  /** Stop the boot drive from starting further revivals; called at teardown. */
+  stop(): void {
+    this.stopping = true;
   }
 
   /** Whether this process is running a turn for the session. */
@@ -327,6 +335,10 @@ export class AgentSessionRuntime {
       ] as AgentInboxMessage[],
     }));
     const running = this.isRunning(key);
+    // Landing after the running turn read the inbox for its boundary and
+    // before it cleared `active` would otherwise wait for the next
+    // message; the turn's cleanup reads the record again for it.
+    if (running) this.postedDuring.add(keyOf(key));
     if (!running && record.park !== undefined) this.revive(key, record.park);
     return { depth: record.inbox.length, running };
   }
@@ -340,11 +352,14 @@ export class AgentSessionRuntime {
     key: AgentSessionKey,
     call: AgentBackgroundCall,
   ): Promise<void> {
+    // Read before the write: the turn that is making this call can end
+    // while the write is awaited, and the origin is that turn's whatever
+    // it does next.
+    const turn = this.active.get(keyOf(key));
     await this.store.update(key, (r) => ({
       ...r,
       background: [...r.background, call],
     }));
-    const turn = this.active.get(keyOf(key));
     // Remembered so the settlement can be attributed to the exchange that
     // started the call, which by then may have finished its turn.
     if (turn) this.backgroundOrigins.set(call.handle, turn.exchange);
@@ -374,6 +389,22 @@ export class AgentSessionRuntime {
     // origin behind for a settlement that will never come again.
     const origin = this.backgroundOrigins.get(entry.handle);
     this.backgroundOrigins.delete(entry.handle);
+    // The record is plain JSON, and a route may answer with anything: a
+    // result the store cannot hold is delivered as a failure naming the
+    // reason rather than refused at the write, which would leave the call
+    // in `background` for good.
+    const delivered: Pick<
+      Extract<AgentInboxMessage, { kind: "background" }>,
+      "status" | "result" | "error"
+    > = entry.status === "completed"
+      ? encodeResult(entry.result)
+      : {
+          status: "failed",
+          error: {
+            ...(entry.error.rc !== undefined ? { rc: entry.error.rc } : {}),
+            message: entry.error.message,
+          },
+        };
     const record = await this.store.update(key, (r) => ({
       ...r,
       background: r.background.filter((b) => b.handle !== entry.handle),
@@ -386,17 +417,7 @@ export class AgentSessionRuntime {
           handle: entry.handle,
           tool: entry.tool,
           by: entry.by,
-          status: entry.status,
-          ...(entry.status === "completed"
-            ? { result: entry.result }
-            : {
-                error: {
-                  ...(entry.error.rc !== undefined
-                    ? { rc: entry.error.rc }
-                    : {}),
-                  message: entry.error.message,
-                },
-              }),
+          ...delivered,
         },
       ],
     }));
@@ -421,6 +442,10 @@ export class AgentSessionRuntime {
       }
     }
     const running = this.isRunning(key);
+    // Landing after the running turn read the inbox for its boundary and
+    // before it cleared `active` would otherwise wait for the next
+    // message; the turn's cleanup reads the record again for it.
+    if (running) this.postedDuring.add(keyOf(key));
     if (!running && record.park !== undefined) this.revive(key, record.park);
     return { depth: record.inbox.length, running };
   }
@@ -438,6 +463,9 @@ export class AgentSessionRuntime {
     let revived = 0;
     let lostBackground = 0;
     for (const key of await this.store.list()) {
+      // Teardown while the boot is still walking the index: what is not
+      // yet driven waits for the next boot, as it did for this one.
+      if (this.stopping) break;
       const record = await this.store.load(key);
       if (record?.park === undefined) continue;
       let next = record;
@@ -503,7 +531,7 @@ export class AgentSessionRuntime {
     return {
       agent: record.agent,
       session: record.session,
-      startedBy: record.startedBy ?? ANONYMOUS,
+      startedBy: record.startedBy ?? null,
       turn: this.isRunning(key)
         ? "running"
         : record.turn !== undefined
@@ -683,10 +711,19 @@ export class AgentSessionRuntime {
       // The boundary: what queued while the turn ran is delivered now, as
       // the next turn. Through the stored continuation when there is one,
       // so the turn runs on the route's own pipeline and its reply reaches
-      // the route's downstream steps; in process otherwise.
-      if (after !== undefined && after.inbox.length > 0) {
-        if (after.park !== undefined) this.revive(key, after.park, { k, req });
-        else this.followUpInProcess(k, req);
+      // the route's downstream steps; in process otherwise. A post that
+      // landed after this turn's last read is only in the store, so the
+      // record is read again for it.
+      let boundary = after;
+      if (this.postedDuring.delete(k) && after !== undefined) {
+        boundary = (await this.store.load(key).catch(() => undefined)) ?? after;
+      }
+      if (boundary !== undefined && boundary.inbox.length > 0) {
+        if (boundary.park !== undefined) {
+          this.revive(key, boundary.park, { k, req });
+        } else {
+          this.followUpInProcess(k, req);
+        }
       }
     }
   }
@@ -721,7 +758,17 @@ export class AgentSessionRuntime {
       );
       return record;
     }
-    const updated = await this.store.update(req.key, (r) => ({ ...r, park }));
+    let updated: AgentSessionRecord;
+    try {
+      updated = await this.store.update(req.key, (r) => ({ ...r, park }));
+    } catch (err: unknown) {
+      // Nothing names the continuation now, so nothing will ever revive
+      // it; settled before the store failure reaches the caller.
+      await this.store
+        .releasePark(park.suspensionId, "agent session record write failed")
+        .catch(() => undefined);
+      throw err;
+    }
     this.emit(req.exchange, "route:agent:session:parked", {
       agentName: req.key.agent,
       session: req.key.session,
@@ -778,11 +825,9 @@ export class AgentSessionRuntime {
           },
           "Agent session continuation could not be revived",
         );
-        await this.store
-          .update(key, (r) =>
-            r.park?.suspensionId === park.suspensionId ? withoutPark(r) : r,
-          )
-          .catch(() => undefined);
+        // Settled as well as dropped: a record the session no longer names
+        // would otherwise stay live in the store with nothing to revive it.
+        await this.releasePark(key, park).catch(() => undefined);
         if (fallback && !this.active.has(k)) {
           this.followUpInProcess(fallback.k, fallback.req);
         }
@@ -826,8 +871,8 @@ export class AgentSessionRuntime {
 export type BackgroundOutcome = {
   readonly handle: string;
   readonly tool: string;
-  /** The subject whose turn started the call, or `"anonymous"`. */
-  readonly by: string;
+  /** The subject whose turn started the call, or `null`. */
+  readonly by: string | null;
   readonly duration: number;
 } & (
   | { readonly status: "completed"; readonly result: unknown }
@@ -890,6 +935,33 @@ function withoutPark(record: AgentSessionRecord): AgentSessionRecord {
  * revival to reach this runtime before starting the turn itself.
  */
 const REVIVAL_WAIT_MS = 30_000;
+
+/**
+ * A route's result as the record can hold it: the value after a JSON round
+ * trip, or a failure saying why there is none (a BigInt, a cycle, a value
+ * that serialises to nothing).
+ */
+function encodeResult(
+  result: unknown,
+): Pick<
+  Extract<AgentInboxMessage, { kind: "background" }>,
+  "status" | "result" | "error"
+> {
+  try {
+    const text = JSON.stringify(result);
+    return {
+      status: "completed",
+      result: text === undefined ? null : (JSON.parse(text) as unknown),
+    };
+  } catch (err: unknown) {
+    return {
+      status: "failed",
+      error: {
+        message: `The route finished, but its result could not be stored for the session: ${err instanceof Error ? err.message : String(err)}. Return plain JSON from a background route.`,
+      },
+    };
+  }
+}
 
 /**
  * What a record cut short by a restart becomes at the next turn start.

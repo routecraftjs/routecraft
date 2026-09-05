@@ -26,7 +26,11 @@ import type {
 import { toAiOutputSpec } from "../llm/structured-output.ts";
 import type { AgentDeltaListener } from "./events.ts";
 import { closeUnansweredToolCalls } from "./session/render.ts";
-import { buildVercelTools, type AgentSuspensionBridge } from "./tool-bridge.ts";
+import {
+  buildVercelTools,
+  type AgentSuspensionBridge,
+  type TrackedToolCall,
+} from "./tool-bridge.ts";
 import {
   SIBLING_SUSPENDED_MESSAGE,
   pickWinningSignal,
@@ -292,11 +296,12 @@ export class AgentRun<T = unknown> {
    */
   thread: readonly ThreadMessage[] | undefined;
 
-  /** Tool calls the bridge has started and not yet settled. */
-  private readonly inFlight = new Map<
-    string,
-    { toolName: string; input: unknown }
-  >();
+  /**
+   * Tool calls of the step in progress, settled or not, until the step is
+   * committed to the thread. A cancellation reads them to record what the
+   * model was doing, with the results of the calls that did finish.
+   */
+  private readonly inFlight = new Map<string, TrackedToolCall>();
 
   /**
    * Run the synchronous tool-calling loop until the model emits a
@@ -426,6 +431,9 @@ export class AgentRun<T = unknown> {
                   this.thread = historyMessages(userSide, {
                     responseMessages: [...responseMessages],
                   });
+                  // The step's calls are in the thread now; a later
+                  // cancellation must not record them a second time.
+                  this.inFlight.clear();
                   await onStep(this.thread);
                 },
           );
@@ -442,6 +450,7 @@ export class AgentRun<T = unknown> {
           throw err;
         }
         this.thread = historyMessages(currentUser, result);
+        this.inFlight.clear();
         turnsUsed += result.stepsCount ?? 1;
         accumulatedUsage = addUsage(accumulatedUsage, result.usage);
         if (result.toolCalls && result.toolCalls.length > 0) {
@@ -575,10 +584,12 @@ export class AgentRun<T = unknown> {
   /**
    * Freeze the partial thread at a cancellation: the last thread a step
    * reported (or the user side alone when none did), plus a synthesised
-   * assistant message for every tool call still in flight, each paired
-   * with an error result saying it was interrupted. Without the pairing a
+   * assistant message for every tool call of the uncommitted step, the
+   * finished ones paired with their real result and the rest with an
+   * error result saying they were interrupted. Without the pairing a
    * provider refuses the thread on the next turn; without the calls the
-   * model would not know what it was doing when it was stopped.
+   * model would not know what it was doing when it was stopped; without
+   * the finished results it would do that work again.
    *
    * @internal
    */
@@ -590,8 +601,9 @@ export class AgentRun<T = unknown> {
       return;
     }
     const calls = [...this.inFlight.entries()];
-    // The calls are recorded here; pairing each with its interrupted
-    // result is the one closer a restart uses too.
+    const settled = calls.filter(([, call]) => call.settled !== undefined);
+    // The calls are recorded here; pairing each unfinished one with its
+    // interrupted result is the one closer a restart uses too.
     this.thread = closeUnansweredToolCalls([
       ...base,
       {
@@ -603,6 +615,19 @@ export class AgentRun<T = unknown> {
           input: call.input,
         })),
       },
+      ...(settled.length === 0
+        ? []
+        : [
+            {
+              role: "tool",
+              content: settled.map(([toolCallId, call]) => ({
+                type: "tool-result",
+                toolCallId,
+                toolName: call.toolName,
+                output: toolOutputPart(call.settled!),
+              })),
+            },
+          ]),
     ]);
   }
 
@@ -873,6 +898,24 @@ async function buildStopWhen(
  *
  * @internal
  */
+/**
+ * A settled call's outcome in the SDK's tool-result shape. JSON when the
+ * value survives a round trip, text otherwise, because the thread is
+ * persisted and read back by a provider that accepts only those.
+ */
+function toolOutputPart(settled: NonNullable<TrackedToolCall["settled"]>): {
+  type: string;
+  value: unknown;
+} {
+  if (!settled.ok) return { type: "error-text", value: settled.message };
+  try {
+    const value: unknown = JSON.parse(JSON.stringify(settled.output) ?? "null");
+    return { type: "json", value };
+  } catch {
+    return { type: "text", value: String(settled.output) };
+  }
+}
+
 function historyMessages(
   currentUser: string | ThreadMessage[],
   lastResult: Pick<LlmResult, "responseMessages">,

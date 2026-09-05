@@ -122,9 +122,10 @@ export function suspensionAffordance(
   context: CraftContext | undefined,
   headers: ExchangeHeaders,
   exchangeId: string,
+  floor?: number,
 ): SuspensionAffordance {
-  const sequence = readSequence(headers);
-  const id = suspensionIdOf(headers, exchangeId);
+  const sequence = effectiveSequence(headers, floor);
+  const id = suspensionIdOf(headers, exchangeId, floor);
   const mint = (callBinding?: string): string => {
     const runtime = context?.getStore(SUSPENSION_RUNTIME);
     if (!runtime) {
@@ -181,11 +182,27 @@ export function suspensionAffordance(
 export function suspensionIdOf(
   headers: ExchangeHeaders,
   exchangeId: string,
+  floor?: number,
 ): string {
   return suspensionIdFor(
     headers[SuspensionHeaders.OWNER] ?? exchangeId,
-    readSequence(headers),
+    effectiveSequence(headers, floor),
   );
+}
+
+/**
+ * The sequence a park derives its id from: the header's, unless an aside
+ * park in this run already advanced past it (`asideSequenceOf`), which
+ * the live exchange's frozen headers cannot carry.
+ *
+ * @internal
+ */
+export function effectiveSequence(
+  headers: ExchangeHeaders,
+  floor: number | undefined,
+): number {
+  const fromHeader = readSequence(headers);
+  return floor !== undefined && floor > fromHeader ? floor : fromHeader;
 }
 
 /**

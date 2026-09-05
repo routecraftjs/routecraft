@@ -504,6 +504,7 @@ export function agent<T = unknown>(
         message: `Agent: name must be a non-empty string.`,
       });
     }
+    if (perCall !== undefined) validateByNameOverrides(perCall);
     return tagAdapter(
       new AgentEnricherAdapter<T>({
         kind: "by-name",
@@ -523,4 +524,36 @@ export function agent<T = unknown>(
     agent,
     factoryArgs(arg),
   );
+}
+
+/**
+ * The by-name overrides are typed, and the inline form's validator never
+ * sees them, so a caller from JavaScript or through a cast would otherwise
+ * have a malformed `interrupt` read as `false` and a malformed `session`
+ * refused only at dispatch. Refused here, where the call site is.
+ */
+function validateByNameOverrides<T>(perCall: AgentByNameOverrides<T>): void {
+  if (
+    perCall.session !== undefined &&
+    typeof perCall.session !== "function" &&
+    (typeof perCall.session !== "string" || perCall.session.trim() === "")
+  ) {
+    throw rcError("RC5003", undefined, {
+      message: `Agent: "session" must be a non-empty string or a function (exchange) => string when present.`,
+    });
+  }
+  if (
+    perCall.interrupt !== undefined &&
+    typeof perCall.interrupt !== "boolean" &&
+    typeof perCall.interrupt !== "function"
+  ) {
+    throw rcError("RC5003", undefined, {
+      message: `Agent: "interrupt" must be a boolean or a function (exchange) => boolean when present.`,
+    });
+  }
+  if (perCall.onDelta !== undefined && typeof perCall.onDelta !== "function") {
+    throw rcError("RC5003", undefined, {
+      message: `Agent: "onDelta" must be a function when present.`,
+    });
+  }
 }

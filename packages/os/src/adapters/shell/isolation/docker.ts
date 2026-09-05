@@ -3,7 +3,7 @@ import { Writable } from "node:stream";
 import { connect as connectTls } from "node:tls";
 import { rcError } from "@routecraft/routecraft";
 import { loadDockerode } from "../peers.ts";
-import { BoundedOutput } from "../shared.ts";
+import { BoundedOutput, exitCodeForSignal } from "../shared.ts";
 import { cacheSuccess } from "./host.ts";
 import type {
   ContainerIo,
@@ -207,17 +207,13 @@ export function createDockerTier(
           message: `shell(): the "docker" tier needs an image and the call resolved none. Set image to the image the command runs in; there is no default.`,
         });
       }
-      const docker = await client();
-      const spec = containerSpec(target, request, io, image);
-      let container: DockerContainer;
-      try {
-        container = await docker.createContainer(spec);
-      } catch (cause: unknown) {
-        throw createFailure(cause, image);
-      }
+      // Built before anything exists on the daemon: a limit the buffer
+      // refuses must fail the call, not leave a created container behind.
       const stdout = new BoundedOutput(io.maxOutputBytes);
       const stderr = new BoundedOutput(io.maxOutputBytes);
+      const spec = containerSpec(target, request, io, image);
 
+      let container: DockerContainer | undefined;
       let signal: string | undefined;
       let timedOut = false;
       let timer: ReturnType<typeof setTimeout> | undefined;
@@ -226,7 +222,7 @@ export function createDockerTier(
         signal ??= sig;
         // A container that already exited, or has not started, answers
         // 409 or 404; the wait below reports the real outcome either way.
-        await container.kill({ signal: sig }).catch(() => undefined);
+        await container?.kill({ signal: sig }).catch(() => undefined);
       };
       const onAbort = (): void => {
         void kill("SIGKILL");
@@ -236,9 +232,10 @@ export function createDockerTier(
         if (forceTimer !== undefined) clearTimeout(forceTimer);
         io.signal?.removeEventListener("abort", onAbort);
       };
-      // Armed before the attach, the start and the stdin delivery, so a
-      // deadline or a cancellation covers the setup too: a daemon that
-      // accepts the container and then stalls is bounded like a command.
+      // Armed before the daemon is reached at all, so a deadline or a
+      // cancellation covers the whole setup: a daemon that stalls on the
+      // create, or accepts the container and then stalls, is bounded like
+      // a command.
       if (io.timeoutMs !== undefined) {
         timer = setTimeout(() => {
           timedOut = true;
@@ -252,63 +249,89 @@ export function createDockerTier(
       if (io.signal?.aborted) onAbort();
       else io.signal?.addEventListener("abort", onAbort, { once: true });
 
-      let exited: Promise<{ StatusCode: number }> | undefined;
-      let drained: Promise<void> = Promise.resolve();
-      let started = false;
       try {
-        const output = await container.attach({
-          stream: true,
-          stdout: true,
-          stderr: true,
-        });
-        drained = streamEnded(output);
-        docker.modem.demuxStream(
-          output,
-          sink((chunk) => stdout.push(chunk)),
-          sink((chunk) => stderr.push(chunk)),
-        );
-        // Attached and written before the start, as `docker run -i` does,
-        // so the command can never read an input nobody has connected yet.
-        // The daemon holds the bytes until the process reads them, and the
-        // half close is what lets a command that reads to EOF finish.
-        const fed =
-          io.stdin === undefined
-            ? Promise.resolve()
-            : writeStdin(docker.modem, container.id, io.stdin);
-        // Waited on before the start, with `next-exit`, so an `--rm`
-        // container that exits at once is not gone before the wait begins.
-        exited = container.wait({ condition: "next-exit" });
-        // Both are awaited below; observed here so a rejection that lands
-        // while the start is awaited is not an unhandled one.
-        fed.catch(() => undefined);
-        exited.catch(() => undefined);
-        await container.start();
-        started = true;
-        // A kill requested during the setup found nothing running. Now
-        // there is, and it must not outlive the deadline that asked.
-        if (signal !== undefined) await kill("SIGKILL");
-        await fed;
-      } catch (cause: unknown) {
-        if (!started) {
-          disarm();
-          // `--rm` only applies to a container that ran. One that failed
-          // to attach or start stays in the created state, holding its
-          // name, so it is removed here rather than left for an operator.
+        const docker = await client();
+        try {
+          container = await docker.createContainer(spec);
+        } catch (cause: unknown) {
+          throw createFailure(cause, image);
+        }
+        // The deadline or the cancellation landed while the daemon was
+        // still creating the container. Nothing has run, and nothing will:
+        // the outcome is the one a killed command reports.
+        if (signal !== undefined) {
           await container.remove({ force: true }).catch(() => undefined);
-          throw cause;
+          return {
+            stdout: stdout.result(),
+            stderr: stderr.result(),
+            exitCode: exitCodeForSignal(signal),
+            signal,
+            timedOut,
+          };
         }
-        // Started, but its input never arrived: a command must not run on
-        // without the input it was promised.
-        await kill("SIGKILL");
-        if (!timedOut) {
-          disarm();
-          await exited?.catch(() => undefined);
-          throw cause;
-        }
-      }
 
-      try {
-        const { StatusCode } = await exited!;
+        let exited: Promise<{ StatusCode: number }> | undefined;
+        let drained: Promise<void> = Promise.resolve();
+        let started = false;
+        try {
+          const output = await container.attach({
+            stream: true,
+            stdout: true,
+            stderr: true,
+          });
+          drained = streamEnded(output);
+          docker.modem.demuxStream(
+            output,
+            sink((chunk) => stdout.push(chunk)),
+            sink((chunk) => stderr.push(chunk)),
+          );
+          // Attached and written before the start, as `docker run -i` does,
+          // so the command can never read an input nobody has connected yet.
+          // The daemon holds the bytes until the process reads them, and the
+          // half close is what lets a command that reads to EOF finish.
+          const fed =
+            io.stdin === undefined
+              ? Promise.resolve()
+              : writeStdin(docker.modem, container.id, io.stdin);
+          // Waited on before the start, with `next-exit`, so an `--rm`
+          // container that exits at once is not gone before the wait begins.
+          exited = container.wait({ condition: "next-exit" });
+          // Both are awaited below; observed here so a rejection that lands
+          // while the start is awaited is not an unhandled one.
+          fed.catch(() => undefined);
+          exited.catch(() => undefined);
+          await container.start();
+          started = true;
+          // A kill requested during the setup found nothing running. Now
+          // there is, and it must not outlive the deadline that asked.
+          if (signal !== undefined) await kill("SIGKILL");
+          await fed;
+        } catch (cause: unknown) {
+          if (!started) {
+            // `--rm` only applies to a container that ran. One that failed
+            // to attach or start stays in the created state, holding its
+            // name, so it is removed here rather than left for an operator.
+            await container.remove({ force: true }).catch(() => undefined);
+            throw cause;
+          }
+          // Started, but its input never arrived: a command must not run on
+          // without the input it was promised.
+          await kill("SIGKILL");
+          if (!timedOut) {
+            await exited?.catch(() => undefined);
+            throw cause;
+          }
+        }
+
+        let StatusCode: number;
+        try {
+          ({ StatusCode } = await exited!);
+        } catch (cause: unknown) {
+          // The daemon lost track of a container it started; the command
+          // in it must not run on unwatched.
+          await kill("SIGKILL");
+          throw cause;
+        }
         // The exit lands before the last of the output does: the daemon
         // closes the attach stream after the wait answers, and a result
         // read at the exit drops whatever was still in flight. Bounded,
@@ -523,7 +546,12 @@ function containerUser(mapRootUser: boolean): { User?: string } {
   return ids === undefined ? {} : { User: `${ids.uid}:${ids.gid}` };
 }
 
-/** The tmpfs options that make the container home private to its user. */
+/**
+ * The tmpfs options that make the container home private to its user.
+ * The tmpfs is owned by the user the tier sets, and a runtime without
+ * POSIX ids is refused at the probe rather than handed a home it cannot
+ * own.
+ */
 function homeMountOptions(mapRootUser: boolean): string {
   const ids = posixIds(mapRootUser);
   return ids === undefined

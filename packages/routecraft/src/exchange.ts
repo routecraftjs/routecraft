@@ -301,6 +301,17 @@ type ExchangeInternals = {
   context: CraftContext;
   route?: Route;
   /**
+   * The sequence the next park in this run must use, set by an aside park
+   * (`parkAside`). The aside stores the successor sequence on the record
+   * it writes, as a `.suspend()` park does, but the live exchange runs
+   * on with its headers unchanged, so a later park in the same run would
+   * derive the id the aside just took. Shared across rewraps like the
+   * flags above.
+   *
+   * @internal
+   */
+  suspensionSequence?: number;
+  /**
    * Optional parser the runtime applies as a synthetic first pipeline step.
    * Set by `DefaultRoute` from the queue `Message.parse` when a source
    * adapter attaches one (see `CallableSource.handler` parse argument and
@@ -685,6 +696,27 @@ export function markSuspended(exchange: Exchange): void {
 }
 
 /**
+ * Record the sequence the next park in this run must use, after an aside
+ * park took the current one. See `ExchangeInternals.suspensionSequence`.
+ *
+ * @internal
+ */
+export function noteAsideSequence(exchange: Exchange, next: number): void {
+  const internals = internalsOf(exchange);
+  if (internals) internals.suspensionSequence = next;
+}
+
+/**
+ * The sequence an aside park in this run advanced to, or `undefined` when
+ * none did and the header is the whole truth.
+ *
+ * @internal
+ */
+export function asideSequenceOf(exchange: Exchange): number | undefined {
+  return internalsOf(exchange)?.suspensionSequence;
+}
+
+/**
  * Returns true if the exchange (or any rewrap of it sharing the same
  * internals) parked at a `.suspend()` during this run.
  *
@@ -994,6 +1026,7 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
       getExchangeContext(this),
       this.headers,
       this.id,
+      asideSequenceOf(this),
     );
   }
 

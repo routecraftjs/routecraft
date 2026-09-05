@@ -85,6 +85,10 @@ async function start(tiers: Record<string, boolean | string>): Promise<void> {
           };
         })
         .to(noop()),
+      craft()
+        .id("inner")
+        .from(direct({ internal: true }))
+        .to(noop()),
     ])
     .build();
   let port: number | undefined;
@@ -187,6 +191,154 @@ describe("craft chat", () => {
     expect(result.code).toBe(EXEC_EXIT.ok);
     expect(out[1]).toMatch(/the route failed/);
     expect(out[2]).toBe("reply 2: still here?");
+  });
+
+  /**
+   * @case Under json a failed message is still one JSON object on standard output
+   * @preconditions Format json; a message the route throws on, followed by one it answers
+   * @expectedResult The failure line parses as JSON with outcome "failed" and the route's error code, the next reply is a JSON dispatch outcome, exit 0
+   */
+  test("keeps the json stream well formed past a failed message", async () => {
+    await start({ dispatch: true });
+    const out: string[] = [];
+    const result = await chatCommand("max", {
+      url,
+      session: "s",
+      format: "json",
+      input: ["boom", "still here?"],
+      write: (t) => out.push(t),
+      ...isolated(),
+    });
+    expect(result.code).toBe(EXEC_EXIT.ok);
+    expect(out).toHaveLength(2);
+    const failed = JSON.parse(out[0] ?? "") as {
+      outcome: string;
+      message: string;
+      code?: string;
+    };
+    expect(failed.outcome).toBe("failed");
+    expect(failed.message).toMatch(/500/);
+    expect(failed.code).toMatch(/^RC\d{4}$/);
+    expect(JSON.parse(out[1] ?? "")).toMatchObject({
+      outcome: "completed",
+      body: { text: "reply 2: still here?" },
+    });
+  });
+
+  /**
+   * @case Under json and raw a minted session id goes to standard error, not into the reply stream
+   * @preconditions No session given; format json, then raw; one message each
+   * @expectedResult Standard error carries the minted id with the flag to reattach, standard output holds only the reply, and the dispatch carried that id
+   */
+  test("prints a minted session on stderr under json and raw", async () => {
+    await start({ dispatch: true });
+    for (const format of ["json", "raw"] as const) {
+      const out: string[] = [];
+      const err: string[] = [];
+      await chatCommand("max", {
+        url,
+        format,
+        input: ["hi"],
+        write: (t) => out.push(t),
+        writeStderr: (t) => err.push(t),
+        ...isolated(),
+      });
+      const minted = /--session (\S+)/.exec(err.join("\n"))?.[1] ?? "";
+      expect(minted).toMatch(/^[0-9a-f-]{36}$/);
+      expect(received.at(-1)?.session).toBe(minted);
+      expect(out).toHaveLength(1);
+      expect(out[0]).not.toContain("--session");
+    }
+  });
+
+  /**
+   * @case A given session is not announced on stderr
+   * @preconditions Format raw; --session given; one message
+   * @expectedResult Nothing is written to standard error
+   */
+  test("says nothing on stderr when the session was given", async () => {
+    await start({ dispatch: true });
+    const err: string[] = [];
+    await chatCommand("max", {
+      url,
+      session: "s",
+      format: "raw",
+      input: ["hi"],
+      write: () => undefined,
+      writeStderr: (t) => err.push(t),
+      ...isolated(),
+    });
+    expect(err).toEqual([]);
+  });
+
+  /**
+   * @case A route with no dispatch door ends the conversation as a usage error
+   * @preconditions Dispatch open; the route is declared internal (answers 409); two lines of input
+   * @expectedResult Exit 2 after the first message with the instance's reason, and the second message is never sent
+   */
+  test("stops at a route that cannot be dispatched", async () => {
+    await start({ dispatch: true });
+    const out: string[] = [];
+    let sent = 0;
+    const input = (function* () {
+      for (const line of ["one", "two"]) {
+        sent += 1;
+        yield line;
+      }
+    })();
+    const result = await chatCommand("inner", {
+      url,
+      session: "s",
+      input,
+      write: (t) => out.push(t),
+      ...isolated(),
+    });
+    expect(result.code).toBe(EXEC_EXIT.usage);
+    expect(result.error).toMatch(/not dispatchable/);
+    expect(sent).toBe(1);
+    expect(out.filter((line) => line.includes("route failed"))).toEqual([]);
+  });
+
+  /**
+   * @case Every reply write is awaited before the command resolves
+   * @preconditions A writer whose promise settles on a later tick; two messages
+   * @expectedResult The second dispatch starts only after the first write settled, and the command resolves after the last write settled, so an exit that follows cannot drop a reply still queued on a pipe
+   */
+  test("awaits each write before going on", async () => {
+    await start({ dispatch: true });
+    const events: string[] = [];
+    const write = (text: string): Promise<void> =>
+      new Promise((resolve) => {
+        events.push(`write:${text}`);
+        setTimeout(() => {
+          events.push(`flushed:${text}`);
+          resolve();
+        }, 20);
+      });
+    const input = (function* () {
+      for (const line of ["a", "b"]) {
+        events.push(`send:${line}`);
+        yield line;
+      }
+    })();
+    await chatCommand("max", {
+      url,
+      session: "s",
+      format: "raw",
+      input,
+      write,
+      ...isolated(),
+    });
+    events.push("resolved");
+    expect(events).toEqual([
+      "send:a",
+      "write:reply 1: a",
+      "flushed:reply 1: a",
+      "send:b",
+      "write:reply 2: b",
+      "flushed:reply 2: b",
+      "resolved",
+    ]);
   });
 
   /**

@@ -14,6 +14,7 @@ import { validateAgentOptions, validateBlocks } from "./agent.ts";
 import {
   ADAPTER_AGENT_DEFAULT_OPTIONS,
   ADAPTER_AGENT_REGISTRY,
+  ADAPTER_AGENT_SESSIONS,
   ADAPTER_AGENT_SESSIONS_BOOT,
   ADAPTER_AGENT_TOOL_POLICIES,
   AGENT_DEFAULT_OPTION_KEYS,
@@ -294,8 +295,22 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
       emitRegistrations(ctx, agents, functions);
       driveSessionsAtBoot(ctx);
     },
+
+    /**
+     * A boot drive still walking the index at shutdown would revive
+     * sessions onto routes that are draining and write the store after
+     * the context let go of it; it is told to stop and waited for.
+     */
+    async teardown(ctx: CraftContext) {
+      ctx.getStore(ADAPTER_AGENT_SESSIONS)?.stop();
+      await boots.get(ctx);
+      boots.delete(ctx);
+    },
   };
 }
+
+/** The boot drive per context, for teardown to wait on. */
+const boots = new WeakMap<CraftContext, Promise<void>>();
 
 /**
  * The `agent-sessions` management resource: every named session the
@@ -332,7 +347,7 @@ function driveSessionsAtBoot(ctx: CraftContext): void {
     if (rcCodeOf(err) === "RC5052") return;
     throw err;
   }
-  void runtime.driveBoot().then(
+  const drive = runtime.driveBoot().then(
     ({ revived, lostBackground }) => {
       if (revived > 0 || lostBackground > 0) {
         ctx.logger.info(
@@ -348,6 +363,7 @@ function driveSessionsAtBoot(ctx: CraftContext): void {
       );
     },
   );
+  boots.set(ctx, drive);
 }
 
 function registerSessionsResource(ctx: CraftContext): void {

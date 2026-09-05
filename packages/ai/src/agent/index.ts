@@ -28,6 +28,7 @@ export type {
   AgentPrincipalRenderer,
   AgentRegisteredOptions,
   AgentResult,
+  AgentInterruptSource,
   AgentSessionSource,
   AgentToolCallSummary,
   AgentUserPromptSource,

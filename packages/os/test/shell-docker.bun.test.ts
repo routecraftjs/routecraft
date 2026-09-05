@@ -18,6 +18,7 @@ import {
   type DockerContainer,
   type StdinWriter,
 } from "../src/adapters/shell/isolation/docker.ts";
+import { defaultContainerName } from "../src/adapters/shell/enricher.ts";
 import { resolveIsolation } from "../src/adapters/shell/isolation/index.ts";
 import type {
   ContainerIo,
@@ -406,6 +407,68 @@ describe("driving a container", () => {
   });
 
   /**
+   * @case A deadline that elapses while the daemon is still creating the container abandons it
+   * @preconditions A fake client whose createContainer resolves only after a 20ms timeout has fired
+   * @expectedResult The outcome is a timeout with signal SIGTERM and the killed exit code, and the container was removed and never attached or started
+   */
+  test("a timeout during the create abandons the container", async () => {
+    const fake = fakeContainer({ hold: true });
+    const { client } = fakeClient(fake, {
+      create: async () => {
+        await new Promise((r) => setTimeout(r, 60));
+        return fake.container;
+      },
+    });
+    const tier = createDockerTier(async () => client);
+    const outcome = await tier.execute(
+      target,
+      { ...request, image: "img" },
+      { ...io, timeoutMs: 20 },
+    );
+    expect(outcome.timedOut).toBe(true);
+    expect(outcome.signal).toBe("SIGTERM");
+    expect(outcome.exitCode).toBe(143);
+    expect(fake.calls).toEqual(["remove"]);
+  });
+
+  /**
+   * @case A daemon that loses the wait on a started container does not leave the command running
+   * @preconditions A fake container whose wait rejects shortly after the start
+   * @expectedResult execute rejects with the wait failure and kill(SIGKILL) was sent
+   */
+  test("kills a started container whose wait was lost", async () => {
+    const fake = fakeContainer({ hold: true });
+    fake.container.wait = async () => {
+      await new Promise((r) => setTimeout(r, 10));
+      throw new Error("wait lost");
+    };
+    const tier = createDockerTier(async () => fakeClient(fake).client);
+    await expect(
+      tier.execute(target, { ...request, image: "img" }, io),
+    ).rejects.toThrow(/wait lost/);
+    expect(fake.calls).toContain("start");
+    expect(fake.calls).toContain("kill:SIGKILL");
+  });
+
+  /**
+   * @case An output cap the buffer refuses fails the call before the daemon is asked for anything
+   * @preconditions io with maxOutputBytes 0
+   * @expectedResult execute rejects with RC5003 and createContainer was never called
+   */
+  test("an invalid output cap fails before a container is created", async () => {
+    const { client, created } = fakeClient(fakeContainer({}));
+    const tier = createDockerTier(async () => client);
+    await expect(
+      tier.execute(
+        target,
+        { ...request, image: "img" },
+        { ...io, maxOutputBytes: 0 },
+      ),
+    ).rejects.toMatchObject({ rc: "RC5003" });
+    expect(created).toEqual([]);
+  });
+
+  /**
    * @case Stdin that cannot be delivered to a started container stops the command
    * @preconditions A held container and a stdin writer that rejects after the start
    * @expectedResult The container is killed, the run rejects with the stdin failure, and the wait's outcome is consumed rather than left dangling
@@ -654,6 +717,19 @@ describe("container options on a host tier", () => {
       /"name" must match/,
     );
   });
+
+  /**
+   * @case The default container name is one the daemon accepts whatever the exchange id carries
+   * @preconditions A bare exchange whose id carries ":" and a space
+   * @expectedResult The name matches the charset user names are validated against, keeps the rc- prefix, and the offending characters became "-"
+   */
+  test("the default name is reduced to the daemon's charset", () => {
+    const name = defaultContainerName({
+      id: "abc:def ghi",
+    } as Exchange<unknown>);
+    expect(name).toMatch(/^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/);
+    expect(name).toBe("rc-route-abc-def-ghi");
+  });
 });
 
 describe("options resolved per exchange on a host tier", () => {
@@ -727,5 +803,30 @@ describe("options resolved per exchange on a host tier", () => {
       },
     ).fetch(ex);
     expect(result.stdout.trim()).toBe("eu-west-1:/usr/local/bin:/usr/bin:/bin");
+  });
+
+  /**
+   * @case A variable name outside the POSIX charset is refused, static or resolved from the exchange
+   * @preconditions env keys carrying "=", a space, a leading digit, and an empty name, on the none tier with egress accepted
+   * @expectedResult Each rejects with RC5003 naming the key, so a name from data cannot set a variable the route never named
+   */
+  test("env names outside the POSIX charset are refused", async () => {
+    const ex = await exchangeWith({ key: "A=B" });
+    await expect(
+      shell<{ key: string }>("true", [], {
+        isolation: "none",
+        network: true,
+        env: (e) => ({ [e.body.key]: "c" }),
+      }).fetch(ex),
+    ).rejects.toThrow(/"A=B" must match/);
+    for (const key of ["BAD KEY", "1ABC", ""]) {
+      await expect(
+        shell("true", [], {
+          isolation: "none",
+          network: true,
+          env: { [key]: "x" },
+        }).fetch(exchange),
+      ).rejects.toMatchObject({ rc: "RC5003" });
+    }
   });
 });

@@ -49,7 +49,6 @@ import type {
   AgentSessionSource,
 } from "./types.ts";
 import {
-  ANONYMOUS,
   AgentSessionRuntime,
   isSessionParkMarker,
   sessionSystemBlock,
@@ -302,7 +301,11 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
       context,
       exchange,
       dispatchIdentity,
-      ...(suspension !== undefined && { suspension }),
+      // Withheld on a session turn: its continuation is the session record,
+      // revived by the runtime, and a tool that parks would strand the
+      // caller on a suspension nothing resumes into (AI1011 at the tool).
+      ...(suspension !== undefined &&
+        sessionKey === undefined && { suspension }),
     } satisfies Omit<AgentRunInput<T>, "onStep" | "resume" | "session">;
 
     if (sessionKey !== undefined) {
@@ -344,7 +347,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
       return await AgentSessionRuntime.for(context).turn({
         key: sessionKey,
         exchange,
-        by: exchange.principal?.subject ?? ANONYMOUS,
+        by: exchange.principal?.subject ?? null,
         ...(revivedPark === undefined ? { message: user } : {}),
         ...(park !== undefined ? { park } : {}),
         ...(revivedPark !== undefined

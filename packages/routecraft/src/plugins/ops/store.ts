@@ -53,7 +53,7 @@ export function registerOpsResource<TItem>(
   ctx: CraftContext,
   resource: OpsResource<TItem>,
 ): void {
-  if (!RESOURCE_NAME.test(resource.name)) {
+  if (typeof resource.name !== "string" || !RESOURCE_NAME.test(resource.name)) {
     throw rcError("RC5053", undefined, {
       message: `Management resource name "${resource.name}" must be one lowercase path segment (letters, digits and dashes), because it is what follows /ops/ on the wire.`,
     });

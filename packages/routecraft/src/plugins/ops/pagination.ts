@@ -75,7 +75,7 @@ export function parsePageQuery(query: Readonly<Record<string, string>>): {
   const raw = query["limit"];
   let limit: number | undefined;
   if (raw !== undefined) {
-    limit = /^\d+$/.test(raw) ? Number(raw) : Number.NaN;
+    limit = Number(raw);
     assertPageLimit(limit);
   }
   const after = query["after"];

@@ -24,6 +24,14 @@ import { EXEC_EXIT, failureCode, type ExecResult } from "./exec.js";
 import { prepare } from "./prepare.js";
 import type { OutputFormat, SettingsOverrides } from "./settings.js";
 
+/**
+ * A line sink. The promise, when one is returned, is awaited before the
+ * next message is sent and before the command resolves: `process.stdout`
+ * is asynchronous on a pipe and `process.exit` discards what is still
+ * queued, so a reply is only safe once its write has settled.
+ */
+export type ChatWriter = (text: string) => unknown;
+
 export interface ChatOptions extends SettingsOverrides {
   /** The conversation to continue. A fresh id is minted and printed when absent. */
   session?: string;
@@ -33,7 +41,12 @@ export interface ChatOptions extends SettingsOverrides {
    */
   input?: AsyncIterable<string> | Iterable<string>;
   /** Where replies go. Defaults to standard output. */
-  write?: (text: string) => void;
+  write?: ChatWriter;
+  /**
+   * Where a minted session id goes under `json` and `raw`, so standard
+   * output stays a stream of replies. Defaults to standard error.
+   */
+  writeStderr?: ChatWriter;
 }
 
 /**
@@ -57,10 +70,11 @@ function isAgentShaped(body: unknown): body is AgentShapedReply {
 /**
  * Run the conversation until the input ends.
  *
- * Exit codes are `craft exec`'s. A door that refuses, or an instance that
- * cannot be reached, ends the loop with that code: nothing sent after it
- * would fare better. A route failure on one message is printed and the
- * loop continues, because the conversation is still there.
+ * Exit codes are `craft exec`'s. A door that refuses, an instance that
+ * cannot be reached, or a route that cannot be dispatched ends the loop
+ * with that code: nothing sent after it would fare better. A route that
+ * ran and failed on one message is printed and the loop continues, because
+ * the conversation is still there.
  */
 export async function chatCommand(
   route: string | undefined,
@@ -74,13 +88,15 @@ export async function chatCommand(
 
   const { client, format, settings } = prepared;
   const session = options.session ?? randomUUID();
-  const write =
-    options.write ?? ((text: string) => process.stdout.write(`${text}\n`));
+  const write = options.write ?? lineTo(process.stdout);
+  const writeStderr = options.writeStderr ?? lineTo(process.stderr);
 
   if (format === "pretty") {
-    write(
+    await write(
       `Session ${session} on route "${route}" at ${settings.url.value}. One message per line; end the input (Ctrl-D) to leave. The conversation stays in the instance: reattach with --session ${session}.`,
     );
+  } else if (options.session === undefined) {
+    await writeStderr(`Session ${session}: reattach with --session ${session}`);
   }
 
   for await (const raw of options.input ?? lines()) {
@@ -99,30 +115,53 @@ async function turn(
   session: string,
   message: string,
   format: OutputFormat,
-  write: (text: string) => void,
+  write: ChatWriter,
 ): Promise<ExecResult | undefined> {
   try {
     const outcome = await client.dispatch(route, { session, message });
     if (format === "json") {
-      write(asJson(outcome));
+      await write(asJson(outcome));
       return undefined;
     }
     if (outcome.outcome === "completed" && isAgentShaped(outcome.body)) {
-      write(renderReply(outcome.body, format));
+      await write(renderReply(outcome.body, format));
       return undefined;
     }
-    write(renderDispatch(outcome, format));
+    await write(renderDispatch(outcome, format));
     return undefined;
   } catch (error: unknown) {
     if (!(error instanceof OpsClientError)) throw error;
-    const code = failureCode(error);
-    // A route failure is this message's, not the conversation's.
-    if (error.kind === "error" && error.status !== undefined) {
-      write(`(the route failed: ${error.message})`);
+    // The dispatch surface answers 500 for a route that ran and failed, and
+    // that failure is this message's, not the conversation's. Every other
+    // status (409 for a route with no dispatch door, a proxy's 502) is
+    // about the command, not the message.
+    if (error.kind === "error" && error.status === 500) {
+      await write(renderFailure(error, format));
       return undefined;
     }
-    return { code, error: error.message };
+    return { code: failureCode(error), error: error.message };
   }
+}
+
+/**
+ * A failed message, in the stream's own shape: a prose line would break a
+ * `json` consumer that reads one object per message.
+ */
+function renderFailure(error: OpsClientError, format: OutputFormat): string {
+  if (format !== "json") return `(the route failed: ${error.message})`;
+  const code = wireCodeOf(error.detail);
+  return asJson({
+    outcome: "failed",
+    message: error.message,
+    ...(code === undefined ? {} : { code }),
+  });
+}
+
+/** The framework error code the dispatch surface put on the wire, if any. */
+function wireCodeOf(detail: unknown): string | undefined {
+  if (typeof detail !== "object" || detail === null) return undefined;
+  const code = (detail as { code?: unknown }).code;
+  return typeof code === "string" ? code : undefined;
 }
 
 /**
@@ -142,6 +181,14 @@ function renderReply(reply: AgentShapedReply, format: OutputFormat): string {
     return format === "raw" ? "" : "(interrupted by a later message)";
   }
   return reply.text;
+}
+
+/** A writer whose promise settles once the stream has taken the line. */
+function lineTo(stream: NodeJS.WriteStream): ChatWriter {
+  return (text) =>
+    new Promise<void>((resolve) => {
+      stream.write(`${text}\n`, () => resolve());
+    });
 }
 
 /** Standard input as lines, for a terminal or a pipe alike. */

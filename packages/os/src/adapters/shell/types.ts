@@ -76,10 +76,12 @@ export interface ShellOptions<T = unknown> {
    * (`PATH`, `HOME`, `LANG`, `TZ`) and override it where the names collide.
    *
    * A grant surface, so the same rule `untrusted()` states for arguments
-   * applies to the names: never derive a variable NAME from data. A value
-   * may come from the exchange; the set of variables a command may reach
-   * is decided where the command is written. On the docker tier the values
-   * are visible in `docker inspect`; a secret goes through `stdin`.
+   * applies to the names: the route owns the names and derives only the
+   * values from data, as in `env: (ex) => ({ REGION: ex.body.region })`.
+   * The set of variables a command may reach is decided where the command
+   * is written, and a name outside `[A-Za-z_][A-Za-z0-9_]*` is refused
+   * with `RC5003`. On the docker tier the values are visible in `docker
+   * inspect`; a secret goes through `stdin`.
    */
   env?: Resolvable<T, Record<string, string>>;
   /**
@@ -117,9 +119,13 @@ export interface ShellOptions<T = unknown> {
   image?: Resolvable<T, string>;
   /**
    * Host paths exposed inside the container. Docker tier only; a host tier
-   * refuses it with `OS1004`. Both paths must be absolute. The route
-   * decides what is exposed, and nothing outside this list is visible to
-   * the command.
+   * refuses it with `OS1004`. Both paths must be absolute and in normal
+   * form. The route decides what is exposed, and nothing outside this list
+   * is visible to the command: the route owns the paths and derives only a
+   * segment from data, under an id the route has validated.
+   *
+   * @example
+   * mounts: (ex) => [{ host: `/work/${ex.body.session}`, container: "/workspace" }]
    */
   mounts?: Resolvable<T, readonly ShellMount[]>;
   /**

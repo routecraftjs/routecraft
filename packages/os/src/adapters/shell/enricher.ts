@@ -110,7 +110,7 @@ export class ShellEnricherAdapter<T = unknown> implements Enricher<
     const cwd = resolve(this.options.cwd, exchange);
     const env = buildEnv(
       this.options.passEnv,
-      resolve(this.options.env, exchange),
+      resolveEnv(this.options.env, exchange),
       tier.kind === "container" ? tier.home : undefined,
     );
     const stdin = resolveStdin(this.options.stdin, exchange);
@@ -310,16 +310,43 @@ function isNormalPath(path: string): boolean {
 const CONTAINER_NAME = /^[a-zA-Z0-9][a-zA-Z0-9_.-]*$/;
 
 /**
- * `rc-<routeId>-<exchangeId>`, with the route id reduced to the container
+ * `rc-<routeId>-<exchangeId>`, with both ids reduced to the container
  * name charset. A synthetic exchange with no route names itself by its id.
+ *
+ * @internal
  */
-function defaultContainerName(exchange: Exchange<unknown>): string {
+export function defaultContainerName(exchange: Exchange<unknown>): string {
   const routeId = getExchangeRoute(exchange)?.definition.id ?? "route";
-  const safeRoute = routeId.replace(/[^a-zA-Z0-9_.-]+/g, "-");
   // A synthetic exchange with no id (a bare object in a test) still needs
   // a unique name, or two calls collide on the daemon.
   const id = typeof exchange.id === "string" ? exchange.id : randomUUID();
-  return `rc-${safeRoute}-${id}`.replace(/^[^a-zA-Z0-9]+/, "rc-");
+  return `rc-${routeId}-${id}`
+    .replace(/[^a-zA-Z0-9_.-]+/g, "-")
+    .replace(/^[^a-zA-Z0-9]+/, "rc-");
+}
+
+/** The names a POSIX environment takes; the daemon and the runner read `=` as the separator. */
+const ENV_NAME = /^[A-Za-z_][A-Za-z0-9_]*$/;
+
+/**
+ * Resolve `env`, refusing a variable name outside the POSIX charset. The
+ * names are the grant, so a name from data is refused rather than passed
+ * on: "A=B" as a name would set a variable the route never named.
+ */
+function resolveEnv<T>(
+  source: ShellOptions<T>["env"],
+  exchange: Exchange<T>,
+): Record<string, string> | undefined {
+  const env = resolve(source, exchange);
+  if (env === undefined) return undefined;
+  for (const key of Object.keys(env)) {
+    if (!ENV_NAME.test(key)) {
+      throw rcError("RC5003", undefined, {
+        message: `shell(): env variable name ${JSON.stringify(key)} must match ${ENV_NAME.source}. The route names the variables and derives only their values from data.`,
+      });
+    }
+  }
+  return env;
 }
 
 /** Resolve `stdin` to bytes, refusing a value that is neither text nor bytes. */

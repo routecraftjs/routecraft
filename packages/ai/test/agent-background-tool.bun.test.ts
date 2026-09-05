@@ -70,6 +70,14 @@ function routes(
       .to(noop())
       .build(),
     ...craft()
+      .id("odd-run")
+      .description("Answers with a value JSON cannot hold")
+      .input({ body: RunInput })
+      .from(direct())
+      .transform(() => ({ size: 1n }))
+      .to(noop())
+      .build(),
+    ...craft()
       .id("chat")
       .input({ body: ChatMessage })
       .from(direct())
@@ -101,6 +109,7 @@ function contextWith(
           functions: {
             sandboxRun: directTool("sandbox-run", { background: true }),
             brokenRun: directTool("broken-run", { background: true }),
+            oddRun: directTool("odd-run", { background: true }),
             whoami,
           },
           agents: {
@@ -109,7 +118,7 @@ function contextWith(
               model: MODEL,
               system: "be useful",
               user: (ex) => (ex.body as ChatMessage).message,
-              tools: tools(["sandboxRun", "brokenRun", "whoami"]),
+              tools: tools(["sandboxRun", "brokenRun", "oddRun", "whoami"]),
             },
           },
         }),
@@ -330,6 +339,39 @@ describe("background tools", () => {
     expect(parts[0]!.text).toContain('"brokenRun" failed');
     expect(parts[0]!.text).toContain(`Handle: ${receipt.handle}`);
     expect(parts[0]!.text).toContain("the build host is gone");
+    expect(
+      (
+        await AgentSessionRuntime.for(t.ctx).summary({
+          agent: "max",
+          session: "s",
+        })
+      )?.background,
+    ).toBe(0);
+  });
+
+  /**
+   * @case A background result the record cannot hold is delivered as a failure, and the call is retired
+   * @preconditions odd-run answers with a BigInt, which JSON refuses; the agent calls it and replies
+   * @expectedResult The boundary turn opens with a user message saying the tool failed, naming the handle and the encoding reason, and no background call remains
+   */
+  test("a result the store cannot hold is reported, not stuck", async () => {
+    const store = new MemorySuspensionStore();
+    t = await contextWith(store, spy()).build();
+    await t.startAndWaitReady();
+    llm.script.push(
+      { toolCalls: [{ toolName: "oddRun", input: { cmd: "size" } }] },
+      { text: "started" },
+      { text: "noted" },
+    );
+    const reply = await send(t, { session: "s", message: "go" });
+    const receipt = reply.toolCalls?.[0]?.output as BackgroundToolHandle;
+    await waitForCalls(2);
+    await t.ctx.getRouteById("chat")!.drain();
+    const parts = lastUserOf(llm.calls[1]!) as Array<{ text: string }>;
+    expect(parts).toHaveLength(1);
+    expect(parts[0]!.text).toContain('"oddRun" failed');
+    expect(parts[0]!.text).toContain(`Handle: ${receipt.handle}`);
+    expect(parts[0]!.text).toContain("could not be stored");
     expect(
       (
         await AgentSessionRuntime.for(t.ctx).summary({

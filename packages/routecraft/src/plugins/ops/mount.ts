@@ -75,6 +75,13 @@ function decodeSegment(value: string): string | undefined {
 const notFound = (): Response =>
   jsonResponse({ error: "not found" }, { status: 404 });
 
+/** A HEAD's answer: the status and the type of the body a GET would carry. */
+const emptyOk = (): Response =>
+  new Response(null, {
+    status: 200,
+    headers: { "content-type": "application/json; charset=utf-8" },
+  });
+
 /**
  * The listener is already carrying its full complement of streams.
  *
@@ -257,6 +264,10 @@ export function createManagementHandler(
       }
       try {
         if (segments.length === 0) {
+          // A HEAD carries no body, and a contributed listing costs the
+          // contributor a read per item; the route listing it mirrors
+          // is a scan, so this is where the cost would be new.
+          if (req.method === "HEAD") return emptyOk();
           const query = Object.fromEntries(url.searchParams.entries());
           return jsonResponse(await resource.list(query), { status: 200 });
         }

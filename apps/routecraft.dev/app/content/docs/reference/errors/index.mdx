@@ -507,6 +507,16 @@ Every named agent session (`agent(name, { session })`) is one record in the susp
 - Inspect the record the message names; remove it to start that session over.
 - Check that one process, on one version of `@routecraft/ai`, owns the store.
 
+## AI1011
+A tool asked to park an agent session turn
+
+**Why it happens**  
+A tool called `ctx.suspend()` inside an agent dispatched with `session`. A session turn stores its transcript when it ends and is revived from the session record rather than from a parked exchange, so there is no continuation an approval could resume into; the refusal lands in the tool, as a typed error the model reads, before anything is written.
+
+**Suggestion**  
+- Park from a sessionless agent, where `ctx.suspend()` parks the dispatch itself.
+- Move the approval into a route the agent calls as a tool, and let that route suspend.
+
 ## AI2001
 MCP tool output violated its declared schema
 

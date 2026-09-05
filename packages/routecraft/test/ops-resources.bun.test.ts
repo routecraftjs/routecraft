@@ -6,6 +6,7 @@ import {
   direct,
   noop,
   opsPlugin,
+  parsePageQuery,
   rcError,
   registerOpsResource,
   type CraftPlugin,
@@ -251,6 +252,50 @@ describe("contributed management resources", () => {
     });
     expect(JSON.stringify(boom.body)).not.toContain("secret.db");
     expect((await call(port, "/ops/widgets")).status).toBe(200);
+  });
+
+  /**
+   * @case A contributed collection reads the page query as the route listing does, and a HEAD costs the contributor nothing
+   * @preconditions A widgets resource whose list counts its calls, an ops mount with the introspection tier open
+   * @expectedResult ?limit=2e1 and ?limit=1.0 are accepted as the route listing accepts them, a HEAD on the collection answers 200 with no body and without calling list, and a non-string resource name is RC5053
+   */
+  test("shares the page query contract and answers HEAD cheaply", async () => {
+    let lists = 0;
+    const port = await start({
+      introspection: true,
+      plugins: [
+        contributing({
+          name: "widgets",
+          list: async (query) => {
+            lists += 1;
+            return { items: [], ...parsePageQuery(query) };
+          },
+          describe: async () => undefined,
+        }),
+      ],
+    });
+    expect((await call(port, "/ops/widgets?limit=2e1")).status).toBe(200);
+    expect((await call(port, "/ops/widgets?limit=1.0")).status).toBe(200);
+    expect((await call(port, "/ops/widgets?limit=0")).status).toBe(400);
+    lists = 0;
+    const head = await call(port, "/ops/widgets", { method: "HEAD" });
+    expect(head.status).toBe(200);
+    expect(head.body).toBeUndefined();
+    expect(lists).toBe(0);
+    await expect(
+      testContext()
+        .with({
+          servers: { default: { port: 0, host: "127.0.0.1" } },
+          plugins: [
+            contributing({
+              ...widgets([]),
+              name: undefined as unknown as string,
+            }),
+          ],
+        })
+        .routes([craft().id("worker").from(direct()).to(noop())])
+        .build(),
+    ).rejects.toMatchObject({ rc: "RC5053" });
   });
 
   /**

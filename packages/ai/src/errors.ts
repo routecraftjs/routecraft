@@ -93,6 +93,8 @@ declare module "@routecraft/routecraft" {
     AI1009: RCMeta;
     /** Agent session record could not be read or written */
     AI1010: RCMeta;
+    /** A tool asked to park an agent session turn */
+    AI1011: RCMeta;
     /** MCP tool result violated the tool's advertised output schema */
     AI2001: RCMeta;
     /** MCP tool declined the request: the route dropped the exchange */
@@ -183,6 +185,14 @@ registerErrorCodes(
       suggestion:
         "The suspension store holds the transcript and inbox of every named agent session, one record per (agent, session). Either a stored record is not the shape the runtime writes (the store was edited by hand, or two versions of @routecraft/ai share one store), or a write lost the compare-and-swap repeatedly to another writer. Inspect the record named in the message, or remove it to start the session over.",
       docs: `${DOCS_BASE}#ai-1010`,
+      retryable: false,
+    },
+    AI1011: {
+      category: "Adapter",
+      message: "A tool asked to park an agent session turn",
+      suggestion:
+        "ctx.suspend() was called by a tool inside an agent dispatched with session. A session turn stores its transcript when it ends and is revived from the session record, not from a parked exchange, so there is no continuation for an approval to resume into. Park from a sessionless agent, or move the approval into a route the agent calls as a tool.",
+      docs: `${DOCS_BASE}#ai-1011`,
       retryable: false,
     },
     AI2001: {

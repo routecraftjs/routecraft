@@ -4,7 +4,9 @@ import {
   type Exchange,
   DefaultExchange,
   HeadersKeys,
+  asideSequenceOf,
   markSuspended,
+  noteAsideSequence,
 } from "../exchange.ts";
 import type { SuspendRequest } from "./sites.ts";
 import {
@@ -14,7 +16,7 @@ import {
 } from "./hash.ts";
 import {
   SuspensionHeaders,
-  readSequence,
+  effectiveSequence,
   suspensionIdOf,
 } from "./exchange-state.ts";
 import { SUSPENSION_RUNTIME } from "./runtime-key.ts";
@@ -160,8 +162,9 @@ function describeRecord(
   >,
   ttlMs: number | undefined,
 ): { id: string; parking: Exchange; record: NewSuspension } {
-  const sequence = readSequence(exchange.headers);
-  const id = suspensionIdOf(exchange.headers, exchange.id);
+  const floor = asideSequenceOf(exchange);
+  const sequence = effectiveSequence(exchange.headers, floor);
+  const id = suspensionIdOf(exchange.headers, exchange.id, floor);
   // The parked exchange carries the sequence its successor will use, so a
   // route that suspends, resumes, and suspends again mints a fresh id
   // rather than colliding with the record it just settled.
@@ -252,7 +255,9 @@ export async function parkAside(
       message: `Route "${routeId}" needs a continuation stored for a later turn, and this context has no suspension runtime. Add suspension: {} to defineConfig.`,
     });
   }
-  const id = suspensionIdOf(exchange.headers, exchange.id);
+  const floor = asideSequenceOf(exchange);
+  const sequence = effectiveSequence(exchange.headers, floor);
+  const id = suspensionIdOf(exchange.headers, exchange.id, floor);
   const { record } = describeRecord(
     exchange,
     routeId,
@@ -260,6 +265,10 @@ export async function parkAside(
     undefined,
   );
   await runtime.store.create(record);
+  // The run goes on with this exchange, and its headers are frozen: the
+  // successor sequence the record carries is noted on the exchange too,
+  // so a `.suspend()` later in the same run does not derive this id.
+  noteAsideSequence(exchange, sequence + 1);
   return { suspensionId: id };
 }
 

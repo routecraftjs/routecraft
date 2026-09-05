@@ -7,6 +7,7 @@ import {
   craft,
   direct,
   noop,
+  parkAside,
   type Principal,
   type RouteDefinition,
 } from "@routecraft/routecraft";
@@ -69,6 +70,20 @@ const slowFn = {
     }),
 };
 
+/** A tool that finishes at once, beside the slow one in a parallel batch. */
+const quickFn = {
+  description: "Answers at once",
+  input: z.object({}),
+  handler: () => Promise.resolve("fast done"),
+};
+
+/** A tool that asks to park the turn it runs in. */
+const parkerFn = {
+  description: "Asks for an approval",
+  input: z.object({}),
+  handler: (_input: unknown, ctx: FnHandlerContext) => ctx.suspend(),
+};
+
 /** Wait until the slow tool is genuinely running, bounded. */
 async function waitForEntry(count: number): Promise<void> {
   const deadline = Date.now() + 5_000;
@@ -121,14 +136,14 @@ function contextWith(
       plugins: [
         llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         agentPlugin({
-          functions: { slow: slowFn },
+          functions: { slow: slowFn, quick: quickFn, parker: parkerFn },
           agents: {
             max: {
               description: "Max",
               model: MODEL,
               system: "be useful",
               user: (ex) => (ex.body as ChatMessage).message,
-              tools: tools(["slow"]),
+              tools: tools(["slow", "quick", "parker"]),
             },
           },
         }),
@@ -659,7 +674,7 @@ describe("agent sessions", () => {
       key,
       exchange,
       message: "a",
-      by: "anonymous",
+      by: null,
       interrupt: false,
       executor,
     });
@@ -669,7 +684,7 @@ describe("agent sessions", () => {
       key,
       exchange,
       message: "b",
-      by: "anonymous",
+      by: null,
       interrupt: true,
       executor,
     });
@@ -709,7 +724,7 @@ describe("agent sessions", () => {
       key,
       exchange,
       message: "a",
-      by: "anonymous",
+      by: null,
       interrupt: false,
       executor,
     });
@@ -722,7 +737,7 @@ describe("agent sessions", () => {
       key,
       exchange,
       message: "b",
-      by: "anonymous",
+      by: null,
       interrupt: true,
       executor,
     });
@@ -818,7 +833,7 @@ describe("agent sessions", () => {
           session: "anon",
         })
       )?.startedBy,
-    ).toBe("anonymous");
+    ).toBeNull();
   });
 
   /**
@@ -845,6 +860,292 @@ describe("agent sessions", () => {
       {
         rc: "RC5052",
       },
+    );
+  });
+
+  /**
+   * @case A tool that asks to park a session turn is refused with AI1011 and the turn goes on
+   * @preconditions The parker tool calls ctx.suspend() inside a session turn; the model then answers
+   * @expectedResult The tool's result is an error naming the session combination, the turn replies normally, and the store holds only the session record and no parked continuation
+   */
+  test("a tool cannot park a session turn", async () => {
+    const store = new MemorySuspensionStore();
+    t = await contextWith(store, spy()).build();
+    await t.startAndWaitReady();
+    llm.script.push({ toolCalls: [{ toolName: "parker" }] }, { text: "ok" });
+    const reply = await send(t, { session: "s", message: "approve this" });
+    expect(reply.text).toBe("ok");
+    const record = await new AgentSessionStore(store).load({
+      agent: "max",
+      session: "s",
+    });
+    const transcript = JSON.stringify(record?.messages);
+    expect(transcript).toContain("cannot park");
+    expect(transcript).toContain("Park from a sessionless agent");
+    const summary = await AgentSessionRuntime.for(t.ctx).summary({
+      agent: "max",
+      session: "s",
+    });
+    expect(summary).toMatchObject({ parked: false, turns: 1 });
+    expect(t.errors).toHaveLength(0);
+  });
+
+  /**
+   * @case A malformed per-call override is refused where the route is built
+   * @preconditions agent("max", { interrupt: "yes" }) and agent("max", { session: 7 }) through a cast
+   * @expectedResult Both throw RC5003 naming the option, before any dispatch
+   */
+  test("malformed by-name overrides are refused at construction", () => {
+    const thrown = (build: () => unknown): unknown => {
+      try {
+        build();
+      } catch (err) {
+        return err;
+      }
+      return undefined;
+    };
+    expect(
+      thrown(() => agent("max", { interrupt: "yes" as unknown as boolean })),
+    ).toMatchObject({
+      rc: "RC5003",
+      message: expect.stringContaining('"interrupt"'),
+    });
+    expect(
+      thrown(() => agent("max", { session: 7 as unknown as string })),
+    ).toMatchObject({
+      rc: "RC5003",
+      message: expect.stringContaining('"session"'),
+    });
+  });
+
+  /**
+   * @case A caller whose subject is literally "anonymous" is named, and an exchange without a principal is not
+   * @preconditions Turn one is held; a caller with subject "anonymous" and a caller with no principal queue a message each
+   * @expectedResult The delivered parts read [Message from "anonymous"] and [Message from an anonymous caller], and the inbox entries carried "anonymous" and null
+   */
+  test("a subject spelt anonymous is still a subject", async () => {
+    const store = new MemorySuspensionStore();
+    t = await contextWith(store, spy()).build();
+    await t.startAndWaitReady();
+    llm.script.push({ toolCalls: [{ toolName: "slow" }] }, { text: "one" });
+    const first = send(t, { session: "s", message: "start" }, "alice");
+    await waitForEntry(1);
+    await send(t, { session: "s", message: "named" }, "anonymous");
+    await send(t, { session: "s", message: "unnamed" });
+    const record = await new AgentSessionStore(store).load({
+      agent: "max",
+      session: "s",
+    });
+    expect(record?.inbox.map((entry) => entry.by)).toEqual(["anonymous", null]);
+    llm.script.push({ text: "two" });
+    release!();
+    await first;
+    const deadline = Date.now() + 5_000;
+    while (llm.calls.length < 2 && Date.now() < deadline) await sleep(5);
+    expect(lastUserOf(llm.calls[1]!).content).toEqual([
+      { type: "text", text: '[Message from "anonymous"]\nnamed' },
+      { type: "text", text: "[Message from an anonymous caller]\nunnamed" },
+    ]);
+    await t.ctx.getRouteById("chat")!.drain();
+  });
+
+  /**
+   * @case A mutation that returns the record unchanged costs one read and no write
+   * @preconditions A session record exists; update() is called with the identity mutation while replaceStepState calls are counted
+   * @expectedResult No replaceStepState call is made, and the record's updatedAt is unchanged
+   */
+  test("an unchanged update is not written", async () => {
+    const store = new MemorySuspensionStore();
+    let writes = 0;
+    const counting = new Proxy(store, {
+      get(target, prop) {
+        if (prop === "replaceStepState") {
+          return async (...args: unknown[]) => {
+            writes += 1;
+            return (
+              target.replaceStepState as (...a: unknown[]) => Promise<unknown>
+            ).apply(target, args);
+          };
+        }
+        const value = Reflect.get(target, prop, target) as unknown;
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const sessions = new AgentSessionStore(counting);
+    const key = { agent: "max", session: "noop" };
+    const created = await sessions.update(key, (r) => ({ ...r, turns: 1 }));
+    writes = 0;
+    const same = await sessions.update(key, (r) => r);
+    expect(writes).toBe(0);
+    expect(same.updatedAt).toBe(created.updatedAt);
+    await sessions.update(key, (r) => ({ ...r, turns: 2 }));
+    expect(writes).toBe(1);
+  });
+
+  /**
+   * @case A record whose index write failed is indexed again by its next write
+   * @preconditions The store's first create of the index record throws; the session record itself was created; a second update to the same session follows
+   * @expectedResult The first update rejects with the index failure, the second succeeds, and list() then names the session
+   */
+  test("a missed index entry is repaired by the next write", async () => {
+    const store = new MemorySuspensionStore();
+    let failIndex = true;
+    const flaky = new Proxy(store, {
+      get(target, prop) {
+        if (prop === "create") {
+          return async (record: { id: string }) => {
+            if (failIndex && record.id === "agent-sessions:index") {
+              failIndex = false;
+              throw new Error("index write lost");
+            }
+            return (target.create as (r: unknown) => Promise<unknown>).call(
+              target,
+              record,
+            );
+          };
+        }
+        const value = Reflect.get(target, prop, target) as unknown;
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const sessions = new AgentSessionStore(flaky);
+    const key = { agent: "max", session: "unindexed" };
+    await expect(
+      sessions.update(key, (r) => ({ ...r, turns: 1 })),
+    ).rejects.toThrow(/index write lost/);
+    expect(await sessions.list()).toEqual([]);
+    await sessions.update(key, (r) => ({ ...r, turns: 2 }));
+    expect(await sessions.list()).toEqual([key]);
+  });
+
+  /**
+   * @case Releasing a stored continuation settles it in the store rather than leaving it live
+   * @preconditions A continuation stored with parkAside, so its record is "suspended"; releasePark is called on it
+   * @expectedResult The record's status is "denied" afterwards; a second release is a no-op that does not throw
+   */
+  test("a released continuation is denied, not orphaned", async () => {
+    const store = new MemorySuspensionStore();
+    t = await contextWith(store, spy()).build();
+    await t.startAndWaitReady();
+    const exchange = new DefaultExchange(t.ctx, { body: {} });
+    const { suspensionId } = await parkAside(
+      t.ctx,
+      exchange,
+      { position: 0, continuation: [] },
+      "chat",
+      (id) => ({
+        kind: "agent-session-park",
+        agent: "max",
+        session: "s",
+        suspensionId: id,
+      }),
+    );
+    expect((await store.get(suspensionId))?.status).toBe("suspended");
+    const sessions = new AgentSessionStore(store);
+    await sessions.releasePark(suspensionId, "test");
+    expect((await store.get(suspensionId))?.status).toBe("denied");
+    await sessions.releasePark(suspensionId, "again");
+    expect((await store.get(suspensionId))?.status).toBe("denied");
+  });
+
+  /**
+   * @case A post that lands between the turn's park and its cleanup still starts the next turn
+   * @preconditions A session with one background call outstanding; the turn parks; the store write that records the park is followed, before the turn sees it, by a post to the inbox; the stored continuation cannot be revived (its id is not a real suspension), so the follow-up runs in process
+   * @expectedResult A second executor run starts on its own with the posted message, rather than the session waiting for the next message
+   */
+  test("a post in the park-to-cleanup gap is delivered", async () => {
+    const store = new MemorySuspensionStore();
+    t = await contextWith(store, spy()).build();
+    await t.startAndWaitReady();
+    const sessions = new AgentSessionStore(store);
+    const key = { agent: "max", session: "gap" };
+    await sessions.update(key, (r) => ({
+      ...r,
+      background: [
+        { handle: "sandbox-run:1", tool: "run", startedAt: "now", by: null },
+      ],
+    }));
+    let posted = false;
+    const realUpdate = sessions.update.bind(sessions);
+    sessions.update = async (k, mutate) => {
+      const record = await realUpdate(k, mutate);
+      if (record.park !== undefined && !posted) {
+        posted = true;
+        // The gap: the park is written, the turn has not cleared `active`.
+        await runtime.post(key, {
+          kind: "message",
+          content: "the build finished",
+          by: null,
+        });
+      }
+      return record;
+    };
+    const runtime = new AgentSessionRuntime(t.ctx, sessions);
+    const seen: unknown[] = [];
+    const executor = {
+      run: (messages: unknown) => {
+        seen.push(messages);
+        return Promise.resolve({ text: "ok" } as AgentResult);
+      },
+      thread: () => undefined,
+    };
+    const exchange = new DefaultExchange(t.ctx, { body: {} });
+    await runtime.turn({
+      key,
+      exchange,
+      message: "start",
+      by: null,
+      interrupt: false,
+      executor,
+      park: async () => ({ suspensionId: "not-a-record", routeId: "chat" }),
+    });
+    const deadline = Date.now() + 5_000;
+    while (seen.length < 2 && Date.now() < deadline) await sleep(5);
+    expect(seen).toHaveLength(2);
+    expect(JSON.stringify(seen[1])).toContain("the build finished");
+  });
+
+  /**
+   * @case A parallel tool batch cut short keeps the sibling that finished, with its result
+   * @preconditions The model calls quick and slow together; quick answers at once, slow is held; the turn is interrupted before the step commits
+   * @expectedResult The next turn's thread carries both calls, quick paired with its json result "fast done" and slow with an error result, so the model neither repeats the finished work nor loses its output
+   */
+  test("an interrupted batch keeps its finished siblings", async () => {
+    const store = new MemorySuspensionStore();
+    t = await contextWith(store, spy()).build();
+    await t.startAndWaitReady();
+    llm.script.push({
+      toolCalls: [{ toolName: "quick" }, { toolName: "slow" }],
+    });
+    const first = send(t, { session: "s", message: "both" });
+    await waitForEntry(1);
+    llm.script.push({ text: "resumed" });
+    const reply = await send(t, {
+      session: "s",
+      message: "stop",
+      interrupt: true,
+    });
+    expect(reply.text).toBe("resumed");
+    await first;
+    const thread = llm.calls[1]!.user as Array<{
+      role: string;
+      content: Array<{
+        toolName?: string;
+        output?: { type: string; value?: unknown };
+      }>;
+    }>;
+    const tool = thread.find((m) => m.role === "tool")!;
+    expect(tool.content).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          toolName: "quick",
+          output: { type: "json", value: "fast done" },
+        }),
+        expect.objectContaining({
+          toolName: "slow",
+          output: expect.objectContaining({ type: "error-text" }),
+        }),
+      ]),
     );
   });
 });

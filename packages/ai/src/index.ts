@@ -157,6 +157,7 @@ export type {
   AgentRegisteredOptions,
   AgentResult,
   AgentSessionOutcome,
+  AgentInterruptSource,
   AgentSessionSource,
   AgentSessionSummary,
   AgentStepState,
