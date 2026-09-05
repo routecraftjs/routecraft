@@ -104,11 +104,19 @@ export function buildOpenApiDocument(
     const path = patternToOpenApi(entry.matcher.pattern);
     const method = entry.method.toLowerCase() as OpenApiMethod;
     const item = (doc.paths[path] ??= {});
+    // A route with a responder documents no success code: the answer comes
+    // from a function and nothing here can know what it returns. Its
+    // rejection codes stay, since every gate still runs ahead of it.
+    const successResponses = entry.respond
+      ? {}
+      : {
+          "200": { description: "Successful response" },
+          "204": { description: "No content" },
+        };
     const op: OpenApiOperation = {
       operationId: entry.routeId,
       responses: {
-        "200": { description: "Successful response" },
-        "204": { description: "No content" },
+        ...successResponses,
         "400": { description: "Bad request" },
         "401": { description: "Unauthorized" },
         "403": { description: "Forbidden" },

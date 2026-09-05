@@ -34,6 +34,8 @@ Use the ESLint rule `@routecraft/routecraft/batch-before-from` to ensure `batch(
 
 The `batch()` operation only works with asynchronous message sources like `timer()`. It **cannot** be used with `direct()` sources because direct endpoints are synchronous and blocking -- each sender waits for the consumer to fully process a message before the next can be sent, preventing message accumulation.
 
+It also cannot be combined with a route whose `http()` source declares [`respond`](/docs/reference/adapters/http#acknowledge-then-process): a batched message waits in the buffer instead of counting as in-flight work, so a graceful shutdown would discard it after the responder had already answered the sender. The pair is refused with `RC5003` at subscribe.
+
 If you need to combine multiple messages from split branches, use the `aggregate()` operation instead.
 
 </Callout>

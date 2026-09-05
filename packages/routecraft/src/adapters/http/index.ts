@@ -79,6 +79,10 @@ export { HttpSourceAdapter } from "./source";
 export type {
   HttpMethod,
   HttpRedirectMode,
+  HttpResponder,
+  HttpRespondContext,
+  HttpRespondRequest,
+  HttpResponseDescriptor,
   QueryParams,
   HttpClientOptions,
   HttpResult,
