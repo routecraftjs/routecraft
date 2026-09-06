@@ -98,12 +98,9 @@ export class TurnUpdates {
     for (;;) {
       const next = this.queue.shift();
       if (next === undefined) {
-        // Cleared here, synchronously with the shift that found the queue
-        // empty, rather than in a `finally` on this promise. A producer
-        // awaiting the update it just pushed resumes in a microtask after
-        // `settle`, and with the flag cleared one turn later that producer
-        // would enqueue its next update while the pump still looked busy,
-        // and nothing would ever drain it.
+        // Cleared synchronously with the shift, never in a `finally`: a
+        // producer resuming one microtask after `settle` would otherwise
+        // enqueue into a pump that still looks busy and never restarts.
         this.pumping = false;
         return;
       }
