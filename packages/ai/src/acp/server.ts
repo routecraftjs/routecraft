@@ -9,6 +9,7 @@
 
 import {
   buildCorsHeaders,
+  bearerChallenge,
   normalizeStaticPathPrefix,
   rcError,
   requireWebIngress,
@@ -17,7 +18,6 @@ import {
   type HttpMountAuth,
   type HttpMountContext,
   type PathClaim,
-  type Principal,
   type WebIngress,
 } from "@routecraft/routecraft";
 import { AcpConnection, buildAcpApp } from "./app.ts";
@@ -94,24 +94,19 @@ export class AcpServer {
     const cors = resolveCorsOptions(this.options.cors);
     const ingress = requireWebIngress(this.context, this.options.server);
 
-    // A pending connection, set immediately before `handleRequest` and
-    // read back from the response. `createAgent` is called synchronously
-    // inside that one call, at most once, so there is no window for a
-    // second request to see somebody else's.
-    let pending: AcpConnection | undefined;
-    let pendingPrincipal: Principal | undefined;
-    let pendingAgent: string | undefined;
+    // Every connection is built by the request that opened it, through
+    // `handleRequest`'s own per-call factory. The mount must never hold the
+    // caller between the two: the SDK reads and parses the request body
+    // before it reaches this factory, so a second initialize arriving in
+    // that window would be the one whose principal a shared slot held, and
+    // the connection would run every turn as somebody else.
     const server = new SdkServer({
       createAgent: () => {
-        const connection = new AcpConnection(
-          this.runtime,
-          this.options,
-          pendingPrincipal,
-          acp,
-          pendingAgent,
-        );
-        pending = connection;
-        return buildAcpApp(connection, () => acp.agent({ name: "routecraft" }));
+        throw rcError("RC5003", undefined, {
+          message:
+            "ACP connections are built per request, so this factory is never the one that runs. " +
+            "Reaching it means a request opened a connection without a principal.",
+        });
       },
     });
     this.server = server;
@@ -155,7 +150,12 @@ export class AcpServer {
         }
 
         const auth = await mountContext.authenticate();
-        const refusal = this.refuse(auth, mountContext.auth, corsHeaders);
+        const refusal = this.refuse(
+          auth,
+          mountContext.auth,
+          request.url,
+          corsHeaders,
+        );
         if (refusal) return refusal;
         const principal = auth?.kind === "admit" ? auth.principal : undefined;
 
@@ -181,19 +181,39 @@ export class AcpServer {
           }
         }
 
-        pending = undefined;
-        pendingPrincipal = principal;
-        pendingAgent = request.headers.get(ACP_AGENT_HEADER) ?? undefined;
-        const response = await server.handleRequest(request);
-        const opened = response.headers.get(CONNECTION_ID_HEADER);
-        if (opened !== null && pending !== undefined) {
-          const connection = pending;
-          this.connections.set(opened, {
+        // Request-scoped, so the principal this connection is built with is
+        // this request's own however many others are in flight.
+        let opened: AcpConnection | undefined;
+        const response = await server.handleRequest(request, {
+          createAgent: () => {
+            const connection = new AcpConnection(
+              this.runtime,
+              this.options,
+              principal,
+              acp,
+              request.headers.get(ACP_AGENT_HEADER) ?? undefined,
+            );
+            opened = connection;
+            return buildAcpApp(connection, () =>
+              acp.agent({ name: "routecraft" }),
+            );
+          },
+        });
+        const connectionId = response.headers.get(CONNECTION_ID_HEADER);
+        if (connectionId !== null && opened !== undefined) {
+          const connection = opened;
+          this.connections.set(connectionId, {
             connection,
             owner: principal?.subject ?? null,
           });
+          connection.onClosed(() => {
+            // Only if the entry is still this connection's: a reconnect
+            // reusing the id must not have its record swept by the old one.
+            if (this.connections.get(connectionId)?.connection === connection) {
+              this.connections.delete(connectionId);
+            }
+          });
         }
-        pending = undefined;
         if (request.method === "DELETE" && existing !== null) {
           this.connections.delete(existing);
         }
@@ -234,6 +254,7 @@ export class AcpServer {
   private refuse(
     auth: Awaited<ReturnType<HttpMountContext["authenticate"]>>,
     mountAuth: HttpMountAuth,
+    requestUrl: string,
     corsHeaders: Record<string, string>,
   ): Response | null {
     if (auth === undefined) return null;
@@ -261,11 +282,21 @@ export class AcpServer {
           { status: 500, headers: corsHeaders },
         );
       }
-      this.context.logger.warn(
-        { reason: auth.reason, scheme: "bearer", source: "acp" },
-        "Auth rejected: token validation failed",
-      );
-      return unauthorized(corsHeaders, { error: "invalid_token" });
+      // Routine handshake noise stays at debug so `warn` keeps meaning a
+      // token that failed for a reason worth looking at: clients present a
+      // stale cached token and refresh, and a non-bearer scheme is a probe.
+      const routine =
+        auth.reason === "unsupported_scheme" || auth.reason === "expired";
+      const detail = { reason: auth.reason, scheme: "bearer", source: "acp" };
+      if (routine) {
+        this.context.logger.debug(detail, "Auth rejected: token not usable");
+      } else {
+        this.context.logger.warn(
+          detail,
+          "Auth rejected: token validation failed",
+        );
+      }
+      return unauthorized(requestUrl, corsHeaders, { error: "invalid_token" });
     }
     if (auth.kind === "absent") {
       const detail = {
@@ -280,7 +311,7 @@ export class AcpServer {
       this.context.emit("auth:rejected", detail);
       // RFC 6750 section 3: a request that carried no credential gets a
       // bare challenge, not `invalid_token`.
-      return unauthorized(corsHeaders);
+      return unauthorized(requestUrl, corsHeaders);
     }
     return null;
   }
@@ -329,21 +360,27 @@ function openedEagerly(response: Response): ReadableStream<Uint8Array> | null {
 /** The SDK's own keep-alive comment, which is the smallest legal SSE frame. */
 const SSE_COMMENT = new TextEncoder().encode(":\n\n");
 
-/** RFC 6750 401 with the challenge params for this refusal. */
+/**
+ * RFC 6750 401, hinting through the one builder every routecraft surface
+ * refuses with.
+ *
+ * `bearerChallenge` is what appends the RFC 9728 `resource_metadata` URL the
+ * CLI follows to name the issuer and the scope a caller is missing. A
+ * hand-rolled challenge still parses and simply says less, which is the
+ * failure the shared builder exists to prevent.
+ */
 function unauthorized(
+  requestUrl: string,
   corsHeaders: Record<string, string>,
   params: Record<string, string> = {},
 ): Response {
-  const challenge = Object.entries(params)
-    .map(([key, value]) => `${key}="${value}"`)
-    .join(", ");
   return Response.json(
     { error: "Unauthorized" },
     {
       status: 401,
       headers: {
         ...corsHeaders,
-        "WWW-Authenticate": challenge === "" ? "Bearer" : `Bearer ${challenge}`,
+        "WWW-Authenticate": bearerChallenge({ requestUrl, params }),
       },
     },
   );

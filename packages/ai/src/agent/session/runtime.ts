@@ -669,6 +669,29 @@ export class AgentSessionRuntime {
   }
 
   /**
+   * The agent a bare session id belongs to, within this scope.
+   *
+   * A protocol that addresses a conversation by id alone still has to find
+   * the `(agent, session)` key it is stored under. Matching on the key
+   * first means one record is read rather than one per session scanned:
+   * the listing path loads a whole transcript per key, which on the
+   * reconnect path is paid once per conversation the caller owns.
+   *
+   * The ownership filter is the same `summary()` every other read goes
+   * through, so a foreign id is as unfindable here as it is there.
+   */
+  async find(
+    session: string,
+    scope: AgentSessionScope,
+  ): Promise<string | undefined> {
+    for (const key of await this.store.list()) {
+      if (key.session !== session) continue;
+      if ((await this.summary(key, scope)) !== undefined) return key.agent;
+    }
+    return undefined;
+  }
+
+  /**
    * One session, or `undefined` when the store has never seen it OR when
    * the scope does not own it.
    *

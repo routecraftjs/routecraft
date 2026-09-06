@@ -90,6 +90,7 @@ export class AcpConnection implements AgentSurfaceConnection {
   /** The ACP sessions this connection has open, to the agent each belongs to. */
   private readonly attachedSessions = new Map<string, string>();
   private client: AgentContext | undefined;
+  private closedHandler: (() => void) | undefined;
   private retire: (() => void) | undefined;
 
   constructor(
@@ -206,6 +207,22 @@ export class AcpConnection implements AgentSurfaceConnection {
     this.runtime.context.emit("plugin:acp:connection:closed", {
       connectionId: this.id,
     });
+    const closed = this.closedHandler;
+    this.closedHandler = undefined;
+    closed?.();
+  }
+
+  /**
+   * Tell the mount when this connection goes.
+   *
+   * The mount keys its table by the SDK's connection id, which this object
+   * does not carry, so the mount hands in the removal rather than deriving
+   * it. Without this an editor that is killed rather than closed cleanly
+   * leaves a record for the life of the process, and an instance serving
+   * editors reconnects all day.
+   */
+  onClosed(handler: () => void): void {
+    this.closedHandler = handler;
   }
 
   /** Announce a conversation this connection took hold of. */
@@ -479,27 +496,12 @@ export class AcpConnection implements AgentSurfaceConnection {
   private async resolveAgent(sessionId: string): Promise<string> {
     const attached = this.attachedSessions.get(sessionId);
     if (attached !== undefined) return attached;
-    for await (const summary of this.ownSessions()) {
-      if (summary.session === sessionId) {
-        this.attachedSessions.set(sessionId, summary.agent);
-        return summary.agent;
-      }
+    const agent = await this.runtime.sessions().find(sessionId, this.scope);
+    if (agent !== undefined) {
+      this.attachedSessions.set(sessionId, agent);
+      return agent;
     }
     throw this.refuse(NO_SUCH_SESSION);
-  }
-
-  /** Every session this caller owns, a page at a time. */
-  private async *ownSessions(): AsyncGenerator<AgentSessionSummary> {
-    const sessions = this.runtime.sessions();
-    let after: string | undefined;
-    do {
-      const page = await sessions.summaries({
-        scope: this.scope,
-        ...(after !== undefined ? { after } : {}),
-      });
-      for (const item of page.items) yield item;
-      after = page.nextCursor;
-    } while (after !== undefined);
   }
 
   /** What the option builder needs about one session right now. */

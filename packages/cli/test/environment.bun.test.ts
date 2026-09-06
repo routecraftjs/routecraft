@@ -9,7 +9,7 @@
  */
 
 import { afterEach, describe, expect, test } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
@@ -141,5 +141,30 @@ describe("environment selection", () => {
     const root = project({ ".env": "RC_BASE=base\n" });
     loadEnvironment({ profile: "nothing-here", defaultsFrom: root });
     expect(process.env["RC_BASE"]).toBe("base");
+  });
+
+  /**
+   * @case A project started by path takes its profile from that project, not from the shell
+   * @preconditions A project directory holding both a settings file that defines a profile and the env file that profile selects, invoked from somewhere else
+   * @expectedResult The profile resolves and its environment loads, because the file that declares a profile and the files it selects have to be the same project's
+   */
+  test("the profile comes from the project being started", async () => {
+    const root = project({
+      ".env": "RC_BASE=base\n",
+      ".env.ing": "RC_MODE=ing\n",
+    });
+    mkdirSync(join(root, ".routecraft"), { recursive: true });
+    writeFileSync(
+      join(root, ".routecraft", "settings.yaml"),
+      "profile: ing\nprofiles:\n  ing:\n    url: http://127.0.0.1:9090\n",
+      "utf8",
+    );
+
+    const { resolveSettings } = await import("../src/settings.js");
+    const settings = resolveSettings({ cwd: root, home: root, env: {} });
+    expect(settings.profile?.value).toBe("ing");
+
+    loadEnvironment({ profile: settings.profile?.value, defaultsFrom: root });
+    expect(process.env["RC_MODE"]).toBe("ing");
   });
 });

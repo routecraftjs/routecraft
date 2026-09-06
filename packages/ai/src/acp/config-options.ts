@@ -210,19 +210,36 @@ export function decideConfigOption(
     return { kind: "refused", reason: `no agent named "${state.agent}"` };
   }
   if (configId === CONFIG_MODEL) {
-    if (!advertisedModels(registered).includes(value as never)) {
+    const offered = advertisedModels(registered);
+    if (!isOffered(offered, value)) {
       return {
         kind: "refused",
         reason: `"${value}" is not one of the models this agent offers`,
       };
     }
-    return { kind: "overrides", overrides: { model: value as never } };
+    return { kind: "overrides", overrides: { model: value } };
   }
-  if (!advertisedReasoning(registered).includes(value as never)) {
+  const offered = advertisedReasoning(registered);
+  if (!isOffered(offered, value)) {
     return {
       kind: "refused",
       reason: `"${value}" is not one of the thinking levels this agent offers`,
     };
   }
-  return { kind: "overrides", overrides: { reasoning: value as never } };
+  return { kind: "overrides", overrides: { reasoning: value } };
+}
+
+/**
+ * Whether a client's string is one the agent advertised.
+ *
+ * A predicate rather than a cast at the write, because the write is the
+ * last place an unadvertised value could enter a stored record: `as never`
+ * silences the compiler in both directions, so a later edit that moved the
+ * guard would still compile.
+ */
+function isOffered<T extends string>(
+  offered: readonly T[],
+  value: string,
+): value is T {
+  return (offered as readonly string[]).includes(value);
 }

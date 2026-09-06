@@ -14,6 +14,7 @@ import {
   type ExchangeHeaders,
   type Principal,
 } from "@routecraft/routecraft";
+import type { SessionUpdate } from "@agentclientprotocol/sdk";
 import type { AgentDelta } from "../agent/events.ts";
 import { ADAPTER_AGENT_REGISTRY } from "../agent/store.ts";
 import { AgentSessionRuntime } from "../agent/session/index.ts";
@@ -61,6 +62,8 @@ export interface AcpPromptBody {
 interface LiveTurn {
   readonly updates: TurnUpdates;
   readonly payloads: boolean;
+  /** The conversation, so a dropped update names one in the log. */
+  readonly session: string;
 }
 
 /**
@@ -150,7 +153,8 @@ export class AcpRuntime {
     };
 
     on("route:agent:tool:invoked", (turn, details) => {
-      void turn.updates.push(
+      this.tell(
+        turn,
         toolCallUpdate(
           details.toolCallId,
           details.toolName,
@@ -160,7 +164,8 @@ export class AcpRuntime {
       );
     });
     on("route:agent:tool:result", (turn, details) => {
-      void turn.updates.push(
+      this.tell(
+        turn,
         toolResultUpdate(
           details.toolCallId,
           details._snapshot?.output,
@@ -169,7 +174,8 @@ export class AcpRuntime {
       );
     });
     on("route:agent:tool:error", (turn, details) => {
-      void turn.updates.push(
+      this.tell(
+        turn,
         toolFailedUpdate(
           details.toolCallId,
           `${details.toolName} failed: ${details.errorName}`,
@@ -177,11 +183,36 @@ export class AcpRuntime {
       );
     });
     on("route:agent:tool:refused", (turn, details) => {
-      void turn.updates.push(
+      this.tell(
+        turn,
         toolFailedUpdate(
           details.toolCallId,
           `${details.toolName} was refused${details.rc === undefined ? "" : ` (${details.rc})`}`,
         ),
+      );
+    });
+  }
+
+  /**
+   * Push one update at the editor, and handle the failure here.
+   *
+   * Nobody awaits a tool event: the turn belongs to the route, not to the
+   * connection. So this is the boundary for a send that fails, and a
+   * closed connection is the ordinary way it does, when somebody shuts
+   * their editor while a turn is still running. Debug rather than warn for
+   * exactly that reason. Left unhandled, the rejection reaches the process
+   * and takes down an instance serving everybody else.
+   *
+   * The branch is defence rather than a fix for an observed failure: the
+   * disconnect sequences reachable from a test all settle the turn before
+   * an event can land on a dead connection, so `acp-streaming` exercises
+   * the sequence without provoking the send failure itself.
+   */
+  private tell(turn: LiveTurn, update: SessionUpdate): void {
+    turn.updates.push(update).catch((error: unknown) => {
+      this.context.logger.debug(
+        { err: error, session: turn.session, source: "acp" },
+        "Dropped a tool update: the editor is no longer listening",
       );
     });
   }
@@ -222,6 +253,7 @@ export class AcpRuntime {
     this.turns.set(correlationId, {
       updates,
       payloads: this.toolCallPayloads,
+      session: key.session,
     });
     // The turn is findable by its correlation id as well as by the header,
     // so a route the agent calls as a hand can reach the person too.

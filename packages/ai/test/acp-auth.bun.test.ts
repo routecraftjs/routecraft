@@ -264,4 +264,173 @@ describe("the ACP mount's door", () => {
     );
     expect(listed.sessions).toHaveLength(2);
   });
+
+  /**
+   * @case Two initializes racing inside the body read each bind to their own caller
+   * @preconditions Alice and Bob each hold a conversation, then two initialize requests overlap: Bob's headers arrive first but his body is delivered in two chunks, so Alice's whole request completes inside the gap
+   * @expectedResult Bob's connection lists Bob's conversation and not Alice's, because the principal a connection is built with is the one that sent its own request rather than whichever arrived most recently
+   */
+  test("a connection is bound to its own caller, not the latest one", async () => {
+    h = await walled();
+    llm.script.push({ text: "a" }, { text: "b" });
+
+    const alices = await h.connect(
+      (agent) =>
+        agent.buildSession("/alice").withSession(async (session) => {
+          await session.prompt("hello");
+          return session.sessionId;
+        }),
+      { token: "alice-token" },
+    );
+    const bobs = await h.connect(
+      (agent) =>
+        agent.buildSession("/bob").withSession(async (session) => {
+          await session.prompt("hello");
+          return session.sessionId;
+        }),
+      { token: "bob-token" },
+    );
+
+    // Two owners, each holding a conversation, so a connection bound to
+    // the wrong one would have somebody else's to reach.
+    expect(alices).not.toBe(bobs);
+
+    const opens: Array<{ subject?: string }> = [];
+    h.t.ctx.on("*", (payload) => {
+      if (payload._event === "plugin:acp:connection:opened") {
+        opens.push(payload.details as { subject?: string });
+      }
+    });
+
+    const initialize = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: { protocolVersion: 1, clientCapabilities: {} },
+    });
+    // Bob's body arrives in two pieces. Everything Alice does happens in
+    // the gap, which is the window the mount used to hold one caller in.
+    const split = Math.floor(initialize.length / 2);
+    let releaseRest: (() => void) | undefined;
+    const opened = new Promise<void>((resolve) => {
+      releaseRest = resolve;
+    });
+    const encoder = new TextEncoder();
+    const body = new ReadableStream<Uint8Array>({
+      async start(controller) {
+        controller.enqueue(encoder.encode(initialize.slice(0, split)));
+        await opened;
+        controller.enqueue(encoder.encode(initialize.slice(split)));
+        controller.close();
+      },
+    });
+
+    const bobsConnection = fetch(h.url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer bob-token",
+      },
+      body,
+      // Streaming a request body needs the half-duplex opt-in.
+      duplex: "half",
+    } as RequestInit);
+
+    // Alice initializes and finishes entirely while Bob's body is stalled.
+    await h.connect(async () => undefined, { token: "alice-token" });
+    releaseRest?.();
+
+    const response = await bobsConnection;
+    expect(response.status).toBe(200);
+    expect(response.headers.get("Acp-Connection-Id")).not.toBeNull();
+
+    // The subject each connection was built with, from the mount's own
+    // event. With the principal held in a shared slot, Bob's connection is
+    // built with whoever initialized while his body was still arriving.
+    const bound = opens.map((one) => one.subject);
+    expect(bound).toEqual(["alice", "bob"]);
+  });
+
+  /**
+   * @case A refusal tells the caller where to go, through the one builder every routecraft surface uses
+   * @preconditions A walled mount answering a request that carries no credential, and one that carries a rejected credential
+   * @expectedResult Both challenges carry the realm and an absolute RFC 9728 resource_metadata URL, so the CLI's refusal enrichment names the issuer and the scope instead of printing a bare refusal
+   */
+  test("a 401 hints, and hints absolutely", async () => {
+    h = await walled();
+
+    const initialize = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: { protocolVersion: 1, clientCapabilities: {} },
+    });
+    const post = (headers: Record<string, string>): Promise<Response> =>
+      fetch(h!.url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...headers },
+        body: initialize,
+      });
+
+    for (const headers of [
+      {},
+      { Authorization: "Bearer not-a-token" },
+    ] as Array<Record<string, string>>) {
+      const refused = await post(headers);
+      expect(refused.status).toBe(401);
+      const challenge = refused.headers.get("WWW-Authenticate") ?? "";
+      expect(challenge).toStartWith("Bearer ");
+      expect(challenge).toContain('realm="routecraft"');
+      // Absolute, because a relative hint breaks behind a reverse proxy.
+      expect(challenge).toMatch(
+        /resource_metadata="https?:\/\/[^"]*\/\.well-known\/oauth-protected-resource/,
+      );
+    }
+  });
+
+  /**
+   * @case A stale token is handshake noise, a bad one is worth a look
+   * @preconditions A walled mount whose validator refuses one token as expired and another as invalid
+   * @expectedResult The expired token is logged at debug and the invalid one at warn, so a fleet of editors refreshing stale tokens does not bury the refusals that mean something
+   */
+  test("routine refusals do not reach warn", async () => {
+    h = await walled();
+    const levels: string[] = [];
+    const logger = h.t.ctx.logger as unknown as Record<
+      string,
+      (...args: unknown[]) => void
+    >;
+    for (const level of ["debug", "warn"] as const) {
+      const real = logger[level]!.bind(logger);
+      logger[level] = (...args: unknown[]) => {
+        const detail = args[0] as { source?: string } | undefined;
+        if (detail?.source === "acp") levels.push(level);
+        real(...args);
+      };
+    }
+
+    const initialize = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: { protocolVersion: 1, clientCapabilities: {} },
+    });
+    const post = (authorization: string): Promise<Response> =>
+      fetch(h!.url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          Authorization: authorization,
+        },
+        body: initialize,
+      });
+
+    // A scheme this door does not speak is a probe, not an incident.
+    expect((await post("Basic Zm9vOmJhcg==")).status).toBe(401);
+    expect(levels).toEqual(["debug"]);
+
+    // A bearer that fails validation is worth a look.
+    expect((await post("Bearer not-a-token")).status).toBe(401);
+    expect(levels).toEqual(["debug", "warn"]);
+  });
 });

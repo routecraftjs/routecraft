@@ -33,6 +33,19 @@ const AGENT = {
   },
 };
 
+/** How long the slow hand takes, so a turn outlives its connection. */
+const SLOW_MS = 150;
+
+/** A hand slow enough that the connection can go while it is still running. */
+const slowEchoFn = {
+  description: "Echoes what it was given, slowly",
+  input: z.object({ what: z.string() }),
+  handler: async (input: unknown) => {
+    await new Promise((resolve) => setTimeout(resolve, SLOW_MS));
+    return `echo:${(input as { what: string }).what}`;
+  },
+};
+
 /** A tool the turn calls between two deltas. */
 const echoFn = {
   description: "Echoes what it was given",
@@ -215,5 +228,42 @@ describe("the ACP transport", () => {
         (entry) => (entry.update as { sessionUpdate: string }).sessionUpdate,
       ),
     ).toEqual(["agent_thought_chunk", "agent_message_chunk"]);
+  });
+
+  /**
+   * @case A turn whose tool events land after the editor has gone is survivable
+   * @preconditions A turn calling a slow hand, on a connection the client closes as soon as the turn returns, with an unhandled-rejection guard installed
+   * @expectedResult The instance stays up and no rejection escapes to the process. This exercises the disconnect sequence rather than pinning the send-failure branch: see the note in the runtime's `tell`, which handles a rejection this test could not be made to provoke
+   */
+  test("a disconnect around a turn is survivable", async () => {
+    h = await acpHarness({
+      agents: {
+        max: { ...AGENT.max, tools: tools(["echo"]) },
+      },
+      plugins: [agentPlugin({ functions: { echo: slowEchoFn } })],
+    });
+    llm.script.push(
+      { toolCalls: [{ toolName: "echo", input: { what: "hi" } }] },
+      { text: "done" },
+    );
+
+    const unhandled: unknown[] = [];
+    const onUnhandled = (reason: unknown): void => {
+      unhandled.push(reason);
+    };
+    process.on("unhandledRejection", onUnhandled);
+    try {
+      const stopReason = await h.connect((agent) =>
+        agent
+          .buildSession("/work")
+          .withSession((session) => session.prompt("go")),
+      );
+      expect(stopReason.stopReason).toBe("end_turn");
+      await new Promise((resolve) => setTimeout(resolve, SLOW_MS));
+    } finally {
+      process.off("unhandledRejection", onUnhandled);
+    }
+
+    expect(unhandled).toEqual([]);
   });
 });

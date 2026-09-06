@@ -86,9 +86,14 @@ async function selectEnvironment(
   const { loadEnvironment } = await import("./util.js");
   const { resolveSettings, SettingsError } = await import("./settings.js");
   try {
-    const settings = resolveSettings(
-      options.profile === undefined ? {} : { profile: options.profile },
-    );
+    // Resolved under the project root, not the shell's directory: the file
+    // that declares a profile and the env files that profile selects have
+    // to be the same project's, or `craft start ./apps/eywa` reads one
+    // project's profile and another's environment.
+    const settings = resolveSettings({
+      cwd: projectRoot,
+      ...(options.profile === undefined ? {} : { profile: options.profile }),
+    });
     loadEnvironment({
       explicit: options.env,
       profile: settings.profile?.value,
@@ -128,9 +133,7 @@ program
 
     const selected = await selectEnvironment(options, process.cwd());
     if (selected.error !== undefined) {
-      // eslint-disable-next-line no-console
-      console.error(selected.error);
-      setImmediate(() => process.exit(2));
+      settle({ code: 2, error: selected.error });
       return;
     }
 
@@ -198,9 +201,7 @@ program
       // read `process.env` at module scope.
       const selected = await selectEnvironment(options, projectRoot);
       if (selected.error !== undefined) {
-        // eslint-disable-next-line no-console
-        console.error(selected.error);
-        setImmediate(() => process.exit(2));
+        settle({ code: 2, error: selected.error });
         return;
       }
 
@@ -399,14 +400,11 @@ program
     }) => {
       applyGlobalLogOptions();
       const { acpCommand } = await import("./acp.js");
-      const result = await acpCommand(options);
-      // Standard output is the protocol's, so nothing but protocol frames
-      // is ever written to it; a diagnosis goes to standard error.
-      if (result.error !== undefined) {
-        // eslint-disable-next-line no-console
-        console.error(result.error);
-      }
-      setImmediate(() => process.exit(result.code));
+      // Standard output is the protocol's, and `settle` writes there only
+      // for a result carrying `output`, which this one never does. What it
+      // adds is the awaited write: an editor spawns this with a pipe on
+      // standard error, where an exit discards whatever is still queued.
+      settle(await acpCommand(options));
     },
   );
 
