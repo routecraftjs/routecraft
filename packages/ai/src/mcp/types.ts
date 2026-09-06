@@ -340,7 +340,8 @@ export interface McpPluginOptions {
   /**
    * Icons identifying this server, forwarded as MCP `serverInfo.icons` and
    * inherited by tools that do not set their own icons. Defaults to the
-   * Routecraft logo (light and dark variants) when unset; pass an empty array
+   * Routecraft logo (PNG and SVG, light and dark variants) when unset; pass an
+   * empty array
    * (`[]`) to serve no icon.
    */
   icons?: McpIcon[];
@@ -588,7 +589,7 @@ export interface McpIcon {
   /** MIME type of the icon, e.g. `"image/svg+xml"` or `"image/png"`. */
   mimeType?: string;
   /** One or more icon sizes, e.g. `["48x48"]` or `["48x48", "96x96"]`. */
-  sizes?: string[];
+  sizes?: readonly string[];
   /** The client UI theme this icon is designed for. */
   theme?: "light" | "dark";
 }
