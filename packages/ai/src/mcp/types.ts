@@ -340,7 +340,8 @@ export interface McpPluginOptions {
   /**
    * Icons identifying this server, forwarded as MCP `serverInfo.icons` and
    * inherited by tools that do not set their own icons. Defaults to the
-   * Routecraft logo (light and dark variants) when unset; pass an empty array
+   * Routecraft logo (PNG and SVG, light and dark variants) when unset; pass an
+   * empty array
    * (`[]`) to serve no icon.
    */
   icons?: McpIcon[];

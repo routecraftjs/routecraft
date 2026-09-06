@@ -317,18 +317,22 @@ describe("McpServer", () => {
   });
 
   /**
-   * @case The default set offers each theme an icon in a MIME type clients must support
+   * @case Each theme offers the must-support PNG and the scalable SVG, PNG first
    * @preconditions None; asserts against the exported default icon set directly
-   * @expectedResult Both the light and dark variants include an image/png entry
+   * @expectedResult Each theme carries exactly image/png then image/svg+xml, so
+   *   dropping either format or reordering the pair fails rather than shipping
    */
-  test("default icons offer a must-support MIME type per theme", () => {
-    const themesWithoutPng = (["light", "dark"] as const).filter(
-      (theme) =>
-        !ROUTECRAFT_DEFAULT_ICONS.some(
-          (icon) => icon.theme === theme && icon.mimeType === "image/png",
-        ),
-    );
-    expect(themesWithoutPng).toEqual([]);
+  test("default icons offer PNG then SVG for each theme", () => {
+    const formatsByTheme = (["dark", "light"] as const).map((theme) => [
+      theme,
+      ROUTECRAFT_DEFAULT_ICONS.filter((icon) => icon.theme === theme).map(
+        (icon) => icon.mimeType,
+      ),
+    ]);
+    expect(formatsByTheme).toEqual([
+      ["dark", ["image/png", "image/svg+xml"]],
+      ["light", ["image/png", "image/svg+xml"]],
+    ]);
   });
 
   /**

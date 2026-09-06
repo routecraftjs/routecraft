@@ -9,13 +9,8 @@ const logoSvg = (fill: string): string =>
   `<svg width="200" height="200" viewBox="0 0 200 200" fill="${fill}" xmlns="http://www.w3.org/2000/svg"><path d="M125 175H75V125L125 175ZM175 175H125V125L175 175ZM125 25C152.614 25 175 47.3858 175 75C175 102.614 152.614 125 125 125V75H75L125 125H75L25 75V25H125Z" /></svg>`;
 
 /**
- * The same mark rasterised to a 96x96 PNG, one constant per fill.
- *
- * A client that renders icons is required to support PNG and only ought to
- * support SVG, and it may refuse SVG deliberately because SVG can carry
- * script. An SVG-only default is therefore one a conforming client can ignore
- * without breaking any rule, leaving the deployment with no mark at all.
- * 96x96 covers the ~48px slot a connector list gives an icon at 2x density.
+ * The same mark rasterised to a 96x96 PNG, one constant per fill. 96x96 covers
+ * the ~48px slot a connector list gives an icon at 2x density.
  *
  * Rasterised from `logoSvg` above with resvg at width 96. Regenerate both when
  * that geometry changes; nothing checks that they still agree.
@@ -30,6 +25,17 @@ const toSvgDataUri = (svg: string): string =>
 
 const toPngDataUri = (base64: string): string =>
   `data:image/png;base64,${base64}`;
+
+/**
+ * Deep-freeze one icon. `Object.freeze` is shallow, so `sizes` would otherwise
+ * stay mutable inside the frozen shared constant and one stray `push` would
+ * corrupt the advertised icons for every server and tool in the process.
+ */
+const frozenIcon = (icon: McpIcon): McpIcon =>
+  Object.freeze({
+    ...icon,
+    ...(icon.sizes ? { sizes: Object.freeze(icon.sizes) as string[] } : {}),
+  }) as McpIcon;
 
 /**
  * Default Routecraft branding for `serverInfo.icons` when a consumer does not
@@ -49,25 +55,25 @@ const toPngDataUri = (base64: string): string =>
 // serverInfo and every inheriting tool; freezing prevents an accidental in-place
 // mutation from leaking process-wide into the shared default.
 export const ROUTECRAFT_DEFAULT_ICONS: McpIcon[] = Object.freeze([
-  Object.freeze({
+  frozenIcon({
     src: toPngDataUri(logoPngWhiteBase64),
     mimeType: "image/png",
     sizes: ["96x96"],
     theme: "dark",
   }),
-  Object.freeze({
+  frozenIcon({
     src: toSvgDataUri(logoSvg("#ffffff")),
     mimeType: "image/svg+xml",
     sizes: ["any"],
     theme: "dark",
   }),
-  Object.freeze({
+  frozenIcon({
     src: toPngDataUri(logoPngBlackBase64),
     mimeType: "image/png",
     sizes: ["96x96"],
     theme: "light",
   }),
-  Object.freeze({
+  frozenIcon({
     src: toSvgDataUri(logoSvg("#000000")),
     mimeType: "image/svg+xml",
     sizes: ["any"],
