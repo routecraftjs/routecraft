@@ -120,7 +120,7 @@ The loader is deliberately tolerant so an existing agent file works without edit
 |-------|----------------|
 | `tools` | A YAML array (`- Direct(cancel-order)`) or Claude's comma-separated string (`tools: Read, Grep, echo`) |
 | `disallowedTools` | Same two forms. Removes references from **this agent's own** list |
-| `model` | A full `provider:model` reference, or the aliases `opus`, `sonnet`, `haiku`, `inherit` |
+| `model` | A full `provider:model` reference, the aliases `opus`, `sonnet`, `haiku`, `inherit`, or a YAML list of any of those |
 | anything else | Ignored with a warning |
 
 **Unknown keys are never fatal.** A file carrying `permissionMode`, `color`, `hooks` or a key a future version of another harness introduces still loads; each ignored key is warned about once. The two Routecraft-owned keys `blocks` and `output` are the exception and still throw, because they point at a real mistake: their values cannot be expressed in YAML and belong in the override map.
@@ -136,6 +136,32 @@ The loader is deliberately tolerant so an existing agent file works without edit
 Setting `disallowedTools` with no `tools` throws `RC5003` at load. There is no reading of that file the runtime can honour: with no per-agent list the agent inherits the context default, so it would receive the very tools its file denies. A field whose whole purpose is removing capability is not something to fail open on, so it fails loudly instead. List the tools the agent may use in `tools`, or drop `disallowedTools`. Honouring a deny list against inherited defaults is tracked in [#583](https://github.com/routecraftjs/routecraft/issues/583); that is the Claude-faithful end state, and it needs the deny to apply where defaults are merged at dispatch rather than where the file is parsed.
 
 </Callout>
+
+### Offering a choice of model or thinking level
+
+`model` and `reasoning` each take a list as well as a single value. The first entry is what the agent runs on, and the whole list is what a person may choose from when they are talking to the agent themselves.
+
+```md
+---
+name: max
+description: The house engineer
+model:
+  - anthropic:claude-opus-4-6
+  - anthropic:claude-sonnet-4-6
+reasoning:
+  - medium
+  - none
+  - high
+---
+
+You are Max.
+```
+
+A list of one is the same as the scalar: a choice with one option is not a choice, and nothing is advertised for it. `inherit` is refused inside a list, naming the entry, because a list is the set somebody picks from and "whatever the context defaults to" is not a thing to pick.
+
+Only a [surface that has a picker](/docs/advanced/talk-from-your-editor#choosing-the-persona-model-and-thinking-level) uses these; nothing else in a dispatch changes. A choice that is not on the agent's list is refused with [`AI1017`](/docs/reference/errors#ai-1017), so what an agent runs on is still the agent file's decision rather than the caller's.
+
+In code, the same thing is two fields on the registered options rather than a union: `models` and `reasoningLevels` beside `model` and `reasoning`.
 
 ### The `skills:` frontmatter key
 

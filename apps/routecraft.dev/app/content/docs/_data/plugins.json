@@ -29,27 +29,34 @@
   },
   {
     "number": "05",
+    "name": "acpPlugin",
+    "module": "@routecraft/ai",
+    "hint": "Editor protocol mount.",
+    "description": "Serve the Agent Client Protocol so a person can talk to this instance's agents from their editor, on the same server and behind the same wall as everything else."
+  },
+  {
+    "number": "06",
     "name": "httpPlugin",
     "module": "@routecraft/routecraft",
     "hint": "HTTP routing.",
     "description": "Expose routes over HTTP via the http() source, mounted as the catch-all surface on a named server; JWT, JWKS, or API-key auth at the plugin boundary."
   },
   {
-    "number": "06",
+    "number": "07",
     "name": "serversPlugin",
     "module": "@routecraft/routecraft",
     "hint": "Named listeners.",
     "description": "Declare the HTTP listeners the app binds, by name. HTTP, MCP, and custom plugins mount paths on a shared listener; a surface gets a dedicated port by declaring another named server."
   },
   {
-    "number": "07",
+    "number": "08",
     "name": "opsPlugin",
     "module": "@routecraft/routecraft",
     "hint": "Health and readiness.",
     "description": "Serve liveness, readiness, and operational health, mounted on a named server. Route lifecycle and circuit-breaker state are derived from events the framework already emits; indicators cover dependencies it cannot see."
   },
   {
-    "number": "08",
+    "number": "09",
     "name": "shellPlugin",
     "module": "@routecraft/os",
     "hint": "shell() context defaults.",

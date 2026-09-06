@@ -431,6 +431,22 @@ Listener lifecycle for the MCP HTTP transport is reported by the generic [server
 
 For tools proxied from registered clients via [`mcpPlugin({ proxy })`](/docs/reference/plugins/mcpplugin#proxying-client-tools), the same three events fire with `proxied: true`, the registered client id as `serverId`, and the tool's name on the remote server as `remoteTool` (`tool` is the exposed, possibly renamed, name). A proxied call whose remote result carries `isError: true` fires `plugin:mcp:tool:failed`.
 
+## ACP plugin events
+
+Emitted by [`acpPlugin`](/docs/reference/plugins/acpplugin) as editors connect and open conversations. They are what tells an operator who is connected without reading a log line.
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `plugin:acp:connection:opened` | An editor opened a connection and initialized it | `{ connectionId, subject?, clientName? }` |
+| `plugin:acp:connection:closed` | The connection went away | `{ connectionId }` |
+| `plugin:acp:session:attached` | A conversation was opened, loaded or resumed on a connection | `{ connectionId, sessionId, agentName, how }` |
+
+`subject` is who the mount's validator admitted, absent on a mount with no wall. `clientName` is what the editor calls itself at `initialize`, which is the only thing that tells two editors on one machine apart.
+
+`how` says which way a conversation was taken hold of: `new` minted the id, `load` replayed the stored transcript onto a fresh connection, and `resume` attached to it without replaying. Closing a connection is not closing a conversation: the transcript outlives every connection, and reconnecting reaches the same one by its id.
+
+What the agent does inside a turn is not repeated here. A prompt runs an ordinary route, so it reports itself through the [agent operations](#agent-operations) and the [exchange events](#exchange-events) like any other dispatch.
+
 ## Agent registration events
 
 Emitted by [`agentPlugin`](/docs/reference/plugins/agentplugin) on

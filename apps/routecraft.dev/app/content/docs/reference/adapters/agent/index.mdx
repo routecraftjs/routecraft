@@ -87,6 +87,8 @@ They apply to every model call in a run: the first turn, each tool-calling turn,
 | Option | Type | Default | Required | Description |
 |--------|------|---------|----------|-------------|
 | `description` | `string` | -- | Yes | Human-readable description. Surfaces in observability and is used as the tool description when the agent is exposed to other agents |
+| `models` | `readonly LlmModelId[]` | -- | No | The models a person talking to this agent may choose from. `model` stays what it runs on. A list of fewer than two advertises nothing. See [Offering a choice](/docs/reference/plugins/agentplugin#offering-a-choice-of-model-or-thinking-level) |
+| `reasoningLevels` | `readonly LlmReasoningEffort[]` | -- | No | The thinking levels a person may choose from, on the same terms as `models` |
 
 The id is the record key in `agentPlugin({ agents: { [id]: {...} } })`.
 
@@ -178,7 +180,7 @@ agent('max', { session: (ex) => `${ex.principal?.subject}:${ex.body.session}` })
 
 A session several principals share on purpose (a webhook, a mail reply and a terminal all posting into one conversation) keeps the id as the caller names it and restricts posting by role or scope at the route, and reads the attribution to tell them apart. A runtime allowlist of subjects per session is not built.
 
-Every session is listable on the management API at [`GET /ops/agent-sessions`](/docs/reference/plugins/opsplugin#contributed-resources), with its turn state and inbox depth, and `craft chat` is a terminal on this: see the [CLI reference](/docs/reference/cli#chat).
+Every session is listable on the management API at [`GET /ops/agent-sessions`](/docs/reference/plugins/opsplugin#contributed-resources), with its turn state and inbox depth, and an editor speaking the Agent Client Protocol is a client on this: see [Talk from your editor](/docs/advanced/talk-from-your-editor).
 
 #### Streaming the reply
 

@@ -237,6 +237,15 @@
     "description": "Generate vector embeddings from text."
   },
   {
+    "name": "surface",
+    "category": "AI",
+    "roles": [
+      "Enricher",
+      "Destination"
+    ],
+    "description": "Reach the person whose turn the route is running on: ask their editor something and wait for the answer, or push an update at it."
+  },
+  {
     "name": "group",
     "category": "Clustering",
     "roles": [

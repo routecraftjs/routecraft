@@ -1,0 +1,80 @@
+---
+title: surface
+---
+
+<Lead>
+[← All adapters](/docs/reference/adapters)
+</Lead>
+
+```ts
+import { surface, hasSurface } from '@routecraft/ai'
+```
+
+Reach the person whose turn a route is running on. When somebody talks to an agent from their [editor](/docs/advanced/talk-from-your-editor), the editor is a program that can read a file, run a command, show a plan or ask a question, and `surface` is the one seam a capability uses to ask it.
+
+Two roles, because a route does two different things with a surface:
+
+- `surface(method, params)` is an **enricher**. It asks, and the turn waits for the answer, which is what an approval is.
+- `surface.notify(update)` is a **destination**. It tells, and nothing waits.
+
+```ts
+import { craft, direct } from '@routecraft/routecraft'
+import { surface } from '@routecraft/ai'
+
+craft()
+  .id('read-file')
+  .from<{ path: string }>(direct())
+  .enrich(
+    surface('fs/read_text_file', (ex) => ({
+      sessionId: '',
+      path: ex.body.path,
+    })),
+  )
+```
+
+`sessionId` is filled in from the running turn, so a route never has to carry it: the surface knows which conversation it is serving. Pass the empty string and it is replaced.
+
+## What a method may be
+
+The method names and their shapes come from the Agent Client Protocol's own generated types rather than being restated here, so a method the protocol adds is callable the day the SDK ships it and one it never had does not typecheck. Today that is the client half of the protocol: reading and writing files, terminals, and elicitation.
+
+The framework provides the seam and ships **none** of the capabilities that use it. Reading a file through the editor, running something there, showing a plan: each is an ordinary route somebody else owns, with its own guardrails written where a reader of that route can see and change them. That is the same line the framework draws for tool calls, and it is why there is one adapter here and no `readFile()` beside it.
+
+## Guarding the call
+
+```ts skip="fragment: the branches are illustrative"
+import { craft, direct } from '@routecraft/routecraft'
+import { hasSurface, surface } from '@routecraft/ai'
+
+craft()
+  .id('confirm-or-proceed')
+  .from(direct())
+  .choice()
+  .when((ex) => hasSurface(ex))
+  .enrich(surface('session/request_permission', () => ({ sessionId: '', options: [] })))
+  .otherwise()
+  .end()
+```
+
+`hasSurface(exchange)` is the guard a route branches on so the same route works from an editor and from a schedule. Asking without it is not a silent no-op: it throws.
+
+## How it fails
+
+Four ways, each with a different fix, which is why each has its own code:
+
+| Code | What happened | What to do |
+| --- | --- | --- |
+| [`AI1013`](/docs/reference/errors#ai-1013) | The route ran outside a surfaced turn | Guard with `hasSurface`, or take another path |
+| [`AI1014`](/docs/reference/errors#ai-1014) | The surface disconnected mid-turn | Nothing to retry against on this exchange |
+| [`AI1015`](/docs/reference/errors#ai-1015) | The client never advertised the capability | Configuration, on the editor's side |
+| [`AI1016`](/docs/reference/errors#ai-1016) | The client refused or failed the call | Handle it: a person saying no arrives this way, and is a normal outcome |
+
+`AI1015` is checked before the call rather than discovered from its failure. A client that never offered a method may answer anything at all, or nothing, and a route deserves to be told it is a configuration mismatch rather than left waiting.
+
+## How far it reaches
+
+A capability the turn calls is not the same exchange as the turn. `surface` resolves the connection two ways so both work: the surface travels on the turn's own headers, and a route the turn dispatches to carries the correlation id instead of the whole header bag. That is what lets a capability three hops from the prompt still reach the person who typed it.
+
+## Backends
+
+`acp` is the only surface kind today, registered by [`acpPlugin`](/docs/reference/plugins/acpplugin) while an editor is connected. Nothing in the adapter knows how the connection is transported, which is what lets a second backend arrive without the routes changing.

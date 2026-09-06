@@ -416,6 +416,10 @@ LOG_LEVEL=debug
 NODE_ENV=development
 ```
 
+`.env` is read first, then `.env.<profile>` when a [settings profile](/docs/reference/cli#profiles) is selected, then `.env.local`, each overriding the one before it. A profile can also name one exact file or carry its values inline, and `--env <path>` overrides all of it; the [CLI reference](/docs/reference/cli#the-environment-a-profile-selects) owns that chain in full.
+
+The environment is in place before `craft.config.ts` is imported, which is what lets the config file read `process.env` at module scope.
+
 ---
 
 ## Related

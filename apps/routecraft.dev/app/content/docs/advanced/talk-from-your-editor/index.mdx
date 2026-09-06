@@ -1,0 +1,129 @@
+---
+title: Talk from your editor
+---
+
+<Lead>
+Point an editor at a running instance and talk to its agents, over a protocol editors already speak.
+</Lead>
+
+An agent that only answers a route is an agent nobody talks to. The [Agent Client Protocol](https://agentclientprotocol.com) is the protocol editors already implement for exactly this, so an instance that speaks it is reachable from a place a person already has open, with the transcript, the tools and the guardrails the instance already has.
+
+Routecraft serves it as a mount, beside the MCP mount and the HTTP surface, on the same server and behind the same wall. There is nothing new to run and nothing new to secure.
+
+## Serving it
+
+```ts
+import { defineConfig } from '@routecraft/routecraft'
+import { acpPlugin, agentPlugin, agents } from '@routecraft/ai'
+
+export const craftConfig = defineConfig({
+  servers: {
+    default: { port: 8080 },
+  },
+  plugins: [
+    agentPlugin({ agents: await agents('./agents') }),
+    acpPlugin(),
+  ],
+})
+```
+
+`acpPlugin()` serves every agent the context holds at `/acp`. It builds one route per agent when it applies, so it goes **after** the `agentPlugin()` that registers them; a context with an empty registry fails the build saying so, rather than serving a protocol with nothing behind it. Every option is in the [plugin reference](/docs/reference/plugins/acpplugin).
+
+## Connecting an editor
+
+An editor starts one process and speaks the protocol over its standard input and output. `craft acp` is that process:
+
+```json
+{
+  "agent_servers": {
+    "routecraft": {
+      "command": "craft",
+      "args": ["acp", "--profile", "company"]
+    }
+  }
+}
+```
+
+The exact file depends on the editor; the command is the same everywhere. `craft acp` is a pipe and nothing else: every message crosses it verbatim in both directions, and it never starts an app. `craft start` owns running, which is what lets one editor entry reach a laptop or a company instance by switching a [profile](/docs/reference/cli#profiles) and changing nothing else.
+
+There is no login. The profile's `token:` authenticates, exactly as it does for `craft exec` and `craft ops`, and it travels as `Authorization: Bearer` on every request. See [`craft acp`](/docs/reference/cli#acp) for the flags.
+
+## What a conversation is
+
+A conversation is an [agent session](/docs/reference/adapters/agent#sessions-an-agent-that-remembers): a record in the instance's store, not a process on your machine. That is what the editor's conversation list is reading, and it has consequences worth knowing:
+
+- **It outlives the connection.** Close the editor, restart it, connect from another machine, and the same conversation is there by its id. Loading one replays the transcript into the editor so the history is on screen rather than merely on the server.
+- **It outlives the instance.** A restart does not lose it.
+- **One turn runs at a time.** A message sent while a turn is running is queued and answered by the turn that consumes it, which is the same rule every other caller of that session gets. Cancelling from the editor interrupts the running turn and keeps its partial transcript.
+- **Somebody else can be in it too.** A webhook or a mail reply dispatching to the same session id posts into the same conversation.
+
+## A conversation belongs to the person who started it
+
+The mount lists, loads and resumes only the conversations whose owner matches the caller's subject. Somebody else's session id is answered as if it did not exist, so probing for one tells the prober nothing about whether it is there.
+
+A mount with no wall has no subjects to tell apart, and every conversation on it belongs to the same unnamed person. That is the right behaviour for a laptop and the wrong one for a shared instance, which is the argument for putting a wall on it: see [Securing capabilities](/docs/advanced/securing-capabilities).
+
+The management API's session listing is the operator's view and deliberately not filtered this way. An operator is looking at the instance rather than at their own conversations.
+
+## Choosing the persona, model and thinking level
+
+Editors render the protocol's config options as pickers, and the mount advertises three of them:
+
+| Option | What it changes | Advertised when |
+| --- | --- | --- |
+| `agent` | Which persona answers | The context holds more than one agent |
+| `model` | Which model this conversation runs on | The agent file lists more than one |
+| `reasoning` | How hard it thinks per turn | The agent file lists more than one |
+
+A control with nothing to choose is not advertised at all, so an instance with one agent and one model shows no pickers rather than three dead ones. Agent files declare what they offer by writing a list instead of a value: see [Offering a choice](/docs/reference/plugins/agentplugin#offering-a-choice-of-model-or-thinking-level).
+
+The persona can be changed only before the first turn. The conversation is stored under the agent it belongs to, so an early change re-keys an empty record and a late one would have to rewrite a transcript into a voice that did not say it. The mount refuses the late change with the unchanged list rather than pretending.
+
+An editor that has no picker names its persona another way: `craft acp --agent zoe` sends a `Routecraft-Agent` header the mount reads.
+
+## What the editor sees while a turn runs
+
+Token deltas stream as the model produces them, thinking arrives as thought rather than as text, and every tool call appears as it starts and is updated when it ends.
+
+A tool call's arguments and result reach the editor too, which is what makes an expandable call worth expanding. On an instance serving people other than its operator, consider turning that off with `toolCallPayloads: false`: a hand's arguments routinely carry a credential, a customer's address or a mail body, and an editor is a third program that renders and logs whatever it is handed. The call itself stays visible either way.
+
+## Reaching back into the editor
+
+The editor is a program that can read a file, run a command and ask its user a question, and a capability running inside a turn can use that:
+
+```ts
+import { craft, direct } from '@routecraft/routecraft'
+import { surface } from '@routecraft/ai'
+
+craft()
+  .id('read-file')
+  .from<{ path: string }>(direct())
+  .enrich(
+    surface('fs/read_text_file', (ex) => ({
+      sessionId: '',
+      path: ex.body.path,
+    })),
+  )
+```
+
+The framework provides the seam and ships none of the capabilities that use it. Reading a file through the editor is an ordinary route somebody owns, with its own `.authorize()` written where a reader of that route can see it. That is the same line the framework draws for tool calls. The [`surface` reference](/docs/reference/adapters/surface) has the roles, the failure codes and the guard that keeps one route working from an editor and from a schedule alike.
+
+## What this is not
+
+**It is not a second security model.** A prompt runs an ordinary route under the principal of the person who typed it, and every tool authorizes that principal on every call. Every agent the context holds is offered to every credential holder: agents are not what carries the security here, hands are.
+
+**It is not a place to configure an app.** The mount serves what the instance already has. Which agents exist, which tools they hold and who may reach them are decisions in `craft.config.ts` and the agent files, where a reviewer reads them.
+
+## Related
+
+<QuickLinks>
+
+<QuickLink title="acpPlugin" icon="presets" href="/docs/reference/plugins/acpplugin" description="Every option the mount takes, and what each one refuses." />
+
+<QuickLink title="craft acp" icon="presets" href="/docs/reference/cli#acp" description="The bridge an editor runs, and the profile that points it somewhere." />
+
+<QuickLink title="surface" icon="presets" href="/docs/reference/adapters/surface" description="Ask the person's editor something from inside a turn." />
+
+<QuickLink title="Durable Agents" icon="theming" href="/docs/advanced/durable-agents" description="What a session is, and what survives a restart." />
+
+</QuickLinks>
