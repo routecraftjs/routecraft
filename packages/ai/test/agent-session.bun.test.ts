@@ -2043,4 +2043,83 @@ describe("agent sessions", () => {
     expect(released.sort()).toEqual(["park-1", "park-2"]);
     expect(await records.get(session)).toBeUndefined();
   });
+
+  /**
+   * @case An update landing while a removal is settling its parks cannot be deleted unaccounted for
+   * @preconditions A session holding a park, removed while a second writer tries to install a new park in the window between the release and the delete, held open deterministically rather than by timing
+   * @expectedResult The concurrent write is refused because the record is claimed, so the removal deletes exactly what it released. Before the claim this window let a fresh continuation be written onto a record about to go, and nothing would ever have settled it
+   */
+  test("a write cannot slip into the gap a removal is standing in", async () => {
+    const store = new MemorySuspensionStore();
+    const records = recordsFor(store);
+    const sessions = new AgentSessionStore(records, store);
+    const session = "claimed";
+
+    await updateRecord(sessions, session, "max", (record) => ({
+      ...record,
+      park: { suspensionId: "park-1", routeId: "r" },
+    }));
+
+    // Hold the removal inside its release, which is the exact window the
+    // race lived in. Deterministic: the test decides when it resumes.
+    let inRelease!: () => void;
+    const entered = new Promise<void>((resolve) => (inRelease = resolve));
+    let resume!: () => void;
+    const held = new Promise<void>((resolve) => (resume = resolve));
+    const released: string[] = [];
+    const realRelease = sessions.releasePark.bind(sessions);
+    sessions.releasePark = async (id: string, reason: string) => {
+      released.push(id);
+      inRelease();
+      await held;
+      return realRelease(id, reason);
+    };
+
+    const removal = sessions.remove(session);
+    await entered;
+
+    // The hazard, attempted at the only moment it was ever reachable.
+    await expect(
+      updateRecord(sessions, session, "max", (record) => ({
+        ...record,
+        park: { suspensionId: "park-2", routeId: "r" },
+      })),
+    ).rejects.toThrow(/is being removed/);
+
+    resume();
+    await removal;
+
+    expect(released).toEqual(["park-1"]);
+    expect(await records.get(session)).toBeUndefined();
+  });
+
+  /**
+   * @case A removal interrupted after claiming still knows what to release
+   * @preconditions A record left in the claimed state by a delete that never finished, carrying the suspension id it had not released
+   * @expectedResult The next removal releases that id and deletes the record. The claim carries the ids forward precisely so a crash between claiming and deleting does not strand a continuation nothing names
+   */
+  test("a removal resumes from a claim left by an interrupted one", async () => {
+    const store = new MemorySuspensionStore();
+    const records = recordsFor(store);
+    const sessions = new AgentSessionStore(records, store);
+    const session = "interrupted";
+
+    // What a process that died between the claim and the delete leaves.
+    await records.create(session, {
+      kind: "agent-session-removing",
+      session,
+      parks: ["orphan-1"],
+    });
+
+    const released: string[] = [];
+    const realRelease = sessions.releasePark.bind(sessions);
+    sessions.releasePark = async (id: string, reason: string) => {
+      released.push(id);
+      return realRelease(id, reason);
+    };
+
+    await sessions.remove(session);
+    expect(released).toEqual(["orphan-1"]);
+    expect(await records.get(session)).toBeUndefined();
+  });
 });

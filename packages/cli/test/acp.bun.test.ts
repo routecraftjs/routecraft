@@ -77,7 +77,13 @@ function serve(): Served {
 
   return {
     url: `http://127.0.0.1:${port}`,
-    stop: () => listener.close(),
+    stop: () => {
+      // Both halves: `close()` alone stops new connections while leaving
+      // the established one open, which is a server draining rather than
+      // an instance going away.
+      listener.closeAllConnections?.();
+      listener.close();
+    },
     authorizations,
     agents,
     prompts,
@@ -307,7 +313,129 @@ profiles:
     expect(result.error).toContain("http://127.0.0.1:1/acp");
     expect(result.error).toContain("flag");
   });
+
+  /**
+   * @case The bridge exits when the instance goes away, even though the editor still holds stdin open
+   * @preconditions A connected bridge whose instance is stopped, with the editor's stdin deliberately never closed, which is what an open editor window looks like from here
+   * @expectedResult `acpCommand` settles. Under `Promise.all` it did not: the instance-to-editor direction ended and the editor-to-instance direction stayed pending on an stdin nobody was going to close, so `craft acp` stayed alive with nothing behind it
+   */
+  test("the instance closing ends the bridge while stdin stays open", async () => {
+    instance = serve();
+    const editor = editorSide([
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: { protocolVersion: 1, clientCapabilities: {} },
+      }),
+    ]);
+
+    const running = acpCommand({
+      url: instance.url,
+      cwd: settings(""),
+      home: emptyHome(),
+      env: {},
+      stdin: editor.stdin,
+      stdout: editor.stdout,
+    });
+    // Connected: the reply came back, so both directions are live.
+    await waitFor(() => editor.read().length >= 1);
+
+    instance.stop();
+    // Note what is NOT done here: editor.finish() is never called, so the
+    // editor side of the pipe stays open exactly as a real one would.
+    const result = await settledWithin(running, 5_000);
+
+    expect(result).not.toBe(TIMED_OUT);
+  });
+
+  /**
+   * @case The editor closing ends the bridge cleanly
+   * @preconditions A connected bridge whose editor closes its side first
+   * @expectedResult Exit 0 and no error. This is the ordinary end of a session, and the sibling direction being cancelled by it must not turn a clean close into a reported failure
+   */
+  test("the editor closing ends the bridge cleanly", async () => {
+    instance = serve();
+    const editor = editorSide([
+      JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "initialize",
+        params: { protocolVersion: 1, clientCapabilities: {} },
+      }),
+    ]);
+
+    const running = acpCommand({
+      url: instance.url,
+      cwd: settings(""),
+      home: emptyHome(),
+      env: {},
+      stdin: editor.stdin,
+      stdout: editor.stdout,
+    });
+    await waitFor(() => editor.read().length >= 1);
+    editor.finish();
+
+    const result = await settledWithin(running, 5_000);
+    expect(result).not.toBe(TIMED_OUT);
+    expect(result).toEqual({ code: 0 });
+  });
+
+  /**
+   * @case A real failure is reported as itself, not as the cancellation it caused
+   * @preconditions A bridge pointed at an address nothing answers on, so one direction fails for a real reason and the other is aborted by this command in response
+   * @expectedResult The message names the address and where it came from. The sibling's abort is an artefact of handling the failure, and reporting it instead would name the cancellation rather than the disconnect that prompted it
+   */
+  test("the reported error is the real one, not the sibling's abort", async () => {
+    const editor = editorSide([
+      JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize" }),
+    ]);
+
+    const result = await settledWithin(
+      acpCommand({
+        url: "http://127.0.0.1:1",
+        cwd: settings(""),
+        home: emptyHome(),
+        env: {},
+        stdin: editor.stdin,
+        stdout: editor.stdout,
+      }),
+      5_000,
+    );
+
+    expect(result).not.toBe(TIMED_OUT);
+    const settled = result as { code: number; error?: string };
+    expect(settled.code).toBe(3);
+    expect(settled.error).toContain("http://127.0.0.1:1/acp");
+    expect(settled.error).not.toContain("abort");
+    expect(settled.error).not.toContain("Abort");
+  });
 });
+
+/** What {@link settledWithin} answers with when the promise never settles. */
+const TIMED_OUT = Symbol("timed out");
+
+/**
+ * Await a promise, or report that it never settled.
+ *
+ * A bridge that fails to shut down hangs rather than fails, and a hung
+ * test reports as a suite timeout naming nothing. This turns the hang into
+ * an assertion that names what did not happen.
+ */
+async function settledWithin<T>(
+  promise: Promise<T>,
+  ms: number,
+): Promise<T | typeof TIMED_OUT> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<typeof TIMED_OUT>((resolve) => {
+    timer = setTimeout(() => resolve(TIMED_OUT), ms);
+  });
+  try {
+    return await Promise.race([promise, timeout]);
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
 
 /** Wait for a condition, bounded, so a failure reports rather than hangs. */
 async function waitFor(condition: () => boolean, ms = 5_000): Promise<void> {

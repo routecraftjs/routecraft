@@ -120,7 +120,7 @@ The loader is deliberately tolerant so an existing agent file works without edit
 |-------|----------------|
 | `tools` | A YAML array (`- Direct(cancel-order)`) or Claude's comma-separated string (`tools: Read, Grep, echo`) |
 | `disallowedTools` | Same two forms. Removes references from **this agent's own** list |
-| `model` | A full `provider:model` reference, the aliases `opus`, `sonnet`, `haiku`, `inherit`, or a YAML list of any of those |
+| `model` | A full `provider:model` reference or one of the aliases `opus`, `sonnet`, `haiku`. `inherit` is valid only as a scalar. A YAML list may hold references and those three aliases; `inherit` inside a list is refused |
 | anything else | Ignored with a warning |
 
 **Unknown keys are never fatal.** A file carrying `permissionMode`, `color`, `hooks` or a key a future version of another harness introduces still loads; each ignored key is warned about once. The two Routecraft-owned keys `blocks` and `output` are the exception and still throw, because they point at a real mistake: their values cannot be expressed in YAML and belong in the override map.

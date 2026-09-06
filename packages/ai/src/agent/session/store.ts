@@ -58,26 +58,56 @@ export class AgentSessionStore {
    * the record holds. What a person archives or deletes from a client
    * ends here.
    *
-   * A stored continuation is settled first. An aside park carries no
-   * expiry, and the only thing that names it is the record about to be
-   * deleted, so deleting the record without settling it leaves a
-   * suspension nothing will ever revive or retire. Both fields are
-   * released: the one this record named, and the one a park announced but
-   * not yet named, which is the same pair the boot walk settles.
+   * Deletion claims the record before it releases anything. The claim is
+   * an ordinary compare-and-swap against the version just read, so a turn
+   * writing at the same moment either lands before the claim (and is then
+   * part of what this delete accounts for) or loses its swap and reads the
+   * claim back. What it must never do is land in the gap between the
+   * release and the delete: it would write a fresh continuation onto a
+   * record about to be removed, and nothing would ever settle that one.
+   * {@link update} refuses a claimed record, which is what closes the gap.
    *
-   * The two ids are read out of the raw stored value rather than through
-   * {@link load}, and this is the point of the method rather than a
+   * A stored continuation is settled before the record goes. An aside park
+   * carries no expiry, and the only thing naming it is the record being
+   * deleted, so leaving it would leave a suspension nothing can ever
+   * revive or retire. Both fields are released: the one the record named,
+   * and the one a park announced but had not yet named, which is the same
+   * pair the boot walk settles. The claim carries those ids forward, so a
+   * process that dies between claiming and deleting leaves a record whose
+   * next delete still knows what to release.
+   *
+   * The ids are read out of the raw stored value rather than through
+   * {@link load}, and that is the point of the method rather than a
    * shortcut. A record that fails validation is exactly the one an
    * operator has been told to remove (`AI1010` says so), so a delete that
-   * parsed first would refuse the case it exists to answer. Whatever can
-   * be read is released, and the record goes either way.
+   * parsed first would refuse the one case it exists to answer. Whatever
+   * can be read is released, and the record goes either way.
    */
   async remove(key: AgentSessionKey): Promise<void> {
-    const stored = await this.records.get(key);
-    for (const suspensionId of parkIdsIn(stored?.value)) {
-      await this.releasePark(suspensionId, "agent session removed");
+    for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
+      const stored = await this.records.get(key);
+      // Nothing to delete, and nothing to report: deleting twice and
+      // deleting what never existed both succeed.
+      if (!stored) return;
+      const parks = parkIdsIn(stored.value);
+      const claim = await this.records.replace(
+        key,
+        stored.version,
+        removalClaim(key, parks),
+      );
+      // Somebody wrote between the read and the claim. Read again: their
+      // write may have added a continuation this delete has to account
+      // for.
+      if (!claim.won) continue;
+      for (const suspensionId of parks) {
+        await this.releasePark(suspensionId, "agent session removed");
+      }
+      await this.records.remove(key);
+      return;
     }
-    await this.records.remove(key);
+    throw rcError("AI1010", undefined, {
+      message: `Agent session "${key}" could not be removed after ${CAS_ATTEMPTS} attempts: another writer kept winning the compare-and-swap.`,
+    });
   }
 
   /**
@@ -104,6 +134,11 @@ export class AgentSessionStore {
         // back on the next attempt.
         if ((await this.records.create(key, value)).won) return value;
         continue;
+      }
+      if (isRemovalClaim(stored.value)) {
+        throw rcError("AI1010", undefined, {
+          message: `Agent session "${key}" is being removed, so it cannot be written to. A conversation being deleted does not accept a turn, an inbox post or a stored continuation; start a new session instead.`,
+        });
       }
       const current = parseSessionRecord(stored.value, key);
       const next = mutate(current);
@@ -205,6 +240,30 @@ function isParkOrAbsent(value: unknown): value is AgentSessionPark | undefined {
   );
 }
 
+/** The shape a record wears between being claimed for deletion and going. */
+const REMOVAL_CLAIM = "agent-session-removing";
+
+/**
+ * The value written to claim a record for deletion.
+ *
+ * It carries the suspension ids the record named, so a delete interrupted
+ * between the claim and the record going still knows what to release when
+ * it runs again. Deliberately not an `AgentSessionRecord`: nothing should
+ * be able to read this as a conversation.
+ */
+function removalClaim(key: AgentSessionKey, parks: readonly string[]): unknown {
+  return { kind: REMOVAL_CLAIM, session: key, parks: [...parks] };
+}
+
+/** Whether a stored value is a record already claimed for deletion. */
+function isRemovalClaim(value: unknown): boolean {
+  return (
+    value !== null &&
+    typeof value === "object" &&
+    (value as { kind?: unknown }).kind === REMOVAL_CLAIM
+  );
+}
+
 /**
  * The suspension ids a stored value names, read without validating it.
  *
@@ -215,8 +274,19 @@ function isParkOrAbsent(value: unknown): value is AgentSessionPark | undefined {
  */
 function parkIdsIn(value: unknown): string[] {
   if (value === null || typeof value !== "object") return [];
-  const record = value as { park?: unknown; parking?: unknown };
+  const record = value as {
+    park?: unknown;
+    parking?: unknown;
+    parks?: unknown;
+  };
   const ids = new Set<string>();
+  // A claim left behind by an interrupted delete carries what that delete
+  // had not released yet.
+  if (Array.isArray(record.parks)) {
+    for (const id of record.parks) {
+      if (typeof id === "string" && id !== "") ids.add(id);
+    }
+  }
   for (const park of [record.park, record.parking]) {
     if (park === null || typeof park !== "object") continue;
     const { suspensionId } = park as { suspensionId?: unknown };

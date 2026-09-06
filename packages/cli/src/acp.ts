@@ -151,8 +151,14 @@ export async function acpCommand(options: AcpOptions = {}): Promise<AcpResult> {
   );
 
   try {
-    // Both directions run until one of them ends, which is what closing an
-    // editor tab and losing an instance both look like from here.
+    // Both directions are awaited, and one ending settles the other
+    // through the streams themselves rather than through anything here.
+    // `pipeTo` closes its destination when its source ends, so an editor
+    // closing stdin closes the transport's writable, which closes the
+    // transport, which closes the readable the other direction is reading;
+    // a transport that fails errors that readable instead. Either way both
+    // settle. The tests hold this: an instance stopped while stdin is
+    // deliberately left open still ends the bridge.
     await Promise.all([
       editor.readable.pipeTo(instance.writable),
       instance.readable.pipeTo(editor.writable),

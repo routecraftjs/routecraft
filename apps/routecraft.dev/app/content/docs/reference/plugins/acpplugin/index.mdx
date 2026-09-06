@@ -16,14 +16,14 @@ Nothing ships switched off. Installing the plugin serves the protocol, and the f
 
 ```ts
 import { defineConfig } from '@routecraft/routecraft'
-import { acpPlugin, agentPlugin, agents } from '@routecraft/ai'
+import { acpPlugin, agentPlugin } from '@routecraft/ai'
 
 export const craftConfig = defineConfig({
   servers: {
     default: { port: 8080 },
   },
   plugins: [
-    agentPlugin({ agents: await agents('./agents') }),
+    agentPlugin(),
     acpPlugin(),
   ],
 })
