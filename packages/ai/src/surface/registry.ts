@@ -21,9 +21,29 @@ export const AGENT_SURFACES: unique symbol = Symbol.for(
   "routecraft.agent.surfaces",
 );
 
+/**
+ * Store key for the surface each running turn belongs to, by the
+ * correlation id the mount minted for it.
+ *
+ * The header is what says "this exchange is surfaced", and it travels with
+ * every exchange derived from the turn's own. It does not travel into a
+ * route the turn CALLS: a tool dispatches its route on a fresh exchange
+ * carrying the correlation id and the principal, which is the whole point
+ * of that dispatch being an ordinary one. The correlation id is what makes
+ * the two the same turn, so it is what the second lookup is keyed on, and
+ * a route reached from a surfaced turn can ask the person a question
+ * however many hops away it is.
+ *
+ * @internal
+ */
+export const AGENT_SURFACE_TURNS: unique symbol = Symbol.for(
+  "routecraft.agent.surface-turns",
+);
+
 declare module "@routecraft/routecraft" {
   interface StoreRegistry {
     [AGENT_SURFACES]: Map<string, AgentSurfaceConnection>;
+    [AGENT_SURFACE_TURNS]: Map<string, AgentSurfaceRef>;
   }
 }
 
@@ -59,4 +79,33 @@ export function surfaceFor(
   ref: AgentSurfaceRef,
 ): AgentSurfaceConnection | undefined {
   return context.getStore(AGENT_SURFACES)?.get(ref.connection);
+}
+
+/**
+ * Record which surface a turn is running for, and return the call that
+ * forgets it when the turn ends.
+ *
+ * @internal
+ */
+export function registerTurn(
+  context: CraftContext,
+  correlationId: string,
+  ref: AgentSurfaceRef,
+): () => void {
+  const turns =
+    context.getStore(AGENT_SURFACE_TURNS) ?? new Map<string, AgentSurfaceRef>();
+  turns.set(correlationId, ref);
+  context.setStore(AGENT_SURFACE_TURNS, turns);
+  return () => {
+    if (turns.get(correlationId) === ref) turns.delete(correlationId);
+  };
+}
+
+/** The surface a running turn belongs to, by its correlation id. @internal */
+export function turnSurfaceOf(
+  context: CraftContext,
+  correlationId: string | undefined,
+): AgentSurfaceRef | undefined {
+  if (correlationId === undefined) return undefined;
+  return context.getStore(AGENT_SURFACE_TURNS)?.get(correlationId);
 }

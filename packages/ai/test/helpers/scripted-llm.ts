@@ -7,6 +7,7 @@ import type {
   LlmToolCallSummary,
   LlmUsage,
 } from "../../src/llm/types.ts";
+import type { AgentDeltaListener } from "../../src/agent/events.ts";
 
 /**
  * One "model" step of a scripted dispatch: either a batch of tool calls the
@@ -17,17 +18,36 @@ export interface ScriptedTurn {
   toolCalls?: Array<{ toolName: string; input?: unknown }>;
   text?: string;
   usage?: LlmUsage;
+  /**
+   * Token deltas this turn emits before it does anything else, each after
+   * its own pause.
+   *
+   * Only `streamLlm` emits them, which is what a dispatch carrying an
+   * `onDelta` listener takes: a test that scripts deltas is exercising the
+   * streaming path deliberately, and one that does not gets the same
+   * non-streaming behaviour it always had.
+   */
+  deltas?: Array<{
+    text: string;
+    /** Wait this long before emitting, so a test can measure real gaps. */
+    delayMs?: number;
+    /** `text` by default; `reasoning` for the thinking channel. */
+    kind?: "text" | "reasoning";
+  }>;
 }
 
 /** A scripted stand-in for the providers barrel. */
 export interface ScriptedLlm {
   callLlm: (params: CallLlmParams) => Promise<LlmResult>;
   /**
-   * Aliases the non-streaming implementation: no deltas are ever emitted,
-   * so a test that supplies an `onDelta` listener gets silence, not a
-   * production bug. Script a streaming assertion elsewhere if one is needed.
+   * The streaming arm. Identical to {@link ScriptedLlm.callLlm} except
+   * that a turn's scripted `deltas` are emitted through the listener
+   * before the turn does anything else, so a test can assert on what
+   * reached a consumer and when.
    */
-  streamLlm: (params: CallLlmParams) => Promise<LlmResult>;
+  streamLlm: (
+    params: CallLlmParams & { onDelta: AgentDeltaListener },
+  ) => Promise<LlmResult>;
   /** Every params object callLlm received, for assertions on prompt/messages. */
   calls: CallLlmParams[];
   /** Refill the script (consumed turn by turn across calls). */
@@ -71,7 +91,10 @@ export function scriptedLlm(script: ScriptedTurn[]): ScriptedLlm {
   let aborted = false;
   let idSequence = 0;
 
-  const callLlm = async (params: CallLlmParams): Promise<LlmResult> => {
+  const run = async (
+    params: CallLlmParams,
+    onDelta: AgentDeltaListener | undefined,
+  ): Promise<LlmResult> => {
     calls.push(params);
     const responseMessages: unknown[] = [];
     const steps: unknown[] = [];
@@ -89,6 +112,18 @@ export function scriptedLlm(script: ScriptedTurn[]): ScriptedLlm {
       const turn = script.shift();
       if (!turn) throw new Error("scripted llm: script exhausted");
       usage = addUsage(usage, turn.usage);
+
+      for (const delta of turn.deltas ?? []) {
+        if (delta.delayMs !== undefined) {
+          await new Promise((resolve) => setTimeout(resolve, delta.delayMs));
+        }
+        // Awaited, as the real stream awaits it, so back-pressure on a
+        // slow consumer is what a test measures rather than a queue.
+        await onDelta?.({
+          type: delta.kind === "reasoning" ? "reasoning-delta" : "text-delta",
+          text: delta.text,
+        });
+      }
 
       if (turn.toolCalls && turn.toolCalls.length > 0) {
         const batch = turn.toolCalls.map((call) => ({
@@ -187,9 +222,12 @@ export function scriptedLlm(script: ScriptedTurn[]): ScriptedLlm {
     return out;
   };
 
+  const callLlm = (params: CallLlmParams): Promise<LlmResult> =>
+    run(params, undefined);
+
   return {
     callLlm,
-    streamLlm: callLlm,
+    streamLlm: (params) => run(params, params.onDelta),
     calls,
     script,
     sawAbort: () => aborted,

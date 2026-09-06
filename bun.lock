@@ -133,7 +133,7 @@
         "ai": "^6.0.246",
       },
       "devDependencies": {
-        "@agentclientprotocol/sdk": "1.4.0",
+        "@agentclientprotocol/sdk": "^1.4.0",
         "@ai-sdk/anthropic": "^3.0.107",
         "@ai-sdk/google": "^3.0.104",
         "@ai-sdk/openai": "^3.0.91",
@@ -154,6 +154,7 @@
         "zod": "^4.4.3",
       },
       "peerDependencies": {
+        "@agentclientprotocol/sdk": "^1.4.0",
         "@ai-sdk/anthropic": "^3.0.50",
         "@ai-sdk/google": "^3.0.34",
         "@ai-sdk/openai": "^3.0.37",
@@ -168,6 +169,7 @@
         "yaml": "^2.8.0",
       },
       "optionalPeers": [
+        "@agentclientprotocol/sdk",
         "@ai-sdk/anthropic",
         "@ai-sdk/google",
         "@ai-sdk/openai",
@@ -188,6 +190,7 @@
         "craft": "./dist/index.js",
       },
       "dependencies": {
+        "@agentclientprotocol/sdk": "^1.4.0",
         "@opentelemetry/sdk-trace-base": "^2.10.0",
         "@routecraft/routecraft": "^0.6.0",
         "agent-browser": "^0.17.1",

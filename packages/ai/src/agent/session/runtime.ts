@@ -708,9 +708,13 @@ export class AgentSessionRuntime {
    * belongs to and where it is bound from the moment it exists rather than
    * from whenever a turn first runs.
    *
-   * Idempotent on an existing session's ownership: `owner` is written once
-   * and never rewritten, so re-opening a conversation cannot transfer it.
-   * `cwd` and `title` are set when supplied.
+   * Idempotent on an existing session's identity: `owner` and `title` are
+   * each written once and never rewritten, so re-opening a conversation
+   * cannot transfer it and cannot rename it. A listing that renamed itself
+   * on every message would be unreadable, and who a conversation belongs
+   * to is not a later speaker's to change. `cwd` is set when supplied,
+   * because where a conversation is bound is a property of the connection
+   * that is holding it.
    */
   async open(
     key: AgentSessionKey,
@@ -720,7 +724,9 @@ export class AgentSessionRuntime {
       ...record,
       ...(record.owner === undefined ? { owner: init.owner } : {}),
       ...(init.cwd !== undefined ? { cwd: init.cwd } : {}),
-      ...(init.title !== undefined ? { title: init.title } : {}),
+      ...(record.title === undefined && init.title !== undefined
+        ? { title: init.title }
+        : {}),
     }));
   }
 

@@ -88,9 +88,7 @@ export class TurnUpdates {
   private pump(): void {
     if (this.pumping) return;
     this.pumping = true;
-    this.drained = this.drain().finally(() => {
-      this.pumping = false;
-    });
+    this.drained = this.drain();
     // Nobody awaits `drained` except close(); a failure reaches whoever
     // pushed the failing update through its own promise.
     this.drained.catch(() => undefined);
@@ -99,7 +97,16 @@ export class TurnUpdates {
   private async drain(): Promise<void> {
     for (;;) {
       const next = this.queue.shift();
-      if (next === undefined) return;
+      if (next === undefined) {
+        // Cleared here, synchronously with the shift that found the queue
+        // empty, rather than in a `finally` on this promise. A producer
+        // awaiting the update it just pushed resumes in a microtask after
+        // `settle`, and with the flag cleared one turn later that producer
+        // would enqueue its next update while the pump still looked busy,
+        // and nothing would ever drain it.
+        this.pumping = false;
+        return;
+      }
       try {
         await this.sink(next.update);
         next.settle();

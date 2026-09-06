@@ -24,6 +24,7 @@ import type {
 import type { AgentRegisteredOptions, AgentResult } from "../agent/types.ts";
 import {
   AGENT_SURFACE_HEADER,
+  registerTurn,
   type AgentSurfaceRef,
 } from "../surface/index.ts";
 import {
@@ -222,6 +223,9 @@ export class AcpRuntime {
       updates,
       payloads: this.toolCallPayloads,
     });
+    // The turn is findable by its correlation id as well as by the header,
+    // so a route the agent calls as a hand can reach the person too.
+    const forgetTurn = registerTurn(this.context, correlationId, surface);
     const headers: ExchangeHeaders = {
       [HeadersKeys.CORRELATION_ID]: correlationId,
       [AGENT_SURFACE_HEADER]: surface,
@@ -249,6 +253,7 @@ export class AcpRuntime {
       // Removed before the drain, so a late tool event from a route that
       // outlived the turn finds no queue rather than a closed one.
       this.turns.delete(correlationId);
+      forgetTurn();
       await updates.close();
     }
   }

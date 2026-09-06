@@ -5,7 +5,14 @@ export {
   type AgentSurfaceKind,
   type AgentSurfaceRef,
 } from "./header.ts";
-export { AGENT_SURFACES, registerSurface, surfaceFor } from "./registry.ts";
+export {
+  AGENT_SURFACES,
+  AGENT_SURFACE_TURNS,
+  registerSurface,
+  registerTurn,
+  surfaceFor,
+  turnSurfaceOf,
+} from "./registry.ts";
 export type {
   AgentSurfaceConnection,
   SurfaceMethod,

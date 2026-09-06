@@ -11,8 +11,16 @@
  */
 import { loadOptionalPeer } from "@routecraft/routecraft";
 
-/** The package a missing peer is reported as, in one place. */
-const ACP_PACKAGE = "@agentclientprotocol/sdk";
+/**
+ * The package a missing peer is reported as, in one place.
+ *
+ * The bare package rather than the subpath the transport lives behind: it
+ * is what somebody can actually install, and both entries resolve from it,
+ * so a consumer is told to add one thing.
+ *
+ * @internal
+ */
+export const ACP_PACKAGE = "@agentclientprotocol/sdk";
 
 /** The protocol surface: `agent()`, the method constants, the schema types. */
 export function loadAcpSdk(

@@ -50,7 +50,8 @@ export interface FnSuspensionWiring {
  * `testFn` provides: `logger`, `abortSignal`, optional `principal`
  * (carried over from the dispatching exchange or the MCP caller so
  * guards can authorise without re-reading the source request), and
- * optional `correlationId` (not yet populated by the runtime).
+ * optional `correlationId`, the dispatching exchange's, so a route a tool
+ * forwards to runs under the same trace as the turn that called it.
  *
  * `suspension` wires the durable-suspension affordances: with it,
  * `ctx.suspend()` mints the sentinel the bridge converts into a park and
@@ -72,10 +73,12 @@ export function makeFnHandlerContext(
   principal: Principal | undefined,
   suspension?: FnSuspensionWiring,
   session?: FnSessionView,
+  correlationId?: string,
 ): FnHandlerContext {
   return {
     logger: frameworkLogger.child({ tool: toolName }),
     abortSignal,
+    ...(correlationId !== undefined ? { correlationId } : {}),
     ...(principal ? { principal: freezePrincipal(principal) } : {}),
     ...(session ? { session: Object.freeze({ ...session }) } : {}),
     ...(suspension

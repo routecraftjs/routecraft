@@ -15,6 +15,7 @@ import {
 import { createHttpStream } from "@agentclientprotocol/sdk/experimental/http-client";
 import {
   MemorySuspensionStore,
+  type AnyRouteBuilder,
   type CraftPlugin,
   type Principal,
 } from "@routecraft/routecraft";
@@ -55,6 +56,8 @@ export interface AcpHarnessOptions {
   readonly validator?: (token: string) => Principal;
   /** Extra plugins, applied before the ACP mount. */
   readonly plugins?: CraftPlugin[];
+  /** Routes the app brings, beside the ones the mount builds. */
+  readonly routes?: AnyRouteBuilder[];
   /** Handlers the client answers agent-side calls with. */
   readonly handlers?: (app: ReturnType<typeof client>) => void;
 }
@@ -89,6 +92,7 @@ export async function acpHarness(
         acpPlugin(options.acp ?? {}),
       ],
     })
+    .routes(options.routes ?? [])
     .build();
   await t.startAndWaitReady();
 

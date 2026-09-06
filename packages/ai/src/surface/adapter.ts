@@ -19,17 +19,19 @@
 
 import {
   getExchangeContext,
+  HeadersKeys,
   rcError,
   tagAdapter,
   factoryArgs,
   type Destination,
   type Enricher,
+  type CraftContext,
   type Exchange,
   type StepSignalContext,
 } from "@routecraft/routecraft";
 import "../errors.ts";
 import { surfaceRefOf, type AgentSurfaceRef } from "./header.ts";
-import { surfaceFor } from "./registry.ts";
+import { surfaceFor, turnSurfaceOf } from "./registry.ts";
 import type {
   AgentSurfaceConnection,
   SurfaceMethod,
@@ -163,10 +165,32 @@ surface.notify = function notify<T = unknown>(
  * from a schedule: `AI1013` is what a route gets for not asking.
  */
 export function hasSurface(exchange: Exchange<unknown>): boolean {
-  const ref = surfaceRefOf(exchange.headers);
-  if (ref === undefined) return false;
   const context = getExchangeContext(exchange);
-  return context !== undefined && surfaceFor(context, ref) !== undefined;
+  if (context === undefined) return false;
+  const ref = refFor(context, exchange);
+  return ref !== undefined && surfaceFor(context, ref) !== undefined;
+}
+
+/**
+ * Which surface this exchange belongs to.
+ *
+ * The header is the first answer and travels with every exchange derived
+ * from the turn's own. A route the turn CALLS runs on a fresh exchange
+ * that carries the correlation id rather than the whole header bag, so the
+ * turn table is the second answer and is what lets a capability three hops
+ * from the prompt still reach the person who typed it.
+ */
+function refFor(
+  context: CraftContext,
+  exchange: Exchange<unknown>,
+): AgentSurfaceRef | undefined {
+  const fromHeader = surfaceRefOf(exchange.headers);
+  if (fromHeader !== undefined) return fromHeader;
+  const correlation = exchange.headers[HeadersKeys.CORRELATION_ID];
+  return turnSurfaceOf(
+    context,
+    typeof correlation === "string" ? correlation : undefined,
+  );
 }
 
 /**
@@ -180,14 +204,14 @@ function resolveSurface(
   exchange: Exchange<unknown>,
   method: string,
 ): { connection: AgentSurfaceConnection; ref: AgentSurfaceRef } {
-  const ref = surfaceRefOf(exchange.headers);
-  if (ref === undefined) {
+  const context = getExchangeContext(exchange);
+  const ref = context === undefined ? undefined : refFor(context, exchange);
+  if (ref === undefined || context === undefined) {
     throw rcError("AI1013", undefined, {
       message: `surface("${method}") reaches the client running this turn, and this exchange has none. Guard the call with hasSurface(exchange), or dispatch this route from a turn that carries one.`,
     });
   }
-  const context = getExchangeContext(exchange);
-  const connection = context ? surfaceFor(context, ref) : undefined;
+  const connection = surfaceFor(context, ref);
   if (connection === undefined) {
     throw rcError("AI1014", undefined, {
       message: `The ${ref.kind} client running this turn disconnected before "${method}" could be sent. There is nothing to retry against on this exchange.`,

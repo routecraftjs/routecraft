@@ -65,9 +65,14 @@ export interface FnHandlerContext {
    */
   readonly principal?: ReadonlyPrincipal;
   /**
-   * Correlation id of the calling exchange, when the fn was invoked
-   * from inside a running route or agent dispatch. Propagated to any
-   * child exchanges (e.g. direct route calls) so traces stay linked.
+   * Correlation id of the calling exchange, when the fn was invoked from
+   * inside a running route or agent dispatch.
+   *
+   * Propagated to any child exchanges a tool dispatches (a `directTool`
+   * forwarding to its route is the usual one), so a trace stays one trace
+   * and a capability reached through a hand still knows which turn it is
+   * serving. Undefined on a surface with no dispatching exchange: a
+   * proxied MCP tool guard, or `testFn` outside a context.
    */
   readonly correlationId?: string;
 

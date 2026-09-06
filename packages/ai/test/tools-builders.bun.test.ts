@@ -3,6 +3,7 @@ import { z } from "zod";
 import {
   craft,
   direct,
+  HeadersKeys,
   isAuthentic,
   isRoutecraftError,
   markAuthentic,
@@ -310,6 +311,47 @@ describe("tool builders - directTool dispatch", () => {
       },
     );
     expect(downstreamPrincipal).toEqual(principal);
+  });
+
+  /**
+   * @case A tool's route runs under the calling turn's correlation id
+   * @preconditions A directTool handler invoked with a correlationId in its ctx; the downstream route captures the header it ran with
+   * @expectedResult The downstream exchange carries the same correlation id rather than a fresh one, so a trace stays one trace and anything scoped to the turn is still findable from the route the turn called
+   */
+  test("dispatchDirect forwards the calling correlation id", async () => {
+    let downstream: unknown;
+    t = await testContext()
+      .routes([
+        craft()
+          .id("orders/fetch-correlated")
+          .description("Fetch, correlated.")
+          .input(z.object({ orderId: z.string() }))
+          .from(direct())
+          .process((ex) => {
+            downstream = ex.headers[HeadersKeys.CORRELATION_ID];
+            return { ...ex, body: { ok: true } };
+          })
+          .to(log()),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const fn = directTool("orders/fetch-correlated").resolve(
+      t.ctx,
+      "ordersFetchCorrelated",
+    );
+    await fn.handler(
+      { orderId: "abc" },
+      {
+        logger: undefined as unknown as Parameters<
+          typeof fn.handler
+        >[1]["logger"],
+        abortSignal: new AbortController().signal,
+        suspend: refuseSuspend,
+        correlationId: "turn-42",
+      },
+    );
+    expect(downstream).toBe("turn-42");
   });
 
   /**

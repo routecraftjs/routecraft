@@ -150,6 +150,7 @@ export async function buildVercelTools(
               }
             : undefined,
           session,
+          dispatchIdentity?.correlationId,
         );
         const start = Date.now();
         // Tracked for the whole call, block loaders included: a turn
