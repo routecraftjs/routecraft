@@ -65,7 +65,15 @@ An instance serving people other than its operator should consider setting it. A
 
 ## What the mount does not check yet
 
-The mount has no Host or Origin gate of its own, where the MCP mount runs both before anything else. In practice the default CORS policy is what closes the browser case: a cross-origin page fails the preflight and never reaches a turn. Setting `cors: false` removes that, so a mount with no wall and no CORS policy will serve a browser page on another origin. Put a wall on such a mount, or leave the CORS default in place.
+The mount checks the request's `Origin` against its CORS policy and refuses one the policy does not allow, before the protocol sees it. It does **not** check `Host`, where the MCP mount does, so a name that resolves to this instance is not something the mount rejects on its own.
+
+Two things follow, and the second is the one worth reading twice.
+
+**The boundary is the policy, not cross-origin as such.** The default reflects any loopback origin on any port, so a page served from `127.0.0.1:3000` reaching an instance on `127.0.0.1:8080` is cross-origin and allowed. What is refused is an origin the policy does not name.
+
+**`cors: false` removes the check rather than relaxing it.** With no policy there is nothing to compare an `Origin` against, so nothing is refused. That matters more than it sounds: CORS governs whether a page may **read** the reply, not whether the request **runs**. A page on any origin can then cause a prompt to be dispatched, and every side effect that turn has to happen, while the browser withholds the response from the script that asked for it. Silent side effects are the exposure, not a leaked answer.
+
+Put a wall on a mount that turns CORS off, or leave the default policy in place.
 
 ## Branding
 
