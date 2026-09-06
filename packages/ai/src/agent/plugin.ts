@@ -419,9 +419,11 @@ function registerSessionsResource(ctx: CraftContext): void {
       });
     },
     async describe(segments): Promise<AgentSessionSummary | undefined> {
-      if (segments.length !== 2) return undefined;
-      const [agent, session] = segments as [string, string];
-      return runtime()?.summary({ agent, session }, OPS_SCOPE);
+      // One segment: a conversation is named by its id alone, so the
+      // path is `/ops/agent-sessions/{session}` rather than a pair.
+      if (segments.length !== 1) return undefined;
+      const [session] = segments as [string];
+      return runtime()?.summary(session, OPS_SCOPE);
     },
   });
 }

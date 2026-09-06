@@ -48,11 +48,6 @@ export class AgentSessionStore {
     await this.parks.markDenied(suspensionId, reason);
   }
 
-  /** Drop a record. Idempotent, and used only by a persona re-key. */
-  async remove(key: AgentSessionKey): Promise<void> {
-    await this.records.remove(key);
-  }
-
   /** Every session the store holds. */
   async list(): Promise<AgentSessionKey[]> {
     return this.records.keys();
@@ -68,12 +63,13 @@ export class AgentSessionStore {
    */
   async update(
     key: AgentSessionKey,
+    agent: string,
     mutate: (record: AgentSessionRecord) => AgentSessionRecord,
   ): Promise<AgentSessionRecord> {
     for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
       const stored = await this.records.get(key);
       if (!stored) {
-        const empty = emptyRecord(key);
+        const empty = emptyRecord(key, agent);
         const first = mutate(empty);
         const value = first === empty ? empty : stamped(first);
         // A create that loses to a concurrent first write reads that write
@@ -90,18 +86,18 @@ export class AgentSessionStore {
       }
     }
     throw rcError("AI1010", undefined, {
-      message: `Agent session "${key.session}" of "${key.agent}" could not be written after ${CAS_ATTEMPTS} attempts: another writer kept winning the compare-and-swap.`,
+      message: `Agent session "${key}" could not be written after ${CAS_ATTEMPTS} attempts: another writer kept winning the compare-and-swap.`,
     });
   }
 }
 
-function emptyRecord(key: AgentSessionKey): AgentSessionRecord {
+function emptyRecord(key: AgentSessionKey, agent: string): AgentSessionRecord {
   const now = new Date().toISOString();
   return {
     kind: "agent-session",
     version: SESSION_RECORD_VERSION,
-    agent: key.agent,
-    session: key.session,
+    agent,
+    session: key,
     messages: [],
     inbox: [],
     background: [],
@@ -130,25 +126,24 @@ export function parseSessionRecord(
     record === null ||
     typeof record !== "object" ||
     record.kind !== "agent-session" ||
-    record.agent !== key.agent ||
-    record.session !== key.session ||
+    record.session !== key ||
     !Array.isArray(record.messages) ||
     !Array.isArray(record.inbox) ||
     !Array.isArray(record.background) ||
     typeof record.turns !== "number"
   ) {
     throw rcError("AI1010", undefined, {
-      message: `The stored record for agent session "${key.session}" of "${key.agent}" is not the { kind: "agent-session", messages, inbox, background, turns } shape the runtime writes.`,
+      message: `The stored record for agent session "${key}" is not the { kind: "agent-session", messages, inbox, background, turns } shape the runtime writes.`,
     });
   }
   if (!isParkOrAbsent(record.park) || !isParkOrAbsent(record.parking)) {
     throw rcError("AI1010", undefined, {
-      message: `The stored record for agent session "${key.session}" of "${key.agent}" names a continuation that is not a { suspensionId, routeId } pair, so the boot that would release it cannot read it.`,
+      message: `The stored record for agent session "${key}" names a continuation that is not a { suspensionId, routeId } pair, so the boot that would release it cannot read it.`,
     });
   }
   if (record.version !== SESSION_RECORD_VERSION) {
     throw rcError("AI1010", undefined, {
-      message: `The stored record for agent session "${key.session}" of "${key.agent}" was written at version ${String(record.version)} and this build reads version ${String(SESSION_RECORD_VERSION)}: two releases of @routecraft/ai share one store, or the record predates this one.`,
+      message: `The stored record for agent session "${key}" was written at version ${String(record.version)} and this build reads version ${String(SESSION_RECORD_VERSION)}: two releases of @routecraft/ai share one store, or the record predates this one.`,
     });
   }
   return record as AgentSessionRecord;

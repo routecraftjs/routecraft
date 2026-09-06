@@ -56,18 +56,6 @@ export interface SessionStore {
    * backend enumerates identically.
    */
   keys(): Promise<AgentSessionKey[]>;
-  /**
-   * Drop the record for `key`. Idempotent: a key the store never held is
-   * not an error.
-   *
-   * The runtime uses this for exactly one thing, a conversation that
-   * changed persona before its first turn. A session is keyed by
-   * `(agent, session)`, so that change re-keys the record and would
-   * otherwise leave the empty original behind for a bare session id to
-   * find. Nothing here deletes a transcript: the persona is only
-   * changeable while there is none.
-   */
-  remove(key: AgentSessionKey): Promise<void>;
   /** Release what the store holds open. Idempotent. */
   close(): Promise<void>;
 }

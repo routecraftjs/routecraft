@@ -66,6 +66,12 @@ export interface AgentTurnExecutor {
 /** One dispatch that carries a session. @internal */
 export interface AgentTurnRequest<T = unknown> {
   readonly key: AgentSessionKey;
+  /**
+   * The persona answering this turn. Not part of the key: a conversation
+   * keeps its id when the persona changes, and this is what the record's
+   * `agent` field is set to.
+   */
+  readonly agent: string;
   readonly exchange: Exchange<T>;
   /**
    * The caller's message. Absent on a revived continuation, whose turn is
@@ -214,7 +220,7 @@ export class AgentSessionRuntime {
 
   /** Whether this process is running a turn for the session. */
   isRunning(key: AgentSessionKey): boolean {
-    return this.active.has(keyOf(key));
+    return this.active.has(key);
   }
 
   /**
@@ -228,7 +234,7 @@ export class AgentSessionRuntime {
    * the interrupt exists so their message is answered now.
    */
   async turn<T>(req: AgentTurnRequest<T>): Promise<AgentResult> {
-    const k = keyOf(req.key);
+    const k = req.key;
     const running = this.active.get(k);
     // A continuation revived before shutdown began still runs here, held
     // by stop() until it settles; a caller's message on an idle session
@@ -244,8 +250,8 @@ export class AgentSessionRuntime {
       return {
         text: "",
         session: {
-          agent: req.key.agent,
-          id: req.key.session,
+          agent: req.agent,
+          id: req.key,
           status: "idle",
           queued: depth,
         },
@@ -253,7 +259,7 @@ export class AgentSessionRuntime {
     }
     const id = randomUUID();
     const content = req.message;
-    const record = await this.store.update(req.key, (r) => ({
+    const record = await this.store.update(req.key, req.agent, (r) => ({
       ...r,
       inbox: [
         ...r.inbox,
@@ -268,20 +274,20 @@ export class AgentSessionRuntime {
       ],
     }));
     this.emit(req.exchange, "route:agent:session:queued", {
-      agentName: req.key.agent,
-      session: req.key.session,
+      agentName: req.agent,
+      session: req.key,
       depth: record.inbox.length,
       interrupt: req.interrupt,
     });
-    if (!running) return this.queued(req.key, record.inbox.length);
+    if (!running) return this.queued(req.key, req.agent, record.inbox.length);
     if (req.interrupt) {
       running.controller.abort(INTERRUPT_REASON);
       this.emit(req.exchange, "route:agent:session:interrupted", {
-        agentName: req.key.agent,
-        session: req.key.session,
+        agentName: req.agent,
+        session: req.key,
       });
     } else if (this.active.get(k) === running) {
-      return this.queued(req.key, record.inbox.length);
+      return this.queued(req.key, req.agent, record.inbox.length);
     }
     // The turn ended while the message was being written, or this caller
     // interrupted it: either way the message is in the inbox and is
@@ -295,6 +301,7 @@ export class AgentSessionRuntime {
       if (!this.active.has(k) && this.stopping) {
         return this.queued(
           req.key,
+          req.agent,
           (await this.store.load(req.key))?.inbox.length ?? 0,
         );
       }
@@ -312,8 +319,8 @@ export class AgentSessionRuntime {
         return {
           text: "",
           session: {
-            agent: req.key.agent,
-            id: req.key.session,
+            agent: req.agent,
+            id: req.key,
             status: "idle",
             queued: inbox.length,
           },
@@ -362,12 +369,16 @@ export class AgentSessionRuntime {
   }
 
   /** The acknowledgement of a message left in the inbox for a later turn. */
-  private queued(key: AgentSessionKey, depth: number): AgentResult {
+  private queued(
+    key: AgentSessionKey,
+    agent: string,
+    depth: number,
+  ): AgentResult {
     return {
       text: "",
       session: {
-        agent: key.agent,
-        id: key.session,
+        agent,
+        id: key,
         status: "queued",
         queued: depth,
       },
@@ -404,9 +415,10 @@ export class AgentSessionRuntime {
    */
   async post(
     key: AgentSessionKey,
+    agent: string,
     entry: DistributiveOmit<AgentInboxMessage, "id" | "at">,
   ): Promise<{ depth: number; running: boolean }> {
-    const record = await this.store.update(key, (r) => ({
+    const record = await this.store.update(key, agent, (r) => ({
       ...r,
       inbox: [
         ...r.inbox,
@@ -417,7 +429,7 @@ export class AgentSessionRuntime {
     // Landing after the running turn read the inbox for its boundary and
     // before it cleared `active` would otherwise wait for the next
     // message; the turn's cleanup reads the record again for it.
-    if (running) this.postedDuring.add(keyOf(key));
+    if (running) this.postedDuring.add(key);
     else this.deliverIdle(key, record);
     return { depth: record.inbox.length, running };
   }
@@ -429,13 +441,14 @@ export class AgentSessionRuntime {
    */
   async startBackground(
     key: AgentSessionKey,
+    agent: string,
     call: AgentBackgroundCall,
   ): Promise<void> {
     // Read before the write: the turn that is making this call can end
     // while the write is awaited, and the origin is that turn's whatever
     // it does next.
-    const turn = this.active.get(keyOf(key));
-    await this.store.update(key, (r) => ({
+    const turn = this.active.get(key);
+    const record = await this.store.update(key, agent, (r) => ({
       ...r,
       background: [...r.background, call],
     }));
@@ -444,8 +457,8 @@ export class AgentSessionRuntime {
     if (turn) this.backgroundOrigins.set(call.handle, turn.exchange);
     if (turn) {
       this.emit(turn.exchange, "route:agent:session:background:started", {
-        agentName: key.agent,
-        session: key.session,
+        agentName: record.agent,
+        session: key,
         handle: call.handle,
         toolName: call.tool,
       });
@@ -461,6 +474,7 @@ export class AgentSessionRuntime {
    */
   async settleBackground(
     key: AgentSessionKey,
+    agent: string,
     outcome: BackgroundOutcome,
   ): Promise<{ depth: number; running: boolean }> {
     const { duration, ...entry } = outcome;
@@ -484,7 +498,7 @@ export class AgentSessionRuntime {
             message: entry.error.message,
           },
         };
-    const record = await this.store.update(key, (r) => ({
+    const record = await this.store.update(key, agent, (r) => ({
       ...r,
       background: r.background.filter((b) => b.handle !== entry.handle),
       inbox: [
@@ -503,16 +517,16 @@ export class AgentSessionRuntime {
     if (origin) {
       if (entry.status === "completed") {
         this.emit(origin, "route:agent:session:background:completed", {
-          agentName: key.agent,
-          session: key.session,
+          agentName: record.agent,
+          session: key,
           handle: entry.handle,
           toolName: entry.tool,
           duration,
         });
       } else {
         this.emit(origin, "route:agent:session:background:failed", {
-          agentName: key.agent,
-          session: key.session,
+          agentName: record.agent,
+          session: key,
           handle: entry.handle,
           toolName: entry.tool,
           errorName: entry.error.name,
@@ -524,7 +538,7 @@ export class AgentSessionRuntime {
     // Landing after the running turn read the inbox for its boundary and
     // before it cleared `active` would otherwise wait for the next
     // message; the turn's cleanup reads the record again for it.
-    if (running) this.postedDuring.add(keyOf(key));
+    if (running) this.postedDuring.add(key);
     else this.deliverIdle(key, record);
     return { depth: record.inbox.length, running };
   }
@@ -552,7 +566,7 @@ export class AgentSessionRuntime {
         // A turn running here right now is between its own two writes,
         // which reads exactly like the crash below; it clears the field
         // itself on both its arms.
-        !this.active.has(keyOf(key))
+        !this.active.has(key)
       ) {
         // The previous process died between announcing the park and naming
         // it: the park, if it got written, is referenced by nothing else.
@@ -571,8 +585,8 @@ export class AgentSessionRuntime {
           this.context.logger.warn(
             {
               err,
-              agent: key.agent,
-              session: key.session,
+              agent: record.agent,
+              session: key,
               suspensionId: orphan,
             },
             "Agent session continuation left unnamed could not be released; the next boot retries",
@@ -582,13 +596,13 @@ export class AgentSessionRuntime {
           // Only if the field still names what was released: a turn that
           // started during the release above announced its own, and that
           // one is live.
-          record = await this.store.update(key, (current) =>
+          record = await this.store.update(key, record.agent, (current) =>
             current.parking?.suspensionId === orphan
               ? withoutParking(current)
               : current,
           );
           this.context.logger.info(
-            { agent: key.agent, session: key.session, suspensionId: orphan },
+            { agent: record.agent, session: key, suspensionId: orphan },
             "Agent session continuation left unnamed by the previous process was released",
           );
         }
@@ -597,11 +611,11 @@ export class AgentSessionRuntime {
       let next = record;
       if (record.turn !== undefined || record.background.length > 0) {
         lostBackground += record.background.length;
-        next = await this.store.update(key, restoreAfterRestart);
+        next = await this.store.update(key, record.agent, restoreAfterRestart);
         this.context.logger.info(
           {
-            agent: key.agent,
-            session: key.session,
+            agent: record.agent,
+            session: key,
             lostBackground: record.background.length,
           },
           "Agent session restored at boot: its previous process is gone",
@@ -611,10 +625,10 @@ export class AgentSessionRuntime {
       // must not have a revival started under it.
       if (this.stopping) break;
       if (next.inbox.length > 0) {
-        this.revive(key, next.park!);
+        this.revive(key, next.agent, next.park!);
         revived += 1;
       } else if (next.background.length === 0) {
-        await this.releasePark(key, next.park!);
+        await this.releasePark(key, next.agent, next.park!);
       }
     }
     return { revived, lostBackground };
@@ -652,8 +666,7 @@ export class AgentSessionRuntime {
         ? undefined
         : decodeCursor(query.after, cursorScope);
     const keys = (await this.store.list())
-      .filter((key) => query.agent === undefined || key.agent === query.agent)
-      .map((key) => ({ id: keyOf(key), key }))
+      .map((key) => ({ id: key, key }))
       .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
     // Filtered before the slice, never after. `takePage` mints the cursor
     // from the last row of the page it returns, and a cursor is reversible
@@ -667,6 +680,9 @@ export class AgentSessionRuntime {
     for (const { id, key } of keys) {
       const summary = await this.summary(key, query.scope);
       if (summary === undefined) continue;
+      // The persona is a field now, so filtering by it is a record read
+      // like every other filter rather than a prefix on the key.
+      if (query.agent !== undefined && summary.agent !== query.agent) continue;
       if (query.cwd !== undefined && summary.cwd !== query.cwd) continue;
       admitted.push({ id, summary });
     }
@@ -680,24 +696,15 @@ export class AgentSessionRuntime {
   /**
    * The agent a bare session id belongs to, within this scope.
    *
-   * A protocol that addresses a conversation by id alone still has to find
-   * the `(agent, session)` key it is stored under. Matching on the key
-   * first means one record is read rather than one per session scanned:
-   * the listing path loads a whole transcript per key, which on the
-   * reconnect path is paid once per conversation the caller owns.
-   *
-   * The ownership filter is the same `summary()` every other read goes
+   * One read: the id IS the key, so there is nothing to search. The
+   * ownership filter is the same `summary()` every other read goes
    * through, so a foreign id is as unfindable here as it is there.
    */
   async find(
     session: string,
     scope: AgentSessionScope,
   ): Promise<string | undefined> {
-    for (const key of await this.store.list()) {
-      if (key.session !== session) continue;
-      if ((await this.summary(key, scope)) !== undefined) return key.agent;
-    }
-    return undefined;
+    return (await this.summary(session, scope))?.agent;
   }
 
   /**
@@ -750,9 +757,10 @@ export class AgentSessionRuntime {
    */
   async open(
     key: AgentSessionKey,
+    agent: string,
     init: AgentSessionInit,
   ): Promise<AgentSessionRecord> {
-    return this.store.update(key, (record) => ({
+    return this.store.update(key, agent, (record) => ({
       ...record,
       ...(record.owner === undefined ? { owner: init.owner } : {}),
       ...(init.cwd !== undefined ? { cwd: init.cwd } : {}),
@@ -763,23 +771,19 @@ export class AgentSessionRuntime {
   }
 
   /**
-   * Move a conversation to another persona, before it has said anything.
+   * Change which persona answers a conversation, keeping its id.
    *
-   * A session is keyed by `(agent, session)`, so this writes a record
-   * under the new agent and drops the one under the old. Dropping it is
-   * the point: leaving it behind would let one session id name two
-   * records, and a bare id would then resolve to whichever the store
-   * happened to enumerate first. Nothing is lost, because a persona is
-   * only changeable while the conversation has no turns.
+   * A persona is an attribute of a session rather than part of its
+   * identity, so this is one field on one record: no second key, nothing
+   * to delete, and nothing for a later reconnect to disambiguate. The
+   * caller is responsible for refusing the change once the conversation
+   * has turns, which is where the rule belongs.
    */
-  async rekey(
-    from: AgentSessionKey,
-    to: AgentSessionKey,
-    init: AgentSessionInit,
+  async setAgent(
+    key: AgentSessionKey,
+    agent: string,
   ): Promise<AgentSessionRecord> {
-    const opened = await this.open(to, init);
-    if (from.agent !== to.agent) await this.store.remove(from);
-    return opened;
+    return this.store.update(key, agent, (record) => ({ ...record, agent }));
   }
 
   /**
@@ -795,14 +799,15 @@ export class AgentSessionRuntime {
    */
   async configure(
     key: AgentSessionKey,
+    agent: string,
     overrides: AgentSessionOverrides,
   ): Promise<AgentSessionRecord> {
     assertOverridesAdvertised(
-      key.agent,
-      this.context.getStore(ADAPTER_AGENT_REGISTRY)?.get(key.agent) ?? {},
+      agent,
+      this.context.getStore(ADAPTER_AGENT_REGISTRY)?.get(agent) ?? {},
       overrides,
     );
-    return this.store.update(key, (record) => {
+    return this.store.update(key, agent, (record) => {
       const next = { ...record.overrides, ...overrides };
       // Undefined keys are dropped rather than stored: the store holds
       // plain JSON and an explicit undefined is not a value.
@@ -826,13 +831,13 @@ export class AgentSessionRuntime {
    *
    * @returns whether a turn was running here to stop
    */
-  interrupt(key: AgentSessionKey): boolean {
-    const running = this.active.get(keyOf(key));
+  interrupt(key: AgentSessionKey, agent: string): boolean {
+    const running = this.active.get(key);
     if (!running) return false;
     running.controller.abort(INTERRUPT_REASON);
     this.emit(running.exchange, "route:agent:session:interrupted", {
-      agentName: key.agent,
-      session: key.session,
+      agentName: agent,
+      session: key,
     });
     return true;
   }
@@ -881,7 +886,7 @@ export class AgentSessionRuntime {
       let lostBackground = 0;
       let stale = false;
       let empty = false;
-      const started = await this.store.update(key, (r) => {
+      const started = await this.store.update(key, req.agent, (r) => {
         let next = r;
         if (r.turn !== undefined) {
           // A marker this process did not set: the previous process died
@@ -925,15 +930,15 @@ export class AgentSessionRuntime {
       });
       if (req.revived !== undefined) {
         this.emit(exchange, "route:agent:session:revived", {
-          agentName: key.agent,
-          session: key.session,
+          agentName: req.agent,
+          session: key,
           suspensionId: req.revived,
         });
       }
       if (stale) {
         this.emit(exchange, "route:agent:session:restored", {
-          agentName: key.agent,
-          session: key.session,
+          agentName: req.agent,
+          session: key,
           lostBackground,
         });
       }
@@ -942,8 +947,8 @@ export class AgentSessionRuntime {
         return {
           text: "",
           session: {
-            agent: key.agent,
-            id: key.session,
+            agent: req.agent,
+            id: key,
             status: "idle",
             queued: 0,
           },
@@ -956,7 +961,10 @@ export class AgentSessionRuntime {
           startMessages,
           controller.signal,
           async (messages) => {
-            await this.store.update(key, (r) => ({ ...r, messages }));
+            await this.store.update(key, req.agent, (r) => ({
+              ...r,
+              messages,
+            }));
           },
           started.overrides,
         );
@@ -965,7 +973,7 @@ export class AgentSessionRuntime {
         // is what the next turn starts from, and the marker must not
         // outlive the turn in this process.
         const partial = executor.thread() ?? startMessages;
-        const written = await this.store.update(key, (r) => ({
+        const written = await this.store.update(key, req.agent, (r) => ({
           ...withoutTurn(r),
           messages: partial,
         }));
@@ -977,8 +985,8 @@ export class AgentSessionRuntime {
         return {
           text: "",
           session: {
-            agent: key.agent,
-            id: key.session,
+            agent: req.agent,
+            id: key,
             status: "interrupted",
             queued: after.inbox.length,
           },
@@ -987,7 +995,7 @@ export class AgentSessionRuntime {
       const final = executor.thread() ?? startMessages;
       after = await this.parkIfOutstanding(
         req,
-        await this.store.update(key, (r) => ({
+        await this.store.update(key, req.agent, (r) => ({
           ...withoutTurn(r),
           messages: final,
           turns: r.turns + 1,
@@ -996,8 +1004,8 @@ export class AgentSessionRuntime {
       return {
         ...result,
         session: {
-          agent: key.agent,
-          id: key.session,
+          agent: req.agent,
+          id: key,
           status: "replied",
           queued: after.inbox.length,
         },
@@ -1032,7 +1040,7 @@ export class AgentSessionRuntime {
       ) {
         if (boundary.park !== undefined) {
           this.active.delete(k);
-          this.revive(key, boundary.park, { k, req });
+          this.revive(key, req.agent, boundary.park, { k, req });
         } else {
           this.followUpInProcess(k, req);
         }
@@ -1055,7 +1063,7 @@ export class AgentSessionRuntime {
     const outstanding = record.background.length > 0 || record.inbox.length > 0;
     if (!outstanding) {
       if (record.park === undefined) return record;
-      await this.releasePark(req.key, record.park);
+      await this.releasePark(req.key, req.agent, record.park);
       return withoutPark(record);
     }
     if (record.park !== undefined || req.park === undefined) return record;
@@ -1066,14 +1074,17 @@ export class AgentSessionRuntime {
       // between the two writes leaves a reference the boot releases.
       park = await req.park(async (pending) => {
         announced = pending;
-        await this.store.update(req.key, (r) => ({ ...r, parking: pending }));
+        await this.store.update(req.key, req.agent, (r) => ({
+          ...r,
+          parking: pending,
+        }));
       });
     } catch (err: unknown) {
       // Without a continuation the queued messages run in process and a
       // completion waits for the next message: the shape sessions had
       // before parks, and the log is what says why this one is on it.
       this.context.logger.error(
-        { err, agent: req.key.agent, session: req.key.session },
+        { err, agent: req.agent, session: req.key },
         "Agent session continuation could not be stored; completions wait for the next message",
       );
       // A failure after the announce may leave a park behind, and the
@@ -1091,12 +1102,12 @@ export class AgentSessionRuntime {
         }
       }
       return await this.store
-        .update(req.key, withoutParking)
+        .update(req.key, req.agent, withoutParking)
         .catch(() => withoutParking(record));
     }
     let updated: AgentSessionRecord;
     try {
-      updated = await this.store.update(req.key, (r) => ({
+      updated = await this.store.update(req.key, req.agent, (r) => ({
         ...withoutParking(r),
         park,
       }));
@@ -1109,8 +1120,8 @@ export class AgentSessionRuntime {
       throw err;
     }
     this.emit(req.exchange, "route:agent:session:parked", {
-      agentName: req.key.agent,
-      session: req.key.session,
+      agentName: req.agent,
+      session: req.key,
       suspensionId: park.suspensionId,
       inbox: updated.inbox.length,
       background: updated.background.length,
@@ -1121,10 +1132,11 @@ export class AgentSessionRuntime {
   /** Settle a continuation nothing will revive and drop it from the record. */
   private async releasePark(
     key: AgentSessionKey,
+    agent: string,
     park: AgentSessionPark,
   ): Promise<void> {
     await this.store.releasePark(park.suspensionId, "agent session idle");
-    await this.store.update(key, (r) =>
+    await this.store.update(key, agent, (r) =>
       r.park?.suspensionId === park.suspensionId ? withoutPark(r) : r,
     );
   }
@@ -1143,10 +1155,11 @@ export class AgentSessionRuntime {
    */
   private revive<T>(
     key: AgentSessionKey,
+    agent: string,
     park: AgentSessionPark,
     fallback?: { k: string; req: AgentTurnRequest<T> },
   ): void {
-    const k = keyOf(key);
+    const k = key;
     if (this.stopping || this.reviving.has(k) || this.active.has(k)) return;
     const suspension = this.context.getStore(SUSPENSION_RUNTIME);
     if (!suspension) return;
@@ -1157,8 +1170,7 @@ export class AgentSessionRuntime {
         this.context.logger.error(
           {
             err,
-            agent: key.agent,
-            session: key.session,
+            session: key,
             suspensionId: park.suspensionId,
             routeId: park.routeId,
           },
@@ -1166,7 +1178,7 @@ export class AgentSessionRuntime {
         );
         // Settled as well as dropped: a record the session no longer names
         // would otherwise stay live in the store with nothing to revive it.
-        await this.releasePark(key, park).catch(() => undefined);
+        await this.releasePark(key, agent, park).catch(() => undefined);
         if (fallback && !this.active.has(k)) {
           this.followUpInProcess(fallback.k, fallback.req);
         }
@@ -1190,10 +1202,15 @@ export class AgentSessionRuntime {
     // Once shutdown began the append stays in the record for the next
     // process: a turn started now would run on a context being drained.
     if (this.stopping) return;
-    const k = keyOf(key);
+    const k = key;
     const last = this.lastRequests.get(k);
     if (record.park !== undefined) {
-      this.revive(key, record.park, last ? { k, req: last } : undefined);
+      this.revive(
+        key,
+        record.agent,
+        record.park,
+        last ? { k, req: last } : undefined,
+      );
     } else if (record.inbox.length > 0 && last && !this.active.has(k)) {
       this.followUpInProcess(k, last);
     }
@@ -1211,7 +1228,7 @@ export class AgentSessionRuntime {
     } else {
       next.outcome.catch((err: unknown) => {
         this.context.logger.error(
-          { err, agent: req.key.agent, session: req.key.session },
+          { err, agent: req.agent, session: req.key },
           "Agent session follow-up turn failed",
         );
       });
@@ -1278,10 +1295,6 @@ const INTERRUPT_REASON = new Error(
   "The session's running turn was interrupted by a later message.",
 );
 INTERRUPT_REASON.name = "AgentSessionInterrupt";
-
-function keyOf(key: AgentSessionKey): string {
-  return `${encodeURIComponent(key.agent)}:${encodeURIComponent(key.session)}`;
-}
 
 /** Whether a scope admits a record with this owner. */
 function scopeOwns(scope: AgentSessionScope, owner: string | null): boolean {

@@ -344,10 +344,7 @@ describe("agent sessions", () => {
     expect(JSON.stringify(llm.calls[1]!.user)).toContain("turn one");
     await t.ctx.getRouteById("chat")!.drain();
     const runtime = AgentSessionRuntime.for(t.ctx);
-    const summary = await runtime.summary(
-      { agent: "max", session: "s" },
-      "operator",
-    );
+    const summary = await runtime.summary("s", "operator");
     expect(summary).toMatchObject({ turn: "idle", inbox: 0, turns: 2 });
   });
 
@@ -432,18 +429,17 @@ describe("agent sessions", () => {
       t.ctx,
       new AgentSessionStore(recordsFor(store), store),
     );
-    await runtimeA.post(
-      { agent: "max", session: "s" },
-      { kind: "message", content: "preview is up", by: "ci" },
-    );
-    await runtimeA.post(
-      { agent: "max", session: "s" },
-      { kind: "message", content: "tests passed", by: "ci" },
-    );
-    expect(
-      (await runtimeA.summary({ agent: "max", session: "s" }, "operator"))
-        ?.inbox,
-    ).toBe(2);
+    await runtimeA.post("s", "max", {
+      kind: "message",
+      content: "preview is up",
+      by: "ci",
+    });
+    await runtimeA.post("s", "max", {
+      kind: "message",
+      content: "tests passed",
+      by: "ci",
+    });
+    expect((await runtimeA.summary("s", "operator"))?.inbox).toBe(2);
     await t.stop();
     t = undefined;
 
@@ -463,10 +459,7 @@ describe("agent sessions", () => {
     // Turn one's exchange is in the thread too: the transcript survived.
     expect(JSON.stringify(llm.calls[1]!.user)).toContain('"first"');
     const summary = await AgentSessionRuntime.for(b.ctx).summary(
-      {
-        agent: "max",
-        session: "s",
-      },
+      "s",
       "operator",
     );
     expect(summary).toMatchObject({ inbox: 0, turns: 2 });
@@ -487,15 +480,12 @@ describe("agent sessions", () => {
     await waitForEntry(1);
 
     const runtime = AgentSessionRuntime.for(t.ctx);
-    expect(runtime.interrupt({ agent: "max", session: "s" })).toBe(true);
+    expect(runtime.interrupt("s", "max")).toBe(true);
 
     const result = await running;
     expect(result.session?.status).toBe("interrupted");
 
-    const summary = await runtime.summary(
-      { agent: "max", session: "s" },
-      "operator",
-    );
+    const summary = await runtime.summary("s", "operator");
     // The partial turn is kept and nothing queued: a cancel carries no
     // message, so there is nothing for a later turn to answer.
     expect(summary).toMatchObject({ inbox: 0, turn: "idle" });
@@ -515,8 +505,8 @@ describe("agent sessions", () => {
     await send(t, { session: "s", message: "hello" });
 
     const runtime = AgentSessionRuntime.for(t.ctx);
-    expect(runtime.interrupt({ agent: "max", session: "s" })).toBe(false);
-    expect(runtime.interrupt({ agent: "max", session: "never" })).toBe(false);
+    expect(runtime.interrupt("s", "max")).toBe(false);
+    expect(runtime.interrupt("never", "max")).toBe(false);
   });
 
   /**
@@ -531,7 +521,7 @@ describe("agent sessions", () => {
     llm.script.push({ text: "ok" });
     await send(t, { session: "s", message: "first" });
     // Forge what a crash mid-tool leaves behind, through the store seam.
-    const key = { agent: "max", session: "s" };
+    const key = "s";
     const stored = (await recordsFor(store).get(key))!;
     const state = stored.value as {
       messages: unknown[];
@@ -567,15 +557,7 @@ describe("agent sessions", () => {
       restored.push(details);
     });
     expect(
-      (
-        await AgentSessionRuntime.for(t.ctx).summary(
-          {
-            agent: "max",
-            session: "s",
-          },
-          "operator",
-        )
-      )?.turn,
+      (await AgentSessionRuntime.for(t.ctx).summary("s", "operator"))?.turn,
     ).toBe("stale");
 
     llm.script.push({ text: "picking up" });
@@ -716,7 +698,7 @@ describe("agent sessions", () => {
     await t.startAndWaitReady();
     llm.script.push({ text: "one" });
     await send(t, { session: "old", message: "a" });
-    const key = { agent: "max", session: "old" };
+    const key = "old";
     const stored = (await recordsFor(store).get(key))!;
     await recordsFor(store).replace(key, stored.version, {
       ...(stored.value as object),
@@ -771,9 +753,10 @@ describe("agent sessions", () => {
       thread: () => undefined,
     };
     const exchange = new DefaultExchange(t.ctx, { body: {} });
-    const key = { agent: "max", session: "direct" };
+    const key = "direct";
     const first = runtime.turn({
       key,
+      agent: "max",
       exchange,
       message: "a",
       by: null,
@@ -784,6 +767,7 @@ describe("agent sessions", () => {
     await sleep(10);
     const second = runtime.turn({
       key,
+      agent: "max",
       exchange,
       message: "b",
       by: null,
@@ -821,9 +805,10 @@ describe("agent sessions", () => {
       thread: () => undefined,
     };
     const exchange = new DefaultExchange(t.ctx, { body: {} });
-    const key = { agent: "max", session: "vanish" };
+    const key = "vanish";
     const first = runtime.turn({
       key,
+      agent: "max",
       exchange,
       message: "a",
       by: null,
@@ -837,6 +822,7 @@ describe("agent sessions", () => {
     // this process ever reads the message.
     const second = runtime.turn({
       key,
+      agent: "max",
       exchange,
       message: "b",
       by: null,
@@ -850,7 +836,7 @@ describe("agent sessions", () => {
     ) {
       await sleep(1);
     }
-    await sessions.update(key, (r) => ({ ...r, inbox: [] }));
+    await sessions.update(key, "max", (r) => ({ ...r, inbox: [] }));
     const one = await first;
     expect(one.session?.status).toBe("interrupted");
     const two = await Promise.race([
@@ -895,7 +881,7 @@ describe("agent sessions", () => {
         text: "[Message from an anonymous caller]\nwho is there?",
       },
     ]);
-    const stored = await recordsFor(store).get({ agent: "max", session: "s" });
+    const stored = await recordsFor(store).get("s");
     expect(JSON.stringify(stored?.value)).toContain('[Message from \\"bob\\"]');
     // The boundary turn ran on Alice's parked exchange: its downstream
     // delivery carries her principal, whoever queued the text.
@@ -918,25 +904,14 @@ describe("agent sessions", () => {
     await send(t, { session: "s", message: "I am Bob" }, "bob");
     expect(lastUserOf(llm.calls[1]!).content).toBe("I am Bob");
     const summary = await AgentSessionRuntime.for(t.ctx).summary(
-      {
-        agent: "max",
-        session: "s",
-      },
+      "s",
       "operator",
     );
     expect(summary).toMatchObject({ owner: "alice", turns: 2 });
     llm.script.push({ text: "hi nobody" });
     await send(t, { session: "anon", message: "hello" });
     expect(
-      (
-        await AgentSessionRuntime.for(t.ctx).summary(
-          {
-            agent: "max",
-            session: "anon",
-          },
-          "operator",
-        )
-      )?.owner,
+      (await AgentSessionRuntime.for(t.ctx).summary("anon", "operator"))?.owner,
     ).toBeNull();
   });
 
@@ -979,18 +954,14 @@ describe("agent sessions", () => {
     llm.script.push({ toolCalls: [{ toolName: "parker" }] }, { text: "ok" });
     const reply = await send(t, { session: "s", message: "approve this" });
     expect(reply.text).toBe("ok");
-    const record = await new AgentSessionStore(recordsFor(store), store).load({
-      agent: "max",
-      session: "s",
-    });
+    const record = await new AgentSessionStore(recordsFor(store), store).load(
+      "s",
+    );
     const transcript = JSON.stringify(record?.messages);
     expect(transcript).toContain("cannot park");
     expect(transcript).toContain("Park from a sessionless agent");
     const summary = await AgentSessionRuntime.for(t.ctx).summary(
-      {
-        agent: "max",
-        session: "s",
-      },
+      "s",
       "operator",
     );
     expect(summary).toMatchObject({ parked: false, turns: 1 });
@@ -1039,10 +1010,9 @@ describe("agent sessions", () => {
     await waitForEntry(1);
     await send(t, { session: "s", message: "named" }, "anonymous");
     await send(t, { session: "s", message: "unnamed" });
-    const record = await new AgentSessionStore(recordsFor(store), store).load({
-      agent: "max",
-      session: "s",
-    });
+    const record = await new AgentSessionStore(recordsFor(store), store).load(
+      "s",
+    );
     expect(record?.inbox.map((entry) => entry.by)).toEqual(["anonymous", null]);
     llm.script.push({ text: "two" });
     release!();
@@ -1079,13 +1049,16 @@ describe("agent sessions", () => {
       },
     });
     const sessions = new AgentSessionStore(counting, store);
-    const key = { agent: "max", session: "noop" };
-    const created = await sessions.update(key, (r) => ({ ...r, turns: 1 }));
+    const key = "noop";
+    const created = await sessions.update(key, "max", (r) => ({
+      ...r,
+      turns: 1,
+    }));
     writes = 0;
-    const same = await sessions.update(key, (r) => r);
+    const same = await sessions.update(key, "max", (r) => r);
     expect(writes).toBe(0);
     expect(same.updatedAt).toBe(created.updatedAt);
-    await sessions.update(key, (r) => ({ ...r, turns: 2 }));
+    await sessions.update(key, "max", (r) => ({ ...r, turns: 2 }));
     expect(writes).toBe(1);
   });
 
@@ -1130,8 +1103,8 @@ describe("agent sessions", () => {
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
     const runtime = new AgentSessionRuntime(t.ctx, sessions);
-    const key = { agent: "max", session: "deleted-park" };
-    await sessions.update(key, (r) => ({
+    const key = "deleted-park";
+    await sessions.update(key, "max", (r) => ({
       ...r,
       background: [
         { handle: "sandbox-run:1", tool: "run", startedAt: "now", by: null },
@@ -1149,6 +1122,7 @@ describe("agent sessions", () => {
     const announced: string[] = [];
     await runtime.turn({
       key,
+      agent: "max",
       exchange,
       message: "start",
       by: null,
@@ -1162,8 +1136,8 @@ describe("agent sessions", () => {
           "chat",
           (id) => ({
             kind: "agent-session-park",
-            agent: key.agent,
-            session: key.session,
+            agent: "max",
+            session: key,
             suspensionId: id,
           }),
           async (id) => {
@@ -1180,7 +1154,7 @@ describe("agent sessions", () => {
     expect(
       MemorySuspensionStore.unsafeRecords(store).delete(announced[0]!),
     ).toBe(true);
-    await runtime.post(key, {
+    await runtime.post(key, "max", {
       kind: "message",
       content: "the build finished",
       by: null,
@@ -1208,8 +1182,8 @@ describe("agent sessions", () => {
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
     const runtime = new AgentSessionRuntime(t.ctx, sessions);
-    const key = { agent: "max", session: "failed-park" };
-    await sessions.update(key, (r) => ({
+    const key = "failed-park";
+    await sessions.update(key, "max", (r) => ({
       ...r,
       background: [
         { handle: "sandbox-run:1", tool: "run", startedAt: "now", by: null },
@@ -1219,6 +1193,7 @@ describe("agent sessions", () => {
     const announced: string[] = [];
     await runtime.turn({
       key,
+      agent: "max",
       exchange,
       message: "start",
       by: null,
@@ -1235,8 +1210,8 @@ describe("agent sessions", () => {
           "chat",
           (id) => ({
             kind: "agent-session-park",
-            agent: key.agent,
-            session: key.session,
+            agent: "max",
+            session: key,
             suspensionId: id,
           }),
           async (id) => {
@@ -1266,8 +1241,8 @@ describe("agent sessions", () => {
     await t.startAndWaitReady();
     const records = recordsFor(store);
     const sessions = new AgentSessionStore(records, store);
-    const key = { agent: "max", session: "corrupt" };
-    await sessions.update(key, (r) => r);
+    const key = "corrupt";
+    await sessions.update(key, "max", (r) => r);
     const stored = await records.get(key);
     await records.replace(key, stored!.version, {
       ...(stored!.value as object),
@@ -1288,15 +1263,20 @@ describe("agent sessions", () => {
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
     const exchange = new DefaultExchange(t.ctx, { body: {} });
-    const key = { agent: "max", session: "unreleasable" };
+    const key = "unreleasable";
     const { suspensionId } = await parkAside(
       t.ctx,
       exchange,
       { position: 0, continuation: [] },
       "chat",
-      (id) => ({ kind: "agent-session-park", ...key, suspensionId: id }),
+      (id) => ({
+        kind: "agent-session-park",
+        agent: "max",
+        session: key,
+        suspensionId: id,
+      }),
     );
-    await sessions.update(key, (r) => ({
+    await sessions.update(key, "max", (r) => ({
       ...r,
       parking: { suspensionId, routeId: "chat" },
     }));
@@ -1322,15 +1302,20 @@ describe("agent sessions", () => {
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
     const exchange = new DefaultExchange(t.ctx, { body: {} });
-    const key = { agent: "max", session: "raced" };
+    const key = "raced";
     const { suspensionId } = await parkAside(
       t.ctx,
       exchange,
       { position: 0, continuation: [] },
       "chat",
-      (id) => ({ kind: "agent-session-park", ...key, suspensionId: id }),
+      (id) => ({
+        kind: "agent-session-park",
+        agent: "max",
+        session: key,
+        suspensionId: id,
+      }),
     );
-    await sessions.update(key, (r) => ({
+    await sessions.update(key, "max", (r) => ({
       ...r,
       parking: { suspensionId, routeId: "chat" },
     }));
@@ -1338,7 +1323,7 @@ describe("agent sessions", () => {
     sessions.releasePark = async (id, reason) => {
       await realRelease(id, reason);
       // The window: a turn started here announces its own continuation.
-      await sessions.update(key, (r) => ({
+      await sessions.update(key, "max", (r) => ({
         ...r,
         parking: { suspensionId: "started-under-the-boot", routeId: "chat" },
       }));
@@ -1361,8 +1346,8 @@ describe("agent sessions", () => {
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
     const runtime = new AgentSessionRuntime(t.ctx, sessions);
-    const key = { agent: "max", session: "unreleasable-turn" };
-    await sessions.update(key, (r) => ({
+    const key = "unreleasable-turn";
+    await sessions.update(key, "max", (r) => ({
       ...r,
       background: [
         { handle: "sandbox-run:1", tool: "run", startedAt: "now", by: null },
@@ -1372,6 +1357,7 @@ describe("agent sessions", () => {
     const announced: string[] = [];
     await runtime.turn({
       key,
+      agent: "max",
       exchange,
       message: "start",
       by: null,
@@ -1388,8 +1374,8 @@ describe("agent sessions", () => {
           "chat",
           (id) => ({
             kind: "agent-session-park",
-            agent: key.agent,
-            session: key.session,
+            agent: "max",
+            session: key,
             suspensionId: id,
           }),
           async (id) => {
@@ -1420,20 +1406,25 @@ describe("agent sessions", () => {
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
     const exchange = new DefaultExchange(t.ctx, { body: {} });
-    const orphan = { agent: "max", session: "orphan" };
+    const orphan = "orphan";
     const { suspensionId } = await parkAside(
       t.ctx,
       exchange,
       { position: 0, continuation: [] },
       "chat",
-      (id) => ({ kind: "agent-session-park", ...orphan, suspensionId: id }),
+      (id) => ({
+        kind: "agent-session-park",
+        agent: "max",
+        session: orphan,
+        suspensionId: id,
+      }),
     );
-    await sessions.update(orphan, (r) => ({
+    await sessions.update(orphan, "max", (r) => ({
       ...r,
       parking: { suspensionId, routeId: "chat" },
     }));
-    const phantom = { agent: "max", session: "phantom" };
-    await sessions.update(phantom, (r) => ({
+    const phantom = "phantom";
+    await sessions.update(phantom, "max", (r) => ({
       ...r,
       parking: { suspensionId: "never-created", routeId: "chat" },
     }));
@@ -1455,8 +1446,8 @@ describe("agent sessions", () => {
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
-    const key = { agent: "max", session: "gap" };
-    await sessions.update(key, (r) => ({
+    const key = "gap";
+    await sessions.update(key, "max", (r) => ({
       ...r,
       background: [
         { handle: "sandbox-run:1", tool: "run", startedAt: "now", by: null },
@@ -1464,12 +1455,12 @@ describe("agent sessions", () => {
     }));
     let posted = false;
     const realUpdate = sessions.update.bind(sessions);
-    sessions.update = async (k, mutate) => {
-      const record = await realUpdate(k, mutate);
+    sessions.update = async (k, agent, mutate) => {
+      const record = await realUpdate(k, agent, mutate);
       if (record.park !== undefined && !posted) {
         posted = true;
         // The gap: the park is written, the turn has not cleared `active`.
-        await runtime.post(key, {
+        await runtime.post(key, "max", {
           kind: "message",
           content: "the build finished",
           by: null,
@@ -1489,6 +1480,7 @@ describe("agent sessions", () => {
     const exchange = new DefaultExchange(t.ctx, { body: {} });
     await runtime.turn({
       key,
+      agent: "max",
       exchange,
       message: "start",
       by: null,
@@ -1542,9 +1534,10 @@ describe("agent sessions", () => {
       thread: () => undefined,
     };
     const exchange = new DefaultExchange(t.ctx, { body: {} });
-    const key = { agent: "max", session: "boundary" };
+    const key = "boundary";
     const first = runtime.turn({
       key,
+      agent: "max",
       exchange,
       message: "a",
       by: null,
@@ -1552,7 +1545,11 @@ describe("agent sessions", () => {
       executor,
     });
     await sleep(10);
-    await runtime.post(key, { kind: "message", content: "posted", by: null });
+    await runtime.post(key, "max", {
+      kind: "message",
+      content: "posted",
+      by: null,
+    });
     slowLoads = 1;
     releaseRun!();
     // Inside the boundary read: the first run has returned, its cleanup
@@ -1561,6 +1558,7 @@ describe("agent sessions", () => {
     expect(runtime.isRunning(key)).toBe(true);
     const third = await runtime.turn({
       key,
+      agent: "max",
       exchange,
       message: "c",
       by: null,
@@ -1601,9 +1599,10 @@ describe("agent sessions", () => {
       thread: () => undefined,
     };
     const exchange = new DefaultExchange(t.ctx, { body: {} });
-    const key = { agent: "max", session: "idle-append" };
+    const key = "idle-append";
     await runtime.turn({
       key,
+      agent: "max",
       exchange,
       message: "a",
       by: null,
@@ -1611,7 +1610,7 @@ describe("agent sessions", () => {
       executor,
     });
     expect(runtime.isRunning(key)).toBe(false);
-    const posted = await runtime.post(key, {
+    const posted = await runtime.post(key, "max", {
       kind: "message",
       content: "the build finished",
       by: null,
@@ -1643,9 +1642,10 @@ describe("agent sessions", () => {
       thread: () => undefined,
     };
     const exchange = new DefaultExchange(t.ctx, { body: {} });
-    const key = { agent: "max", session: "stopping" };
+    const key = "stopping";
     await runtime.turn({
       key,
+      agent: "max",
       exchange,
       message: "a",
       by: null,
@@ -1653,7 +1653,11 @@ describe("agent sessions", () => {
       executor,
     });
     await runtime.stop();
-    await runtime.post(key, { kind: "message", content: "late", by: null });
+    await runtime.post(key, "max", {
+      kind: "message",
+      content: "late",
+      by: null,
+    });
     await sleep(50);
     expect(runs).toBe(1);
     expect((await sessions.load(key))?.inbox.map((m) => m.kind)).toEqual([
@@ -1681,8 +1685,15 @@ describe("agent sessions", () => {
       thread: () => undefined,
     };
     const exchange = new DefaultExchange(t.ctx, { body: {} });
-    const key = { agent: "max", session: "stopping-turn" };
-    const request = { key, exchange, by: null, interrupt: false, executor };
+    const key = "stopping-turn";
+    const request = {
+      key,
+      agent: "max",
+      exchange,
+      by: null,
+      interrupt: false,
+      executor,
+    };
     await runtime.turn({ ...request, message: "a" });
     await runtime.stop();
     const late = await runtime.turn({ ...request, message: "late" });
@@ -1722,14 +1733,14 @@ describe("agent sessions", () => {
       thread: () => undefined,
     };
     const exchange = new DefaultExchange(t.ctx, { body: {} });
-    const key = { agent: "max", session: "stopping-next" };
-    const request = { key, exchange, by: null, executor };
+    const key = "stopping-next";
+    const request = { key, agent: "max", exchange, by: null, executor };
     const first = runtime.turn({ ...request, message: "a", interrupt: false });
     await sleep(10);
     const second = runtime.turn({ ...request, message: "b", interrupt: true });
     await until(async () => ((await realLoad(key))?.inbox.length ?? 0) > 0);
     const [queuedEntry] = (await realLoad(key))?.inbox ?? [];
-    await sessions.update(key, (r) => ({ ...r, inbox: [] }));
+    await sessions.update(key, "max", (r) => ({ ...r, inbox: [] }));
     // The waiting caller's next two reads are held: its inbox check once
     // turn one ends, then the record read inside nextTurn.
     const inboxRead = gate();
@@ -1737,7 +1748,7 @@ describe("agent sessions", () => {
     gates.push(inboxRead.wait, recordRead.wait);
     const one = await first;
     expect(one.session?.status).toBe("interrupted");
-    await sessions.update(key, (r) => ({ ...r, inbox: [queuedEntry!] }));
+    await sessions.update(key, "max", (r) => ({ ...r, inbox: [queuedEntry!] }));
     inboxRead.open();
     await until(() => entered() === 2);
     const stopped = runtime.stop();
@@ -1786,9 +1797,10 @@ describe("agent sessions", () => {
       thread: () => undefined,
     };
     const exchange = new DefaultExchange(t.ctx, { body: {} });
-    const key = { agent: "max", session: "stopping-wake" };
+    const key = "stopping-wake";
     const request = {
       key,
+      agent: "max",
       exchange,
       by: null,
       executor,
@@ -1847,9 +1859,10 @@ describe("agent sessions", () => {
       thread: () => undefined,
     };
     const exchange = new DefaultExchange(t.ctx, { body: {} });
-    const key = { agent: "max", session: "stopping-revive" };
+    const key = "stopping-revive";
     const first = runtime.turn({
       key,
+      agent: "max",
       exchange,
       message: "start",
       by: null,
@@ -1858,7 +1871,11 @@ describe("agent sessions", () => {
       park: async () => ({ suspensionId: "not-a-record", routeId: "chat" }),
     });
     await sleep(10);
-    await runtime.post(key, { kind: "message", content: "late", by: null });
+    await runtime.post(key, "max", {
+      kind: "message",
+      content: "late",
+      by: null,
+    });
     releaseRun!();
     await first;
     await runtime.stop();

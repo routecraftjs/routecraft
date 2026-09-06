@@ -347,6 +347,14 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
     } satisfies Omit<AgentRunInput<T>, "onStep" | "resume" | "session">;
 
     if (sessionKey !== undefined) {
+      // `resolveSessionKey` refuses a session dispatch with no identity, so
+      // this is the same check restated where the compiler can see it
+      // rather than an assertion asking to be trusted.
+      if (agentIdentity === undefined) {
+        throw rcError("RC5003", undefined, {
+          message: `Agent: "session" records which persona answered the conversation, and this dispatch has no identity to record: it is neither a registered agent nor on a route. Dispatch through a route, or register the agent by name.`,
+        });
+      }
       if (!context) {
         throw rcError("RC5003", undefined, {
           message: `Agent: "session" needs a CraftContext to keep the conversation in; this exchange has none.`,
@@ -376,8 +384,8 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
                 routeId,
                 (id): AgentSessionParkMarker => ({
                   kind: "agent-session-park",
-                  agent: sessionKey.agent,
-                  session: sessionKey.session,
+                  agent: agentIdentity,
+                  session: sessionKey,
                   suspensionId: id,
                 }),
                 (id) => announce({ suspensionId: id, routeId }),
@@ -387,6 +395,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
           : undefined;
       return await AgentSessionRuntime.for(context).turn({
         key: sessionKey,
+        agent: agentIdentity,
         exchange,
         by: exchange.principal?.subject ?? null,
         ...(revivedPark === undefined ? { message: user } : {}),
@@ -402,8 +411,8 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
         executor: this.sessionExecutor(
           {
             ...base,
-            system: `${system}\n\n${sessionSystemBlock(sessionKey)}`,
-            session: { agent: sessionKey.agent, id: sessionKey.session },
+            system: `${system}\n\n${sessionSystemBlock(sessionKey, agentIdentity)}`,
+            session: { agent: agentIdentity, id: sessionKey },
           },
           abortSignal,
           onDelta,
@@ -466,12 +475,16 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
         message: `Agent: "session" and "stream: true" cannot be combined. A session turn stores its transcript when it ends, and a stream is handed over before that. Use "onDelta" for token deltas on a session, or drop "session" to stream.`,
       });
     }
+    // Not about the key any more, which is this id alone. A record names
+    // the persona that answered it, the listing shows it and every session
+    // event reports it, and a dispatch that is neither a registered agent
+    // nor on a route has no name to record.
     if (agentIdentity === undefined) {
       throw rcError("RC5003", undefined, {
-        message: `Agent: "session" needs an agent identity to key the conversation by, and this dispatch has none: it is neither a registered agent nor on a route. Dispatch through a route, or register the agent by name.`,
+        message: `Agent: "session" records which persona answered the conversation, and this dispatch has no identity to record: it is neither a registered agent nor on a route. Dispatch through a route, or register the agent by name.`,
       });
     }
-    return { agent: agentIdentity, session: resolved };
+    return resolved;
   }
 
   /**
@@ -489,7 +502,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
         message: `This continuation was stored by agent "${marker.agent}", but the revived route now dispatches ${agentIdentity === undefined ? "an agent with no identity" : `"${agentIdentity}"`}. Restore the original agent binding.`,
       });
     }
-    return { agent: marker.agent, session: marker.session };
+    return marker.session;
   }
 
   /**

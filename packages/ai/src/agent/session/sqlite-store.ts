@@ -39,12 +39,10 @@ const BUSY_TIMEOUT_MS = 5_000;
  */
 const MIGRATIONS: ReadonlyArray<string> = [
   `CREATE TABLE IF NOT EXISTS agent_sessions (
-     agent      TEXT    NOT NULL,
-     session    TEXT    NOT NULL,
+     session    TEXT    NOT NULL PRIMARY KEY,
      version    INTEGER NOT NULL,
      record     TEXT    NOT NULL,
-     updated_at INTEGER NOT NULL,
-     PRIMARY KEY (agent, session)
+     updated_at INTEGER NOT NULL
    );`,
 ];
 
@@ -126,11 +124,8 @@ export class SqliteSessionStore implements SessionStore {
     // failure to the caller, not a SyntaxError.
     return this.guard("read", () => {
       const row = this.#db
-        .prepare(
-          "SELECT version, record FROM agent_sessions WHERE agent = ? AND session = ?",
-        )
-        .get(key.agent, key.session) as
-        { version: number; record: string } | undefined | null;
+        .prepare("SELECT version, record FROM agent_sessions WHERE session = ?")
+        .get(key) as { version: number; record: string } | undefined | null;
       if (!row) return undefined;
       return { value: JSON.parse(row.record) as unknown, version: row.version };
     });
@@ -145,10 +140,10 @@ export class SqliteSessionStore implements SessionStore {
       try {
         this.#db
           .prepare(
-            `INSERT INTO agent_sessions (agent, session, version, record, updated_at)
-             VALUES (?, ?, 1, ?, ?)`,
+            `INSERT INTO agent_sessions (session, version, record, updated_at)
+             VALUES (?, 1, ?, ?)`,
           )
-          .run(key.agent, key.session, record, Date.now());
+          .run(key, record, Date.now());
         return { won: true };
       } catch (cause) {
         // The one failure the contract names an outcome: a first write that
@@ -172,9 +167,9 @@ export class SqliteSessionStore implements SessionStore {
         .prepare(
           `UPDATE agent_sessions
              SET version = version + 1, record = ?, updated_at = ?
-           WHERE agent = ? AND session = ? AND version = ?`,
+           WHERE session = ? AND version = ?`,
         )
-        .run(record, Date.now(), key.agent, key.session, expectedVersion);
+        .run(record, Date.now(), key, expectedVersion);
       const changed = this.#db.prepare("SELECT changes() AS changed").get() as {
         changed: number;
       };
@@ -185,20 +180,10 @@ export class SqliteSessionStore implements SessionStore {
   async keys(): Promise<AgentSessionKey[]> {
     const rows = this.guard("read", () =>
       this.#db
-        .prepare(
-          "SELECT agent, session FROM agent_sessions ORDER BY agent, session",
-        )
+        .prepare("SELECT session FROM agent_sessions ORDER BY session")
         .all(),
-    ) as Array<{ agent: string; session: string }>;
-    return rows.map((row) => ({ agent: row.agent, session: row.session }));
-  }
-
-  async remove(key: AgentSessionKey): Promise<void> {
-    this.guard("write", () =>
-      this.#db
-        .prepare("DELETE FROM agent_sessions WHERE agent = ? AND session = ?")
-        .run(key.agent, key.session),
-    );
+    ) as Array<{ session: string }>;
+    return rows.map((row) => row.session);
   }
 
   async close(): Promise<void> {

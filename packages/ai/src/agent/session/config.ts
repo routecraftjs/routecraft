@@ -360,10 +360,6 @@ class LazyResolvedSessionStore implements ResolvedSessionStore, SessionStore {
     return (await this.resolve()).store.keys();
   }
 
-  async remove(key: AgentSessionKey): Promise<void> {
-    return (await this.resolve()).store.remove(key);
-  }
-
   async close(): Promise<void> {
     if (this.#closed) return;
     this.#closed = true;
@@ -429,11 +425,6 @@ export class DeferredSqliteSessionStore implements SessionStore {
 
   async keys(): Promise<AgentSessionKey[]> {
     return (await this.reader())?.keys() ?? [];
-  }
-
-  async remove(key: AgentSessionKey): Promise<void> {
-    // Nothing to remove from a database no session has caused to exist.
-    await (await this.reader())?.remove(key);
   }
 
   async close(): Promise<void> {

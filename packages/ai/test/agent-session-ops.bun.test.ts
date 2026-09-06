@@ -93,7 +93,7 @@ describe("the agent-sessions management resource", () => {
   /**
    * @case Sessions are listable with their inbox depth, and one is readable by agent and id
    * @preconditions Two sessions have each had one turn; the introspection tier is open
-   * @expectedResult GET /ops/agent-sessions lists both with turn idle, inbox 0 and turns 1; ?agent= filters; GET /ops/agent-sessions/max/s1 answers the one summary; an unknown session answers 404
+   * @expectedResult GET /ops/agent-sessions lists both with turn idle, inbox 0 and turns 1; ?agent= filters; GET /ops/agent-sessions/s1 answers the one summary, named by id alone; an unknown id answers 404
    */
   test("lists and describes sessions", async () => {
     const port = await start(true);
@@ -121,14 +121,12 @@ describe("the agent-sessions management resource", () => {
     );
     expect(filtered.body.items).toHaveLength(0);
 
-    const one = await get<AgentSessionSummary>(
-      port,
-      "/ops/agent-sessions/max/s1",
-    );
+    const one = await get<AgentSessionSummary>(port, "/ops/agent-sessions/s1");
     expect(one.status).toBe(200);
     expect(one.body).toMatchObject({ agent: "max", session: "s1", turns: 1 });
-    expect((await get(port, "/ops/agent-sessions/max/nope")).status).toBe(404);
-    expect((await get(port, "/ops/agent-sessions/max")).status).toBe(404);
+    expect((await get(port, "/ops/agent-sessions/nope")).status).toBe(404);
+    // A pair is not a path any more: the id alone names a conversation.
+    expect((await get(port, "/ops/agent-sessions/max/s1")).status).toBe(404);
   });
 
   /**

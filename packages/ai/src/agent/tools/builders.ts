@@ -263,12 +263,12 @@ async function dispatchBackground<TIn>(
     throw abortError(routeId, hctx.abortSignal.reason);
   }
   const runtime = AgentSessionRuntime.for(ctx);
-  const key = { agent: session.agent, session: session.id };
+  const key = session.id;
   const dispatchId = randomUUID();
   const handle = `${routeId}:${dispatchId}`;
   const startedAt = new Date();
   const by = hctx.principal?.subject ?? null;
-  await runtime.startBackground(key, {
+  await runtime.startBackground(key, session.agent, {
     handle,
     tool: toolName,
     startedAt: startedAt.toISOString(),
@@ -283,12 +283,14 @@ async function dispatchBackground<TIn>(
   // is logged, because the model is waiting on a result that is now lost
   // and nothing else will say so.
   const settle = (outcome: BackgroundOutcome): void => {
-    runtime.settleBackground(key, outcome).catch((err: unknown) => {
-      ctx.logger.error(
-        { err, agent: key.agent, session: key.session, handle, tool: toolName },
-        "Background tool result could not be delivered to the session inbox",
-      );
-    });
+    runtime
+      .settleBackground(key, session.agent, outcome)
+      .catch((err: unknown) => {
+        ctx.logger.error(
+          { err, agent: session.agent, session: key, handle, tool: toolName },
+          "Background tool result could not be delivered to the session inbox",
+        );
+      });
   };
   // Deliberately not awaited: the turn continues, and the settlement is
   // the runtime's business.

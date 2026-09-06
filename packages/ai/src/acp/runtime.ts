@@ -243,6 +243,7 @@ export class AcpRuntime {
    */
   async runTurn(
     key: AgentSessionKey,
+    agent: string,
     message: string,
     principal: Principal | undefined,
     surface: AgentSurfaceRef,
@@ -253,7 +254,7 @@ export class AcpRuntime {
     this.turns.set(correlationId, {
       updates,
       payloads: this.toolCallPayloads,
-      session: key.session,
+      session: key,
     });
     // The turn is findable by its correlation id as well as by the header,
     // so a route the agent calls as a hand can reach the person too.
@@ -267,8 +268,8 @@ export class AcpRuntime {
     };
     try {
       const result = await this.client.sendDirect<AcpPromptBody, AgentResult>(
-        `${ACP_ROUTE_PREFIX}${key.agent}`,
-        { session: key.session, message },
+        `${ACP_ROUTE_PREFIX}${agent}`,
+        { session: key, message },
         headers,
       );
       // A provider that does not stream produced no deltas, so the reply

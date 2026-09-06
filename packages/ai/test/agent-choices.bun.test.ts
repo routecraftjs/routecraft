@@ -289,10 +289,10 @@ describe("a conversation's own choices", () => {
     await send(t, { session: "s", message: "hello" });
     expect(llm.calls[0]?.modelId).toBe("claude-sonnet-4-6");
 
-    await AgentSessionRuntime.for(t.ctx).configure(
-      { agent: "zoe", session: "s" },
-      { model: OPUS, reasoning: "high" },
-    );
+    await AgentSessionRuntime.for(t.ctx).configure("s", "zoe", {
+      model: OPUS,
+      reasoning: "high",
+    });
 
     await send(t, { session: "s", message: "again" });
     expect(llm.calls[1]?.modelId).toBe("claude-opus-4-7");
@@ -311,9 +311,9 @@ describe("a conversation's own choices", () => {
     await send(t, { session: "s", message: "hello" });
 
     const runtime = AgentSessionRuntime.for(t.ctx);
-    const key = { agent: "zoe", session: "s" };
+    const key = "s";
     await expect(
-      runtime.configure(key, { model: HAIKU }),
+      runtime.configure(key, "zoe", { model: HAIKU }),
     ).rejects.toMatchObject({ rc: "AI1017" });
 
     const record = await runtime.store.load(key);
@@ -329,10 +329,10 @@ describe("a conversation's own choices", () => {
     t = await boot();
     await t.startAndWaitReady();
     const runtime = AgentSessionRuntime.for(t.ctx);
-    const key = { agent: "zoe", session: "s" };
+    const key = "s";
     // Written straight to the store, which is the only way this state can
     // arise: `configure` refuses it, so the record has to predate the list.
-    await runtime.store.update(key, (record) => ({
+    await runtime.store.update(key, "zoe", (record) => ({
       ...record,
       overrides: { model: HAIKU },
     }));

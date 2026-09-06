@@ -57,9 +57,6 @@ class LeakyStore implements SessionStore {
   get(key: AgentSessionKey): Promise<StoredSession | undefined> {
     return this.inner.get(key);
   }
-  remove(key: AgentSessionKey): Promise<void> {
-    return this.inner.remove(key);
-  }
   create(key: AgentSessionKey, value: unknown): Promise<SessionCasResult> {
     return this.inner.create(key, value);
   }
@@ -165,11 +162,7 @@ describe("a conversation belongs to the person who started it", () => {
     const runtime = AgentSessionRuntime.for(t.ctx);
 
     // The hazard, first: nothing in the store itself withholds a key.
-    expect((await store.keys()).map((k) => k.session).sort()).toEqual([
-      "alices",
-      "bobs",
-      "nobodys",
-    ]);
+    expect((await store.keys()).sort()).toEqual(["alices", "bobs", "nobodys"]);
 
     const alice = await runtime.summaries({ scope: { owner: "alice" } });
     expect(alice.items.map((s) => s.session)).toEqual(["alices"]);
@@ -218,20 +211,11 @@ describe("a conversation belongs to the person who started it", () => {
     await send(t, { session: "alices", message: "hi" }, "alice");
     const runtime = AgentSessionRuntime.for(t.ctx);
 
-    const mine = await runtime.summary(
-      { agent: "max", session: "alices" },
-      { owner: "alice" },
-    );
+    const mine = await runtime.summary("alices", { owner: "alice" });
     expect(mine?.session).toBe("alices");
 
-    const foreign = await runtime.summary(
-      { agent: "max", session: "alices" },
-      { owner: "bob" },
-    );
-    const missing = await runtime.summary(
-      { agent: "max", session: "never-existed" },
-      { owner: "bob" },
-    );
+    const foreign = await runtime.summary("alices", { owner: "bob" });
+    const missing = await runtime.summary("never-existed", { owner: "bob" });
     expect(foreign).toBeUndefined();
     expect(missing).toBeUndefined();
     expect(foreign).toEqual(missing);
@@ -250,15 +234,12 @@ describe("a conversation belongs to the person who started it", () => {
     await send(t, { session: "shared", message: "also me" }, "bob");
 
     const summary = await AgentSessionRuntime.for(t.ctx).summary(
-      { agent: "max", session: "shared" },
+      "shared",
       "operator",
     );
     expect(summary).toMatchObject({ owner: "alice", turns: 2 });
     expect(
-      await AgentSessionRuntime.for(t.ctx).summary(
-        { agent: "max", session: "shared" },
-        { owner: "bob" },
-      ),
+      await AgentSessionRuntime.for(t.ctx).summary("shared", { owner: "bob" }),
     ).toBeUndefined();
   });
 
@@ -271,8 +252,8 @@ describe("a conversation belongs to the person who started it", () => {
     t = await boot();
     await t.startAndWaitReady();
     const runtime = AgentSessionRuntime.for(t.ctx);
-    const key = { agent: "max", session: "opened" };
-    await runtime.open(key, {
+    const key = "opened";
+    await runtime.open(key, "max", {
       owner: "alice",
       cwd: "/work/routecraft",
       title: "The editor seam",
@@ -286,7 +267,7 @@ describe("a conversation belongs to the person who started it", () => {
       turns: 0,
     });
 
-    await runtime.open(key, { owner: "bob" });
+    await runtime.open(key, "max", { owner: "bob" });
     expect(await runtime.summary(key, { owner: "bob" })).toBeUndefined();
   });
 
@@ -299,14 +280,8 @@ describe("a conversation belongs to the person who started it", () => {
     t = await boot();
     await t.startAndWaitReady();
     const runtime = AgentSessionRuntime.for(t.ctx);
-    await runtime.open(
-      { agent: "max", session: "here" },
-      { owner: "alice", cwd: "/work/a" },
-    );
-    await runtime.open(
-      { agent: "max", session: "there" },
-      { owner: "alice", cwd: "/work/b" },
-    );
+    await runtime.open("here", "max", { owner: "alice", cwd: "/work/a" });
+    await runtime.open("there", "max", { owner: "alice", cwd: "/work/b" });
 
     const page = await runtime.summaries({
       scope: { owner: "alice" },
@@ -325,7 +300,7 @@ describe("a conversation belongs to the person who started it", () => {
     await t.startAndWaitReady();
     const runtime = AgentSessionRuntime.for(t.ctx);
     for (const session of ["a1", "a2", "a3"]) {
-      await runtime.open({ agent: "max", session }, { owner: "alice" });
+      await runtime.open(session, "max", { owner: "alice" });
     }
     const first = await runtime.summaries({
       scope: { owner: "alice" },
@@ -360,10 +335,10 @@ describe("a conversation belongs to the person who started it", () => {
     await t.startAndWaitReady();
     const runtime = AgentSessionRuntime.for(t.ctx);
     // Sorted by `agent:session`, so bob's sits between alice's two.
-    await runtime.open({ agent: "max", session: "a-1" }, { owner: "alice" });
-    await runtime.open({ agent: "max", session: "b-1" }, { owner: "bob" });
-    await runtime.open({ agent: "max", session: "c-1" }, { owner: "alice" });
-    await runtime.open({ agent: "max", session: "d-1" }, { owner: "alice" });
+    await runtime.open("a-1", "max", { owner: "alice" });
+    await runtime.open("b-1", "max", { owner: "bob" });
+    await runtime.open("c-1", "max", { owner: "alice" });
+    await runtime.open("d-1", "max", { owner: "alice" });
 
     const page = await runtime.summaries({
       scope: { owner: "alice" },
@@ -376,7 +351,9 @@ describe("a conversation belongs to the person who started it", () => {
     const decoded = JSON.parse(
       Buffer.from(page.nextCursor ?? "", "base64url").toString("utf8"),
     ) as { after?: string };
-    const after = decodeURIComponent((decoded.after ?? "").split(":")[1] ?? "");
+    // The cursor carries the id itself now: there is no agent prefix to
+    // strip, which is one fewer thing for it to leak.
+    const after = decoded.after ?? "";
     // The exact row the page ended on, not merely "not bob's": a negative
     // assertion still passes if a regression mints the cursor from some
     // other foreign row, and this test is the only thing standing between
@@ -395,20 +372,58 @@ describe("a conversation belongs to the person who started it", () => {
     const runtime = AgentSessionRuntime.for(t.ctx);
     const session = "moved";
 
-    await runtime.open({ agent: "max", session }, { owner: "alice" });
-    // The hazard is reachable: before the re-key the id names the original.
+    await runtime.open(session, "max", { owner: "alice" });
+    // The hazard is reachable: before the change the id names the original.
     expect(await runtime.find(session, { owner: "alice" })).toBe("max");
 
-    await runtime.rekey(
-      { agent: "max", session },
-      { agent: "zoe", session },
-      { owner: "alice" },
-    );
+    await runtime.setAgent(session, "zoe");
 
     expect(await runtime.find(session, { owner: "alice" })).toBe("zoe");
-    // And the record it came from is gone rather than merely losing a race.
-    expect(
-      await runtime.summary({ agent: "max", session }, { owner: "alice" }),
-    ).toBeUndefined();
+    // And there is one record, not two. Under a composite key this is
+    // where the abandoned original would still be sitting.
+    expect(await runtime.store.list()).toEqual([session]);
+  });
+
+  /**
+   * @case A persona change keeps the record and switches which agent answers
+   * @preconditions A conversation opened under one agent, its persona changed, then read back
+   * @expectedResult One record throughout, carrying the new agent. The id is the identity, so nothing is re-keyed and nothing is deleted
+   */
+  test("a persona change is one field on one record", async () => {
+    t = await boot();
+    await t.startAndWaitReady();
+    const runtime = AgentSessionRuntime.for(t.ctx);
+    const session = "switcher";
+
+    await runtime.open(session, "max", { owner: "alice" });
+    expect((await runtime.summary(session, { owner: "alice" }))?.agent).toBe(
+      "max",
+    );
+
+    await runtime.setAgent(session, "zoe");
+
+    const after = await runtime.summary(session, { owner: "alice" });
+    expect(after?.agent).toBe("zoe");
+    expect(after?.session).toBe(session);
+    expect(await runtime.store.list()).toEqual([session]);
+  });
+
+  /**
+   * @case A reconnect by bare session id resolves without enumerating the store
+   * @preconditions A conversation the caller owns, resolved by its id alone against a store that would happily hand back every key
+   * @expectedResult The agent comes back from one read, and a foreign id answers undefined exactly as a missing one does
+   */
+  test("a bare session id resolves in one read", async () => {
+    t = await boot();
+    await t.startAndWaitReady();
+    const runtime = AgentSessionRuntime.for(t.ctx);
+
+    await runtime.open("mine", "max", { owner: "alice" });
+    await runtime.open("theirs", "max", { owner: "bob" });
+
+    expect(await runtime.find("mine", { owner: "alice" })).toBe("max");
+    // Somebody else's, and one that was never written, answer alike.
+    expect(await runtime.find("theirs", { owner: "alice" })).toBeUndefined();
+    expect(await runtime.find("never", { owner: "alice" })).toBeUndefined();
   });
 });

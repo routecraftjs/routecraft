@@ -292,13 +292,10 @@ export class AcpConnection implements AgentSurfaceConnection {
       );
     }
     const sessionId = randomUUID();
-    await this.runtime.sessions().open(
-      { agent, session: sessionId },
-      {
-        owner: this.principal?.subject ?? null,
-        ...(params.cwd !== undefined ? { cwd: params.cwd } : {}),
-      },
-    );
+    await this.runtime.sessions().open(sessionId, agent, {
+      owner: this.principal?.subject ?? null,
+      ...(params.cwd !== undefined ? { cwd: params.cwd } : {}),
+    });
     this.attached(sessionId, agent, "new");
     const state = await this.stateFor(sessionId, agent);
     return {
@@ -311,9 +308,7 @@ export class AcpConnection implements AgentSurfaceConnection {
   async loadSession(sessionId: string): Promise<LoadSessionResponse> {
     const agent = await this.resolveAgent(sessionId);
     this.attached(sessionId, agent, "load");
-    const record = await this.runtime
-      .sessions()
-      .store.load({ agent, session: sessionId });
+    const record = await this.runtime.sessions().store.load(sessionId);
     // Replayed before the response returns, which is what the SDK's own
     // client documents the reconnect path as expecting.
     for (const update of replayUpdates(record?.messages ?? [])) {
@@ -356,7 +351,7 @@ export class AcpConnection implements AgentSurfaceConnection {
   async prompt(params: PromptRequest): Promise<PromptResponse> {
     const agent = await this.resolveAgent(params.sessionId);
     const message = promptText(params.prompt, (reason) => this.refuse(reason));
-    const key = { agent, session: params.sessionId };
+    const key = params.sessionId;
     const surface: AgentSurfaceRef = {
       kind: "acp",
       session: params.sessionId,
@@ -365,12 +360,13 @@ export class AcpConnection implements AgentSurfaceConnection {
     // The first prompt names the conversation, so a listing has something
     // to show. Later prompts leave the title alone: renaming a session on
     // every message would make the listing unreadable.
-    await this.runtime.sessions().open(key, {
+    await this.runtime.sessions().open(key, agent, {
       owner: this.principal?.subject ?? null,
       title: titleFrom(message),
     });
     const result = await this.runtime.runTurn(
       key,
+      agent,
       message,
       this.principal,
       surface,
@@ -389,7 +385,7 @@ export class AcpConnection implements AgentSurfaceConnection {
   async cancel(sessionId: string): Promise<void> {
     const agent = this.attachedSessions.get(sessionId);
     if (agent === undefined) return;
-    this.runtime.sessions().interrupt({ agent, session: sessionId });
+    this.runtime.sessions().interrupt(sessionId, agent);
   }
 
   async setConfigOption(
@@ -397,7 +393,7 @@ export class AcpConnection implements AgentSurfaceConnection {
   ): Promise<SetSessionConfigOptionResponse> {
     const agent = await this.resolveAgent(params.sessionId);
     const sessions = this.runtime.sessions();
-    const key = { agent, session: params.sessionId };
+    const key = params.sessionId;
     const state = await this.stateFor(params.sessionId, agent);
     const outcome = decideConfigOption(
       state,
@@ -424,17 +420,10 @@ export class AcpConnection implements AgentSurfaceConnection {
       return { configOptions: configOptionsFor(state) };
     }
     if (outcome.kind === "agent") {
-      // A persona change before the first turn re-keys an empty record,
-      // and drops the one it came from: one session id naming two records
-      // is what makes a bare id ambiguous on the next reconnect.
-      await sessions.rekey(
-        { agent, session: params.sessionId },
-        { agent: outcome.agent, session: params.sessionId },
-        {
-          owner: this.principal?.subject ?? null,
-          ...(state.cwd !== undefined ? { cwd: state.cwd } : {}),
-        },
-      );
+      // The conversation keeps its id and changes which persona answers
+      // it: one record, one write, nothing left behind. This is what the
+      // id being the identity buys, and it is why there is no delete.
+      await sessions.setAgent(params.sessionId, outcome.agent);
       this.attached(params.sessionId, outcome.agent, "new");
       const next = await this.stateFor(params.sessionId, outcome.agent);
       const options = configOptionsFor(next);
@@ -446,7 +435,7 @@ export class AcpConnection implements AgentSurfaceConnection {
       return { configOptions: options };
     }
 
-    await sessions.configure(key, outcome.overrides);
+    await sessions.configure(key, agent, outcome.overrides);
     const next = await this.stateFor(params.sessionId, agent);
     const options = configOptionsFor(next);
     await this.notifyConfig(params.sessionId, options);
@@ -525,11 +514,9 @@ export class AcpConnection implements AgentSurfaceConnection {
   ): Promise<ConfigOptionState & { cwd?: string }> {
     const summary = await this.runtime
       .sessions()
-      .summary({ agent, session: sessionId }, this.scope);
+      .summary(sessionId, this.scope);
     if (summary === undefined) throw this.refuse(NO_SUCH_SESSION);
-    const record = await this.runtime
-      .sessions()
-      .store.load({ agent, session: sessionId });
+    const record = await this.runtime.sessions().store.load(sessionId);
     return {
       agent,
       agents: this.runtime.agents(),

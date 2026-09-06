@@ -283,7 +283,7 @@ export const craftConfig = defineConfig({
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `store` | `string \| { path: string } \| "memory" \| SessionStore` | `.routecraft/sessions.db` | Where session records live. A path opens the SQLite backend. `"memory"` opts into the in-process backend, accepting that every conversation dies with the process. A `SessionStore` instance plugs in a backend of your own: five operations (`get`, `create`, `replace` under a version compare-and-swap, `keys`, `remove`) plus `close`, the contract both shipped backends pass the same test suite against. |
+| `store` | `string \| { path: string } \| "memory" \| SessionStore` | `.routecraft/sessions.db` | Where session records live. A path opens the SQLite backend. `"memory"` opts into the in-process backend, accepting that every conversation dies with the process. A `SessionStore` instance plugs in a backend of your own: five operations (`get`, `create`, `replace` under a version compare-and-swap, `keys`) plus `close`, the contract both shipped backends pass the same test suite against. |
 
 | Variable | Purpose |
 |----------|---------|

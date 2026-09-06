@@ -22,7 +22,7 @@ import { ADAPTER_AGENT_SESSION_STORE } from "../src/agent/store.ts";
 import { MODEL } from "./helpers/suspend-fixtures.ts";
 
 const scratch = mkdtempSync(join(tmpdir(), "rc-sessions-config-"));
-const key = { agent: "max", session: "s" };
+const key = "s";
 
 afterAll(() => {
   rmSync(scratch, { recursive: true, force: true });
