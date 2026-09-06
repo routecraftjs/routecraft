@@ -177,7 +177,6 @@ type McpServerResolvedOptions = Required<
     | "icons"
   >;
 
-/** The MCP SDK `Server` constructor info arg (the fields we populate). */
 /**
  * An icon in the mutable shape the SDK's generated schema expects. Routecraft's
  * own icons freeze `sizes` so the shared default cannot be corrupted in place,
@@ -186,6 +185,7 @@ type McpServerResolvedOptions = Required<
  */
 type SdkIcon = Omit<McpIcon, "sizes"> & { sizes?: string[] };
 
+/** The MCP SDK `Server` constructor info arg (the fields we populate). */
 type SdkServerInfo = {
   name: string;
   version: string;
