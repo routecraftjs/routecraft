@@ -17,6 +17,9 @@ function settings(url: string, token?: string): ResolvedSettings {
     token:
       token === undefined ? undefined : { value: token, source: "environment" },
     format: { value: "json", source: "default" },
+    agent: undefined,
+    profile: undefined,
+    env: undefined,
   };
 }
 

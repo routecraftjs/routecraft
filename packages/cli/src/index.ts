@@ -68,6 +68,41 @@ function applyGlobalLogOptions(): void {
 }
 
 /**
+ * Resolve the selected profile and load the environment it names, before
+ * anything imports the project's configuration.
+ *
+ * Ordering is the whole point: a config file reads `process.env` at module
+ * scope, so the environment has to be in place before the import, and the
+ * profile is what says which environment that is.
+ *
+ * A settings file that cannot be used stops the command rather than
+ * falling back to the defaults, because an operator who wrote a profile
+ * and silently got the loopback default would have no way to tell.
+ */
+async function selectEnvironment(
+  options: { env?: string; profile?: string },
+  projectRoot: string,
+): Promise<{ error?: string }> {
+  const { loadEnvironment } = await import("./util.js");
+  const { resolveSettings, SettingsError } = await import("./settings.js");
+  try {
+    const settings = resolveSettings(
+      options.profile === undefined ? {} : { profile: options.profile },
+    );
+    loadEnvironment({
+      explicit: options.env,
+      profile: settings.profile?.value,
+      env: settings.env?.value,
+      defaultsFrom: projectRoot,
+    });
+    return {};
+  } catch (error: unknown) {
+    if (error instanceof SettingsError) return { error: error.message };
+    throw error;
+  }
+}
+
+/**
  * The 'run' command executes routes from a single file.
  *
  * Example:
@@ -86,15 +121,17 @@ program
     "--env <path>",
     "Load environment variables from a .env file (default: .env)",
   )
+  .option("--profile <name>", "Settings profile to select")
   .passThroughOptions()
   .action(async (filePath, args: string[], options) => {
     applyGlobalLogOptions();
 
-    const { loadEnvFile } = await import("./util.js");
-    if (options.env !== undefined) {
-      loadEnvFile(options.env);
-    } else {
-      loadEnvFile();
+    const selected = await selectEnvironment(options, process.cwd());
+    if (selected.error !== undefined) {
+      // eslint-disable-next-line no-console
+      console.error(selected.error);
+      setImmediate(() => process.exit(2));
+      return;
     }
 
     const { runCommand } = await import("./run.js");
@@ -139,20 +176,33 @@ program
     "--timeout <duration>",
     'With --once, give up and exit non-zero after this long (milliseconds, or a duration string like "30s")',
   )
+  .option("--profile <name>", "Settings profile to select")
   .action(
     async (
       dir: string | undefined,
-      options: { env?: string; once?: boolean; timeout?: string },
+      options: {
+        env?: string;
+        once?: boolean;
+        timeout?: string;
+        profile?: string;
+      },
     ) => {
       applyGlobalLogOptions();
 
       const { resolve: resolvePath } = await import("node:path");
       const projectRoot = resolvePath(process.cwd(), dir ?? ".");
 
-      const { loadEnvFile } = await import("./util.js");
-      // The conventional .env pair belongs to the project being started,
-      // not to whatever directory the shell happens to sit in.
-      loadEnvFile(options.env, projectRoot);
+      // The conventional files belong to the project being started, not to
+      // whatever directory the shell happens to sit in. Resolved and
+      // loaded before `craft.config.ts` is imported, because config files
+      // read `process.env` at module scope.
+      const selected = await selectEnvironment(options, projectRoot);
+      if (selected.error !== undefined) {
+        // eslint-disable-next-line no-console
+        console.error(selected.error);
+        setImmediate(() => process.exit(2));
+        return;
+      }
 
       const { startCommand } = await import("./start.js");
       // A bare number stays milliseconds, so every existing invocation keeps
@@ -282,6 +332,7 @@ program
   .description("Dispatch to a route on a running instance and print the result")
   .argument("[route]", "Route id to dispatch to; omit for the endpoint list")
   .argument("[args...]", "Route input as --field=value pairs")
+  .option("--profile <name>", "Settings profile to select")
   .option("--url <url>", "Ops server base URL of the target instance")
   .option("--token <token>", "Bearer credential for the management door")
   .option("--format <format>", "pretty (default), json, or raw")
@@ -291,7 +342,12 @@ program
     async (
       route: string | undefined,
       args: string[],
-      options: { url?: string; token?: string; format?: string },
+      options: {
+        profile?: string;
+        url?: string;
+        token?: string;
+        format?: string;
+      },
     ) => {
       applyGlobalLogOptions();
       const { execCommand } = await import("./exec.js");
@@ -311,43 +367,46 @@ program
   );
 
 /**
- * The 'chat' command holds a conversation with an agent session on a
- * running instance: one message per line, through the route fronting
- * the agent, so the app's own guardrails run on every message.
+ * The 'acp' command is the pipe an editor runs.
+ *
+ * An editor starts it and speaks the Agent Client Protocol over its
+ * standard input and output; it forwards every message to the instance the
+ * profile names, and forwards everything the instance says back. It never
+ * starts an app: `craft start` owns running, which is what lets one editor
+ * entry reach a laptop or a company instance by switching a profile.
  *
  * Example:
- * craft chat max --print
- * craft chat max --print --session feature-login
- * echo "what is left?" | craft chat max --session feature-login --format raw
+ * craft acp
+ * craft acp --profile company
+ * craft acp --url https://eywa.devoptix.nl --token "$TOKEN" --agent zoe
  */
 program
-  .command("chat")
-  .description(
-    "Talk to an agent session on a running instance, one message per line",
-  )
-  .argument("[route]", "Route fronting the agent (takes { session, message })")
-  .option(
-    "-p, --print",
-    "Run the line loop without an interface (required on a terminal until the interactive mode ships; implied by piped input)",
-  )
-  .option("--session <id>", "Conversation to continue; a fresh id otherwise")
+  .command("acp")
+  .description("Bridge an editor to an instance over the Agent Client Protocol")
+  .option("--profile <name>", "Settings profile to select")
   .option("--url <url>", "Ops server base URL of the target instance")
   .option("--token <token>", "Bearer credential for the management door")
-  .option("--format <format>", "pretty (default), json, or raw")
+  .option(
+    "--agent <name>",
+    "Agent to talk to; the instance's default otherwise",
+  )
   .action(
-    async (
-      route: string | undefined,
-      options: {
-        print?: boolean;
-        session?: string;
-        url?: string;
-        token?: string;
-        format?: string;
-      },
-    ) => {
+    async (options: {
+      profile?: string;
+      url?: string;
+      token?: string;
+      agent?: string;
+    }) => {
       applyGlobalLogOptions();
-      const { chatCommand } = await import("./chat.js");
-      settle(await chatCommand(route, options));
+      const { acpCommand } = await import("./acp.js");
+      const result = await acpCommand(options);
+      // Standard output is the protocol's, so nothing but protocol frames
+      // is ever written to it; a diagnosis goes to standard error.
+      if (result.error !== undefined) {
+        // eslint-disable-next-line no-console
+        console.error(result.error);
+      }
+      setImmediate(() => process.exit(result.code));
     },
   );
 
@@ -371,6 +430,7 @@ const ops = program
 
 function opsOption<T extends import("commander").Command>(command: T): T {
   return command
+    .option("--profile <name>", "Settings profile to select")
     .option("--url <url>", "Ops server base URL of the target instance")
     .option("--token <token>", "Bearer credential for the management door")
     .option("--format <format>", "pretty (default), json, or raw") as T;
@@ -409,6 +469,7 @@ opsOption(
     options: {
       dispatchable?: boolean;
       source?: string;
+      profile?: string;
       url?: string;
       token?: string;
       format?: string;
