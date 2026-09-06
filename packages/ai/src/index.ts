@@ -15,6 +15,27 @@ import "./project.ts";
 // Cross-instance identity (Symbol.for) for MCP adapters
 export { BRAND, isMcpAdapter } from "./brand.ts";
 
+// The editor seam: the protocol mount, and the one adapter a route uses to
+// reach the person on the other end of it.
+export {
+  acpPlugin,
+  ACP_ROUTE_PREFIX,
+  CONFIG_AGENT,
+  CONFIG_MODEL,
+  CONFIG_REASONING,
+} from "./acp/index.ts";
+export type { AcpPluginOptions } from "./acp/index.ts";
+export { AGENT_SURFACE_HEADER, hasSurface, surface } from "./surface/index.ts";
+export type {
+  AgentSurfaceConnection,
+  AgentSurfaceKind,
+  AgentSurfaceRef,
+  SurfaceMethod,
+  SurfaceRequestParams,
+  SurfaceRequestResponses,
+  SurfaceUpdate,
+} from "./surface/index.ts";
+
 // Type registries for compile-time safety
 export type {
   LlmProviderRegistry,
