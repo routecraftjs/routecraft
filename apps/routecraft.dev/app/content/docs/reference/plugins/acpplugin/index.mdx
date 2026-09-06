@@ -63,6 +63,10 @@ A conversation belongs to the person who started it. The mount lists, loads and 
 
 An instance serving people other than its operator should consider setting it. A hand's arguments routinely carry a credential, a customer's address or a mail body, and an editor is a third program that renders and logs whatever it is handed.
 
+## What the mount does not check yet
+
+The mount has no Host or Origin gate of its own, where the MCP mount runs both before anything else. In practice the default CORS policy is what closes the browser case: a cross-origin page fails the preflight and never reaches a turn. Setting `cors: false` removes that, so a mount with no wall and no CORS policy will serve a browser page on another origin. Put a wall on such a mount, or leave the CORS default in place.
+
 ## Branding
 
 `agentInfo` is replaced outright rather than merged, so somebody who deliberately white-labels gets what they asked for rather than the framework's name in the field they did not set.
