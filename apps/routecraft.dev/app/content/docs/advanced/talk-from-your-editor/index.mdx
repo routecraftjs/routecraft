@@ -82,13 +82,13 @@ Editors render the protocol's config options as pickers, and the mount advertise
 
 | Option | What it changes | Advertised when |
 | --- | --- | --- |
-| `agent` | Which persona answers | The context holds more than one agent |
+| `agent` | Which persona answers | The context holds more than one agent, and the conversation has not started |
 | `model` | Which model this conversation runs on | The agent file lists more than one |
 | `reasoning` | How hard it thinks per turn | The agent file lists more than one |
 
 A control with nothing to choose is not advertised at all, so an instance with one agent and one model shows no pickers rather than three dead ones. Agent files declare what they offer by writing a list instead of a value: see [Offering a choice](/docs/reference/plugins/agentplugin#offering-a-choice-of-model-or-thinking-level).
 
-The persona can be changed only before the first turn. A transcript belongs to the persona that wrote it, and a late change would hand one voice what another said, so talking to a different persona is a new conversation rather than a setting. An early change is one field on one record: the conversation keeps its id, because the id is what names it. The mount refuses the late change with the unchanged list rather than pretending.
+The persona can be changed only before the first message. A persona carries its own system prompt and its own tools, so changing it mid-conversation would hand the model a transcript another persona wrote and answers produced with tools it does not have: talking to a different persona is a new conversation rather than a setting. The picker is withdrawn once the conversation has a turn rather than left there to snap back, and a client acting on a list it already held is refused with the unchanged list. An early change is one field on one record, since the conversation keeps its id, and it clears the model and thinking level chosen under the old persona rather than carrying them into an agent that may not offer them. The model and the thinking level themselves stay changeable for the life of the conversation.
 
 An editor that has no picker names its persona another way: `craft acp --agent zoe` sends a `Routecraft-Agent` header the mount reads.
 

@@ -178,6 +178,8 @@ Who may post to a session is the route's own [`.authorize()`](/docs/reference/op
 agent('max', { session: (ex) => `${ex.principal?.subject}:${ex.body.session}` })
 ```
 
+The id is a retrieval handle, so it has to be known to be retrieved, the same way a suspension is resumed by its token. A hardcoded id (`session: 'support'`) is therefore a deliberate choice rather than a mistake: every invocation of that route continues one conversation, on one transcript that grows for as long as the route runs. Derive the id from the message when each caller, thread or ticket should get its own.
+
 A session several principals share on purpose (a webhook, a mail reply and a terminal all posting into one conversation) keeps the id as the caller names it and restricts posting by role or scope at the route, and reads the attribution to tell them apart. A runtime allowlist of subjects per session is not built.
 
 Every session is listable on the management API at [`GET /ops/agent-sessions`](/docs/reference/plugins/opsplugin#contributed-resources), with its turn state and inbox depth, and an editor speaking the Agent Client Protocol is a client on this: see [Talk from your editor](/docs/advanced/talk-from-your-editor).

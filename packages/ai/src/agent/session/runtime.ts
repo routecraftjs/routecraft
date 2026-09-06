@@ -20,7 +20,7 @@ import type { ThreadMessage } from "../suspension-state.ts";
 import type { AgentResult } from "../types.ts";
 import { closeUnansweredToolCalls, renderUserMessage } from "./render.ts";
 import { BoundedMap, SESSION_MEMORY_BOUND } from "./bounded.ts";
-import { AgentSessionStore } from "./store.ts";
+import { AgentSessionStore, emptyAgentSession } from "./store.ts";
 import { sessionStoreOf } from "./config.ts";
 import type {
   AgentBackgroundCall,
@@ -259,7 +259,7 @@ export class AgentSessionRuntime {
     }
     const id = randomUUID();
     const content = req.message;
-    const record = await this.store.update(req.key, req.agent, (r) => ({
+    const record = await this.write(req.key, req.agent, (r) => ({
       ...r,
       inbox: [
         ...r.inbox,
@@ -418,7 +418,7 @@ export class AgentSessionRuntime {
     agent: string,
     entry: DistributiveOmit<AgentInboxMessage, "id" | "at">,
   ): Promise<{ depth: number; running: boolean }> {
-    const record = await this.store.update(key, agent, (r) => ({
+    const record = await this.write(key, agent, (r) => ({
       ...r,
       inbox: [
         ...r.inbox,
@@ -448,7 +448,7 @@ export class AgentSessionRuntime {
     // while the write is awaited, and the origin is that turn's whatever
     // it does next.
     const turn = this.active.get(key);
-    const record = await this.store.update(key, agent, (r) => ({
+    const record = await this.write(key, agent, (r) => ({
       ...r,
       background: [...r.background, call],
     }));
@@ -498,7 +498,7 @@ export class AgentSessionRuntime {
             message: entry.error.message,
           },
         };
-    const record = await this.store.update(key, agent, (r) => ({
+    const record = await this.write(key, agent, (r) => ({
       ...r,
       background: r.background.filter((b) => b.handle !== entry.handle),
       inbox: [
@@ -596,7 +596,7 @@ export class AgentSessionRuntime {
           // Only if the field still names what was released: a turn that
           // started during the release above announced its own, and that
           // one is live.
-          record = await this.store.update(key, record.agent, (current) =>
+          record = await this.write(key, record.agent, (current) =>
             current.parking?.suspensionId === orphan
               ? withoutParking(current)
               : current,
@@ -611,7 +611,7 @@ export class AgentSessionRuntime {
       let next = record;
       if (record.turn !== undefined || record.background.length > 0) {
         lostBackground += record.background.length;
-        next = await this.store.update(key, record.agent, restoreAfterRestart);
+        next = await this.write(key, record.agent, restoreAfterRestart);
         this.context.logger.info(
           {
             agent: record.agent,
@@ -743,6 +743,39 @@ export class AgentSessionRuntime {
   }
 
   /**
+   * Write to a session on behalf of a named persona: the one path every
+   * dispatch takes to the record.
+   *
+   * Two things belong here and nowhere else. A session the store has never
+   * seen is created naming this persona, which is the only moment a record
+   * learns which one it belongs to. And a dispatch naming a persona the
+   * record does not is refused rather than served: without this it would
+   * run its own executor, with its own system prompt and tools, over a
+   * transcript the stored persona wrote, and the record would keep naming
+   * the other one. An agent is never turned into another agent.
+   *
+   * {@link setAgent} is the deliberate exception and does not come through
+   * here, because changing the persona is exactly what it is for.
+   *
+   * @throws RC5003 when `agent` is not the persona the record names
+   */
+  private write(
+    key: AgentSessionKey,
+    agent: string,
+    mutate: (record: AgentSessionRecord) => AgentSessionRecord,
+  ): Promise<AgentSessionRecord> {
+    return this.store.update(key, (record) => {
+      if (record === undefined) return mutate(emptyAgentSession(key, agent));
+      if (record.agent !== agent) {
+        throw rcError("RC5003", undefined, {
+          message: `Agent session "${key}" belongs to "${record.agent}" and this dispatch names "${agent}". A conversation is answered by one persona, which carries its own system prompt and tools, so a different persona is a different conversation: dispatch "${agent}" with a session id of its own.`,
+        });
+      }
+      return mutate(record);
+    });
+  }
+
+  /**
    * Open a session before its first turn, so the record carries who it
    * belongs to and where it is bound from the moment it exists rather than
    * from whenever a turn first runs.
@@ -760,7 +793,7 @@ export class AgentSessionRuntime {
     agent: string,
     init: AgentSessionInit,
   ): Promise<AgentSessionRecord> {
-    return this.store.update(key, agent, (record) => ({
+    return this.write(key, agent, (record) => ({
       ...record,
       ...(record.owner === undefined ? { owner: init.owner } : {}),
       ...(init.cwd !== undefined ? { cwd: init.cwd } : {}),
@@ -775,15 +808,48 @@ export class AgentSessionRuntime {
    *
    * A persona is an attribute of a session rather than part of its
    * identity, so this is one field on one record: no second key, nothing
-   * to delete, and nothing for a later reconnect to disambiguate. The
-   * caller is responsible for refusing the change once the conversation
-   * has turns, which is where the rule belongs.
+   * to delete, and nothing for a later reconnect to disambiguate.
+   *
+   * It is a set-once choice all the same, and this is where that is
+   * enforced rather than in the caller. A persona carries a system prompt
+   * and a set of tools, so changing it mid-conversation would hand the
+   * model a transcript another persona wrote and a toolset the answers in
+   * that transcript were not produced with. Refused once the conversation
+   * has run a turn, has one running, or has one claimed here that has not
+   * reached the store yet: the record and the in-process claim are checked
+   * together, inside the compare-and-swap, because a turn is claimed
+   * before its marker is written. That is what makes the check and the
+   * write one act rather than two. A turn that starts while this is
+   * deciding takes the version this write was going to land on, so the
+   * write loses and the retry reads the marker that turn wrote and
+   * refuses; a turn that starts after it reads the persona it changed to.
+   * The two can never both believe they won.
+   *
+   * What the conversation chose about how it runs does not survive the
+   * change. A model or a thinking level was chosen from what one persona
+   * advertises, and keeping whatever the next one happens to advertise too
+   * would make the answer depend on what two agent files have in common.
+   *
+   * @throws RC5003 when the conversation has already started
    */
   async setAgent(
     key: AgentSessionKey,
     agent: string,
   ): Promise<AgentSessionRecord> {
-    return this.store.update(key, agent, (record) => ({ ...record, agent }));
+    return this.store.update(key, (record) => {
+      if (record === undefined) return emptyAgentSession(key, agent);
+      if (record.agent === agent) return record;
+      if (
+        record.turns > 0 ||
+        record.turn !== undefined ||
+        this.isRunning(key)
+      ) {
+        throw rcError("RC5003", undefined, {
+          message: `Agent session "${key}" is talking to "${record.agent}" and has already started, so it cannot be moved to "${agent}": a persona carries its own system prompt and tools, and talking to a different one is a different conversation. Start a new session for "${agent}".`,
+        });
+      }
+      return { ...withoutOverrides(record), agent };
+    });
   }
 
   /**
@@ -807,7 +873,7 @@ export class AgentSessionRuntime {
       this.context.getStore(ADAPTER_AGENT_REGISTRY)?.get(agent) ?? {},
       overrides,
     );
-    return this.store.update(key, agent, (record) => {
+    return this.write(key, agent, (record) => {
       const next = { ...record.overrides, ...overrides };
       // Undefined keys are dropped rather than stored: the store holds
       // plain JSON and an explicit undefined is not a value.
@@ -886,7 +952,7 @@ export class AgentSessionRuntime {
       let lostBackground = 0;
       let stale = false;
       let empty = false;
-      const started = await this.store.update(key, req.agent, (r) => {
+      const started = await this.write(key, req.agent, (r) => {
         let next = r;
         if (r.turn !== undefined) {
           // A marker this process did not set: the previous process died
@@ -961,7 +1027,7 @@ export class AgentSessionRuntime {
           startMessages,
           controller.signal,
           async (messages) => {
-            await this.store.update(key, req.agent, (r) => ({
+            await this.write(key, req.agent, (r) => ({
               ...r,
               messages,
             }));
@@ -973,7 +1039,7 @@ export class AgentSessionRuntime {
         // is what the next turn starts from, and the marker must not
         // outlive the turn in this process.
         const partial = executor.thread() ?? startMessages;
-        const written = await this.store.update(key, req.agent, (r) => ({
+        const written = await this.write(key, req.agent, (r) => ({
           ...withoutTurn(r),
           messages: partial,
         }));
@@ -995,7 +1061,7 @@ export class AgentSessionRuntime {
       const final = executor.thread() ?? startMessages;
       after = await this.parkIfOutstanding(
         req,
-        await this.store.update(key, req.agent, (r) => ({
+        await this.write(key, req.agent, (r) => ({
           ...withoutTurn(r),
           messages: final,
           turns: r.turns + 1,
@@ -1074,7 +1140,7 @@ export class AgentSessionRuntime {
       // between the two writes leaves a reference the boot releases.
       park = await req.park(async (pending) => {
         announced = pending;
-        await this.store.update(req.key, req.agent, (r) => ({
+        await this.write(req.key, req.agent, (r) => ({
           ...r,
           parking: pending,
         }));
@@ -1101,13 +1167,13 @@ export class AgentSessionRuntime {
           return { ...record, parking: announced };
         }
       }
-      return await this.store
-        .update(req.key, req.agent, withoutParking)
-        .catch(() => withoutParking(record));
+      return await this.write(req.key, req.agent, withoutParking).catch(() =>
+        withoutParking(record),
+      );
     }
     let updated: AgentSessionRecord;
     try {
-      updated = await this.store.update(req.key, req.agent, (r) => ({
+      updated = await this.write(req.key, req.agent, (r) => ({
         ...withoutParking(r),
         park,
       }));
@@ -1136,7 +1202,7 @@ export class AgentSessionRuntime {
     park: AgentSessionPark,
   ): Promise<void> {
     await this.store.releasePark(park.suspensionId, "agent session idle");
-    await this.store.update(key, agent, (r) =>
+    await this.write(key, agent, (r) =>
       r.park?.suspensionId === park.suspensionId ? withoutPark(r) : r,
     );
   }
@@ -1311,6 +1377,13 @@ function withoutTurn(record: AgentSessionRecord): AgentSessionRecord {
   // properties, but the record type does not admit one.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructure to omit
   const { turn: _turn, ...rest } = record;
+  return rest;
+}
+
+function withoutOverrides(record: AgentSessionRecord): AgentSessionRecord {
+  if (record.overrides === undefined) return record;
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructure to omit
+  const { overrides: _overrides, ...rest } = record;
   return rest;
 }
 

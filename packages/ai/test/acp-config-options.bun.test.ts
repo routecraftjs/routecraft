@@ -11,6 +11,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
 import { agentPlugin, tools, type FnHandlerContext } from "../src/index.ts";
 import { acpHarness, type AcpHarness } from "./helpers/acp-harness.ts";
+import { AgentSessionRuntime } from "../src/agent/session/index.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
 
 const llm = scriptedLlm([]);
@@ -56,7 +57,9 @@ const CHOOSY = {
   },
   zoe: {
     description: "Zoe",
-    model: SONNET,
+    // A different model from max's, so which persona answered a turn is
+    // readable from the call the provider saw.
+    model: HAIKU,
     system: "be useful",
     user: (ex: { body: unknown }) => (ex.body as { message: string }).message,
   },
@@ -77,6 +80,11 @@ function valueOf(
   id: string,
 ): unknown {
   return options.find((option) => option.id === id)?.currentValue;
+}
+
+/** Which controls a response carries at all, for the ones that are withdrawn. */
+function idsOf(options: Array<{ id: string }>): string[] {
+  return options.map((option) => option.id);
 }
 
 describe("session config options", () => {
@@ -100,6 +108,12 @@ describe("session config options", () => {
       acp: { agent: "max" },
       plugins: [agentPlugin({ functions: { slow: slowFn } })],
     });
+  }
+
+  /** The persona the record names, which is the only place it lives. */
+  async function personaOf(sessionId: string): Promise<string | undefined> {
+    return (await AgentSessionRuntime.for(h!.t.ctx).store.load(sessionId))
+      ?.agent;
   }
 
   /**
@@ -233,9 +247,9 @@ describe("session config options", () => {
   });
 
   /**
-   * @case The persona can be changed before the first turn and not after it
+   * @case The persona can be changed before the first turn, and the control is gone after it
    * @preconditions One session, the persona changed before any prompt and again after one
-   * @expectedResult The first change is accepted and the second returns the unchanged list, because talking to a different persona is a new conversation
+   * @expectedResult The first change is accepted. The second answers a list with no persona control at all, because a control that cannot do anything is not advertised, and the record still names the persona that answered
    */
   test("the persona is fixed once the conversation has started", async () => {
     h = await boot();
@@ -257,7 +271,8 @@ describe("session config options", () => {
           configId: "agent",
           value: "max",
         });
-        expect(valueOf(late.configOptions, "agent")).toBe("zoe");
+        expect(idsOf(late.configOptions)).not.toContain("agent");
+        expect(await personaOf(session.sessionId)).toBe("zoe");
       }),
     );
   });
@@ -265,7 +280,7 @@ describe("session config options", () => {
   /**
    * @case The persona cannot be changed while a turn is running
    * @preconditions A turn held open inside a tool, with a persona change attempted mid-flight
-   * @expectedResult The unchanged list comes back, by the same rule that fixes the persona after the first turn: a running turn means the count is about to be non-zero
+   * @expectedResult The persona control is not advertised while a turn is running, and the record still names the persona whose tools that turn is inside
    */
   test("the persona cannot be changed mid-turn", async () => {
     h = await boot();
@@ -280,11 +295,54 @@ describe("session config options", () => {
           configId: "agent",
           value: "zoe",
         });
-        expect(valueOf(mid.configOptions, "agent")).toBe("max");
+        expect(idsOf(mid.configOptions)).not.toContain("agent");
+        expect(await personaOf(session.sessionId)).toBe("max");
         release?.();
         await running;
       }),
     );
+  });
+
+  /**
+   * @case A persona chosen in one window is the one the other window talks to
+   * @preconditions One conversation open on two connections. The second connection resolves it (a set of its own) before the first connection changes the persona, which is exactly when a per-connection answer would go stale
+   * @expectedResult The prompt from the second connection runs the persona the record names, on that persona's own model, because the id is the whole identity of a conversation and two connections can hold one
+   */
+  test("a persona change reaches a second connection", async () => {
+    h = await boot();
+    llm.script.push({ text: "zoe here" });
+
+    await h.connect(async (first) => {
+      await first.buildSession("/work").withSession(async (session) => {
+        const id = session.sessionId;
+        await h!.connect(async (second) => {
+          // The second connection has now resolved this conversation,
+          // while it still belongs to max.
+          const held = await second.request("session/set_config_option", {
+            sessionId: id,
+            configId: "model",
+            value: OPUS,
+          });
+          expect(valueOf(held.configOptions, "model")).toBe(OPUS);
+
+          await first.request("session/set_config_option", {
+            sessionId: id,
+            configId: "agent",
+            value: "zoe",
+          });
+
+          await second.request("session/prompt", {
+            sessionId: id,
+            prompt: [{ type: "text", text: "go" }],
+          });
+        });
+      });
+    });
+
+    expect(llm.calls).toHaveLength(1);
+    // Zoe's own model, and not the one chosen from max's list before the
+    // change: a persona change clears what the conversation had chosen.
+    expect(llm.calls[0]?.modelId).toBe("claude-haiku-4-5");
   });
 
   /**

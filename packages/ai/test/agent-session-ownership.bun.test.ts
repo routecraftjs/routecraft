@@ -67,6 +67,9 @@ class LeakyStore implements SessionStore {
   ): Promise<SessionCasResult> {
     return this.inner.replace(key, version, value);
   }
+  remove(key: AgentSessionKey): Promise<void> {
+    return this.inner.remove(key);
+  }
   /** Every key it holds, with no notion of who is asking. */
   keys(): Promise<AgentSessionKey[]> {
     return this.inner.keys();

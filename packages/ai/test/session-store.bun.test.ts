@@ -114,6 +114,47 @@ function contractSuite(name: string, open: () => Promise<SessionStore>): void {
     });
 
     /**
+     * @case A removed record is gone from every read
+     * @preconditions Two records; one is removed, then removed a second time, then a record that never existed is removed
+     * @expectedResult get() answers undefined for the removed key, keys() no longer lists it and still lists the other, and neither the repeat nor the unknown key is an error
+     */
+    test("remove drops the record and is idempotent", async () => {
+      store = await open();
+      await store.create(key, { turns: 1 });
+      await store.create("kept", { turns: 2 });
+
+      await store.remove(key);
+      expect(await store.get(key)).toBeUndefined();
+      expect(await store.keys()).toEqual(["kept"]);
+
+      // A caller deleting what it has already deleted, and one deleting a
+      // conversation that never existed, both succeed: there is nothing to
+      // report and nothing to compare against.
+      await store.remove(key);
+      await store.remove("never-written");
+      expect(await store.keys()).toEqual(["kept"]);
+      expect((await store.get("kept"))!.value).toEqual({ turns: 2 });
+    });
+
+    /**
+     * @case A key written again after removal starts over
+     * @preconditions A record at version 2, removed, then created again
+     * @expectedResult The new record is at version 1, so a writer still holding the old version cannot land on it
+     */
+    test("a key written after removal starts at version 1", async () => {
+      store = await open();
+      await store.create(key, { turns: 1 });
+      await store.replace(key, 1, { turns: 2 });
+      await store.remove(key);
+
+      expect(await store.create(key, { turns: 9 })).toEqual({ won: true });
+      expect(await store.get(key)).toEqual({ value: { turns: 9 }, version: 1 });
+      expect(await store.replace(key, 2, { turns: 10 })).toEqual({
+        won: false,
+      });
+    });
+
+    /**
      * @case Closing twice is harmless
      * @preconditions An open store
      * @expectedResult The second close() resolves

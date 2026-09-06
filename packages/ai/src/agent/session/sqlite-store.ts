@@ -186,6 +186,12 @@ export class SqliteSessionStore implements SessionStore {
     return rows.map((row) => row.session);
   }
 
+  async remove(key: AgentSessionKey): Promise<void> {
+    this.guard("write", () =>
+      this.#db.prepare("DELETE FROM agent_sessions WHERE session = ?").run(key),
+    );
+  }
+
   async close(): Promise<void> {
     if (this.#closed) return;
     this.#closed = true;

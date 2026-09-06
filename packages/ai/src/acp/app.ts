@@ -87,8 +87,14 @@ export class AcpConnection implements AgentSurfaceConnection {
   private capabilities: ClientCapabilities | undefined;
   /** What the editor calls itself, from its initialize. */
   private clientName: string | undefined;
-  /** The ACP sessions this connection has open, to the agent each belongs to. */
-  private readonly attachedSessions = new Map<string, string>();
+  /**
+   * The ACP sessions this connection has taken hold of. Membership only:
+   * which persona each belongs to is read from the record per operation,
+   * because a conversation is named by its id alone and two connections
+   * can hold one. A persona chosen in one window must not leave the other
+   * dispatching to the persona it saw at attach.
+   */
+  private readonly attachedSessions = new Set<string>();
   private client: AgentContext | undefined;
   private closedHandler: (() => void) | undefined;
   private retire: (() => void) | undefined;
@@ -234,7 +240,7 @@ export class AcpConnection implements AgentSurfaceConnection {
     agentName: string,
     how: "new" | "load" | "resume",
   ): void {
-    this.attachedSessions.set(sessionId, agentName);
+    this.attachedSessions.add(sessionId);
     this.runtime.context.emit("plugin:acp:session:attached", {
       connectionId: this.id,
       sessionId,
@@ -383,7 +389,8 @@ export class AcpConnection implements AgentSurfaceConnection {
    * when the cancellation itself found nothing to stop.
    */
   async cancel(sessionId: string): Promise<void> {
-    const agent = this.attachedSessions.get(sessionId);
+    if (!this.attachedSessions.has(sessionId)) return;
+    const agent = await this.runtime.sessions().find(sessionId, this.scope);
     if (agent === undefined) return;
     this.runtime.sessions().interrupt(sessionId, agent);
   }
@@ -395,12 +402,7 @@ export class AcpConnection implements AgentSurfaceConnection {
     const sessions = this.runtime.sessions();
     const key = params.sessionId;
     const state = await this.stateFor(params.sessionId, agent);
-    const outcome = decideConfigOption(
-      state,
-      sessions.isRunning(key),
-      params.configId,
-      params.value,
-    );
+    const outcome = decideConfigOption(state, params.configId, params.value);
 
     if (outcome.kind === "unknown") {
       // A list would be a lie here: there is nothing to report the current
@@ -422,8 +424,28 @@ export class AcpConnection implements AgentSurfaceConnection {
     if (outcome.kind === "agent") {
       // The conversation keeps its id and changes which persona answers
       // it: one record, one write, nothing left behind. This is what the
-      // id being the identity buys, and it is why there is no delete.
-      await sessions.setAgent(params.sessionId, outcome.agent);
+      // id being the identity buys.
+      //
+      // The runtime refuses the change against the record and its own
+      // claim on the session, which is what settles a prompt racing this
+      // set. Losing that race is a refusal like any other, and a refusal
+      // is the unchanged list.
+      try {
+        await sessions.setAgent(params.sessionId, outcome.agent);
+      } catch (err: unknown) {
+        this.runtime.context.logger.warn(
+          {
+            err,
+            agent,
+            session: params.sessionId,
+            configId: params.configId,
+          },
+          "ACP persona change refused by the session runtime",
+        );
+        return {
+          configOptions: configOptionsFor(await this.stateFor(key, agent)),
+        };
+      }
       this.attached(params.sessionId, outcome.agent, "new");
       const next = await this.stateFor(params.sessionId, outcome.agent);
       const options = configOptionsFor(next);
@@ -490,21 +512,17 @@ export class AcpConnection implements AgentSurfaceConnection {
    *
    * The id is opaque, as the protocol has it, so the agent is resolved by
    * lookup rather than read out of the id. The lookup is bounded by the
-   * caller's own sessions and only runs on reconnect and on the first
-   * message of a connection, because the answer is cached per connection
-   * for as long as it lasts.
+   * caller's own sessions and runs per operation rather than once per
+   * connection: the record is the only place the persona lives, and a
+   * conversation open in two windows would otherwise have one of them
+   * dispatching to a persona the other replaced.
    *
    * @throws AcpRequestError when the session is missing, or is not this caller's
    */
   private async resolveAgent(sessionId: string): Promise<string> {
-    const attached = this.attachedSessions.get(sessionId);
-    if (attached !== undefined) return attached;
     const agent = await this.runtime.sessions().find(sessionId, this.scope);
-    if (agent !== undefined) {
-      this.attachedSessions.set(sessionId, agent);
-      return agent;
-    }
-    throw this.refuse(NO_SUCH_SESSION);
+    if (agent === undefined) throw this.refuse(NO_SUCH_SESSION);
+    return agent;
   }
 
   /** What the option builder needs about one session right now. */
@@ -521,6 +539,7 @@ export class AcpConnection implements AgentSurfaceConnection {
       agent,
       agents: this.runtime.agents(),
       turns: summary.turns,
+      running: summary.turn !== "idle",
       overrides: record?.overrides,
       ...(summary.cwd !== undefined ? { cwd: summary.cwd } : {}),
     };

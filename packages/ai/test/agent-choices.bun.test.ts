@@ -18,6 +18,7 @@ import {
   type RouteDefinition,
 } from "@routecraft/routecraft";
 import { spy, testContext, type TestContext } from "@routecraft/testing";
+import { updateRecord } from "./helpers/session-stores.ts";
 import {
   agent,
   agentPlugin,
@@ -332,7 +333,7 @@ describe("a conversation's own choices", () => {
     const key = "s";
     // Written straight to the store, which is the only way this state can
     // arise: `configure` refuses it, so the record has to predate the list.
-    await runtime.store.update(key, "zoe", (record) => ({
+    await updateRecord(runtime.store, key, "zoe", (record) => ({
       ...record,
       overrides: { model: HAIKU },
     }));

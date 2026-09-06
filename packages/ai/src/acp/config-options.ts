@@ -49,8 +49,23 @@ export interface ConfigOptionState {
   readonly agents: ReadonlyMap<string, AgentRegisteredOptions>;
   /** Completed turns, which is what fixes the persona. */
   readonly turns: number;
+  /**
+   * Whether a turn is on the record: running here, or one a restart cut
+   * short. Either fixes the persona the way a completed turn does, because
+   * both mean a transcript this persona started writing.
+   */
+  readonly running: boolean;
   /** What the conversation has already chosen. */
   readonly overrides: AgentSessionOverrides | undefined;
+}
+
+/**
+ * Whether the persona is still the person's to choose: before the first
+ * turn, and before one starts. After that it is fixed for the life of the
+ * conversation, while the model and the thinking level stay open.
+ */
+function personaIsOpen(state: ConfigOptionState): boolean {
+  return state.turns === 0 && !state.running;
 }
 
 /**
@@ -67,7 +82,11 @@ export function configOptionsFor(
   const registered = state.agents.get(state.agent);
 
   const personas = [...state.agents.entries()];
-  if (offersAChoice(personas)) {
+  // Withdrawn once the conversation has started rather than advertised and
+  // refused. A refusal is the unchanged list, so an editor that kept
+  // rendering this control would show a dropdown a person can move and
+  // watch snap back, with nothing saying why.
+  if (offersAChoice(personas) && personaIsOpen(state)) {
     options.push({
       id: CONFIG_AGENT,
       name: "Agent",
@@ -155,11 +174,11 @@ export type ConfigOptionOutcome =
  * The four refusals all return the complete unchanged list, which is how
  * the protocol says no:
  *
- * - the persona, changed after the first turn: a transcript belongs to the
- *   persona that wrote it, so a late change would hand one voice what
- *   another said;
- * - the persona, changed while a turn is running, by the same rule, since
- *   a running turn means the turn count is about to be non-zero;
+ * - the persona, once the conversation has started or has a turn running:
+ *   a persona carries its own system prompt and tools, so changing it
+ *   would hand one a transcript another wrote and answers produced with
+ *   tools it does not have. The control is withdrawn at that point, so
+ *   this refusal answers a client acting on a list it already held;
  * - a value outside the advertised list, which is a client bug worth a
  *   warn line;
  * - a known id this session does not advertise, because the agent file
@@ -170,11 +189,20 @@ export type ConfigOptionOutcome =
  */
 export function decideConfigOption(
   state: ConfigOptionState,
-  running: boolean,
   configId: string,
   value: unknown,
 ): ConfigOptionOutcome {
   if (!isKnownConfigId(configId)) return { kind: "unknown" };
+  // Ahead of the advertised check, so a client that held a stale list is
+  // told what actually happened rather than that the option is unknown to
+  // this session.
+  if (configId === CONFIG_AGENT && !personaIsOpen(state)) {
+    return {
+      kind: "refused",
+      reason:
+        "the conversation has already started, and talking to a different persona is a new conversation",
+    };
+  }
   const advertised = new Set(
     configOptionsFor(state).map((option) => option.id),
   );
@@ -192,13 +220,6 @@ export function decideConfigOption(
   }
 
   if (configId === CONFIG_AGENT) {
-    if (state.turns > 0 || running) {
-      return {
-        kind: "refused",
-        reason:
-          "the conversation has already started, and talking to a different persona is a new conversation",
-      };
-    }
     if (!state.agents.has(value)) {
       return { kind: "refused", reason: `no agent named "${value}"` };
     }

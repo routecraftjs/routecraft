@@ -51,11 +51,20 @@ export interface SessionStore {
     value: unknown,
   ): Promise<SessionCasResult>;
   /**
-   * Every key the store holds, ordered by agent then session in code point
-   * order (what SQLite's binary collation gives UTF-8 text), so every
-   * backend enumerates identically.
+   * Every key the store holds, in code point order (what SQLite's binary
+   * collation gives UTF-8 text), so every backend enumerates identically.
    */
   keys(): Promise<AgentSessionKey[]>;
+  /**
+   * Forget the session entirely: the record and every version of it.
+   *
+   * A key the store does not hold is not an error, so deleting twice and
+   * deleting a conversation that never existed both succeed. There is no
+   * compare-and-swap here because there is nothing to compare against
+   * afterwards, which is why a caller deletes what it has decided is
+   * finished rather than what it read a moment ago.
+   */
+  remove(key: AgentSessionKey): Promise<void>;
   /** Release what the store holds open. Idempotent. */
   close(): Promise<void>;
 }

@@ -54,24 +54,38 @@ export class AgentSessionStore {
   }
 
   /**
-   * Load the session, creating an empty one on first use, then apply
-   * `mutate` and write the result back. Retried on a lost compare-and-swap
-   * with the state that landed, so two writers never overwrite each other:
-   * an inbox append and a transcript write race to the same record from
-   * different exchanges. A mutation that returns its input unchanged is
-   * not written, so a no-op costs one read.
+   * Forget a conversation: its transcript, its inbox and everything else
+   * the record holds. What a person archives or deletes from a client
+   * ends here.
+   *
+   * A continuation the session had stored is not settled by this, because
+   * a caller deleting a finished conversation has one that is idle. Delete
+   * a session whose turn is running and the turn writes its record back.
+   */
+  async remove(key: AgentSessionKey): Promise<void> {
+    await this.records.remove(key);
+  }
+
+  /**
+   * Read the session, apply `mutate` and write the result back. Retried on
+   * a lost compare-and-swap with the state that landed, so two writers
+   * never overwrite each other: an inbox append and a transcript write
+   * race to the same record from different exchanges. A mutation that
+   * returns its input unchanged is not written, so a no-op costs one read.
+   *
+   * `mutate` is handed `undefined` for a session the store has never seen
+   * and answers with the record to create. Everything a record carries
+   * therefore arrives one way, through the mutation, rather than through a
+   * mutation for most fields and a parameter for one of them.
    */
   async update(
     key: AgentSessionKey,
-    agent: string,
-    mutate: (record: AgentSessionRecord) => AgentSessionRecord,
+    mutate: (record: AgentSessionRecord | undefined) => AgentSessionRecord,
   ): Promise<AgentSessionRecord> {
     for (let attempt = 0; attempt < CAS_ATTEMPTS; attempt++) {
       const stored = await this.records.get(key);
       if (!stored) {
-        const empty = emptyRecord(key, agent);
-        const first = mutate(empty);
-        const value = first === empty ? empty : stamped(first);
+        const value = stamped(mutate(undefined));
         // A create that loses to a concurrent first write reads that write
         // back on the next attempt.
         if ((await this.records.create(key, value)).won) return value;
@@ -91,7 +105,15 @@ export class AgentSessionStore {
   }
 }
 
-function emptyRecord(key: AgentSessionKey, agent: string): AgentSessionRecord {
+/**
+ * The record a conversation starts life as, for a caller that has decided
+ * to create one. The persona is supplied here because a record must name
+ * one from the moment it exists, and only the caller knows which.
+ */
+export function emptyAgentSession(
+  key: AgentSessionKey,
+  agent: string,
+): AgentSessionRecord {
   const now = new Date().toISOString();
   return {
     kind: "agent-session",
@@ -127,6 +149,10 @@ export function parseSessionRecord(
     typeof record !== "object" ||
     record.kind !== "agent-session" ||
     record.session !== key ||
+    // Checked on its own now that it is not compared against anything: a
+    // record whose persona crossed the boundary as something other than a
+    // name would reach the executor lookup as one.
+    typeof record.agent !== "string" ||
     !Array.isArray(record.messages) ||
     !Array.isArray(record.inbox) ||
     !Array.isArray(record.background) ||
