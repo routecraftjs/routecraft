@@ -52,8 +52,9 @@ There is no login. The profile's `token:` authenticates, exactly as it does for 
 
 A conversation is an [agent session](/docs/reference/adapters/agent#sessions-an-agent-that-remembers): a record in the instance's store, not a process on your machine. That is what the editor's conversation list is reading, and it has consequences worth knowing:
 
-- **It outlives the connection.** Close the editor, restart it, connect from another machine, and the same conversation is there by its id. Loading one replays the transcript into the editor so the history is on screen rather than merely on the server.
+- **It outlives the connection.** Close the editor, restart it, reconnect to the same instance, and the same conversation is there by its id. Loading one replays the transcript into the editor so the history is on screen rather than merely on the server.
 - **It outlives the instance.** A restart does not lose it.
+- **It lives where the store lives.** The conversation is in that instance's [session store](/docs/reference/configuration#sessions), which by default is a file beside the app. Reaching the same conversation from a second machine means reaching the same instance, or pointing both instances at [one shared store](#sharing-one-store-between-instances), which has a limit worth reading before you rely on it.
 - **One turn runs at a time.** A message sent while a turn is running is queued and answered by the turn that consumes it, which is the same rule every other caller of that session gets. Cancelling from the editor interrupts the running turn and keeps its partial transcript.
 - **Somebody else can be in it too.** A webhook or a mail reply dispatching to the same session id posts into the same conversation.
 
@@ -64,6 +65,16 @@ The mount lists, loads and resumes only the conversations whose owner matches th
 A mount with no wall has no subjects to tell apart, and every conversation on it belongs to the same unnamed person. That is the right behaviour for a laptop and the wrong one for a shared instance, which is the argument for putting a wall on it: see [Securing capabilities](/docs/advanced/securing-capabilities).
 
 The management API's session listing is the operator's view and deliberately not filtered this way. An operator is looking at the instance rather than at their own conversations.
+
+## Sharing one store between instances
+
+Ownership travels with the record rather than with the connection, so several instances on one shared store all agree about whose conversation is whose: a person moving between them reaches their own and nobody else's.
+
+**They are not coordinated with each other.** The one-turn-at-a-time rule is enforced in the process running the turn, and a sibling process cannot see it. So an instance listing a conversation whose turn another live instance is running reports that turn as `stale`, which is the same thing it reports for a turn a restart cut short, because from where it is standing the two look identical.
+
+Nothing corrupts when that happens. Every write to a record is a compare-and-swap on its version, and a writer that keeps losing gives up with [`AI1010`](/docs/reference/errors#ai-1010) rather than overwriting somebody's turn. What you get is a wrong reading, not a lost transcript.
+
+The safe shape today is one process per store: several editors, several people and several other callers all reaching one instance, which is what a shared store is usually wanted for anyway. Coordinating the turn lock across processes is not in this release.
 
 ## Choosing the persona, model and thinking level
 
