@@ -317,6 +317,58 @@ describe("McpServer", () => {
   });
 
   /**
+   * @case Each theme offers the must-support PNG and the scalable SVG, PNG first
+   * @preconditions None; asserts against the exported default icon set directly
+   * @expectedResult Each theme carries exactly image/png then image/svg+xml, so
+   *   dropping either format or reordering the pair fails rather than shipping
+   */
+  test("default icons offer PNG then SVG for each theme", () => {
+    const formatsByTheme = (["dark", "light"] as const).map((theme) => [
+      theme,
+      ROUTECRAFT_DEFAULT_ICONS.filter((icon) => icon.theme === theme).map(
+        (icon) => icon.mimeType,
+      ),
+    ]);
+    expect(formatsByTheme).toEqual([
+      ["dark", ["image/png", "image/svg+xml"]],
+      ["light", ["image/png", "image/svg+xml"]],
+    ]);
+  });
+
+  /**
+   * @case Every default icon declares sizes, so a client has something to select on
+   * @preconditions None; asserts against the exported default icon set directly
+   * @expectedResult No entry is missing a non-empty sizes array
+   */
+  test("every default icon declares sizes", () => {
+    const missing = ROUTECRAFT_DEFAULT_ICONS.filter(
+      (icon) => !icon.sizes?.length,
+    ).map((icon) => `${icon.theme}/${icon.mimeType}`);
+    expect(missing).toEqual([]);
+  });
+
+  /**
+   * @case A default PNG's declared size matches the dimensions in its own bytes
+   * @preconditions None; reads the IHDR width and height of each default PNG data URI
+   * @expectedResult Every PNG entry's declared size equals its encoded size
+   */
+  test("declared PNG sizes match the encoded bitmap", () => {
+    const mismatched = ROUTECRAFT_DEFAULT_ICONS.filter(
+      (icon) => icon.mimeType === "image/png",
+    )
+      .map((icon) => {
+        const bytes = Buffer.from(icon.src.split(",")[1] ?? "", "base64");
+        return {
+          theme: icon.theme,
+          declared: icon.sizes?.[0],
+          actual: `${bytes.readUInt32BE(16)}x${bytes.readUInt32BE(20)}`,
+        };
+      })
+      .filter((entry) => entry.declared !== entry.actual);
+    expect(mismatched).toEqual([]);
+  });
+
+  /**
    * @case A tool without its own icons inherits the default Routecraft server icons
    * @preconditions Default server options; route uses mcp() without icons
    * @expectedResult getAvailableTools() reports the tool carrying ROUTECRAFT_DEFAULT_ICONS

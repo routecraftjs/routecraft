@@ -177,6 +177,14 @@ type McpServerResolvedOptions = Required<
     | "icons"
   >;
 
+/**
+ * An icon in the mutable shape the SDK's generated schema expects. Routecraft's
+ * own icons freeze `sizes` so the shared default cannot be corrupted in place,
+ * and the SDK's schema does not model that, so the two shapes differ by exactly
+ * this field.
+ */
+type SdkIcon = Omit<McpIcon, "sizes"> & { sizes?: string[] };
+
 /** The MCP SDK `Server` constructor info arg (the fields we populate). */
 type SdkServerInfo = {
   name: string;
@@ -184,7 +192,7 @@ type SdkServerInfo = {
   title?: string;
   description?: string;
   websiteUrl?: string;
-  icons?: McpIcon[];
+  icons?: SdkIcon[];
 };
 
 /** The MCP SDK `Server` constructor options arg (the fields we populate). */
@@ -348,7 +356,13 @@ export class McpServer {
 
     const icons = this.resolveServerIcons();
     if (icons.length > 0) {
-      info.icons = icons;
+      // Copying is the ownership handover: what the SDK holds is its own, so a
+      // mutation on its side cannot reach the frozen default every other
+      // server and tool in this process is sharing.
+      info.icons = icons.map(({ sizes, ...rest }) => ({
+        ...rest,
+        ...(sizes ? { sizes: [...sizes] } : {}),
+      }));
     }
     return info;
   }
