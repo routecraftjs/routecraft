@@ -23,7 +23,10 @@ import { testContext, type TestContext } from "@routecraft/testing";
 import { acpPlugin, agentPlugin, llmPlugin } from "../../src/index.ts";
 import type { AcpPluginOptions } from "../../src/acp/types.ts";
 import type { AgentRegisteredOptions } from "../../src/agent/types.ts";
-import { MemorySessionStore } from "../../src/agent/session/index.ts";
+import {
+  MemorySessionStore,
+  type SessionStore,
+} from "../../src/agent/session/index.ts";
 
 /** An instance serving ACP, and where to reach it. */
 export interface AcpHarness {
@@ -56,6 +59,8 @@ export interface AcpHarnessOptions {
   readonly validator?: (token: string) => Principal;
   /** Extra plugins, applied before the ACP mount. */
   readonly plugins?: CraftPlugin[];
+  /** The session store, for a test that needs one that fails or stalls. */
+  readonly sessionStore?: SessionStore;
   /** Routes the app brings, beside the ones the mount builds. */
   readonly routes?: AnyRouteBuilder[];
   /** Handlers the client answers agent-side calls with. */
@@ -83,7 +88,7 @@ export async function acpHarness(
         },
       },
       suspension: { store: suspension },
-      sessions: { store: new MemorySessionStore() },
+      sessions: { store: options.sessionStore ?? new MemorySessionStore() },
       shutdown: { timeout: 500 },
       plugins: [
         llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),

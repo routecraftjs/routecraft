@@ -55,17 +55,31 @@ export interface ConfigOptionState {
    * both mean a transcript this persona started writing.
    */
   readonly running: boolean;
+  /**
+   * How long the transcript is. This is the durable half of the lock: a
+   * first turn that threw or was cancelled keeps what it reached and never
+   * increments the turn count, so the count alone would reopen the picker
+   * over a transcript a persona has already written into.
+   */
+  readonly messages: number;
   /** What the conversation has already chosen. */
   readonly overrides: AgentSessionOverrides | undefined;
 }
 
 /**
- * Whether the persona is still the person's to choose: before the first
- * turn, and before one starts. After that it is fixed for the life of the
- * conversation, while the model and the thinking level stay open.
+ * Whether the persona is still the person's to choose: while nothing has
+ * been said. After that it is fixed for the life of the conversation,
+ * while the model and the thinking level stay open.
+ *
+ * An empty transcript is the fact that decides it, not the turn count. A
+ * turn writes the user message and the turn marker in one write, and a
+ * turn that then fails or is cancelled clears the marker and keeps the
+ * messages without ever counting a turn. Cancelling the first message is
+ * the most ordinary thing a person does in an editor, and on the count
+ * alone it would hand the next persona a transcript it did not write.
  */
 function personaIsOpen(state: ConfigOptionState): boolean {
-  return state.turns === 0 && !state.running;
+  return state.turns === 0 && !state.running && state.messages === 0;
 }
 
 /**
@@ -139,15 +153,25 @@ export function configOptionsFor(
  * Modes carry the persona, which is the one axis that had a home under the
  * old API. A context with one agent has no modes to offer, and returns
  * nothing rather than a list of one.
+ *
+ * Once the persona is fixed the block stays and the list collapses to the
+ * one the conversation is on. Dropping the block would leave an old-API
+ * client with no idea which persona it is talking to, and a list of one is
+ * how this API says a choice is no longer open: the general rule against
+ * advertising a control with nothing to choose is served by the shape
+ * here, since `currentModeId` is the value and the list is the choice.
  */
 export function modesFor(
   state: ConfigOptionState,
 ): SessionModeState | undefined {
   const personas = [...state.agents.entries()];
   if (!offersAChoice(personas)) return undefined;
+  const offered = personaIsOpen(state)
+    ? personas
+    : personas.filter(([name]) => name === state.agent);
   return {
     currentModeId: state.agent,
-    availableModes: personas.map(([name, entry]) => ({
+    availableModes: offered.map(([name, entry]) => ({
       id: name,
       name,
       ...(entry.description !== undefined

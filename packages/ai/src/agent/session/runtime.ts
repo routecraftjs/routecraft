@@ -815,10 +815,14 @@ export class AgentSessionRuntime {
    * and a set of tools, so changing it mid-conversation would hand the
    * model a transcript another persona wrote and a toolset the answers in
    * that transcript were not produced with. Refused once the conversation
-   * has run a turn, has one running, or has one claimed here that has not
-   * reached the store yet: the record and the in-process claim are checked
-   * together, inside the compare-and-swap, because a turn is claimed
-   * before its marker is written. That is what makes the check and the
+   * has anything in its transcript, has run a turn, has one running, or
+   * has one claimed here that has not reached the store yet: the record
+   * and the in-process claim are checked together, inside the
+   * compare-and-swap, because a turn is claimed before its marker is
+   * written. The transcript is the durable half, and the one that catches
+   * a first turn that threw or was cancelled: such a turn keeps what it
+   * reached and never counts a turn, so the count alone would let the next
+   * persona inherit a transcript it did not write. That is what makes the check and the
    * write one act rather than two. A turn that starts while this is
    * deciding takes the version this write was going to land on, so the
    * write loses and the retry reads the marker that turn wrote and
@@ -840,6 +844,7 @@ export class AgentSessionRuntime {
       if (record === undefined) return emptyAgentSession(key, agent);
       if (record.agent === agent) return record;
       if (
+        record.messages.length > 0 ||
         record.turns > 0 ||
         record.turn !== undefined ||
         this.isRunning(key)

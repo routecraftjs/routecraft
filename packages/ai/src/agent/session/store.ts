@@ -58,11 +58,23 @@ export class AgentSessionStore {
    * the record holds. What a person archives or deletes from a client
    * ends here.
    *
-   * A continuation the session had stored is not settled by this, because
-   * a caller deleting a finished conversation has one that is idle. Delete
-   * a session whose turn is running and the turn writes its record back.
+   * A stored continuation is settled first. An aside park carries no
+   * expiry, and the only thing that names it is the record about to be
+   * deleted, so deleting the record without settling it leaves a
+   * suspension nothing will ever revive or retire. Both fields are
+   * released: the one this record named, and the one a park announced but
+   * not yet named, which is the same pair the boot walk settles.
    */
   async remove(key: AgentSessionKey): Promise<void> {
+    const record = await this.load(key);
+    const parks = new Set(
+      [record?.park?.suspensionId, record?.parking?.suspensionId].filter(
+        (id): id is string => id !== undefined,
+      ),
+    );
+    for (const suspensionId of parks) {
+      await this.releasePark(suspensionId, "agent session removed");
+    }
     await this.records.remove(key);
   }
 

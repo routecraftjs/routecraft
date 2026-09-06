@@ -1085,6 +1085,42 @@ describe("agent sessions", () => {
   });
 
   /**
+   * @case Removing a session settles the continuation it was the only reference to
+   * @preconditions A session record naming a stored continuation, then removed
+   * @expectedResult The suspension is denied rather than left suspended. An aside park carries no expiry and the boot walk finds parks by reading session records, so a delete that left it behind would leave a suspension nothing can ever revive or retire
+   */
+  test("removing a session settles its stored continuation", async () => {
+    const store = new MemorySuspensionStore();
+    t = await contextWith(store, spy()).build();
+    await t.startAndWaitReady();
+    const exchange = new DefaultExchange(t.ctx, { body: {} });
+    const { suspensionId } = await parkAside(
+      t.ctx,
+      exchange,
+      { position: 0, continuation: [] },
+      "chat",
+      (id) => ({
+        kind: "agent-session-park",
+        agent: "max",
+        session: "finished",
+        suspensionId: id,
+      }),
+    );
+    const sessions = new AgentSessionStore(recordsFor(store), store);
+    await updateRecord(sessions, "finished", "max", (r) => ({
+      ...r,
+      park: { suspensionId, routeId: "chat" },
+    }));
+    // The hazard is reachable: the record is the only thing naming it.
+    expect((await store.get(suspensionId))?.status).toBe("suspended");
+
+    await sessions.remove("finished");
+
+    expect((await store.get(suspensionId))?.status).toBe("denied");
+    expect(await sessions.load("finished")).toBeUndefined();
+  });
+
+  /**
    * @case Releasing a stored continuation settles it in the store rather than leaving it live
    * @preconditions A continuation stored with parkAside, so its record is "suspended"; releasePark is called on it
    * @expectedResult The record's status is "denied" afterwards; a second release is a no-op that does not throw

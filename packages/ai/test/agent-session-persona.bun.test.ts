@@ -253,6 +253,34 @@ describe("one conversation, one persona", () => {
   });
 
   /**
+   * @case A first turn that failed still locks the persona
+   * @preconditions A first message whose turn throws, leaving the user message in the transcript with no turn counted and no marker left behind
+   * @expectedResult The change is refused. The transcript is what the lock reads, because a failed turn keeps what it reached and never counts a turn, so a count-only rule would hand the next persona a conversation max had already started
+   */
+  test("a failed first turn keeps the persona fixed", async () => {
+    t = await boot();
+    await t.startAndWaitReady();
+    const runtime = AgentSessionRuntime.for(t.ctx);
+    const session = "failed";
+
+    // Nothing scripted: the provider throws, and the turn with it.
+    await expect(
+      send(t, "to-max", { session, message: "hello" }),
+    ).rejects.toThrow();
+
+    // The hazard is reachable: on the turn count alone this is untouched.
+    const after = await runtime.store.load(session);
+    expect(after?.turns).toBe(0);
+    expect(after?.turn).toBeUndefined();
+    expect(after?.messages.length).toBeGreaterThan(0);
+
+    await expect(runtime.setAgent(session, "zoe")).rejects.toThrow(
+      /has already started/,
+    );
+    expect((await runtime.store.load(session))?.agent).toBe("max");
+  });
+
+  /**
    * @case What the conversation chose does not survive the persona change
    * @preconditions A conversation on max with a model chosen from what max advertises, switched to zoe before it has said anything
    * @expectedResult The record carries no overrides afterwards, so the next turn runs on zoe's own default rather than on a model chosen from another agent's list

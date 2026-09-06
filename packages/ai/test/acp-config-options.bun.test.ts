@@ -11,7 +11,13 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
 import { agentPlugin, tools, type FnHandlerContext } from "../src/index.ts";
 import { acpHarness, type AcpHarness } from "./helpers/acp-harness.ts";
-import { AgentSessionRuntime } from "../src/agent/session/index.ts";
+import {
+  AgentSessionRuntime,
+  MemorySessionStore,
+  type SessionCasResult,
+  type SessionStore,
+  type StoredSession,
+} from "../src/agent/session/index.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
 
 const llm = scriptedLlm([]);
@@ -80,6 +86,46 @@ function valueOf(
   id: string,
 ): unknown {
   return options.find((option) => option.id === id)?.currentValue;
+}
+
+/**
+ * A store whose writes can be made to never land, which is a store fault
+ * rather than a lost race: the compare-and-swap gives up and reports it.
+ */
+class StallingStore implements SessionStore {
+  readonly inner = new MemorySessionStore();
+  failWrites = false;
+
+  get(key: string): Promise<StoredSession | undefined> {
+    return this.inner.get(key);
+  }
+  create(key: string, value: unknown): Promise<SessionCasResult> {
+    return this.inner.create(key, value);
+  }
+  async replace(
+    key: string,
+    version: number,
+    value: unknown,
+  ): Promise<SessionCasResult> {
+    if (this.failWrites) return { won: false };
+    return this.inner.replace(key, version, value);
+  }
+  keys(): Promise<string[]> {
+    return this.inner.keys();
+  }
+  remove(key: string): Promise<void> {
+    return this.inner.remove(key);
+  }
+  close(): Promise<void> {
+    return this.inner.close();
+  }
+}
+
+/** The modes an old-API response offers, for the list that collapses. */
+function modeIdsOf(response: {
+  modes?: { availableModes: Array<{ id: string }> } | null;
+}): string[] {
+  return (response.modes?.availableModes ?? []).map((mode) => mode.id);
 }
 
 /** Which controls a response carries at all, for the ones that are withdrawn. */
@@ -304,6 +350,43 @@ describe("session config options", () => {
   });
 
   /**
+   * @case A first turn the person cancelled still locks the persona
+   * @preconditions A first message prompted, held open inside a tool, and cancelled through session/cancel, which leaves a transcript with no completed turn
+   * @expectedResult The persona control stays withdrawn and a set is refused, because the transcript the cancelled turn kept is a transcript the next persona did not write. This is the ordinary case: a person sends one message and hits cancel
+   */
+  test("a cancelled first turn keeps the persona fixed", async () => {
+    h = await boot();
+    llm.script.push({ toolCalls: [{ toolName: "slow" }] }, { text: "after" });
+
+    await h.connect(async (agent) => {
+      const session = await agent.buildSession("/work").start();
+      const running = agent.request("session/prompt", {
+        sessionId: session.sessionId,
+        prompt: [{ type: "text", text: "go" }],
+      });
+      await waitForEntry(1);
+      await agent.notify("session/cancel", { sessionId: session.sessionId });
+      await running;
+
+      // The hazard is reachable: no turn was ever counted.
+      const record = await AgentSessionRuntime.for(h!.t.ctx).store.load(
+        session.sessionId,
+      );
+      expect(record?.turns).toBe(0);
+      expect(record?.messages.length).toBeGreaterThan(0);
+
+      const late = await agent.request("session/set_config_option", {
+        sessionId: session.sessionId,
+        configId: "agent",
+        value: "zoe",
+      });
+      expect(idsOf(late.configOptions)).not.toContain("agent");
+      expect(await personaOf(session.sessionId)).toBe("max");
+      session.dispose();
+    });
+  });
+
+  /**
    * @case A persona chosen in one window is the one the other window talks to
    * @preconditions One conversation open on two connections. The second connection resolves it (a set of its own) before the first connection changes the persona, which is exactly when a per-connection answer would go stale
    * @expectedResult The prompt from the second connection runs the persona the record names, on that persona's own model, because the id is the whole identity of a conversation and two connections can hold one
@@ -343,6 +426,66 @@ describe("session config options", () => {
     // Zoe's own model, and not the one chosen from max's list before the
     // change: a persona change clears what the conversation had chosen.
     expect(llm.calls[0]?.modelId).toBe("claude-haiku-4-5");
+  });
+
+  /**
+   * @case The superseded modes API says the persona is fixed by offering only it
+   * @preconditions One session resumed before its first turn and again after one, read through session/resume, which is where an old-API client learns its modes
+   * @expectedResult Every persona is offered before the turn and only the current one after it. The block stays either way: dropping it would leave an old-API client not knowing which persona it is on, which is worse than a list it cannot move
+   */
+  test("the modes list collapses once the persona is fixed", async () => {
+    h = await boot();
+    llm.script.push({ text: "one" });
+
+    await h.connect(async (agent) => {
+      const session = await agent.buildSession("/work").start();
+      const before = await agent.request("session/resume", {
+        sessionId: session.sessionId,
+        cwd: "/work",
+      });
+      expect(modeIdsOf(before)).toEqual(["max", "zoe"]);
+
+      await agent.request("session/prompt", {
+        sessionId: session.sessionId,
+        prompt: [{ type: "text", text: "go" }],
+      });
+
+      const after = await agent.request("session/resume", {
+        sessionId: session.sessionId,
+        cwd: "/work",
+      });
+      expect(modeIdsOf(after)).toEqual(["max"]);
+      expect(after.modes?.currentModeId).toBe("max");
+      session.dispose();
+    });
+  });
+
+  /**
+   * @case A store failure during the persona change is an error, not a refusal
+   * @preconditions A session store whose writes never land, so the change fails on the store rather than on the rule
+   * @expectedResult The request fails. A refusal on this protocol is an unchanged list and therefore silence, so answering a broken store that way would leave an editor believing it had been told no
+   */
+  test("a store failure is not reported as a refusal", async () => {
+    const store = new StallingStore();
+    h = await acpHarness({
+      agents: CHOOSY,
+      acp: { agent: "max" },
+      plugins: [agentPlugin({ functions: { slow: slowFn } })],
+      sessionStore: store,
+    });
+
+    await h.connect(async (agent) => {
+      const session = await agent.buildSession("/work").start();
+      store.failWrites = true;
+      await expect(
+        agent.request("session/set_config_option", {
+          sessionId: session.sessionId,
+          configId: "agent",
+          value: "zoe",
+        }),
+      ).rejects.toThrow();
+      session.dispose();
+    });
   });
 
   /**

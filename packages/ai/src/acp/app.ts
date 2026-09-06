@@ -30,7 +30,7 @@ import type {
   SetSessionConfigOptionResponse,
   StopReason,
 } from "@agentclientprotocol/sdk";
-import type { Principal } from "@routecraft/routecraft";
+import { rcCodeOf, type Principal } from "@routecraft/routecraft";
 import { version as PACKAGE_VERSION } from "../../package.json";
 import type { AgentSessionSummary } from "../agent/session/types.ts";
 import { registerSurface } from "../surface/index.ts";
@@ -433,6 +433,10 @@ export class AcpConnection implements AgentSurfaceConnection {
       try {
         await sessions.setAgent(params.sessionId, outcome.agent);
       } catch (err: unknown) {
+        // Only the refusal answers as an unchanged list. A store that
+        // failed is not a policy decision, and reporting it as one would
+        // leave an editor with a list and no idea anything broke.
+        if (rcCodeOf(err) !== "RC5003") throw err;
         this.runtime.context.logger.warn(
           {
             err,
@@ -442,8 +446,13 @@ export class AcpConnection implements AgentSurfaceConnection {
           },
           "ACP persona change refused by the session runtime",
         );
+        // Resolved again rather than reused: the persona this connection
+        // read at the start of the request is exactly what another
+        // connection may have just changed.
         return {
-          configOptions: configOptionsFor(await this.stateFor(key, agent)),
+          configOptions: configOptionsFor(
+            await this.stateFor(key, await this.resolveAgent(key)),
+          ),
         };
       }
       this.attached(params.sessionId, outcome.agent, "new");
@@ -540,6 +549,7 @@ export class AcpConnection implements AgentSurfaceConnection {
       agents: this.runtime.agents(),
       turns: summary.turns,
       running: summary.turn !== "idle",
+      messages: summary.messages,
       overrides: record?.overrides,
       ...(summary.cwd !== undefined ? { cwd: summary.cwd } : {}),
     };
