@@ -104,7 +104,7 @@ export interface OpsClient {
  * bytes never leave the machine, and it is the address `craft` defaults
  * to for an instance running here.
  */
-function refuseClearTextBearer(settings: ResolvedSettings): void {
+export function refuseClearTextBearer(settings: ResolvedSettings): void {
   const url = new URL(settings.url.value);
   if (url.protocol !== "http:" || isLoopback(url.hostname)) return;
   throw new SettingsError(

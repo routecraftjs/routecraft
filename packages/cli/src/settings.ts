@@ -247,6 +247,28 @@ function readSettingsFile(path: string): CraftSettings | undefined {
       `${path} must contain a mapping of settings (for example \`url: http://127.0.0.1:8080\`).`,
     );
   }
+  // `profiles` is checked here, at the boundary, because every other key
+  // this file reads is guarded and an unguarded one fails silently rather
+  // than loudly: `profiles: local` makes a string whose character indices
+  // read as profile names, and a scalar entry makes a profile whose every
+  // setting is undefined, which resolves to the defaults while looking
+  // like it was honoured.
+  const profiles = (parsed as { profiles?: unknown }).profiles;
+  if (profiles !== undefined && profiles !== null) {
+    if (!isPlainObject(profiles)) {
+      throw new SettingsError(
+        `The "profiles" in ${path} must be a map of profile names to their settings.`,
+      );
+    }
+    for (const [name, entry] of Object.entries(profiles)) {
+      if (entry === undefined || entry === null) continue;
+      if (!isPlainObject(entry)) {
+        throw new SettingsError(
+          `The profile "${name}" in ${path} must be a map of settings, not a single value.`,
+        );
+      }
+    }
+  }
   return parsed as CraftSettings;
 }
 
@@ -490,6 +512,8 @@ function profileIn(
   if (settings === undefined || profile === undefined) return undefined;
   const profiles = settings.profiles;
   if (profiles === undefined) return undefined;
+  // Shape is guaranteed by `readSettingsFile`, which refuses a `profiles`
+  // that is not a map of maps at the boundary where the path is known.
   return Object.prototype.hasOwnProperty.call(profiles, profile)
     ? profiles[profile]
     : undefined;
@@ -531,7 +555,11 @@ function pickEnv(
   for (const layer of layers) {
     const value = layer.values?.env;
     if (value === undefined) continue;
-    if (typeof value !== "string" && !isPlainStringMap(value)) {
+    // An empty string is not a path. Left alone it resolves to the project
+    // directory and the command runs on without the environment the person
+    // selected, which is the silence this file exists to refuse.
+    const empty = typeof value === "string" && value.trim() === "";
+    if ((typeof value !== "string" && !isPlainStringMap(value)) || empty) {
       throw new SettingsError(
         `The "env" in ${layer.path} must be a path to an env file or a map of names to string values.`,
       );
@@ -542,6 +570,10 @@ function pickEnv(
 }
 
 /** Whether a value is a flat map of strings, which is what an inline env is. */
+function isPlainObject(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null && !Array.isArray(value);
+}
+
 function isPlainStringMap(value: unknown): value is Record<string, string> {
   if (value === null || typeof value !== "object" || Array.isArray(value)) {
     return false;

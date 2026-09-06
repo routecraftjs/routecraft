@@ -299,8 +299,14 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
     // specific SSE channel for THIS dispatch).
     const perCall =
       this.binding.kind === "by-name" ? this.binding.perCall : undefined;
+    // A resolver present is a resolver answered: its `undefined` means
+    // this dispatch takes no deltas, which is the documented way to turn
+    // streaming off per call. Falling through to the fixed listener would
+    // make that answer unsayable.
     const onDelta =
-      perCall?.onDeltaFor?.(exchange) ?? perCall?.onDelta ?? merged.onDelta;
+      perCall?.onDeltaFor !== undefined
+        ? perCall.onDeltaFor(exchange)
+        : (perCall?.onDelta ?? merged.onDelta);
 
     const sessionKey =
       revivedPark !== undefined

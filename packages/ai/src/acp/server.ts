@@ -352,7 +352,9 @@ function openedEagerly(response: Response): ReadableStream<Uint8Array> | null {
       else controller.enqueue(value);
     },
     cancel(reason: unknown) {
-      void reader.cancel(reason);
+      // Returned rather than discarded, so the stream owns the settlement
+      // and a reader that refuses to cancel is not an unhandled rejection.
+      return reader.cancel(reason);
     },
   });
 }

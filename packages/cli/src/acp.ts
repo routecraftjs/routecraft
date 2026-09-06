@@ -25,6 +25,7 @@ import {
   type SettingsOverrides,
 } from "./settings.js";
 import { EXEC_EXIT } from "./exec.js";
+import { refuseClearTextBearer } from "./ops-client.js";
 import { messageOf } from "./util.js";
 
 /**
@@ -119,6 +120,17 @@ export async function acpCommand(options: AcpOptions = {}): Promise<AcpResult> {
 
   const headers: Record<string, string> = {};
   if (settings.token !== undefined) {
+    // The same refusal `craft exec` and `craft ops` make: a bearer does not
+    // go over cleartext to anything but this machine. An editor holds this
+    // connection open all day, so it is the longest-lived place a token
+    // would be on the wire.
+    try {
+      refuseClearTextBearer(settings);
+    } catch (error: unknown) {
+      if (error instanceof SettingsError)
+        return { code: 2, error: error.message };
+      throw error;
+    }
     headers["Authorization"] = `Bearer ${settings.token.value}`;
   }
   if (settings.agent !== undefined) {

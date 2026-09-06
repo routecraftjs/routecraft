@@ -195,7 +195,10 @@ export class AcpConnection implements AgentSurfaceConnection {
         : {}),
       ...(this.clientName !== undefined ? { clientName: this.clientName } : {}),
     });
-    void closed.finally(() => this.close());
+    // Retire on close however the transport ended, including a fault that
+    // rejects rather than resolves: an unhandled rejection here would take
+    // down an instance because one editor's socket broke.
+    closed.finally(() => this.close()).catch(() => undefined);
   }
 
   /** Retire the surface. A turn still running finds it gone and says so. */

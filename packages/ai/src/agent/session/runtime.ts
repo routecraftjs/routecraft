@@ -693,11 +693,23 @@ export class AgentSessionRuntime {
     session: string,
     scope: AgentSessionScope,
   ): Promise<string | undefined> {
+    // One id can name more than one record: changing the persona before a
+    // conversation's first turn writes a record under the new agent and
+    // the store has no delete, so the old key stays. Taking the first
+    // match would make the answer depend on how the store happens to
+    // enumerate, and could attach a reconnecting editor to the abandoned
+    // side. The live record is the one that has been written most
+    // recently, which is the one the conversation actually went to.
+    let best: { agent: string; updatedAt: string } | undefined;
     for (const key of await this.store.list()) {
       if (key.session !== session) continue;
-      if ((await this.summary(key, scope)) !== undefined) return key.agent;
+      const summary = await this.summary(key, scope);
+      if (summary === undefined) continue;
+      if (best === undefined || summary.updatedAt > best.updatedAt) {
+        best = { agent: key.agent, updatedAt: summary.updatedAt };
+      }
     }
-    return undefined;
+    return best?.agent;
   }
 
   /**

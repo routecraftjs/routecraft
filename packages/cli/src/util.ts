@@ -58,8 +58,9 @@ export function loadEnvFile(
 
   // The profile is the mode: `--profile ing` reads `.env.ing` between the
   // pair, so one selection picks the instance and its environment together.
+  let profileResult: ReturnType<typeof loadDotenv> | undefined;
   if (profile !== undefined) {
-    const profileResult = loadDotenv({
+    profileResult = loadDotenv({
       path: resolve(defaultsFrom, `.env.${profile}`),
       override: true,
       ...dotenvOpts,
@@ -89,6 +90,12 @@ export function loadEnvFile(
   // - If both failed, return the last error (from .env.local)
   if (envLocalResult.parsed) {
     return envLocalResult;
+  }
+  // The profile's own file counts as a successful load: a project that
+  // carries only `.env.<profile>` did load an environment, and reporting
+  // the missing `.env.local` instead would say it did not.
+  if (profileResult?.parsed) {
+    return profileResult;
   }
   if (envResult.parsed) {
     return envResult;

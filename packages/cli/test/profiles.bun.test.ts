@@ -376,4 +376,39 @@ profiles:
     expect(settings.profile).toBeUndefined();
     expect(settings.env).toBeUndefined();
   });
+
+  /**
+   * @case A profiles key that is not a map of maps is refused rather than resolved to the defaults
+   * @preconditions Two files, one whose `profiles` is a scalar and one whose named profile is a scalar
+   * @expectedResult Both are refused. Every other key in this file is shape-checked, and an unchecked one resolves to the loopback default while looking like it was honoured, which is the silence the file exists to prevent
+   */
+  test("a malformed profiles map is refused", () => {
+    const scalarMap = project(`profile: local\nprofiles: local\n`);
+    expect(() =>
+      resolveSettings({ cwd: scalarMap, home: emptyHome, env: {} }),
+    ).toThrow(/must be a map of profile names/);
+
+    const scalarEntry = project(
+      `profile: local\nprofiles:\n  local: http://127.0.0.1:9999\n`,
+    );
+    expect(() =>
+      resolveSettings({ cwd: scalarEntry, home: emptyHome, env: {} }),
+    ).toThrow(/must be a map of settings/);
+  });
+
+  /**
+   * @case An env that is an empty string is refused rather than resolving to the project directory
+   * @preconditions A selected profile whose env is the empty string
+   * @expectedResult A settings error, because the command would otherwise run on without the environment the person selected and nothing would say so
+   */
+  test("an empty env is refused", () => {
+    const cwd = project(`
+profiles:
+  blank:
+    env: ""
+`);
+    expect(() =>
+      resolveSettings({ cwd, home: emptyHome, env: {}, profile: "blank" }),
+    ).toThrow(/must be a path to an env file or a map/);
+  });
 });
