@@ -283,7 +283,7 @@ The protocol is mounted at `/acp`, and the bridge is not where that is configura
 
 **The agent travels as a header.** The protocol has no field for which persona a client wants, so `--agent` becomes a `Routecraft-Agent` request header and every conversation the connection opens talks to that agent. A name the instance does not hold is refused by name rather than quietly served by somebody else.
 
-Standard output belongs to the protocol, so nothing but protocol frames is ever written to it and every diagnosis goes to standard error. A profile that is named nowhere exits `2` naming the profiles that do exist; an instance that cannot be reached exits `1` naming the address and which setting supplied it.
+Standard output belongs to the protocol, so nothing but protocol frames is ever written to it and every diagnosis goes to standard error. It shares [`exec`'s exit codes](#exec): a profile named nowhere exits `2` naming the profiles that do exist, and an address nothing answered on exits `3` naming it and which setting supplied it.
 
 Editor configuration, and what a conversation carries once it is open, are in [Talk from your editor](/docs/advanced/talk-from-your-editor).
 

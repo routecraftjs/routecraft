@@ -24,6 +24,7 @@ import {
   SettingsError,
   type SettingsOverrides,
 } from "./settings.js";
+import { EXEC_EXIT } from "./exec.js";
 import { messageOf } from "./util.js";
 
 /**
@@ -146,8 +147,11 @@ export async function acpCommand(options: AcpOptions = {}): Promise<AcpResult> {
     ]);
     return { code: 0 };
   } catch (error: unknown) {
+    // The family's code for an address nothing answered on, so a script
+    // that already branches on `craft exec`'s exit codes reads this one
+    // the same way.
     return {
-      code: 1,
+      code: EXEC_EXIT.unreachable,
       error: `Lost the connection to ${url} (from the ${describeSource(settings.url)}): ${messageOf(error)}`,
     };
   }

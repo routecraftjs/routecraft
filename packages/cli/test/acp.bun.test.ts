@@ -301,7 +301,9 @@ profiles:
       stdin: editor.stdin,
       stdout: editor.stdout,
     });
-    expect(result.code).toBe(1);
+    // The family's code for an address nothing answered on, so one script
+    // reads a failed `exec` and a failed `acp` the same way.
+    expect(result.code).toBe(3);
     expect(result.error).toContain("http://127.0.0.1:1/acp");
     expect(result.error).toContain("flag");
   });
