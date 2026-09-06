@@ -248,14 +248,22 @@ export class AcpConnection implements AgentSurfaceConnection {
   initialize(params: InitializeRequest): InitializeResponse {
     this.capabilities = params.clientCapabilities;
     this.clientName = params.clientInfo?.name;
+    // An app that sets this is white-labelling, so `title` is never
+    // back-filled: "Routecraft" appearing beside somebody's own name
+    // because they set two fields of three is the outcome the option
+    // exists to avoid. `name` and `version` are required by the protocol
+    // and cannot be absent, so those two alone fall back.
     const info = this.options.agentInfo;
     return {
       protocolVersion: 1,
-      agentInfo: {
-        name: info?.name ?? DEFAULT_AGENT_INFO.name,
-        title: info?.title ?? DEFAULT_AGENT_INFO.title,
-        version: info?.version ?? DEFAULT_AGENT_INFO.version,
-      },
+      agentInfo:
+        info === undefined
+          ? DEFAULT_AGENT_INFO
+          : {
+              name: info.name ?? DEFAULT_AGENT_INFO.name,
+              version: info.version ?? DEFAULT_AGENT_INFO.version,
+              ...(info.title !== undefined ? { title: info.title } : {}),
+            },
       agentCapabilities: {
         loadSession: true,
         promptCapabilities: {

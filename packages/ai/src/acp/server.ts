@@ -142,6 +142,27 @@ export class AcpServer {
             headers: buildCorsHeaders(cors, origin, true),
           });
         }
+        // A browser whose origin the policy does not allow is refused here
+        // rather than served and left to discard the answer. The preflight
+        // already stops the shapes that get preflighted; this closes the
+        // ones that do not, so a cross-origin page cannot drive a turn on
+        // somebody's loopback instance and simply ignore the reply. A
+        // caller with no Origin at all is not a browser and is unaffected,
+        // which is every editor.
+        if (
+          origin !== undefined &&
+          cors !== null &&
+          corsHeaders["Access-Control-Allow-Origin"] === undefined
+        ) {
+          this.context.logger.debug(
+            { origin, source: "acp" },
+            "ACP request refused: origin is not allowed by this mount's CORS policy",
+          );
+          return Response.json(
+            { error: "Forbidden" },
+            { status: 403, headers: corsHeaders },
+          );
+        }
         if (url.pathname !== path && url.pathname !== `${path}/`) {
           return Response.json(
             { error: "Not Found", path: url.pathname },

@@ -179,23 +179,29 @@ export function hasSurface(exchange: Exchange<unknown>): boolean {
 /**
  * Which surface this exchange belongs to.
  *
- * The header is the first answer and travels with every exchange derived
- * from the turn's own. A route the turn CALLS runs on a fresh exchange
- * that carries the correlation id rather than the whole header bag, so the
- * turn table is the second answer and is what lets a capability three hops
- * from the prompt still reach the person who typed it.
+ * The turn table is asked first, because the mount registered what is in
+ * it against a correlation id it minted. The header is data on an
+ * exchange, and an exchange is something any route can build: preferring
+ * it would let a carried or copied header decide which person a
+ * privileged call reaches. Asking the table first means the answer comes
+ * from what the runtime knows rather than from what the exchange claims.
+ *
+ * The header is still the fallback, and it is what a step on the turn's
+ * own route resolves through once the turn's table entry has gone. Both
+ * agree for the turn that minted them; they can only diverge on an
+ * exchange that outlived or never belonged to its turn, and that is
+ * exactly the case worth resolving conservatively.
  */
 function refFor(
   context: CraftContext,
   exchange: Exchange<unknown>,
 ): AgentSurfaceRef | undefined {
-  const fromHeader = surfaceRefOf(exchange.headers);
-  if (fromHeader !== undefined) return fromHeader;
   const correlation = exchange.headers[HeadersKeys.CORRELATION_ID];
-  return turnSurfaceOf(
+  const fromTurn = turnSurfaceOf(
     context,
     typeof correlation === "string" ? correlation : undefined,
   );
+  return fromTurn ?? surfaceRefOf(exchange.headers);
 }
 
 /**

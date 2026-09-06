@@ -374,7 +374,10 @@ describe("a conversation belongs to the person who started it", () => {
       Buffer.from(page.nextCursor ?? "", "base64url").toString("utf8"),
     ) as { after?: string };
     const after = decodeURIComponent((decoded.after ?? "").split(":")[1] ?? "");
-    // And what it points at is alice's, never bob's.
-    expect(after).not.toBe("b-1");
+    // The exact row the page ended on, not merely "not bob's": a negative
+    // assertion still passes if a regression mints the cursor from some
+    // other foreign row, and this test is the only thing standing between
+    // the leak and its return.
+    expect(after).toBe("c-1");
   });
 });

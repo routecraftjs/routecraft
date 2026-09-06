@@ -433,4 +433,42 @@ describe("the ACP mount's door", () => {
     expect((await post("Bearer not-a-token")).status).toBe(401);
     expect(levels).toEqual(["debug", "warn"]);
   });
+
+  /**
+   * @case A browser origin the policy does not allow is refused, not served and discarded
+   * @preconditions The default loopback-only policy, with a request carrying a non-loopback Origin, and one carrying none
+   * @expectedResult The cross-origin request is refused before the protocol sees it, and the request with no Origin is unaffected, because a caller without one is not a browser and is every editor
+   */
+  test("a disallowed origin is refused rather than executed", async () => {
+    h = await walled();
+    const initialize = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: { protocolVersion: 1, clientCapabilities: {} },
+    });
+
+    const cross = await fetch(h.url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer alice-token",
+        Origin: "https://not-your-machine.example",
+      },
+      body: initialize,
+    });
+    expect(cross.status).toBe(403);
+
+    // The hazard is reachable with the same credential and no Origin, so
+    // the refusal is about the browser and not about the token.
+    const direct = await fetch(h.url, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Authorization: "Bearer alice-token",
+      },
+      body: initialize,
+    });
+    expect(direct.status).toBe(200);
+  });
 });

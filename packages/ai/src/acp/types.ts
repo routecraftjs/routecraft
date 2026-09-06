@@ -39,9 +39,11 @@ export interface AcpPluginOptions {
    *
    * Defaults to `{ name: "routecraft", title: "Routecraft", version }`, so
    * an instance that configures nothing carries the framework's name into
-   * the editor. An app that sets this replaces it outright rather than
-   * adding to it: somebody who deliberately white-labels gets what they
-   * asked for.
+   * the editor. An app that sets this is white-labelling, so `title` is
+   * never back-filled from the default: somebody who set a name and a
+   * version does not then get "Routecraft" as their display title. `name`
+   * and `version` are required by the protocol and cannot be left absent,
+   * so those two fall back when unset.
    *
    * The protocol carries no icon, logo or image field anywhere in version
    * 1, so these two strings are the entire branding surface available
