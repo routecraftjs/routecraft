@@ -655,14 +655,23 @@ export class AgentSessionRuntime {
       .filter((key) => query.agent === undefined || key.agent === query.agent)
       .map((key) => ({ id: keyOf(key), key }))
       .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-    const page = takePage(keys, cursorScope, query.limit, after);
-    const items: AgentSessionSummary[] = [];
-    for (const { key } of page.items) {
+    // Filtered before the slice, never after. `takePage` mints the cursor
+    // from the last row of the page it returns, and a cursor is reversible
+    // by design, so slicing the unfiltered list would hand this caller a
+    // foreign `(agent, session)` pair in an envelope they can decode. That
+    // is the identifier this scope exists to make indistinguishable from
+    // one that does not exist. The cost is a read per session scanned
+    // rather than per session shown, which is what a store with no
+    // owner-aware listing can honestly offer.
+    const admitted: Array<{ id: string; summary: AgentSessionSummary }> = [];
+    for (const { id, key } of keys) {
       const summary = await this.summary(key, query.scope);
       if (summary === undefined) continue;
       if (query.cwd !== undefined && summary.cwd !== query.cwd) continue;
-      items.push(summary);
+      admitted.push({ id, summary });
     }
+    const page = takePage(admitted, cursorScope, query.limit, after);
+    const items = page.items.map((entry) => entry.summary);
     return page.nextCursor === undefined
       ? { items }
       : { items, nextCursor: page.nextCursor };

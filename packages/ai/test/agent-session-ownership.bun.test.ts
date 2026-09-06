@@ -346,4 +346,35 @@ describe("a conversation belongs to the person who started it", () => {
       }),
     ).rejects.toThrow();
   });
+
+  /**
+   * @case A page cursor never carries somebody else's session identifier
+   * @preconditions Four conversations under one agent, one of them owned by another person and sorting inside the first page's range, listed by the first person with a page size that leaves more to fetch
+   * @expectedResult The returned cursor decodes to a key this caller is allowed to see. A cursor is minted from the last row of the page and handed to the caller, so a page sliced before the ownership filter would hand back a foreign (agent, session) pair in a reversible envelope, which is the identifier #731 says must be indistinguishable from one that does not exist
+   */
+  test("a page cursor cannot carry a foreign session id", async () => {
+    t = await boot();
+    await t.startAndWaitReady();
+    const runtime = AgentSessionRuntime.for(t.ctx);
+    // Sorted by `agent:session`, so bob's sits between alice's two.
+    await runtime.open({ agent: "max", session: "a-1" }, { owner: "alice" });
+    await runtime.open({ agent: "max", session: "b-1" }, { owner: "bob" });
+    await runtime.open({ agent: "max", session: "c-1" }, { owner: "alice" });
+    await runtime.open({ agent: "max", session: "d-1" }, { owner: "alice" });
+
+    const page = await runtime.summaries({
+      scope: { owner: "alice" },
+      limit: 2,
+    });
+    // The hazard is reachable: there is more to page through, so a cursor
+    // is minted rather than omitted.
+    expect(page.nextCursor).toBeDefined();
+
+    const decoded = JSON.parse(
+      Buffer.from(page.nextCursor ?? "", "base64url").toString("utf8"),
+    ) as { after?: string };
+    const after = decodeURIComponent((decoded.after ?? "").split(":")[1] ?? "");
+    // And what it points at is alice's, never bob's.
+    expect(after).not.toBe("b-1");
+  });
 });
