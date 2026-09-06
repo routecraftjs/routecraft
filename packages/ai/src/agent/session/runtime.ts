@@ -693,23 +693,11 @@ export class AgentSessionRuntime {
     session: string,
     scope: AgentSessionScope,
   ): Promise<string | undefined> {
-    // One id can name more than one record: changing the persona before a
-    // conversation's first turn writes a record under the new agent and
-    // the store has no delete, so the old key stays. Taking the first
-    // match would make the answer depend on how the store happens to
-    // enumerate, and could attach a reconnecting editor to the abandoned
-    // side. The live record is the one that has been written most
-    // recently, which is the one the conversation actually went to.
-    let best: { agent: string; updatedAt: string } | undefined;
     for (const key of await this.store.list()) {
       if (key.session !== session) continue;
-      const summary = await this.summary(key, scope);
-      if (summary === undefined) continue;
-      if (best === undefined || summary.updatedAt > best.updatedAt) {
-        best = { agent: key.agent, updatedAt: summary.updatedAt };
-      }
+      if ((await this.summary(key, scope)) !== undefined) return key.agent;
     }
-    return best?.agent;
+    return undefined;
   }
 
   /**
@@ -772,6 +760,26 @@ export class AgentSessionRuntime {
         ? { title: init.title }
         : {}),
     }));
+  }
+
+  /**
+   * Move a conversation to another persona, before it has said anything.
+   *
+   * A session is keyed by `(agent, session)`, so this writes a record
+   * under the new agent and drops the one under the old. Dropping it is
+   * the point: leaving it behind would let one session id name two
+   * records, and a bare id would then resolve to whichever the store
+   * happened to enumerate first. Nothing is lost, because a persona is
+   * only changeable while the conversation has no turns.
+   */
+  async rekey(
+    from: AgentSessionKey,
+    to: AgentSessionKey,
+    init: AgentSessionInit,
+  ): Promise<AgentSessionRecord> {
+    const opened = await this.open(to, init);
+    if (from.agent !== to.agent) await this.store.remove(from);
+    return opened;
   }
 
   /**

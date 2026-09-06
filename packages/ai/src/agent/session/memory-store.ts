@@ -56,6 +56,10 @@ export class MemorySessionStore implements SessionStore {
       );
   }
 
+  async remove(key: AgentSessionKey): Promise<void> {
+    this.#records.delete(slot(key));
+  }
+
   async close(): Promise<void> {
     // Nothing held open; the records stay until the store is collected, so
     // a second context in the same process reads what the first wrote.

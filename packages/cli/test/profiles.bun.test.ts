@@ -411,4 +411,25 @@ profiles:
       resolveSettings({ cwd, home: emptyHome, env: {}, profile: "blank" }),
     ).toThrow(/must be a path to an env file or a map/);
   });
+
+  /**
+   * @case A `profiles:` key with nothing after it does not crash the resolution
+   * @preconditions A project file whose `profiles:` is empty, which YAML reads as null, beside a home file defining the selected profile
+   * @expectedResult The home profile resolves, because an unfinished map is somebody who started writing one rather than a declaration that there are none
+   */
+  test("an empty profiles key is not a map of nothing", () => {
+    const cwd = project(`profiles:\n`);
+    const homeRoot = home(`
+profiles:
+  company:
+    token: from-home
+`);
+    const settings = resolveSettings({
+      cwd,
+      home: homeRoot,
+      env: {},
+      profile: "company",
+    });
+    expect(settings.token?.value).toBe("from-home");
+  });
 });

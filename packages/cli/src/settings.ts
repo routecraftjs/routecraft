@@ -254,6 +254,11 @@ function readSettingsFile(path: string): CraftSettings | undefined {
   // setting is undefined, which resolves to the defaults while looking
   // like it was honoured.
   const profiles = (parsed as { profiles?: unknown }).profiles;
+  // `profiles:` with nothing after it parses as null, which is somebody
+  // starting a map and not finishing it rather than somebody declaring
+  // none. Normalised away here so nothing downstream meets it: the reader
+  // that did threw a raw TypeError instead of naming the file.
+  if (profiles === null) delete (parsed as { profiles?: unknown }).profiles;
   if (profiles !== undefined && profiles !== null) {
     if (!isPlainObject(profiles)) {
       throw new SettingsError(
@@ -512,8 +517,9 @@ function profileIn(
   if (settings === undefined || profile === undefined) return undefined;
   const profiles = settings.profiles;
   if (profiles === undefined) return undefined;
-  // Shape is guaranteed by `readSettingsFile`, which refuses a `profiles`
-  // that is not a map of maps at the boundary where the path is known.
+  // `readSettingsFile` refuses a `profiles` that is not a map of maps, and
+  // normalises the empty `profiles:` to absent, so what reaches here is a
+  // map or nothing.
   return Object.prototype.hasOwnProperty.call(profiles, profile)
     ? profiles[profile]
     : undefined;

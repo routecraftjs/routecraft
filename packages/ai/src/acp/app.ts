@@ -424,8 +424,11 @@ export class AcpConnection implements AgentSurfaceConnection {
       return { configOptions: configOptionsFor(state) };
     }
     if (outcome.kind === "agent") {
-      // A persona change before the first turn re-keys an empty record.
-      await sessions.open(
+      // A persona change before the first turn re-keys an empty record,
+      // and drops the one it came from: one session id naming two records
+      // is what makes a bare id ambiguous on the next reconnect.
+      await sessions.rekey(
+        { agent, session: params.sessionId },
         { agent: outcome.agent, session: params.sessionId },
         {
           owner: this.principal?.subject ?? null,

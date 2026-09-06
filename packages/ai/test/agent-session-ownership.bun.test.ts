@@ -57,6 +57,9 @@ class LeakyStore implements SessionStore {
   get(key: AgentSessionKey): Promise<StoredSession | undefined> {
     return this.inner.get(key);
   }
+  remove(key: AgentSessionKey): Promise<void> {
+    return this.inner.remove(key);
+  }
   create(key: AgentSessionKey, value: unknown): Promise<SessionCasResult> {
     return this.inner.create(key, value);
   }
@@ -379,5 +382,33 @@ describe("a conversation belongs to the person who started it", () => {
     // other foreign row, and this test is the only thing standing between
     // the leak and its return.
     expect(after).toBe("c-1");
+  });
+
+  /**
+   * @case Changing the persona leaves one record, not two
+   * @preconditions A conversation opened under one agent and re-keyed to another before it has said anything, then resolved by its bare session id
+   * @expectedResult The id names the new agent and the old key is gone, so resolution does not depend on which record a store enumerates first
+   */
+  test("a persona change leaves no second record behind", async () => {
+    t = await boot();
+    await t.startAndWaitReady();
+    const runtime = AgentSessionRuntime.for(t.ctx);
+    const session = "moved";
+
+    await runtime.open({ agent: "max", session }, { owner: "alice" });
+    // The hazard is reachable: before the re-key the id names the original.
+    expect(await runtime.find(session, { owner: "alice" })).toBe("max");
+
+    await runtime.rekey(
+      { agent: "max", session },
+      { agent: "zoe", session },
+      { owner: "alice" },
+    );
+
+    expect(await runtime.find(session, { owner: "alice" })).toBe("zoe");
+    // And the record it came from is gone rather than merely losing a race.
+    expect(
+      await runtime.summary({ agent: "max", session }, { owner: "alice" }),
+    ).toBeUndefined();
   });
 });

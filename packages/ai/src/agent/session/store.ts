@@ -48,6 +48,11 @@ export class AgentSessionStore {
     await this.parks.markDenied(suspensionId, reason);
   }
 
+  /** Drop a record. Idempotent, and used only by a persona re-key. */
+  async remove(key: AgentSessionKey): Promise<void> {
+    await this.records.remove(key);
+  }
+
   /** Every session the store holds. */
   async list(): Promise<AgentSessionKey[]> {
     return this.records.keys();
