@@ -155,9 +155,9 @@ export type ConfigOptionOutcome =
  * The four refusals all return the complete unchanged list, which is how
  * the protocol says no:
  *
- * - the persona, changed after the first turn: the session key includes
- *   the agent, so an early change re-keys an empty record and a late one
- *   cannot be honoured;
+ * - the persona, changed after the first turn: a transcript belongs to the
+ *   persona that wrote it, so a late change would hand one voice what
+ *   another said;
  * - the persona, changed while a turn is running, by the same rule, since
  *   a running turn means the turn count is about to be non-zero;
  * - a value outside the advertised list, which is a client bug worth a

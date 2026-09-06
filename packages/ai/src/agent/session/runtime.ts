@@ -671,11 +671,11 @@ export class AgentSessionRuntime {
     // Filtered before the slice, never after. `takePage` mints the cursor
     // from the last row of the page it returns, and a cursor is reversible
     // by design, so slicing the unfiltered list would hand this caller a
-    // foreign `(agent, session)` pair in an envelope they can decode. That
-    // is the identifier this scope exists to make indistinguishable from
-    // one that does not exist. The cost is a read per session scanned
-    // rather than per session shown, which is what a store with no
-    // owner-aware listing can honestly offer.
+    // foreign session id in an envelope they can decode. That is the
+    // identifier this scope exists to make indistinguishable from one that
+    // does not exist. The cost is a read per session scanned rather than
+    // per session shown, which is what a store with no owner-aware listing
+    // can honestly offer.
     const admitted: Array<{ id: string; summary: AgentSessionSummary }> = [];
     for (const { id, key } of keys) {
       const summary = await this.summary(key, query.scope);

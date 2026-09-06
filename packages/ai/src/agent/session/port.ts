@@ -16,8 +16,8 @@ export interface SessionCasResult {
 }
 
 /**
- * Where agent session records live: one durable slot per `(agent, session)`
- * with a compare-and-swap on write, on whichever backend the deployment
+ * Where agent session records live: one durable slot per session id, with
+ * a compare-and-swap on write, on whichever backend the deployment
  * configured through `sessions: { store }`.
  *
  * The contract is the smallest thing the runtime needs, so a backend of

@@ -15,11 +15,11 @@ const CAS_ATTEMPTS = 20;
  * The typed layer over the two stores a session touches.
  *
  * Session records live in the {@link SessionStore} the context resolved
- * through `sessions: { store }`: one slot per `(agent, session)`, written
- * under a compare-and-swap and validated on every read, since the value
- * crossed a process boundary. The continuation a turn stores between turns
- * is a parked exchange, so it lives in the suspension store beside every
- * other one, and releasing it goes through that store's own transitions.
+ * through `sessions: { store }`: one slot per session id, written under a
+ * compare-and-swap and validated on every read, since the value crossed a
+ * process boundary. The continuation a turn stores between turns is a
+ * parked exchange, so it lives in the suspension store beside every other
+ * one, and releasing it goes through that store's own transitions.
  */
 export class AgentSessionStore {
   constructor(

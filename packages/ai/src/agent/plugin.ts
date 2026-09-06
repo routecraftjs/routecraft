@@ -334,7 +334,7 @@ const boots = new WeakMap<CraftContext, Promise<void>>();
  * The `agent-sessions` management resource: every named session the
  * store knows, with its turn state and inbox depth, at
  * `GET /ops/agent-sessions` (filter with `?agent=`) and one session at
- * `GET /ops/agent-sessions/{agent}/{session}`. Served under the ops
+ * `GET /ops/agent-sessions/{session}`. Served under the ops
  * plugin's introspection tier when an ops mount exists; inert otherwise.
  *
  * A context with no suspension store has no sessions, and says so with an

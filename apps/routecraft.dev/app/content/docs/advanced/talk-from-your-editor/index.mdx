@@ -88,7 +88,7 @@ Editors render the protocol's config options as pickers, and the mount advertise
 
 A control with nothing to choose is not advertised at all, so an instance with one agent and one model shows no pickers rather than three dead ones. Agent files declare what they offer by writing a list instead of a value: see [Offering a choice](/docs/reference/plugins/agentplugin#offering-a-choice-of-model-or-thinking-level).
 
-The persona can be changed only before the first turn. The conversation is stored under the agent it belongs to, so an early change re-keys an empty record and a late one would have to rewrite a transcript into a voice that did not say it. The mount refuses the late change with the unchanged list rather than pretending.
+The persona can be changed only before the first turn. A transcript belongs to the persona that wrote it, and a late change would hand one voice what another said, so talking to a different persona is a new conversation rather than a setting. An early change is one field on one record: the conversation keeps its id, because the id is what names it. The mount refuses the late change with the unchanged list rather than pretending.
 
 An editor that has no picker names its persona another way: `craft acp --agent zoe` sends a `Routecraft-Agent` header the mount reads.
 

@@ -328,7 +328,7 @@ describe("a conversation belongs to the person who started it", () => {
   /**
    * @case A page cursor never carries somebody else's session identifier
    * @preconditions Four conversations under one agent, one of them owned by another person and sorting inside the first page's range, listed by the first person with a page size that leaves more to fetch
-   * @expectedResult The returned cursor decodes to a key this caller is allowed to see. A cursor is minted from the last row of the page and handed to the caller, so a page sliced before the ownership filter would hand back a foreign (agent, session) pair in a reversible envelope, which is the identifier #731 says must be indistinguishable from one that does not exist
+   * @expectedResult The returned cursor decodes to a key this caller is allowed to see. A cursor is minted from the last row of the page and handed to the caller, so a page sliced before the ownership filter would hand back a foreign session id in a reversible envelope, which is the identifier #731 says must be indistinguishable from one that does not exist
    */
   test("a page cursor cannot carry a foreign session id", async () => {
     t = await boot();
@@ -363,8 +363,8 @@ describe("a conversation belongs to the person who started it", () => {
 
   /**
    * @case Changing the persona leaves one record, not two
-   * @preconditions A conversation opened under one agent and re-keyed to another before it has said anything, then resolved by its bare session id
-   * @expectedResult The id names the new agent and the old key is gone, so resolution does not depend on which record a store enumerates first
+   * @preconditions A conversation opened under one agent and switched to another before it has said anything, then resolved by its bare session id
+   * @expectedResult The id names the new agent and the store holds one record, so resolution does not depend on which record a store enumerates first
    */
   test("a persona change leaves no second record behind", async () => {
     t = await boot();

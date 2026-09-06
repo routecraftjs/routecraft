@@ -222,7 +222,7 @@ registerErrorCodes(
       category: "Adapter",
       message: "Agent session record could not be read or written",
       suggestion:
-        "The suspension store holds the transcript and inbox of every named agent session, one record per (agent, session). Either a stored record is not the shape the runtime writes (the store was edited by hand, or two versions of @routecraft/ai share one store), or a write lost the compare-and-swap repeatedly to another writer. Inspect the record named in the message, or remove it to start the session over.",
+        "The session store holds the transcript and inbox of every named agent session, one record per session id. Either a stored record is not the shape the runtime writes (the store was edited by hand, or two versions of @routecraft/ai share one store), or a write lost the compare-and-swap repeatedly to another writer. Inspect the record named in the message, or remove it to start the session over.",
       docs: `${DOCS_BASE}#ai-1010`,
       retryable: false,
     },
