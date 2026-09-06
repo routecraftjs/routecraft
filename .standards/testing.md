@@ -6,7 +6,7 @@ Authoritative rules and conventions for tests in Routecraft.
 
 ## 1. Runners and layout
 
-Routecraft has completed its migration from vitest to `bun:test`. New tests must use `bun:test`. Three vitest surfaces remain, all deliberate: the scaffolder integration test (`packages/create-routecraft/test/integration.test.ts`), the cross-runtime suites (`packages/*/test/cross-runtime/*.cross.test.ts`, which must run under Node and therefore cannot use `bun:test`; see § 11), and `packages/ai/test/llm-prompt-parts-sdk.test.ts`, which needs the real `ai` module that a sibling bun:test file stubs process-wide. Any new vitest file beyond those requires a justification from the known-gaps table in § 1.2.
+Routecraft has completed its migration from vitest to `bun:test`. New tests must use `bun:test`. Three vitest surfaces remain, all deliberate: the scaffolder integration test (`packages/create-routecraft/test/integration.test.ts`), the cross-runtime suites (`packages/*/test/cross-runtime/*.cross.test.ts`, which must run under Node and therefore cannot use `bun:test`; see § 12), and `packages/ai/test/llm-prompt-parts-sdk.test.ts`, which needs the real `ai` module that a sibling bun:test file stubs process-wide. Any new vitest file beyond those requires a justification from the known-gaps table in § 1.2.
 
 ### 1.1. File placement and naming
 

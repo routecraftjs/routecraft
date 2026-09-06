@@ -421,7 +421,6 @@ describe("session config options", () => {
             cwd: "/work",
           }),
         ).rejects.toThrow(/No such session/);
-        llm.script.push({ text: "should not run" });
         await expect(
           agent.request("session/prompt", {
             sessionId: zoeSession,
@@ -447,11 +446,20 @@ describe("session config options", () => {
         // zoe names one model and no thinking list, so it advertises no
         // controls: nothing to choose is not advertised.
         expect(idsOf(loaded.configOptions)).toEqual([]);
-        const answer = await agent.request("session/prompt", {
-          sessionId: zoeSession,
-          prompt: [{ type: "text", text: "hello" }],
-        });
+        const answer: { stopReason: string } = await agent.request(
+          "session/prompt",
+          { sessionId: zoeSession, prompt: [{ type: "text", text: "hello" }] },
+        );
         expect(answer.stopReason).toBe("end_turn");
+        // The scripted answer, not merely a turn that ended: an entry left
+        // in the queue by an earlier refusal would satisfy the stop reason
+        // and answer with somebody else's text.
+        const said = h!.seen
+          .filter((entry) => entry.sessionId === zoeSession)
+          .map((entry) => entry.update as { content?: { text?: string } })
+          .map((update) => update.content?.text ?? "")
+          .join("");
+        expect(said).toContain("zoe here");
       },
       { agent: "zoe" },
     );
@@ -498,39 +506,6 @@ describe("session config options", () => {
       },
       { agent: "max" },
     );
-  });
-
-  /**
-   * @case A listing cursor minted under one harness cannot be replayed under another
-   * @preconditions Two max sessions listed one at a time through the max harness, and the resulting cursor handed to the zoe harness
-   * @expectedResult The replay is refused. The cursor's fingerprint carries the agent filter as well as the caller, so it addresses one harness's page and not merely one person's
-   */
-  test("a listing cursor does not cross harnesses", async () => {
-    h = await boot();
-    for (const agentName of ["max", "max", "zoe"]) {
-      await h.connect((agent) => agent.buildSession("/work").start(), {
-        agent: agentName,
-      });
-    }
-
-    const cursor = await h.connect(
-      async (agent) => {
-        const page = await agent.request("session/list", { cwd: null });
-        return page.nextCursor ?? null;
-      },
-      { agent: "max" },
-    );
-
-    if (cursor !== null) {
-      await h.connect(
-        async (agent) => {
-          await expect(
-            agent.request("session/list", { cwd: null, cursor }),
-          ).rejects.toThrow();
-        },
-        { agent: "zoe" },
-      );
-    }
   });
 
   /**

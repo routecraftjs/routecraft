@@ -43,8 +43,11 @@ export type AgentSessionScope = { readonly owner: string | null } | "operator";
  * What names a conversation: its id, and nothing else.
  *
  * The agent is an attribute of a session rather than part of its identity,
- * so switching one does not re-key the record and an id issued today does
- * not carry an assumption about which agent answers it. The framework
+ * so an id issued today carries no assumption about which agent answers
+ * it. Which one does is fixed when the session is created and cannot
+ * change afterwards: {@link AgentSessionRuntime} refuses a dispatch whose
+ * agent differs from the record's, and offers no way to set it. The
+ * framework
  * already draws identity this way: an exchange is a UUID that the caller
  * may override through `headers["routecraft.id"]`, and `agent(name, {
  * session })` is the same override for a conversation. The friendly name

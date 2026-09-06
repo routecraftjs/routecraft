@@ -385,7 +385,7 @@ describe("a conversation belongs to the person who started it", () => {
   /**
    * @case A listing filtered by agent returns only that agent's conversations
    * @preconditions One owner holding sessions under two agents, listed with the agent filter the ACP harness passes
-   * @expectedResult Only the named agent's sessions come back, and the cursor is bound to that filter, so a page minted under one agent cannot be replayed under another
+   * @expectedResult Only the named agent's sessions come back, and the cursor is bound to that filter, so a page minted under one agent cannot be replayed under another. This is where the cursor-crossing property is held: the ACP mount passes its harness agent into this same query, and forcing a cursor through the mount would mean creating a page-size worth of sessions to re-prove what one limit does here
    */
   test("an agent-filtered listing excludes the other agent's sessions", async () => {
     t = await boot();

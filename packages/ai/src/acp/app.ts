@@ -405,9 +405,17 @@ export class AcpConnection implements AgentSurfaceConnection {
   async cancel(sessionId: string): Promise<void> {
     if (!this.attachedSessions.has(sessionId)) return;
     // Silent on a session this connection cannot address: a cancel is a
-    // notification, so there is nowhere to report a refusal to.
-    const agent = await this.resolveAgent(sessionId).catch(() => undefined);
-    if (agent === undefined) return;
+    // notification, so there is nowhere to report a refusal to. Only the
+    // refusal is silent, though. A store that failed is not a policy
+    // decision, and swallowing it here would drop a running turn's cancel
+    // on the floor with nothing said anywhere.
+    let agent: string;
+    try {
+      agent = await this.resolveAgent(sessionId);
+    } catch (err: unknown) {
+      if (err instanceof this.sdk.RequestError) return;
+      throw err;
+    }
     this.runtime.sessions().interrupt(sessionId, agent);
   }
 

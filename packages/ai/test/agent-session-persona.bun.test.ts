@@ -25,6 +25,7 @@ import {
   agent,
   agentPlugin,
   llmPlugin,
+  tools,
   type AgentResult,
   type SessionStore,
 } from "../src/index.ts";
@@ -43,14 +44,41 @@ const HAIKU = "anthropic:claude-haiku-4-5";
 const ChatMessage = z.object({ session: z.string(), message: z.string() });
 type ChatMessage = z.infer<typeof ChatMessage>;
 
+/** A tool the test holds open, so a turn can be caught mid-flight. */
+let releaseSlow: (() => void) | undefined;
+let slowEntries = 0;
+const slowFn = {
+  description: "Waits until the test releases it",
+  input: z.object({}),
+  handler: async (): Promise<string> => {
+    slowEntries += 1;
+    await new Promise<void>((resolve) => {
+      releaseSlow = () => resolve();
+    });
+    return "released";
+  },
+};
+
+/** Wait until the slow tool has been entered, so a turn is genuinely running. */
+async function waitForSlowEntry(): Promise<void> {
+  const deadline = Date.now() + 2_000;
+  while (slowEntries === 0 && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 5));
+  }
+  if (slowEntries === 0) throw new Error("the slow tool was never entered");
+}
+
 describe("one conversation, one agent", () => {
   let t: TestContext | undefined;
 
   beforeEach(() => {
     llm.reset();
+    releaseSlow = undefined;
+    slowEntries = 0;
   });
 
   afterEach(async () => {
+    releaseSlow?.();
     if (t) await t.stop();
     t = undefined;
   });
@@ -83,6 +111,7 @@ describe("one conversation, one agent", () => {
         shutdown: { timeout: 500 },
         plugins: [
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
+          agentPlugin({ functions: { slow: slowFn } }),
           agentPlugin({
             agents: {
               max: {
@@ -90,6 +119,7 @@ describe("one conversation, one agent", () => {
                 model: SONNET,
                 models: [SONNET, HAIKU],
                 system: "be Max",
+                tools: tools(["slow"]),
                 user: (ex) => (ex.body as ChatMessage).message,
               },
               zoe: {
@@ -144,10 +174,10 @@ describe("one conversation, one agent", () => {
 
   /**
    * @case The agent on the record survives everything a conversation goes through
-   * @preconditions One session under max taken through a completed turn, a turn whose provider throws, and a turn cancelled by an interrupting message
-   * @expectedResult The record still names max at every step. The runtime exposes no way to change it, so what is asserted here is that nothing incidental does: a failed turn keeps a partial transcript and counts no turn, and a cancelled one keeps what it reached, and neither touches the field
+   * @preconditions One session under max taken through a completed turn, a turn whose provider throws, an interrupt while a turn is running, and a further completed turn
+   * @expectedResult The record still names max at every step. The runtime exposes no way to change it, so what is asserted here is that nothing incidental does: a failed turn keeps a partial transcript and counts no turn, an interrupted one keeps what it reached, and neither touches the field
    */
-  test("the agent on the record survives turns, failure and cancellation", async () => {
+  test("the agent on the record survives turns, failure and interrupt", async () => {
     t = await boot();
     await t.startAndWaitReady();
     const runtime = AgentSessionRuntime.for(t.ctx);
@@ -168,8 +198,19 @@ describe("one conversation, one agent", () => {
     expect(failed?.turns).toBe(1);
     expect(failed?.messages.length).toBeGreaterThan(2);
 
+    // A turn cut short by an interrupt, which is the editor's cancel: it
+    // keeps what it reached and the field is not among the things it
+    // touches.
+    llm.script.push({ toolCalls: [{ toolName: "slow" }] }, { text: "after" });
+    const running = send(t, "to-max", { session, message: "third" });
+    await waitForSlowEntry();
+    expect(runtime.interrupt(session, "max")).toBe(true);
+    releaseSlow?.();
+    await running.catch(() => undefined);
+    expect((await runtime.store.load(session))?.agent).toBe("max");
+
     llm.script.push({ text: "max again" });
-    await send(t, "to-max", { session, message: "third" });
+    await send(t, "to-max", { session, message: "fourth" });
     expect((await runtime.store.load(session))?.agent).toBe("max");
   });
 
