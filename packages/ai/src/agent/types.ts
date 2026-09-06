@@ -8,6 +8,7 @@ import type {
 import type {
   LlmModelId,
   LlmPromptSource,
+  LlmReasoningEffort,
   LlmUserPromptSource,
   LlmSamplingOptions,
   LlmUsage,
@@ -450,6 +451,30 @@ export interface AgentRegisteredOptions<T = unknown> extends AgentOptions<T> {
    * tool description when the agent is exposed to other agents.
    */
   description: string;
+
+  /**
+   * The models this agent offers, in the order a chooser should show them.
+   *
+   * Whoever writes the persona decides what a person may change about it,
+   * and the default is that nothing can be: an agent that sets only
+   * `model` offers no choice at all. Supply this list (or write
+   * `model: [a, b]` in an agent file, which sets both) and a caller on a
+   * protocol surface that carries the notion may pick another entry for
+   * their own conversation. `model` is the default and is always the
+   * first entry when the list came from an agent file.
+   *
+   * A list is an allowlist, never a hint: a stored choice outside it is
+   * refused with `AI1017` when it is written, so it can never be run.
+   * A list with a single entry offers nothing, exactly as a scalar does.
+   */
+  models?: readonly LlmModelId[];
+
+  /**
+   * The thinking levels this agent offers, in the order a chooser should
+   * show them. Same contract as {@link AgentRegisteredOptions.models},
+   * with `reasoning` as the default.
+   */
+  reasoningLevels?: readonly LlmReasoningEffort[];
 }
 
 /**

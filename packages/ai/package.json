@@ -27,6 +27,7 @@
     "ai": "^6.0.246"
   },
   "devDependencies": {
+    "@agentclientprotocol/sdk": "1.4.0",
     "@ai-sdk/anthropic": "^3.0.107",
     "@ai-sdk/google": "^3.0.104",
     "@ai-sdk/openai": "^3.0.91",

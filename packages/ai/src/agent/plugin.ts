@@ -9,8 +9,12 @@ import {
   type OpsPage,
 } from "@routecraft/routecraft";
 import { AgentSessionRuntime } from "./session/runtime.ts";
-import type { AgentSessionSummary } from "./session/types.ts";
+import type {
+  AgentSessionScope,
+  AgentSessionSummary,
+} from "./session/types.ts";
 import { validateAgentOptions, validateBlocks } from "./agent.ts";
+import { validateAdvertisedChoices } from "./advertised.ts";
 import {
   ADAPTER_AGENT_DEFAULT_OPTIONS,
   ADAPTER_AGENT_REGISTRY,
@@ -138,6 +142,7 @@ function validateRegisteredAgent(
     });
   }
   validateAgentOptions(options);
+  validateAdvertisedChoices(`agentPlugin: agent "${id}"`, options);
 }
 
 /**
@@ -341,6 +346,19 @@ const boots = new WeakMap<CraftContext, Promise<void>>();
 const SESSIONS_RESOURCE = "agent-sessions";
 
 /**
+ * The management surface reads every session, whoever owns it.
+ *
+ * That is the deliberate operator privilege rather than a missing filter:
+ * this resource is served under the ops mount's introspection tier, which
+ * is already the credential that reads routes, indicators and the event
+ * tail. A conversation belongs to the person who started it as far as
+ * every protocol surface is concerned, and an operator holding the
+ * management credential can see all of them, which is what makes
+ * "who owns this session and where is it bound" an answerable question.
+ */
+const OPS_SCOPE: AgentSessionScope = "operator";
+
+/**
  * What a previous process left in sessions is driven from here, after
  * the routes are live: background calls it was waiting on become lost
  * results and the stored continuations they were for are revived, so a
@@ -395,6 +413,7 @@ function registerSessionsResource(ctx: CraftContext): void {
       if (!sessions) return { items: [] };
       const agent = query["agent"];
       return sessions.summaries({
+        scope: OPS_SCOPE,
         ...(agent !== undefined ? { agent } : {}),
         ...parsePageQuery(query),
       });
@@ -402,7 +421,7 @@ function registerSessionsResource(ctx: CraftContext): void {
     async describe(segments): Promise<AgentSessionSummary | undefined> {
       if (segments.length !== 2) return undefined;
       const [agent, session] = segments as [string, string];
-      return runtime()?.summary({ agent, session });
+      return runtime()?.summary({ agent, session }, OPS_SCOPE);
     },
   });
 }

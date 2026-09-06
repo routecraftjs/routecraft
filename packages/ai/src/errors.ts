@@ -10,7 +10,8 @@ import { registerErrorCodes, type RCMeta } from "@routecraft/routecraft";
  *
  * Numbering: AI1xxx = agent blocks, configuration, and runtime (formerly
  * core RC5025-RC5027, renumbered when the codes moved into this package;
- * charter widened to runtime with AI1005/AI1006/AI1007), AI2xxx = MCP
+ * charter widened to runtime with AI1005/AI1006/AI1007, and to the editor
+ * surface with AI1013-AI1017), AI2xxx = MCP
  * boundary, AI3xxx = built-in agent tools. Ranges are claimed in the
  * range-allocation table on the error reference page before use, so two
  * lanes landing in parallel cannot mint the same code.
@@ -97,6 +98,16 @@ declare module "@routecraft/routecraft" {
     AI1011: RCMeta;
     /** The agent session store could not be opened, read or written */
     AI1012: RCMeta;
+    /** No editor surface is attached to this exchange */
+    AI1013: RCMeta;
+    /** The editor surface disconnected before the call could be made */
+    AI1014: RCMeta;
+    /** The editor never advertised the capability this call needs */
+    AI1015: RCMeta;
+    /** The editor refused or failed the call */
+    AI1016: RCMeta;
+    /** A session override names something the agent does not offer */
+    AI1017: RCMeta;
     /** MCP tool result violated the tool's advertised output schema */
     AI2001: RCMeta;
     /** MCP tool declined the request: the route dropped the exchange */
@@ -204,6 +215,46 @@ registerErrorCodes(
         "The store configured by sessions: { store } (the sqlite file at .routecraft/sessions.db by default) could not be opened, migrated, read or written. Check the path and its permissions, that one process at a time holds the file, and under Node that better-sqlite3 is installed; a store that is busy answers this code too, and that call can be retried.",
       docs: `${DOCS_BASE}#ai-1012`,
       retryable: true,
+    },
+    AI1013: {
+      category: "Adapter",
+      message: "No editor surface on this exchange",
+      suggestion:
+        "surface() reaches the editor that is running this turn, and this exchange has none: the route ran from a timer, an HTTP request, a test, or any source that is not an editor holding a live connection. Guard the call with .choice() and take another path when there is no editor, or dispatch this route from a turn that has one.",
+      docs: `${DOCS_BASE}#ai-1013`,
+      retryable: false,
+    },
+    AI1014: {
+      category: "Adapter",
+      message: "The editor surface disconnected mid-turn",
+      suggestion:
+        "The turn started with an editor attached and the connection was gone by the time the route called it. There is nothing to retry against on this exchange: either finish the work without asking, or fail and let the person start it again once their editor is back.",
+      docs: `${DOCS_BASE}#ai-1014`,
+      retryable: false,
+    },
+    AI1015: {
+      category: "Adapter",
+      message: "The editor never advertised this capability",
+      suggestion:
+        "The editor said at initialize which client methods it serves, and this route called one that was not among them. That is a configuration mismatch rather than a bug: the message names the capability and the method. Use an editor that offers it, or branch on the capability before calling.",
+      docs: `${DOCS_BASE}#ai-1015`,
+      retryable: false,
+    },
+    AI1016: {
+      category: "Adapter",
+      message: "The editor refused or failed the call",
+      suggestion:
+        "The editor answered the call with a JSON-RPC error, or the call did not settle before the turn ended. The editor's own error is on this error's cause. A person declining a request is a normal outcome and reaches the route this way; handle it with .error() rather than treating it as a fault.",
+      docs: `${DOCS_BASE}#ai-1016`,
+      retryable: false,
+    },
+    AI1017: {
+      category: "Adapter",
+      message: "Session override not offered by the agent",
+      suggestion:
+        "A conversation asked to run on a model or a thinking level the agent file does not list. Whoever writes the persona decides what may be changed about it, so the value is refused when it is written rather than silently ignored at the next turn. The message names the value and the list; add it to the agent's `model:` or `reasoning:` list if it should be offered.",
+      docs: `${DOCS_BASE}#ai-1017`,
+      retryable: false,
     },
     AI2001: {
       category: "Adapter",

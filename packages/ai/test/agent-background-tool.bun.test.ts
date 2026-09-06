@@ -210,10 +210,13 @@ describe("background tools", () => {
     expect(advertised.description).toContain("runs in the background");
     expect(
       (
-        await AgentSessionRuntime.for(t.ctx).summary({
-          agent: "max",
-          session: "s",
-        })
+        await AgentSessionRuntime.for(t.ctx).summary(
+          {
+            agent: "max",
+            session: "s",
+          },
+          "operator",
+        )
       )?.background,
     ).toBe(1);
     expect(chatSink.received).toHaveLength(1);
@@ -251,10 +254,13 @@ describe("background tools", () => {
       status: "replied",
       queued: 0,
     });
-    const summary = await AgentSessionRuntime.for(t.ctx).summary({
-      agent: "max",
-      session: "s",
-    });
+    const summary = await AgentSessionRuntime.for(t.ctx).summary(
+      {
+        agent: "max",
+        session: "s",
+      },
+      "operator",
+    );
     expect(summary).toMatchObject({ background: 0, inbox: 0, turns: 2 });
 
     llm.script.push({ text: "yes" });
@@ -298,10 +304,13 @@ describe("background tools", () => {
       "the build was lost, starting it again",
     );
     expect(
-      await AgentSessionRuntime.for(t.ctx).summary({
-        agent: "max",
-        session: "s",
-      }),
+      await AgentSessionRuntime.for(t.ctx).summary(
+        {
+          agent: "max",
+          session: "s",
+        },
+        "operator",
+      ),
     ).toMatchObject({ background: 0, inbox: 0, turn: "idle" });
   });
 
@@ -343,10 +352,13 @@ describe("background tools", () => {
     expect(parts[0]!.text).toContain("the build host is gone");
     expect(
       (
-        await AgentSessionRuntime.for(t.ctx).summary({
-          agent: "max",
-          session: "s",
-        })
+        await AgentSessionRuntime.for(t.ctx).summary(
+          {
+            agent: "max",
+            session: "s",
+          },
+          "operator",
+        )
       )?.background,
     ).toBe(0);
   });
@@ -376,10 +388,13 @@ describe("background tools", () => {
     expect(parts[0]!.text).toContain("could not be stored");
     expect(
       (
-        await AgentSessionRuntime.for(t.ctx).summary({
-          agent: "max",
-          session: "s",
-        })
+        await AgentSessionRuntime.for(t.ctx).summary(
+          {
+            agent: "max",
+            session: "s",
+          },
+          "operator",
+        )
       )?.background,
     ).toBe(0);
   });

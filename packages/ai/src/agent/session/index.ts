@@ -1,5 +1,10 @@
 export { AgentSessionRuntime } from "./runtime.ts";
-export type { AgentTurnExecutor, AgentTurnRequest } from "./runtime.ts";
+export type {
+  AgentSessionInit,
+  AgentSessionListQuery,
+  AgentTurnExecutor,
+  AgentTurnRequest,
+} from "./runtime.ts";
 export { AgentSessionStore } from "./store.ts";
 export type { SessionCasResult, SessionStore, StoredSession } from "./port.ts";
 export { MemorySessionStore } from "./memory-store.ts";
@@ -19,6 +24,8 @@ export type {
   AgentSessionOutcome,
   AgentSessionPark,
   AgentSessionParkMarker,
+  AgentSessionOverrides,
   AgentSessionRecord,
+  AgentSessionScope,
   AgentSessionSummary,
 } from "./types.ts";

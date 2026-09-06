@@ -1,8 +1,43 @@
-import type { LlmPromptPart } from "../../llm/types.ts";
+import type {
+  LlmModelId,
+  LlmPromptPart,
+  LlmReasoningEffort,
+} from "../../llm/types.ts";
 import type { ThreadMessage } from "../suspension-state.ts";
 
-/** The shape version {@link AgentSessionRecord} is written at. */
-export const SESSION_RECORD_VERSION = 1;
+/**
+ * The shape version {@link AgentSessionRecord} is written at.
+ *
+ * Version 2 replaced `startedBy` with {@link AgentSessionRecord.owner} and
+ * added `cwd`, `title` and `overrides`. There is no migration and no shim:
+ * a version 1 record fails its read as `AI1010` naming the store, which is
+ * what the version field exists for.
+ */
+export const SESSION_RECORD_VERSION = 2;
+
+/**
+ * Per-session choices a caller made about how the agent runs, applied over
+ * the agent's registered options at the start of every turn.
+ *
+ * Validated against the agent's advertised lists before the record is
+ * written (`AI1017`), so a stored override can never name a model or a
+ * thinking level the agent does not offer.
+ */
+export interface AgentSessionOverrides {
+  readonly model?: LlmModelId;
+  readonly reasoning?: LlmReasoningEffort;
+}
+
+/**
+ * Who a conversation is listed and read for.
+ *
+ * `{ owner }` is one caller's view: the listing carries their sessions and
+ * nothing else, and a session owned by somebody else answers exactly as one
+ * that does not exist. `"operator"` is the whole store, and it is a
+ * deliberate privilege rather than the absence of a filter, which is why
+ * every read names its scope rather than defaulting to one.
+ */
+export type AgentSessionScope = { readonly owner: string | null } | "operator";
 
 /** What names a conversation: the agent it belongs to and the caller's id. */
 export interface AgentSessionKey {
@@ -81,11 +116,30 @@ export interface AgentSessionRecord {
   readonly agent: string;
   readonly session: string;
   /**
-   * The subject of the principal whose turn started the session, or
-   * `null` when no principal did; who owns the conversation, for an operator. Never a
-   * gate: who may post is the route's `.authorize()`.
+   * Who the conversation belongs to: the subject of the principal whose
+   * turn opened it, or `null` when no principal did.
+   *
+   * This is the gate for listing and reading a session over a protocol
+   * surface. {@link AgentSessionRuntime.summaries} and
+   * {@link AgentSessionRuntime.summary} take a scope and answer only what
+   * that scope owns, so a caller cannot see or address another caller's
+   * conversation, and an absent session and a foreign one answer alike.
+   *
+   * It is not an authorization boundary inside a route. Who may post into
+   * a session is still the route's `.authorize()`, and a turn runs under
+   * the principal of the exchange it runs on.
    */
-  readonly startedBy?: string | null;
+  readonly owner?: string | null;
+  /**
+   * The directory the session is bound to, absolute. Set when the session
+   * is opened and reported as ACP's `cwd`; absent for a session opened by
+   * a route rather than by an editor.
+   */
+  readonly cwd?: string;
+  /** Human-readable title, for a listing. */
+  readonly title?: string;
+  /** Per-session choices applied over the agent's registered options. */
+  readonly overrides?: AgentSessionOverrides;
   /** The transcript, in the SDK's message shape. */
   readonly messages: readonly ThreadMessage[];
   readonly inbox: readonly AgentInboxMessage[];
@@ -172,8 +226,12 @@ export interface AgentSessionOutcome {
 export interface AgentSessionSummary {
   readonly agent: string;
   readonly session: string;
-  /** The subject that started the session, or `null` when no principal did. */
-  readonly startedBy: string | null;
+  /** Who the conversation belongs to, or `null` when no principal opened it. */
+  readonly owner: string | null;
+  /** The directory the session is bound to, when it was opened with one. */
+  readonly cwd?: string;
+  /** Human-readable title, when the session was opened with one. */
+  readonly title?: string;
   /**
    * `running` while this process runs a turn; `stale` when the stored
    * turn marker belongs to a process that is gone, which the next turn

@@ -14,7 +14,8 @@ import {
 } from "@routecraft/routecraft";
 import type { LlmPromptPart } from "../../llm/types.ts";
 import { dispatchIdentityFrom } from "../run.ts";
-import { ADAPTER_AGENT_SESSIONS } from "../store.ts";
+import { assertOverridesAdvertised } from "../advertised.ts";
+import { ADAPTER_AGENT_REGISTRY, ADAPTER_AGENT_SESSIONS } from "../store.ts";
 import type { ThreadMessage } from "../suspension-state.ts";
 import type { AgentResult } from "../types.ts";
 import { closeUnansweredToolCalls, renderUserMessage } from "./render.ts";
@@ -25,8 +26,10 @@ import type {
   AgentBackgroundCall,
   AgentInboxMessage,
   AgentSessionKey,
+  AgentSessionOverrides,
   AgentSessionPark,
   AgentSessionRecord,
+  AgentSessionScope,
   AgentSessionSummary,
 } from "./types.ts";
 
@@ -48,6 +51,13 @@ export interface AgentTurnExecutor {
     messages: readonly ThreadMessage[],
     interrupt: AbortSignal,
     onStep: (messages: readonly ThreadMessage[]) => Promise<void>,
+    /**
+     * What the conversation chose about how it runs, read from the record
+     * at the start of THIS turn. Passed per run rather than captured when
+     * the executor was built, because a boundary turn reuses the executor
+     * and must pick up a change made while the previous turn was running.
+     */
+    overrides: AgentSessionOverrides | undefined,
   ): Promise<AgentResult>;
   /** The thread the last `run` reached, complete or partial. */
   thread(): readonly ThreadMessage[] | undefined;
@@ -79,14 +89,31 @@ export interface AgentTurnRequest<T = unknown> {
   readonly revived?: string;
 }
 
-/** What the management API asks of the session listing. @internal */
+/** What a caller asks of the session listing. @internal */
 export interface AgentSessionListQuery {
+  /**
+   * Whose sessions to list. Required rather than defaulted, so a new
+   * caller has to decide between one owner's view and the operator's
+   * rather than inheriting the wider one by omission.
+   */
+  readonly scope: AgentSessionScope;
   /** Only this agent's sessions. */
   readonly agent?: string;
+  /** Only sessions bound to this directory. */
+  readonly cwd?: string;
   /** Page size; the mount's default and bound apply. */
   readonly limit?: number;
   /** The `nextCursor` of the previous page, still encoded. */
   readonly after?: string;
+}
+
+/** What a session is opened with, before its first turn. @internal */
+export interface AgentSessionInit {
+  /** Who the conversation belongs to, or `null` for an unauthenticated opener. */
+  readonly owner: string | null;
+  /** The directory it is bound to, absolute. */
+  readonly cwd?: string;
+  readonly title?: string;
 }
 
 /** A turn this process is running. */
@@ -594,46 +621,74 @@ export class AgentSessionRuntime {
   }
 
   /**
-   * One page of the sessions the store knows, for the management API.
+   * One page of the sessions the caller's scope admits.
    *
    * The index carries every key, so the agent filter and the page are
    * taken on keys alone and only the page's records are read: a listing
    * costs one read per session shown, never one per session stored, and
    * a transcript is never loaded to report a count for a page it is not on.
+   *
+   * The ownership filter runs here rather than inside a store, so a store
+   * implementation that answers `keys()` with everything it holds still
+   * cannot leak one caller's conversations to another. The cost is that a
+   * page can come back shorter than the page size when the keys on it
+   * belong to somebody else, which is a paging artefact rather than the
+   * end of the collection: `nextCursor` is what says whether more remain.
    */
   async summaries(
-    query: AgentSessionListQuery = {},
+    query: AgentSessionListQuery,
   ): Promise<OpsPage<AgentSessionSummary>> {
-    const scope: CursorScope = {
-      fingerprint: JSON.stringify([query.agent ?? null]),
+    // The scope is part of the fingerprint so a cursor minted for one
+    // caller cannot be replayed as another caller's page.
+    const cursorScope: CursorScope = {
+      fingerprint: JSON.stringify([
+        query.agent ?? null,
+        query.cwd ?? null,
+        scopeFingerprint(query.scope),
+      ]),
     };
     const after =
-      query.after === undefined ? undefined : decodeCursor(query.after, scope);
+      query.after === undefined
+        ? undefined
+        : decodeCursor(query.after, cursorScope);
     const keys = (await this.store.list())
       .filter((key) => query.agent === undefined || key.agent === query.agent)
       .map((key) => ({ id: keyOf(key), key }))
       .sort((a, b) => (a.id < b.id ? -1 : a.id > b.id ? 1 : 0));
-    const page = takePage(keys, scope, query.limit, after);
+    const page = takePage(keys, cursorScope, query.limit, after);
     const items: AgentSessionSummary[] = [];
     for (const { key } of page.items) {
-      const summary = await this.summary(key);
-      if (summary) items.push(summary);
+      const summary = await this.summary(key, query.scope);
+      if (summary === undefined) continue;
+      if (query.cwd !== undefined && summary.cwd !== query.cwd) continue;
+      items.push(summary);
     }
     return page.nextCursor === undefined
       ? { items }
       : { items, nextCursor: page.nextCursor };
   }
 
-  /** One session, or `undefined` when the store has never seen it. */
+  /**
+   * One session, or `undefined` when the store has never seen it OR when
+   * the scope does not own it.
+   *
+   * The two answer alike deliberately: a caller who could tell a foreign
+   * session from an absent one would have an oracle for which ids exist,
+   * and guessing is cheap.
+   */
   async summary(
     key: AgentSessionKey,
+    scope: AgentSessionScope,
   ): Promise<AgentSessionSummary | undefined> {
     const record = await this.store.load(key);
     if (!record) return undefined;
+    if (!scopeOwns(scope, record.owner ?? null)) return undefined;
     return {
       agent: record.agent,
       session: record.session,
-      startedBy: record.startedBy ?? null,
+      owner: record.owner ?? null,
+      ...(record.cwd !== undefined ? { cwd: record.cwd } : {}),
+      ...(record.title !== undefined ? { title: record.title } : {}),
       turn: this.isRunning(key)
         ? "running"
         : record.turn !== undefined
@@ -646,6 +701,82 @@ export class AgentSessionRuntime {
       turns: record.turns,
       updatedAt: record.updatedAt,
     };
+  }
+
+  /**
+   * Open a session before its first turn, so the record carries who it
+   * belongs to and where it is bound from the moment it exists rather than
+   * from whenever a turn first runs.
+   *
+   * Idempotent on an existing session's ownership: `owner` is written once
+   * and never rewritten, so re-opening a conversation cannot transfer it.
+   * `cwd` and `title` are set when supplied.
+   */
+  async open(
+    key: AgentSessionKey,
+    init: AgentSessionInit,
+  ): Promise<AgentSessionRecord> {
+    return this.store.update(key, (record) => ({
+      ...record,
+      ...(record.owner === undefined ? { owner: init.owner } : {}),
+      ...(init.cwd !== undefined ? { cwd: init.cwd } : {}),
+      ...(init.title !== undefined ? { title: init.title } : {}),
+    }));
+  }
+
+  /**
+   * Store per-session overrides, applied by the turn that runs next.
+   *
+   * Every value is checked against what the agent advertises before it is
+   * written, here rather than in the caller: the record is the last place
+   * a value nobody offered could enter the system, and the turn that
+   * applies it does not re-check. An agent this context does not have
+   * registered advertises nothing, so it accepts no override at all.
+   *
+   * @throws AI1017 when a value is outside the agent's advertised list
+   */
+  async configure(
+    key: AgentSessionKey,
+    overrides: AgentSessionOverrides,
+  ): Promise<AgentSessionRecord> {
+    assertOverridesAdvertised(
+      key.agent,
+      this.context.getStore(ADAPTER_AGENT_REGISTRY)?.get(key.agent) ?? {},
+      overrides,
+    );
+    return this.store.update(key, (record) => {
+      const next = { ...record.overrides, ...overrides };
+      // Undefined keys are dropped rather than stored: the store holds
+      // plain JSON and an explicit undefined is not a value.
+      const cleaned: Record<string, unknown> = {};
+      for (const [name, value] of Object.entries(next)) {
+        if (value !== undefined) cleaned[name] = value;
+      }
+      return {
+        ...record,
+        overrides: cleaned as AgentSessionOverrides,
+      };
+    });
+  }
+
+  /**
+   * Stop the session's running turn, keeping the partial transcript.
+   *
+   * Interruption otherwise rides on a posted message, which is what a
+   * caller sending "stop and answer this instead" wants. A protocol cancel
+   * carries no message at all, so it needs the operation on its own.
+   *
+   * @returns whether a turn was running here to stop
+   */
+  interrupt(key: AgentSessionKey): boolean {
+    const running = this.active.get(keyOf(key));
+    if (!running) return false;
+    running.controller.abort(INTERRUPT_REASON);
+    this.emit(running.exchange, "route:agent:session:interrupted", {
+      agentName: key.agent,
+      session: key.session,
+    });
+    return true;
   }
 
   /**
@@ -722,9 +853,10 @@ export class AgentSessionRuntime {
         const user = renderUserMessage(next.inbox, incoming, req.by);
         return {
           ...withoutTurn(next),
-          // Who started the conversation: the first turn's caller, kept
-          // for an operator. Never a gate.
-          ...(next.startedBy === undefined ? { startedBy: req.by } : {}),
+          // Written once, by whoever opened the conversation. A later turn
+          // under another principal does not transfer it, because the
+          // field gates who may list and read the session.
+          ...(next.owner === undefined ? { owner: req.by } : {}),
           messages: [...next.messages, user],
           inbox: [],
           turn: {
@@ -768,6 +900,7 @@ export class AgentSessionRuntime {
           async (messages) => {
             await this.store.update(key, (r) => ({ ...r, messages }));
           },
+          started.overrides,
         );
       } catch (err) {
         // Whatever stopped the turn, what it reached is kept: the thread
@@ -1090,6 +1223,16 @@ INTERRUPT_REASON.name = "AgentSessionInterrupt";
 
 function keyOf(key: AgentSessionKey): string {
   return `${encodeURIComponent(key.agent)}:${encodeURIComponent(key.session)}`;
+}
+
+/** Whether a scope admits a record with this owner. */
+function scopeOwns(scope: AgentSessionScope, owner: string | null): boolean {
+  return scope === "operator" || scope.owner === owner;
+}
+
+/** The part of a scope a page cursor is bound to. */
+function scopeFingerprint(scope: AgentSessionScope): string | null {
+  return scope === "operator" ? "operator" : `owner:${scope.owner ?? ""}`;
 }
 
 function withoutTurn(record: AgentSessionRecord): AgentSessionRecord {

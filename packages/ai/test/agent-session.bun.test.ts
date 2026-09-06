@@ -344,7 +344,10 @@ describe("agent sessions", () => {
     expect(JSON.stringify(llm.calls[1]!.user)).toContain("turn one");
     await t.ctx.getRouteById("chat")!.drain();
     const runtime = AgentSessionRuntime.for(t.ctx);
-    const summary = await runtime.summary({ agent: "max", session: "s" });
+    const summary = await runtime.summary(
+      { agent: "max", session: "s" },
+      "operator",
+    );
     expect(summary).toMatchObject({ turn: "idle", inbox: 0, turns: 2 });
   });
 
@@ -438,7 +441,8 @@ describe("agent sessions", () => {
       { kind: "message", content: "tests passed", by: "ci" },
     );
     expect(
-      (await runtimeA.summary({ agent: "max", session: "s" }))?.inbox,
+      (await runtimeA.summary({ agent: "max", session: "s" }, "operator"))
+        ?.inbox,
     ).toBe(2);
     await t.stop();
     t = undefined;
@@ -458,11 +462,61 @@ describe("agent sessions", () => {
     ]);
     // Turn one's exchange is in the thread too: the transcript survived.
     expect(JSON.stringify(llm.calls[1]!.user)).toContain('"first"');
-    const summary = await AgentSessionRuntime.for(b.ctx).summary({
-      agent: "max",
-      session: "s",
-    });
+    const summary = await AgentSessionRuntime.for(b.ctx).summary(
+      {
+        agent: "max",
+        session: "s",
+      },
+      "operator",
+    );
     expect(summary).toMatchObject({ inbox: 0, turns: 2 });
+  });
+
+  /**
+   * @case runtime.interrupt(key) stops a running turn without posting a message
+   * @preconditions A turn held open by a slow tool, interrupted through the runtime rather than by a later message
+   * @expectedResult The call reports it stopped a turn, the caller's dispatch resolves as interrupted, the transcript keeps what the turn reached, and nothing was added to the inbox
+   */
+  test("interrupt stops a running turn with no message posted", async () => {
+    const store = new MemorySuspensionStore();
+    t = await contextWith(store, spy()).build();
+    await t.startAndWaitReady();
+    llm.script.push({ toolCalls: [{ toolName: "slow" }] }, { text: "stopped" });
+
+    const running = send(t, { session: "s", message: "start" });
+    await waitForEntry(1);
+
+    const runtime = AgentSessionRuntime.for(t.ctx);
+    expect(runtime.interrupt({ agent: "max", session: "s" })).toBe(true);
+
+    const result = await running;
+    expect(result.session?.status).toBe("interrupted");
+
+    const summary = await runtime.summary(
+      { agent: "max", session: "s" },
+      "operator",
+    );
+    // The partial turn is kept and nothing queued: a cancel carries no
+    // message, so there is nothing for a later turn to answer.
+    expect(summary).toMatchObject({ inbox: 0, turn: "idle" });
+    expect(summary!.messages).toBeGreaterThan(0);
+  });
+
+  /**
+   * @case Interrupting a session with no running turn reports that it stopped nothing
+   * @preconditions A session that exists but is idle, and one that was never created
+   * @expectedResult Both answer false rather than throwing, so a protocol cancel for a turn that already finished is a no-op the caller can report honestly
+   */
+  test("interrupt reports when there was nothing to stop", async () => {
+    const store = new MemorySuspensionStore();
+    t = await contextWith(store, spy()).build();
+    await t.startAndWaitReady();
+    llm.script.push({ text: "done" });
+    await send(t, { session: "s", message: "hello" });
+
+    const runtime = AgentSessionRuntime.for(t.ctx);
+    expect(runtime.interrupt({ agent: "max", session: "s" })).toBe(false);
+    expect(runtime.interrupt({ agent: "max", session: "never" })).toBe(false);
   });
 
   /**
@@ -514,10 +568,13 @@ describe("agent sessions", () => {
     });
     expect(
       (
-        await AgentSessionRuntime.for(t.ctx).summary({
-          agent: "max",
-          session: "s",
-        })
+        await AgentSessionRuntime.for(t.ctx).summary(
+          {
+            agent: "max",
+            session: "s",
+          },
+          "operator",
+        )
       )?.turn,
     ).toBe("stale");
 
@@ -609,9 +666,10 @@ describe("agent sessions", () => {
       );
     }
     expect(llm.calls).toHaveLength(0);
-    expect((await AgentSessionRuntime.for(t.ctx).summaries({})).items).toEqual(
-      [],
-    );
+    expect(
+      (await AgentSessionRuntime.for(t.ctx).summaries({ scope: "operator" }))
+        .items,
+    ).toEqual([]);
 
     llm.script.push({ text: "ok" });
     const longest = `A1.${"x".repeat(121)}_:-x`;
@@ -665,7 +723,7 @@ describe("agent sessions", () => {
       version: 0,
     });
     await expect(send(t, { session: "old", message: "b" })).rejects.toThrow(
-      /version 0.*version 1/,
+      /version 0.*version 2/,
     );
     expect(llm.calls).toHaveLength(1);
   });
@@ -849,7 +907,7 @@ describe("agent sessions", () => {
   /**
    * @case The session records who started it, and a later caller does not change that
    * @preconditions Alice's message starts the session; Bob's message runs the next turn
-   * @expectedResult The summary reports startedBy "alice" after both turns, and Bob's own message, having started its turn, is delivered as a plain string under his turn
+   * @expectedResult The summary reports owner "alice" after both turns, and Bob's own message, having started its turn, is delivered as a plain string under his turn
    */
   test("the session records its starter", async () => {
     const store = new MemorySuspensionStore();
@@ -859,20 +917,26 @@ describe("agent sessions", () => {
     await send(t, { session: "s", message: "I am Alice" }, "alice");
     await send(t, { session: "s", message: "I am Bob" }, "bob");
     expect(lastUserOf(llm.calls[1]!).content).toBe("I am Bob");
-    const summary = await AgentSessionRuntime.for(t.ctx).summary({
-      agent: "max",
-      session: "s",
-    });
-    expect(summary).toMatchObject({ startedBy: "alice", turns: 2 });
+    const summary = await AgentSessionRuntime.for(t.ctx).summary(
+      {
+        agent: "max",
+        session: "s",
+      },
+      "operator",
+    );
+    expect(summary).toMatchObject({ owner: "alice", turns: 2 });
     llm.script.push({ text: "hi nobody" });
     await send(t, { session: "anon", message: "hello" });
     expect(
       (
-        await AgentSessionRuntime.for(t.ctx).summary({
-          agent: "max",
-          session: "anon",
-        })
-      )?.startedBy,
+        await AgentSessionRuntime.for(t.ctx).summary(
+          {
+            agent: "max",
+            session: "anon",
+          },
+          "operator",
+        )
+      )?.owner,
     ).toBeNull();
   });
 
@@ -922,10 +986,13 @@ describe("agent sessions", () => {
     const transcript = JSON.stringify(record?.messages);
     expect(transcript).toContain("cannot park");
     expect(transcript).toContain("Park from a sessionless agent");
-    const summary = await AgentSessionRuntime.for(t.ctx).summary({
-      agent: "max",
-      session: "s",
-    });
+    const summary = await AgentSessionRuntime.for(t.ctx).summary(
+      {
+        agent: "max",
+        session: "s",
+      },
+      "operator",
+    );
     expect(summary).toMatchObject({ parked: false, turns: 1 });
     expect(t.errors).toHaveLength(0);
   });

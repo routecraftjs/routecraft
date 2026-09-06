@@ -165,6 +165,8 @@ export type {
   AgentResult,
   AgentSessionKey,
   AgentSessionOutcome,
+  AgentSessionOverrides,
+  AgentSessionScope,
   AgentSessionsConfig,
   AgentInterruptSource,
   AgentSessionSource,

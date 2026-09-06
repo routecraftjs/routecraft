@@ -23,6 +23,7 @@ import {
   type AgentRunResume,
   type AgentRunSuspension,
 } from "./run.ts";
+import { applyOverrides, type AdvertisingAgent } from "./advertised.ts";
 import { rehydrateSession } from "./suspension-state.ts";
 import {
   ADAPTER_AGENT_DEFAULT_OPTIONS,
@@ -39,6 +40,7 @@ import type {
 import { anySignal } from "@routecraft/routecraft";
 import { streamAgentDeltas, type AgentStream } from "./delta-stream.ts";
 import type { AgentDeltaListener } from "./events.ts";
+import type { LlmModelId, LlmReasoningEffort } from "../llm/types.ts";
 import type { ResolvedTool } from "./tools/selection.ts";
 import type {
   AgentOptions,
@@ -54,6 +56,7 @@ import {
   sessionSystemBlock,
   type AgentSessionKey,
   type AgentSessionPark,
+  type AgentSessionOverrides,
   type AgentSessionParkMarker,
   type AgentTurnExecutor,
 } from "./session/index.ts";
@@ -84,6 +87,23 @@ export interface AgentByNameOverrides<T = unknown> {
    */
   onDelta?: AgentDeltaListener;
   /**
+   * The token-delta listener for THIS exchange, resolved from it.
+   *
+   * `onDelta` is fixed when the route is built, which is enough when the
+   * route serves one consumer. A route shared by many callers at once
+   * (one route fronting an agent for every connected editor) cannot hold
+   * one listener between them, so it reads the sink off the incoming
+   * exchange the way `session` and `interrupt` already read their values.
+   * Returning `undefined` runs that dispatch without deltas.
+   *
+   * A separate field rather than a second arm on `onDelta`: both forms
+   * are one-argument functions, so a union could not be told apart and
+   * the wrong guess would hand a delta to a resolver.
+   *
+   * Wins over `onDelta` when both are set and it resolves to a listener.
+   */
+  onDeltaFor?: AgentDeltaListenerSource<T>;
+  /**
    * The conversation this message belongs to. Same contract as
    * {@link AgentOptions.session}; the per-call value wins over one on the
    * registered options.
@@ -95,6 +115,17 @@ export interface AgentByNameOverrides<T = unknown> {
    */
   interrupt?: AgentInterruptSource<T>;
 }
+
+/**
+ * Resolves the token-delta listener for one dispatch from the incoming
+ * exchange. Same shape as the other request-scoped resolvers on
+ * {@link AgentByNameOverrides}.
+ *
+ * @template T - Body type available to the callback
+ */
+export type AgentDeltaListenerSource<T = unknown> = (
+  exchange: Exchange<T>,
+) => AgentDeltaListener | undefined;
 
 /**
  * Discriminated state: inline options or a registry name.
@@ -268,7 +299,8 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
     // specific SSE channel for THIS dispatch).
     const perCall =
       this.binding.kind === "by-name" ? this.binding.perCall : undefined;
-    const onDelta = perCall?.onDelta ?? merged.onDelta;
+    const onDelta =
+      perCall?.onDeltaFor?.(exchange) ?? perCall?.onDelta ?? merged.onDelta;
 
     const sessionKey =
       revivedPark !== undefined
@@ -369,6 +401,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
           },
           abortSignal,
           onDelta,
+          context,
         ),
       });
     }
@@ -462,15 +495,17 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
     input: Omit<AgentRunInput<T>, "onStep" | "resume">,
     abortSignal: AbortSignal,
     onDelta: AgentDeltaListener | undefined,
+    context: CraftContext,
   ): AgentTurnExecutor {
     let last: AgentRun<T> | undefined;
     return {
-      run: async (messages, interrupt, onStep) => {
+      run: async (messages, interrupt, onStep, overrides) => {
         // Each turn's budget is its own: `maxTurns` bounds one turn, not
         // the conversation, so the run starts from the stored thread with
         // no turns spent. `usage` is per turn for the same reason.
         const run = new AgentRun<T>({
           ...input,
+          ...chooseForTurn(input, overrides, context),
           resume: { messages: [...messages], turnsUsed: 0 },
           onStep,
         });
@@ -536,6 +571,79 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
     }
     return metadata;
   }
+}
+
+/**
+ * What one turn runs on, once the conversation's own choices are applied
+ * over the agent's registered options.
+ *
+ * This is the one place a model is resolved per turn, and it is a turn
+ * rather than a dispatch because a boundary turn (the follow-up that
+ * consumes what queued) reuses the executor the first turn was built
+ * with: a change made while a turn was running has to reach the turn
+ * after it, which is what "applies at the next turn" means.
+ *
+ * A choice the agent no longer advertises is ignored by
+ * {@link applyOverrides}, so the value never reaches a provider.
+ *
+ * @internal
+ */
+function chooseForTurn<T>(
+  input: Omit<AgentRunInput<T>, "onStep" | "resume">,
+  overrides: AgentSessionOverrides | undefined,
+  context: CraftContext,
+): Partial<AgentRunInput<T>> {
+  if (overrides === undefined) return {};
+  const chosen = applyOverrides(
+    {
+      ...(input.model !== undefined ? { model: input.model } : {}),
+      ...(input.options.reasoning !== undefined
+        ? { reasoning: input.options.reasoning }
+        : {}),
+      ...advertisedFrom(input.options),
+    },
+    overrides,
+  );
+  const model =
+    chosen.model !== undefined && chosen.model !== input.model
+      ? { model: chosen.model, ...resolvedModelParts(chosen.model, context) }
+      : {};
+  const options =
+    chosen.reasoning === undefined ||
+    chosen.reasoning === input.options.reasoning
+      ? {}
+      : { options: withReasoning(input.options, chosen.reasoning) };
+  return { ...model, ...options };
+}
+
+/** The same options with one thinking level swapped in, shape preserved. */
+function withReasoning<O extends { reasoning?: LlmReasoningEffort }>(
+  options: O,
+  reasoning: LlmReasoningEffort,
+): O {
+  return { ...options, reasoning };
+}
+
+/** The provider config and model name a resolved model id maps to. */
+function resolvedModelParts(
+  model: LlmModelId,
+  context: CraftContext,
+): Pick<AgentRunInput, "modelConfig" | "modelName"> {
+  const { config, modelName } = resolveModel(model, context);
+  return { modelConfig: config, modelName };
+}
+
+/** The choice lists an agent's options carry, when it is a registered one. */
+function advertisedFrom<T>(
+  options: AgentOptions<T> | AgentRegisteredOptions<T>,
+): Pick<AdvertisingAgent, "models" | "reasoningLevels"> {
+  const registered = options as AgentRegisteredOptions<T>;
+  return {
+    ...(registered.models !== undefined ? { models: registered.models } : {}),
+    ...(registered.reasoningLevels !== undefined
+      ? { reasoningLevels: registered.reasoningLevels }
+      : {}),
+  };
 }
 
 /**
