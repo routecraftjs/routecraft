@@ -532,11 +532,11 @@ The store that holds agent session records, chosen by [`sessions: { store }`](/d
 No editor surface on this exchange
 
 **Why it happens**  
-A route called [`surface()`](/docs/reference/adapters#surface) on a turn that has no editor behind it. The adapter reaches the client that is running THIS turn, and the turn is a plain exchange: it came from a timer, an HTTP request, a test, or any other source. There is no ambient editor to fall back on, and inventing one would mean a route that asks for a decision silently continuing without an answer.
+A route called [`surface()`](/docs/reference/adapters/surface) on a turn that has no editor behind it. The adapter reaches the client that is running THIS turn, and the turn is a plain exchange: it came from a timer, an HTTP request, a test, or any other source. There is no ambient editor to fall back on, and inventing one would mean a route that asks for a decision silently continuing without an answer.
 
 **Suggestion**  
 - Guard the call and take another path when there is no editor: `.choice()` on `hasSurface(exchange)` is the shape, and the same route then works both from an editor and from a schedule.
-- Dispatch the route from a turn that has an editor attached, which is any turn started through [`acpPlugin()`](/docs/reference/plugins#acpplugin).
+- Dispatch the route from a turn that has an editor attached, which is any turn started through [`acpPlugin()`](/docs/reference/plugins/acpplugin).
 
 ## AI1014
 The editor surface disconnected mid-turn
