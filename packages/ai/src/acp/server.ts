@@ -28,6 +28,16 @@ import type { AcpPluginOptions } from "./types.ts";
 /** The header the SDK stamps on an initialize response and expects back. */
 const CONNECTION_ID_HEADER = "Acp-Connection-Id";
 
+/**
+ * Request header naming the agent a connection wants to talk to.
+ *
+ * The protocol has no field for it. A client that names one gets it for
+ * every conversation it opens on that connection; a client that names
+ * nothing gets the mount's own default. Exported so the bridge and this
+ * mount cannot disagree about the spelling.
+ */
+export const ACP_AGENT_HEADER = "Routecraft-Agent";
+
 /** Mount path when the app names none. */
 const DEFAULT_PATH = "/acp";
 
@@ -90,6 +100,7 @@ export class AcpServer {
     // second request to see somebody else's.
     let pending: AcpConnection | undefined;
     let pendingPrincipal: Principal | undefined;
+    let pendingAgent: string | undefined;
     const server = new SdkServer({
       createAgent: () => {
         const connection = new AcpConnection(
@@ -97,6 +108,7 @@ export class AcpServer {
           this.options,
           pendingPrincipal,
           acp,
+          pendingAgent,
         );
         pending = connection;
         return buildAcpApp(connection, () => acp.agent({ name: "routecraft" }));
@@ -171,6 +183,7 @@ export class AcpServer {
 
         pending = undefined;
         pendingPrincipal = principal;
+        pendingAgent = request.headers.get(ACP_AGENT_HEADER) ?? undefined;
         const response = await server.handleRequest(request);
         const opened = response.headers.get(CONNECTION_ID_HEADER);
         if (opened !== null && pending !== undefined) {

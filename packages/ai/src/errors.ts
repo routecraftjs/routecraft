@@ -72,6 +72,32 @@ declare module "@routecraft/routecraft" {
       tool: string;
       reason: string;
     };
+    /**
+     * An editor opened a connection to the ACP mount and initialized it.
+     *
+     * `subject` is who the mount's validator admitted, absent on a mount
+     * with no wall. `clientName` is what the editor calls itself, which is
+     * the only thing that tells two editors on one machine apart.
+     */
+    "plugin:acp:connection:opened": {
+      connectionId: string;
+      subject?: string;
+      clientName?: string;
+    };
+    /** An ACP connection closed. Every conversation it held outlives it. */
+    "plugin:acp:connection:closed": { connectionId: string };
+    /**
+     * A conversation was opened, loaded or resumed on an ACP connection.
+     *
+     * `how` says which: `new` minted the id, `load` replayed the transcript
+     * onto a fresh connection, `resume` attached without replaying.
+     */
+    "plugin:acp:session:attached": {
+      connectionId: string;
+      sessionId: string;
+      agentName: string;
+      how: "new" | "load" | "resume";
+    };
   }
   interface ErrorCodeRegistry {
     /** Agent block resolution failed (formerly RC5025) */

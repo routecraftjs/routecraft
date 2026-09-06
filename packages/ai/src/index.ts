@@ -19,6 +19,7 @@ export { BRAND, isMcpAdapter } from "./brand.ts";
 // reach the person on the other end of it.
 export {
   acpPlugin,
+  ACP_AGENT_HEADER,
   ACP_ROUTE_PREFIX,
   CONFIG_AGENT,
   CONFIG_MODEL,

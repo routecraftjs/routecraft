@@ -145,6 +145,61 @@ describe("the ACP mount", () => {
   });
 
   /**
+   * @case A connection and the conversations on it are observable from the event bus
+   * @preconditions One connection opening a conversation, loading it again on a second connection, and both closing
+   * @expectedResult Each open, attach and close is announced with the connection it belongs to, the person who opened it and how the conversation was taken hold of, so an operator can see who is connected without reading a log line
+   */
+  test("connections and conversations announce themselves", async () => {
+    h = await acpHarness({ agents: ONE_AGENT });
+    llm.script.push({ text: "hi" });
+    const seen: Array<{ name: string; details: Record<string, unknown> }> = [];
+    // Event names are a fixed set here, so the wildcard is the whole bus
+    // and the filter is ours.
+    h.t.ctx.on("*", (payload) => {
+      const name = payload._event;
+      if (name.startsWith("plugin:acp:")) {
+        seen.push({
+          name,
+          details: payload.details as Record<string, unknown>,
+        });
+      }
+    });
+
+    const sessionId = await h.connect((agent) =>
+      agent.buildSession("/work").withSession(async (session) => {
+        await session.prompt("hello");
+        return session.sessionId;
+      }),
+    );
+    await h.connect((agent) =>
+      agent.request("session/load", {
+        sessionId,
+        cwd: "/work",
+        mcpServers: [],
+      }),
+    );
+
+    const names = seen.map((entry) => entry.name);
+    expect(
+      names.filter((n) => n === "plugin:acp:connection:opened"),
+    ).toHaveLength(2);
+    expect(names).toContain("plugin:acp:connection:closed");
+
+    const attached = seen.filter(
+      (entry) => entry.name === "plugin:acp:session:attached",
+    );
+    expect(attached.map((entry) => entry.details["how"])).toEqual([
+      "new",
+      "load",
+    ]);
+    expect(attached[0]?.details["sessionId"]).toBe(sessionId);
+    expect(attached[0]?.details["agentName"]).toBe("max");
+    // The editor names itself at initialize, which is the only thing that
+    // tells two editors on one machine apart.
+    expect(seen[0]?.details["clientName"]).toBe("test-editor");
+  });
+
+  /**
    * @case An agent offering several models advertises a model picker, and one offering a single value does not
    * @preconditions One agent listing two models and one thinking level, another listing neither
    * @expectedResult The listing agent advertises the model option with both entries and its default current, and advertises no thinking-level option at all

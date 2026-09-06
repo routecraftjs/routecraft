@@ -87,6 +87,10 @@ export function surface<M extends SurfaceMethod, T = unknown>(
   return tagAdapter(
     {
       adapterId: "routecraft.adapter.surface",
+      // Which method a step called, on the step's own completion event, so
+      // a trace says what the route asked the person for without carrying
+      // the answer, which is the person's.
+      getMetadata: () => ({ method }),
       fetch: async (
         exchange: Exchange<T>,
         ctx?: StepSignalContext,
@@ -142,6 +146,7 @@ surface.notify = function notify<T = unknown>(
   return tagAdapter(
     {
       adapterId: "routecraft.adapter.surface",
+      getMetadata: () => ({ method: "session/update" }),
       send: async (exchange: Exchange<T>): Promise<void> => {
         const { connection, ref } = resolveSurface(exchange, "session/update");
         try {

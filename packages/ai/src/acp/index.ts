@@ -1,5 +1,5 @@
 export { acpPlugin } from "./plugin.ts";
-export { normalizeAcpPath } from "./server.ts";
+export { ACP_AGENT_HEADER, normalizeAcpPath } from "./server.ts";
 export {
   CONFIG_AGENT,
   CONFIG_MODEL,

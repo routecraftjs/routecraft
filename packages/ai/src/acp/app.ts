@@ -85,8 +85,10 @@ export class AcpConnection implements AgentSurfaceConnection {
   readonly id = randomUUID();
   /** Set once the client has initialized. */
   private capabilities: ClientCapabilities | undefined;
+  /** What the editor calls itself, from its initialize. */
+  private clientName: string | undefined;
   /** The ACP sessions this connection has open, to the agent each belongs to. */
-  private readonly attached = new Map<string, string>();
+  private readonly attachedSessions = new Map<string, string>();
   private client: AgentContext | undefined;
   private retire: (() => void) | undefined;
 
@@ -96,6 +98,12 @@ export class AcpConnection implements AgentSurfaceConnection {
     /** The caller, as the mount's validator resolved them. */
     readonly principal: Principal | undefined,
     private readonly sdk: AcpRuntimeSdk,
+    /**
+     * The agent this connection asked for, when it named one. Every
+     * conversation it opens talks to that persona; a connection that named
+     * nothing gets the mount's own default.
+     */
+    private readonly requestedAgent: string | undefined,
   ) {}
 
   /** A refusal the connection layer turns into a JSON-RPC error. */
@@ -179,20 +187,47 @@ export class AcpConnection implements AgentSurfaceConnection {
   open(client: AgentContext, closed: Promise<void>): void {
     this.client = client;
     this.retire = registerSurface(this.runtime.context, this.id, this);
+    this.runtime.context.emit("plugin:acp:connection:opened", {
+      connectionId: this.id,
+      ...(this.principal !== undefined
+        ? { subject: this.principal.subject }
+        : {}),
+      ...(this.clientName !== undefined ? { clientName: this.clientName } : {}),
+    });
     void closed.finally(() => this.close());
   }
 
   /** Retire the surface. A turn still running finds it gone and says so. */
   close(): void {
-    this.retire?.();
+    if (this.retire === undefined) return;
+    this.retire();
     this.retire = undefined;
     this.client = undefined;
+    this.runtime.context.emit("plugin:acp:connection:closed", {
+      connectionId: this.id,
+    });
+  }
+
+  /** Announce a conversation this connection took hold of. */
+  private attached(
+    sessionId: string,
+    agentName: string,
+    how: "new" | "load" | "resume",
+  ): void {
+    this.attachedSessions.set(sessionId, agentName);
+    this.runtime.context.emit("plugin:acp:session:attached", {
+      connectionId: this.id,
+      sessionId,
+      agentName,
+      how,
+    });
   }
 
   // -------------------------------------------------------------- handlers
 
   initialize(params: InitializeRequest): InitializeResponse {
     this.capabilities = params.clientCapabilities;
+    this.clientName = params.clientInfo?.name;
     const info = this.options.agentInfo;
     return {
       protocolVersion: 1,
@@ -219,7 +254,7 @@ export class AcpConnection implements AgentSurfaceConnection {
   }
 
   async newSession(params: NewSessionRequest): Promise<NewSessionResponse> {
-    const agent = this.runtime.defaultAgent();
+    const agent = this.agentForNewSession();
     if (params.mcpServers.length > 0) {
       // Logged and ignored: a remote instance must not spawn what an
       // editor names. Recorded as a requirement rather than a refusal.
@@ -236,7 +271,7 @@ export class AcpConnection implements AgentSurfaceConnection {
         ...(params.cwd !== undefined ? { cwd: params.cwd } : {}),
       },
     );
-    this.attached.set(sessionId, agent);
+    this.attached(sessionId, agent, "new");
     const state = await this.stateFor(sessionId, agent);
     return {
       sessionId,
@@ -247,7 +282,7 @@ export class AcpConnection implements AgentSurfaceConnection {
 
   async loadSession(sessionId: string): Promise<LoadSessionResponse> {
     const agent = await this.resolveAgent(sessionId);
-    this.attached.set(sessionId, agent);
+    this.attached(sessionId, agent, "load");
     const record = await this.runtime
       .sessions()
       .store.load({ agent, session: sessionId });
@@ -262,7 +297,7 @@ export class AcpConnection implements AgentSurfaceConnection {
 
   async resumeSession(sessionId: string): Promise<ResumeSessionResponse> {
     const agent = await this.resolveAgent(sessionId);
-    this.attached.set(sessionId, agent);
+    this.attached(sessionId, agent, "resume");
     const state = await this.stateFor(sessionId, agent);
     return { configOptions: configOptionsFor(state), ...withModes(state) };
   }
@@ -272,7 +307,7 @@ export class AcpConnection implements AgentSurfaceConnection {
    * outlives every connection and nothing is deleted.
    */
   closeSession(sessionId: string): void {
-    this.attached.delete(sessionId);
+    this.attachedSessions.delete(sessionId);
   }
 
   async listSessions(
@@ -324,7 +359,7 @@ export class AcpConnection implements AgentSurfaceConnection {
    * when the cancellation itself found nothing to stop.
    */
   async cancel(sessionId: string): Promise<void> {
-    const agent = this.attached.get(sessionId);
+    const agent = this.attachedSessions.get(sessionId);
     if (agent === undefined) return;
     this.runtime.sessions().interrupt({ agent, session: sessionId });
   }
@@ -369,7 +404,7 @@ export class AcpConnection implements AgentSurfaceConnection {
           ...(state.cwd !== undefined ? { cwd: state.cwd } : {}),
         },
       );
-      this.attached.set(params.sessionId, outcome.agent);
+      this.attached(params.sessionId, outcome.agent, "new");
       const next = await this.stateFor(params.sessionId, outcome.agent);
       const options = configOptionsFor(next);
       await this.notifyConfig(params.sessionId, options);
@@ -401,6 +436,25 @@ export class AcpConnection implements AgentSurfaceConnection {
 
   // --------------------------------------------------------------- helpers
 
+  /**
+   * The persona a fresh conversation on this connection talks to.
+   *
+   * A connection that named one gets it, and is refused by name when the
+   * instance does not hold it: a person who typed `--agent zoe` and
+   * silently got somebody else would not find out until the answers read
+   * wrong.
+   */
+  private agentForNewSession(): string {
+    const requested = this.requestedAgent;
+    if (requested === undefined) return this.runtime.defaultAgent();
+    if (!this.runtime.agents().has(requested)) {
+      throw this.refuse(
+        `This instance has no agent named "${requested}". It has ${[...this.runtime.agents().keys()].map((name) => `"${name}"`).join(", ") || "none"}.`,
+      );
+    }
+    return requested;
+  }
+
   private async notifyConfig(
     sessionId: string,
     configOptions: SessionConfigOption[],
@@ -423,11 +477,11 @@ export class AcpConnection implements AgentSurfaceConnection {
    * @throws AcpRequestError when the session is missing, or is not this caller's
    */
   private async resolveAgent(sessionId: string): Promise<string> {
-    const attached = this.attached.get(sessionId);
+    const attached = this.attachedSessions.get(sessionId);
     if (attached !== undefined) return attached;
     for await (const summary of this.ownSessions()) {
       if (summary.session === sessionId) {
-        this.attached.set(sessionId, summary.agent);
+        this.attachedSessions.set(sessionId, summary.agent);
         return summary.agent;
       }
     }
