@@ -317,6 +317,54 @@ describe("McpServer", () => {
   });
 
   /**
+   * @case The default set offers each theme an icon in a MIME type clients must support
+   * @preconditions None; asserts against the exported default icon set directly
+   * @expectedResult Both the light and dark variants include an image/png entry
+   */
+  test("default icons offer a must-support MIME type per theme", () => {
+    const themesWithoutPng = (["light", "dark"] as const).filter(
+      (theme) =>
+        !ROUTECRAFT_DEFAULT_ICONS.some(
+          (icon) => icon.theme === theme && icon.mimeType === "image/png",
+        ),
+    );
+    expect(themesWithoutPng).toEqual([]);
+  });
+
+  /**
+   * @case Every default icon declares sizes, so a client has something to select on
+   * @preconditions None; asserts against the exported default icon set directly
+   * @expectedResult No entry is missing a non-empty sizes array
+   */
+  test("every default icon declares sizes", () => {
+    const missing = ROUTECRAFT_DEFAULT_ICONS.filter(
+      (icon) => !icon.sizes?.length,
+    ).map((icon) => `${icon.theme}/${icon.mimeType}`);
+    expect(missing).toEqual([]);
+  });
+
+  /**
+   * @case A default PNG's declared size matches the dimensions in its own bytes
+   * @preconditions None; reads the IHDR width and height of each default PNG data URI
+   * @expectedResult Every PNG entry's declared size equals its encoded size
+   */
+  test("declared PNG sizes match the encoded bitmap", () => {
+    const mismatched = ROUTECRAFT_DEFAULT_ICONS.filter(
+      (icon) => icon.mimeType === "image/png",
+    )
+      .map((icon) => {
+        const bytes = Buffer.from(icon.src.split(",")[1] ?? "", "base64");
+        return {
+          theme: icon.theme,
+          declared: icon.sizes?.[0],
+          actual: `${bytes.readUInt32BE(16)}x${bytes.readUInt32BE(20)}`,
+        };
+      })
+      .filter((entry) => entry.declared !== entry.actual);
+    expect(mismatched).toEqual([]);
+  });
+
+  /**
    * @case A tool without its own icons inherits the default Routecraft server icons
    * @preconditions Default server options; route uses mcp() without icons
    * @expectedResult getAvailableTools() reports the tool carrying ROUTECRAFT_DEFAULT_ICONS
