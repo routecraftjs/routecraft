@@ -34,8 +34,8 @@ const toPngDataUri = (base64: string): string =>
 const frozenIcon = (icon: McpIcon): McpIcon =>
   Object.freeze({
     ...icon,
-    ...(icon.sizes ? { sizes: Object.freeze(icon.sizes) as string[] } : {}),
-  }) as McpIcon;
+    ...(icon.sizes ? { sizes: Object.freeze(icon.sizes) } : {}),
+  });
 
 /**
  * Default Routecraft branding for `serverInfo.icons` when a consumer does not
