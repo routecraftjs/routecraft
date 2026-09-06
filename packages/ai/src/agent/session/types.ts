@@ -42,7 +42,7 @@ export type AgentSessionScope = { readonly owner: string | null } | "operator";
 /**
  * What names a conversation: its id, and nothing else.
  *
- * A persona is an attribute of a session rather than part of its identity,
+ * The agent is an attribute of a session rather than part of its identity,
  * so switching one does not re-key the record and an id issued today does
  * not carry an assumption about which agent answers it. The framework
  * already draws identity this way: an exchange is a UUID that the caller

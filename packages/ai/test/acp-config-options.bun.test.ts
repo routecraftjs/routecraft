@@ -123,14 +123,14 @@ class StallingStore implements SessionStore {
 
 /** The modes an old-API response offers, for the list that collapses. */
 function modeIdsOf(response: {
-  modes?: { availableModes: Array<{ id: string }> } | null;
+  modes?: { availableModes: Array<{ id: string }> } | null | undefined;
 }): string[] {
   return (response.modes?.availableModes ?? []).map((mode) => mode.id);
 }
 
 /** Which controls a response carries at all, for the ones that are withdrawn. */
-function idsOf(options: Array<{ id: string }>): string[] {
-  return options.map((option) => option.id);
+function idsOf(options: Array<{ id: string }> | null | undefined): string[] {
+  return (options ?? []).map((option) => option.id);
 }
 
 describe("session config options", () => {
@@ -293,42 +293,67 @@ describe("session config options", () => {
   });
 
   /**
-   * @case The persona can be changed before the first turn, and the control is gone after it
-   * @preconditions One session, the persona changed before any prompt and again after one
-   * @expectedResult The first change is accepted. The second answers a list with no persona control at all, because a control that cannot do anything is not advertised, and the record still names the persona that answered
+   * @case Which agent answers is not a configuration option at all
+   * @preconditions A mount holding two agents, asked to set "agent" on a fresh session, which is the state the old design allowed the change in
+   * @expectedResult The option is absent from the list and the set errors as an unknown id rather than answering an unchanged list. A refusal here would be silence on this protocol; an unknown id is the truthful answer, because this mount has no such control
    */
-  test("the persona is fixed once the conversation has started", async () => {
+  test("agent is not among the config options", async () => {
     h = await boot();
-    llm.script.push({ text: "one" });
-
     await h.connect((agent) =>
       agent.buildSession("/work").withSession(async (session) => {
-        const early = await agent.request("session/set_config_option", {
+        const opened = await agent.request("session/resume", {
           sessionId: session.sessionId,
-          configId: "agent",
-          value: "zoe",
+          cwd: "/work",
         });
-        expect(valueOf(early.configOptions, "agent")).toBe("zoe");
+        expect(idsOf(opened.configOptions)).toEqual(["model", "reasoning"]);
+        expect(idsOf(opened.configOptions)).not.toContain("agent");
 
-        await session.prompt("go");
+        await expect(
+          agent.request("session/set_config_option", {
+            sessionId: session.sessionId,
+            configId: "agent",
+            value: "zoe",
+          }),
+        ).rejects.toThrow(/No configuration option "agent"/);
 
-        const late = await agent.request("session/set_config_option", {
-          sessionId: session.sessionId,
-          configId: "agent",
-          value: "max",
-        });
-        expect(idsOf(late.configOptions)).not.toContain("agent");
-        expect(await personaOf(session.sessionId)).toBe("zoe");
+        expect(await personaOf(session.sessionId)).toBe("max");
       }),
     );
   });
 
   /**
-   * @case The persona cannot be changed while a turn is running
-   * @preconditions A turn held open inside a tool, with a persona change attempted mid-flight
-   * @expectedResult The persona control is not advertised while a turn is running, and the record still names the persona whose tools that turn is inside
+   * @case The mount advertises no modes, and session/set_mode is not implemented
+   * @preconditions A mount holding two agents, which is where the old design offered them as modes
+   * @expectedResult No mode state on session/new or session/resume, and set_mode answers the protocol's own method-not-found. Routecraft has no concept that behaves like an ACP mode, so it advertises none rather than advertising one that cannot move
    */
-  test("the persona cannot be changed mid-turn", async () => {
+  test("no modes are advertised and set_mode is unimplemented", async () => {
+    h = await boot();
+    await h.connect(async (agent) => {
+      const created = await agent.buildSession("/work").start();
+      expect(modeIdsOf(created)).toEqual([]);
+
+      const resumed: { modes?: unknown } = await agent.request(
+        "session/resume",
+        { sessionId: created.sessionId, cwd: "/work" },
+      );
+      expect(resumed.modes ?? null).toBeNull();
+
+      await expect(
+        agent.request("session/set_mode", {
+          sessionId: created.sessionId,
+          modeId: "zoe",
+        }),
+      ).rejects.toThrow(/Method not found/);
+      created.dispose();
+    });
+  });
+
+  /**
+   * @case The model stays changeable while a turn is running
+   * @preconditions A turn held open inside a tool, with the model changed mid-flight
+   * @expectedResult The change is accepted and the running turn finishes on the model it started with. Which agent answers is fixed for a conversation's life; how it answers is not, and a turn in flight is the sharpest case of that
+   */
+  test("the model can be changed mid-turn", async () => {
     h = await boot();
     llm.script.push({ toolCalls: [{ toolName: "slow" }] }, { text: "done" });
 
@@ -336,132 +361,180 @@ describe("session config options", () => {
       agent.buildSession("/work").withSession(async (session) => {
         const running = session.prompt("go");
         await waitForEntry(1);
+
         const mid = await agent.request("session/set_config_option", {
           sessionId: session.sessionId,
-          configId: "agent",
-          value: "zoe",
+          configId: "model",
+          value: OPUS,
         });
-        expect(idsOf(mid.configOptions)).not.toContain("agent");
-        expect(await personaOf(session.sessionId)).toBe("max");
+        expect(valueOf(mid.configOptions, "model")).toBe(OPUS);
+
         release?.();
         await running;
+        // The turn it interrupted ran on the model it opened with: an
+        // override is read when a turn starts, not partway through one.
+        // The provider sees the id without its provider prefix.
+        expect(llm.calls[0]?.modelId).toBe(SONNET.split(":")[1]);
       }),
     );
   });
 
   /**
-   * @case A first turn the person cancelled still locks the persona
-   * @preconditions A first message prompted, held open inside a tool, and cancelled through session/cancel, which leaves a transcript with no completed turn
-   * @expectedResult The persona control stays withdrawn and a set is refused, because the transcript the cancelled turn kept is a transcript the next persona did not write. This is the ordinary case: a person sends one message and hits cancel
+   * @case A harness serves only its own agent's conversations
+   * @preconditions One owner with a session created through the max harness and one through the zoe harness, then each addressed through the other
+   * @expectedResult Each harness lists, loads, resumes and prompts only its own, and answers the other's id exactly as it answers one that was never created. The zoe harness reaches the zoe session perfectly well, so the refusal is the harness boundary rather than a broken session
    */
-  test("a cancelled first turn keeps the persona fixed", async () => {
+  test("a harness cannot see or address another agent's session", async () => {
     h = await boot();
-    llm.script.push({ toolCalls: [{ toolName: "slow" }] }, { text: "after" });
 
-    await h.connect(async (agent) => {
-      const session = await agent.buildSession("/work").start();
-      const running = agent.request("session/prompt", {
-        sessionId: session.sessionId,
-        prompt: [{ type: "text", text: "go" }],
-      });
-      await waitForEntry(1);
-      await agent.notify("session/cancel", { sessionId: session.sessionId });
-      await running;
+    const maxSession = await h.connect(
+      async (agent) => (await agent.buildSession("/work").start()).sessionId,
+      { agent: "max" },
+    );
+    const zoeSession = await h.connect(
+      async (agent) => (await agent.buildSession("/work").start()).sessionId,
+      { agent: "zoe" },
+    );
+    expect(await personaOf(maxSession)).toBe("max");
+    expect(await personaOf(zoeSession)).toBe("zoe");
 
-      // The hazard is reachable: no turn was ever counted.
-      const record = await AgentSessionRuntime.for(h!.t.ctx).store.load(
-        session.sessionId,
-      );
-      expect(record?.turns).toBe(0);
-      expect(record?.messages.length).toBeGreaterThan(0);
+    await h.connect(
+      async (agent) => {
+        const listed = await agent.request("session/list", { cwd: null });
+        const ids = listed.sessions.map(
+          (s: { sessionId: string }) => s.sessionId,
+        );
+        expect(ids).toContain(maxSession);
+        expect(ids).not.toContain(zoeSession);
 
-      const late = await agent.request("session/set_config_option", {
-        sessionId: session.sessionId,
-        configId: "agent",
-        value: "zoe",
-      });
-      expect(idsOf(late.configOptions)).not.toContain("agent");
-      expect(await personaOf(session.sessionId)).toBe("max");
-      session.dispose();
-    });
-  });
+        // Load, resume and prompt: every door into a conversation.
+        await expect(
+          agent.request("session/load", {
+            sessionId: zoeSession,
+            cwd: "/work",
+            mcpServers: [],
+          }),
+        ).rejects.toThrow(/No such session/);
+        await expect(
+          agent.request("session/resume", {
+            sessionId: zoeSession,
+            cwd: "/work",
+          }),
+        ).rejects.toThrow(/No such session/);
+        llm.script.push({ text: "should not run" });
+        await expect(
+          agent.request("session/prompt", {
+            sessionId: zoeSession,
+            prompt: [{ type: "text", text: "hello" }],
+          }),
+        ).rejects.toThrow(/No such session/);
+      },
+      { agent: "max" },
+    );
 
-  /**
-   * @case A persona chosen in one window is the one the other window talks to
-   * @preconditions One conversation open on two connections. The second connection resolves it (a set of its own) before the first connection changes the persona, which is exactly when a per-connection answer would go stale
-   * @expectedResult The prompt from the second connection runs the persona the record names, on that persona's own model, because the id is the whole identity of a conversation and two connections can hold one
-   */
-  test("a persona change reaches a second connection", async () => {
-    h = await boot();
+    // Reachable through its own harness, so the refusal above is the
+    // boundary and not a session that never worked.
     llm.script.push({ text: "zoe here" });
-
-    await h.connect(async (first) => {
-      await first.buildSession("/work").withSession(async (session) => {
-        const id = session.sessionId;
-        await h!.connect(async (second) => {
-          // The second connection has now resolved this conversation,
-          // while it still belongs to max.
-          const held = await second.request("session/set_config_option", {
-            sessionId: id,
-            configId: "model",
-            value: OPUS,
-          });
-          expect(valueOf(held.configOptions, "model")).toBe(OPUS);
-
-          await first.request("session/set_config_option", {
-            sessionId: id,
-            configId: "agent",
-            value: "zoe",
-          });
-
-          await second.request("session/prompt", {
-            sessionId: id,
-            prompt: [{ type: "text", text: "go" }],
-          });
+    await h.connect(
+      async (agent) => {
+        const loaded: {
+          configOptions?: Array<{ id: string }> | null;
+        } = await agent.request("session/load", {
+          sessionId: zoeSession,
+          cwd: "/work",
+          mcpServers: [],
         });
-      });
-    });
+        // zoe names one model and no thinking list, so it advertises no
+        // controls: nothing to choose is not advertised.
+        expect(idsOf(loaded.configOptions)).toEqual([]);
+        const answer = await agent.request("session/prompt", {
+          sessionId: zoeSession,
+          prompt: [{ type: "text", text: "hello" }],
+        });
+        expect(answer.stopReason).toBe("end_turn");
+      },
+      { agent: "zoe" },
+    );
 
-    expect(llm.calls).toHaveLength(1);
-    // Zoe's own model, and not the one chosen from max's list before the
-    // change: a persona change clears what the conversation had chosen.
-    expect(llm.calls[0]?.modelId).toBe("claude-haiku-4-5");
+    expect(await personaOf(zoeSession)).toBe("zoe");
   });
 
   /**
-   * @case The superseded modes API says the persona is fixed by offering only it
-   * @preconditions One session resumed before its first turn and again after one, read through session/resume, which is where an old-API client learns its modes
-   * @expectedResult Every persona is offered before the turn and only the current one after it. The block stays either way: dropping it would leave an old-API client not knowing which persona it is on, which is worse than a list it cannot move
+   * @case A wrong-agent session id answers exactly as an id that does not exist
+   * @preconditions The zoe session's real id and a random one, both addressed through the max harness
+   * @expectedResult The two failures carry the same message, so which conversations a person holds under another harness is not readable from this one
    */
-  test("the modes list collapses once the persona is fixed", async () => {
+  test("a wrong-agent id is indistinguishable from a missing one", async () => {
     h = await boot();
-    llm.script.push({ text: "one" });
+    const zoeSession = await h.connect(
+      async (agent) => (await agent.buildSession("/work").start()).sessionId,
+      { agent: "zoe" },
+    );
 
-    await h.connect(async (agent) => {
-      const session = await agent.buildSession("/work").start();
-      const before = await agent.request("session/resume", {
-        sessionId: session.sessionId,
-        cwd: "/work",
-      });
-      expect(modeIdsOf(before)).toEqual(["max", "zoe"]);
-
-      await agent.request("session/prompt", {
-        sessionId: session.sessionId,
-        prompt: [{ type: "text", text: "go" }],
-      });
-
-      const after = await agent.request("session/resume", {
-        sessionId: session.sessionId,
-        cwd: "/work",
-      });
-      expect(modeIdsOf(after)).toEqual(["max"]);
-      expect(after.modes?.currentModeId).toBe("max");
-      session.dispose();
-    });
+    await h.connect(
+      async (agent) => {
+        const wrongAgent = await agent
+          .request("session/load", {
+            sessionId: zoeSession,
+            cwd: "/work",
+            mcpServers: [],
+          })
+          .then(
+            () => undefined,
+            (err: unknown) => String(err),
+          );
+        const missing = await agent
+          .request("session/load", {
+            sessionId: "00000000-0000-4000-8000-000000000000",
+            cwd: "/work",
+            mcpServers: [],
+          })
+          .then(
+            () => undefined,
+            (err: unknown) => String(err),
+          );
+        expect(wrongAgent).toBeDefined();
+        expect(wrongAgent).toBe(missing);
+      },
+      { agent: "max" },
+    );
   });
 
   /**
-   * @case A store failure during the persona change is an error, not a refusal
+   * @case A listing cursor minted under one harness cannot be replayed under another
+   * @preconditions Two max sessions listed one at a time through the max harness, and the resulting cursor handed to the zoe harness
+   * @expectedResult The replay is refused. The cursor's fingerprint carries the agent filter as well as the caller, so it addresses one harness's page and not merely one person's
+   */
+  test("a listing cursor does not cross harnesses", async () => {
+    h = await boot();
+    for (const agentName of ["max", "max", "zoe"]) {
+      await h.connect((agent) => agent.buildSession("/work").start(), {
+        agent: agentName,
+      });
+    }
+
+    const cursor = await h.connect(
+      async (agent) => {
+        const page = await agent.request("session/list", { cwd: null });
+        return page.nextCursor ?? null;
+      },
+      { agent: "max" },
+    );
+
+    if (cursor !== null) {
+      await h.connect(
+        async (agent) => {
+          await expect(
+            agent.request("session/list", { cwd: null, cursor }),
+          ).rejects.toThrow();
+        },
+        { agent: "zoe" },
+      );
+    }
+  });
+
+  /**
+   * @case A store failure during a config change is an error, not a refusal
    * @preconditions A session store whose writes never land, so the change fails on the store rather than on the rule
    * @expectedResult The request fails. A refusal on this protocol is an unchanged list and therefore silence, so answering a broken store that way would leave an editor believing it had been told no
    */
@@ -480,32 +553,11 @@ describe("session config options", () => {
       await expect(
         agent.request("session/set_config_option", {
           sessionId: session.sessionId,
-          configId: "agent",
-          value: "zoe",
+          configId: "model",
+          value: OPUS,
         }),
       ).rejects.toThrow();
       session.dispose();
     });
-  });
-
-  /**
-   * @case The superseded modes API changes the persona too
-   * @preconditions A fresh session, switched with session/set_mode rather than the config option
-   * @expectedResult The persona moves and a current_mode_update is sent beside the config_option_update, so an editor speaking only the old API still works
-   */
-  test("session/set_mode maps onto the persona option", async () => {
-    h = await boot();
-    await h.connect((agent) =>
-      agent.buildSession("/work").withSession(async (session) => {
-        await agent.request("session/set_mode", {
-          sessionId: session.sessionId,
-          modeId: "zoe",
-        });
-      }),
-    );
-    const kinds = h.seen.map(
-      (entry) => (entry.update as { sessionUpdate: string }).sessionUpdate,
-    );
-    expect(kinds).toEqual(["config_option_update", "current_mode_update"]);
   });
 });

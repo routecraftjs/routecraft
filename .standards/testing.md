@@ -195,7 +195,28 @@ Errors thrown at construction (e.g. `validateAgentOptions` running inside `agent
 
 Tests that exercise an error path through the framework boundary will produce error-level log output. This is deliberate: the framework's own logger ran. Do not treat such output as a test failure or filter it from CI logs. If a test produces noisy output but passes, leave it: the noise is the framework working as designed.
 
-## 9. Snapshots
+## 9. Holding a rejection while other things happen
+
+`expect(promise).rejects.toThrow()` **blocks** under Bun 1.3.11. It does not hand back a promise you can hold and await later, and the per-test timeout does not apply to whatever it does inside, so a test that reaches for it while something else still has to happen hangs with no output and no failure.
+
+That shape comes up whenever a test has to start an operation, let a second one run to completion, and only then read the first one's refusal. Hold the outcome as a value instead:
+
+```ts
+// Hangs: nothing else runs, and the timeout never fires.
+await expect(pending).rejects.toThrow(/refused/)
+
+// Holds the rejection without awaiting it, so the rest of the test runs.
+const outcome = pending.then(
+  () => undefined,
+  (err: unknown) => err,
+)
+await somethingElseThatMustHappenFirst()
+expect(String(await outcome)).toMatch(/refused/)
+```
+
+The `then(onFulfilled, onRejected)` form also marks the rejection handled at the moment it is created, so a rejection that lands while the test is busy elsewhere does not surface as an unhandled one.
+
+## 10. Snapshots
 
 Avoid snapshot tests as a default. They make refactors painful and tend to be rubber-stamped on update. Use them only when:
 
@@ -204,7 +225,7 @@ Avoid snapshot tests as a default. They make refactors painful and tend to be ru
 
 If you reach for a snapshot, prefer inline (`toMatchInlineSnapshot()`) over a separate `__snapshots__` file so the expected value lives next to the test.
 
-## 10. Mocking guidance
+## 11. Mocking guidance
 
 - **Mock at the boundary.** Mock `mock.module("../src/llm/providers/index.ts", ...)` to stub `callLlm` rather than mocking the Vercel AI SDK; the boundary is more stable than the dependency's API.
 - **Mock the SDK only when testing the boundary itself.** E.g. `stream-llm.bun.test.ts` mocks `ai`'s `streamText` to exercise the real `streamLlm` containment behaviour.
@@ -213,7 +234,7 @@ If you reach for a snapshot, prefer inline (`toMatchInlineSnapshot()`) over a se
 - **`mock.module()` is process-global in bun 1.3.11.** The module registry is shared across all test files in a single `bun test` run -- there is no per-file isolation. If two test files mock the same path, the last registration wins and may break the other file. Authors must ensure test files mock non-overlapping paths, OR add an `afterAll` that restores the original module. To restore, call `mock.module(path, factory)` again with a factory that returns the real module (capture the real module before the mock takes effect using a sibling file or separate export). See `packages/ai/src/llm/providers/stream-llm.ts` for an example of structuring production code to avoid cross-file mock collisions.
 - **Reset mock state between tests with `mock.clearAllMocks()`, not `mock.restore()`.** `mock.restore()` tears down spy implementations (those set by `spyOn` or `mock.mockImplementation`); use it in `afterAll` for spies on shared singletons. `mock.clearAllMocks()` resets call counts and recorded arguments without removing implementations -- use it in `beforeEach` when you have top-level `mock()` instances that need fresh counts each test (see `stdio-client-manager.bun.test.ts`). `mock.module()` has no automatic restore; manage it manually as described above.
 
-## 11. Cross-runtime adapter tests
+## 12. Cross-runtime adapter tests
 
 Some adapters have runtime-specific code paths -- for example, a Postgres source might use `Bun.sql` under Bun and the `pg` driver under Node, or an S3 destination might use `Bun.s3` under Bun and `@aws-sdk/client-s3` under Node. The cross-runtime test suite verifies that the observable behaviour is identical on both runtimes.
 
@@ -237,7 +258,7 @@ The `:node` script resolves to `node node_modules/vitest/vitest.mjs run --passWi
 
 **Reference.** The first live entry is `packages/routecraft/test/cross-runtime/http-signature.cross.test.ts`, which proves byte-for-byte raw-body fidelity and identical webhook-signature decisions on the `Bun.serve` path and the `node:http` shim. The upcoming Postgres ([#294](https://github.com/routecraftjs/routecraft/issues/294)) and S3 ([#295](https://github.com/routecraftjs/routecraft/issues/295)) adapters will add further entries (`Bun.sql` vs `pg`, `Bun.s3` vs `@aws-sdk/client-s3`). Packages without a cross-runtime directory still pass thanks to `--passWithNoTests`.
 
-## 12. What runs in CI
+## 13. What runs in CI
 
 - The main `test` job runs `bun run test:coverage` (which excludes `**/integration.test.ts` and `**/test/cross-runtime/**`, and uploads a `coverage-report` artifact). Locally, `bun run test` runs the same exclusions without the coverage instrumentation.
 - `scaffolder-smoke` runs `bun run test:integration` twice -- once with `TEST_PACKAGE_MANAGER=bun` (full scaffold + `craft run` dispatch) and once with `TEST_PACKAGE_MANAGER=npm` (install + typecheck only; the dispatch test skips because the CLI is Bun-only).

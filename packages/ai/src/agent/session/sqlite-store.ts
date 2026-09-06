@@ -27,7 +27,7 @@ export const DEFAULT_SESSION_DB_PATH = ".routecraft/sessions.db";
 /** Names this subsystem in the absent-peer error under Node. */
 export const SESSION_SQLITE_CONSUMER = "agent session store (sqlite)";
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 const BUSY_TIMEOUT_MS = 5_000;
 
 /**
@@ -36,9 +36,29 @@ const BUSY_TIMEOUT_MS = 5_000;
  * one runs none. Opening the store is the migrate step, and the shared
  * runner applies them inside one transaction, so two instances opening one
  * fresh file on a shared volume both come up.
+ *
+ * Append only. An entry that has been published is the definition of the
+ * schema a file at that version physically has, so editing one in place
+ * leaves two different tables answering to one number and the runner with
+ * no way to tell them apart.
  */
 const MIGRATIONS: ReadonlyArray<string> = [
+  // Version 1 keyed a session by (agent, session). It reached exactly one
+  // published canary and no stable release, which is why version 2 rebuilds
+  // rather than converts.
   `CREATE TABLE IF NOT EXISTS agent_sessions (
+     agent      TEXT    NOT NULL,
+     session    TEXT    NOT NULL,
+     version    INTEGER NOT NULL,
+     record     TEXT    NOT NULL,
+     updated_at INTEGER NOT NULL,
+     PRIMARY KEY (agent, session)
+   );`,
+  // A session id is the identity now, so the old key cannot be carried
+  // across: two agents could hold the same id and neither has a claim on
+  // it. Dropped rather than migrated, and the changeset says so.
+  `DROP TABLE IF EXISTS agent_sessions;
+   CREATE TABLE agent_sessions (
      session    TEXT    NOT NULL PRIMARY KEY,
      version    INTEGER NOT NULL,
      record     TEXT    NOT NULL,

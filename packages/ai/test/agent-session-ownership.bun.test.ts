@@ -365,50 +365,50 @@ describe("a conversation belongs to the person who started it", () => {
   });
 
   /**
-   * @case Changing the persona leaves one record, not two
-   * @preconditions A conversation opened under one agent and switched to another before it has said anything, then resolved by its bare session id
-   * @expectedResult The id names the new agent and the store holds one record, so resolution does not depend on which record a store enumerates first
+   * @case Two agents hold their own conversations under one owner, each id naming one record
+   * @preconditions One owner with a session under max and a session under zoe, resolved by their bare ids
+   * @expectedResult Each id resolves to its own agent and the store holds exactly the two, so the id alone is the identity and an agent filter is a record read rather than a key prefix
    */
-  test("a persona change leaves no second record behind", async () => {
+  test("two agents' conversations coexist under one owner", async () => {
     t = await boot();
     await t.startAndWaitReady();
     const runtime = AgentSessionRuntime.for(t.ctx);
-    const session = "moved";
 
-    await runtime.open(session, "max", { owner: "alice" });
-    // The hazard is reachable: before the change the id names the original.
-    expect(await runtime.find(session, { owner: "alice" })).toBe("max");
+    await runtime.open("maxs", "max", { owner: "alice" });
+    await runtime.open("zoes", "zoe", { owner: "alice" });
 
-    await runtime.setAgent(session, "zoe");
-
-    expect(await runtime.find(session, { owner: "alice" })).toBe("zoe");
-    // And there is one record, not two. Under a composite key this is
-    // where the abandoned original would still be sitting.
-    expect(await runtime.store.list()).toEqual([session]);
+    expect(await runtime.find("maxs", { owner: "alice" })).toBe("max");
+    expect(await runtime.find("zoes", { owner: "alice" })).toBe("zoe");
+    expect((await runtime.store.list()).sort()).toEqual(["maxs", "zoes"]);
   });
 
   /**
-   * @case A persona change keeps the record and switches which agent answers
-   * @preconditions A conversation opened under one agent, its persona changed, then read back
-   * @expectedResult One record throughout, carrying the new agent. The id is the identity, so nothing is re-keyed and nothing is deleted
+   * @case A listing filtered by agent returns only that agent's conversations
+   * @preconditions One owner holding sessions under two agents, listed with the agent filter the ACP harness passes
+   * @expectedResult Only the named agent's sessions come back, and the cursor is bound to that filter, so a page minted under one agent cannot be replayed under another
    */
-  test("a persona change is one field on one record", async () => {
+  test("an agent-filtered listing excludes the other agent's sessions", async () => {
     t = await boot();
     await t.startAndWaitReady();
     const runtime = AgentSessionRuntime.for(t.ctx);
-    const session = "switcher";
 
-    await runtime.open(session, "max", { owner: "alice" });
-    expect((await runtime.summary(session, { owner: "alice" }))?.agent).toBe(
-      "max",
-    );
+    await runtime.open("m-1", "max", { owner: "alice" });
+    await runtime.open("m-2", "max", { owner: "alice" });
+    await runtime.open("z-1", "zoe", { owner: "alice" });
 
-    await runtime.setAgent(session, "zoe");
+    const scope = { owner: "alice" };
+    const maxPage = await runtime.summaries({ scope, agent: "max", limit: 1 });
+    expect(maxPage.items.map((s) => s.session)).toEqual(["m-1"]);
+    expect(maxPage.nextCursor).toBeDefined();
 
-    const after = await runtime.summary(session, { owner: "alice" });
-    expect(after?.agent).toBe("zoe");
-    expect(after?.session).toBe(session);
-    expect(await runtime.store.list()).toEqual([session]);
+    const all = await runtime.summaries({ scope, agent: "max" });
+    expect(all.items.map((s) => s.session).sort()).toEqual(["m-1", "m-2"]);
+
+    // The cursor carries its filter: replayed under another agent it is
+    // refused rather than paging into that agent's rows.
+    await expect(
+      runtime.summaries({ scope, agent: "zoe", after: maxPage.nextCursor! }),
+    ).rejects.toThrow();
   });
 
   /**

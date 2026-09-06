@@ -36,7 +36,7 @@ export const craftConfig = defineConfig({
 | `path` | `string` | `'/acp'` | HTTP path the protocol is mounted on |
 | `server` | `string` | `'default'` | Named entry under `defineConfig({ servers })` to mount on |
 | `auth` | `HttpAuth \| false` | inherits `servers.<name>.auth` | Auth for the mount, the same union `mcpPlugin` takes. `false` removes the wall while keeping the inherited validator reachable |
-| `agent` | `string` | the only registered agent | The persona a client gets when it picks none |
+| `agent` | `string` | the only registered agent | The agent a harness serves when it names none |
 | `cors` | `HttpCorsOptions \| false` | loopback-only | CORS for the mount, the same shape and defaults as `mcpPlugin`'s |
 | `agentInfo` | `{ name?, title?, version? }` | `{ name: 'routecraft', title: 'Routecraft', version }` | What the editor calls this agent |
 | `toolCallPayloads` | `boolean` | `true` | Whether a tool call's arguments and result reach the editor |
@@ -49,7 +49,7 @@ The plugin builds one route per registered agent when it applies, so it has to a
 
 Unset, `agent` resolves to the only agent the context holds. A context holding several refuses `session/new` with a message naming them all, because silently picking one for somebody would answer in the wrong voice with no way to notice.
 
-A client picks a different one in two ways: the `agent` [config option](/docs/advanced/talk-from-your-editor#choosing-the-persona-model-and-thinking-level) the mount advertises, which an editor renders as a picker, or the `Routecraft-Agent` request header, which is what [`craft acp --agent`](/docs/reference/cli#acp) sends. A name the instance does not hold is refused by name.
+A harness names its own with the `Routecraft-Agent` request header, which is what [`craft acp --agent`](/docs/reference/cli#acp) sends, and every session it opens belongs to that agent for life. A name the instance does not hold is refused by name. There is no config option and no mode for this: see [why agent selection is not an ACP mode](/docs/advanced/talk-from-your-editor#why-agent-selection-is-not-an-acp-mode).
 
 Every agent the context holds is advertised to every credential holder. There is no per-agent visibility rule: agents are not what carries the security here, hands are, and each one authorizes the caller on every call under the principal of the person who typed the prompt.
 

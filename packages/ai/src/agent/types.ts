@@ -455,7 +455,7 @@ export interface AgentRegisteredOptions<T = unknown> extends AgentOptions<T> {
   /**
    * The models this agent offers, in the order a chooser should show them.
    *
-   * Whoever writes the persona decides what a person may change about it,
+   * Whoever writes the agent decides what a person may change about it,
    * and the default is that nothing can be: an agent that sets only
    * `model` offers no choice at all. Supply this list (or write
    * `model: [a, b]` in an agent file, which sets both) and a caller on a

@@ -64,15 +64,17 @@ export class AgentSessionStore {
    * suspension nothing will ever revive or retire. Both fields are
    * released: the one this record named, and the one a park announced but
    * not yet named, which is the same pair the boot walk settles.
+   *
+   * The two ids are read out of the raw stored value rather than through
+   * {@link load}, and this is the point of the method rather than a
+   * shortcut. A record that fails validation is exactly the one an
+   * operator has been told to remove (`AI1010` says so), so a delete that
+   * parsed first would refuse the case it exists to answer. Whatever can
+   * be read is released, and the record goes either way.
    */
   async remove(key: AgentSessionKey): Promise<void> {
-    const record = await this.load(key);
-    const parks = new Set(
-      [record?.park?.suspensionId, record?.parking?.suspensionId].filter(
-        (id): id is string => id !== undefined,
-      ),
-    );
-    for (const suspensionId of parks) {
+    const stored = await this.records.get(key);
+    for (const suspensionId of parkIdsIn(stored?.value)) {
       await this.releasePark(suspensionId, "agent session removed");
     }
     await this.records.remove(key);
@@ -119,7 +121,7 @@ export class AgentSessionStore {
 
 /**
  * The record a conversation starts life as, for a caller that has decided
- * to create one. The persona is supplied here because a record must name
+ * to create one. The agent is supplied here because a record must name
  * one from the moment it exists, and only the caller knows which.
  */
 export function emptyAgentSession(
@@ -162,7 +164,7 @@ export function parseSessionRecord(
     record.kind !== "agent-session" ||
     record.session !== key ||
     // Checked on its own now that it is not compared against anything: a
-    // record whose persona crossed the boundary as something other than a
+    // record whose agent crossed the boundary as something other than a
     // name would reach the executor lookup as one.
     typeof record.agent !== "string" ||
     !Array.isArray(record.messages) ||
@@ -201,4 +203,26 @@ function isParkOrAbsent(value: unknown): value is AgentSessionPark | undefined {
     typeof park.suspensionId === "string" &&
     typeof park.routeId === "string"
   );
+}
+
+/**
+ * The suspension ids a stored value names, read without validating it.
+ *
+ * Structural, one field at a time, because the caller is deleting a record
+ * whose shape may be exactly what is wrong with it. Anything unreadable
+ * yields nothing rather than throwing: an unreleased park is a leak, and a
+ * delete that cannot proceed is a conversation nobody can get rid of.
+ */
+function parkIdsIn(value: unknown): string[] {
+  if (value === null || typeof value !== "object") return [];
+  const record = value as { park?: unknown; parking?: unknown };
+  const ids = new Set<string>();
+  for (const park of [record.park, record.parking]) {
+    if (park === null || typeof park !== "object") continue;
+    const { suspensionId } = park as { suspensionId?: unknown };
+    if (typeof suspensionId === "string" && suspensionId !== "") {
+      ids.add(suspensionId);
+    }
+  }
+  return [...ids];
 }

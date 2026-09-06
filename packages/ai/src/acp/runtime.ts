@@ -105,7 +105,7 @@ export class AcpRuntime {
   }
 
   /**
-   * The persona a new conversation gets when the client names none.
+   * The agent a harness serves when it names none.
    *
    * Three steps, and the third is a refusal rather than a guess: picking
    * one of several agents for somebody would be a decision the app never

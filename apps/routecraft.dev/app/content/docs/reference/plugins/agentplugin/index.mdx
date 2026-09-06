@@ -159,7 +159,7 @@ You are Max.
 
 A list of one is the same as the scalar: a choice with one option is not a choice, and nothing is advertised for it. `inherit` is refused inside a list, naming the entry, because a list is the set somebody picks from and "whatever the context defaults to" is not a thing to pick.
 
-Only a [surface that has a picker](/docs/advanced/talk-from-your-editor#choosing-the-persona-model-and-thinking-level) uses these; nothing else in a dispatch changes. A choice that is not on the agent's list is refused with [`AI1017`](/docs/reference/errors#ai-1017), so what an agent runs on is still the agent file's decision rather than the caller's.
+Only a [surface that has a picker](/docs/advanced/talk-from-your-editor#choosing-the-model-and-thinking-level) uses these; nothing else in a dispatch changes. A choice that is not on the agent's list is refused with [`AI1017`](/docs/reference/errors#ai-1017), so what an agent runs on is still the agent file's decision rather than the caller's.
 
 In code, the same thing is two fields on the registered options rather than a union: `models` and `reasoningLevels` beside `model` and `reasoning`.
 

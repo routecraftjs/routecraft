@@ -352,7 +352,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
       // rather than an assertion asking to be trusted.
       if (agentIdentity === undefined) {
         throw rcError("RC5003", undefined, {
-          message: `Agent: "session" records which persona answered the conversation, and this dispatch has no identity to record: it is neither a registered agent nor on a route. Dispatch through a route, or register the agent by name.`,
+          message: `Agent: "session" records which agent answered the conversation, and this dispatch has no identity to record: it is neither a registered agent nor on a route. Dispatch through a route, or register the agent by name.`,
         });
       }
       if (!context) {
@@ -476,12 +476,12 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
       });
     }
     // Not about the key any more, which is this id alone. A record names
-    // the persona that answered it, the listing shows it and every session
+    // the agent that answered it, the listing shows it and every session
     // event reports it, and a dispatch that is neither a registered agent
     // nor on a route has no name to record.
     if (agentIdentity === undefined) {
       throw rcError("RC5003", undefined, {
-        message: `Agent: "session" records which persona answered the conversation, and this dispatch has no identity to record: it is neither a registered agent nor on a route. Dispatch through a route, or register the agent by name.`,
+        message: `Agent: "session" records which agent answered the conversation, and this dispatch has no identity to record: it is neither a registered agent nor on a route. Dispatch through a route, or register the agent by name.`,
       });
     }
     return resolved;

@@ -5,6 +5,20 @@
  * A connection belongs to one caller. Every session it can address is one
  * the caller owns, and the ownership filter that decides that lives in the
  * session runtime rather than here, so this file cannot widen it.
+ *
+ * A connection also belongs to one agent, named by the harness the editor
+ * launched (`craft acp --agent zoe`) or the mount's default when it named
+ * none. Every session opened through it belongs to that agent for its
+ * whole life, and a session belonging to another one is not addressable
+ * here at all: not listed, not loaded, not prompted. Choosing a different
+ * agent is choosing a different harness, which the editor already offers,
+ * so nothing in the protocol has to carry the choice and no session ever
+ * exists without knowing what answers it.
+ *
+ * This is why the mount advertises no ACP modes. A mode is a variation
+ * within one agent that may change at any time during a session; which
+ * agent answers is neither. If Routecraft ever grows a concept that
+ * genuinely behaves like a mode, the field is free to carry it.
  */
 
 import { randomUUID } from "node:crypto";
@@ -24,13 +38,12 @@ import type {
   ResumeSessionResponse,
   SessionConfigOption,
   SessionInfo,
-  SessionModeState,
   SessionUpdate,
   SetSessionConfigOptionRequest,
   SetSessionConfigOptionResponse,
   StopReason,
 } from "@agentclientprotocol/sdk";
-import { rcCodeOf, type Principal } from "@routecraft/routecraft";
+import type { Principal } from "@routecraft/routecraft";
 import { version as PACKAGE_VERSION } from "../../package.json";
 import type { AgentSessionSummary } from "../agent/session/types.ts";
 import { registerSurface } from "../surface/index.ts";
@@ -39,10 +52,8 @@ import type {
   AgentSurfaceRef,
 } from "../surface/index.ts";
 import {
-  CONFIG_AGENT,
   configOptionsFor,
   decideConfigOption,
-  modesFor,
   type ConfigOptionState,
 } from "./config-options.ts";
 import { replayUpdates } from "./replay.ts";
@@ -89,10 +100,10 @@ export class AcpConnection implements AgentSurfaceConnection {
   private clientName: string | undefined;
   /**
    * The ACP sessions this connection has taken hold of. Membership only:
-   * which persona each belongs to is read from the record per operation,
+   * which agent each belongs to is read from the record per operation,
    * because a conversation is named by its id alone and two connections
-   * can hold one. A persona chosen in one window must not leave the other
-   * dispatching to the persona it saw at attach.
+   * can hold one, and this harness serves exactly one agent, so what the
+   * set holds is membership and nothing else.
    */
   private readonly attachedSessions = new Set<string>();
   private client: AgentContext | undefined;
@@ -107,7 +118,7 @@ export class AcpConnection implements AgentSurfaceConnection {
     private readonly sdk: AcpRuntimeSdk,
     /**
      * The agent this connection asked for, when it named one. Every
-     * conversation it opens talks to that persona; a connection that named
+     * conversation it opens belongs to that agent; a connection that named
      * nothing gets the mount's own default.
      */
     private readonly requestedAgent: string | undefined,
@@ -307,7 +318,6 @@ export class AcpConnection implements AgentSurfaceConnection {
     return {
       sessionId,
       configOptions: configOptionsFor(state),
-      ...withModes(state),
     };
   }
 
@@ -321,14 +331,14 @@ export class AcpConnection implements AgentSurfaceConnection {
       await this.notify(sessionId, update);
     }
     const state = await this.stateFor(sessionId, agent);
-    return { configOptions: configOptionsFor(state), ...withModes(state) };
+    return { configOptions: configOptionsFor(state) };
   }
 
   async resumeSession(sessionId: string): Promise<ResumeSessionResponse> {
     const agent = await this.resolveAgent(sessionId);
     this.attached(sessionId, agent, "resume");
     const state = await this.stateFor(sessionId, agent);
-    return { configOptions: configOptionsFor(state), ...withModes(state) };
+    return { configOptions: configOptionsFor(state) };
   }
 
   /**
@@ -343,8 +353,12 @@ export class AcpConnection implements AgentSurfaceConnection {
     cwd: string | null | undefined,
     cursor: string | null | undefined,
   ): Promise<ListSessionsResponse> {
+    // Filtered to this harness's agent, not merely to the caller. Listing
+    // a conversation the next click cannot open is worse than not listing
+    // it, and `resolveAgent` refuses exactly those.
     const page = await this.runtime.sessions().summaries({
       scope: this.scope,
+      agent: this.agentForNewSession(),
       ...(cwd != null ? { cwd } : {}),
       ...(cursor != null ? { after: cursor } : {}),
     });
@@ -390,7 +404,9 @@ export class AcpConnection implements AgentSurfaceConnection {
    */
   async cancel(sessionId: string): Promise<void> {
     if (!this.attachedSessions.has(sessionId)) return;
-    const agent = await this.runtime.sessions().find(sessionId, this.scope);
+    // Silent on a session this connection cannot address: a cancel is a
+    // notification, so there is nowhere to report a refusal to.
+    const agent = await this.resolveAgent(sessionId).catch(() => undefined);
     if (agent === undefined) return;
     this.runtime.sessions().interrupt(sessionId, agent);
   }
@@ -406,7 +422,9 @@ export class AcpConnection implements AgentSurfaceConnection {
 
     if (outcome.kind === "unknown") {
       // A list would be a lie here: there is nothing to report the current
-      // value of, so this is the one set that is a genuine error.
+      // value of, so this is the one set that is a genuine error. `agent`
+      // arrives here, which is the truthful answer to a client asking to
+      // change something this mount does not offer.
       throw this.refuse(`No configuration option "${params.configId}".`);
     }
     if (outcome.kind === "refused") {
@@ -421,50 +439,6 @@ export class AcpConnection implements AgentSurfaceConnection {
       );
       return { configOptions: configOptionsFor(state) };
     }
-    if (outcome.kind === "agent") {
-      // The conversation keeps its id and changes which persona answers
-      // it: one record, one write, nothing left behind. This is what the
-      // id being the identity buys.
-      //
-      // The runtime refuses the change against the record and its own
-      // claim on the session, which is what settles a prompt racing this
-      // set. Losing that race is a refusal like any other, and a refusal
-      // is the unchanged list.
-      try {
-        await sessions.setAgent(params.sessionId, outcome.agent);
-      } catch (err: unknown) {
-        // Only the refusal answers as an unchanged list. A store that
-        // failed is not a policy decision, and reporting it as one would
-        // leave an editor with a list and no idea anything broke.
-        if (rcCodeOf(err) !== "RC5003") throw err;
-        this.runtime.context.logger.warn(
-          {
-            err,
-            agent,
-            session: params.sessionId,
-            configId: params.configId,
-          },
-          "ACP persona change refused by the session runtime",
-        );
-        // Resolved again rather than reused: the persona this connection
-        // read at the start of the request is exactly what another
-        // connection may have just changed.
-        return {
-          configOptions: configOptionsFor(
-            await this.stateFor(key, await this.resolveAgent(key)),
-          ),
-        };
-      }
-      this.attached(params.sessionId, outcome.agent, "new");
-      const next = await this.stateFor(params.sessionId, outcome.agent);
-      const options = configOptionsFor(next);
-      await this.notifyConfig(params.sessionId, options);
-      await this.notify(params.sessionId, {
-        sessionUpdate: "current_mode_update",
-        currentModeId: outcome.agent,
-      });
-      return { configOptions: options };
-    }
 
     await sessions.configure(key, agent, outcome.overrides);
     const next = await this.stateFor(params.sessionId, agent);
@@ -473,22 +447,10 @@ export class AcpConnection implements AgentSurfaceConnection {
     return { configOptions: options };
   }
 
-  /**
-   * The superseded modes API, mapped onto the persona config option so an
-   * editor that speaks only the old one still switches personas.
-   */
-  async setMode(sessionId: string, modeId: string): Promise<void> {
-    await this.setConfigOption({
-      sessionId,
-      configId: CONFIG_AGENT,
-      value: modeId,
-    });
-  }
-
   // --------------------------------------------------------------- helpers
 
   /**
-   * The persona a fresh conversation on this connection talks to.
+   * The agent every conversation on this connection belongs to.
    *
    * A connection that named one gets it, and is refused by name when the
    * instance does not hold it: a person who typed `--agent zoe` and
@@ -522,15 +484,31 @@ export class AcpConnection implements AgentSurfaceConnection {
    * The id is opaque, as the protocol has it, so the agent is resolved by
    * lookup rather than read out of the id. The lookup is bounded by the
    * caller's own sessions and runs per operation rather than once per
-   * connection: the record is the only place the persona lives, and a
-   * conversation open in two windows would otherwise have one of them
-   * dispatching to a persona the other replaced.
+   * connection: the record is the only place the agent lives, and this
+   * harness serves exactly one of them.
    *
-   * @throws AcpRequestError when the session is missing, or is not this caller's
+   * @throws AcpRequestError when the session is missing, is not this
+   *   caller's, or belongs to an agent this harness does not serve
    */
   private async resolveAgent(sessionId: string): Promise<string> {
     const agent = await this.runtime.sessions().find(sessionId, this.scope);
     if (agent === undefined) throw this.refuse(NO_SUCH_SESSION);
+    // A session belonging to another agent is not this harness's to
+    // answer. It reports as absent rather than as a refusal because it IS
+    // absent from this view, not to withhold an identifier: both harnesses
+    // authenticate as the same person, who can list their own Zoe
+    // conversations by running the Zoe harness. Ownership is the boundary
+    // that withholds; this one only says which view you are looking
+    // through. The editor reaches a Zoe conversation through the Zoe
+    // harness, the same entry it picked to start one.
+    const mine = this.agentForNewSession();
+    if (agent !== mine) {
+      this.runtime.context.logger.debug(
+        { agent, harnessAgent: mine, session: sessionId },
+        "ACP session belongs to another agent than this harness serves",
+      );
+      throw this.refuse(NO_SUCH_SESSION);
+    }
     return agent;
   }
 
@@ -547,9 +525,6 @@ export class AcpConnection implements AgentSurfaceConnection {
     return {
       agent,
       agents: this.runtime.agents(),
-      turns: summary.turns,
-      running: summary.turn !== "idle",
-      messages: summary.messages,
       overrides: record?.overrides,
       ...(summary.cwd !== undefined ? { cwd: summary.cwd } : {}),
     };
@@ -591,10 +566,6 @@ export function buildAcpApp(
     .onRequest("session/set_config_option", ({ params }) =>
       connection.setConfigOption(params),
     )
-    .onRequest("session/set_mode", async ({ params }) => {
-      await connection.setMode(params.sessionId, params.modeId);
-      return {};
-    })
     .onNotification("session/cancel", ({ params }) =>
       connection.cancel(params.sessionId),
     );
@@ -625,14 +596,6 @@ function toSessionInfo(summary: AgentSessionSummary): SessionInfo {
     ...(summary.title !== undefined ? { title: summary.title } : {}),
     updatedAt: summary.updatedAt,
   };
-}
-
-/** Modes ride alongside the config options, for the transition the spec asks for. */
-function withModes(
-  state: ConfigOptionState,
-): { modes: SessionModeState } | Record<string, never> {
-  const modes = modesFor(state);
-  return modes === undefined ? {} : { modes };
 }
 
 /**

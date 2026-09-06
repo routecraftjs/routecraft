@@ -1991,4 +1991,56 @@ describe("agent sessions", () => {
       ]),
     );
   });
+
+  /**
+   * @case A record too malformed to parse can still be removed
+   * @preconditions A stored value that fails every shape check, which is exactly the state AI1010's own suggestion tells an operator to remove
+   * @expectedResult remove() succeeds and the key is gone. Reading it through load() still throws, so the hazard is reachable: a delete that parsed first would refuse the one case it exists to answer
+   */
+  test("a poisoned record can still be removed", async () => {
+    const store = new MemorySuspensionStore();
+    const records = recordsFor(store);
+    const sessions = new AgentSessionStore(records, store);
+    const poisoned = "poisoned";
+
+    // Straight past the typed layer, as a foreign writer or an older
+    // release would have left it.
+    await records.create(poisoned, { kind: "not-a-session", nonsense: true });
+
+    // Reachable: the parser refuses it, which is what made remove() refuse.
+    await expect(sessions.load(poisoned)).rejects.toThrow(/AI1010|shape/);
+
+    await sessions.remove(poisoned);
+    expect(await records.get(poisoned)).toBeUndefined();
+    expect(await records.keys()).not.toContain(poisoned);
+  });
+
+  /**
+   * @case Removing a session settles the continuation it named
+   * @preconditions A record naming a park and an announced-but-unnamed parking, both live in the suspension store
+   * @expectedResult Both are settled before the record is deleted. Nothing else names them once the record is gone, and an aside park carries no expiry, so leaving them would leave a suspension nothing can ever revive or retire
+   */
+  test("removing a session releases its stored continuations", async () => {
+    const store = new MemorySuspensionStore();
+    const records = recordsFor(store);
+    const sessions = new AgentSessionStore(records, store);
+    const session = "parked";
+
+    const released: string[] = [];
+    const realRelease = sessions.releasePark.bind(sessions);
+    sessions.releasePark = async (id: string, reason: string) => {
+      released.push(id);
+      return realRelease(id, reason);
+    };
+
+    await updateRecord(sessions, session, "max", (record) => ({
+      ...record,
+      park: { suspensionId: "park-1", routeId: "r" },
+      parking: { suspensionId: "park-2", routeId: "r" },
+    }));
+
+    await sessions.remove(session);
+    expect(released.sort()).toEqual(["park-1", "park-2"]);
+    expect(await records.get(session)).toBeUndefined();
+  });
 });

@@ -281,7 +281,7 @@ The protocol is mounted at `/acp`, and the bridge is not where that is configura
 
 **There is no login.** A token in the profile authenticates, exactly as `token:` does for every other command, and it travels as `Authorization: Bearer` on every request. An instance that advertises no authentication method is conforming, not misconfigured.
 
-**The agent travels as a header.** The protocol has no field for which persona a client wants, so `--agent` becomes a `Routecraft-Agent` request header and every conversation the connection opens talks to that agent. A name the instance does not hold is refused by name rather than quietly served by somebody else.
+**The agent travels as a header.** `--agent` becomes a `Routecraft-Agent` request header, and every conversation the connection opens belongs to that agent for its whole life. A name the instance does not hold is refused by name rather than quietly served by somebody else. Register one editor entry per agent to talk to more than one: see [One agent per editor entry](/docs/advanced/talk-from-your-editor#one-agent-per-editor-entry).
 
 Standard output belongs to the protocol, so nothing but protocol frames is ever written to it and every diagnosis goes to standard error. It shares [`exec`'s exit codes](#exec): a profile named nowhere exits `2` naming the profiles that do exist, and an address nothing answered on exits `3` naming it and which setting supplied it.
 

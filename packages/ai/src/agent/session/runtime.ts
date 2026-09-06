@@ -67,8 +67,8 @@ export interface AgentTurnExecutor {
 export interface AgentTurnRequest<T = unknown> {
   readonly key: AgentSessionKey;
   /**
-   * The persona answering this turn. Not part of the key: a conversation
-   * keeps its id when the persona changes, and this is what the record's
+   * The agent answering this turn. Not part of the key: a session id is
+   * the identity on its own, and this is what the record's
    * `agent` field is set to.
    */
   readonly agent: string;
@@ -637,17 +637,22 @@ export class AgentSessionRuntime {
   /**
    * One page of the sessions the caller's scope admits.
    *
-   * The index carries every key, so the agent filter and the page are
-   * taken on keys alone and only the page's records are read: a listing
-   * costs one read per session shown, never one per session stored, and
-   * a transcript is never loaded to report a count for a page it is not on.
+   * Every filter is a record read, so a page costs one read per session
+   * the store holds rather than one per session shown, on every page. That
+   * is what a store with no owner-aware listing can honestly offer, and it
+   * is the price of the paragraph below. An optional filtered listing on
+   * the store contract is the way out when the cost starts to matter.
    *
    * The ownership filter runs here rather than inside a store, so a store
    * implementation that answers `keys()` with everything it holds still
-   * cannot leak one caller's conversations to another. The cost is that a
-   * page can come back shorter than the page size when the keys on it
-   * belong to somebody else, which is a paging artefact rather than the
-   * end of the collection: `nextCursor` is what says whether more remain.
+   * cannot leak one caller's conversations to another. It runs BEFORE the
+   * page is sliced, not after: `takePage` mints the cursor from the last
+   * row of the page it returns, and a cursor is reversible by design, so
+   * slicing first would hand this caller a foreign session id in an
+   * envelope they can decode. A page can come back shorter than the page
+   * size when the keys on it belong to somebody else, which is a paging
+   * artefact rather than the end of the collection: `nextCursor` is what
+   * says whether more remain.
    */
   async summaries(
     query: AgentSessionListQuery,
@@ -680,7 +685,7 @@ export class AgentSessionRuntime {
     for (const { id, key } of keys) {
       const summary = await this.summary(key, query.scope);
       if (summary === undefined) continue;
-      // The persona is a field now, so filtering by it is a record read
+      // The agent is a field now, so filtering by it is a record read
       // like every other filter rather than a prefix on the key.
       if (query.agent !== undefined && summary.agent !== query.agent) continue;
       if (query.cwd !== undefined && summary.cwd !== query.cwd) continue;
@@ -743,21 +748,22 @@ export class AgentSessionRuntime {
   }
 
   /**
-   * Write to a session on behalf of a named persona: the one path every
+   * Write to a session on behalf of a named agent: the one path every
    * dispatch takes to the record.
    *
    * Two things belong here and nowhere else. A session the store has never
-   * seen is created naming this persona, which is the only moment a record
-   * learns which one it belongs to. And a dispatch naming a persona the
+   * seen is created naming this agent, which is the only moment a record
+   * learns which one it belongs to. And a dispatch naming an agent the
    * record does not is refused rather than served: without this it would
    * run its own executor, with its own system prompt and tools, over a
-   * transcript the stored persona wrote, and the record would keep naming
+   * transcript the stored agent wrote, and the record would keep naming
    * the other one. An agent is never turned into another agent.
    *
-   * {@link setAgent} is the deliberate exception and does not come through
-   * here, because changing the persona is exactly what it is for.
+   * There is no exception. A session belongs to the agent that created it
+   * for its whole life, so a mismatch has only this one outcome and no
+   * path exists to change the field afterwards.
    *
-   * @throws RC5003 when `agent` is not the persona the record names
+   * @throws RC5003 when `agent` is not the agent the record names
    */
   private write(
     key: AgentSessionKey,
@@ -768,7 +774,7 @@ export class AgentSessionRuntime {
       if (record === undefined) return mutate(emptyAgentSession(key, agent));
       if (record.agent !== agent) {
         throw rcError("RC5003", undefined, {
-          message: `Agent session "${key}" belongs to "${record.agent}" and this dispatch names "${agent}". A conversation is answered by one persona, which carries its own system prompt and tools, so a different persona is a different conversation: dispatch "${agent}" with a session id of its own.`,
+          message: `Agent session "${key}" belongs to "${record.agent}" and this dispatch names "${agent}". A conversation is answered by one agent, which carries its own system prompt and tools, so a different agent is a different conversation: dispatch "${agent}" with a session id of its own.`,
         });
       }
       return mutate(record);
@@ -801,60 +807,6 @@ export class AgentSessionRuntime {
         ? { title: init.title }
         : {}),
     }));
-  }
-
-  /**
-   * Change which persona answers a conversation, keeping its id.
-   *
-   * A persona is an attribute of a session rather than part of its
-   * identity, so this is one field on one record: no second key, nothing
-   * to delete, and nothing for a later reconnect to disambiguate.
-   *
-   * It is a set-once choice all the same, and this is where that is
-   * enforced rather than in the caller. A persona carries a system prompt
-   * and a set of tools, so changing it mid-conversation would hand the
-   * model a transcript another persona wrote and a toolset the answers in
-   * that transcript were not produced with. Refused once the conversation
-   * has anything in its transcript, has run a turn, has one running, or
-   * has one claimed here that has not reached the store yet: the record
-   * and the in-process claim are checked together, inside the
-   * compare-and-swap, because a turn is claimed before its marker is
-   * written. The transcript is the durable half, and the one that catches
-   * a first turn that threw or was cancelled: such a turn keeps what it
-   * reached and never counts a turn, so the count alone would let the next
-   * persona inherit a transcript it did not write. That is what makes the check and the
-   * write one act rather than two. A turn that starts while this is
-   * deciding takes the version this write was going to land on, so the
-   * write loses and the retry reads the marker that turn wrote and
-   * refuses; a turn that starts after it reads the persona it changed to.
-   * The two can never both believe they won.
-   *
-   * What the conversation chose about how it runs does not survive the
-   * change. A model or a thinking level was chosen from what one persona
-   * advertises, and keeping whatever the next one happens to advertise too
-   * would make the answer depend on what two agent files have in common.
-   *
-   * @throws RC5003 when the conversation has already started
-   */
-  async setAgent(
-    key: AgentSessionKey,
-    agent: string,
-  ): Promise<AgentSessionRecord> {
-    return this.store.update(key, (record) => {
-      if (record === undefined) return emptyAgentSession(key, agent);
-      if (record.agent === agent) return record;
-      if (
-        record.messages.length > 0 ||
-        record.turns > 0 ||
-        record.turn !== undefined ||
-        this.isRunning(key)
-      ) {
-        throw rcError("RC5003", undefined, {
-          message: `Agent session "${key}" is talking to "${record.agent}" and has already started, so it cannot be moved to "${agent}": a persona carries its own system prompt and tools, and talking to a different one is a different conversation. Start a new session for "${agent}".`,
-        });
-      }
-      return { ...withoutOverrides(record), agent };
-    });
   }
 
   /**
@@ -1382,13 +1334,6 @@ function withoutTurn(record: AgentSessionRecord): AgentSessionRecord {
   // properties, but the record type does not admit one.
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructure to omit
   const { turn: _turn, ...rest } = record;
-  return rest;
-}
-
-function withoutOverrides(record: AgentSessionRecord): AgentSessionRecord {
-  if (record.overrides === undefined) return record;
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructure to omit
-  const { overrides: _overrides, ...rest } = record;
   return rest;
 }
 

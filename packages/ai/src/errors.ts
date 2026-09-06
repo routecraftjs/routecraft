@@ -278,7 +278,7 @@ registerErrorCodes(
       category: "Adapter",
       message: "Session override not offered by the agent",
       suggestion:
-        "A conversation asked to run on a model or a thinking level the agent file does not list. Whoever writes the persona decides what may be changed about it, so the value is refused when it is written rather than silently ignored at the next turn. The message names the value and the list; add it to the agent's `model:` or `reasoning:` list if it should be offered.",
+        "A conversation asked to run on a model or a thinking level the agent file does not list. Whoever writes the agent decides what may be changed about it, so the value is refused when it is written rather than silently ignored at the next turn. The message names the value and the list; add it to the agent's `model:` or `reasoning:` list if it should be offered.",
       docs: `${DOCS_BASE}#ai-1017`,
       retryable: false,
     },

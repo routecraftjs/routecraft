@@ -4,6 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   MemorySuspensionStore,
+  resolveSqliteDriver,
   type SqliteDriverLoaders,
 } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
@@ -284,5 +285,67 @@ describe("session store resolution", () => {
     expect(resolved?.configured).toBe(false);
     expect(resolved?.ownsStore).toBe(true);
     expect(resolved?.store).toBeInstanceOf(DeferredSqliteSessionStore);
+  });
+
+  /**
+   * @case A database written by the prerelease schema opens, migrates, and works
+   * @preconditions A file carrying the version 1 table, keyed by (agent, session) with a NOT NULL agent column, and `user_version` still at 1
+   * @expectedResult It comes up at version 2 keyed by the session id alone, and a create and a read both work. Before the version bump this file kept its old table, because `CREATE TABLE IF NOT EXISTS` does not alter one, and the first write failed on the obsolete column
+   */
+  test("a version 1 database migrates to the session-keyed schema", async () => {
+    const path = join(scratch, "v1.db");
+    const driver = await resolveSqliteDriver("test");
+    const seed = new driver.Database(path);
+    seed.exec(`CREATE TABLE agent_sessions (
+       agent      TEXT    NOT NULL,
+       session    TEXT    NOT NULL,
+       version    INTEGER NOT NULL,
+       record     TEXT    NOT NULL,
+       updated_at INTEGER NOT NULL,
+       PRIMARY KEY (agent, session)
+     );`);
+    seed.exec("INSERT INTO agent_sessions VALUES ('max', 'old', 1, '{}', 0)");
+    seed.exec("PRAGMA user_version = 1");
+    seed.close();
+
+    const store = await SqliteSessionStore.open({ path });
+    // The prerelease row is gone, which the changeset says out loud.
+    expect(await store.keys()).toEqual([]);
+    expect(await store.create(key, { kind: "agent-session" })).toEqual({
+      won: true,
+    });
+    expect((await store.get(key))?.value).toEqual({ kind: "agent-session" });
+    await store.close();
+
+    const check = new driver.Database(path);
+    const row = check.prepare("PRAGMA user_version").get() as {
+      user_version: number;
+    };
+    expect(row.user_version).toBe(2);
+    check.close();
+  });
+
+  /**
+   * @case A fresh database lands on the current version, and reopening it migrates nothing
+   * @preconditions A path with no file, opened twice
+   * @expectedResult Version 2 both times, and the record written by the first open is still there after the second, so an already-current file is left alone
+   */
+  test("a fresh database opens at the current version and stays there", async () => {
+    const path = join(scratch, "fresh.db");
+    const first = await SqliteSessionStore.open({ path });
+    await first.create(key, { kind: "agent-session" });
+    await first.close();
+
+    const second = await SqliteSessionStore.open({ path });
+    expect((await second.get(key))?.value).toEqual({ kind: "agent-session" });
+    await second.close();
+
+    const driver = await resolveSqliteDriver("test");
+    const check = new driver.Database(path);
+    const row = check.prepare("PRAGMA user_version").get() as {
+      user_version: number;
+    };
+    expect(row.user_version).toBe(2);
+    check.close();
   });
 });

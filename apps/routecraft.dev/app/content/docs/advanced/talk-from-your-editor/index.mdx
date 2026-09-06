@@ -76,21 +76,77 @@ Nothing corrupts when that happens. Every write to a record is a compare-and-swa
 
 The safe shape today is one process per store: several editors, several people and several other callers all reaching one instance, which is what a shared store is usually wanted for anyway. Coordinating the turn lock across processes is not in this release.
 
-## Choosing the persona, model and thinking level
+## One agent per editor entry
 
-Editors render the protocol's config options as pickers, and the mount advertises three of them:
+**A `craft acp` process serves exactly one Routecraft agent.** `--agent zoe` chooses it, and every conversation that process opens belongs to Zoe for its whole life. Choosing a different agent means running a different process, which is what an editor's own agent list is for.
+
+Both Zed and JetBrains let you register several custom agents, each with its own display name, command and arguments. So each Routecraft agent gets an entry, and the picker you already use to start a thread is the picker that chooses the agent.
+
+In JetBrains IDEs, `~/.jetbrains/acp.json`:
+
+```json
+{
+  "agent_servers": {
+    "Max": { "command": "craft", "args": ["acp", "--agent", "max"] },
+    "Zoe": { "command": "craft", "args": ["acp", "--agent", "zoe"] },
+    "Bob": { "command": "craft", "args": ["acp", "--agent", "bob"] }
+  }
+}
+```
+
+In Zed, under `agent_servers` in `settings.json`:
+
+```json
+{
+  "agent_servers": {
+    "Max": {
+      "type": "custom",
+      "command": "craft",
+      "args": ["acp", "--agent", "max"]
+    },
+    "Zoe": {
+      "type": "custom",
+      "command": "craft",
+      "args": ["acp", "--agent", "zoe"]
+    }
+  }
+}
+```
+
+Both editors read these from the user's own configuration, so check their current documentation if a field has moved. A profile carries `agent` too, so `craft acp --profile work` is the same choice made once in a file rather than in every entry: see [Profiles](/docs/reference/cli#profiles).
+
+Pick Max in the editor and you get Max conversations, as many as you like, each independent. Pick Zoe and you get Zoe's. The Max entry does not list, open or answer a Zoe conversation: it reports one as it reports an id that was never created, because from where Max is standing there is no such conversation. Reach it through the Zoe entry instead.
+
+An entry that names no agent gets the instance's default: the one agent it holds, or the one `acpPlugin({ agent })` names. An instance holding several with no default configured refuses rather than guessing, because picking one for you is a decision the app never made.
+
+The cross-agent view exists, but not here. The management API's `/ops/agent-sessions` lists every conversation an owner holds whatever agent answers it, which is the operator's question rather than the editor's.
+
+## Choosing the model and thinking level
+
+Editors render the protocol's config options as pickers, and the mount advertises two:
 
 | Option | What it changes | Advertised when |
 | --- | --- | --- |
-| `agent` | Which persona answers | The context holds more than one agent, and nothing has been said yet |
 | `model` | Which model this conversation runs on | The agent file lists more than one |
 | `reasoning` | How hard it thinks per turn | The agent file lists more than one |
 
-A control with nothing to choose is not advertised at all, so an instance with one agent and one model shows no pickers rather than three dead ones. Agent files declare what they offer by writing a list instead of a value: see [Offering a choice](/docs/reference/plugins/agentplugin#offering-a-choice-of-model-or-thinking-level).
+A control with nothing to choose is not advertised at all, so an agent naming one model and one thinking level shows no pickers rather than two dead ones. Agent files declare what they offer by writing a list instead of a value: see [Offering a choice](/docs/reference/plugins/agentplugin#offering-a-choice-of-model-or-thinking-level).
 
-The persona can be changed only before the first turn. A persona carries its own system prompt and its own tools, so changing it mid-conversation would hand the model a transcript another persona wrote and answers produced with tools it does not have: talking to a different persona is a new conversation rather than a setting. The picker is withdrawn once anything is in the transcript rather than left there to snap back, and a client acting on a list it already held is refused with the unchanged list. An early change is one field on one record, since the conversation keeps its id, and it clears the model and thinking level chosen under the old persona rather than carrying them into an agent that may not offer them. The model and the thinking level themselves stay changeable for the life of the conversation.
+Both stay changeable for the life of the conversation, including while a turn is running. A change applies to the next turn rather than to the one in flight, because a turn reads its settings when it starts.
 
-An editor that has no picker names its persona another way: `craft acp --agent zoe` sends a `Routecraft-Agent` header the mount reads.
+## Why agent selection is not an ACP mode
+
+The protocol has a mode mechanism, and Routecraft does not use it for this. That is a position rather than an omission, and it is worth stating because the alternative looks tempting.
+
+**An agent is an identity, not a setting.** Max is not a mode of Zoe. Two agent files carry different system prompts, different tools, different authorization expectations and different behavioural contracts. A conversation is a transcript one of them wrote, using tools the other may not have, so handing it to a second agent would produce answers that read as if the first had given them.
+
+**Modes change during a session; identity cannot.** The protocol allows a mode to be set at any point in a session, idle or mid-turn. Anything reachable that way is by definition not the thing a session is. If which agent answers were a mode, the invalid state would exist and we would be guarding it. Binding the agent to the harness means the state never exists.
+
+**The editor already solved the selection problem.** Registering several agents with their own names is an abstraction both editors ship. Rebuilding it inside a single session would duplicate it one level lower, and worse.
+
+**A session with no agent yet has no answers to give.** If the agent were chosen after `session/new`, then between creation and that choice a session could not say which tools it has, which system prompt applies, which models it offers, or what a prompt arriving early should do. Choosing at the harness means every session knows all of it from the moment it exists.
+
+Modes stay available for what they are actually for: a behavioural variation *within* one agent, if an agent file ever wants to offer one. A mode must never change which agent file owns the session. Should Routecraft grow a "continue this conversation with another agent" feature, it will be a fork producing a new session seeded from the old transcript, and the original will still be the agent it always was.
 
 ## What the editor sees while a turn runs
 

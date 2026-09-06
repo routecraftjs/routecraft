@@ -20,7 +20,12 @@ import {
   type Principal,
 } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
-import { acpPlugin, agentPlugin, llmPlugin } from "../../src/index.ts";
+import {
+  ACP_AGENT_HEADER,
+  acpPlugin,
+  agentPlugin,
+  llmPlugin,
+} from "../../src/index.ts";
 import type { AcpPluginOptions } from "../../src/acp/types.ts";
 import type { AgentRegisteredOptions } from "../../src/agent/types.ts";
 import {
@@ -40,7 +45,16 @@ export interface AcpHarness {
    */
   connect<T>(
     op: (agent: ClientContext, initialized: InitializeResponse) => Promise<T>,
-    options?: { token?: string; capabilities?: ClientOptions },
+    options?: {
+      token?: string;
+      capabilities?: ClientOptions;
+      /**
+       * The agent this connection's harness serves, as `craft acp --agent`
+       * sends it. Absent means the mount's own default, which is what a
+       * harness that named none gets.
+       */
+      agent?: string;
+    },
   ): Promise<T>;
   /** Every `session/update` the client saw, in arrival order, with its time. */
   readonly seen: Array<{ at: number; sessionId: string; update: unknown }>;
@@ -121,10 +135,14 @@ export async function acpHarness(
       );
       options.handlers?.(app);
       const stream = createHttpStream(url, {
-        headers:
-          connectOptions?.token === undefined
+        headers: {
+          ...(connectOptions?.token === undefined
             ? {}
-            : { Authorization: `Bearer ${connectOptions.token}` },
+            : { Authorization: `Bearer ${connectOptions.token}` }),
+          ...(connectOptions?.agent === undefined
+            ? {}
+            : { [ACP_AGENT_HEADER]: connectOptions.agent }),
+        },
       });
       return app.connectWith(stream, async (agent) => {
         const initialized: InitializeResponse = await agent.request(

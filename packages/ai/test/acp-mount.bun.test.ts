@@ -100,9 +100,9 @@ describe("the ACP mount", () => {
   });
 
   /**
-   * @case A context with one agent advertises no persona picker, and one with three does
-   * @preconditions Two instances, one holding a single agent and one holding three, each opening a session
-   * @expectedResult The single-agent instance advertises no `agent` option and no modes at all; the three-agent one advertises both, with every agent listed
+   * @case A control with nothing to choose is not advertised, and which agent answers is never a control
+   * @preconditions Two instances, one holding a single agent and one holding three, each opening a session through a harness bound to max
+   * @expectedResult Neither advertises an `agent` option and neither advertises modes, however many agents the instance holds. The count is what decides whether a model or thinking picker appears; the agent is decided by the harness before the session exists, so it is not a picker at any count
    */
   test("a control with nothing to choose is not advertised", async () => {
     h = await acpHarness({ agents: ONE_AGENT });
@@ -116,6 +116,8 @@ describe("the ACP mount", () => {
     expect(alone.modes ?? undefined).toBeUndefined();
     await h.t.stop();
 
+    // Three agents is where the old design offered a picker. The harness
+    // decides instead, so there is still nothing to advertise.
     h = await acpHarness({
       agents: {
         ...ONE_AGENT,
@@ -130,18 +132,8 @@ describe("the ACP mount", () => {
         modes: session.modes,
       })),
     );
-    const persona = several.options.find((o) => o.id === "agent");
-    expect(persona?.category).toBe("mode");
-    expect(
-      persona?.type === "select"
-        ? persona.options.map((o) => ("value" in o ? o.value : o.group))
-        : [],
-    ).toEqual(["max", "zoe", "ada"]);
-    expect(several.modes?.availableModes.map((m) => m.id)).toEqual([
-      "max",
-      "zoe",
-      "ada",
-    ]);
+    expect(several.options.map((o) => o.id)).toEqual([]);
+    expect(several.modes ?? undefined).toBeUndefined();
   });
 
   /**

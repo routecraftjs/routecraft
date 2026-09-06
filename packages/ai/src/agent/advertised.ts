@@ -2,7 +2,7 @@
  * What an agent offers a caller a choice about, and what a caller's stored
  * choice resolves to.
  *
- * Whoever writes the persona decides what may be changed about it, and the
+ * Whoever writes the agent decides what may be changed about it, and the
  * default is that nothing can be. An agent that names one model and one
  * thinking level advertises no choice at all; one whose file lists several
  * advertises exactly those and never anything else. This module is the one
@@ -34,7 +34,7 @@ export interface AdvertisingAgent {
  * offers that one value, which is a list of one and therefore no choice.
  * An agent with neither offers nothing: its model comes from
  * `agentPlugin({ defaultOptions })` at dispatch, and a context default is
- * not the persona's to give away.
+ * not the agent's to give away.
  */
 export function advertisedModels(
   agent: AdvertisingAgent,
@@ -171,7 +171,7 @@ function assertOffered(
  * An override outside the advertised list is ignored rather than obeyed.
  * It cannot be written in the first place, so reaching this branch means
  * the agent file changed under a record that was valid when it was stored,
- * and running a model the persona no longer offers is the one outcome
+ * and running a model the agent no longer offers is the one outcome
  * nobody asked for.
  */
 export function applyOverrides<T extends AdvertisingAgent>(

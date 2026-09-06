@@ -21,7 +21,6 @@ export {
   acpPlugin,
   ACP_AGENT_HEADER,
   ACP_ROUTE_PREFIX,
-  CONFIG_AGENT,
   CONFIG_MODEL,
   CONFIG_REASONING,
 } from "./acp/index.ts";

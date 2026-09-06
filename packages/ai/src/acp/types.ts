@@ -20,7 +20,7 @@ export interface AcpPluginOptions {
    */
   auth?: HttpAuth | false;
   /**
-   * The persona a client gets when it picks none.
+   * The agent a harness serves when it names none.
    *
    * Unset, a context holding exactly one agent uses it and a context
    * holding several refuses `session/new` with a message naming them all.

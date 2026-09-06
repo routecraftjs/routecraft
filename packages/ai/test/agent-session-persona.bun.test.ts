@@ -1,13 +1,14 @@
 /**
- * One conversation is answered by one persona, for its whole life.
+ * One conversation is answered by one agent, for its whole life.
  *
- * A persona carries a system prompt and a set of tools, so a conversation
- * that changed persona mid-flight would hand a model a transcript another
- * persona wrote and answers produced with tools it does not have. The
- * choice is made before the first message and fixed after it, and these
- * tests hold the three ways that could be got around: a dispatch naming
- * another persona, a change racing a prompt, and a stale setting carried
- * across a change.
+ * An agent carries a system prompt and a set of tools, so a conversation
+ * that changed agent mid-flight would hand a model a transcript another
+ * agent wrote and answers produced with tools it does not have. The
+ * binding is made when the session is created and there is no path to
+ * change it afterwards, so what these tests hold is that the one way in
+ * (a dispatch) refuses, and that nothing a conversation goes through
+ * moves the field: turns that succeed, a turn that throws, and a turn
+ * that is cancelled.
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
@@ -25,11 +26,8 @@ import {
   agentPlugin,
   llmPlugin,
   type AgentResult,
-  type SessionCasResult,
   type SessionStore,
-  type StoredSession,
 } from "../src/index.ts";
-import type { AgentSessionKey } from "../src/agent/session/types.ts";
 import { AgentSessionRuntime } from "../src/agent/session/index.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
 
@@ -45,58 +43,7 @@ const HAIKU = "anthropic:claude-haiku-4-5";
 const ChatMessage = z.object({ session: z.string(), message: z.string() });
 type ChatMessage = z.infer<typeof ChatMessage>;
 
-/**
- * A store that can hold one write open, so the gap between reading a
- * record and writing it back is a gap a test can put a whole turn inside.
- * Everything else delegates to the real in-memory backend.
- */
-class GatingStore implements SessionStore {
-  readonly inner = new MemorySessionStore();
-  #armed = false;
-  #entered: (() => void) | undefined;
-  #released: Promise<void> | undefined;
-
-  /** Hold the next `replace` until the returned release is called. */
-  arm(): { entered: Promise<void>; release: () => void } {
-    this.#armed = true;
-    const entered = new Promise<void>((resolve) => (this.#entered = resolve));
-    let release = (): void => undefined;
-    this.#released = new Promise<void>((resolve) => {
-      release = () => resolve();
-    });
-    return { entered, release };
-  }
-
-  get(key: AgentSessionKey): Promise<StoredSession | undefined> {
-    return this.inner.get(key);
-  }
-  create(key: AgentSessionKey, value: unknown): Promise<SessionCasResult> {
-    return this.inner.create(key, value);
-  }
-  async replace(
-    key: AgentSessionKey,
-    version: number,
-    value: unknown,
-  ): Promise<SessionCasResult> {
-    if (this.#armed) {
-      this.#armed = false;
-      this.#entered?.();
-      await this.#released;
-    }
-    return this.inner.replace(key, version, value);
-  }
-  keys(): Promise<AgentSessionKey[]> {
-    return this.inner.keys();
-  }
-  remove(key: AgentSessionKey): Promise<void> {
-    return this.inner.remove(key);
-  }
-  close(): Promise<void> {
-    return this.inner.close();
-  }
-}
-
-describe("one conversation, one persona", () => {
+describe("one conversation, one agent", () => {
   let t: TestContext | undefined;
 
   beforeEach(() => {
@@ -196,96 +143,69 @@ describe("one conversation, one persona", () => {
   });
 
   /**
-   * @case A turn that starts inside the persona change's own read-to-write gap does not let the change land
-   * @preconditions A conversation opened under max with nothing said yet. A store that holds the change's write open, and a whole turn under max run and completed inside that gap before the write is released
-   * @expectedResult The held write loses its compare-and-swap, re-reads the turn max ran, and is refused. The record still names max and carries max's transcript, so the check and the write are one act rather than two
+   * @case The agent on the record survives everything a conversation goes through
+   * @preconditions One session under max taken through a completed turn, a turn whose provider throws, and a turn cancelled by an interrupting message
+   * @expectedResult The record still names max at every step. The runtime exposes no way to change it, so what is asserted here is that nothing incidental does: a failed turn keeps a partial transcript and counts no turn, and a cancelled one keeps what it reached, and neither touches the field
    */
-  test("a persona change cannot land around a turn that started inside it", async () => {
-    const store = new GatingStore();
-    t = await boot(store);
-    await t.startAndWaitReady();
-    const runtime = AgentSessionRuntime.for(t.ctx);
-    const session = "gap";
-    await runtime.open(session, "max", { owner: null });
-
-    const gate = store.arm();
-    const change = runtime.setAgent(session, "zoe");
-    // Held as an outcome rather than asserted here: the refusal cannot be
-    // read until the write is released, and a rejection nobody is holding
-    // while the turn runs is an unhandled one.
-    const refused = change.then(
-      () => undefined,
-      (err: unknown) => err,
-    );
-    await gate.entered;
-
-    // The whole turn, inside the gap: max answers and the record is max's.
-    llm.script.push({ text: "max here" });
-    const answer = await send(t, "to-max", { session, message: "hello" });
-    expect(answer.text).toBe("max here");
-
-    gate.release();
-    expect(String(await refused)).toMatch(/has already started/);
-
-    const record = await runtime.store.load(session);
-    expect(record?.agent).toBe("max");
-    expect(record?.turns).toBe(1);
-    expect(record?.messages).toHaveLength(2);
-  });
-
-  /**
-   * @case A persona change refuses once the conversation has started
-   * @preconditions A conversation that has run one turn under max
-   * @expectedResult RC5003 naming the conversation, and the record still names max, so the rule holds at the runtime and not only at the surface that calls it
-   */
-  test("a persona change after the first turn is refused", async () => {
+  test("the agent on the record survives turns, failure and cancellation", async () => {
     t = await boot();
     await t.startAndWaitReady();
     const runtime = AgentSessionRuntime.for(t.ctx);
+    const session = "lifelong";
 
     llm.script.push({ text: "max here" });
-    await send(t, "to-max", { session: "started", message: "hello" });
+    await send(t, "to-max", { session, message: "hello" });
+    expect((await runtime.store.load(session))?.agent).toBe("max");
 
-    await expect(runtime.setAgent("started", "zoe")).rejects.toThrow(
-      /has already started/,
-    );
-    expect((await runtime.store.load("started"))?.agent).toBe("max");
-  });
-
-  /**
-   * @case A first turn that failed still locks the persona
-   * @preconditions A first message whose turn throws, leaving the user message in the transcript with no turn counted and no marker left behind
-   * @expectedResult The change is refused. The transcript is what the lock reads, because a failed turn keeps what it reached and never counts a turn, so a count-only rule would hand the next persona a conversation max had already started
-   */
-  test("a failed first turn keeps the persona fixed", async () => {
-    t = await boot();
-    await t.startAndWaitReady();
-    const runtime = AgentSessionRuntime.for(t.ctx);
-    const session = "failed";
-
-    // Nothing scripted: the provider throws, and the turn with it.
+    // A turn that throws: nothing scripted, so the provider fails.
     await expect(
-      send(t, "to-max", { session, message: "hello" }),
+      send(t, "to-max", { session, message: "again" }),
     ).rejects.toThrow();
+    const failed = await runtime.store.load(session);
+    expect(failed?.agent).toBe("max");
+    // The hazard the old turn-count lock missed is still reachable: a
+    // failed turn leaves a transcript and counts nothing.
+    expect(failed?.turns).toBe(1);
+    expect(failed?.messages.length).toBeGreaterThan(2);
 
-    // The hazard is reachable: on the turn count alone this is untouched.
-    const after = await runtime.store.load(session);
-    expect(after?.turns).toBe(0);
-    expect(after?.turn).toBeUndefined();
-    expect(after?.messages.length).toBeGreaterThan(0);
-
-    await expect(runtime.setAgent(session, "zoe")).rejects.toThrow(
-      /has already started/,
-    );
+    llm.script.push({ text: "max again" });
+    await send(t, "to-max", { session, message: "third" });
     expect((await runtime.store.load(session))?.agent).toBe("max");
   });
 
   /**
-   * @case What the conversation chose does not survive the persona change
-   * @preconditions A conversation on max with a model chosen from what max advertises, switched to zoe before it has said anything
-   * @expectedResult The record carries no overrides afterwards, so the next turn runs on zoe's own default rather than on a model chosen from another agent's list
+   * @case A conversation opened under one agent cannot be adopted by another through any runtime path
+   * @preconditions A session opened under max with nothing said, which is the state the old design allowed a change in
+   * @expectedResult A dispatch naming zoe is refused even here, so the rule is the record's rather than the transcript's. There is no setAgent to try: `write()` is the only door and it refuses on the field alone
    */
-  test("a persona change clears the model and thinking level", async () => {
+  test("an empty conversation is still its agent's", async () => {
+    t = await boot();
+    await t.startAndWaitReady();
+    const runtime = AgentSessionRuntime.for(t.ctx);
+    const session = "empty";
+
+    await runtime.open(session, "max", { owner: null });
+    const before = await runtime.store.load(session);
+    expect(before?.agent).toBe("max");
+    expect(before?.messages).toHaveLength(0);
+    expect(before?.turns).toBe(0);
+
+    llm.script.push({ text: "zoe here" });
+    await expect(
+      send(t, "to-zoe", { session, message: "hello" }),
+    ).rejects.toThrow(/belongs to "max" and this dispatch names "zoe"/);
+
+    const after = await runtime.store.load(session);
+    expect(after?.agent).toBe("max");
+    expect(after?.messages).toHaveLength(0);
+  });
+
+  /**
+   * @case Overrides chosen under one agent are never carried to another
+   * @preconditions A conversation on max with a model chosen from what max advertises, then a dispatch naming zoe
+   * @expectedResult The dispatch is refused and max keeps its own choice. Under the old design this was a clearing rule on the change; with no change to make, the property is that zoe never sees max's record at all
+   */
+  test("a model chosen under one agent never reaches another", async () => {
     t = await boot();
     await t.startAndWaitReady();
     const runtime = AgentSessionRuntime.for(t.ctx);
@@ -293,11 +213,14 @@ describe("one conversation, one persona", () => {
 
     await runtime.open(session, "max", { owner: null });
     await runtime.configure(session, "max", { model: HAIKU });
-    expect((await runtime.store.load(session))?.overrides).toEqual({
-      model: HAIKU,
-    });
 
-    await runtime.setAgent(session, "zoe");
-    expect((await runtime.store.load(session))?.overrides).toBeUndefined();
+    llm.script.push({ text: "zoe here" });
+    await expect(
+      send(t, "to-zoe", { session, message: "hello" }),
+    ).rejects.toThrow(/belongs to "max"/);
+
+    const record = await runtime.store.load(session);
+    expect(record?.agent).toBe("max");
+    expect(record?.overrides).toEqual({ model: HAIKU });
   });
 });
