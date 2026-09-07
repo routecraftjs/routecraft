@@ -31,18 +31,16 @@ import type { AcpPluginOptions } from "./types.ts";
  * ```ts
  * export default defineConfig({
  *   servers: { default: { port: 8080 } },
- *   plugins: [
- *     agentPlugin({ agents: await agents("./agents") }),
- *     acpPlugin(),
- *   ],
+ *   acp: { auth },
  * });
  * ```
  *
- * **Order matters, and it is checked.** The plugin builds one route per
- * agent when it applies, so it has to apply after the `agentPlugin()` that
- * registers them. A context whose registry is empty at that moment fails
- * the build with a message saying so, rather than serving a protocol with
- * nothing behind it.
+ * The `acp` key is the first-party form and applies after `agent` in any
+ * key order. As a plugin in `plugins`, **order matters, and it is
+ * checked.** The plugin builds one route per agent when it applies, so it
+ * has to apply after the `agentPlugin()` that registers them. A context
+ * whose registry is empty at that moment fails the build with a message
+ * saying so, rather than serving a protocol with nothing behind it.
  *
  * Every agent the context holds is advertised to every credential holder.
  * There is no per-agent visibility rule: agents are not what carries the
@@ -66,8 +64,8 @@ export function acpPlugin(options: AcpPluginOptions = {}): CraftPlugin {
       if (agents === undefined || agents.size === 0) {
         throw rcError("RC5003", undefined, {
           message:
-            "acpPlugin() serves the agents this context has registered, and none were registered when it applied. " +
-            "List acpPlugin() after the agentPlugin() that registers them in `plugins`.",
+            "ACP serves the agents this context has registered, and none were registered when it applied. " +
+            "Write the agents under `agent:` (or let `craft start` discover them), or list acpPlugin() after the agentPlugin() that registers them in `plugins`.",
         });
       }
       runtime = new AcpRuntime(context, options);

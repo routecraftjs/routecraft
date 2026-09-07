@@ -16,6 +16,22 @@ Nothing ships switched off. Installing the plugin serves the protocol, and the f
 
 ```ts
 import { defineConfig } from '@routecraft/routecraft'
+import '@routecraft/ai'
+
+export const craftConfig = defineConfig({
+  servers: {
+    default: { port: 8080 },
+  },
+  acp: {},
+})
+```
+
+The `acp` key is the first-party form, beside `mcp`, and takes the same options as the factory. It serves the agents `craft start` discovers under `agents/` or the ones written under `agent`, in any key order: see the [configuration reference](/docs/reference/configuration#acp). An instance holding no agents when the mount applies fails the build with `RC5003`, so a project with no agents needs one before the mount has anything to serve.
+
+The factory is for `plugins`, where it must follow the `agentPlugin()` that registers the agents:
+
+```ts
+import { defineConfig } from '@routecraft/routecraft'
 import { acpPlugin, agentPlugin } from '@routecraft/ai'
 
 export const craftConfig = defineConfig({
@@ -29,8 +45,6 @@ export const craftConfig = defineConfig({
 })
 ```
 
-`agentPlugin()` takes no list here because `craft start` discovers the project's `agents/` folder. An instance whose registry is empty when this plugin applies fails the build with `RC5003`, so a project with no agents needs one before the mount has anything to serve.
-
 **Options:**
 
 | Option | Type | Default | Description |
@@ -43,9 +57,9 @@ export const craftConfig = defineConfig({
 | `agentInfo` | `{ name?, title?, version? }` | `{ name: 'routecraft', title: 'Routecraft', version }` | What the editor calls this agent |
 | `toolCallPayloads` | `boolean` | `true` | Whether a tool call's arguments and result reach the editor |
 
-## Order matters, and it is checked
+## Order matters in `plugins`, and it is checked
 
-The plugin builds one route per registered agent when it applies, so it has to apply **after** the `agentPlugin()` that registers them. A context whose agent registry is empty at that moment fails the build with a message saying so, rather than serving a protocol with nothing behind it.
+The mount builds one route per registered agent when it applies, so it has to apply **after** the agents are registered. The `acp` key does this on its own: config keys apply in a fixed order with `acp` last, before anything in `plugins`. As a plugin in `plugins`, `acpPlugin()` has to be listed after `agentPlugin()`. A context whose agent registry is empty at that moment fails the build with a message saying so, rather than serving a protocol with nothing behind it.
 
 ## Which agent a client talks to
 
