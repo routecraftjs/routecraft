@@ -2,7 +2,7 @@
 "@routecraft/cli": patch
 ---
 
-`craft acp` reconnects when the instance behind it restarts.
+`craft acp` reconnects when the instance behind it restarts (#754).
 
 The bridge used to exit the moment the instance went away, and an editor that keeps the process for the life of its window (JetBrains among them) does not start another, so a restarted instance meant a dead window until the editor itself was restarted. The bridge now stays up through the outage and reconnects on its own: it waits for the address to answer again, a quarter of a second at first and then doubling to every five seconds for as long as the editor is open, initializes the new instance with what the editor said the first time, and resumes every conversation the editor had open by its id, so the editor's next message is answered as if nothing happened. Resumed rather than loaded: nothing is replayed onto a screen that already shows it.
 
