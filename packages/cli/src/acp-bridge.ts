@@ -206,10 +206,10 @@ class Bridge {
       // Reported once, by the caller building the command's result from
       // the `editor-error` outcome; a line here too would say the same
       // thing twice for a failure the process is exiting on regardless.
-      this.editorClosed(error);
+      this.editorClosed(true, error);
       return;
     }
-    this.editorClosed();
+    this.editorClosed(false);
   }
 
   private async fromEditor(message: RpcMessage): Promise<void> {
@@ -309,16 +309,19 @@ class Bridge {
   private toEditor(message: RpcMessage): void {
     this.editorChain = this.editorChain
       .then(() => this.editorWriter.write(message))
-      .catch((error: unknown) => this.editorClosed(error));
+      .catch((error: unknown) => this.editorClosed(true, error));
   }
 
   /**
-   * The editor's side ended: cleanly (its stream closed, `error`
-   * undefined) or not (its stream broke, `error` given). Either way there
+   * The editor's side ended: cleanly (its stream closed, `hadError`
+   * false) or not (its stream broke, `hadError` true). Either way there
    * is nothing left to relay to, so the teardown is the same; only the
-   * outcome the command reports differs.
+   * outcome the command reports differs. `hadError` carries that,
+   * separately from `error` itself: a rejection can be `undefined` (a
+   * bare `controller.error()` is valid), so the error's own value can
+   * never be what tells a genuine failure apart from a clean close.
    */
-  private editorClosed(error?: unknown): void {
+  private editorClosed(hadError: boolean, error?: unknown): void {
     if (this.state === "done") return;
     this.state = "done";
     this.stopped.abort();
@@ -331,9 +334,7 @@ class Bridge {
     void this.writer?.close().catch(() => undefined);
     void this.editorWriter.close().catch(() => undefined);
     this.settle(
-      error === undefined
-        ? { kind: "editor-closed" }
-        : { kind: "editor-error", error },
+      hadError ? { kind: "editor-error", error } : { kind: "editor-closed" },
     );
   }
 

@@ -395,4 +395,26 @@ describe("runBridge", () => {
     expect(settled.kind).toBe("editor-error");
     expect(settled).toEqual({ kind: "editor-error", error: failure });
   });
+
+  /**
+   * @case The editor's readable erroring with `undefined` as the rejection reason is still reported as editor-error, not mistaken for a clean close
+   * @preconditions An editor transport whose readable errors via `controller.error()` with no argument, which rejects the pending read with `undefined`
+   * @expectedResult The outcome is `editor-error` with `error: undefined`; a rejection's own value being `undefined` must not be read as "no error happened", since that value is exactly what a clean close also looks like unless it is tracked separately
+   */
+  test("the editor readable erroring with undefined is still editor-error, not editor-closed", async () => {
+    const editor = transport();
+    const instance = respondingTransport();
+
+    const outcome = runBridge({
+      editor: editor.transport,
+      connect: () => instance.transport,
+      target: "test://instance",
+      log: () => undefined,
+    });
+
+    editor.fail(undefined);
+
+    const settled = await outcome;
+    expect(settled).toEqual({ kind: "editor-error", error: undefined });
+  });
 });
