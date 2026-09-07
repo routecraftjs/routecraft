@@ -34,8 +34,11 @@ export interface SqlitePathConflict {
  * `":memory:"` is exempt: each in-memory database is private to the
  * connection that opened it, so two stores asking for one never meet.
  *
- * Re-claiming by the same claimant succeeds, because resolution runs more
- * than once in a context that reloads its configuration.
+ * A claimant holds at most one path, because each names one setting and a
+ * setting chooses one store. Claiming a second path releases the first: an
+ * unconfigured default is resolved and later replaced by the block that
+ * configures it, and the path the default gave up must not go on blocking
+ * another store that legitimately wants it.
  *
  * @param options.scope - The context the claim belongs to.
  * @param options.path - Database path as configured.
@@ -61,6 +64,11 @@ export function claimDatabasePath(options: {
   const owner = held.get(resolved);
   if (owner !== undefined && owner !== claimant) {
     throw onConflict({ path, held: owner, claimant });
+  }
+  // Released only once the new claim is known to be good, so a refused
+  // claim leaves the claimant holding what it already had.
+  for (const [other, by] of held) {
+    if (by === claimant && other !== resolved) held.delete(other);
   }
   held.set(resolved, claimant);
 }

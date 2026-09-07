@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  claimDatabasePath,
   MemorySuspensionStore,
   resolveSqliteDriver,
   SQLITE_APPLICATION_IDS,
@@ -13,6 +14,7 @@ import { testContext, type TestContext } from "@routecraft/testing";
 import { agentPlugin, llmPlugin } from "../src/index.ts";
 import {
   AgentSessionRuntime,
+  DEFAULT_SESSION_DB_PATH,
   MemorySessionStore,
   SESSION_STORE_ENV,
   SqliteSessionStore,
@@ -472,5 +474,105 @@ describe("session store resolution", () => {
     expect(failure!.message).toContain("suspension: { store }");
     expect(failure!.message).toContain(path);
     expect(failure).toMatchObject({ rc: "AI1012" });
+  });
+
+  /**
+   * @case A foreign file whose only schema object is a view is refused, not claimed
+   * @preconditions An unstamped file at a migratable version holding a view and no tables
+   * @expectedResult Refused as foreign, and the file is left untouched with application_id still 0. Deciding emptiness over tables alone read a view-only file as unused, stamped it, and created agent_sessions inside somebody else's database
+   */
+  test("a file holding only a view is not mistaken for an empty one", async () => {
+    const path = join(scratch, "view-only.db");
+    const driver = await resolveSqliteDriver("test");
+    const seed = new driver.Database(path);
+    seed.exec("CREATE TABLE base (id TEXT PRIMARY KEY)");
+    seed.exec("CREATE VIEW somebody_elses_view AS SELECT id FROM base");
+    seed.exec("DROP TABLE base");
+    seed.close();
+
+    const failure = await SqliteSessionStore.open({ path }).then(
+      () => undefined,
+      (err: Error) => err,
+    );
+    expect(failure).toBeDefined();
+    expect(failure!.message).toContain("is not an agent session store");
+
+    const check = new driver.Database(path);
+    expect(
+      (
+        check.prepare("PRAGMA application_id").get() as {
+          application_id: number;
+        }
+      ).application_id,
+    ).toBe(0);
+    expect(
+      check
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+        .all(),
+    ).toEqual([]);
+    check.close();
+  });
+
+  /**
+   * @case A path a replaced store gave up stops blocking another store
+   * @preconditions The unconfigured default resolves and claims the default path, then a sessions block replaces it with a different path
+   * @expectedResult The default path is free for the suspension store to claim. Holding the released path refused a valid configuration, because agentPlugin resolves a default that sessionsPlugin then closes and replaces
+   */
+  test("replacing the session store releases the path it gave up", async () => {
+    t = await testContext().build();
+    await createSessionStore(t.ctx, {}, false);
+    const explicit = await createSessionStore(t.ctx, {
+      store: { path: join(scratch, "moved-elsewhere.db") },
+    });
+    await explicit.close();
+
+    expect(() =>
+      claimDatabasePath({
+        scope: t!.ctx,
+        path: DEFAULT_SESSION_DB_PATH,
+        claimant: "suspension: { store }",
+        onConflict: (conflict) =>
+          new Error(`refused, held by ${conflict.held}`),
+      }),
+    ).not.toThrow();
+  });
+
+  /**
+   * @case A refused claim leaves the claimant holding what it already had
+   * @preconditions One claimant holding a path, then failing to claim a second one another claimant owns
+   * @expectedResult The first path is still held, so releasing on replacement never drops a claim on a claim that did not succeed
+   */
+  test("a refused claim does not release the path already held", () => {
+    const scope = {};
+    const first = join(scratch, "held-first.db");
+    const taken = join(scratch, "taken-by-other.db");
+    claimDatabasePath({
+      scope,
+      path: first,
+      claimant: "sessions: { store }",
+      onConflict: () => new Error("unexpected"),
+    });
+    claimDatabasePath({
+      scope,
+      path: taken,
+      claimant: "suspension: { store }",
+      onConflict: () => new Error("unexpected"),
+    });
+    expect(() =>
+      claimDatabasePath({
+        scope,
+        path: taken,
+        claimant: "sessions: { store }",
+        onConflict: () => new Error("refused"),
+      }),
+    ).toThrow("refused");
+    expect(() =>
+      claimDatabasePath({
+        scope,
+        path: first,
+        claimant: "suspension: { store }",
+        onConflict: () => new Error("still held"),
+      }),
+    ).toThrow("still held");
   });
 });

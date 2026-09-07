@@ -142,6 +142,7 @@ export function migrateSqlite(
       { user_version?: number } | undefined;
     current = row?.user_version ?? 0;
     const tables = tablesIn(db);
+    const empty = schemaIsEmpty(db);
     const stamped =
       (
         db.prepare("PRAGMA application_id").get() as
@@ -161,10 +162,15 @@ export function migrateSqlite(
       });
       throw refusal;
     }
-    // An unstamped file predates stamping, so its tables are the only
-    // evidence. An empty one is ours to claim; one already carrying our
-    // table is ours to adopt; one carrying somebody else's schema is not.
-    if (stamped === 0 && tables.length > 0 && !tables.includes(identityTable)) {
+    // An unstamped file predates stamping, so its schema is the only
+    // evidence. A file with none at all is ours to claim; one already
+    // carrying our table is ours to adopt; anything else is not.
+    //
+    // Emptiness is decided over every schema object rather than over
+    // tables, because a file holding only views, indexes or triggers has no
+    // tables and still belongs to somebody. The table subset stays the
+    // evidence for ownership, since identityTable is a table.
+    if (stamped === 0 && !empty && !tables.includes(identityTable)) {
       refusal = onFailure({
         kind: "foreign",
         cause: undefined,
@@ -222,8 +228,22 @@ export function migrateSqlite(
 }
 
 /**
- * The file's own table names. Read inside the migration transaction, where
- * it is the only evidence of what an unstamped file holds.
+ * Whether the file carries no schema of its own, which is what makes it
+ * safe to claim. Counted over every object type, so a file holding only a
+ * view, an index or a trigger is not mistaken for an unused one.
+ */
+function schemaIsEmpty(db: SqliteDatabase): boolean {
+  const row = db
+    .prepare(
+      "SELECT count(*) AS objects FROM sqlite_master WHERE name NOT LIKE 'sqlite_%'",
+    )
+    .get() as { objects: number };
+  return row.objects === 0;
+}
+
+/**
+ * The file's own table names, the evidence for ownership and for naming
+ * what a foreign file actually holds.
  */
 function tablesIn(db: SqliteDatabase): string[] {
   const rows = db
