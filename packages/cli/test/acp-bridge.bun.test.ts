@@ -228,7 +228,7 @@ describe("runBridge", () => {
 
   /**
    * @case A request still waiting in the outage queue when a second failure interrupts the reconnect is not answered twice: once now for the outage, and again for real once it is actually delivered
-   * @preconditions Two requests queued during an outage; the reconnection that follows delivers the first successfully, then fails writing the second while the third is still waiting behind it in the queue; the next reconnection after that delivers both for real
+   * @preconditions Two requests queued during an outage; the reconnection that follows fails writing the first of them back while the second is still waiting behind it in the queue; the next reconnection after that delivers both for real
    * @expectedResult The request still in the queue when the second failure hits gets no outage answer at all, only the one real answer once it is actually sent; nothing the editor sees is answered more than once
    */
   test("a request still queued when a second failure hits is not answered twice", async () => {
