@@ -72,3 +72,28 @@ export function claimDatabasePath(options: {
   }
   held.set(resolved, claimant);
 }
+
+/**
+ * Give up a claim, when the store that made it will not open the file
+ * after all.
+ *
+ * The unconfigured suspension and session stores degrade to memory rather
+ * than fail when no sqlite driver is available. A claim left behind by
+ * that fallback holds a path nothing is using, and turns a deliberate
+ * degradation into a boot error for whichever store asks for it next.
+ *
+ * Releases only a claim this claimant holds, so it can never drop
+ * somebody else's.
+ */
+export function releaseDatabasePath(options: {
+  scope: object;
+  path: string;
+  claimant: string;
+}): void {
+  const { scope, path, claimant } = options;
+  if (path === ":memory:") return;
+  const held = claims.get(scope);
+  if (held === undefined) return;
+  const resolved = resolveDatabasePath(path);
+  if (held.get(resolved) === claimant) held.delete(resolved);
+}

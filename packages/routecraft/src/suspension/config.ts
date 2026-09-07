@@ -7,7 +7,10 @@ import {
   SqliteSuspensionStore,
 } from "./sqlite-store.ts";
 import type { SqliteDriverLoaders } from "../shared/sqlite/driver.ts";
-import { claimDatabasePath } from "../shared/sqlite/claims.ts";
+import {
+  claimDatabasePath,
+  releaseDatabasePath,
+} from "../shared/sqlite/claims.ts";
 import { rcError } from "../error.ts";
 import {
   type ResumeTokenSigner,
@@ -299,6 +302,14 @@ export async function createSuspensionRuntime(
     return runtime(store, "sqlite", true);
   } catch (err) {
     if (explicit) throw err;
+    // Nothing opened the file, so nothing may go on holding it: this
+    // fallback is a deliberate degradation, and a claim left behind would
+    // refuse the next store to ask for a path no store is using.
+    releaseDatabasePath({
+      scope: context,
+      path,
+      claimant: "suspension: { store }",
+    });
     context.logger.warn(
       { err, path },
       "No durable suspension store available; parked exchanges will NOT survive a restart. Install better-sqlite3 (Node) or configure suspension: { store } to keep suspensions durable.",

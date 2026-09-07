@@ -674,6 +674,7 @@ export {
 } from "./shared/sqlite/database.ts";
 export {
   claimDatabasePath,
+  releaseDatabasePath,
   type SqlitePathConflict,
 } from "./shared/sqlite/claims.ts";
 

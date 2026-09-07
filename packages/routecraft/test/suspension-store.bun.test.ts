@@ -3,7 +3,11 @@ import { spawn } from "node:child_process";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import { testContext } from "@routecraft/testing";
+import { createSuspensionRuntime } from "../src/suspension/config.ts";
+import { claimDatabasePath } from "../src/shared/sqlite/claims.ts";
 import {
+  DEFAULT_SUSPENSION_DB_PATH,
   MemorySuspensionStore,
   SqliteSuspensionStore,
   stepStateFingerprint,
@@ -1083,5 +1087,38 @@ describe("MemorySuspensionStore injected states", () => {
     expect(await store.purgeSettled(new Date("2999-01-01"))).toBe(0);
     expect((await store.get("undated"))?.status).toBe("resumed");
     await store.close();
+  });
+});
+
+describe("suspension store path claims", () => {
+  /** Loaders for a runtime that has no sqlite driver at all. */
+  const absentDriver = {
+    bun: () => Promise.reject(new Error("no bun:sqlite here")),
+    node: () => Promise.reject(new Error("no better-sqlite3 here")),
+  };
+
+  /**
+   * @case A suspension store that degrades to memory does not keep holding its path
+   * @preconditions An unconfigured suspension store with no sqlite driver available, so it falls back to memory
+   * @expectedResult The path it never opened is free for another store to claim. Holding it turned a deliberate degradation into a boot error, refusing a store over a file nothing had open
+   */
+  test("a suspension store that falls back to memory releases its path", async () => {
+    const t = await testContext().build();
+    const runtime = await createSuspensionRuntime(t.ctx, {
+      loaders: absentDriver,
+      allowEphemeralSecret: true,
+    });
+    expect(runtime.backend).toBe("memory");
+
+    expect(() =>
+      claimDatabasePath({
+        scope: t.ctx,
+        path: DEFAULT_SUSPENSION_DB_PATH,
+        claimant: "sessions: { store }",
+        onConflict: (conflict) =>
+          new Error(`refused, held by ${conflict.held}`),
+      }),
+    ).not.toThrow();
+    await t.stop?.();
   });
 });
