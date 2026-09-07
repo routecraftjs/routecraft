@@ -2,10 +2,14 @@
  * `craft acp`: the pipe an editor runs.
  *
  * An editor starts one process and speaks the Agent Client Protocol to it
- * over its standard input and output. This is that process, and it is a
- * pipe and nothing else: newline-delimited JSON on the editor side,
- * Streamable HTTP on the instance side, every message forwarded verbatim
- * in both directions.
+ * over its standard input and output. This is that process: newline-
+ * delimited JSON on the editor side, Streamable HTTP on the instance side,
+ * every message forwarded verbatim in both directions.
+ *
+ * It is a pipe that re-establishes itself. An editor keeps the process for
+ * as long as its window is open and does not start another when the
+ * instance behind it restarts, so the relay stays up through an outage
+ * and reconnects on its own; what that involves is in `acp-bridge.ts`.
  *
  * It never starts an app. `craft start` owns running, which is what makes
  * one editor entry reach a laptop or a company instance by switching a
@@ -18,6 +22,7 @@
 
 import { Readable } from "node:stream";
 
+import { runBridge, type BridgeTransport } from "./acp-bridge.js";
 import {
   describeSource,
   resolveSettings,
@@ -62,6 +67,12 @@ export interface AcpOptions extends SettingsOverrides {
   /** The editor's side of the pipe. Defaults to this process's streams. */
   stdin?: ReadableStream<Uint8Array>;
   stdout?: WritableStream<Uint8Array>;
+  /**
+   * Where a diagnostic line goes while the bridge runs: an outage, a
+   * reconnection, a conversation the instance came back without. Standard
+   * error by default; standard output belongs to the protocol.
+   */
+  stderr?: (line: string) => void;
 }
 
 /**
@@ -97,12 +108,29 @@ function stdinStream(): ReadableStream<Uint8Array> {
 }
 
 /**
- * Run the bridge until the editor closes its side or the instance drops.
+ * The SDK types its transports by message shape rather than by
+ * {@link BridgeTransport}; the relay reads only the JSON-RPC envelope, which
+ * every shape carries. Routing both the editor pipe and the instance
+ * connection through this one cast means an SDK shape change that drops
+ * `readable`/`writable` fails to compile here, rather than silently at two
+ * separate call sites.
+ */
+function asBridgeTransport(transport: {
+  readonly readable: ReadableStream<unknown>;
+  readonly writable: WritableStream<never>;
+}): BridgeTransport {
+  return transport as unknown as BridgeTransport;
+}
+
+/**
+ * Run the bridge until the editor closes its side.
  *
- * Both halves are the SDK's own transports, so nothing here parses the
- * protocol: a message that arrives is a message that is forwarded, and a
- * version of the protocol this build has never heard of passes through
- * unchanged.
+ * Both halves are the SDK's own transports. The relay reads each message
+ * only far enough to know what it is (a request, its answer, which
+ * conversation it names), so a version of the protocol this build has
+ * never heard of still passes through unchanged. An instance that drops
+ * after the first exchange is waited for and reconnected to; one that
+ * never answers at all is reported, because that is an address to check.
  */
 export async function acpCommand(options: AcpOptions = {}): Promise<AcpResult> {
   let settings;
@@ -141,36 +169,31 @@ export async function acpCommand(options: AcpOptions = {}): Promise<AcpResult> {
   // One cookie store for the process: the SDK uses it for routing
   // affinity, so a reconnect lands on the instance that holds the
   // conversation rather than on a sibling behind the same address.
-  const instance = createHttpStream(url, {
-    headers,
-    cookieStore: new MemoryAcpCookieStore(),
-  });
+  const cookieStore = new MemoryAcpCookieStore();
   const editor = ndJsonStream(
     options.stdout ?? stdoutStream(),
     options.stdin ?? stdinStream(),
   );
 
-  try {
-    // Both directions are awaited, and one ending settles the other
-    // through the streams themselves rather than through anything here.
-    // `pipeTo` closes its destination when its source ends, so an editor
-    // closing stdin closes the transport's writable, which closes the
-    // transport, which closes the readable the other direction is reading;
-    // a transport that fails errors that readable instead. Either way both
-    // settle. The tests hold this: an instance stopped while stdin is
-    // deliberately left open still ends the bridge.
-    await Promise.all([
-      editor.readable.pipeTo(instance.writable),
-      instance.readable.pipeTo(editor.writable),
-    ]);
-    return { code: 0 };
-  } catch (error: unknown) {
-    // The family's code for an address nothing answered on, so a script
-    // that already branches on `craft exec`'s exit codes reads this one
-    // the same way.
+  const outcome = await runBridge({
+    editor: asBridgeTransport(editor),
+    connect: () =>
+      asBridgeTransport(createHttpStream(url, { headers, cookieStore })),
+    target: url,
+    log: options.stderr ?? ((line) => process.stderr.write(`${line}\n`)),
+  });
+  if (outcome.kind === "editor-closed") return { code: 0 };
+  if (outcome.kind === "editor-error") {
     return {
-      code: EXEC_EXIT.unreachable,
-      error: `Lost the connection to ${url} (from the ${describeSource(settings.url)}): ${messageOf(error)}`,
+      code: EXEC_EXIT.failed,
+      error: `The editor's side of the pipe failed: ${messageOf(outcome.error)}`,
     };
   }
+  // The family's code for an address nothing answered on, so a script
+  // that already branches on `craft exec`'s exit codes reads this one
+  // the same way.
+  return {
+    code: EXEC_EXIT.unreachable,
+    error: `Could not reach ${url} (from the ${describeSource(settings.url)}): ${messageOf(outcome.error)}`,
+  };
 }

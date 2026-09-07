@@ -1,0 +1,420 @@
+/**
+ * `runBridge`, the relay behind `craft acp`, driven directly against
+ * synthetic transports.
+ *
+ * `acp.bun.test.ts` exercises the relay through a real protocol server and
+ * real wall-clock delays; this file exercises the state machine itself, with
+ * `delays` and `handshakeTimeoutMs` shrunk to milliseconds so the backoff
+ * ladder, the handshake timeout, and the periodic "still waiting" line are
+ * covered without a slow suite.
+ */
+
+import { describe, expect, test } from "bun:test";
+
+import {
+  runBridge,
+  type BridgeTransport,
+  type RpcMessage,
+} from "../src/acp-bridge.js";
+
+/** Attempts between "still trying" lines; mirrors the constant in acp-bridge.ts. */
+const ATTEMPTS_PER_LOG = 12;
+
+/**
+ * One side of a synthetic transport, with a controller to drive its
+ * readable. `onWrite` sees every message the bridge writes; it can `push`
+ * a reply on the readable, or throw to make that one write itself fail
+ * (as a real transport's write does when the connection is already gone).
+ */
+function transport(
+  onWrite?: (message: RpcMessage, push: (message: RpcMessage) => void) => void,
+): {
+  transport: BridgeTransport;
+  push: (message: RpcMessage) => void;
+  fail: (error: unknown) => void;
+  close: () => void;
+  written: RpcMessage[];
+} {
+  const written: RpcMessage[] = [];
+  let controller: ReadableStreamDefaultController<RpcMessage> | undefined;
+  const readable = new ReadableStream<RpcMessage>({
+    start(c) {
+      controller = c;
+    },
+  });
+  const writable = new WritableStream<RpcMessage>({
+    write(message) {
+      written.push(message);
+      onWrite?.(message, (reply) => controller?.enqueue(reply));
+    },
+  });
+  return {
+    transport: { readable, writable },
+    push: (message) => controller?.enqueue(message),
+    fail: (error) => controller?.error(error),
+    close: () => controller?.close(),
+    written,
+  };
+}
+
+/** Answers every `initialize` it is written with a result for the same id. */
+function respondingTransport(): ReturnType<typeof transport> {
+  return transport((message, push) => {
+    if (message.method === "initialize") {
+      push({
+        jsonrpc: "2.0",
+        id: message.id ?? null,
+        result: { protocolVersion: 1 },
+      });
+    }
+  });
+}
+
+/** Never answers anything; a handshake against it only ever times out. */
+function deadTransport(): ReturnType<typeof transport> {
+  return transport();
+}
+
+/** Wait for a condition, bounded, so a failure reports rather than hangs. */
+async function waitFor(condition: () => boolean, ms = 5_000): Promise<void> {
+  const deadline = Date.now() + ms;
+  while (!condition() && Date.now() < deadline) {
+    await new Promise((resolve) => setTimeout(resolve, 1));
+  }
+  expect(condition()).toBe(true);
+}
+
+describe("runBridge", () => {
+  /**
+   * @case A reconnection attempt whose handshake never answers is abandoned at the timeout rather than hanging forever, the loop keeps retrying, throttles its "still waiting" line to every twelfth attempt, and eventually reconnects once an attempt lands on a live instance
+   * @preconditions A live first connection that is then lost, a handshake timeout far shorter than the default, and twelve reconnection attempts in a row landing on a transport that never answers before the thirteenth lands on one that does
+   * @expectedResult The loss is logged once, no more than one "still waiting" line appears despite twelve failed attempts, that line names the timeout as the reason, and the relay reports reconnection on the attempt that finally answered, all without any real waiting
+   */
+  test("a handshake timeout is retried, throttled, and eventually reconnects", async () => {
+    const editor = transport();
+    const first = respondingTransport();
+    const live = respondingTransport();
+    let calls = 0;
+    const lines: string[] = [];
+
+    const outcome = runBridge({
+      editor: editor.transport,
+      connect: () => {
+        calls += 1;
+        if (calls === 1) return first.transport;
+        if (calls <= 1 + ATTEMPTS_PER_LOG) return deadTransport().transport;
+        return live.transport;
+      },
+      target: "test://instance",
+      log: (line) => lines.push(line),
+      delays: [0],
+      handshakeTimeoutMs: 5,
+    });
+
+    editor.push({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+    await waitFor(() => editor.written.some((m) => m.id === 1));
+
+    first.fail(new Error("the instance restarted"));
+    await waitFor(() =>
+      lines.some((line) => line.startsWith("Lost the connection")),
+    );
+
+    await waitFor(() => calls === 1 + ATTEMPTS_PER_LOG + 1, 10_000);
+    await waitFor(() =>
+      lines.some((line) => line.startsWith(`Reconnected to test://instance`)),
+    );
+
+    editor.close();
+    expect(await outcome).toEqual({ kind: "editor-closed" });
+
+    expect(
+      lines.filter((line) => line.startsWith("Lost the connection")),
+    ).toHaveLength(1);
+    const stillWaiting = lines.filter((line) =>
+      line.startsWith("Still waiting"),
+    );
+    expect(stillWaiting).toHaveLength(1);
+    expect(stillWaiting[0]).toContain("attempt 13");
+    expect(stillWaiting[0]).toContain("handshake");
+    expect(
+      lines.some((line) =>
+        line.startsWith(
+          `Reconnected to test://instance after ${1 + ATTEMPTS_PER_LOG} attempts`,
+        ),
+      ),
+    ).toBe(true);
+  }, 15_000);
+
+  /**
+   * @case The very first connection throwing synchronously is reported as unreachable, the same as one that never answers
+   * @preconditions A `connect` that throws instead of returning a transport, on the first call `run()` ever makes
+   * @expectedResult The bridge settles with `unreachable` and the thrown error; it does not leave `run()`'s promise rejected, which `acpCommand` has nothing to catch
+   */
+  test("a synchronous throw on the first connection reports unreachable", async () => {
+    const editor = transport();
+    const failure = new Error("bad url");
+
+    const outcome = await runBridge({
+      editor: editor.transport,
+      connect: () => {
+        throw failure;
+      },
+      target: "test://instance",
+      log: () => undefined,
+    });
+
+    expect(outcome).toEqual({ kind: "unreachable", error: failure });
+  });
+
+  /**
+   * @case A reconnection attempt whose `connect` or transport setup throws synchronously is treated as one failed attempt, the same as a handshake timeout, rather than crashing the reconnect loop
+   * @preconditions A live first connection that is lost, then one reconnection attempt whose `connect` throws before the next attempt lands on a live transport
+   * @expectedResult The loop survives the throw and reconnects on the next attempt
+   */
+  test("a synchronous throw during reconnection is one failed attempt, not a crash", async () => {
+    const editor = transport();
+    const first = respondingTransport();
+    const live = respondingTransport();
+    let calls = 0;
+    const lines: string[] = [];
+
+    const outcome = runBridge({
+      editor: editor.transport,
+      connect: () => {
+        calls += 1;
+        if (calls === 1) return first.transport;
+        if (calls === 2) throw new Error("connect refused");
+        return live.transport;
+      },
+      target: "test://instance",
+      log: (line) => lines.push(line),
+      delays: [0],
+    });
+
+    editor.push({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+    await waitFor(() => editor.written.some((m) => m.id === 1));
+
+    first.fail(new Error("the instance restarted"));
+    await waitFor(() =>
+      lines.some((line) => line.startsWith("Reconnected to")),
+    );
+    expect(calls).toBe(3);
+
+    editor.close();
+    expect(await outcome).toEqual({ kind: "editor-closed" });
+  });
+
+  /**
+   * @case The editor's own pipe erroring is reported distinctly from the editor closing cleanly
+   * @preconditions A connected bridge whose editor readable errors rather than reaching EOF
+   * @expectedResult The outcome is `editor-error` carrying that error, not `editor-closed`; `acpCommand` needs the distinction to avoid calling a broken pipe a successful run
+   */
+  test("the editor's pipe erroring reports editor-error, not editor-closed", async () => {
+    const editor = transport();
+    const instance = respondingTransport();
+    const failure = new Error("stdin broke");
+
+    const outcome = runBridge({
+      editor: editor.transport,
+      connect: () => instance.transport,
+      target: "test://instance",
+      log: () => undefined,
+    });
+
+    editor.fail(failure);
+
+    expect(await outcome).toEqual({ kind: "editor-error", error: failure });
+  });
+
+  /**
+   * @case A request still waiting in the outage queue when a second failure interrupts the reconnect is not answered twice: once now for the outage, and again for real once it is actually delivered
+   * @preconditions Two requests queued during an outage; the reconnection that follows fails writing the first of them back while the second is still waiting behind it in the queue; the next reconnection after that delivers both for real
+   * @expectedResult The request still in the queue when the second failure hits gets no outage answer at all, only the one real answer once it is actually sent; nothing the editor sees is answered more than once
+   */
+  test("a request still queued when a second failure hits is not answered twice", async () => {
+    const editor = transport();
+    const first = respondingTransport();
+    const flaky = transport((message, push) => {
+      if (message.method === "initialize") {
+        push({ jsonrpc: "2.0", id: message.id ?? null, result: {} });
+        return;
+      }
+      if (message.id === 2) {
+        throw new Error("dropped id 2");
+      }
+    });
+    const revived = respondingTransport();
+    let calls = 0;
+    const lines: string[] = [];
+
+    const outcome = runBridge({
+      editor: editor.transport,
+      connect: () => {
+        calls += 1;
+        if (calls === 1) return first.transport;
+        if (calls === 2) return flaky.transport;
+        return revived.transport;
+      },
+      target: "test://instance",
+      log: (line) => lines.push(line),
+      delays: [0],
+    });
+
+    editor.push({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+    await waitFor(() => editor.written.some((m) => m.id === 1));
+
+    first.fail(new Error("the instance restarted"));
+    await waitFor(() =>
+      lines.some((line) => line.startsWith("Lost the connection")),
+    );
+    // Queued during the outage, in order: id 2 will fail to write on the
+    // next transport, id 3 is still behind it in the queue when that
+    // happens.
+    editor.push({ jsonrpc: "2.0", id: 2, method: "custom/a", params: {} });
+    editor.push({ jsonrpc: "2.0", id: 3, method: "custom/b", params: {} });
+
+    // The flaky transport answers with a second "Lost the connection" once
+    // id 2's write fails; wait for that, then for both to actually reach
+    // `revived` on the next reconnection before answering them for real.
+    await waitFor(
+      () =>
+        lines.filter((line) => line.startsWith("Lost the connection"))
+          .length === 2,
+    );
+    await waitFor(
+      () =>
+        revived.written.some((m) => m.id === 2) &&
+        revived.written.some((m) => m.id === 3),
+    );
+    revived.push({ jsonrpc: "2.0", id: 2, result: { done: true } });
+    revived.push({ jsonrpc: "2.0", id: 3, result: { done: true } });
+    await waitFor(() => editor.written.some((m) => m.id === 3));
+
+    editor.close();
+    await outcome;
+
+    const answersFor2 = editor.written.filter((m) => m.id === 2);
+    const answersFor3 = editor.written.filter((m) => m.id === 3);
+    expect(answersFor2).toHaveLength(1);
+    expect(answersFor2[0]?.result).toEqual({ done: true });
+    expect(answersFor3).toHaveLength(1);
+    expect(answersFor3[0]?.result).toEqual({ done: true });
+  }, 10_000);
+
+  /**
+   * @case An editor's answer to an instance request is dropped rather than replayed when the write carrying it back is what kills the connection
+   * @preconditions The instance asks the editor something, the editor answers, and the write of that answer is itself what fails; the reconnection that follows lands on a new transport
+   * @expectedResult The new transport never sees the stale answer: `instanceRequests` is cleared on every loss, so no transport after this one ever asked for it, and posting it anyway would be posting an id the new instance never issued
+   */
+  test("a stale editor answer queued when its own write kills the connection is dropped, not replayed", async () => {
+    const editor = transport();
+    const first = transport((message, push) => {
+      if (message.method === "initialize") {
+        push({ jsonrpc: "2.0", id: message.id ?? null, result: {} });
+        return;
+      }
+      if (message.id === "instance-req") {
+        throw new Error("dropped on the way out");
+      }
+    });
+    const revived = respondingTransport();
+    let calls = 0;
+    const lines: string[] = [];
+
+    const outcome = runBridge({
+      editor: editor.transport,
+      connect: () => {
+        calls += 1;
+        return calls === 1 ? first.transport : revived.transport;
+      },
+      target: "test://instance",
+      log: (line) => lines.push(line),
+      delays: [0],
+    });
+
+    editor.push({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+    await waitFor(() => editor.written.some((m) => m.id === 1));
+
+    // The instance asks the editor something; the editor's answer is what
+    // fails to write back, which is what kills the connection here.
+    first.push({
+      jsonrpc: "2.0",
+      id: "instance-req",
+      method: "session/update",
+      params: {},
+    });
+    await waitFor(() => editor.written.some((m) => m.id === "instance-req"));
+    editor.push({ jsonrpc: "2.0", id: "instance-req", result: { ok: true } });
+
+    await waitFor(() =>
+      lines.some((line) => line.startsWith("Reconnected to")),
+    );
+
+    editor.close();
+    await outcome;
+
+    expect(revived.written.some((m) => m.id === "instance-req")).toBe(false);
+  });
+
+  /**
+   * @case The editor's output pipe breaking ends the relay, even though its input side stays open and would otherwise never notice
+   * @preconditions An editor transport whose writable always rejects and whose readable never closes or errors on its own
+   * @expectedResult The relay settles as `editor-error`, carrying the write failure, rather than running on with every message to the editor silently dropped
+   */
+  test("a broken editor output pipe ends the relay, even with the input side still open", async () => {
+    const failure = new Error("EPIPE");
+    const brokenWritable = new WritableStream<RpcMessage>({
+      write() {
+        return Promise.reject(failure);
+      },
+    });
+    let push: ((message: RpcMessage) => void) | undefined;
+    const openReadable = new ReadableStream<RpcMessage>({
+      start(controller) {
+        push = (message) => controller.enqueue(message);
+      },
+    });
+    const editorTransport: BridgeTransport = {
+      readable: openReadable,
+      writable: brokenWritable,
+    };
+    const instance = respondingTransport();
+
+    const outcome = runBridge({
+      editor: editorTransport,
+      connect: () => instance.transport,
+      target: "test://instance",
+      log: () => undefined,
+    });
+
+    // The instance's own reply to this is what the broken pipe fails to
+    // carry back to the editor.
+    push?.({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+
+    const settled = await outcome;
+    expect(settled.kind).toBe("editor-error");
+    expect(settled).toEqual({ kind: "editor-error", error: failure });
+  });
+
+  /**
+   * @case The editor's readable erroring with `undefined` as the rejection reason is still reported as editor-error, not mistaken for a clean close
+   * @preconditions An editor transport whose readable errors via `controller.error()` with no argument, which rejects the pending read with `undefined`
+   * @expectedResult The outcome is `editor-error` with `error: undefined`; a rejection's own value being `undefined` must not be read as "no error happened", since that value is exactly what a clean close also looks like unless it is tracked separately
+   */
+  test("the editor readable erroring with undefined is still editor-error, not editor-closed", async () => {
+    const editor = transport();
+    const instance = respondingTransport();
+
+    const outcome = runBridge({
+      editor: editor.transport,
+      connect: () => instance.transport,
+      target: "test://instance",
+      log: () => undefined,
+    });
+
+    editor.fail(undefined);
+
+    const settled = await outcome;
+    expect(settled).toEqual({ kind: "editor-error", error: undefined });
+  });
+});
