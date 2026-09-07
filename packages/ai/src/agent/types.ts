@@ -14,10 +14,7 @@ import type {
   LlmUsage,
 } from "../llm/types.ts";
 import type { AgentDeltaListener } from "./events.ts";
-import {
-  AGENT_SESSION_TURN,
-  type AgentSessionOutcome,
-} from "./session/types.ts";
+import type { AgentSessionOutcome } from "./session/types.ts";
 import type { ToolSelection } from "./tools/selection.ts";
 
 /**
@@ -341,6 +338,11 @@ export interface AgentOptions<T = unknown> extends LlmSamplingOptions {
    * dispatch. Async listeners are awaited so back-pressure on a slow
    * consumer flows back into the stream.
    *
+   * The listener has the whole reply before the dispatch returns. A
+   * provider that produced text without streaming it hands that text
+   * over as one final `text-delta`, so a consumer that renders deltas
+   * never has to fall back to the result to show the answer.
+   *
    * Per-agent only; not part of `defaultOptions` because delta sinks
    * are typically request-scoped (e.g. a per-connection SSE channel).
    */
@@ -591,12 +593,4 @@ export interface AgentResult {
    * {@link AgentOptions.session}.
    */
   session?: AgentSessionOutcome;
-
-  /**
-   * The turn that produced a `replied` or `interrupted` session outcome.
-   * Read it through `sessionTurnOf()`.
-   *
-   * @internal
-   */
-  [AGENT_SESSION_TURN]?: string;
 }

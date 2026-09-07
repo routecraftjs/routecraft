@@ -230,31 +230,15 @@ export interface AgentSessionOutcome {
   readonly status: "replied" | "queued" | "interrupted" | "idle";
   /** Inbox depth after this message was handled. */
   readonly queued: number;
-}
-
-/**
- * Property under which a `replied` or `interrupted` result names the turn
- * that produced it.
- *
- * A symbol rather than a field on {@link AgentSessionOutcome}: it is what
- * the ACP mount needs to attribute a reply it is holding requests open
- * for, and nothing a route reads. Several callers whose messages one turn
- * consumed receive the same value, which is how a consumer tells one
- * batched reply from several.
- *
- * @internal
- */
-export const AGENT_SESSION_TURN: unique symbol = Symbol.for(
-  "routecraft.agent.session.turn",
-);
-
-/** The turn id a session result carries, or `undefined` for one that ran no turn. @internal */
-export function sessionTurnOf(result: unknown): string | undefined {
-  if (typeof result !== "object" || result === null) return undefined;
-  const turn = (result as { [AGENT_SESSION_TURN]?: unknown })[
-    AGENT_SESSION_TURN
-  ];
-  return typeof turn === "string" ? turn : undefined;
+  /**
+   * The turn that produced a `replied` or `interrupted` outcome. Several
+   * callers whose messages one turn consumed receive the same value, which
+   * is how a consumer holding requests open (the ACP mount) tells one
+   * batched reply from several. Absent on `queued` and `idle`.
+   *
+   * @internal
+   */
+  readonly turn?: string;
 }
 
 /** A session as the management API lists it. */

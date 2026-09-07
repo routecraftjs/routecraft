@@ -71,16 +71,26 @@ export function dispatchIdentityFrom(
   routeId: string | undefined,
 ): AgentDispatchIdentity | undefined {
   if (routeId === undefined) return undefined;
-  // The framework runtime sets `routecraft.correlation_id` on every
-  // exchange that flows through a real route. Synthetic exchanges
-  // (mostly tests) may lack it; fall back to the exchange id so the
-  // emitted events still carry a stable, non-empty `correlationId`.
-  const corr = exchange.headers[HeadersKeys.CORRELATION_ID];
   return {
     exchangeId: exchange.id,
-    correlationId: typeof corr === "string" ? corr : exchange.id,
+    correlationId: correlationOf(exchange),
     routeId,
   };
+}
+
+/**
+ * The correlation id this exchange belongs to.
+ *
+ * The framework runtime sets `routecraft.correlation_id` on every exchange
+ * that flows through a real route. A synthetic exchange (mostly tests) may
+ * lack it, and falls back to the exchange id so a consumer always has a
+ * stable, non-empty value.
+ *
+ * @internal
+ */
+export function correlationOf(exchange: Exchange<unknown>): string {
+  const corr = exchange.headers[HeadersKeys.CORRELATION_ID];
+  return typeof corr === "string" ? corr : exchange.id;
 }
 
 const DEFAULT_MAX_TURNS = 20;
@@ -343,7 +353,28 @@ export class AgentRun<T = unknown> {
     abortSignal: AbortSignal,
     onDelta: AgentDeltaListener,
   ): Promise<AgentResult> {
-    return this.runWithValidation(abortSignal, onDelta);
+    // The listener has the whole reply before the run returns. A provider
+    // that produced text without streaming it leaves the reply only in the
+    // result, so it is handed over here as one delta rather than left for
+    // the caller to notice; emitted before the run returns, because a
+    // session's next turn starts the moment this one ends and a reply sent
+    // after that would land behind the next turn's first words.
+    let spoke = false;
+    const result = await this.runWithValidation(abortSignal, async (delta) => {
+      if (delta.type === "text-delta") spoke = true;
+      await onDelta(delta);
+    });
+    if (!spoke && result.text !== "") {
+      try {
+        await onDelta({ type: "text-delta", text: result.text });
+      } catch (err) {
+        this.input.exchange.logger.warn(
+          { err },
+          "agent.onDelta listener threw on the run's final text; ignoring",
+        );
+      }
+    }
+    return result;
   }
 
   /**

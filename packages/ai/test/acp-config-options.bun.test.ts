@@ -8,8 +8,7 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { z } from "zod";
-import { agentPlugin, tools, type FnHandlerContext } from "../src/index.ts";
+import { agentPlugin, tools } from "../src/index.ts";
 import { acpHarness, type AcpHarness } from "./helpers/acp-harness.ts";
 import {
   AgentSessionRuntime,
@@ -19,6 +18,7 @@ import {
   type StoredSession,
 } from "../src/agent/session/index.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
+import { slowTool } from "./helpers/slow-tool.ts";
 
 const llm = scriptedLlm([]);
 mock.module("../src/llm/providers/index.ts", () => ({
@@ -31,24 +31,7 @@ const OPUS = "anthropic:claude-opus-4-7";
 const HAIKU = "anthropic:claude-haiku-4-5";
 
 /** A tool the test holds open, so a turn can be caught mid-flight. */
-let release: (() => void) | undefined;
-let entered = 0;
-const slowFn = {
-  description: "Waits until the test releases it",
-  input: z.object({}),
-  handler: (_input: unknown, ctx: FnHandlerContext) =>
-    new Promise<string>((resolve, reject) => {
-      entered += 1;
-      const abort = (): void => {
-        const err = new Error("slow tool aborted");
-        err.name = "AbortError";
-        reject(err);
-      };
-      if (ctx.abortSignal.aborted) return abort();
-      ctx.abortSignal.addEventListener("abort", abort, { once: true });
-      release = () => resolve("released");
-    }),
-};
+const slow = slowTool();
 
 const CHOOSY = {
   max: {
@@ -70,15 +53,6 @@ const CHOOSY = {
     user: (ex: { body: unknown }) => (ex.body as { message: string }).message,
   },
 };
-
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
-
-async function waitForEntry(count: number): Promise<void> {
-  const deadline = Date.now() + 5_000;
-  while (entered < count && Date.now() < deadline) await sleep(5);
-  if (entered < count) throw new Error(`slow tool entry ${count} never came`);
-}
 
 /** The value of one option in a set response. */
 function valueOf(
@@ -138,12 +112,11 @@ describe("session config options", () => {
 
   beforeEach(() => {
     llm.reset();
-    release = undefined;
-    entered = 0;
+    slow.reset();
   });
 
   afterEach(async () => {
-    release?.();
+    slow.release();
     if (h) await h.t.stop();
     h = undefined;
   });
@@ -152,7 +125,7 @@ describe("session config options", () => {
     return acpHarness({
       agents: CHOOSY,
       acp: { agent: "max" },
-      plugins: [agentPlugin({ functions: { slow: slowFn } })],
+      plugins: [agentPlugin({ functions: { slow: slow.fn } })],
     });
   }
 
@@ -360,7 +333,7 @@ describe("session config options", () => {
     await h.connect((agent) =>
       agent.buildSession("/work").withSession(async (session) => {
         const running = session.prompt("go");
-        await waitForEntry(1);
+        await slow.waitForEntry(1);
 
         const mid = await agent.request("session/set_config_option", {
           sessionId: session.sessionId,
@@ -369,7 +342,7 @@ describe("session config options", () => {
         });
         expect(valueOf(mid.configOptions, "model")).toBe(OPUS);
 
-        release?.();
+        slow.release();
         await running;
         // The turn it interrupted ran on the model it opened with: an
         // override is read when a turn starts, not partway through one.
@@ -518,7 +491,7 @@ describe("session config options", () => {
     h = await acpHarness({
       agents: CHOOSY,
       acp: { agent: "max" },
-      plugins: [agentPlugin({ functions: { slow: slowFn } })],
+      plugins: [agentPlugin({ functions: { slow: slow.fn } })],
       sessionStore: store,
     });
 

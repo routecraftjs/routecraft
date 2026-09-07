@@ -7,10 +7,10 @@
  */
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { z } from "zod";
-import { agentPlugin, tools, type FnHandlerContext } from "../src/index.ts";
+import { agentPlugin, tools } from "../src/index.ts";
 import { acpHarness, type AcpHarness } from "./helpers/acp-harness.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
+import { slowTool } from "./helpers/slow-tool.ts";
 import { MODEL } from "./helpers/suspend-fixtures.ts";
 
 const llm = scriptedLlm([]);
@@ -20,24 +20,7 @@ mock.module("../src/llm/providers/index.ts", () => ({
 }));
 
 /** A tool the test holds open, so a turn can be cancelled mid-flight. */
-let release: (() => void) | undefined;
-let entered = 0;
-const slowFn = {
-  description: "Waits until the test releases it",
-  input: z.object({}),
-  handler: (_input: unknown, ctx: FnHandlerContext) =>
-    new Promise<string>((resolve, reject) => {
-      entered += 1;
-      const abort = (): void => {
-        const err = new Error("slow tool aborted");
-        err.name = "AbortError";
-        reject(err);
-      };
-      if (ctx.abortSignal.aborted) return abort();
-      ctx.abortSignal.addEventListener("abort", abort, { once: true });
-      release = () => resolve("released");
-    }),
-};
+const slow = slowTool();
 
 const AGENT = {
   max: {
@@ -59,23 +42,16 @@ async function until(condition: () => boolean, ms = 5_000): Promise<void> {
   expect(condition()).toBe(true);
 }
 
-async function waitForEntry(count: number): Promise<void> {
-  const deadline = Date.now() + 5_000;
-  while (entered < count && Date.now() < deadline) await sleep(5);
-  if (entered < count) throw new Error(`slow tool entry ${count} never came`);
-}
-
 describe("ACP session lifecycle", () => {
   let h: AcpHarness | undefined;
 
   beforeEach(() => {
     llm.reset();
-    release = undefined;
-    entered = 0;
+    slow.reset();
   });
 
   afterEach(async () => {
-    release?.();
+    slow.release();
     if (h) await h.t.stop();
     h = undefined;
   });
@@ -83,7 +59,7 @@ describe("ACP session lifecycle", () => {
   async function boot(): Promise<AcpHarness> {
     return acpHarness({
       agents: AGENT,
-      plugins: [agentPlugin({ functions: { slow: slowFn } })],
+      plugins: [agentPlugin({ functions: { slow: slow.fn } })],
     });
   }
 
@@ -177,7 +153,7 @@ describe("ACP session lifecycle", () => {
         sessionId: session.sessionId,
         prompt: [{ type: "text", text: "go" }],
       });
-      await waitForEntry(1);
+      await slow.waitForEntry(1);
       await agent.notify("session/cancel", { sessionId: session.sessionId });
       const response = await running;
       session.dispose();

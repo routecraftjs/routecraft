@@ -22,16 +22,15 @@ import { closeUnansweredToolCalls, renderUserMessage } from "./render.ts";
 import { BoundedMap, SESSION_MEMORY_BOUND } from "./bounded.ts";
 import { AgentSessionStore, emptyAgentSession } from "./store.ts";
 import { sessionStoreOf } from "./config.ts";
-import {
-  AGENT_SESSION_TURN,
-  type AgentBackgroundCall,
-  type AgentInboxMessage,
-  type AgentSessionKey,
-  type AgentSessionOverrides,
-  type AgentSessionPark,
-  type AgentSessionRecord,
-  type AgentSessionScope,
-  type AgentSessionSummary,
+import type {
+  AgentBackgroundCall,
+  AgentInboxMessage,
+  AgentSessionKey,
+  AgentSessionOverrides,
+  AgentSessionPark,
+  AgentSessionRecord,
+  AgentSessionScope,
+  AgentSessionSummary,
 } from "./types.ts";
 
 /**
@@ -1042,8 +1041,8 @@ export class AgentSessionRuntime {
             id: key,
             status: "interrupted",
             queued: after.inbox.length,
+            turn: turnId,
           },
-          [AGENT_SESSION_TURN]: turnId,
         };
       }
       const final = executor.thread() ?? startMessages;
@@ -1062,8 +1061,8 @@ export class AgentSessionRuntime {
           id: key,
           status: "replied",
           queued: after.inbox.length,
+          turn: turnId,
         },
-        [AGENT_SESSION_TURN]: turnId,
       };
     } finally {
       // The boundary: what queued while the turn ran is delivered now, as

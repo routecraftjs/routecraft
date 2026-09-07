@@ -48,7 +48,43 @@ export interface AcpHarness {
     options?: ConnectOptions,
   ): Promise<T>;
   /** Every `session/update` the client saw, in arrival order, with its time. */
-  readonly seen: Array<{ at: number; sessionId: string; update: unknown }>;
+  readonly seen: SeenUpdate[];
+}
+
+/** One `session/update` as the client saw it. */
+export interface SeenUpdate {
+  readonly at: number;
+  readonly sessionId: string;
+  readonly update: unknown;
+}
+
+/** Each update as `chunk:<text>` for the agent's own words, else `<kind>:<status>`. */
+export function describeUpdates(entries: readonly SeenUpdate[]): string[] {
+  return entries.map((entry) => {
+    const update = entry.update as {
+      sessionUpdate: string;
+      content?: { text?: string };
+      status?: string;
+    };
+    return update.sessionUpdate === "agent_message_chunk"
+      ? `chunk:${update.content?.text}`
+      : `${update.sessionUpdate}:${update.status ?? ""}`;
+  });
+}
+
+/** The text of every agent message chunk, with its arrival time, in order. */
+export function messageChunks(
+  entries: readonly SeenUpdate[],
+): Array<{ text: string; at: number }> {
+  return entries.flatMap((entry) => {
+    const update = entry.update as {
+      sessionUpdate: string;
+      content?: { text?: string };
+    };
+    return update.sessionUpdate === "agent_message_chunk"
+      ? [{ text: update.content?.text ?? "", at: entry.at }]
+      : [];
+  });
 }
 
 /** What the test client says it can do. */
@@ -162,7 +198,7 @@ export async function acpHarness(
     .build();
   await t.startAndWaitReady();
 
-  const seen: Array<{ at: number; sessionId: string; update: unknown }> = [];
+  const seen: SeenUpdate[] = [];
   const url = `http://127.0.0.1:${port}${options.acp?.path ?? "/acp"}`;
 
   return {

@@ -45,7 +45,10 @@ import type {
 } from "@agentclientprotocol/sdk";
 import type { Principal } from "@routecraft/routecraft";
 import { version as PACKAGE_VERSION } from "../../package.json";
-import type { AgentSessionSummary } from "../agent/session/types.ts";
+import type {
+  AgentSessionOutcome,
+  AgentSessionSummary,
+} from "../agent/session/types.ts";
 import { registerSurface } from "../surface/index.ts";
 import type {
   AgentSurfaceConnection,
@@ -656,6 +659,8 @@ function titleFrom(message: string): string {
  * answers it, and telling the editor the turn ended would show the
  * message finished with nothing under it.
  */
-function stopReasonFor(status: string | undefined): StopReason {
+function stopReasonFor(
+  status: AgentSessionOutcome["status"] | undefined,
+): StopReason {
   return status === "replied" ? "end_turn" : "cancelled";
 }

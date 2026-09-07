@@ -14,13 +14,12 @@ import {
   rcError,
   type CraftContext,
   type CraftPlugin,
-  type Exchange,
   type RouteDefinition,
 } from "@routecraft/routecraft";
 import { agent } from "../agent/agent.ts";
 import { ADAPTER_AGENT_REGISTRY } from "../agent/store.ts";
 import "../errors.ts";
-import { AcpRuntime, ACP_ROUTE_PREFIX, type AcpPromptBody } from "./runtime.ts";
+import { AcpRuntime, ACP_ROUTE_PREFIX, promptBodyOf } from "./runtime.ts";
 import { AcpServer, normalizeAcpPath } from "./server.ts";
 import type { AcpPluginOptions } from "./types.ts";
 
@@ -120,15 +119,4 @@ function turnRoutes(
       )
       .build(),
   );
-}
-
-/**
- * The body the mount sent.
- *
- * Read rather than validated: the route is `internal`, so the mount is the
- * only thing that can reach it, and a schema here would describe a
- * boundary that does not exist.
- */
-function promptBodyOf(exchange: Exchange<unknown>): AcpPromptBody {
-  return exchange.body as AcpPromptBody;
 }

@@ -83,7 +83,9 @@ export interface AgentByNameOverrides<T = unknown> {
   /**
    * Per-request token-delta listener. Mirrors `AgentOptions.onDelta`
    * but lives at the call site so each dispatch can stream into its
-   * own consumer without cross-talk.
+   * own consumer without cross-talk. Same contract: the listener has the
+   * whole reply before the dispatch returns, as one final delta when the
+   * provider streamed none.
    */
   onDelta?: AgentDeltaListener;
   /**
@@ -523,12 +525,6 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
    * because the boundary turn that consumes an inbox reuses this executor
    * after the first run has finished, and a run is one turn's state.
    *
-   * A turn with a delta listener hands the listener its whole reply before
-   * the turn ends: a provider that did not stream leaves the text only in
-   * the result, and it is emitted here as one delta rather than left for
-   * the caller. Inside the turn, because the runtime starts the boundary
-   * turn the moment this one ends, and a reply sent after that would
-   * arrive on the listener behind the next turn's first words.
    */
   private sessionExecutor(
     input: Omit<AgentRunInput<T>, "onStep" | "resume">,
@@ -550,25 +546,9 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
         });
         last = run;
         const signal = anySignal(abortSignal, interrupt);
-        if (onDelta === undefined) return run.runUntilDone(signal);
-        let spoke = false;
-        const result = await run.runStream(signal, async (delta) => {
-          if (delta.type === "text-delta") spoke = true;
-          await onDelta(delta);
-        });
-        if (!spoke && result.text !== "") {
-          try {
-            await onDelta({ type: "text-delta", text: result.text });
-          } catch (err: unknown) {
-            // The same rule the stream applies to its listener: a consumer
-            // that throws does not fail the turn.
-            context.logger.warn(
-              { err },
-              "agent.onDelta listener threw on the turn's final text; ignoring",
-            );
-          }
-        }
-        return result;
+        return onDelta !== undefined
+          ? run.runStream(signal, onDelta)
+          : run.runUntilDone(signal);
       },
       thread: (): readonly ThreadMessage[] | undefined => last?.thread,
     };

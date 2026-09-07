@@ -11,9 +11,17 @@
 
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
-import { agentPlugin, tools, type FnHandlerContext } from "../src/index.ts";
-import { acpHarness, type AcpHarness } from "./helpers/acp-harness.ts";
+import { craft, direct } from "@routecraft/routecraft";
+import { agent, agentPlugin, tools } from "../src/index.ts";
+import { ADAPTER_AGENT_SESSIONS } from "../src/agent/store.ts";
+import {
+  acpHarness,
+  describeUpdates,
+  messageChunks,
+  type AcpHarness,
+} from "./helpers/acp-harness.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
+import { slowTool } from "./helpers/slow-tool.ts";
 import { MODEL } from "./helpers/suspend-fixtures.ts";
 
 const llm = scriptedLlm([]);
@@ -22,25 +30,7 @@ mock.module("../src/llm/providers/index.ts", () => ({
   streamLlm: llm.streamLlm,
 }));
 
-/** A tool the test holds open, so a turn stays running until released. */
-let release: (() => void) | undefined;
-let entered = 0;
-const slowFn = {
-  description: "Waits until the test releases it",
-  input: z.object({}),
-  handler: (_input: unknown, ctx: FnHandlerContext) =>
-    new Promise<string>((resolve, reject) => {
-      entered += 1;
-      const abort = (): void => {
-        const err = new Error("slow tool aborted");
-        err.name = "AbortError";
-        reject(err);
-      };
-      if (ctx.abortSignal.aborted) return abort();
-      ctx.abortSignal.addEventListener("abort", abort, { once: true });
-      release = () => resolve("released");
-    }),
-};
+const slow = slowTool();
 
 const echoFn = {
   description: "Echoes what it was given",
@@ -59,41 +49,33 @@ const AGENT = {
   },
 };
 
+/**
+ * A route of the app's own posting into the same conversation, the way a
+ * webhook does. Its agent step has no editor listener, so a boundary turn
+ * revived from its continuation streams nothing on its own.
+ */
+const postRoute = craft()
+  .id("post")
+  .from<{ session: string; message: string }>(direct())
+  .to(
+    agent<{ session: string; message: string }>("max", {
+      session: (ex) => ex.body.session,
+    }),
+  );
+
 const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
-
-async function waitForEntry(count: number): Promise<void> {
-  const deadline = Date.now() + 5_000;
-  while (entered < count && Date.now() < deadline) await sleep(5);
-  if (entered < count) throw new Error(`slow tool entry ${count} never came`);
-}
-
-/** The text of every agent message chunk in `entries`, in arrival order. */
-function chunksIn(
-  entries: ReadonlyArray<{ update: unknown; at: number }>,
-): Array<{ text: string; at: number }> {
-  return entries.flatMap((entry) => {
-    const update = entry.update as {
-      sessionUpdate: string;
-      content?: { text?: string };
-    };
-    return update.sessionUpdate === "agent_message_chunk"
-      ? [{ text: update.content?.text ?? "", at: entry.at }]
-      : [];
-  });
-}
 
 describe("a prompt sent while a turn is running", () => {
   let h: AcpHarness | undefined;
 
   beforeEach(() => {
     llm.reset();
-    release = undefined;
-    entered = 0;
+    slow.reset();
   });
 
   afterEach(async () => {
-    release?.();
+    slow.release();
     if (h) await h.t.stop();
     h = undefined;
   });
@@ -101,7 +83,8 @@ describe("a prompt sent while a turn is running", () => {
   async function boot(): Promise<AcpHarness> {
     return acpHarness({
       agents: AGENT,
-      plugins: [agentPlugin({ functions: { slow: slowFn, echo: echoFn } })],
+      plugins: [agentPlugin({ functions: { slow: slow.fn, echo: echoFn } })],
+      routes: [postRoute],
     });
   }
 
@@ -118,24 +101,24 @@ describe("a prompt sent while a turn is running", () => {
       { deltas: [{ text: "3" }, { text: "22" }], text: "322" },
     );
 
-    const outcome = await h.connect(async (agent) => {
-      const session = await agent.buildSession("/work").start();
-      const a = agent.request("session/prompt", {
+    const outcome = await h.connect(async (editor) => {
+      const session = await editor.buildSession("/work").start();
+      const a = editor.request("session/prompt", {
         sessionId: session.sessionId,
         prompt: [{ type: "text", text: "A" }],
       });
-      await waitForEntry(1);
+      await slow.waitForEntry(1);
 
       const bSentAt = Date.now();
-      const b = agent.request("session/prompt", {
+      const b = editor.request("session/prompt", {
         sessionId: session.sessionId,
         prompt: [{ type: "text", text: "echo 322" }],
       });
       // B is pending while A holds: nothing has been answered for it.
       await sleep(50);
-      expect(chunksIn(h!.seen).map((c) => c.text)).toEqual([]);
+      expect(messageChunks(h!.seen)).toEqual([]);
 
-      release!();
+      slow.release();
       const aResponse = await a;
       const bResponse = await b;
       const bDoneAt = Date.now();
@@ -145,7 +128,7 @@ describe("a prompt sent while a turn is running", () => {
 
     expect(outcome.aResponse.stopReason).toBe("end_turn");
     expect(outcome.bResponse.stopReason).toBe("end_turn");
-    const chunks = chunksIn(h.seen);
+    const chunks = messageChunks(h.seen);
     expect(chunks.map((c) => c.text)).toEqual(["A done", "3", "22"]);
     // B's answer was on the wire while B's request was still open.
     for (const chunk of chunks.slice(1)) {
@@ -170,16 +153,16 @@ describe("a prompt sent while a turn is running", () => {
       { text: "both answered" },
     );
 
-    const outcome = await h.connect(async (agent) => {
-      const session = await agent.buildSession("/work").start();
-      const a = agent.request("session/prompt", {
+    const outcome = await h.connect(async (editor) => {
+      const session = await editor.buildSession("/work").start();
+      const a = editor.request("session/prompt", {
         sessionId: session.sessionId,
         prompt: [{ type: "text", text: "A" }],
       });
-      await waitForEntry(1);
+      await slow.waitForEntry(1);
 
       const settled: string[] = [];
-      const b = agent
+      const b = editor
         .request("session/prompt", {
           sessionId: session.sessionId,
           prompt: [{ type: "text", text: "B" }],
@@ -188,7 +171,7 @@ describe("a prompt sent while a turn is running", () => {
           settled.push("b");
           return { response, at: Date.now() };
         });
-      const c = agent
+      const c = editor
         .request("session/prompt", {
           sessionId: session.sessionId,
           prompt: [{ type: "text", text: "C" }],
@@ -199,7 +182,7 @@ describe("a prompt sent while a turn is running", () => {
         });
       await sleep(50);
 
-      release!();
+      slow.release();
       await a;
       const [bDone, cDone] = await Promise.all([b, c]);
       session.dispose();
@@ -209,7 +192,7 @@ describe("a prompt sent while a turn is running", () => {
     expect(outcome.bDone.response.stopReason).toBe("end_turn");
     expect(outcome.cDone.response.stopReason).toBe("end_turn");
     expect(outcome.settled).toEqual(["b", "c"]);
-    const chunks = chunksIn(h.seen);
+    const chunks = messageChunks(h.seen);
     expect(chunks.map((c) => c.text)).toEqual(["A done", "both answered"]);
     expect(chunks[1]!.at).toBeLessThanOrEqual(outcome.bDone.at);
     expect(chunks[1]!.at).toBeLessThanOrEqual(outcome.cDone.at);
@@ -233,20 +216,20 @@ describe("a prompt sent while a turn is running", () => {
       { text: "echoed" },
     );
 
-    const outcome = await h.connect(async (agent) => {
-      const session = await agent.buildSession("/work").start();
-      const a = agent.request("session/prompt", {
+    const outcome = await h.connect(async (editor) => {
+      const session = await editor.buildSession("/work").start();
+      const a = editor.request("session/prompt", {
         sessionId: session.sessionId,
         prompt: [{ type: "text", text: "A" }],
       });
-      await waitForEntry(1);
-      const b = agent.request("session/prompt", {
+      await slow.waitForEntry(1);
+      const b = editor.request("session/prompt", {
         sessionId: session.sessionId,
         prompt: [{ type: "text", text: "B" }],
       });
       await sleep(50);
       const before = h!.seen.length;
-      release!();
+      slow.release();
       await a;
       const bResponse = await b;
       session.dispose();
@@ -254,19 +237,9 @@ describe("a prompt sent while a turn is running", () => {
     });
 
     expect(outcome.bResponse.stopReason).toBe("end_turn");
-    const afterRelease = h.seen.slice(outcome.before).map((entry) => {
-      const update = entry.update as {
-        sessionUpdate: string;
-        content?: { text?: string };
-        status?: string;
-      };
-      return update.sessionUpdate === "agent_message_chunk"
-        ? `chunk:${update.content?.text}`
-        : `${update.sessionUpdate}:${update.status ?? ""}`;
-    });
     // The first completion is the slow hand A was held in; everything
     // after A's answer belongs to the turn that answered B.
-    expect(afterRelease).toEqual([
+    expect(describeUpdates(h.seen.slice(outcome.before))).toEqual([
       "tool_call_update:completed",
       "chunk:A done",
       "tool_call:in_progress",
@@ -287,19 +260,19 @@ describe("a prompt sent while a turn is running", () => {
       { text: "B answered" },
     );
 
-    const outcome = await h.connect(async (agent) => {
-      const session = await agent.buildSession("/work").start();
-      const a = agent.request("session/prompt", {
+    const outcome = await h.connect(async (editor) => {
+      const session = await editor.buildSession("/work").start();
+      const a = editor.request("session/prompt", {
         sessionId: session.sessionId,
         prompt: [{ type: "text", text: "A" }],
       });
-      await waitForEntry(1);
-      const b = agent.request("session/prompt", {
+      await slow.waitForEntry(1);
+      const b = editor.request("session/prompt", {
         sessionId: session.sessionId,
         prompt: [{ type: "text", text: "B" }],
       });
       await sleep(50);
-      await agent.notify("session/cancel", { sessionId: session.sessionId });
+      await editor.notify("session/cancel", { sessionId: session.sessionId });
       const aResponse = await a;
       const bResponse = await b;
       session.dispose();
@@ -308,8 +281,148 @@ describe("a prompt sent while a turn is running", () => {
 
     expect(outcome.aResponse.stopReason).toBe("cancelled");
     expect(outcome.bResponse.stopReason).toBe("end_turn");
-    expect(chunksIn(h.seen).map((c) => c.text)).toEqual(["B answered"]);
+    expect(messageChunks(h.seen).map((c) => c.text)).toEqual(["B answered"]);
     expect(llm.calls).toHaveLength(2);
     expect(JSON.stringify(llm.calls[1]?.user)).toContain("B");
+  });
+
+  /**
+   * @case A message this instance cannot answer is reported cancelled, never as a turn that showed nothing
+   * @preconditions Prompt A held in a tool; B arrives and queues; B's inbox entry is taken by another writer (a sibling instance on a shared store) before A ends
+   * @expectedResult B's request returns cancelled rather than end_turn, and no reply was streamed for it
+   */
+  test("a queued message consumed elsewhere returns cancelled, not end_turn", async () => {
+    h = await boot();
+    llm.script.push({ toolCalls: [{ toolName: "slow" }] }, { text: "A done" });
+    const store = h.t.ctx.getStore(ADAPTER_AGENT_SESSIONS)!.store;
+
+    const outcome = await h.connect(async (editor) => {
+      const session = await editor.buildSession("/work").start();
+      const a = editor.request("session/prompt", {
+        sessionId: session.sessionId,
+        prompt: [{ type: "text", text: "A" }],
+      });
+      await slow.waitForEntry(1);
+      const b = editor.request("session/prompt", {
+        sessionId: session.sessionId,
+        prompt: [{ type: "text", text: "B" }],
+      });
+      await sleep(50);
+      // Another process took the message: the inbox no longer carries it.
+      await store.update(session.sessionId, (record) => ({
+        ...record!,
+        inbox: [],
+      }));
+      slow.release();
+      const aResponse = await a;
+      const bResponse = await b;
+      session.dispose();
+      return { aResponse, bResponse };
+    });
+
+    expect(outcome.aResponse.stopReason).toBe("end_turn");
+    expect(outcome.bResponse.stopReason).toBe("cancelled");
+    expect(messageChunks(h.seen).map((c) => c.text)).toEqual(["A done"]);
+    expect(llm.calls).toHaveLength(1);
+  });
+
+  /**
+   * @case A reply produced on another route's continuation still reaches the editor holding a request
+   * @preconditions A turn started by the app's own route (no editor listener) is held in a tool; the editor prompts, queuing behind it; the turn is released and parks on that route; the boundary turn revived there calls a tool and replies without streaming
+   * @expectedResult The editor's request returns end_turn after the running turn's tool completion, the boundary turn's tool call and its reply text reached it once, so a conversation shared with a webhook still answers the editor live
+   */
+  test("a boundary turn on another route's continuation answers the held request", async () => {
+    h = await boot();
+    llm.script.push(
+      { toolCalls: [{ toolName: "slow" }] },
+      { text: "posted" },
+      { toolCalls: [{ toolName: "echo", input: { what: "hi" } }] },
+      { text: "from the other route" },
+    );
+
+    const outcome = await h.connect(async (editor) => {
+      const session = await editor.buildSession("/work").start();
+      const posted = h!.t.client.sendDirect("post", {
+        session: session.sessionId,
+        message: "W",
+      });
+      await slow.waitForEntry(1);
+      const b = editor.request("session/prompt", {
+        sessionId: session.sessionId,
+        prompt: [{ type: "text", text: "B" }],
+      });
+      await sleep(50);
+      const before = h!.seen.length;
+      slow.release();
+      await posted;
+      const bResponse = await b;
+      session.dispose();
+      return { bResponse, before };
+    });
+
+    expect(outcome.bResponse.stopReason).toBe("end_turn");
+    // The first completion is the slow hand the app's turn was held in,
+    // reported to the editor because it holds a request on the
+    // conversation; the reply is the boundary turn's, sent once.
+    expect(describeUpdates(h.seen.slice(outcome.before))).toEqual([
+      "tool_call_update:completed",
+      "tool_call:in_progress",
+      "tool_call_update:completed",
+      "chunk:from the other route",
+    ]);
+    expect(llm.calls).toHaveLength(2);
+  });
+
+  /**
+   * @case Two editors on one conversation are both told the reply, and each once
+   * @preconditions Prompt A held in a tool on connection one; connection two loads the same conversation; both send a prompt while A is held; A is released; the answering turn does not stream
+   * @expectedResult Both requests return end_turn, and the one reply arrived on each connection exactly once
+   */
+  test("two connections holding one conversation each receive the reply once", async () => {
+    h = await boot();
+    llm.script.push(
+      { toolCalls: [{ toolName: "slow" }] },
+      { text: "A done" },
+      { text: "for both editors" },
+    );
+
+    let sessionId!: string;
+    let second: Promise<{ stopReason: string }> | undefined;
+    const first = h.connect(async (editor) => {
+      const session = await editor.buildSession("/work").start();
+      sessionId = session.sessionId;
+      const a = editor.request("session/prompt", {
+        sessionId,
+        prompt: [{ type: "text", text: "A" }],
+      });
+      await slow.waitForEntry(1);
+      const b = editor.request("session/prompt", {
+        sessionId,
+        prompt: [{ type: "text", text: "B" }],
+      });
+      // The second editor joins while A is held and sends its own.
+      second = h!.connect(async (other) => {
+        await other.request("session/resume", { sessionId, cwd: "/work" });
+        return other.request("session/prompt", {
+          sessionId,
+          prompt: [{ type: "text", text: "C" }],
+        });
+      });
+      await sleep(100);
+      slow.release();
+      await a;
+      const bResponse = await b;
+      session.dispose();
+      return bResponse;
+    });
+
+    const bResponse = await first;
+    const cResponse = await second!;
+    expect(bResponse.stopReason).toBe("end_turn");
+    expect(cResponse.stopReason).toBe("end_turn");
+    const replies = messageChunks(h.seen).filter(
+      (chunk) => chunk.text === "for both editors",
+    );
+    expect(replies).toHaveLength(2);
   });
 });

@@ -84,6 +84,30 @@ export interface TrackedToolCall {
   settled?: { ok: true; output: unknown } | { ok: false; message: string };
 }
 
+/** The identity every `route:agent:tool:*` event carries. */
+function toolEventScope(
+  identity: AgentDispatchIdentity,
+  session: AgentRunSession | undefined,
+  toolCallId: string,
+  toolName: string,
+): {
+  routeId: string;
+  exchangeId: string;
+  correlationId: string;
+  session?: string;
+  toolCallId: string;
+  toolName: string;
+} {
+  return {
+    routeId: identity.routeId,
+    exchangeId: identity.exchangeId,
+    correlationId: identity.correlationId,
+    ...(session !== undefined ? { session: session.id } : {}),
+    toolCallId,
+    toolName,
+  };
+}
+
 export async function buildVercelTools(
   resolved: ResolvedTool[],
   ctx: CraftContext | undefined,
@@ -160,12 +184,7 @@ export async function buildVercelTools(
 
         if (!isLoader && ctx && dispatchIdentity) {
           ctx.emit("route:agent:tool:invoked", {
-            routeId: dispatchIdentity.routeId,
-            exchangeId: dispatchIdentity.exchangeId,
-            correlationId: dispatchIdentity.correlationId,
-            ...(session !== undefined ? { session: session.id } : {}),
-            toolCallId,
-            toolName: r.name,
+            ...toolEventScope(dispatchIdentity, session, toolCallId, r.name),
             // Sensitive payload: only persisted to telemetry when
             // snapshot capture is enabled (see telemetry `_snapshot`).
             _snapshot: { input },
@@ -181,12 +200,12 @@ export async function buildVercelTools(
               // though it surfaces to the model as an ordinary tool error.
               if (ctx && dispatchIdentity) {
                 ctx.emit("route:agent:tool:refused", {
-                  routeId: dispatchIdentity.routeId,
-                  exchangeId: dispatchIdentity.exchangeId,
-                  correlationId: dispatchIdentity.correlationId,
-                  ...(session !== undefined ? { session: session.id } : {}),
-                  toolCallId,
-                  toolName: r.name,
+                  ...toolEventScope(
+                    dispatchIdentity,
+                    session,
+                    toolCallId,
+                    r.name,
+                  ),
                   ...(rcCodeOf(refusal) !== undefined
                     ? { rc: rcCodeOf(refusal)! }
                     : {}),
@@ -237,12 +256,12 @@ export async function buildVercelTools(
               });
             } else {
               ctx.emit("route:agent:tool:result", {
-                routeId: dispatchIdentity.routeId,
-                exchangeId: dispatchIdentity.exchangeId,
-                correlationId: dispatchIdentity.correlationId,
-                ...(session !== undefined ? { session: session.id } : {}),
-                toolCallId,
-                toolName: r.name,
+                ...toolEventScope(
+                  dispatchIdentity,
+                  session,
+                  toolCallId,
+                  r.name,
+                ),
                 // Sensitive payload: only persisted to telemetry when
                 // snapshot capture is enabled (see telemetry `_snapshot`).
                 _snapshot: { output },
@@ -273,12 +292,12 @@ export async function buildVercelTools(
             });
             if (!isLoader && ctx && dispatchIdentity) {
               ctx.emit("route:agent:tool:result", {
-                routeId: dispatchIdentity.routeId,
-                exchangeId: dispatchIdentity.exchangeId,
-                correlationId: dispatchIdentity.correlationId,
-                ...(session !== undefined ? { session: session.id } : {}),
-                toolCallId,
-                toolName: r.name,
+                ...toolEventScope(
+                  dispatchIdentity,
+                  session,
+                  toolCallId,
+                  r.name,
+                ),
                 _snapshot: { output: SUSPENDED_TOOL_PLACEHOLDER },
                 duration: Date.now() - start,
               });
@@ -307,12 +326,12 @@ export async function buildVercelTools(
               });
             } else {
               ctx.emit("route:agent:tool:error", {
-                routeId: dispatchIdentity.routeId,
-                exchangeId: dispatchIdentity.exchangeId,
-                correlationId: dispatchIdentity.correlationId,
-                ...(session !== undefined ? { session: session.id } : {}),
-                toolCallId,
-                toolName: r.name,
+                ...toolEventScope(
+                  dispatchIdentity,
+                  session,
+                  toolCallId,
+                  r.name,
+                ),
                 errorName: errorName(err),
                 // Sensitive payload: error messages can echo the
                 // rejected input, so the full error is gated by
