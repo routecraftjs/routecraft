@@ -104,6 +104,18 @@ export interface AgentByNameOverrides<T = unknown> {
    */
   onDeltaFor?: AgentDeltaListenerSource<T>;
   /**
+   * Keep a message that queues behind a running turn open until the turn
+   * that consumes it ends, and answer this dispatch with that turn's
+   * result instead of acknowledging `queued`.
+   *
+   * For a caller that is itself holding a request open on the person's
+   * side, which today is the ACP mount. Not a public option: how a queued
+   * message is answered is decided per surface, not per route.
+   *
+   * @internal
+   */
+  hold?: boolean;
+  /**
    * The conversation this message belongs to. Same contract as
    * {@link AgentOptions.session}; the per-call value wins over one on the
    * registered options.
@@ -403,6 +415,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
         ...(revivedPark !== undefined
           ? { revived: revivedPark.suspensionId }
           : {}),
+        ...(perCall?.hold === true ? { hold: true } : {}),
         interrupt:
           revivedPark === undefined &&
           (typeof interrupt === "function"
@@ -509,6 +522,13 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
    * What the session runtime calls to run one turn. A fresh run per call,
    * because the boundary turn that consumes an inbox reuses this executor
    * after the first run has finished, and a run is one turn's state.
+   *
+   * A turn with a delta listener hands the listener its whole reply before
+   * the turn ends: a provider that did not stream leaves the text only in
+   * the result, and it is emitted here as one delta rather than left for
+   * the caller. Inside the turn, because the runtime starts the boundary
+   * turn the moment this one ends, and a reply sent after that would
+   * arrive on the listener behind the next turn's first words.
    */
   private sessionExecutor(
     input: Omit<AgentRunInput<T>, "onStep" | "resume">,
@@ -530,9 +550,25 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
         });
         last = run;
         const signal = anySignal(abortSignal, interrupt);
-        return onDelta !== undefined
-          ? run.runStream(signal, onDelta)
-          : run.runUntilDone(signal);
+        if (onDelta === undefined) return run.runUntilDone(signal);
+        let spoke = false;
+        const result = await run.runStream(signal, async (delta) => {
+          if (delta.type === "text-delta") spoke = true;
+          await onDelta(delta);
+        });
+        if (!spoke && result.text !== "") {
+          try {
+            await onDelta({ type: "text-delta", text: result.text });
+          } catch (err: unknown) {
+            // The same rule the stream applies to its listener: a consumer
+            // that throws does not fail the turn.
+            context.logger.warn(
+              { err },
+              "agent.onDelta listener threw on the turn's final text; ignoring",
+            );
+          }
+        }
+        return result;
       },
       thread: (): readonly ThreadMessage[] | undefined => last?.thread,
     };

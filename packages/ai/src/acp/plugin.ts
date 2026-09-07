@@ -12,7 +12,6 @@ import {
   craft,
   direct,
   rcError,
-  HeadersKeys,
   type CraftContext,
   type CraftPlugin,
   type Exchange,
@@ -112,8 +111,11 @@ function turnRoutes(
           // Resolved per exchange: one route serves every connected
           // editor at once, so a listener fixed when the route was built
           // would stream one person's turn into another person's window.
-          onDeltaFor: (exchange) =>
-            runtime.deltaSinkFor(correlationOf(exchange)),
+          onDeltaFor: (exchange) => runtime.sinkFor(exchange),
+          // The editor's request stays open until its message is
+          // answered; an acknowledgement would show it finished with
+          // nothing under it.
+          hold: true,
         }),
       )
       .build(),
@@ -129,10 +131,4 @@ function turnRoutes(
  */
 function promptBodyOf(exchange: Exchange<unknown>): AcpPromptBody {
   return exchange.body as AcpPromptBody;
-}
-
-/** The correlation id the mount minted for this turn. */
-function correlationOf(exchange: Exchange<unknown>): string {
-  const correlation = exchange.headers[HeadersKeys.CORRELATION_ID];
-  return typeof correlation === "string" ? correlation : exchange.id;
 }

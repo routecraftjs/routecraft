@@ -163,6 +163,7 @@ export async function buildVercelTools(
             routeId: dispatchIdentity.routeId,
             exchangeId: dispatchIdentity.exchangeId,
             correlationId: dispatchIdentity.correlationId,
+            ...(session !== undefined ? { session: session.id } : {}),
             toolCallId,
             toolName: r.name,
             // Sensitive payload: only persisted to telemetry when
@@ -183,6 +184,7 @@ export async function buildVercelTools(
                   routeId: dispatchIdentity.routeId,
                   exchangeId: dispatchIdentity.exchangeId,
                   correlationId: dispatchIdentity.correlationId,
+                  ...(session !== undefined ? { session: session.id } : {}),
                   toolCallId,
                   toolName: r.name,
                   ...(rcCodeOf(refusal) !== undefined
@@ -238,6 +240,7 @@ export async function buildVercelTools(
                 routeId: dispatchIdentity.routeId,
                 exchangeId: dispatchIdentity.exchangeId,
                 correlationId: dispatchIdentity.correlationId,
+                ...(session !== undefined ? { session: session.id } : {}),
                 toolCallId,
                 toolName: r.name,
                 // Sensitive payload: only persisted to telemetry when
@@ -273,6 +276,7 @@ export async function buildVercelTools(
                 routeId: dispatchIdentity.routeId,
                 exchangeId: dispatchIdentity.exchangeId,
                 correlationId: dispatchIdentity.correlationId,
+                ...(session !== undefined ? { session: session.id } : {}),
                 toolCallId,
                 toolName: r.name,
                 _snapshot: { output: SUSPENDED_TOOL_PLACEHOLDER },
@@ -306,6 +310,7 @@ export async function buildVercelTools(
                 routeId: dispatchIdentity.routeId,
                 exchangeId: dispatchIdentity.exchangeId,
                 correlationId: dispatchIdentity.correlationId,
+                ...(session !== undefined ? { session: session.id } : {}),
                 toolCallId,
                 toolName: r.name,
                 errorName: errorName(err),

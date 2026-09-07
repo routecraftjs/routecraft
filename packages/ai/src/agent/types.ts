@@ -14,7 +14,10 @@ import type {
   LlmUsage,
 } from "../llm/types.ts";
 import type { AgentDeltaListener } from "./events.ts";
-import type { AgentSessionOutcome } from "./session/types.ts";
+import {
+  AGENT_SESSION_TURN,
+  type AgentSessionOutcome,
+} from "./session/types.ts";
 import type { ToolSelection } from "./tools/selection.ts";
 
 /**
@@ -588,4 +591,12 @@ export interface AgentResult {
    * {@link AgentOptions.session}.
    */
   session?: AgentSessionOutcome;
+
+  /**
+   * The turn that produced a `replied` or `interrupted` session outcome.
+   * Read it through `sessionTurnOf()`.
+   *
+   * @internal
+   */
+  [AGENT_SESSION_TURN]?: string;
 }
