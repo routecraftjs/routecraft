@@ -45,16 +45,7 @@ export interface AcpHarness {
    */
   connect<T>(
     op: (agent: ClientContext, initialized: InitializeResponse) => Promise<T>,
-    options?: {
-      token?: string;
-      capabilities?: ClientOptions;
-      /**
-       * The agent this connection's harness serves, as `craft acp --agent`
-       * sends it. Absent means the mount's own default, which is what a
-       * harness that named none gets.
-       */
-      agent?: string;
-    },
+    options?: ConnectOptions,
   ): Promise<T>;
   /** Every `session/update` the client saw, in arrival order, with its time. */
   readonly seen: Array<{ at: number; sessionId: string; update: unknown }>;
@@ -64,6 +55,58 @@ export interface AcpHarness {
 export interface ClientOptions {
   readonly fs?: { readTextFile?: boolean; writeTextFile?: boolean };
   readonly terminal?: boolean;
+}
+
+/** How one client connection presents itself. */
+export interface ConnectOptions {
+  readonly token?: string;
+  readonly capabilities?: ClientOptions;
+  /**
+   * The agent this connection's harness serves, as `craft acp --agent`
+   * sends it. Absent means the mount's own default, which is what a
+   * harness that named none gets.
+   */
+  readonly agent?: string;
+  /** The client to connect with; a bare one named `test-editor` by default. */
+  readonly app?: ReturnType<typeof client>;
+}
+
+/**
+ * Connect the SDK's HTTP client to a mount at `url`, initialize, and run
+ * `op` on the open connection. The one place the protocol's handshake is
+ * written for tests, whichever way the instance was booted.
+ */
+export function connectAcp<T>(
+  url: string,
+  op: (agent: ClientContext, initialized: InitializeResponse) => Promise<T>,
+  options?: ConnectOptions,
+): Promise<T> {
+  const app = options?.app ?? client({ name: "test-editor" });
+  const stream = createHttpStream(url, {
+    headers: {
+      ...(options?.token === undefined
+        ? {}
+        : { Authorization: `Bearer ${options.token}` }),
+      ...(options?.agent === undefined
+        ? {}
+        : { [ACP_AGENT_HEADER]: options.agent }),
+    },
+  });
+  return app.connectWith(stream, async (agent) => {
+    const initialized: InitializeResponse = await agent.request("initialize", {
+      protocolVersion: 1,
+      clientCapabilities: {
+        ...(options?.capabilities?.fs !== undefined
+          ? { fs: options.capabilities.fs }
+          : {}),
+        ...(options?.capabilities?.terminal !== undefined
+          ? { terminal: options.capabilities.terminal }
+          : {}),
+      },
+      clientInfo: { name: "test-editor", version: "0.0.0" },
+    });
+    return op(agent, initialized);
+  });
 }
 
 export interface AcpHarnessOptions {
@@ -134,34 +177,7 @@ export async function acpHarness(
         },
       );
       options.handlers?.(app);
-      const stream = createHttpStream(url, {
-        headers: {
-          ...(connectOptions?.token === undefined
-            ? {}
-            : { Authorization: `Bearer ${connectOptions.token}` }),
-          ...(connectOptions?.agent === undefined
-            ? {}
-            : { [ACP_AGENT_HEADER]: connectOptions.agent }),
-        },
-      });
-      return app.connectWith(stream, async (agent) => {
-        const initialized: InitializeResponse = await agent.request(
-          "initialize",
-          {
-            protocolVersion: 1,
-            clientCapabilities: {
-              ...(connectOptions?.capabilities?.fs !== undefined
-                ? { fs: connectOptions.capabilities.fs }
-                : {}),
-              ...(connectOptions?.capabilities?.terminal !== undefined
-                ? { terminal: connectOptions.capabilities.terminal }
-                : {}),
-            },
-            clientInfo: { name: "test-editor", version: "0.0.0" },
-          },
-        );
-        return op(agent, initialized);
-      });
+      return connectAcp(url, op, { ...connectOptions, app });
     },
   };
 }

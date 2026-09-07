@@ -12,17 +12,13 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { craft, direct, noop, recovery } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { surface } from "../src/index.ts";
-import {
-  AGENT_SURFACE_HEADER,
-  registerSurface,
-  type AgentSurfaceConnection,
-} from "../src/surface/index.ts";
+import { registerSurface } from "../src/surface/index.ts";
 import { responseCheck, updateCheck } from "../src/surface/protocol.ts";
-
-/** The header naming a surface the test registers under "conn-1". */
-const SURFACED = {
-  [AGENT_SURFACE_HEADER]: { kind: "acp", session: "s", connection: "conn-1" },
-};
+import {
+  SURFACE_CONNECTION,
+  SURFACED,
+  scriptedSurface,
+} from "./helpers/surface-stub.ts";
 
 /** The options a permission request offers, and the one that allows. */
 const OPTIONS = [
@@ -51,18 +47,9 @@ function permissionRoute(decisions: boolean[]) {
     .to(noop());
 }
 
-/** A surface a test drives directly, standing in for a connected editor. */
-function scriptedSurface(
-  answer: (method: string, params: unknown) => unknown,
-): AgentSurfaceConnection {
-  return {
-    kind: "acp",
-    supports: () => true,
-    capabilityFor: (method) => method,
-    request: (_session, method, params) =>
-      Promise.resolve(answer(method, params)),
-    notify: () => Promise.resolve(),
-  };
+/** A surface answering every request with `answer`. */
+function answering(answer: unknown) {
+  return scriptedSurface({ request: () => Promise.resolve(answer) });
 }
 
 describe("the surface checks what the editor answers", () => {
@@ -84,11 +71,7 @@ describe("the surface checks what the editor answers", () => {
       .routes([permissionRoute(decisions)])
       .build();
     await t.startAndWaitReady();
-    registerSurface(
-      t.ctx,
-      "conn-1",
-      scriptedSurface(() => ({ approved: true })),
-    );
+    registerSurface(t.ctx, SURFACE_CONNECTION, answering({ approved: true }));
 
     const seen = await t.client.sendDirect("ask-permission", {}, SURFACED);
 
@@ -113,10 +96,8 @@ describe("the surface checks what the editor answers", () => {
     await t.startAndWaitReady();
     registerSurface(
       t.ctx,
-      "conn-1",
-      scriptedSurface(() => ({
-        outcome: { outcome: "selected", optionId: "invented" },
-      })),
+      SURFACE_CONNECTION,
+      answering({ outcome: { outcome: "selected", optionId: "invented" } }),
     );
 
     const seen = await t.client.sendDirect("ask-permission", {}, SURFACED);
@@ -138,11 +119,11 @@ describe("the surface checks what the editor answers", () => {
     await t.startAndWaitReady();
     registerSurface(
       t.ctx,
-      "conn-1",
-      scriptedSurface(() => ({
+      SURFACE_CONNECTION,
+      answering({
         outcome: { outcome: "selected", optionId: "allow" },
         _meta: "whatever the client put here",
-      })),
+      }),
     );
 
     await t.client.sendDirect("ask-permission", {}, SURFACED);
@@ -171,11 +152,7 @@ describe("the surface checks what the editor answers", () => {
       ])
       .build();
     await t.startAndWaitReady();
-    registerSurface(
-      t.ctx,
-      "conn-1",
-      scriptedSurface(() => ({ content: 42 })),
-    );
+    registerSurface(t.ctx, SURFACE_CONNECTION, answering({ content: 42 }));
 
     await expect(
       t.client.sendDirect("read-file", {}, SURFACED),
@@ -206,18 +183,65 @@ describe("the surface checks what the editor answers", () => {
       ])
       .build();
     await t.startAndWaitReady();
-    registerSurface(t.ctx, "conn-1", {
-      ...scriptedSurface(() => ({})),
-      notify: (_session, update) => {
-        sent.push(update);
-        return Promise.resolve();
-      },
-    });
+    registerSurface(
+      t.ctx,
+      SURFACE_CONNECTION,
+      scriptedSurface({
+        request: () => Promise.resolve({}),
+        notify: (update) => {
+          sent.push(update);
+          return Promise.resolve();
+        },
+      }),
+    );
 
     await expect(
       t.client.sendDirect("notify", {}, SURFACED),
     ).rejects.toMatchObject({ rc: "AI1019" });
     expect(sent).toEqual([]);
+  });
+
+  /**
+   * @case An update the protocol defines is sent as the route built it
+   * @preconditions A notify route whose callback returns a plan, on a surface that records what it is handed
+   * @expectedResult The surface received that plan, equal to what the callback returned, so the check adds nothing and removes nothing from a conforming update
+   */
+  test("a conforming update is sent unchanged", async () => {
+    const plan = {
+      sessionUpdate: "plan" as const,
+      entries: [
+        {
+          content: "read the file",
+          priority: "high" as const,
+          status: "pending" as const,
+        },
+      ],
+    };
+    const sent: unknown[] = [];
+    t = await testContext()
+      .routes([
+        craft()
+          .id("notify")
+          .from(direct())
+          .to(surface.notify(() => plan)),
+      ])
+      .build();
+    await t.startAndWaitReady();
+    registerSurface(
+      t.ctx,
+      SURFACE_CONNECTION,
+      scriptedSurface({
+        request: () => Promise.resolve({}),
+        notify: (update) => {
+          sent.push(update);
+          return Promise.resolve();
+        },
+      }),
+    );
+
+    await t.client.sendDirect("notify", {}, SURFACED);
+
+    expect(sent).toEqual([plan]);
   });
 
   /**
@@ -256,12 +280,14 @@ describe("the surface checks what the editor answers", () => {
   });
 
   /**
-   * @case A method the installed protocol declares no response for is refused rather than passed through
+   * @case A method the installed protocol declares no response for cannot be checked, and says so before the editor is asked
    * @preconditions A method name that is not in the schema
-   * @expectedResult The check refuses every value, naming the method, so an unchecked path cannot open by accident
+   * @expectedResult Building the check fails with RC5003 naming the method and the SDK package, a fault between the two packages rather than an answer, so an unchecked path cannot open by accident
    */
-  test("a method with no response schema is refused", async () => {
-    const check = await responseCheck("made/up");
-    expect(check({ anything: true })?.[0]).toContain('"made/up"');
+  test("a method with no response schema is a configuration fault", async () => {
+    await expect(responseCheck("made/up")).rejects.toMatchObject({
+      rc: "RC5003",
+      message: expect.stringContaining('surface("made/up")'),
+    });
   });
 });

@@ -32,6 +32,20 @@ export function loadAcpSdk(
   });
 }
 
+/**
+ * The protocol's generated JSON Schema, which the surface's checks are
+ * built from. A subpath of the same package, so the same install hint.
+ */
+export function loadAcpSchema(consumer: string): Promise<unknown> {
+  return loadOptionalPeer(
+    () =>
+      import("@agentclientprotocol/sdk/schema/schema.json", {
+        with: { type: "json" },
+      }).then((module) => module.default),
+    { consumer, packageName: ACP_PACKAGE },
+  );
+}
+
 /** The Streamable HTTP server transport: `AcpServer`. */
 export function loadAcpServerSdk(
   consumer: string,

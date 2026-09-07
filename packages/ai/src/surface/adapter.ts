@@ -18,6 +18,7 @@
  */
 
 import {
+  formatSchemaIssues,
   getExchangeContext,
   HeadersKeys,
   rcError,
@@ -36,6 +37,7 @@ import {
   permissionSelectionIssue,
   responseCheck,
   updateCheck,
+  type ProtocolIssue,
 } from "./protocol.ts";
 import { surfaceFor, turnSurfaceOf } from "./registry.ts";
 import type {
@@ -145,15 +147,21 @@ export function surface<M extends SurfaceMethod, T = unknown>(
             ? optional(permissionSelectionIssue(sent, answer))
             : undefined);
         if (issues === undefined) return answer as SurfaceRequestResponses[M];
+        const rendered = formatSchemaIssues(issues);
         if (method === "session/request_permission") {
           getExchangeContext(exchange)?.logger.warn(
-            { method, session: ref.session, issues, source: "surface" },
+            {
+              method,
+              session: ref.session,
+              issues: rendered,
+              source: "surface",
+            },
             "The editor's permission answer could not be trusted and was treated as a refusal",
           );
           return PERMISSION_REFUSED as SurfaceRequestResponses[M];
         }
-        throw rcError("AI1018", new Error(issues.join("; ")), {
-          message: `The ${ref.kind} client serving this turn answered "${method}" with something that is not the protocol's response shape: ${issues.join("; ")}.`,
+        throw rcError("AI1018", new Error(rendered), {
+          message: `The ${ref.kind} client serving this turn answered "${method}" with something that is not the protocol's response shape: ${rendered}.`,
         });
       },
     },
@@ -189,8 +197,9 @@ surface.notify = function notify<T = unknown>(
         const built = resolve(update, exchange);
         const issues = (await updateCheck())(built);
         if (issues !== undefined) {
-          throw rcError("AI1019", new Error(issues.join("; ")), {
-            message: `surface.notify() built an update that is not a "session/update" the protocol defines: ${issues.join("; ")}.`,
+          const rendered = formatSchemaIssues(issues);
+          throw rcError("AI1019", new Error(rendered), {
+            message: `surface.notify() built an update that is not a "session/update" the protocol defines: ${rendered}.`,
           });
         }
         try {
@@ -208,7 +217,9 @@ surface.notify = function notify<T = unknown>(
 };
 
 /** A single issue as the issue list a check returns, or nothing. */
-function optional(issue: string | undefined): readonly string[] | undefined {
+function optional(
+  issue: ProtocolIssue | undefined,
+): readonly ProtocolIssue[] | undefined {
   return issue === undefined ? undefined : [issue];
 }
 

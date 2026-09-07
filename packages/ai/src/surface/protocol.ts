@@ -15,14 +15,25 @@
  * because the SDK would have defaulted it rather than refused the message.
  * Elicitation answers use the SDK's exported guards instead, because that
  * schema uses a `not` clause the converter does not take.
+ *
+ * A check that cannot be built (the installed SDK's schema has no
+ * definition for the method, or the converter refuses it) is a
+ * configuration fault between this package and the SDK, raised before the
+ * editor is asked anything; it is never reported as the editor's answer
+ * being wrong, and never lets a permission call fall closed for it.
  */
 
-import { z } from "zod";
-import { loadOptionalPeer } from "@routecraft/routecraft";
-import { ACP_PACKAGE, loadAcpSdk } from "../acp/sdk.ts";
+import { rcError } from "@routecraft/routecraft";
+import { ACP_PACKAGE, loadAcpSchema, loadAcpSdk } from "../acp/sdk.ts";
 
-/** What a check found wrong, one line per issue. */
-export type ProtocolIssues = readonly string[];
+/** One thing a check found wrong, in the shape `formatSchemaIssues` renders. */
+export interface ProtocolIssue {
+  readonly message: string;
+  readonly path?: readonly PropertyKey[];
+}
+
+/** What a check found wrong. */
+export type ProtocolIssues = readonly ProtocolIssue[];
 
 /** A validator for one wire shape: `undefined` when the value conforms. */
 export type ProtocolCheck = (value: unknown) => ProtocolIssues | undefined;
@@ -47,13 +58,7 @@ interface ProtocolSchema {
 let schema: Promise<ProtocolSchema> | undefined;
 
 function loadSchema(): Promise<ProtocolSchema> {
-  schema ??= loadOptionalPeer(
-    () =>
-      import("@agentclientprotocol/sdk/schema/schema.json", {
-        with: { type: "json" },
-      }).then((module) => module.default as unknown as ProtocolSchema),
-    { consumer: CONSUMER, packageName: ACP_PACKAGE },
-  );
+  schema ??= loadAcpSchema(CONSUMER).then((loaded) => loaded as ProtocolSchema);
   return schema;
 }
 
@@ -94,48 +99,63 @@ function loadDefs(): Promise<Record<string, unknown>> {
 
 const checks = new Map<string, Promise<ProtocolCheck>>();
 
-/** Build a check for one named definition, memoised by name. */
+/**
+ * Build a check for one named definition, memoised by name. The converter
+ * is loaded here rather than at module load, so a consumer of this package
+ * that never reaches an editor never pays for it.
+ *
+ * @throws RC5003 when the installed SDK's schema has no such definition or
+ *   the converter refuses it: a mismatch between this package and the SDK
+ */
 function checkFor(name: string, consumer: string): Promise<ProtocolCheck> {
   let pending = checks.get(name);
   if (pending === undefined) {
-    pending = loadDefs().then((defs) => {
+    pending = Promise.all([loadDefs(), import("zod")]).then(([defs, { z }]) => {
       const def = defs[name];
       if (def === undefined) {
-        throw new Error(
-          `${consumer}: the protocol schema this version of ${ACP_PACKAGE} ships has no definition named "${name}".`,
-        );
+        throw rcError("RC5003", undefined, {
+          message: `${consumer}: the protocol schema the installed ${ACP_PACKAGE} ships has no definition named "${name}", so this version of @routecraft/ai cannot check it. Align the two packages' versions.`,
+        });
       }
-      const parser = z.fromJSONSchema({
-        ...(def as object),
-        $defs: defs,
-      } as Parameters<typeof z.fromJSONSchema>[0]);
+      let parser: { safeParse: (value: unknown) => SafeParsed };
+      try {
+        parser = z.fromJSONSchema({
+          ...(def as object),
+          $defs: defs,
+        } as Parameters<typeof z.fromJSONSchema>[0]);
+      } catch (cause: unknown) {
+        throw rcError("RC5003", cause, {
+          message: `${consumer}: the protocol schema the installed ${ACP_PACKAGE} ships for "${name}" could not be turned into a check. Align the two packages' versions.`,
+        });
+      }
       return (value) => {
         const parsed = parser.safeParse(value);
-        return parsed.success ? undefined : describe(parsed.error);
+        return parsed.success ? undefined : parsed.error.issues;
       };
     });
     checks.set(name, pending);
-    // A load that failed is retried by the next caller rather than cached
-    // as a permanent refusal.
-    pending.catch(() => checks.delete(name));
   }
   return pending;
 }
 
-function describe(error: z.ZodError): ProtocolIssues {
-  return error.issues.map(
-    (issue) =>
-      `${issue.path.length === 0 ? "$" : issue.path.map(String).join(".")}: ${issue.message}`,
-  );
-}
+/** The slice of a zod parse result this module reads. */
+type SafeParsed =
+  | { readonly success: true }
+  | {
+      readonly success: false;
+      readonly error: { readonly issues: ProtocolIssues };
+    };
 
 /**
  * The check for what an editor answers a method with.
  *
  * Resolved from the definition the SDK tags with the method name on the
  * client side, so a method the protocol adds is checked the day its SDK
- * ships. A method the installed schema has no response for is refused
- * rather than passed through unchecked.
+ * ships. A method the installed schema has no response for cannot be
+ * checked, and is refused before the editor is asked, as a configuration
+ * fault rather than as an answer.
+ *
+ * @throws RC5003 when the installed SDK's schema cannot check the method
  */
 export async function responseCheck(method: string): Promise<ProtocolCheck> {
   if (method === "elicitation/create") return elicitationCheck();
@@ -147,9 +167,9 @@ export async function responseCheck(method: string): Promise<ProtocolCheck> {
       candidate.endsWith("Response"),
   )?.[0];
   if (name === undefined) {
-    return () => [
-      `$: the protocol schema this version of ${ACP_PACKAGE} ships declares no response for "${method}"`,
-    ];
+    throw rcError("RC5003", undefined, {
+      message: `surface("${method}"): the protocol schema the installed ${ACP_PACKAGE} ships declares no response for this method, so this version of @routecraft/ai cannot check it. Align the two packages' versions.`,
+    });
   }
   return checkFor(name, `surface("${method}")`);
 }
@@ -168,7 +188,7 @@ async function elicitationCheck(): Promise<ProtocolCheck> {
   const { CreateElicitationResponse } = await loadAcpSdk(CONSUMER);
   return (value) => {
     if (value === null || typeof value !== "object") {
-      return ["$: expected an object"];
+      return [{ message: "expected an object" }];
     }
     const answer = value as Parameters<
       typeof CreateElicitationResponse.isAccept
@@ -178,7 +198,7 @@ async function elicitationCheck(): Promise<ProtocolCheck> {
       CreateElicitationResponse.isCancel(answer) ||
       CreateElicitationResponse.isCustom(answer)
       ? undefined
-      : ["$: not a well-formed elicitation response"];
+      : [{ message: "not a well-formed elicitation response" }];
   };
 }
 
@@ -192,7 +212,7 @@ async function elicitationCheck(): Promise<ProtocolCheck> {
 export function permissionSelectionIssue(
   sent: unknown,
   answer: unknown,
-): string | undefined {
+): ProtocolIssue | undefined {
   const outcome = (
     answer as { outcome?: { outcome?: unknown; optionId?: unknown } }
   ).outcome;
@@ -204,7 +224,10 @@ export function permissionSelectionIssue(
     offered.some((option) => option?.optionId === outcome.optionId);
   return known
     ? undefined
-    : `outcome.optionId: "${String(outcome.optionId)}" is not one of the options this request offered`;
+    : {
+        path: ["outcome", "optionId"],
+        message: `"${String(outcome.optionId)}" is not one of the options this request offered`,
+      };
 }
 
 /**

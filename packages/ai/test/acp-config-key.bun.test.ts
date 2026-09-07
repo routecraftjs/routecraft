@@ -8,8 +8,6 @@
  */
 
 import { afterEach, describe, expect, expectTypeOf, test } from "bun:test";
-import { client } from "@agentclientprotocol/sdk";
-import { createHttpStream } from "@agentclientprotocol/sdk/experimental/http-client";
 import {
   MemorySuspensionStore,
   defineConfig,
@@ -18,6 +16,7 @@ import {
 import { testContext, type TestContext } from "@routecraft/testing";
 import { acpPlugin, agentPlugin } from "../src/index.ts";
 import type { AcpPluginOptions } from "../src/acp/types.ts";
+import { connectAcp } from "./helpers/acp-harness.ts";
 import { MODEL } from "./helpers/suspend-fixtures.ts";
 
 const AGENTS = {
@@ -29,8 +28,14 @@ const AGENTS = {
   },
 };
 
-/** Boot a context from `config` and answer with what `initialize` returned. */
-async function serve(config: CraftConfig): Promise<{
+/**
+ * Boot a context from `config`, speak the handshake to the mount at `path`,
+ * and answer with what `initialize` returned.
+ */
+async function serve(
+  config: CraftConfig,
+  path = "/acp",
+): Promise<{
   t: TestContext;
   agentInfo: { name?: string } | null | undefined;
 }> {
@@ -42,17 +47,9 @@ async function serve(config: CraftConfig): Promise<{
     .with(config)
     .build();
   await t.startAndWaitReady();
-  const stream = createHttpStream(`http://127.0.0.1:${port}/acp`);
-  const agentInfo = await client({ name: "test-editor" }).connectWith(
-    stream,
-    async (agent) => {
-      const initialized = await agent.request("initialize", {
-        protocolVersion: 1,
-        clientCapabilities: {},
-        clientInfo: { name: "test-editor", version: "0.0.0" },
-      });
-      return initialized.agentInfo;
-    },
+  const agentInfo = await connectAcp(
+    `http://127.0.0.1:${port}${path}`,
+    (_agent, initialized) => Promise.resolve(initialized.agentInfo),
   );
   return { t, agentInfo };
 }
@@ -88,33 +85,18 @@ describe("the acp config key", () => {
    * @expectedResult The mount answers on that path as the configured name, so the key and the factory are one option set
    */
   test("acp carries the factory's options", async () => {
-    let port = 0;
-    t = await testContext()
-      .on("server:listening", ({ details }) => {
-        port = details.port;
-      })
-      .with({
+    const served = await serve(
+      {
         agent: { agents: AGENTS },
         servers: { default: { host: "127.0.0.1", port: 0 } },
         suspension: { store: new MemorySuspensionStore() },
         sessions: { store: "memory" },
         acp: { path: "/editor", agentInfo: { name: "eywa", version: "1" } },
-      })
-      .build();
-    await t.startAndWaitReady();
-    const stream = createHttpStream(`http://127.0.0.1:${port}/editor`);
-    const info = await client({ name: "test-editor" }).connectWith(
-      stream,
-      async (agent) => {
-        const initialized = await agent.request("initialize", {
-          protocolVersion: 1,
-          clientCapabilities: {},
-          clientInfo: { name: "test-editor", version: "0.0.0" },
-        });
-        return initialized.agentInfo;
       },
+      "/editor",
     );
-    expect(info?.name).toBe("eywa");
+    t = served.t;
+    expect(served.agentInfo?.name).toBe("eywa");
   });
 
   /**
