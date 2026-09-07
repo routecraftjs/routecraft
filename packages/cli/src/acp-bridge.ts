@@ -297,10 +297,19 @@ class Bridge {
     }
   }
 
+  /**
+   * A failed write means the editor's output pipe is broken; its input
+   * side can stay open regardless, so nothing else would ever notice.
+   * Settling here is what ends the relay instead of it running on,
+   * silently dropping everything meant for an editor that can no longer
+   * hear it. Already-settled is a safe no-op the guard in `editorClosed`
+   * handles, including the ordinary case where this write lost a race
+   * with the writer's own clean close.
+   */
   private toEditor(message: RpcMessage): void {
     this.editorChain = this.editorChain
       .then(() => this.editorWriter.write(message))
-      .catch(() => undefined);
+      .catch((error: unknown) => this.editorClosed(error));
   }
 
   /**

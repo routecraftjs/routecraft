@@ -355,4 +355,44 @@ describe("runBridge", () => {
 
     expect(revived.written.some((m) => m.id === "instance-req")).toBe(false);
   });
+
+  /**
+   * @case The editor's output pipe breaking ends the relay, even though its input side stays open and would otherwise never notice
+   * @preconditions An editor transport whose writable always rejects and whose readable never closes or errors on its own
+   * @expectedResult The relay settles as `editor-error`, carrying the write failure, rather than running on with every message to the editor silently dropped
+   */
+  test("a broken editor output pipe ends the relay, even with the input side still open", async () => {
+    const failure = new Error("EPIPE");
+    const brokenWritable = new WritableStream<RpcMessage>({
+      write() {
+        return Promise.reject(failure);
+      },
+    });
+    let push: ((message: RpcMessage) => void) | undefined;
+    const openReadable = new ReadableStream<RpcMessage>({
+      start(controller) {
+        push = (message) => controller.enqueue(message);
+      },
+    });
+    const editorTransport: BridgeTransport = {
+      readable: openReadable,
+      writable: brokenWritable,
+    };
+    const instance = respondingTransport();
+
+    const outcome = runBridge({
+      editor: editorTransport,
+      connect: () => instance.transport,
+      target: "test://instance",
+      log: () => undefined,
+    });
+
+    // The instance's own reply to this is what the broken pipe fails to
+    // carry back to the editor.
+    push?.({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+
+    const settled = await outcome;
+    expect(settled.kind).toBe("editor-error");
+    expect(settled).toEqual({ kind: "editor-error", error: failure });
+  });
 });
