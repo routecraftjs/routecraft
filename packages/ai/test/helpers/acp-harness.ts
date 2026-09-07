@@ -67,7 +67,11 @@ export interface ConnectOptions {
    * harness that named none gets.
    */
   readonly agent?: string;
-  /** The client to connect with; a bare one named `test-editor` by default. */
+  /**
+   * The client to connect with, for a caller that attached handlers to it;
+   * a bare one by default. Whichever is passed, the handshake advertises
+   * `test-editor`, the one name the mount's tests assert on.
+   */
   readonly app?: ReturnType<typeof client>;
 }
 
