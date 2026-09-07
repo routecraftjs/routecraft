@@ -300,4 +300,59 @@ describe("runBridge", () => {
     expect(answersFor3).toHaveLength(1);
     expect(answersFor3[0]?.result).toEqual({ done: true });
   }, 10_000);
+
+  /**
+   * @case An editor's answer to an instance request is dropped rather than replayed when the write carrying it back is what kills the connection
+   * @preconditions The instance asks the editor something, the editor answers, and the write of that answer is itself what fails; the reconnection that follows lands on a new transport
+   * @expectedResult The new transport never sees the stale answer: `instanceRequests` is cleared on every loss, so no transport after this one ever asked for it, and posting it anyway would be posting an id the new instance never issued
+   */
+  test("a stale editor answer queued when its own write kills the connection is dropped, not replayed", async () => {
+    const editor = transport();
+    const first = transport((message, push) => {
+      if (message.method === "initialize") {
+        push({ jsonrpc: "2.0", id: message.id ?? null, result: {} });
+        return;
+      }
+      if (message.id === "instance-req") {
+        throw new Error("dropped on the way out");
+      }
+    });
+    const revived = respondingTransport();
+    let calls = 0;
+    const lines: string[] = [];
+
+    const outcome = runBridge({
+      editor: editor.transport,
+      connect: () => {
+        calls += 1;
+        return calls === 1 ? first.transport : revived.transport;
+      },
+      target: "test://instance",
+      log: (line) => lines.push(line),
+      delays: [0],
+    });
+
+    editor.push({ jsonrpc: "2.0", id: 1, method: "initialize", params: {} });
+    await waitFor(() => editor.written.some((m) => m.id === 1));
+
+    // The instance asks the editor something; the editor's answer is what
+    // fails to write back, which is what kills the connection here.
+    first.push({
+      jsonrpc: "2.0",
+      id: "instance-req",
+      method: "session/update",
+      params: {},
+    });
+    await waitFor(() => editor.written.some((m) => m.id === "instance-req"));
+    editor.push({ jsonrpc: "2.0", id: "instance-req", result: { ok: true } });
+
+    await waitFor(() =>
+      lines.some((line) => line.startsWith("Reconnected to")),
+    );
+
+    editor.close();
+    await outcome;
+
+    expect(revived.written.some((m) => m.id === "instance-req")).toBe(false);
+  });
 });

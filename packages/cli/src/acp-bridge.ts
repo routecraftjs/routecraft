@@ -203,9 +203,9 @@ class Bridge {
         this.fromEditor(message),
       );
     } catch (error: unknown) {
-      this.options.log(
-        `The editor's side of the pipe failed: ${messageOf(error)}`,
-      );
+      // Reported once, by the caller building the command's result from
+      // the `editor-error` outcome; a line here too would say the same
+      // thing twice for a failure the process is exiting on regardless.
       this.editorClosed(error);
       return;
     }
@@ -584,12 +584,20 @@ class Bridge {
    * {@link fromEditor}: each message was already registered when it was
    * first queued, and re-entering `fromEditor` would only requeue it,
    * since `flushing` holds every new arrival behind the drain.
+   *
+   * A response is the one shape dropped rather than replayed: it answers
+   * an instance-initiated request, and `instanceRequests` is cleared on
+   * every loss, so the new transport never made the request this would be
+   * answering. Posting it anyway would be posting an id the new instance
+   * never issued, the same case `fromEditor` itself already guards for a
+   * response arriving live.
    */
   private async flush(): Promise<void> {
     this.flushing = true;
     try {
       while (this.queue.length > 0 && this.state === "connected") {
         const message = this.queue.shift() as RpcMessage;
+        if (isResponse(message)) continue;
         await this.toInstance(message);
       }
     } finally {
