@@ -5,6 +5,8 @@ import { join } from "node:path";
 import {
   MemorySuspensionStore,
   resolveSqliteDriver,
+  SQLITE_APPLICATION_IDS,
+  SqliteSuspensionStore,
   type SqliteDriverLoaders,
 } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
@@ -347,5 +349,128 @@ describe("session store resolution", () => {
     };
     expect(row.user_version).toBe(2);
     check.close();
+  });
+
+  /**
+   * @case The store refuses a suspension database instead of reporting a version
+   * @preconditions A file opened by the suspension store first, which stamps its own identity and schema version 4
+   * @expectedResult AI1012 says the file is not an agent session store and names what it is. Reported in the field from JetBrains: the old message said the file was "newer than this build understands (2)" and told the reader to run a newer build, which no build could ever satisfy because the file belongs to another store
+   */
+  test("a suspension database is refused as foreign, not as a newer version", async () => {
+    const path = join(scratch, "suspensions-as-sessions.db");
+    const suspensions = await SqliteSuspensionStore.open({ path });
+    await suspensions.close();
+
+    const failure = await SqliteSessionStore.open({ path }).then(
+      () => undefined,
+      (err: Error) => err,
+    );
+    expect(failure).toBeDefined();
+    expect(failure!.message).toContain("is not an agent session store");
+    expect(failure!.message).toContain("suspension");
+    expect(failure!.message).not.toContain("newer than this build");
+    expect(failure!.message).not.toContain("Run the newer Routecraft build");
+  });
+
+  /**
+   * @case A fresh database is stamped with the session store's identity
+   * @preconditions No file at the path
+   * @expectedResult application_id carries the session store's tag, so another store opening it later can say whose it is
+   */
+  test("a fresh database is stamped with the session identity", async () => {
+    const path = join(scratch, "stamped.db");
+    const store = await SqliteSessionStore.open({ path });
+    await store.close();
+
+    const driver = await resolveSqliteDriver("test");
+    const check = new driver.Database(path);
+    const row = check.prepare("PRAGMA application_id").get() as {
+      application_id: number;
+    };
+    expect(row.application_id).toBe(SQLITE_APPLICATION_IDS.session);
+    check.close();
+  });
+
+  /**
+   * @case A file written before stamping existed is adopted rather than refused
+   * @preconditions A version 1 file carrying agent_sessions and application_id 0, which is every database the published canary wrote
+   * @expectedResult It migrates and is stamped, so the identity check never strands a file this store really does own
+   */
+  test("an unstamped file carrying our own table is adopted", async () => {
+    const path = join(scratch, "legacy-unstamped.db");
+    const driver = await resolveSqliteDriver("test");
+    const seed = new driver.Database(path);
+    seed.exec(`CREATE TABLE agent_sessions (
+       agent      TEXT    NOT NULL,
+       session    TEXT    NOT NULL,
+       version    INTEGER NOT NULL,
+       record     TEXT    NOT NULL,
+       updated_at INTEGER NOT NULL,
+       PRIMARY KEY (agent, session)
+     );`);
+    seed.exec("PRAGMA user_version = 1");
+    seed.close();
+
+    const store = await SqliteSessionStore.open({ path });
+    expect(await store.create(key, { kind: "agent-session" })).toEqual({
+      won: true,
+    });
+    await store.close();
+
+    const check = new driver.Database(path);
+    expect(
+      (
+        check.prepare("PRAGMA application_id").get() as {
+          application_id: number;
+        }
+      ).application_id,
+    ).toBe(SQLITE_APPLICATION_IDS.session);
+    check.close();
+  });
+
+  /**
+   * @case An unstamped file holding a foreign schema is refused
+   * @preconditions A file with somebody else's table and a non-zero user_version, and no identity stamp
+   * @expectedResult Refused as foreign and the message lists the tables it actually holds, which is what an operator sees running sqlite3 against it
+   */
+  test("an unstamped file holding a foreign schema is refused", async () => {
+    const path = join(scratch, "legacy-foreign.db");
+    const driver = await resolveSqliteDriver("test");
+    const seed = new driver.Database(path);
+    seed.exec("CREATE TABLE somebody_elses (id TEXT PRIMARY KEY)");
+    seed.exec("PRAGMA user_version = 3");
+    seed.close();
+
+    const failure = await SqliteSessionStore.open({ path }).then(
+      () => undefined,
+      (err: Error) => err,
+    );
+    expect(failure).toBeDefined();
+    expect(failure!.message).toContain("is not an agent session store");
+    expect(failure!.message).toContain("somebody_elses");
+  });
+
+  /**
+   * @case Two stores configured onto one file are refused at resolution
+   * @preconditions A context whose suspension store already claimed a path, then sessions: { store } pointed at the same path
+   * @expectedResult AI1012 names both settings and the shared path. Reported in the field: both were configured onto .routecraft/sessions.db, nothing objected, and the failure surfaced later inside the ACP auth loop as a schema version the build did not understand
+   */
+  test("two stores on one path are refused, naming both settings", async () => {
+    const path = join(scratch, "shared-by-two.db");
+    t = await testContext()
+      .with({ suspension: { store: { path } } })
+      .build();
+
+    const failure = await createSessionStore(t.ctx, {
+      store: { path },
+    }).then(
+      () => undefined,
+      (err: Error) => err,
+    );
+    expect(failure).toBeDefined();
+    expect(failure!.message).toContain("sessions: { store }");
+    expect(failure!.message).toContain("suspension: { store }");
+    expect(failure!.message).toContain(path);
+    expect(failure).toMatchObject({ rc: "AI1012" });
   });
 });

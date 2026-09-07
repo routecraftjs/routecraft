@@ -663,11 +663,19 @@ export {
   type SqliteDriverName,
 } from "./shared/sqlite/driver.ts";
 export {
+  describeSqliteFile,
   isSqliteBusy,
   migrateSqlite,
   resolveDatabasePath,
+  SQLITE_APPLICATION_IDS,
+  sqliteApplicationName,
+  type SqliteApplicationId,
   type SqliteMigrationFailure,
 } from "./shared/sqlite/database.ts";
+export {
+  claimDatabasePath,
+  type SqlitePathConflict,
+} from "./shared/sqlite/claims.ts";
 
 // The suspension engine (hashing, serialization, token minting, runtime
 // resolution) stays behind `./suspension/index.ts`, which is where the

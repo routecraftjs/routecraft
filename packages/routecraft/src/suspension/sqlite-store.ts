@@ -12,9 +12,11 @@ import {
   resolveSqliteDriver,
 } from "../shared/sqlite/driver.ts";
 import {
+  describeSqliteFile,
   isSqliteBusy,
   migrateSqlite,
   resolveDatabasePath,
+  SQLITE_APPLICATION_IDS,
 } from "../shared/sqlite/database.ts";
 import type {
   ExpiredScanCursor,
@@ -574,14 +576,23 @@ function migrate(db: SqliteDatabase): void {
   migrateSqlite(db, {
     schemaVersion: SCHEMA_VERSION,
     migrations: MIGRATIONS,
-    onFailure: (failure) =>
-      failure.kind === "downgrade"
-        ? rcError("RC5044", undefined, {
-            message: `Suspension store schema version ${failure.current} is newer than this build understands (${SCHEMA_VERSION}). Run the newer Routecraft build, or point suspension.store.path at a fresh file.`,
-          })
-        : rcError("RC5044", failure.cause, {
-            message: "Failed to migrate the suspension store schema.",
-          }),
+    applicationId: SQLITE_APPLICATION_IDS.suspension,
+    identityTable: "suspensions",
+    onFailure: (failure) => {
+      if (failure.kind === "foreign") {
+        return rcError("RC5044", undefined, {
+          message: `This file is not a suspension store; ${describeSqliteFile(failure)}. Point suspension.store.path at its own file: every store keeps one, and they cannot share.`,
+        });
+      }
+      if (failure.kind === "downgrade") {
+        return rcError("RC5044", undefined, {
+          message: `Suspension store schema version ${failure.current} is newer than this build understands (${SCHEMA_VERSION}). Run the newer Routecraft build, or point suspension.store.path at a fresh file.`,
+        });
+      }
+      return rcError("RC5044", failure.cause, {
+        message: "Failed to migrate the suspension store schema.",
+      });
+    },
   });
 }
 

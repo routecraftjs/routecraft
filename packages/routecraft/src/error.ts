@@ -478,7 +478,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Runtime",
     message: "Suspension store operation failed",
     suggestion:
-      "The suspension store could not complete a read or write. Common causes: a duplicate suspension id (a bug in id derivation, since ids are minted per suspend), a store file that is unwritable or out of disk, and a store written by a newer Routecraft build than the one now running. Deliberately not retryable: none of these clear on a second attempt, so a .retry() wrapper must not burn its budget on them.",
+      "The suspension store could not complete a read or write. Common causes: a duplicate suspension id (a bug in id derivation, since ids are minted per suspend), a store file that is unwritable or out of disk, a store written by a newer Routecraft build than the one now running, and a path shared with another store. Each store needs its own file: every sqlite store versions itself through one PRAGMA user_version per database, so two pointed at one path are refused rather than made to work. Deliberately not retryable: none of these clear on a second attempt, so a .retry() wrapper must not burn its budget on them.",
     docs: `${DOCS_BASE}#rc-5044`,
     retryable: false,
   },

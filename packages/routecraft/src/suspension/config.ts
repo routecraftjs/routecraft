@@ -7,6 +7,8 @@ import {
   SqliteSuspensionStore,
 } from "./sqlite-store.ts";
 import type { SqliteDriverLoaders } from "../shared/sqlite/driver.ts";
+import { claimDatabasePath } from "../shared/sqlite/claims.ts";
+import { rcError } from "../error.ts";
 import {
   type ResumeTokenSigner,
   SUSPENSION_SECRET_ENV,
@@ -274,6 +276,16 @@ export async function createSuspensionRuntime(
     typeof configured === "object" && configured !== null
       ? configured.path
       : ((configured as string | undefined) ?? DEFAULT_SUSPENSION_DB_PATH);
+
+  claimDatabasePath({
+    scope: context,
+    path,
+    claimant: "suspension: { store }",
+    onConflict: (conflict) =>
+      rcError("RC5044", undefined, {
+        message: `suspension: { store } and ${conflict.held} both point at "${conflict.path}". Each store versions its own file, so they cannot share one; give them separate paths.`,
+      }),
+  });
 
   try {
     const store = await SqliteSuspensionStore.open({

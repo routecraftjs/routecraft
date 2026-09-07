@@ -34,16 +34,62 @@ export function isSqliteBusy(cause: unknown): boolean {
   );
 }
 
+/**
+ * Which store a database file belongs to, stamped into
+ * `PRAGMA application_id` so a store can tell its own file from another's.
+ *
+ * Every store in the repository writes into `.routecraft/` and versions
+ * itself through `PRAGMA user_version`, which is one integer per file. Two
+ * stores pointed at one path therefore cannot both be satisfied, and
+ * without an identity the loser can only report the version it found,
+ * which reads as "upgrade your build" for a file no build will ever
+ * understand.
+ *
+ * The values are the ASCII of a four-letter tag, which is what
+ * `application_id` is conventionally used for and what `file` and
+ * `sqlite3` will show an operator.
+ */
+export const SQLITE_APPLICATION_IDS = {
+  /** "RCSU", the suspension store. */
+  suspension: 0x5243_5355,
+  /** "RCSE", the agent session store. */
+  session: 0x5243_5345,
+} as const;
+
+/** A stamped identity, or 0 for a file no build has claimed. */
+export type SqliteApplicationId =
+  (typeof SQLITE_APPLICATION_IDS)[keyof typeof SQLITE_APPLICATION_IDS] | 0;
+
+/** The tag a stamped file carries, for naming it in a refusal. */
+export function sqliteApplicationName(id: number): string | undefined {
+  for (const [name, value] of Object.entries(SQLITE_APPLICATION_IDS)) {
+    if (value === id) return name;
+  }
+  return undefined;
+}
+
 /** What went wrong in {@link migrateSqlite}, for the consumer's own error. */
 export interface SqliteMigrationFailure {
   /**
-   * `downgrade` is a file written by a newer build, which no migration can
+   * `foreign` is a file belonging to a different store, which is a
+   * configuration mistake rather than a version problem; `downgrade` is a
+   * file written by a newer build of THIS store, which no migration can
    * repair; `migrate` is a statement that failed.
    */
-  readonly kind: "downgrade" | "migrate";
+  readonly kind: "foreign" | "downgrade" | "migrate";
   readonly cause: unknown;
   /** The version the file is on. */
   readonly current: number;
+  /**
+   * The file's own tables, so a refusal can say what the file actually is
+   * rather than only what it is not. Empty for a file with no schema.
+   */
+  readonly tables: readonly string[];
+  /**
+   * The identity stamped on the file: another store's id, or 0 when the
+   * file predates stamping and was identified by its tables instead.
+   */
+  readonly applicationId: number;
 }
 
 /**
@@ -57,9 +103,19 @@ export interface SqliteMigrationFailure {
  * that falls back to memory means losing durability at exactly the moment
  * a deployment restarts.
  *
+ * Before any of that, the file is checked to be this store's own. A store
+ * adopts a file only when the file is empty, or already carries this
+ * store's identity, or predates stamping and holds this store's own table.
+ * Anything else is refused as `foreign`, because two stores sharing one
+ * path is a configuration mistake that no migration can resolve.
+ *
  * @param options.schemaVersion - The version this build understands.
  * @param options.migrations - Forward-only statements; index `n` migrates
  *   version `n` to `n + 1`, so a fresh file runs them all.
+ * @param options.applicationId - This store's identity, stamped into
+ *   `PRAGMA application_id` on adoption.
+ * @param options.identityTable - A table this store's schema always has,
+ *   used to adopt files written before stamping existed.
  * @param options.onFailure - Builds the store's own error for a failure.
  *   The returned error is thrown as it is, so each store keeps its code.
  */
@@ -68,10 +124,13 @@ export function migrateSqlite(
   options: {
     schemaVersion: number;
     migrations: ReadonlyArray<string>;
+    applicationId: SqliteApplicationId;
+    identityTable: string;
     onFailure: (failure: SqliteMigrationFailure) => Error;
   },
 ): void {
-  const { schemaVersion, migrations, onFailure } = options;
+  const { schemaVersion, migrations, applicationId, identityTable, onFailure } =
+    options;
   let current = 0;
   // The downgrade error is built inside the transaction and rethrown
   // unwrapped by the catch below, which cannot otherwise tell it from a
@@ -82,13 +141,57 @@ export function migrateSqlite(
     const row = db.prepare("PRAGMA user_version").get() as
       { user_version?: number } | undefined;
     current = row?.user_version ?? 0;
+    const tables = tablesIn(db);
+    const stamped =
+      (
+        db.prepare("PRAGMA application_id").get() as
+          { application_id?: number } | undefined
+      )?.application_id ?? 0;
+    // Ownership is settled before the version is looked at. A file
+    // belonging to another store is on ITS version line, so reporting that
+    // number as a downgrade tells the reader to find a newer build of a
+    // store that will never open this file.
+    if (stamped !== 0 && stamped !== applicationId) {
+      refusal = onFailure({
+        kind: "foreign",
+        cause: undefined,
+        current,
+        tables,
+        applicationId: stamped,
+      });
+      throw refusal;
+    }
+    // An unstamped file predates stamping, so its tables are the only
+    // evidence. An empty one is ours to claim; one already carrying our
+    // table is ours to adopt; one carrying somebody else's schema is not.
+    if (stamped === 0 && tables.length > 0 && !tables.includes(identityTable)) {
+      refusal = onFailure({
+        kind: "foreign",
+        cause: undefined,
+        current,
+        tables,
+        applicationId: 0,
+      });
+      throw refusal;
+    }
     // The downgrade guard has to run BEFORE the up-to-date check, not
     // after: a file written by a newer build satisfies both conditions, so
     // ordering it second made it unreachable and turned a rollback into a
     // misleading write failure on first use.
     if (current > schemaVersion) {
-      refusal = onFailure({ kind: "downgrade", cause: undefined, current });
+      refusal = onFailure({
+        kind: "downgrade",
+        cause: undefined,
+        current,
+        tables,
+        applicationId: stamped,
+      });
       throw refusal;
+    }
+    if (stamped !== applicationId) {
+      // Interpolated rather than bound: PRAGMA takes no parameters. The
+      // value is a module constant, never user input.
+      db.exec(`PRAGMA application_id = ${applicationId}`);
     }
     if (current === schemaVersion) {
       db.exec("COMMIT");
@@ -108,6 +211,39 @@ export function migrateSqlite(
       // BEGIN itself failed; there is no transaction to roll back.
     }
     if (refusal !== undefined && cause === refusal) throw refusal;
-    throw onFailure({ kind: "migrate", cause, current });
+    throw onFailure({
+      kind: "migrate",
+      cause,
+      current,
+      tables: [],
+      applicationId: 0,
+    });
   }
+}
+
+/**
+ * The file's own table names. Read inside the migration transaction, where
+ * it is the only evidence of what an unstamped file holds.
+ */
+function tablesIn(db: SqliteDatabase): string[] {
+  const rows = db
+    .prepare(
+      "SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name",
+    )
+    .all() as Array<{ name: string }>;
+  return rows.map((row) => row.name);
+}
+
+/**
+ * Say what a foreign file actually is, for the refusal that names it.
+ *
+ * A stamped file names itself. One that predates stamping is described by
+ * its tables, which is the only evidence there is, and is worth printing
+ * because it is what an operator sees running `sqlite3` against the file.
+ */
+export function describeSqliteFile(failure: SqliteMigrationFailure): string {
+  const name = sqliteApplicationName(failure.applicationId);
+  if (name !== undefined) return `it belongs to the ${name} store`;
+  if (failure.tables.length === 0) return "it holds an unrecognised schema";
+  return `it holds ${failure.tables.join(", ")}`;
 }

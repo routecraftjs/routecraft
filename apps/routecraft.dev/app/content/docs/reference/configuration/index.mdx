@@ -291,6 +291,10 @@ export const craftConfig = defineConfig({
 
 The backend is chosen per runtime exactly as the suspension store's is: `bun:sqlite` under Bun, `better-sqlite3` under Node. An explicitly configured path that cannot be opened fails at startup with [`AI1012`](/docs/reference/errors#ai-1012); the unconfigured default falls back to memory with a warning when no driver is available. A value that names neither a location nor a backend is refused at startup with [`RC5003`](/docs/reference/errors#rc-5003). A store instance you supply is never closed by the context.
 
+<Callout type="warning">
+**Every store needs its own file.** A SQLite database carries one `PRAGMA user_version`, and each store versions its own schema through it, so a path given to both `sessions` and `suspension` can satisfy neither. Configuring two stores onto one path is refused at startup, naming both settings. A file that already belongs to another store is refused when it is opened, naming what the file actually is.
+</Callout>
+
 Records have no retention: nothing expires a session, so a deployment that opens one per inbound message sizes its volume by how many it will ever open. Retiring a session is not built yet. In tests, `testContext()` substitutes an in-memory suspension store but not a session store, so a test that holds a conversation passes `sessions: { store: 'memory' }` to leave no database behind.
 
 **The signing secret is required, at least 32 bytes, and never generated for you.** A context whose routes can reach a durable suspend fails at startup with [`RC5040`](/docs/reference/errors#rc-5040) when no secret is configured. The secret is deliberately not stored alongside the suspensions: a store compromise must not also yield forgeable resume tokens. `testContext()`, `NODE_ENV=development` and `NODE_ENV=test` mint an ephemeral in-memory key so tests and local iteration need no setup; that key is regenerated on every start, so tokens minted before a restart stop verifying, and the framework warns when it is in use.
