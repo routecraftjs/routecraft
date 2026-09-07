@@ -64,6 +64,7 @@ export interface BridgeOptions {
 /** How the relay ended. */
 export type BridgeOutcome =
   | { readonly kind: "editor-closed" }
+  | { readonly kind: "editor-error"; readonly error: unknown }
   | { readonly kind: "unreachable"; readonly error: unknown };
 
 /** Doubling from a quarter second to five, which then repeats. */
@@ -146,6 +147,13 @@ class Bridge {
   private ownSequence = 0;
   private reconnecting = false;
   /**
+   * True while {@link flush} is draining the outage queue. A message that
+   * arrives from the editor during the drain must wait behind whatever is
+   * still queued ahead of it, not overtake it by going straight to the
+   * instance just because the state has already turned "connected".
+   */
+  private flushing = false;
+  /**
    * Bumped on every `attach()` and on every connecting-phase failure. A
    * transport's read loop tags itself with the value current when it
    * started; if that value has moved on by the time the loop ends, this
@@ -172,7 +180,17 @@ class Bridge {
   }
 
   async run(): Promise<BridgeOutcome> {
-    this.attach(this.options.connect());
+    // A synchronous throw here (a malformed url, a transport already
+    // locked) is the same "address to check" as a connection that never
+    // answers, so it goes through the same `lost()` path rather than
+    // rejecting this promise and leaving `acpCommand` without its
+    // documented unreachable result.
+    try {
+      this.attach(this.options.connect());
+    } catch (error: unknown) {
+      this.lost(error);
+      return this.settled;
+    }
     void this.readEditor();
     return this.settled;
   }
@@ -188,6 +206,8 @@ class Bridge {
       this.options.log(
         `The editor's side of the pipe failed: ${messageOf(error)}`,
       );
+      this.editorClosed(error);
+      return;
     }
     this.editorClosed();
   }
@@ -226,7 +246,7 @@ class Bridge {
       }
     }
 
-    if (this.state !== "connected") {
+    if (this.state !== "connected" || this.flushing) {
       if (this.queue.length >= MAX_QUEUED) {
         if (isRequest(message)) {
           this.editorRequests.delete(keyOf(message.id));
@@ -251,11 +271,14 @@ class Bridge {
    * Write to the current transport.
    *
    * A write that fails never reached the instance, so the message goes
-   * back to the front of the queue for the next transport. The failure
-   * also runs {@link lost}, which answers every other in-flight editor
-   * request for the connection that just died; if this message's own
-   * request is one of those (the read side found the same loss first),
-   * it has already been answered and must not be queued again.
+   * back to the front of the queue for the next transport, and its
+   * `editorRequests` entry is left exactly as it was: {@link failInFlight}
+   * is what decides, from queue membership, which requests get an outage
+   * answer, and this message is unshifted back before {@link lost} runs so
+   * it is judged still-queued rather than in flight. The one exception is
+   * a request the read side already found the same loss for first: its
+   * entry is gone by the time this catch runs, and it must not be queued
+   * again on top of the answer it already got.
    */
   private async toInstance(message: RpcMessage): Promise<void> {
     const writer = this.writer;
@@ -266,11 +289,9 @@ class Bridge {
     try {
       await writer.write(message);
     } catch (error: unknown) {
-      const isEditorRequest = isRequest(message);
-      const key = isEditorRequest ? keyOf(message.id) : undefined;
+      const key = isRequest(message) ? keyOf(message.id) : undefined;
       const alreadyAnswered =
         key !== undefined && !this.editorRequests.has(key);
-      if (key !== undefined) this.editorRequests.delete(key);
       if (!alreadyAnswered) this.queue.unshift(message);
       this.lost(error);
     }
@@ -282,7 +303,13 @@ class Bridge {
       .catch(() => undefined);
   }
 
-  private editorClosed(): void {
+  /**
+   * The editor's side ended: cleanly (its stream closed, `error`
+   * undefined) or not (its stream broke, `error` given). Either way there
+   * is nothing left to relay to, so the teardown is the same; only the
+   * outcome the command reports differs.
+   */
+  private editorClosed(error?: unknown): void {
     if (this.state === "done") return;
     this.state = "done";
     this.stopped.abort();
@@ -294,7 +321,11 @@ class Bridge {
     // the readable the instance loop is reading, so both sides settle.
     void this.writer?.close().catch(() => undefined);
     void this.editorWriter.close().catch(() => undefined);
-    this.settle({ kind: "editor-closed" });
+    this.settle(
+      error === undefined
+        ? { kind: "editor-closed" }
+        : { kind: "editor-error", error },
+    );
   }
 
   // ---------------------------------------------------------- the instance
@@ -416,9 +447,20 @@ class Bridge {
     void this.reconnect();
   }
 
-  /** Answer for every editor request the dead transport never will. */
+  /**
+   * Answer for every editor request the dead transport never will: one it
+   * had already sent, or was in the middle of sending, when it died. A
+   * request still waiting in the outage queue was never handed to this
+   * transport at all; it stays registered and is answered fresh when a
+   * later transport actually sends it, so it is left alone here rather
+   * than answered twice.
+   */
   private failInFlight(): void {
-    for (const request of this.editorRequests.values()) {
+    const stillQueued = new Set(
+      this.queue.filter(isRequest).map((message) => keyOf(message.id)),
+    );
+    for (const [key, request] of this.editorRequests) {
+      if (stillQueued.has(key)) continue;
       this.toEditor(
         request.method === METHOD.prompt
           ? {
@@ -435,8 +477,8 @@ class Bridge {
               },
             },
       );
+      this.editorRequests.delete(key);
     }
-    this.editorRequests.clear();
   }
 
   private async reconnect(): Promise<void> {
@@ -537,14 +579,21 @@ class Bridge {
   }
 
   /**
-   * Deliver what the editor sent while no transport could take it, through
-   * the same door a live message takes, so a request is registered again
-   * before it goes out and a stale answer is still dropped.
+   * Deliver what the editor sent while no transport could take it, oldest
+   * first. Writes straight to the transport rather than back through
+   * {@link fromEditor}: each message was already registered when it was
+   * first queued, and re-entering `fromEditor` would only requeue it,
+   * since `flushing` holds every new arrival behind the drain.
    */
   private async flush(): Promise<void> {
-    while (this.queue.length > 0 && this.state === "connected") {
-      const message = this.queue.shift() as RpcMessage;
-      await this.fromEditor(message);
+    this.flushing = true;
+    try {
+      while (this.queue.length > 0 && this.state === "connected") {
+        const message = this.queue.shift() as RpcMessage;
+        await this.toInstance(message);
+      }
+    } finally {
+      this.flushing = false;
     }
   }
 }

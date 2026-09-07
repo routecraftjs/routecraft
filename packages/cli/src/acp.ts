@@ -183,6 +183,12 @@ export async function acpCommand(options: AcpOptions = {}): Promise<AcpResult> {
     log: options.stderr ?? ((line) => process.stderr.write(`${line}\n`)),
   });
   if (outcome.kind === "editor-closed") return { code: 0 };
+  if (outcome.kind === "editor-error") {
+    return {
+      code: EXEC_EXIT.failed,
+      error: `The editor's side of the pipe failed: ${messageOf(outcome.error)}`,
+    };
+  }
   // The family's code for an address nothing answered on, so a script
   // that already branches on `craft exec`'s exit codes reads this one
   // the same way.
