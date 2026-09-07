@@ -131,6 +131,7 @@
       "dependencies": {
         "@standard-schema/spec": "^1.1.0",
         "ai": "^6.0.246",
+        "zod": "^4.4.3",
       },
       "devDependencies": {
         "@agentclientprotocol/sdk": "^1.4.0",
@@ -151,7 +152,6 @@
         "ollama-ai-provider-v2": "^3.6.0",
         "vitest": "^4.1.10",
         "yaml": "^2.9.0",
-        "zod": "^4.4.3",
       },
       "peerDependencies": {
         "@agentclientprotocol/sdk": "^1.4.0",

@@ -486,6 +486,18 @@
     "retryable": false
   },
   {
+    "code": "AI1018",
+    "category": "Adapter",
+    "message": "The editor's answer did not match the protocol",
+    "retryable": false
+  },
+  {
+    "code": "AI1019",
+    "category": "Adapter",
+    "message": "A surface update did not match the protocol",
+    "retryable": false
+  },
+  {
     "code": "AI2001",
     "category": "Adapter",
     "message": "MCP tool output violated its declared schema",

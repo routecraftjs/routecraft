@@ -11,7 +11,7 @@ import { registerErrorCodes, type RCMeta } from "@routecraft/routecraft";
  * Numbering: AI1xxx = agent blocks, configuration, and runtime (formerly
  * core RC5025-RC5027, renumbered when the codes moved into this package;
  * charter widened to runtime with AI1005/AI1006/AI1007, and to the editor
- * surface with AI1013-AI1017), AI2xxx = MCP
+ * surface with AI1013-AI1019), AI2xxx = MCP
  * boundary, AI3xxx = built-in agent tools. Ranges are claimed in the
  * range-allocation table on the error reference page before use, so two
  * lanes landing in parallel cannot mint the same code.
@@ -134,6 +134,10 @@ declare module "@routecraft/routecraft" {
     AI1016: RCMeta;
     /** A session override names something the agent does not offer */
     AI1017: RCMeta;
+    /** The editor answered a surface call with something that is not the protocol's shape */
+    AI1018: RCMeta;
+    /** A route built a surface update that is not a shape the protocol defines */
+    AI1019: RCMeta;
     /** MCP tool result violated the tool's advertised output schema */
     AI2001: RCMeta;
     /** MCP tool declined the request: the route dropped the exchange */
@@ -280,6 +284,22 @@ registerErrorCodes(
       suggestion:
         "A conversation asked to run on a model or a thinking level the agent file does not list. Whoever writes the agent decides what may be changed about it, so the value is refused when it is written rather than silently ignored at the next turn. The message names the value and the list; add it to the agent's `model:` or `reasoning:` list if it should be offered.",
       docs: `${DOCS_BASE}#ai-1017`,
+      retryable: false,
+    },
+    AI1018: {
+      category: "Adapter",
+      message: "The editor's answer did not match the protocol",
+      suggestion:
+        "surface() checks what the editor answers against the protocol's own schema for the method before a route sees it, and this answer did not conform; the issues are on the error's cause. The editor is a separate program at whatever version of the protocol it implements, so this is a defect or a version mismatch on the editor's side. Handle it with .error() as the route would handle a refusal, and read the cause to see which field was wrong. A permission answer never raises this: one that cannot be trusted reaches the route as the protocol's cancelled outcome instead.",
+      docs: `${DOCS_BASE}#ai-1018`,
+      retryable: false,
+    },
+    AI1019: {
+      category: "Adapter",
+      message: "A surface update did not match the protocol",
+      suggestion:
+        "surface.notify() checks the update a route built against the protocol's session/update schema before sending it, and this one did not conform; the issues are on the error's cause. Nothing was sent. This is a defect in the route: fix the callback so the update is a shape the protocol defines (the sessionUpdate discriminator and the fields that go with it).",
+      docs: `${DOCS_BASE}#ai-1019`,
       retryable: false,
     },
     AI2001: {

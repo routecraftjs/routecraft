@@ -38,12 +38,7 @@ const readFileRoute = craft()
   .description("Read a file through the person's editor")
   .input({ body: z.object({ path: z.string() }) })
   .from(direct())
-  .enrich(
-    surface("fs/read_text_file", (ex) => ({
-      sessionId: "",
-      path: ex.body.path,
-    })),
-  )
+  .enrich(surface("fs/read_text_file", (ex) => ({ path: ex.body.path })))
   .to(noop());
 
 const AGENT = {
@@ -112,6 +107,20 @@ describe("surface(), reaching the editor from a route", () => {
       status: "completed",
       rawOutput: { content: "the file's contents" },
     });
+  });
+
+  /**
+   * @case A callback cannot name the session the call goes to
+   * @preconditions A params callback returning the protocol's sessionId beside the path
+   * @expectedResult It does not compile: the session is the running turn's, and a route that could name another would address another person's editor. The runtime call still fills the turn's session in, which the round-trip case above asserts on
+   */
+  test("sessionId is not a route's to supply", () => {
+    // @ts-expect-error -- sessionId is the turn's, never the route's: the params type forbids it so a placeholder cannot be written
+    const named = surface("fs/read_text_file", () => ({
+      sessionId: "",
+      path: "/a.ts",
+    }));
+    expect(named).toBeDefined();
   });
 
   /**
