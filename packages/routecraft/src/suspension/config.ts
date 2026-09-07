@@ -7,10 +7,7 @@ import {
   SqliteSuspensionStore,
 } from "./sqlite-store.ts";
 import type { SqliteDriverLoaders } from "../shared/sqlite/driver.ts";
-import {
-  claimDatabasePath,
-  releaseDatabasePath,
-} from "../shared/sqlite/claims.ts";
+import { claimDatabasePath, releaseClaimant } from "../shared/sqlite/claims.ts";
 import { rcError } from "../error.ts";
 import {
   type ResumeTokenSigner,
@@ -33,6 +30,9 @@ import {
  * `suspension: { store }`.
  */
 export const SUSPENSION_STORE_ENV = "ROUTECRAFT_SUSPENSION_STORE";
+
+/** The setting this store's path claim is reported under. */
+const SUSPENSION_CLAIMANT = "suspension: { store }";
 
 export { SUSPENSION_RUNTIME };
 
@@ -269,9 +269,11 @@ export async function createSuspensionRuntime(
     typeof configured === "object" &&
     "create" in configured
   ) {
+    releaseClaimant({ scope: context, claimant: SUSPENSION_CLAIMANT });
     return runtime(configured, "custom", false);
   }
   if (configured === "memory") {
+    releaseClaimant({ scope: context, claimant: SUSPENSION_CLAIMANT });
     return runtime(new MemorySuspensionStore(), "memory", true);
   }
 
@@ -283,7 +285,7 @@ export async function createSuspensionRuntime(
   claimDatabasePath({
     scope: context,
     path,
-    claimant: "suspension: { store }",
+    claimant: SUSPENSION_CLAIMANT,
     onConflict: (conflict) =>
       rcError("RC5044", undefined, {
         message: `suspension: { store } and ${conflict.held} both point at "${conflict.path}". Each store versions its own file, so they cannot share one; give them separate paths.`,
@@ -305,11 +307,7 @@ export async function createSuspensionRuntime(
     // Nothing opened the file, so nothing may go on holding it: this
     // fallback is a deliberate degradation, and a claim left behind would
     // refuse the next store to ask for a path no store is using.
-    releaseDatabasePath({
-      scope: context,
-      path,
-      claimant: "suspension: { store }",
-    });
+    releaseClaimant({ scope: context, claimant: SUSPENSION_CLAIMANT });
     context.logger.warn(
       { err, path },
       "No durable suspension store available; parked exchanges will NOT survive a restart. Install better-sqlite3 (Node) or configure suspension: { store } to keep suspensions durable.",

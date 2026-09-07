@@ -575,4 +575,78 @@ describe("session store resolution", () => {
       }),
     ).toThrow("still held");
   });
+
+  /**
+   * @case A store replaced by the memory backend gives up the path it held
+   * @preconditions The unconfigured default claims the default path, then a sessions block chooses "memory"
+   * @expectedResult The default path is free. The release only fired when the replacement claimed another file, so a replacement with no file at all left the path held and refused the next store to want it
+   */
+  test("replacing the store with memory releases the path", async () => {
+    t = await testContext().build();
+    await createSessionStore(t.ctx, {}, false);
+    await createSessionStore(t.ctx, { store: "memory" });
+
+    expect(() =>
+      claimDatabasePath({
+        scope: t!.ctx,
+        path: DEFAULT_SESSION_DB_PATH,
+        claimant: "suspension: { store }",
+        onConflict: (conflict) =>
+          new Error(`refused, held by ${conflict.held}`),
+      }),
+    ).not.toThrow();
+  });
+
+  /**
+   * @case A store replaced by a caller's own backend gives up the path it held
+   * @preconditions The unconfigured default claims the default path, then a sessions block supplies a SessionStore instance
+   * @expectedResult The default path is free. A supplied backend never reaches the claim at all, so nothing released what the default had taken
+   */
+  test("replacing the store with a supplied backend releases the path", async () => {
+    t = await testContext().build();
+    await createSessionStore(t.ctx, {}, false);
+    await createSessionStore(t.ctx, { store: new MemorySessionStore() });
+
+    expect(() =>
+      claimDatabasePath({
+        scope: t!.ctx,
+        path: DEFAULT_SESSION_DB_PATH,
+        claimant: "suspension: { store }",
+        onConflict: (conflict) =>
+          new Error(`refused, held by ${conflict.held}`),
+      }),
+    ).not.toThrow();
+  });
+
+  /**
+   * @case Claiming ":memory:" gives up the file the claimant held
+   * @preconditions One claimant holding a file path, then claiming ":memory:"
+   * @expectedResult The file is free for another claimant. ":memory:" returned before the release ran, so a store moving to an in-process database kept blocking the file it had left
+   */
+  test("claiming :memory: releases the file the claimant held", () => {
+    const scope = {};
+    const file = join(scratch, "left-behind.db");
+    claimDatabasePath({
+      scope,
+      path: file,
+      claimant: "sessions: { store }",
+      onConflict: () => new Error("unexpected"),
+    });
+    claimDatabasePath({
+      scope,
+      path: ":memory:",
+      claimant: "sessions: { store }",
+      onConflict: () => new Error("unexpected"),
+    });
+
+    expect(() =>
+      claimDatabasePath({
+        scope,
+        path: file,
+        claimant: "suspension: { store }",
+        onConflict: (conflict) =>
+          new Error(`refused, held by ${conflict.held}`),
+      }),
+    ).not.toThrow();
+  });
 });

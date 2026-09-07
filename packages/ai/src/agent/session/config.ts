@@ -2,6 +2,7 @@ import { existsSync } from "node:fs";
 import {
   claimDatabasePath,
   rcError,
+  releaseClaimant,
   resolveDatabasePath,
   resolveSqliteDriver,
   type CraftContext,
@@ -27,6 +28,9 @@ import {
  * `sessions: { store }`.
  */
 export const SESSION_STORE_ENV = "ROUTECRAFT_SESSION_STORE";
+
+/** The setting this store's path claim is reported under. */
+const SESSION_CLAIMANT = "sessions: { store }";
 
 /**
  * Where agent session records live.
@@ -120,6 +124,7 @@ export async function createSessionStore(
 
   if (chosen !== undefined && typeof chosen === "object") {
     if (isSessionStore(chosen)) {
+      releaseClaimant({ scope: context, claimant: SESSION_CLAIMANT });
       return announce(context, resolved(chosen, "custom", false, configured));
     }
     const path = pathOf(chosen);
@@ -130,6 +135,7 @@ export async function createSessionStore(
     );
   }
   if (chosen === "memory") {
+    releaseClaimant({ scope: context, claimant: SESSION_CLAIMANT });
     return announce(
       context,
       resolved(new MemorySessionStore(), "memory", true, configured),
@@ -151,6 +157,7 @@ export async function createSessionStore(
       { err, path: DEFAULT_SESSION_DB_PATH },
       "No durable agent session store available; conversations will NOT survive a restart. Install better-sqlite3 (Node) or configure sessions: { store } to keep them durable.",
     );
+    releaseClaimant({ scope: context, claimant: SESSION_CLAIMANT });
     return announce(
       context,
       resolved(new MemorySessionStore(), "memory", true, configured),
@@ -180,7 +187,7 @@ function claimSessionPath(context: CraftContext, path: string): void {
   claimDatabasePath({
     scope: context,
     path,
-    claimant: "sessions: { store }",
+    claimant: SESSION_CLAIMANT,
     onConflict: (conflict) =>
       rcError("AI1012", undefined, {
         message: `sessions: { store } and ${conflict.held} both point at "${conflict.path}". Each store versions its own file, so they cannot share one; give them separate paths.`,

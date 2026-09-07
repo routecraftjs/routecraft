@@ -54,46 +54,51 @@ export function claimDatabasePath(options: {
   onConflict: (conflict: SqlitePathConflict) => Error;
 }): void {
   const { scope, path, claimant, onConflict } = options;
-  if (path === ":memory:") return;
-  const resolved = resolveDatabasePath(path);
   let held = claims.get(scope);
   if (held === undefined) {
     held = new Map();
     claims.set(scope, held);
   }
+  // An in-process database is private to the connection that opened it, so
+  // there is nothing to claim. The claimant has still moved, though, and
+  // whatever it held before must go with it.
+  if (path === ":memory:") {
+    releaseIn(held, claimant);
+    return;
+  }
+  const resolved = resolveDatabasePath(path);
   const owner = held.get(resolved);
   if (owner !== undefined && owner !== claimant) {
     throw onConflict({ path, held: owner, claimant });
   }
   // Released only once the new claim is known to be good, so a refused
   // claim leaves the claimant holding what it already had.
-  for (const [other, by] of held) {
-    if (by === claimant && other !== resolved) held.delete(other);
-  }
+  releaseIn(held, claimant, resolved);
   held.set(resolved, claimant);
 }
 
 /**
- * Give up a claim, when the store that made it will not open the file
- * after all.
- *
- * The unconfigured suspension and session stores degrade to memory rather
- * than fail when no sqlite driver is available. A claim left behind by
- * that fallback holds a path nothing is using, and turns a deliberate
- * degradation into a boot error for whichever store asks for it next.
- *
- * Releases only a claim this claimant holds, so it can never drop
- * somebody else's.
+ * Give up whatever this claimant holds, for a store that resolved to a
+ * backend with no file at all: the memory fallback, or one a caller
+ * supplied. Those never reach {@link claimDatabasePath}, so without this
+ * the path an earlier default claimed would go on blocking a store that
+ * legitimately wants it.
  */
-export function releaseDatabasePath(options: {
+export function releaseClaimant(options: {
   scope: object;
-  path: string;
   claimant: string;
 }): void {
-  const { scope, path, claimant } = options;
-  if (path === ":memory:") return;
-  const held = claims.get(scope);
-  if (held === undefined) return;
-  const resolved = resolveDatabasePath(path);
-  if (held.get(resolved) === claimant) held.delete(resolved);
+  const held = claims.get(options.scope);
+  if (held !== undefined) releaseIn(held, options.claimant);
+}
+
+/** Drop every path this claimant holds, except one it is keeping. */
+function releaseIn(
+  held: Map<string, string>,
+  claimant: string,
+  keep?: string,
+): void {
+  for (const [path, by] of held) {
+    if (by === claimant && path !== keep) held.delete(path);
+  }
 }
