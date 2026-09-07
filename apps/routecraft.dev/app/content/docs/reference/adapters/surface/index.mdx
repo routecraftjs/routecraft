@@ -25,14 +25,11 @@ craft()
   .id('read-file')
   .from<{ path: string }>(direct())
   .enrich(
-    surface('fs/read_text_file', (ex) => ({
-      sessionId: '',
-      path: ex.body.path,
-    })),
+    surface('fs/read_text_file', (ex) => ({ path: ex.body.path })),
   )
 ```
 
-`sessionId` is filled in from the running turn, so a route never has to carry it: the surface knows which conversation it is serving. Pass the empty string and it is replaced.
+The protocol's `sessionId` is not part of the params. The adapter fills it in from the running turn, which is the only conversation a route can mean: a route that could name another would be addressing another person's editor. A callback that supplies one does not compile.
 
 ## What a method may be
 
@@ -51,16 +48,31 @@ craft()
   .from(direct())
   .choice()
   .when((ex) => hasSurface(ex))
-  .enrich(surface('session/request_permission', () => ({ sessionId: '', options: [] })))
+  .enrich(surface('session/request_permission', () => ({ options: [] })))
   .otherwise()
   .end()
 ```
 
 `hasSurface(exchange)` is the guard a route branches on so the same route works from an editor and from a schedule. Asking without it is not a silent no-op: it throws.
 
+## What the editor answers is checked
+
+The editor is outside the trust boundary: a separate process on the person's machine, any program claiming to be one, at whatever version of the protocol it implements. Every other external input to a route is parsed before use, and what an editor answers is no exception. `surface()` checks every answer against the protocol's own schema for the method, the generated JSON Schema the SDK ships, before the route sees it. Nothing malformed reaches route code as if it were valid, and there is no option to turn the check off.
+
+What a malformed answer does depends on the method, because the two cases have different safe directions:
+
+- **`session/request_permission` fails closed.** An answer that does not parse, or a `selected` outcome naming an option that was never offered, reaches the route as the protocol's own `{ outcome: { outcome: 'cancelled' } }`, exactly as if the person had dismissed the prompt. A route that checks for `selected` with an allowing option sees a refusal either way, and a route cannot be talked into proceeding by an answer it never asked for. The instance logs a warning naming the issues, since a client answering this way is worth knowing about.
+- **Every other method is an error the route can catch.** A file read, a terminal call or an elicitation answered with the wrong shape is [`AI1018`](/docs/reference/errors#ai-1018), with the issues on the error's cause. Handle it with `.error()` as you would a refusal; the editor cannot answer this call correctly, so there is nothing to retry.
+
+`surface.notify()` is under the same rule in the other direction: the update a route builds is checked against the protocol's `session/update` shapes before it is sent, and one that does not conform is [`AI1019`](/docs/reference/errors#ai-1019) and never leaves the instance.
+
+The protocol reserves `_meta` on every message and forbids assumptions about its values, so that field is never checked; and a field the SDK itself defaults when it fails to parse is accepted whatever it holds. Both are the SDK's own liberties, mirrored so an answer the SDK would accept is not refused here.
+
+The checks are built from the schema the installed SDK ships, so a method the protocol adds is checked the day its SDK does. A check that cannot be built, because the installed schema has no response for the method or the converter refuses its definition, is [`RC5003`](/docs/reference/errors#rc-5003) before the editor is asked: a mismatch between `@routecraft/ai` and the SDK version, never reported as the editor's answer, and never a permission call falling closed for it. Align the two versions.
+
 ## How it fails
 
-Four ways, each with a different fix, which is why each has its own code:
+Five ways, each with a different fix, which is why each has its own code:
 
 | Code | What happened | What to do |
 | --- | --- | --- |
@@ -68,6 +80,7 @@ Four ways, each with a different fix, which is why each has its own code:
 | [`AI1014`](/docs/reference/errors#ai-1014) | The surface disconnected mid-turn | Nothing to retry against on this exchange |
 | [`AI1015`](/docs/reference/errors#ai-1015) | The client never advertised the capability | Configuration, on the editor's side |
 | [`AI1016`](/docs/reference/errors#ai-1016) | The client refused or failed the call | Handle it: a person saying no arrives this way, and is a normal outcome |
+| [`AI1018`](/docs/reference/errors#ai-1018) | The client answered with something that is not the protocol's shape | Handle it: the editor cannot answer this call correctly. A permission answer becomes `cancelled` instead |
 
 `AI1015` is checked before the call rather than discovered from its failure. A client that never offered a method may answer anything at all, or nothing, and a route deserves to be told it is a configuration mismatch rather than left waiting.
 

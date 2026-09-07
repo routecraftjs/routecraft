@@ -582,6 +582,28 @@ Raised where the choice is written rather than where it would be used, so a stor
 - Add the value to the agent file's `model:` or `reasoning:` list if it should be on offer. Both accept one value or an ordered list, and the first entry is the default.
 - Check the caller is not sending a value it read from somewhere else; the message names the list the agent actually offers.
 
+## AI1018
+The editor's answer did not match the protocol
+
+**Why it happens**  
+`surface()` checks what the editor answers against the protocol's own schema for the method, before a route sees it, and this answer did not conform. The editor is a separate program on the person's machine, at whatever version of the protocol it implements, so a wrong shape is a defect or a version mismatch on the editor's side rather than in the route. The issues, one per field, are on the error's cause.
+
+A permission answer never raises this code. One that cannot be trusted, malformed or naming an option that was never offered, reaches the route as the protocol's `cancelled` outcome, because the message whose job is to say no fails closed rather than loudly. See [surface](/docs/reference/adapters/surface#what-the-editor-answers-is-checked).
+
+**Suggestion**  
+- Handle it with `.error()` the way the route handles a refusal; the person's editor cannot answer this call correctly, so there is nothing to retry.
+- Read the cause for the field that was wrong, and check the editor's protocol version against the `@agentclientprotocol/sdk` version the instance runs.
+
+## AI1019
+A surface update did not match the protocol
+
+**Why it happens**  
+`surface.notify()` checks the update a route built against the protocol's `session/update` schema before sending it, and this one did not conform. Nothing was sent: an update the editor would refuse or misrender is stopped where it was built. The issues are on the error's cause.
+
+**Suggestion**  
+- Fix the callback so it returns a shape the protocol defines: a `sessionUpdate` discriminator the protocol names, with the fields that go with it.
+- The shapes come from the SDK's types, so a value that typechecks and still fails here was built from data at runtime; validate that data before building the update from it.
+
 ## AI2001
 MCP tool output violated its declared schema
 

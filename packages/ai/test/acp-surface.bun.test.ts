@@ -13,13 +13,14 @@ import { z } from "zod";
 import { DefaultExchange, craft, direct, noop } from "@routecraft/routecraft";
 import { testContext } from "@routecraft/testing";
 import { agentPlugin, surface, hasSurface, tools } from "../src/index.ts";
-import {
-  AGENT_SURFACE_HEADER,
-  registerSurface,
-  type AgentSurfaceConnection,
-} from "../src/surface/index.ts";
+import { registerSurface } from "../src/surface/index.ts";
 import { acpHarness, type AcpHarness } from "./helpers/acp-harness.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
+import {
+  SURFACE_CONNECTION,
+  SURFACED,
+  scriptedSurface,
+} from "./helpers/surface-stub.ts";
 import { MODEL } from "./helpers/suspend-fixtures.ts";
 
 const llm = scriptedLlm([]);
@@ -38,12 +39,7 @@ const readFileRoute = craft()
   .description("Read a file through the person's editor")
   .input({ body: z.object({ path: z.string() }) })
   .from(direct())
-  .enrich(
-    surface("fs/read_text_file", (ex) => ({
-      sessionId: "",
-      path: ex.body.path,
-    })),
-  )
+  .enrich(surface("fs/read_text_file", (ex) => ({ path: ex.body.path })))
   .to(noop());
 
 const AGENT = {
@@ -115,6 +111,20 @@ describe("surface(), reaching the editor from a route", () => {
   });
 
   /**
+   * @case A callback cannot name the session the call goes to
+   * @preconditions A params callback returning the protocol's sessionId beside the path
+   * @expectedResult It does not compile: the session is the running turn's, and a route that could name another would address another person's editor. The runtime call still fills the turn's session in, which the round-trip case above asserts on
+   */
+  test("sessionId is not a route's to supply", () => {
+    // @ts-expect-error -- sessionId is the turn's, never the route's: the params type forbids it so a placeholder cannot be written
+    const named = surface("fs/read_text_file", () => ({
+      sessionId: "",
+      path: "/a.ts",
+    }));
+    expect(named).toBeDefined();
+  });
+
+  /**
    * @case A route calling the editor with no editor attached fails naming that
    * @preconditions The same route, dispatched directly rather than from a turn
    * @expectedResult AI1013, and hasSurface() answers false, so a route can check first and take another path
@@ -147,29 +157,21 @@ describe("surface(), reaching the editor from a route", () => {
       const answered = { asked: 0 };
       const retire = registerSurface(
         t.ctx,
-        "conn-1",
+        SURFACE_CONNECTION,
         scriptedSurface({
-          supports: () => true,
           request: async () => {
             answered.asked += 1;
             return { content: "here" };
           },
         }),
       );
-      const header = {
-        [AGENT_SURFACE_HEADER]: {
-          kind: "acp",
-          session: "s",
-          connection: "conn-1",
-        },
-      };
-      await t.client.sendDirect("read-file", { path: "/a.ts" }, header);
+      await t.client.sendDirect("read-file", { path: "/a.ts" }, SURFACED);
       expect(answered.asked).toBe(1);
 
       // Then the same exchange shape with the connection gone.
       retire();
       await expect(
-        t.client.sendDirect("read-file", { path: "/a.ts" }, header),
+        t.client.sendDirect("read-file", { path: "/a.ts" }, SURFACED),
       ).rejects.toMatchObject({ rc: "AI1014" });
     } finally {
       await t.stop();
@@ -188,7 +190,7 @@ describe("surface(), reaching the editor from a route", () => {
       let sent = 0;
       registerSurface(
         t.ctx,
-        "conn-1",
+        SURFACE_CONNECTION,
         scriptedSurface({
           supports: () => false,
           request: async () => {
@@ -198,17 +200,7 @@ describe("surface(), reaching the editor from a route", () => {
         }),
       );
       await expect(
-        t.client.sendDirect(
-          "read-file",
-          { path: "/a.ts" },
-          {
-            [AGENT_SURFACE_HEADER]: {
-              kind: "acp",
-              session: "s",
-              connection: "conn-1",
-            },
-          },
-        ),
+        t.client.sendDirect("read-file", { path: "/a.ts" }, SURFACED),
       ).rejects.toMatchObject({ rc: "AI1015" });
       expect(sent).toBe(0);
     } finally {
@@ -227,24 +219,13 @@ describe("surface(), reaching the editor from a route", () => {
     try {
       registerSurface(
         t.ctx,
-        "conn-1",
+        SURFACE_CONNECTION,
         scriptedSurface({
-          supports: () => true,
           request: () => Promise.reject(new Error("the person said no")),
         }),
       );
       await expect(
-        t.client.sendDirect(
-          "read-file",
-          { path: "/a.ts" },
-          {
-            [AGENT_SURFACE_HEADER]: {
-              kind: "acp",
-              session: "s",
-              connection: "conn-1",
-            },
-          },
-        ),
+        t.client.sendDirect("read-file", { path: "/a.ts" }, SURFACED),
       ).rejects.toMatchObject({ rc: "AI1016" });
     } finally {
       await t.stop();
@@ -262,22 +243,11 @@ describe("surface(), reaching the editor from a route", () => {
     try {
       registerSurface(
         t.ctx,
-        "conn-1",
-        scriptedSurface({ supports: () => true, request: async () => ({}) }),
+        SURFACE_CONNECTION,
+        scriptedSurface({ request: async () => ({}) }),
       );
       expect(
-        hasSurface(
-          new DefaultExchange(t.ctx, {
-            body: {},
-            headers: {
-              [AGENT_SURFACE_HEADER]: {
-                kind: "acp",
-                session: "s",
-                connection: "conn-1",
-              },
-            },
-          }),
-        ),
+        hasSurface(new DefaultExchange(t.ctx, { body: {}, headers: SURFACED })),
       ).toBe(true);
       expect(hasSurface(new DefaultExchange(t.ctx, { body: {} }))).toBe(false);
     } finally {
@@ -285,17 +255,3 @@ describe("surface(), reaching the editor from a route", () => {
     }
   });
 });
-
-/** A surface a test drives directly, standing in for a connected editor. */
-function scriptedSurface(parts: {
-  supports: (method: string) => boolean;
-  request: (method: string, params: unknown) => Promise<unknown>;
-}): AgentSurfaceConnection {
-  return {
-    kind: "acp",
-    supports: parts.supports,
-    capabilityFor: (method) => method,
-    request: (_session, method, params) => parts.request(method, params),
-    notify: () => Promise.resolve(),
-  };
-}

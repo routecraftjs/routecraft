@@ -18,6 +18,7 @@
  */
 
 import {
+  formatSchemaIssues,
   getExchangeContext,
   HeadersKeys,
   rcError,
@@ -31,6 +32,13 @@ import {
 } from "@routecraft/routecraft";
 import "../errors.ts";
 import { surfaceRefOf, type AgentSurfaceRef } from "./header.ts";
+import {
+  PERMISSION_REFUSED,
+  permissionSelectionIssue,
+  responseCheck,
+  updateCheck,
+  type ProtocolIssue,
+} from "./protocol.ts";
 import { surfaceFor, turnSurfaceOf } from "./registry.ts";
 import type {
   AgentSurfaceConnection,
@@ -58,16 +66,16 @@ function resolve<T, V>(source: Resolvable<T, V>, exchange: Exchange<T>): V {
  *   .from(direct())
  *   .enrich(
  *     surface("fs/read_text_file", (ex) => ({
- *       sessionId: "",
  *       path: (ex.body as { path: string }).path,
  *     })),
  *   );
  * ```
  *
- * `sessionId` is filled in from the running turn, so a route never has to
- * carry it: the surface knows which conversation it is serving.
+ * The protocol's `sessionId` is not part of the params: it is filled in
+ * from the running turn, which is the only conversation a route can mean,
+ * and a callback that names one does not compile.
  *
- * Four ways this fails, and each has a different fix, which is why each
+ * Five ways this fails, and each has a different fix, which is why each
  * has its own code rather than sharing RC5001:
  *
  * - `AI1013`, no surface on this exchange. The route ran outside a
@@ -76,6 +84,15 @@ function resolve<T, V>(source: Resolvable<T, V>, exchange: Exchange<T>): V {
  * - `AI1015`, the client never advertised the capability. Configuration.
  * - `AI1016`, the client refused or failed the call. Handle it: a person
  *   saying no arrives this way and is a normal outcome.
+ * - `AI1018`, the client answered with something that is not the
+ *   protocol's shape for the method. Nothing malformed reaches the route.
+ *
+ * `session/request_permission` is the exception to the last: an answer
+ * that cannot be trusted, malformed or naming an option that was never
+ * offered, reaches the route as the protocol's own `cancelled` outcome
+ * rather than as an error, because the one message whose job is to say no
+ * must fail closed, and a route reads a refusal the same way whichever
+ * way it came.
  *
  * @template M - The method being called, which fixes the params and the response
  * @template T - Body type available to the params callback
@@ -108,18 +125,44 @@ export function surface<M extends SurfaceMethod, T = unknown>(
           ...(resolve(params, exchange) as object),
           sessionId: ref.session,
         };
+        // The check is loaded before the call goes out, so a schema that
+        // cannot be built fails here rather than after the person answered.
+        const check = await responseCheck(method);
+        let answer: unknown;
         try {
-          return (await connection.request(
+          answer = await connection.request(
             ref.session,
             method,
             sent,
             ctx?.signal,
-          )) as SurfaceRequestResponses[M];
+          );
         } catch (cause: unknown) {
           throw rcError("AI1016", cause, {
             message: `The ${ref.kind} client serving this turn refused or failed "${method}".`,
           });
         }
+        const issues =
+          (await check(answer)) ??
+          (method === "session/request_permission"
+            ? optional(permissionSelectionIssue(sent, answer))
+            : undefined);
+        if (issues === undefined) return answer as SurfaceRequestResponses[M];
+        const rendered = formatSchemaIssues(issues);
+        if (method === "session/request_permission") {
+          getExchangeContext(exchange)?.logger.warn(
+            {
+              method,
+              session: ref.session,
+              issues: rendered,
+              source: "surface",
+            },
+            "The editor's permission answer could not be trusted and was treated as a refusal",
+          );
+          return PERMISSION_REFUSED as SurfaceRequestResponses[M];
+        }
+        throw rcError("AI1018", new Error(rendered), {
+          message: `The ${ref.kind} client serving this turn answered "${method}" with something that is not the protocol's response shape: ${rendered}.`,
+        });
       },
     },
     surface,
@@ -134,9 +177,11 @@ export function surface<M extends SurfaceMethod, T = unknown>(
  * .to(surface.notify(() => ({ sessionUpdate: "plan", entries: [] })))
  * ```
  *
- * Same four failures as {@link surface}, except that a notification has no
+ * Same failures as {@link surface}, except that a notification has no
  * answer, so `AI1016` here means the update could not be handed over
- * rather than that the person refused it.
+ * rather than that the person refused it, and the shape checked is the
+ * one the route built: an update that is not a `session/update` the
+ * protocol defines is `AI1019` and is never sent.
  *
  * @template T - Body type available to the update callback
  */
@@ -149,8 +194,16 @@ surface.notify = function notify<T = unknown>(
       getMetadata: () => ({ method: "session/update" }),
       send: async (exchange: Exchange<T>): Promise<void> => {
         const { connection, ref } = resolveSurface(exchange, "session/update");
+        const built = resolve(update, exchange);
+        const issues = await (await updateCheck())(built);
+        if (issues !== undefined) {
+          const rendered = formatSchemaIssues(issues);
+          throw rcError("AI1019", new Error(rendered), {
+            message: `surface.notify() built an update that is not a "session/update" the protocol defines: ${rendered}.`,
+          });
+        }
         try {
-          await connection.notify(ref.session, resolve(update, exchange));
+          await connection.notify(ref.session, built);
         } catch (cause: unknown) {
           throw rcError("AI1016", cause, {
             message: `The ${ref.kind} client serving this turn could not be sent a "session/update".`,
@@ -162,6 +215,13 @@ surface.notify = function notify<T = unknown>(
     factoryArgs(),
   );
 };
+
+/** A single issue as the issue list a check returns, or nothing. */
+function optional(
+  issue: ProtocolIssue | undefined,
+): readonly ProtocolIssue[] | undefined {
+  return issue === undefined ? undefined : [issue];
+}
 
 /**
  * Whether this exchange is running on a turn with a live surface.

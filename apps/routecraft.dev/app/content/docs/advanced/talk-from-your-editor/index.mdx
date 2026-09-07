@@ -14,22 +14,17 @@ Routecraft serves it as a mount, beside the MCP mount and the HTTP surface, on t
 
 ```ts
 import { defineConfig } from '@routecraft/routecraft'
-import { acpPlugin, agentPlugin } from '@routecraft/ai'
+import '@routecraft/ai'
 
 export const craftConfig = defineConfig({
   servers: {
     default: { port: 8080 },
   },
-  plugins: [
-    agentPlugin(),
-    acpPlugin(),
-  ],
+  acp: {},
 })
 ```
 
-`craft start` discovers `agents/` for you, so the plugin takes no list. Building a context by hand instead, import `agents` from `@routecraft/ai` and pass one: `agentPlugin({ agents: await agents('./agents') })`. That form cannot resolve `skills:` frontmatter refs, which need the house and bundle folders only the project runtime has.
-
-`acpPlugin()` serves every agent the context holds at `/acp`. It builds one route per agent when it applies, so it goes **after** the `agentPlugin()` that registers them; a context with an empty registry fails the build saying so, rather than serving a protocol with nothing behind it. Every option is in the [plugin reference](/docs/reference/plugins/acpplugin).
+`craft start` discovers `agents/` for you, and the `acp` key serves every agent the context holds at `/acp`, in whatever order the keys are written. Building a context by hand instead, import `agents` from `@routecraft/ai` and write them under `agent: { agents: await agents('./agents') }`. That form cannot resolve `skills:` frontmatter refs, which need the house and bundle folders only the project runtime has. Every option is in the [configuration reference](/docs/reference/configuration#acp); `acpPlugin()` is the same thing for `plugins`, where it goes after the `agentPlugin()` that registers the agents.
 
 ## Connecting an editor
 
@@ -173,10 +168,7 @@ craft()
   .id('read-file')
   .from<{ path: string }>(direct())
   .enrich(
-    surface('fs/read_text_file', (ex) => ({
-      sessionId: '',
-      path: ex.body.path,
-    })),
+    surface('fs/read_text_file', (ex) => ({ path: ex.body.path })),
   )
 ```
 

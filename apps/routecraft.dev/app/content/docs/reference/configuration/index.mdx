@@ -96,10 +96,11 @@ When `@routecraft/ai` is imported (anywhere in the project), `CraftConfig` is au
 | `embedding` | `EmbeddingPluginOptions` | `embeddingPlugin(options)` |
 | `agent` | `AgentPluginOptions` | `agentPlugin(options)` |
 | `sessions` | `AgentSessionsConfig` | `sessionsPlugin(options)`; see [sessions](#sessions) |
+| `acp` | `AcpPluginOptions` | `acpPlugin(options)`; see [acp](#acp) |
 
 ```ts
 import { defineConfig } from '@routecraft/routecraft'
-import '@routecraft/ai' // augments CraftConfig with llm/mcp/embedding/agent/sessions
+import '@routecraft/ai' // augments CraftConfig with llm/mcp/embedding/agent/sessions/acp
 
 export const craftConfig = defineConfig({
   llm: {
@@ -107,14 +108,18 @@ export const craftConfig = defineConfig({
     defaultProvider: 'openai',
   },
   mcp: { clients: { /* ... */ } },
+  agent: { agents: { /* ... */ } },
+  acp: {},
 })
 ```
+
+The keys apply in a fixed order (`llm`, `mcp`, `embedding`, `agent`, `sessions`, `acp`), whatever order they are written in, and before anything in `plugins`. That is what lets `acp` serve the agents `agent` registered in any key order, where the `plugins: [acpPlugin()]` form has to be listed after `agentPlugin()`.
 
 The legacy `plugins: [llmPlugin(...)]` form continues to work and is the right escape hatch for shared plugin instances or programmatic composition.
 
 <Callout type="note">
 
-**Troubleshooting:** if TypeScript reports `Object literal may only specify known properties, and 'llm' does not exist in type 'CraftConfig'` (or the same for `mcp`, `embedding`, `agent`, `sessions`), the augmentation has not been loaded. Add `import '@routecraft/ai'` to a file that's part of your project's compilation -- usually next to `defineConfig` in `craft.config.ts`. The side-effect import is what merges the AI keys into `CraftConfig`.
+**Troubleshooting:** if TypeScript reports `Object literal may only specify known properties, and 'llm' does not exist in type 'CraftConfig'` (or the same for `mcp`, `embedding`, `agent`, `sessions`, `acp`), the augmentation has not been loaded. Add `import '@routecraft/ai'` to a file that's part of your project's compilation -- usually next to `defineConfig` in `craft.config.ts`. The side-effect import is what merges the AI keys into `CraftConfig`.
 
 </Callout>
 
@@ -298,6 +303,38 @@ This is a property of the file-backed default rather than a rule about stores. A
 </Callout>
 
 Records have no retention: nothing expires a session, so a deployment that opens one per inbound message sizes its volume by how many it will ever open. Retiring a session is not built yet. In tests, `testContext()` substitutes an in-memory suspension store but not a session store, so a test that holds a conversation passes `sessions: { store: 'memory' }` to leave no database behind.
+
+### acp
+
+Added by `@routecraft/ai`. Serves the [Agent Client Protocol](/docs/advanced/talk-from-your-editor) so a person can talk to this instance's agents from their editor, the way `mcp` serves MCP. Takes exactly the options [`acpPlugin()`](/docs/reference/plugins/acpplugin) takes, and none of them is required: an empty object serves every agent the context holds at `/acp` on the `default` server, behind that server's wall.
+
+```ts
+import { defineConfig, jwt } from '@routecraft/routecraft'
+import '@routecraft/ai'
+
+export const craftConfig = defineConfig({
+  servers: { default: { port: 8080 } },
+  acp: {
+    auth: jwt({
+      secret: process.env.JWT_SECRET!,
+      issuer: 'https://idp.example.com',
+      audience: 'https://acp.example.com',
+    }),
+  },
+})
+```
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `path` | `string` | `'/acp'` | HTTP path the protocol is mounted on |
+| `server` | `string` | `'default'` | Named entry under `servers` to mount on |
+| `auth` | `HttpAuth \| false` | inherits `servers.<name>.auth` | Auth for the mount; `false` removes the wall |
+| `agent` | `string` | the only registered agent | The agent a harness serves when it names none |
+| `cors` | `HttpCorsOptions \| false` | loopback-only | CORS for the mount |
+| `agentInfo` | `{ name?, title?, version? }` | `{ name: 'routecraft', title: 'Routecraft', version }` | What the editor calls this agent |
+| `toolCallPayloads` | `boolean` | `true` | Whether a tool call's arguments and result reach the editor |
+
+The agents it serves are the ones `craft start` discovered under `agents/` or the ones written under [`agent`](#ecosystem-keys-added-by); the key applies after `agent` whichever is written first. Agents registered only through `plugins: [agentPlugin()]` are not visible to it, because `plugins` apply after every key: use the `plugins: [agentPlugin(), acpPlugin()]` form for that, in that order. A context holding no agents when the key applies fails the build with [`RC5003`](/docs/reference/errors#rc-5003) rather than serving a protocol with nothing behind it.
 
 **The signing secret is required, at least 32 bytes, and never generated for you.** A context whose routes can reach a durable suspend fails at startup with [`RC5040`](/docs/reference/errors#rc-5040) when no secret is configured. The secret is deliberately not stored alongside the suspensions: a store compromise must not also yield forgeable resume tokens. `testContext()`, `NODE_ENV=development` and `NODE_ENV=test` mint an ephemeral in-memory key so tests and local iteration need no setup; that key is regenerated on every start, so tokens minted before a restart stop verifying, and the framework warns when it is in use.
 

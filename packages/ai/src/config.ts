@@ -9,6 +9,8 @@ import type { EmbeddingPluginOptions } from "./embedding/types.ts";
 import type { AgentPluginOptions } from "./agent/plugin.ts";
 import { sessionsPlugin } from "./agent/session/config.ts";
 import type { AgentSessionsConfig } from "./agent/session/config.ts";
+import { acpPlugin } from "./acp/plugin.ts";
+import type { AcpPluginOptions } from "./acp/types.ts";
 
 /**
  * Promote AI ecosystem plugins to first-class keys on `CraftConfig`. Once
@@ -24,6 +26,7 @@ import type { AgentSessionsConfig } from "./agent/session/config.ts";
  *   embedding: { providers: { ... } },
  *   agent: { agents: { ... }, functions: { ... } },
  *   sessions: { store: { path: "/data/sessions.db" } },
+ *   acp: { auth: apiKeyAuth },
  * });
  * ```
  *
@@ -31,9 +34,15 @@ import type { AgentSessionsConfig } from "./agent/session/config.ts";
  * participates in the standard plugin lifecycle (registered/starting/started
  * /stopping/stopped events; teardown on shutdown).
  *
- * The existing `llmPlugin`, `mcpPlugin`, `embeddingPlugin`, and `agentPlugin`
- * factories remain available for use via `plugins: [...]` (e.g. for shared
- * plugin instances or programmatic composition).
+ * Appliers run in the order they are registered here, whatever order the
+ * keys are written in, and before anything in `plugins`. That is what
+ * lets `acp` build its routes from the agents `agent` registered (and
+ * `craft start` discovered into `agent`), in any key order, where the
+ * `plugins: [acpPlugin()]` form has to be listed after `agentPlugin()`.
+ *
+ * The existing `llmPlugin`, `mcpPlugin`, `embeddingPlugin`, `agentPlugin`
+ * and `acpPlugin` factories remain available for use via `plugins: [...]`
+ * (e.g. for shared plugin instances or programmatic composition).
  */
 declare module "@routecraft/routecraft" {
   interface CraftConfig {
@@ -50,6 +59,11 @@ declare module "@routecraft/routecraft" {
      * backend at `.routecraft/sessions.db` is opened on the first session.
      */
     sessions?: AgentSessionsConfig;
+    /**
+     * Serve the Agent Client Protocol. Equivalent to
+     * `plugins: [acpPlugin(...)]`, applied after `agent` in any key order.
+     */
+    acp?: AcpPluginOptions;
   }
 }
 
@@ -58,3 +72,5 @@ registerConfigApplier("mcp", (options) => mcpPlugin(options));
 registerConfigApplier("embedding", (options) => embeddingPlugin(options));
 registerConfigApplier("agent", (options) => agentPlugin(options));
 registerConfigApplier("sessions", (options) => sessionsPlugin(options));
+// Last on purpose: it reads the registry `agent` filled.
+registerConfigApplier("acp", (options) => acpPlugin(options));

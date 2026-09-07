@@ -16,14 +16,27 @@ import type { AgentSurfaceKind } from "./header.ts";
 
 /**
  * The client-side methods a surface may be asked for, keyed by name, with
- * the params and response of each.
+ * the params a route supplies for each.
  *
  * Taken from the Agent Client Protocol's own generated types rather than
  * restated here: the wire shapes are the SDK's to define, and a hand-copied
  * map would drift the first time the protocol adds a field. `import type`
  * only, so the optional peer is never loaded to satisfy a type.
+ *
+ * Without `sessionId`, which the protocol declares on every method and the
+ * adapter fills in from the running turn. A route may never address
+ * another person's editor, so the turn's session is the only one it can
+ * mean, and a field the route must not choose is not asked of it.
  */
-export type SurfaceRequestParams = ClientRequestParamsByMethod;
+export type SurfaceRequestParams = {
+  [M in keyof ClientRequestParamsByMethod]: Omit<
+    ClientRequestParamsByMethod[M],
+    "sessionId"
+  > & {
+    /** Never supplied: the running turn's session is filled in. */
+    readonly sessionId?: never;
+  };
+};
 
 /** The response each surface method answers with. See {@link SurfaceRequestParams}. */
 export type SurfaceRequestResponses = ClientRequestResponsesByMethod;
