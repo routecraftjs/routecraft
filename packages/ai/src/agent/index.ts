@@ -19,6 +19,8 @@ export type {
   AgentInboxMessage,
   AgentSessionKey,
   AgentSessionOutcome,
+  AgentSessionOverrides,
+  AgentSessionScope,
   AgentSessionsConfig,
   AgentSessionSummary,
   SessionCasResult,

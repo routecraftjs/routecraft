@@ -126,7 +126,7 @@ copied; the scaffolded project resolves its own dependency tree.
 Load one or more capabilities from a TypeScript file and start the Routecraft context. The process runs as long as the capabilities run -- finite capabilities exit after completing; long-lived sources keep the process running until the context is stopped or a signal is received.
 
 ```bash
-craft run <file> [--env <.env path>]
+craft run <file> [--env <.env path>] [--profile <name>]
 ```
 
 The file must export a capability (or array of capabilities) as its default export, and optionally a `craftConfig` named export. See the [Configuration reference](/docs/reference/configuration) for the config export format.
@@ -137,6 +137,7 @@ Options:
 | --- | --- |
 | `<file>` | TypeScript or JavaScript file (.ts/.mjs/.js/.cjs) to execute |
 | `--env <path>` | Load environment variables from a .env file |
+| `--profile <name>` | [Settings profile](#profiles) to select, and with it [the environment](#the-environment-a-profile-selects) |
 
 ### start
 
@@ -146,7 +147,7 @@ instead of a hand-written barrel file. Where `run` executes one entry file, `sta
 plugins, agents, and skills.
 
 ```bash
-craft start [dir] [--env <.env path>] [--once] [--timeout <duration>]
+craft start [dir] [--env <.env path>] [--profile <name>] [--once] [--timeout <duration>]
 ```
 
 With no argument it starts the project in the current directory. Both the root-level and the
@@ -158,6 +159,7 @@ Options:
 | --- | --- |
 | `[dir]` | Project root. Defaults to the current directory |
 | `--env <path>` | Load environment variables from a .env file |
+| `--profile <name>` | [Settings profile](#profiles) to select, and with it [the environment](#the-environment-a-profile-selects) |
 | `--once` | Shut down cleanly after the first exchange reaches a terminal outcome on any route |
 | `--timeout <duration>` | Give up and exit non-zero after this long. Takes milliseconds or a duration string such as `"30s"`. Requires `--once`, and must be at least 1ms |
 
@@ -215,6 +217,7 @@ Options:
 | Option | Description |
 | --- | --- |
 | `<route>` | Route id to dispatch to. Omit to list the instance's dispatchable endpoints |
+| `--profile <name>` | [Settings profile](#profiles) to select |
 | `--url <url>` | Ops server base URL. Defaults to the [settings file](#settings-file), else `http://127.0.0.1:8080` |
 | `--token <token>` | Bearer credential presented at the management door |
 | `--format <format>` | `pretty` (default), `json`, or `raw` |
@@ -247,38 +250,42 @@ Exit codes, which are the API for anything scripting this:
 
 **A refusal reports how to get in.** On a 401 or 403 the CLI reads the `WWW-Authenticate` challenge, follows its RFC 9728 `resource_metadata` hint (best effort, short timeout), and folds the answer into the refusal: which scope is required, who issues acceptable tokens (or that the instance advertises no authorization server, in which case ask whoever operates it how to obtain a credential), and where to supply one (`--token`, `CRAFT_TOKEN`, the [settings file](#settings-file)). The [credential ladder](/docs/advanced/securing-capabilities#the-credential-ladder) walks the four ways an instance is secured.
 
-### chat
+### acp
 
-Hold a conversation with an [agent session](/docs/reference/adapters/agent#sessions-an-agent-that-remembers) on a **running** instance, one message per line.
+Bridge an editor to a **running** instance over the [Agent Client Protocol](/docs/advanced/talk-from-your-editor). This is the command an editor is configured to run.
 
 ```bash
-craft chat [options] <route>
+craft acp [options]
 ```
 
-A loop over the same primitive `exec` uses: every line is a dispatch of `{ session, message }` to the route fronting the agent, through the [management API](/docs/reference/plugins/opsplugin#management-api), and the reply is printed. The terminal owns nothing. The conversation lives in the instance's store under the session id, so the loop can be killed and reattached with the same id, from here or from another machine, and a webhook or a mail reply can post into the same session while it is open.
+It is a pipe and nothing else: newline-delimited JSON on the editor's standard input and output, Streamable HTTP on the instance's side, every message forwarded verbatim in both directions. Nothing here parses the protocol, so a version of it this build has never heard of passes through unchanged.
 
-What ships in 0.7.0 is the **print mode**: `--print` (`-p`) runs the line loop with no interface around it, and piped input implies it. The flagless form on a terminal is reserved for the interactive chat interface and refuses with `exec`'s usage exit code until that ships, so a script written today against `--print` keeps its behaviour when the flagless form starts drawing a screen.
+It never starts an app. `craft start` owns running, which is what lets one editor entry reach a laptop or a company instance by switching a profile and changing nothing else.
 
 Options:
 
 | Option | Description |
 | --- | --- |
-| `<route>` | The route fronting the agent: one that takes `{ session, message }` and dispatches `agent(name, { session })` |
-| `-p, --print` | Run the line loop without an interface. Required on a terminal until the interactive mode ships; implied when standard input is not a terminal |
-| `--session <id>` | The conversation to continue. A fresh id is minted and printed at the start when omitted: in the `pretty` header, or on standard error under `json` and `raw` so standard output stays replies only |
-| `--url <url>` | Ops server base URL. Defaults to the [settings file](#settings-file), else `http://127.0.0.1:8080` |
-| `--token <token>` | Bearer credential presented at the management door |
-| `--format <format>` | `pretty` (default), `json` (the whole dispatch outcome per line), or `raw` (the reply text only) |
+| `--profile <name>` | [Settings profile](#profiles) to select. Carries the url, the token and the agent together |
+| `--url <url>` | Base URL of the target instance. Defaults to the [settings file](#settings-file), else `http://127.0.0.1:8080` |
+| `--token <token>` | Bearer credential presented on every request |
+| `--agent <name>` | The agent to talk to. The instance's default otherwise |
 
 ```bash
-craft chat max --print
-craft chat max --print --session feature-login
-echo "what is left on the branch?" | craft chat max --session feature-login --format raw
+craft acp
+craft acp --profile company
+craft acp --url https://eywa.example --token "$CRAFT_TOKEN" --agent zoe
 ```
 
-A message sent while the session's turn is running is queued rather than answered, and the terminal says so: the turn that consumes it replies into the transcript, which is where a reattached terminal would have to read it. A route that ran and failed on one message is printed (under `json`, as an object with `"outcome": "failed"` and the error code) and the loop goes on, because the conversation is still there; a refused door, a route with no dispatch door, or an unreachable instance ends the loop with [`exec`'s exit code](#exec) for it.
+The protocol is mounted at `/acp`, and the bridge is not where that is configurable: the mount's own `path` option is the instance's to choose, and a person pointing an editor at an instance that moved it says so with the full URL.
 
-**The route's guardrails run on every message.** `craft chat` reaches the agent only through a route the app wrote, so `.authorize()`, `.input()` and `.throttle()` apply per message exactly as for `exec`. Addressing an agent by its registry name with no route in front is the fast path [#599](https://github.com/routecraftjs/routecraft/issues/599) still has open, and it is not built.
+**There is no login.** A token in the profile authenticates, exactly as `token:` does for every other command, and it travels as `Authorization: Bearer` on every request. An instance that advertises no authentication method is conforming, not misconfigured.
+
+**The agent travels as a header.** `--agent` becomes a `Routecraft-Agent` request header, and every conversation the connection opens belongs to that agent for its whole life. A name the instance does not hold is refused by name rather than quietly served by somebody else. Register one editor entry per agent to talk to more than one: see [One agent per editor entry](/docs/advanced/talk-from-your-editor#one-agent-per-editor-entry).
+
+Standard output belongs to the protocol, so nothing but protocol frames is ever written to it and every diagnosis goes to standard error. It shares [`exec`'s exit codes](#exec): a profile named nowhere exits `2` naming the profiles that do exist, and an address nothing answered on exits `3` naming it and which setting supplied it.
+
+Editor configuration, and what a conversation carries once it is open, are in [Talk from your editor](/docs/advanced/talk-from-your-editor).
 
 ### ops
 
@@ -291,7 +298,7 @@ craft ops routes [id] [--dispatchable] [--source <kind>]
 craft ops indicators [name]
 ```
 
-Every subcommand takes the same `--url`, `--token` and `--format` options as `exec`, resolved the same way.
+Every subcommand takes the same `--profile`, `--url`, `--token` and `--format` options as `exec`, resolved the same way.
 
 | Command | What it answers |
 | --- | --- |
@@ -314,7 +321,7 @@ Every subcommand takes the same `--url`, `--token` and `--format` options as `ex
 
 ## Settings file
 
-`craft exec` and `craft ops` read one personal settings file. It is **your** file, not the app's: `craft.config.ts` decides what exists in an instance and what it exposes, while this decides how you like to talk to it.
+`craft exec`, `craft ops` and `craft acp` read one personal settings file, and `craft run` and `craft start` read it for the profile that selects their environment. It is **your** file, not the app's: `craft.config.ts` decides what exists in an instance and what it exposes, while this decides how you like to talk to it.
 
 Two locations, both YAML and both optional:
 
@@ -332,6 +339,10 @@ Every option it accepts:
 | `url` | string | Base URL of the instance's ops server. Defaults to `http://127.0.0.1:8080` |
 | `token` | string | Bearer credential presented at the management door, and to health |
 | `format` | `pretty` \| `json` \| `raw` | Default output format. Defaults to `pretty` |
+| `agent` | string | Agent [`craft acp`](#acp) talks to. The instance's default otherwise |
+| `env` | string \| map | Environment for this selection: a path to an env file, or values inline |
+| `profile` | string | Which profile to select |
+| `profiles` | map | Named sets of every key above, except `profile` and `profiles` themselves |
 
 ```yaml
 # .routecraft/settings.yaml
@@ -340,7 +351,63 @@ token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 format: pretty
 ```
 
-Precedence, highest first: a **flag**, then an **environment variable** (`CRAFT_URL`, `CRAFT_TOKEN`, `CRAFT_FORMAT`), then the **project-local file**, then the **global file**, then the built-in default. When a connection fails, the error names both the address it used and which of those supplied it, so a wrong pinned address is diagnosable from the message alone.
+Precedence, highest first: a **flag**, then an **environment variable** (`CRAFT_URL`, `CRAFT_TOKEN`, `CRAFT_FORMAT`, `CRAFT_PROFILE`), then the **project-local file**, then the **global file**, then the built-in default. When a connection fails, the error names both the address it used and which of those supplied it, so a wrong pinned address is diagnosable from the message alone.
+
+### Profiles
+
+A profile is one selection that carries the address, the credential, the output format, the agent and the environment together, so moving every command in the family to another instance is one word rather than four flags.
+
+```yaml
+# .routecraft/settings.yaml
+profile: local
+
+profiles:
+  local:
+    url: http://127.0.0.1:8080
+  company:
+    url: https://eywa.example
+    token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
+    format: json
+    agent: zoe
+    env: .env.company
+```
+
+```bash
+craft ops health --profile company
+CRAFT_PROFILE=company craft exec greet --name=world
+```
+
+Which profile is selected, highest first: `--profile`, then `CRAFT_PROFILE`, then the project-local file's `profile:`, then the global file's. The two files' `profiles:` maps are one namespace as far as selection is concerned, so a profile defined only in your home directory is selectable from any project.
+
+Once one is selected, each value resolves through four file layers rather than two, highest first: the **project profile**, the **project file's top level**, the **global profile**, then the **global file's top level**. Inside one file a profile beats a bare key, because it is the more specific thing you asked for. Between files the project still beats the home directory, so a profile somebody keeps in their home directory can never redirect an instance a repository pinned.
+
+A profile named nowhere is refused, naming the profiles that do exist and the file that chose it. Falling back to the loopback default would send a command meant for a company instance to whatever is listening on your laptop.
+
+Defining profiles changes nothing until one is selected: with no selection, every value resolves exactly as it did before profiles existed.
+
+### The environment a profile selects
+
+A profile is the mode, so selecting one selects the environment that goes with it. The commands that load a project (`run` and `start`) read env files in this order, each overriding the one before it:
+
+1. `.env`
+2. `.env.<profile>`, when a profile is selected
+3. `.env.local`
+
+A missing `.env.<profile>` is not an error: a mode with nothing extra to say is an ordinary case.
+
+Two escapes from that cascade, for when the convention is not what you want:
+
+- **`env:` on the profile.** A string is a path to one env file, resolved against the project root, and that file is read instead of the cascade. A map is values written inline, applied instead of the cascade, and a variable the process already carries is left alone exactly as an env file leaves it alone.
+- **`--env <path>`.** A path typed on the command line is the most specific thing anybody said, so it wins over the profile's own `env:` and over the cascade alike.
+
+```yaml
+profiles:
+  ing:
+    url: https://ing.example
+    env:
+      REGION: eu-west-1
+      TIER: acceptance
+```
 
 <Callout type="warning" title="The project-local file can hold a token">
 

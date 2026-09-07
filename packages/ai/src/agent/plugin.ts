@@ -9,8 +9,12 @@ import {
   type OpsPage,
 } from "@routecraft/routecraft";
 import { AgentSessionRuntime } from "./session/runtime.ts";
-import type { AgentSessionSummary } from "./session/types.ts";
+import type {
+  AgentSessionScope,
+  AgentSessionSummary,
+} from "./session/types.ts";
 import { validateAgentOptions, validateBlocks } from "./agent.ts";
+import { validateAdvertisedChoices } from "./advertised.ts";
 import {
   ADAPTER_AGENT_DEFAULT_OPTIONS,
   ADAPTER_AGENT_REGISTRY,
@@ -138,6 +142,7 @@ function validateRegisteredAgent(
     });
   }
   validateAgentOptions(options);
+  validateAdvertisedChoices(`agentPlugin: agent "${id}"`, options);
 }
 
 /**
@@ -329,7 +334,7 @@ const boots = new WeakMap<CraftContext, Promise<void>>();
  * The `agent-sessions` management resource: every named session the
  * store knows, with its turn state and inbox depth, at
  * `GET /ops/agent-sessions` (filter with `?agent=`) and one session at
- * `GET /ops/agent-sessions/{agent}/{session}`. Served under the ops
+ * `GET /ops/agent-sessions/{session}`. Served under the ops
  * plugin's introspection tier when an ops mount exists; inert otherwise.
  *
  * A context with no suspension store has no sessions, and says so with an
@@ -339,6 +344,19 @@ const boots = new WeakMap<CraftContext, Promise<void>>();
  * @internal
  */
 const SESSIONS_RESOURCE = "agent-sessions";
+
+/**
+ * The management surface reads every session, whoever owns it.
+ *
+ * That is the deliberate operator privilege rather than a missing filter:
+ * this resource is served under the ops mount's introspection tier, which
+ * is already the credential that reads routes, indicators and the event
+ * tail. A conversation belongs to the person who started it as far as
+ * every protocol surface is concerned, and an operator holding the
+ * management credential can see all of them, which is what makes
+ * "who owns this session and where is it bound" an answerable question.
+ */
+const OPS_SCOPE: AgentSessionScope = "operator";
 
 /**
  * What a previous process left in sessions is driven from here, after
@@ -395,14 +413,17 @@ function registerSessionsResource(ctx: CraftContext): void {
       if (!sessions) return { items: [] };
       const agent = query["agent"];
       return sessions.summaries({
+        scope: OPS_SCOPE,
         ...(agent !== undefined ? { agent } : {}),
         ...parsePageQuery(query),
       });
     },
     async describe(segments): Promise<AgentSessionSummary | undefined> {
-      if (segments.length !== 2) return undefined;
-      const [agent, session] = segments as [string, string];
-      return runtime()?.summary({ agent, session });
+      // One segment: a conversation is named by its id alone, so the
+      // path is `/ops/agent-sessions/{session}` rather than a pair.
+      if (segments.length !== 1) return undefined;
+      const [session] = segments as [string];
+      return runtime()?.summary(session, OPS_SCOPE);
     },
   });
 }

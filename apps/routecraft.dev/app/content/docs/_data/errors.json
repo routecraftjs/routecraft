@@ -456,6 +456,36 @@
     "retryable": true
   },
   {
+    "code": "AI1013",
+    "category": "Adapter",
+    "message": "No editor surface on this exchange",
+    "retryable": false
+  },
+  {
+    "code": "AI1014",
+    "category": "Adapter",
+    "message": "The editor surface disconnected mid-turn",
+    "retryable": false
+  },
+  {
+    "code": "AI1015",
+    "category": "Adapter",
+    "message": "The editor never advertised this capability",
+    "retryable": false
+  },
+  {
+    "code": "AI1016",
+    "category": "Adapter",
+    "message": "The editor refused or failed the call",
+    "retryable": false
+  },
+  {
+    "code": "AI1017",
+    "category": "Adapter",
+    "message": "Session override not offered by the agent",
+    "retryable": false
+  },
+  {
     "code": "AI2001",
     "category": "Adapter",
     "message": "MCP tool output violated its declared schema",

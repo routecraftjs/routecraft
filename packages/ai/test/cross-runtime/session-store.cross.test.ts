@@ -26,7 +26,7 @@ afterAll(() => {
   rmSync(scratch, { recursive: true, force: true });
 });
 
-const key = { agent: "max", session: "feature-login" };
+const key = "feature-login";
 
 describe("agent session store (cross-runtime)", () => {
   let store: SqliteSessionStore | undefined;
@@ -111,17 +111,12 @@ describe("agent session store (cross-runtime)", () => {
    */
   test("keys enumerate in code point order", async () => {
     store = await SqliteSessionStore.open({ path: join(scratch, "keys.db") });
-    await store.create({ agent: "max", session: "b" }, {});
-    await store.create({ agent: "max", session: "\u{1f600}" }, {});
-    await store.create({ agent: "ada", session: "a" }, {});
-    await store.create({ agent: "max", session: "￿" }, {});
+    await store.create("b", {});
+    await store.create("\u{1f600}", {});
+    await store.create("a", {});
+    await store.create("￿", {});
 
-    expect(await store.keys()).toEqual([
-      { agent: "ada", session: "a" },
-      { agent: "max", session: "b" },
-      { agent: "max", session: "￿" },
-      { agent: "max", session: "\u{1f600}" },
-    ]);
+    expect(await store.keys()).toEqual(["a", "b", "￿", "\u{1f600}"]);
   });
 
   /**

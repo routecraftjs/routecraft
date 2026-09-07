@@ -27,7 +27,7 @@ export const DEFAULT_SESSION_DB_PATH = ".routecraft/sessions.db";
 /** Names this subsystem in the absent-peer error under Node. */
 export const SESSION_SQLITE_CONSUMER = "agent session store (sqlite)";
 
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 const BUSY_TIMEOUT_MS = 5_000;
 
 /**
@@ -36,8 +36,16 @@ const BUSY_TIMEOUT_MS = 5_000;
  * one runs none. Opening the store is the migrate step, and the shared
  * runner applies them inside one transaction, so two instances opening one
  * fresh file on a shared volume both come up.
+ *
+ * Append only. An entry that has been published is the definition of the
+ * schema a file at that version physically has, so editing one in place
+ * leaves two different tables answering to one number and the runner with
+ * no way to tell them apart.
  */
 const MIGRATIONS: ReadonlyArray<string> = [
+  // Version 1 keyed a session by (agent, session). It reached exactly one
+  // published canary and no stable release, which is why version 2 rebuilds
+  // rather than converts.
   `CREATE TABLE IF NOT EXISTS agent_sessions (
      agent      TEXT    NOT NULL,
      session    TEXT    NOT NULL,
@@ -45,6 +53,16 @@ const MIGRATIONS: ReadonlyArray<string> = [
      record     TEXT    NOT NULL,
      updated_at INTEGER NOT NULL,
      PRIMARY KEY (agent, session)
+   );`,
+  // A session id is the identity now, so the old key cannot be carried
+  // across: two agents could hold the same id and neither has a claim on
+  // it. Dropped rather than migrated, and the changeset says so.
+  `DROP TABLE IF EXISTS agent_sessions;
+   CREATE TABLE agent_sessions (
+     session    TEXT    NOT NULL PRIMARY KEY,
+     version    INTEGER NOT NULL,
+     record     TEXT    NOT NULL,
+     updated_at INTEGER NOT NULL
    );`,
 ];
 
@@ -126,11 +144,8 @@ export class SqliteSessionStore implements SessionStore {
     // failure to the caller, not a SyntaxError.
     return this.guard("read", () => {
       const row = this.#db
-        .prepare(
-          "SELECT version, record FROM agent_sessions WHERE agent = ? AND session = ?",
-        )
-        .get(key.agent, key.session) as
-        { version: number; record: string } | undefined | null;
+        .prepare("SELECT version, record FROM agent_sessions WHERE session = ?")
+        .get(key) as { version: number; record: string } | undefined | null;
       if (!row) return undefined;
       return { value: JSON.parse(row.record) as unknown, version: row.version };
     });
@@ -145,10 +160,10 @@ export class SqliteSessionStore implements SessionStore {
       try {
         this.#db
           .prepare(
-            `INSERT INTO agent_sessions (agent, session, version, record, updated_at)
-             VALUES (?, ?, 1, ?, ?)`,
+            `INSERT INTO agent_sessions (session, version, record, updated_at)
+             VALUES (?, 1, ?, ?)`,
           )
-          .run(key.agent, key.session, record, Date.now());
+          .run(key, record, Date.now());
         return { won: true };
       } catch (cause) {
         // The one failure the contract names an outcome: a first write that
@@ -172,9 +187,9 @@ export class SqliteSessionStore implements SessionStore {
         .prepare(
           `UPDATE agent_sessions
              SET version = version + 1, record = ?, updated_at = ?
-           WHERE agent = ? AND session = ? AND version = ?`,
+           WHERE session = ? AND version = ?`,
         )
-        .run(record, Date.now(), key.agent, key.session, expectedVersion);
+        .run(record, Date.now(), key, expectedVersion);
       const changed = this.#db.prepare("SELECT changes() AS changed").get() as {
         changed: number;
       };
@@ -185,12 +200,16 @@ export class SqliteSessionStore implements SessionStore {
   async keys(): Promise<AgentSessionKey[]> {
     const rows = this.guard("read", () =>
       this.#db
-        .prepare(
-          "SELECT agent, session FROM agent_sessions ORDER BY agent, session",
-        )
+        .prepare("SELECT session FROM agent_sessions ORDER BY session")
         .all(),
-    ) as Array<{ agent: string; session: string }>;
-    return rows.map((row) => ({ agent: row.agent, session: row.session }));
+    ) as Array<{ session: string }>;
+    return rows.map((row) => row.session);
+  }
+
+  async remove(key: AgentSessionKey): Promise<void> {
+    this.guard("write", () =>
+      this.#db.prepare("DELETE FROM agent_sessions WHERE session = ?").run(key),
+    );
   }
 
   async close(): Promise<void> {

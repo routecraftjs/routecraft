@@ -53,6 +53,10 @@ export const navigation = [
       },
       { title: 'Durable Agents', href: '/docs/advanced/durable-agents' },
       {
+        title: 'Talk from your editor',
+        href: '/docs/advanced/talk-from-your-editor',
+      },
+      {
         title: 'Securing capabilities',
         href: '/docs/advanced/securing-capabilities',
       },

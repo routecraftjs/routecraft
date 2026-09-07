@@ -14,7 +14,7 @@ afterAll(() => {
   rmSync(scratch, { recursive: true, force: true });
 });
 
-const key = { agent: "max", session: "feature-login" };
+const key = "feature-login";
 
 /**
  * The shared contract suite. Every backend must satisfy it identically:
@@ -90,35 +90,68 @@ function contractSuite(name: string, open: () => Promise<SessionStore>): void {
       expect(await store.get(key)).toEqual({ value: { turns: 2 }, version: 2 });
       expect(await store.replace(key, 1, { turns: 3 })).toEqual({ won: false });
       expect(await store.get(key)).toEqual({ value: { turns: 2 }, version: 2 });
-      expect(
-        await store.replace({ agent: "max", session: "never" }, 1, {}),
-      ).toEqual({ won: false });
+      expect(await store.replace("never", 1, {})).toEqual({ won: false });
     });
 
     /**
-     * @case Keys enumerate in agent then session order, in code point order, and round-trip every character a session id or agent name may carry
-     * @preconditions Records for five keys written out of order: one carrying a colon, a percent sign and non-ASCII letters, one agent named with a character outside the Basic Multilingual Plane (U+1F600) and one inside its upper range (U+FB01), which UTF-16 code-unit comparison orders the other way round
-     * @expectedResult keys() answers the keys sorted by agent then session with U+FB01 before U+1F600, each character intact
+     * @case Keys enumerate in code point order and round-trip every character a session id may carry
+     * @preconditions Records for five ids written out of order: one carrying a colon, a percent sign and non-ASCII letters, one containing a character outside the Basic Multilingual Plane (U+1F600) and one inside its upper range (U+FB01), which UTF-16 code-unit comparison orders the other way round
+     * @expectedResult keys() answers them sorted by code point with U+FB01 before U+1F600, each character intact
      */
     test("keys are ordered by code point and round-trip", async () => {
       store = await open();
-      const odd = { agent: "zoë", session: "ticket:42%done" };
-      const astral = { agent: "\u{1F600}", session: "s" };
-      const upperBmp = { agent: "\uFB01", session: "s" };
-      await store.create({ agent: "max", session: "b" }, {});
+      const odd = "ticket:42%done";
+      const astral = "s\u{1F600}";
+      const upperBmp = "s\uFB01";
+      await store.create("b", {});
       await store.create(astral, {});
       await store.create(odd, {});
       await store.create(upperBmp, {});
-      await store.create({ agent: "max", session: "a" }, {});
-      expect(await store.keys()).toEqual([
-        { agent: "max", session: "a" },
-        { agent: "max", session: "b" },
-        odd,
-        upperBmp,
-        astral,
-      ]);
+      await store.create("a", {});
+      expect(await store.keys()).toEqual(["a", "b", upperBmp, astral, odd]);
       expect(await store.get(odd)).toEqual({ value: {}, version: 1 });
       expect(await store.get(astral)).toEqual({ value: {}, version: 1 });
+    });
+
+    /**
+     * @case A removed record is gone from every read
+     * @preconditions Two records; one is removed, then removed a second time, then a record that never existed is removed
+     * @expectedResult get() answers undefined for the removed key, keys() no longer lists it and still lists the other, and neither the repeat nor the unknown key is an error
+     */
+    test("remove drops the record and is idempotent", async () => {
+      store = await open();
+      await store.create(key, { turns: 1 });
+      await store.create("kept", { turns: 2 });
+
+      await store.remove(key);
+      expect(await store.get(key)).toBeUndefined();
+      expect(await store.keys()).toEqual(["kept"]);
+
+      // A caller deleting what it has already deleted, and one deleting a
+      // conversation that never existed, both succeed: there is nothing to
+      // report and nothing to compare against.
+      await store.remove(key);
+      await store.remove("never-written");
+      expect(await store.keys()).toEqual(["kept"]);
+      expect((await store.get("kept"))!.value).toEqual({ turns: 2 });
+    });
+
+    /**
+     * @case A key written again after removal starts over
+     * @preconditions A record at version 2, removed, then created again
+     * @expectedResult The new record is at version 1, so a writer still holding the old version cannot land on it
+     */
+    test("a key written after removal starts at version 1", async () => {
+      store = await open();
+      await store.create(key, { turns: 1 });
+      await store.replace(key, 1, { turns: 2 });
+      await store.remove(key);
+
+      expect(await store.create(key, { turns: 9 })).toEqual({ won: true });
+      expect(await store.get(key)).toEqual({ value: { turns: 9 }, version: 1 });
+      expect(await store.replace(key, 2, { turns: 10 })).toEqual({
+        won: false,
+      });
     });
 
     /**

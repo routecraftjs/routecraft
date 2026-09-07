@@ -85,6 +85,19 @@ Two cases are already on the record, and both began as proposed framework featur
 - **WebFetch and WebSearch.** Proposed as built-in agent tools, then as a web content adapter carrying an egress guard. Both framings were rejected. What shipped is two ordinary `http()` client options (#579) with the routes in the `craft-harness` template (#588).
 - **The agent tool names themselves.** `WebFetch`, `WebSearch` and `Bash` are Claude Code's names. The agent loader tolerates them so a borrowed `.claude/agents/` tree still boots; the framework provides none of them.
 
+## 9. The editor surface is a transport seam, not an SDK
+
+`surface()` is the one way a route reaches the person attached to its current turn. It takes a method name and its params, and pins the session to that turn so a route cannot address somebody else's editor.
+
+The rules that keep it that shape:
+
+- **The method set follows the protocol, and each backend implements it.** `SurfaceRequestParams` is a type alias for the ACP SDK's generated client method map, so it is never restated by hand and never extended with a method the protocol does not define. A method the protocol adds still needs its `supports()` and `capabilityFor()` entries in each backend before a route can call it: the types widen on their own, the backends do not.
+- **Typed helpers live above the seam, never inside it.** A `readFile()` convenience or a `Terminal` wrapper may be worth building one day. It belongs in its own module, built on `surface()`, so the seam stays the width of the protocol however many helpers accumulate.
+- **A capability the protocol does not define gets an adapter of its own.** That is section 6's four homes, applied here. It does not get bolted onto the surface because the surface happens to be a convenient pipe to the editor.
+- **Client-side consent is an additional boundary, never a substitute.** Editors prompt their user before honouring a filesystem write or a terminal spawn, and that is real. It is not Routecraft's authorization, and capability advertisement is not authorization at all: it says a client *can* do a thing, not that anyone decided it *may*. A higher-level Routecraft capability built on the seam is responsible for its own authorization exactly as any other adapter is.
+
+The failure this guards against is not the current method set. It is the commit after next, which adds one convenience, then another, until the framework carries an editor SDK it never decided to own and cannot stop maintaining.
+
 ## Related
 
 - [Package Boundaries](./package-boundaries.md) -- which package a thing belongs in, once this standard says it belongs at all

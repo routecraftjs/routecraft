@@ -27,6 +27,7 @@
     "ai": "^6.0.246"
   },
   "devDependencies": {
+    "@agentclientprotocol/sdk": "^1.4.0",
     "@ai-sdk/anthropic": "^3.0.107",
     "@ai-sdk/google": "^3.0.104",
     "@ai-sdk/openai": "^3.0.91",
@@ -47,6 +48,7 @@
     "zod": "^4.4.3"
   },
   "peerDependencies": {
+    "@agentclientprotocol/sdk": "^1.4.0",
     "@ai-sdk/anthropic": "^3.0.50",
     "@ai-sdk/google": "^3.0.34",
     "@ai-sdk/openai": "^3.0.37",
@@ -76,6 +78,9 @@
     "access": "public"
   },
   "peerDependenciesMeta": {
+    "@agentclientprotocol/sdk": {
+      "optional": true
+    },
     "@ai-sdk/anthropic": {
       "optional": true
     },

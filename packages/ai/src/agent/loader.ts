@@ -10,6 +10,7 @@ import {
   requireString,
   type ParsedMarkdown,
 } from "../block/markdown.ts";
+import { validateAdvertisedChoices } from "./advertised.ts";
 import { tools } from "./tools/index.ts";
 import type { ToolSelection } from "./tools/selection.ts";
 import type { LlmModelId, LlmReasoningEffort } from "../llm/types.ts";
@@ -162,6 +163,9 @@ export interface AgentMarkdownOverride extends Partial<
     AgentRegisteredOptions,
     | "description"
     | "model"
+    | "models"
+    | "reasoning"
+    | "reasoningLevels"
     | "maxTurns"
     | "tools"
     | "principal"
@@ -308,24 +312,78 @@ function toolSelection(
 }
 
 /**
- * Resolve the frontmatter `model` field to a full `provider:model`
- * reference.
+ * What the frontmatter `model` field resolved to: the default the agent
+ * runs on, and the ordered list it offers when the file authored one.
+ *
+ * @internal
+ */
+interface ResolvedModelField {
+  model?: LlmModelId;
+  models?: LlmModelId[];
+}
+
+/**
+ * Resolve the frontmatter `model` field, in either of its two spellings.
+ *
+ * A scalar is the agent's one model. A list is an ordered offer whose
+ * first entry is the default, so a person can pick another from their
+ * editor and can never pick one the file did not list. A list of one is
+ * valid and offers nothing, which is the same observable result as the
+ * scalar: the two spellings differ only in intent.
  *
  * Claude's aliases map onto pinned ids; `inherit` maps to nothing at
  * all, which is exactly right here because an agent that sets no model
  * already picks up `agentPlugin({ defaultOptions: { model } })` at
- * dispatch.
+ * dispatch. Inside a list `inherit` is refused: a list is a set of
+ * choices, and "whatever the context happens to default to" is not one
+ * the editor could label or the record could store.
  *
  * @internal
  */
-function resolveModel(value: unknown, source: string): LlmModelId | undefined {
-  if (value === undefined) return undefined;
+function resolveModelField(value: unknown, source: string): ResolvedModelField {
+  if (value === undefined) return {};
+  if (Array.isArray(value)) {
+    if (value.length === 0) {
+      throw rcError("RC5003", undefined, {
+        message: `Markdown file "${source}": frontmatter "model" is an empty list. Remove the key, or list at least one model.`,
+      });
+    }
+    const models: LlmModelId[] = [];
+    value.forEach((entry: unknown, index: number) => {
+      if (entry === "inherit") {
+        throw rcError("RC5003", undefined, {
+          message: `Markdown file "${source}": frontmatter "model" entry ${index} is "inherit", which names no model and so cannot be offered as a choice. Use the scalar form ("model: inherit") to take the context default, or list real models.`,
+        });
+      }
+      models.push(resolveModelEntry(entry, source, index));
+    });
+    // The first entry is the default, and the whole list is what the
+    // agent offers. Duplicates are the author's business: they render as
+    // two identical choices rather than as an error.
+    return { model: models[0]!, models };
+  }
+  if (value === "inherit") return {};
+  return { model: resolveModelEntry(value, source, undefined) };
+}
+
+/**
+ * Resolve one `model` value. `index` names the list position in the
+ * error when the value came from a list, so a bad entry among five is
+ * findable without counting.
+ *
+ * @internal
+ */
+function resolveModelEntry(
+  value: unknown,
+  source: string,
+  index: number | undefined,
+): LlmModelId {
+  const at = index === undefined ? "" : ` entry ${index}`;
   if (typeof value !== "string") {
     throw rcError("RC5003", undefined, {
-      message: `Markdown file "${source}": frontmatter "model" must be a string of the form "provider:model" (e.g. "anthropic:claude-sonnet-4-6").`,
+      message: `Markdown file "${source}": frontmatter "model"${at} must be a string of the form "provider:model" (e.g. "anthropic:claude-sonnet-4-6").`,
     });
   }
-  if (value === "inherit") return undefined;
   // `Object.hasOwn` rather than a bare lookup: frontmatter is
   // file-controlled, and `model: constructor` would otherwise resolve
   // to a function off Object.prototype and be returned as a model id.
@@ -335,10 +393,45 @@ function resolveModel(value: unknown, source: string): LlmModelId | undefined {
   if (alias !== undefined) return alias;
   if (!value.includes(":")) {
     throw rcError("RC5003", undefined, {
-      message: `Markdown file "${source}": frontmatter "model" ("${value}") is neither a known alias (${Object.keys(MODEL_ALIASES).sort().join(", ")}, inherit) nor a full "provider:model" reference.`,
+      message: `Markdown file "${source}": frontmatter "model"${at} ("${value}") is neither a known alias (${Object.keys(MODEL_ALIASES).sort().join(", ")}, inherit) nor a full "provider:model" reference.`,
     });
   }
   return value as LlmModelId;
+}
+
+/**
+ * Resolve the frontmatter `reasoning` field, in either of its two
+ * spellings. Same contract as `model`: a scalar is the level the agent
+ * thinks at, a list is an ordered offer whose first entry is the default.
+ *
+ * @internal
+ */
+function resolveReasoningField(
+  value: unknown,
+  source: string,
+): { reasoning?: LlmReasoningEffort; reasoningLevels?: LlmReasoningEffort[] } {
+  if (value === undefined) return {};
+  if (!Array.isArray(value)) {
+    const level = optionalEnum(value, "reasoning", source, REASONING_LEVELS);
+    return level === undefined ? {} : { reasoning: level };
+  }
+  if (value.length === 0) {
+    throw rcError("RC5003", undefined, {
+      message: `Markdown file "${source}": frontmatter "reasoning" is an empty list. Remove the key, or list at least one level.`,
+    });
+  }
+  const levels = value.map((entry: unknown, index: number) => {
+    if (
+      typeof entry !== "string" ||
+      !REASONING_LEVELS.includes(entry as LlmReasoningEffort)
+    ) {
+      throw rcError("RC5003", undefined, {
+        message: `Markdown file "${source}": frontmatter "reasoning" entry ${index} must be one of: ${REASONING_LEVELS.join(", ")}.`,
+      });
+    }
+    return entry as LlmReasoningEffort;
+  });
+  return { reasoning: levels[0]!, reasoningLevels: levels };
 }
 
 /**
@@ -379,13 +472,12 @@ function applySampling(
     source,
   );
   if (presencePenalty !== undefined) agent.presencePenalty = presencePenalty;
-  const reasoning = optionalEnum(
+  const { reasoning, reasoningLevels } = resolveReasoningField(
     frontmatter["reasoning"],
-    "reasoning",
     source,
-    REASONING_LEVELS,
   );
   if (reasoning !== undefined) agent.reasoning = reasoning;
+  if (reasoningLevels !== undefined) agent.reasoningLevels = reasoningLevels;
   const providerOptions = optionalNestedRecord(
     frontmatter["providerOptions"],
     "providerOptions",
@@ -440,7 +532,7 @@ function toAgent(doc: ParsedMarkdown): LoadedAgentFile {
       message: `Markdown file "${source}": agent body is empty. The body becomes the agent's system prompt; an empty system prompt is rejected at dispatch.`,
     });
   }
-  const model = resolveModel(frontmatter["model"], source);
+  const { model, models } = resolveModelField(frontmatter["model"], source);
   const maxTurns = optionalPositiveInt(
     frontmatter["maxTurns"],
     "maxTurns",
@@ -480,6 +572,7 @@ function toAgent(doc: ParsedMarkdown): LoadedAgentFile {
     system: body,
   };
   if (model !== undefined) agent.model = model;
+  if (models !== undefined) agent.models = models;
   if (maxTurns !== undefined) agent.maxTurns = maxTurns;
   applySampling(agent, frontmatter, source);
   if (toolRefs !== undefined)
@@ -509,6 +602,11 @@ function applyOverride(
   if (override.description !== undefined)
     out.description = override.description;
   if (override.model !== undefined) out.model = override.model;
+  if (override.models !== undefined) out.models = override.models;
+  if (override.reasoning !== undefined) out.reasoning = override.reasoning;
+  if (override.reasoningLevels !== undefined) {
+    out.reasoningLevels = override.reasoningLevels;
+  }
   if (override.maxTurns !== undefined) out.maxTurns = override.maxTurns;
   if (override.tools !== undefined) out.tools = override.tools;
   if (override.principal !== undefined) out.principal = override.principal;
@@ -576,26 +674,55 @@ export async function loadAgentFiles(path: string): Promise<LoadedAgentFile[]> {
  * Frontmatter mirrors a deliberately narrow subset of Claude's
  * subagent schema:
  *
- * | Field         | Required | Maps to                                |
- * | ------------- | -------- | -------------------------------------- |
- * | `name`        | yes      | record key + agent id                  |
- * | `description` | yes      | `AgentRegisteredOptions.description`   |
- * | `model`       | no       | `AgentRegisteredOptions.model` (full   |
- * |               |          | `provider:model` form only)            |
- * | `maxTurns`    | no       | `AgentRegisteredOptions.maxTurns`      |
- * | `tools`       | no       | `tools(stringArray)`                   |
- * | `disallowedTools` | no   | removals from this agent's own `tools` |
- * | `principal`   | no       | `AgentRegisteredOptions.principal`     |
- * |               |          | (boolean only; renderer via override)  |
- * | `skills`      | no       | declaration consumed by `craft start`  |
+ * | Field              | Required | Maps to                                     |
+ * | ------------------ | -------- | ------------------------------------------- |
+ * | `name`             | yes      | record key + agent id                       |
+ * | `description`      | yes      | `AgentRegisteredOptions.description`        |
+ * | `model`            | no       | `AgentRegisteredOptions.model`, and          |
+ * |                    |          | `.models` in the list form (see below)      |
+ * | `maxTurns`         | no       | `AgentRegisteredOptions.maxTurns`           |
+ * | `tools`            | no       | `tools(stringArray)`                        |
+ * | `disallowedTools`  | no       | removals from this agent's own `tools`      |
+ * | `principal`        | no       | `AgentRegisteredOptions.principal`          |
+ * |                    |          | (boolean only; renderer via override)       |
+ * | `skills`           | no       | declaration consumed by `craft start`       |
+ * | `temperature`      | no       | `AgentRegisteredOptions.temperature`        |
+ * | `maxTokens`        | no       | `AgentRegisteredOptions.maxTokens`          |
+ * | `topP`             | no       | `AgentRegisteredOptions.topP`               |
+ * | `frequencyPenalty` | no       | `AgentRegisteredOptions.frequencyPenalty`   |
+ * | `presencePenalty`  | no       | `AgentRegisteredOptions.presencePenalty`    |
+ * | `reasoning`        | no       | `AgentRegisteredOptions.reasoning`, and     |
+ * |                    |          | `.reasoningLevels` in the list form          |
+ * | `providerOptions`  | no       | `AgentRegisteredOptions.providerOptions`    |
+ *
+ * `model` accepts Claude's aliases (`opus`, `sonnet`, `haiku`) and
+ * `inherit` as well as the full `provider:model` form; an alias resolves
+ * to a pinned id and `inherit` leaves the model to
+ * `agentPlugin({ defaultOptions: { model } })` at dispatch.
+ *
+ * `model` and `reasoning` each accept one value or an ordered list. A
+ * list is what the agent OFFERS, first entry the default, and a caller on
+ * a protocol surface that carries the notion may pick another entry for
+ * their own conversation and can never pick anything else. A list of one
+ * offers nothing, so it is observably a scalar and the two spellings
+ * differ only in intent. `inherit` is not a list entry: it names no model
+ * and so cannot be a choice.
+ *
+ * ```yaml
+ * model: [sonnet, opus, "anthropic:claude-haiku-4-5"]
+ * reasoning: [medium, high, none]
+ * ```
  *
  * Body of the file becomes `system`. Other Claude subagent fields
  * (`permissionMode`, `mcpServers`, `hooks`, `memory`, `background`,
- * `effort`, `isolation`, `color`, `initialPrompt`, ...) are ignored
- * with one warning each and will land in follow-up stories as the
- * runtime gains the underlying features. Tolerating them is the point:
- * an unchanged `.claude/agents/` tree has to boot, and a key this
- * runtime has not implemented yet is not a mistake in the file.
+ * `isolation`, `color`, `initialPrompt`, ...) are ignored with one
+ * warning each and will land in follow-up stories as the runtime gains
+ * the underlying features. Claude's own `effort` is among them: this
+ * loader spells the same idea `reasoning`, which IS read, so a file
+ * carrying `effort` is warned about and its thinking level comes from
+ * `reasoning` or from the context default. Tolerating unknown keys is
+ * the point: an unchanged `.claude/agents/` tree has to boot, and a key
+ * this runtime has not implemented yet is not a mistake in the file.
  *
  * `skills` is validated as a list of strings and otherwise passed
  * through: resolving a ref into blocks needs the house skill folder
@@ -606,11 +733,12 @@ export async function loadAgentFiles(path: string): Promise<LoadedAgentFile[]> {
  * `agents()` by hand.
  *
  * Pass `overrides` keyed by agent name to replace any of
- * `description` / `model` / `maxTurns` / `tools` / `blocks` /
- * `principal` / `output` / `system` per agent without editing the
- * markdown source. `blocks` and `output` are override-only because
- * YAML cannot express the function-form resolvers a block may carry,
- * nor a Standard Schema (a live object with a `validate` function).
+ * `description` / `model` / `models` / `reasoning` / `reasoningLevels` /
+ * `maxTurns` / `tools` / `blocks` / `principal` / `output` / `system`
+ * per agent without editing the markdown source. `blocks` and `output`
+ * are override-only because YAML cannot express the function-form
+ * resolvers a block may carry, nor a Standard Schema (a live object with
+ * a `validate` function).
  *
  * Returns a `Record<name, AgentRegisteredOptions>` ready to spread
  * into `agentPlugin({ agents: agents("./agents") })`.
@@ -645,7 +773,14 @@ export async function agents(
         `Markdown file "${loaded.source}": frontmatter "skills" needs the house and bundle folders to resolve, which agents() is not given, so this call did not load it. The project runtime resolves it; from a direct agents() call, attach skills with the "blocks" override.`,
       );
     }
-    out[loaded.name] = applyOverride(loaded.agent, overrides[loaded.name]);
+    const resolved = applyOverride(loaded.agent, overrides[loaded.name]);
+    // The file and an override can each supply half a choice list, so the
+    // pair is checked after they are merged rather than in the reader.
+    validateAdvertisedChoices(
+      `agents("${path}"): agent "${loaded.name}"`,
+      resolved,
+    );
+    out[loaded.name] = resolved;
   }
   for (const name of Object.keys(overrides)) {
     if (!Object.prototype.hasOwnProperty.call(out, name)) {

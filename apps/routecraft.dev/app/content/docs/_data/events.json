@@ -118,5 +118,14 @@
       "tool:declined"
     ],
     "anchor": "mcp-plugin-events"
+  },
+  {
+    "pattern": "plugin:acp:*",
+    "events": [
+      "connection:opened",
+      "connection:closed",
+      "session:attached"
+    ],
+    "anchor": "acp-plugin-events"
   }
 ]

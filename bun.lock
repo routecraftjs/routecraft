@@ -133,6 +133,7 @@
         "ai": "^6.0.246",
       },
       "devDependencies": {
+        "@agentclientprotocol/sdk": "^1.4.0",
         "@ai-sdk/anthropic": "^3.0.107",
         "@ai-sdk/google": "^3.0.104",
         "@ai-sdk/openai": "^3.0.91",
@@ -153,6 +154,7 @@
         "zod": "^4.4.3",
       },
       "peerDependencies": {
+        "@agentclientprotocol/sdk": "^1.4.0",
         "@ai-sdk/anthropic": "^3.0.50",
         "@ai-sdk/google": "^3.0.34",
         "@ai-sdk/openai": "^3.0.37",
@@ -167,6 +169,7 @@
         "yaml": "^2.8.0",
       },
       "optionalPeers": [
+        "@agentclientprotocol/sdk",
         "@ai-sdk/anthropic",
         "@ai-sdk/google",
         "@ai-sdk/openai",
@@ -187,6 +190,7 @@
         "craft": "./dist/index.js",
       },
       "dependencies": {
+        "@agentclientprotocol/sdk": "^1.4.0",
         "@opentelemetry/sdk-trace-base": "^2.10.0",
         "@routecraft/routecraft": "^0.6.0",
         "agent-browser": "^0.17.1",
@@ -372,6 +376,8 @@
     "@types/react-dom": "19.2.4",
   },
   "packages": {
+    "@agentclientprotocol/sdk": ["@agentclientprotocol/sdk@1.4.0", "", { "peerDependencies": { "zod": "^3.25.0 || ^4.0.0" } }, "sha512-/eufudw+aFY1LKLolT6yFE6UMmYRl7fMJ/DEONSIyR6wI3slHWITBsANRGqXEY8FRzqUxwh7QEaGiZHcJPVThg=="],
+
     "@ai-sdk/anthropic": ["@ai-sdk/anthropic@3.0.107", "", { "dependencies": { "@ai-sdk/provider": "3.0.14", "@ai-sdk/provider-utils": "4.0.42" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-aXwAv1v9ezU3lkAvcz4dfuzJb30ioLk0WRhwpuDgCGKN0dEZiNLeDuyVcRqxWRlYc4Zg4Z4rJcZBKmzJTdzrtw=="],
 
     "@ai-sdk/gateway": ["@ai-sdk/gateway@3.0.166", "", { "dependencies": { "@ai-sdk/provider": "3.0.14", "@ai-sdk/provider-utils": "4.0.42", "@vercel/oidc": "3.2.0" }, "peerDependencies": { "zod": "^3.25.76 || ^4.1.8" } }, "sha512-DHmHmu7yvTgMRLbB28+oe0/L645HckluwibD4WiL0aSdWUkZ9nl51BMMEuD1ed90arRlmhP/l4iszdH1c9JzFg=="],

@@ -17,7 +17,7 @@ Within a namespace, the leading digit reserves a range for one subsystem, so two
 | Range | Owner | Covers |
 | --- | --- | --- |
 | `RC****` | `@routecraft/routecraft` | Core: routes, exchanges, adapters, auth, suspension. The digit after `RC` is the category, not a subsystem range. |
-| `AI1xxx` | `@routecraft/ai` | Agent blocks, configuration, and runtime (run cancellation, suspension surface) |
+| `AI1xxx` | `@routecraft/ai` | Agent blocks, configuration, and runtime (run cancellation, suspension surface, the editor surface) |
 | `AI2xxx` | `@routecraft/ai` | MCP boundary: tool results returned to a client |
 | `AI3xxx` | `@routecraft/ai` | Built-in agent tools |
 | `OS1xxx` | `@routecraft/os` | Subprocess execution and isolation tiers |
@@ -527,6 +527,60 @@ The store that holds agent session records, chosen by [`sessions: { store }`](/d
 - Check the path and the permissions on its directory, and that one process at a time holds the file.
 - Under Node, install `better-sqlite3`; without it the unconfigured default falls back to memory with a warning rather than raising this code.
 - Set `sessions: { store: "memory" }` deliberately for a context whose conversations may die with the process.
+
+## AI1013
+No editor surface on this exchange
+
+**Why it happens**  
+A route called [`surface()`](/docs/reference/adapters/surface) on a turn that has no editor behind it. The adapter reaches the client that is running THIS turn, and the turn is a plain exchange: it came from a timer, an HTTP request, a test, or any other source. There is no ambient editor to fall back on, and inventing one would mean a route that asks for a decision silently continuing without an answer.
+
+**Suggestion**  
+- Guard the call and take another path when there is no editor: `.choice()` on `hasSurface(exchange)` is the shape, and the same route then works both from an editor and from a schedule.
+- Dispatch the route from a turn that has an editor attached, which is any turn started through [`acpPlugin()`](/docs/reference/plugins/acpplugin).
+
+## AI1014
+The editor surface disconnected mid-turn
+
+**Why it happens**  
+The turn started with an editor attached, and the connection was gone by the time the route called it: the person closed the editor, the network dropped, or the process serving them exited. This is distinct from [AI1013](#ai-1013), where there never was one, because the fix is different.
+
+**Suggestion**  
+- Treat it as a person who walked away: finish what can be finished without them, or fail and let them start it again.
+- There is nothing to retry against on this exchange. A new connection is a new turn, and the answer this route wanted belongs to the person, not to the socket.
+
+## AI1015
+The editor never advertised this capability
+
+**Why it happens**  
+The editor said at `initialize` which client methods it serves, and the route called one that was not among them. Reading a file through the editor needs `fs.readTextFile`; running something there needs `terminal`. An editor that does not offer a capability is not broken, and calling it anyway would hang or fail obscurely, so the refusal happens before the call is sent and names both the capability and the method.
+
+**Suggestion**  
+- Use an editor that offers the capability, or branch on it: the message names exactly what was missing.
+- This is configuration rather than a defect. A route written for one editor is being run from another.
+
+## AI1016
+The editor refused or failed the call
+
+**Why it happens**  
+The call reached the editor and came back as a JSON-RPC error, or the turn ended before it settled. The editor's own error is on this error's cause.
+
+A person declining a request arrives this way and is a normal outcome, not a fault: an approval prompt answered "no" is the system working.
+
+**Suggestion**  
+- Handle it with `.error()` and give the route a path for "the person said no".
+- Read the cause for what the editor actually reported; the framework does not interpret it.
+
+## AI1017
+Session override not offered by the agent
+
+**Why it happens**  
+A conversation asked to run on a model or a thinking level its agent does not list. Whoever writes the agent decides what may be changed about it, and the default is that nothing can be: an agent file naming one `model:` offers no choice, and one listing several offers exactly those.
+
+Raised where the choice is written rather than where it would be used, so a stored conversation can never name a value the agent does not offer.
+
+**Suggestion**  
+- Add the value to the agent file's `model:` or `reasoning:` list if it should be on offer. Both accept one value or an ordered list, and the first entry is the default.
+- Check the caller is not sending a value it read from somewhere else; the message names the list the agent actually offers.
 
 ## AI2001
 MCP tool output violated its declared schema

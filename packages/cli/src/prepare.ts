@@ -3,9 +3,9 @@
  * settings, name a settings problem, and build the client over them.
  *
  * One place rather than one per command because it is policy, not
- * boilerplate. A broken settings file must mean the same thing to `exec`,
- * `ops` and `chat`, and a failure that is not a settings problem must
- * surface as the crash it is on every one of them.
+ * boilerplate. A broken settings file must mean the same thing to `exec`
+ * and to every `ops` command, and a failure that is not a settings problem
+ * must surface as the crash it is on every one of them.
  */
 
 import type { ViewNote } from "./format.js";

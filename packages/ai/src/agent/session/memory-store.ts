@@ -15,7 +15,7 @@ export class MemorySessionStore implements SessionStore {
   readonly #records = new Map<string, StoredSession>();
 
   async get(key: AgentSessionKey): Promise<StoredSession | undefined> {
-    const stored = this.#records.get(slot(key));
+    const stored = this.#records.get(key);
     return stored
       ? { value: clone(stored.value), version: stored.version }
       : undefined;
@@ -25,7 +25,7 @@ export class MemorySessionStore implements SessionStore {
     key: AgentSessionKey,
     value: unknown,
   ): Promise<SessionCasResult> {
-    const id = slot(key);
+    const id = key;
     if (this.#records.has(id)) return { won: false };
     this.#records.set(id, { value: clone(value), version: 1 });
     return { won: true };
@@ -36,7 +36,7 @@ export class MemorySessionStore implements SessionStore {
     expectedVersion: number,
     value: unknown,
   ): Promise<SessionCasResult> {
-    const id = slot(key);
+    const id = key;
     const current = this.#records.get(id);
     if (!current || current.version !== expectedVersion) return { won: false };
     this.#records.set(id, {
@@ -47,31 +47,17 @@ export class MemorySessionStore implements SessionStore {
   }
 
   async keys(): Promise<AgentSessionKey[]> {
-    return [...this.#records.keys()]
-      .map(unslot)
-      .sort(
-        (a, b) =>
-          compareCodePoints(a.agent, b.agent) ||
-          compareCodePoints(a.session, b.session),
-      );
+    return [...this.#records.keys()].sort(compareCodePoints);
+  }
+
+  async remove(key: AgentSessionKey): Promise<void> {
+    this.#records.delete(key);
   }
 
   async close(): Promise<void> {
     // Nothing held open; the records stay until the store is collected, so
     // a second context in the same process reads what the first wrote.
   }
-}
-
-function slot(key: AgentSessionKey): string {
-  return `${encodeURIComponent(key.agent)}:${encodeURIComponent(key.session)}`;
-}
-
-function unslot(id: string): AgentSessionKey {
-  const at = id.indexOf(":");
-  return {
-    agent: decodeURIComponent(id.slice(0, at)),
-    session: decodeURIComponent(id.slice(at + 1)),
-  };
 }
 
 /**

@@ -170,9 +170,9 @@ export async function createSessionStore(
  */
 function isSessionStore(value: object): value is SessionStore {
   const candidate = value as Record<string, unknown>;
-  return (["get", "create", "replace", "keys", "close"] as const).every(
-    (operation) => typeof candidate[operation] === "function",
-  );
+  return (
+    ["get", "create", "replace", "keys", "remove", "close"] as const
+  ).every((operation) => typeof candidate[operation] === "function");
 }
 
 /** The location a config value names, refusing what names nothing. */
@@ -181,7 +181,7 @@ function pathOf(chosen: string | { path: string } | object): string {
     typeof chosen === "object" ? (chosen as { path?: unknown }).path : chosen;
   if (typeof path !== "string" || path.trim() === "") {
     throw rcError("RC5003", undefined, {
-      message: `sessions: { store } takes a file path, { path }, "memory", or a SessionStore with get, create, replace, keys and close. Received ${describe(chosen)}.`,
+      message: `sessions: { store } takes a file path, { path }, "memory", or a SessionStore with get, create, replace, keys, remove and close. Received ${describe(chosen)}.`,
     });
   }
   return path;
@@ -360,6 +360,10 @@ class LazyResolvedSessionStore implements ResolvedSessionStore, SessionStore {
     return (await this.resolve()).store.keys();
   }
 
+  async remove(key: AgentSessionKey): Promise<void> {
+    await (await this.resolve()).store.remove(key);
+  }
+
   async close(): Promise<void> {
     if (this.#closed) return;
     this.#closed = true;
@@ -425,6 +429,12 @@ export class DeferredSqliteSessionStore implements SessionStore {
 
   async keys(): Promise<AgentSessionKey[]> {
     return (await this.reader())?.keys() ?? [];
+  }
+
+  async remove(key: AgentSessionKey): Promise<void> {
+    // Through the reader, so deleting from a deployment that never wrote a
+    // session does not create the database it would delete from.
+    await (await this.reader())?.remove(key);
   }
 
   async close(): Promise<void> {
