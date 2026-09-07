@@ -71,16 +71,26 @@ export function dispatchIdentityFrom(
   routeId: string | undefined,
 ): AgentDispatchIdentity | undefined {
   if (routeId === undefined) return undefined;
-  // The framework runtime sets `routecraft.correlation_id` on every
-  // exchange that flows through a real route. Synthetic exchanges
-  // (mostly tests) may lack it; fall back to the exchange id so the
-  // emitted events still carry a stable, non-empty `correlationId`.
-  const corr = exchange.headers[HeadersKeys.CORRELATION_ID];
   return {
     exchangeId: exchange.id,
-    correlationId: typeof corr === "string" ? corr : exchange.id,
+    correlationId: correlationOf(exchange),
     routeId,
   };
+}
+
+/**
+ * The correlation id this exchange belongs to.
+ *
+ * The framework runtime sets `routecraft.correlation_id` on every exchange
+ * that flows through a real route. A synthetic exchange (mostly tests) may
+ * lack it, and falls back to the exchange id so a consumer always has a
+ * stable, non-empty value.
+ *
+ * @internal
+ */
+export function correlationOf(exchange: Exchange<unknown>): string {
+  const corr = exchange.headers[HeadersKeys.CORRELATION_ID];
+  return typeof corr === "string" ? corr : exchange.id;
 }
 
 const DEFAULT_MAX_TURNS = 20;
@@ -347,6 +357,38 @@ export class AgentRun<T = unknown> {
   }
 
   /**
+   * Hand the listener the accepted attempt's text when that attempt
+   * streamed none of it.
+   *
+   * The listener has the whole reply before the run returns: a provider
+   * that produced text without streaming it leaves the reply only in the
+   * result, so it goes over as one delta rather than being left for the
+   * caller to notice. Emitted before the run returns, because a session's
+   * next turn starts the moment this one ends and a reply sent after that
+   * would land behind the next turn's first words. Per attempt, not per
+   * run: an earlier attempt the validator rejected may have streamed, and
+   * that says nothing about the attempt that was accepted.
+   */
+  private async sayFinalText(
+    onDelta: AgentDeltaListener | undefined,
+    spoke: boolean,
+    result: AgentResult,
+  ): Promise<AgentResult> {
+    if (onDelta === undefined || spoke || result.text === "") return result;
+    try {
+      await onDelta({ type: "text-delta", text: result.text });
+    } catch (err) {
+      this.input.exchange.logger.warn(
+        { err },
+        err instanceof Error && err.message !== ""
+          ? err.message
+          : "agent.onDelta listener threw on the run's final text; ignoring",
+      );
+    }
+    return result;
+  }
+
+  /**
    * Shared dispatch path used by both `runUntilDone` and `runStream`.
    * Calls the model once, runs `validate` (when set), and either
    * returns the accepted result or loops with a corrective user
@@ -417,13 +459,22 @@ export class AgentRun<T = unknown> {
         // can report the whole thread rather than the model's half of it.
         const userSide = currentUser;
         const onStep = this.input.onStep;
+        // Whether THIS attempt streamed any of its text; see sayFinalText.
+        let spoke = false;
+        const listener: AgentDeltaListener | undefined =
+          onDelta === undefined
+            ? undefined
+            : async (delta) => {
+                if (delta.type === "text-delta") spoke = true;
+                await onDelta(delta);
+              };
         try {
           result = await callOnce(
             prepared,
             currentUser,
             remaining,
             abortSignal,
-            onDelta,
+            listener,
             signals,
             onStep === undefined
               ? undefined
@@ -467,7 +518,11 @@ export class AgentRun<T = unknown> {
         }
         if (!validate) {
           this.emitFinished(result);
-          return toAgentResult(result, accumulatedToolCalls);
+          return this.sayFinalText(
+            onDelta,
+            spoke,
+            toAgentResult(result, accumulatedToolCalls),
+          );
         }
         const verdict = await Promise.resolve(
           validate(toAgentResult(result, accumulatedToolCalls), {
@@ -477,7 +532,11 @@ export class AgentRun<T = unknown> {
         );
         if (verdict === undefined || verdict === null) {
           this.emitFinished(result);
-          return toAgentResult(result, accumulatedToolCalls);
+          return this.sayFinalText(
+            onDelta,
+            spoke,
+            toAgentResult(result, accumulatedToolCalls),
+          );
         }
         if (typeof verdict !== "string" || verdict.trim() === "") {
           throw rcError("RC5003", undefined, {

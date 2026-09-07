@@ -52,7 +52,7 @@ A conversation is an [agent session](/docs/reference/adapters/agent#sessions-an-
 - **It outlives the connection.** Close the editor, restart it, reconnect to the same instance, and the same conversation is there by its id. Loading one replays the transcript into the editor so the history is on screen rather than merely on the server.
 - **It outlives the instance.** A restart does not lose it, and an editor window that was open across the restart is still attached to it afterwards: the bridge resumes the conversation by its id when the instance answers again. What the restart interrupted is the exception: a message whose turn was running when the instance went down comes back to the editor as cancelled, and a conversation held only in a memory store is gone with the process and is named on the bridge's standard error.
 - **It lives where the store lives.** The conversation is in that instance's [session store](/docs/reference/configuration#sessions), which by default is a file beside the app. Reaching the same conversation from a second machine means reaching the same instance, or pointing both instances at [one shared store](#sharing-one-store-between-instances), which has a limit worth reading before you rely on it.
-- **One turn runs at a time.** A message sent while a turn is running is queued and answered by the turn that consumes it, which is the same rule every other caller of that session gets. Cancelling from the editor interrupts the running turn and keeps its partial transcript.
+- **One turn runs at a time.** A message sent while a turn is running is queued and answered by the turn that runs next, and your request for it stays open until that reply has streamed: see [Sending while a turn runs](#sending-while-a-turn-runs). Cancelling from the editor interrupts the running turn and keeps its partial transcript.
 - **Somebody else can be in it too.** A webhook or a mail reply dispatching to the same session id posts into the same conversation.
 
 ## A conversation belongs to the person who started it
@@ -155,6 +155,19 @@ Modes stay available for what they are actually for: a behavioural variation *wi
 Token deltas stream as the model produces them, thinking arrives as thought rather than as text, and every tool call appears as it starts and is updated when it ends.
 
 A tool call's arguments and result reach the editor too, which is what makes an expandable call worth expanding. On an instance serving people other than its operator, consider turning that off with `toolCallPayloads: false`: a hand's arguments routinely carry a credential, a customer's address or a mail body, and an editor is a third program that renders and logs whatever it is handed. The call itself stays visible either way.
+
+## Sending while a turn runs
+
+You can keep typing while the agent is answering. A message sent mid-turn is never lost, never answered under a different message, and never shown finished with nothing under it:
+
+- **It is answered by the next turn.** The message waits in the conversation's inbox. When the running turn ends, the next turn starts on its own and consumes everything that queued, so nothing further has to be sent for it to be answered.
+- **Several messages get one reply.** Two or three messages sent while the agent was busy are consumed together by that one turn and answered in one reply, the way other agents behave. The turn's tool calls stream too.
+- **Your request stays open until the reply has streamed.** The protocol's `session/update` carries no prompt id: an editor attributes whatever streams to whichever `session/prompt` it has open. So a `session/prompt` for a queued message is held until the turn that consumed it has ended, and only then returns `end_turn`. Several requests held on one conversation return in the order they were sent, all after the reply.
+- **Stop cancels the running turn only.** `session/cancel` interrupts the turn in flight, whose request returns `cancelled`; a message sent while it ran is still in the inbox, the next turn answers it, and its request returns `end_turn` with that reply. Cancel then prompt is how an editor steers, and it works without any option.
+
+A prompt returns `end_turn` only when its reply has streamed. A message this instance cannot answer (it arrived while the instance was shutting down, or another instance sharing the store consumed it) returns `cancelled` rather than `end_turn`: it is still in the conversation and the next turn answers it, and the editor is not told a turn ended that showed nothing.
+
+There is no option for any of this. How a queued message is answered is the mount's decision, and a `steer` method does not exist in the protocol.
 
 ## Reaching back into the editor
 

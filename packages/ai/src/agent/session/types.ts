@@ -230,6 +230,15 @@ export interface AgentSessionOutcome {
   readonly status: "replied" | "queued" | "interrupted" | "idle";
   /** Inbox depth after this message was handled. */
   readonly queued: number;
+  /**
+   * The turn that produced a `replied` or `interrupted` outcome. Several
+   * callers whose messages one turn consumed receive the same value, which
+   * is how a consumer holding requests open (the ACP mount) tells one
+   * batched reply from several. Absent on `queued` and `idle`.
+   *
+   * @internal
+   */
+  readonly turn?: string;
 }
 
 /** A session as the management API lists it. */

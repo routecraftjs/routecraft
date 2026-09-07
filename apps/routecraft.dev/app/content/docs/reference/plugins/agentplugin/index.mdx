@@ -675,9 +675,9 @@ Agents emit on three distinct channels with different shapes and use cases:
 
 | Event | Fields | When |
 |---|---|---|
-| `route:agent:tool:invoked` | `toolCallId`, `toolName`, `_snapshot.input` | Agent decided to call a tool. |
-| `route:agent:tool:result` | `toolCallId`, `toolName`, `_snapshot.output`, `duration` | Tool handler returned successfully. |
-| `route:agent:tool:error` | `toolCallId`, `toolName`, `errorName`, `_snapshot.error`, `duration` | Tool handler / guard / input validation threw. |
+| `route:agent:tool:invoked` | `session?`, `toolCallId`, `toolName`, `_snapshot.input` | Agent decided to call a tool. |
+| `route:agent:tool:result` | `session?`, `toolCallId`, `toolName`, `_snapshot.output`, `duration` | Tool handler returned successfully. |
+| `route:agent:tool:error` | `session?`, `toolCallId`, `toolName`, `errorName`, `_snapshot.error`, `duration` | Tool handler / guard / input validation threw. |
 | `route:agent:finished` | `agentName?`, `model`, `finishReason`, `inputTokens?`, `outputTokens?`, `totalTokens?` | Agent dispatch returned a consolidated result. |
 | `route:agent:error` | `agentName?`, `model`, `error` | Provider / transport error during dispatch. |
 

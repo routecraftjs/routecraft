@@ -556,4 +556,9 @@ function validateByNameOverrides<T>(perCall: AgentByNameOverrides<T>): void {
       message: `Agent: "onDelta" must be a function when present.`,
     });
   }
+  if (perCall.hold !== undefined && typeof perCall.hold !== "boolean") {
+    throw rcError("RC5003", undefined, {
+      message: `Agent: "hold" must be a boolean when present.`,
+    });
+  }
 }
