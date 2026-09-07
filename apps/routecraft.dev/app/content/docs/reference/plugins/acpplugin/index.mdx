@@ -29,6 +29,8 @@ export const craftConfig = defineConfig({
 })
 ```
 
+`agentPlugin()` takes no list here because `craft start` discovers the project's `agents/` folder. An instance whose registry is empty when this plugin applies fails the build with `RC5003`, so a project with no agents needs one before the mount has anything to serve.
+
 **Options:**
 
 | Option | Type | Default | Description |

@@ -27,7 +27,7 @@ export const craftConfig = defineConfig({
 })
 ```
 
-`craft start` discovers `agents/` for you, so the plugin takes no list. Building a context by hand instead, pass one: `agentPlugin({ agents: await agents('./agents') })`. That form cannot resolve `skills:` frontmatter refs, which need the house and bundle folders only the project runtime has.
+`craft start` discovers `agents/` for you, so the plugin takes no list. Building a context by hand instead, import `agents` from `@routecraft/ai` and pass one: `agentPlugin({ agents: await agents('./agents') })`. That form cannot resolve `skills:` frontmatter refs, which need the house and bundle folders only the project runtime has.
 
 `acpPlugin()` serves every agent the context holds at `/acp`. It builds one route per agent when it applies, so it goes **after** the `agentPlugin()` that registers them; a context with an empty registry fails the build saying so, rather than serving a protocol with nothing behind it. Every option is in the [plugin reference](/docs/reference/plugins/acpplugin).
 
@@ -120,7 +120,7 @@ In Zed, under `agent_servers` in `settings.json`:
 }
 ```
 
-JetBrains launches the command itself rather than through a shell, so `command` wants the executable's full path: `which craft` prints it. Zed resolves a bare name against the environment it launches with, which is usually enough. Both editors read these from the user's own configuration, so check their current documentation if a field has moved. A profile carries `agent` too, so `craft acp --profile work` is the same choice made once in a file rather than in every entry: see [Profiles](/docs/reference/cli#profiles).
+JetBrains launches the command itself rather than through a shell, so `command` wants the executable's full path: `which craft` prints it, or `where craft` on Windows. Zed resolves a bare name against the environment it launches with, which is usually enough. Both editors read these from the user's own configuration, so check their current documentation if a field has moved. A profile carries `agent` too, so `craft acp --profile work` is the same choice made once in a file rather than in every entry: see [Profiles](/docs/reference/cli#profiles).
 
 Pick Max in the editor and you get Max conversations, as many as you like, each independent. Pick Zoe and you get Zoe's. The Max entry does not list, open or answer a Zoe conversation: it reports one as it reports an id that was never created, because from where Max is standing there is no such conversation. Reach it through the Zoe entry instead.
 
