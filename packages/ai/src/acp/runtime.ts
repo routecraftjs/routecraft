@@ -411,7 +411,9 @@ export class AcpRuntime {
     session: string | undefined,
   ): LiveTurn[] {
     const own = this.turns.get(correlationId);
-    if (own !== undefined) return [own];
+    if (own !== undefined && isSurfaceLive(this.context, own.connection)) {
+      return [own];
+    }
     if (session === undefined) return [];
     const perConnection = new Map<string, LiveTurn>();
     for (const turn of this.turns.values()) {

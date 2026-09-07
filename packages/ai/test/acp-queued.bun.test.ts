@@ -376,7 +376,7 @@ describe("a prompt sent while a turn is running", () => {
   /**
    * @case Two editors on one conversation are both told the reply, and each once
    * @preconditions Prompt A held in a tool on connection one; connection two loads the same conversation; both send a prompt while A is held; A is released; the answering turn does not stream
-   * @expectedResult Both requests return end_turn, and the one reply arrived on each connection exactly once
+   * @expectedResult Both requests return end_turn, and each connection saw the one reply exactly once
    */
   test("two connections holding one conversation each receive the reply once", async () => {
     h = await boot();
@@ -420,9 +420,11 @@ describe("a prompt sent while a turn is running", () => {
     const cResponse = await second!;
     expect(bResponse.stopReason).toBe("end_turn");
     expect(cResponse.stopReason).toBe("end_turn");
-    const replies = messageChunks(h.seen).filter(
-      (chunk) => chunk.text === "for both editors",
-    );
-    expect(replies).toHaveLength(2);
+    const repliesOn = (connection: number): number =>
+      messageChunks(
+        h!.seen.filter((entry) => entry.connection === connection),
+      ).filter((chunk) => chunk.text === "for both editors").length;
+    expect(repliesOn(1)).toBe(1);
+    expect(repliesOn(2)).toBe(1);
   });
 });

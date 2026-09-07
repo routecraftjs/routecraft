@@ -25,8 +25,14 @@ export interface SlowTool {
 }
 
 export function slowTool(): SlowTool {
-  let release: (() => void) | undefined;
+  /** Every call still held; released together, so no held turn is stranded. */
+  let held: Array<() => void> = [];
   let entered = 0;
+  const releaseAll = (): void => {
+    const pending = held;
+    held = [];
+    for (const release of pending) release();
+  };
   const sleep = (ms: number): Promise<void> =>
     new Promise((resolve) => setTimeout(resolve, ms));
   return {
@@ -43,10 +49,10 @@ export function slowTool(): SlowTool {
           };
           if (ctx.abortSignal.aborted) return abort();
           ctx.abortSignal.addEventListener("abort", abort, { once: true });
-          release = () => resolve("released");
+          held.push(() => resolve("released"));
         }),
     },
-    release: () => release?.(),
+    release: releaseAll,
     async waitForEntry(count, ms = 5_000) {
       const deadline = Date.now() + ms;
       while (entered < count && Date.now() < deadline) await sleep(5);
@@ -55,7 +61,7 @@ export function slowTool(): SlowTool {
       }
     },
     reset: () => {
-      release = undefined;
+      releaseAll();
       entered = 0;
     },
   };

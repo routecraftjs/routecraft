@@ -353,26 +353,37 @@ export class AgentRun<T = unknown> {
     abortSignal: AbortSignal,
     onDelta: AgentDeltaListener,
   ): Promise<AgentResult> {
-    // The listener has the whole reply before the run returns. A provider
-    // that produced text without streaming it leaves the reply only in the
-    // result, so it is handed over here as one delta rather than left for
-    // the caller to notice; emitted before the run returns, because a
-    // session's next turn starts the moment this one ends and a reply sent
-    // after that would land behind the next turn's first words.
-    let spoke = false;
-    const result = await this.runWithValidation(abortSignal, async (delta) => {
-      if (delta.type === "text-delta") spoke = true;
-      await onDelta(delta);
-    });
-    if (!spoke && result.text !== "") {
-      try {
-        await onDelta({ type: "text-delta", text: result.text });
-      } catch (err) {
-        this.input.exchange.logger.warn(
-          { err },
-          "agent.onDelta listener threw on the run's final text; ignoring",
-        );
-      }
+    return this.runWithValidation(abortSignal, onDelta);
+  }
+
+  /**
+   * Hand the listener the accepted attempt's text when that attempt
+   * streamed none of it.
+   *
+   * The listener has the whole reply before the run returns: a provider
+   * that produced text without streaming it leaves the reply only in the
+   * result, so it goes over as one delta rather than being left for the
+   * caller to notice. Emitted before the run returns, because a session's
+   * next turn starts the moment this one ends and a reply sent after that
+   * would land behind the next turn's first words. Per attempt, not per
+   * run: an earlier attempt the validator rejected may have streamed, and
+   * that says nothing about the attempt that was accepted.
+   */
+  private async sayFinalText(
+    onDelta: AgentDeltaListener | undefined,
+    spoke: boolean,
+    result: AgentResult,
+  ): Promise<AgentResult> {
+    if (onDelta === undefined || spoke || result.text === "") return result;
+    try {
+      await onDelta({ type: "text-delta", text: result.text });
+    } catch (err) {
+      this.input.exchange.logger.warn(
+        { err },
+        err instanceof Error && err.message !== ""
+          ? err.message
+          : "agent.onDelta listener threw on the run's final text; ignoring",
+      );
     }
     return result;
   }
@@ -448,13 +459,22 @@ export class AgentRun<T = unknown> {
         // can report the whole thread rather than the model's half of it.
         const userSide = currentUser;
         const onStep = this.input.onStep;
+        // Whether THIS attempt streamed any of its text; see sayFinalText.
+        let spoke = false;
+        const listener: AgentDeltaListener | undefined =
+          onDelta === undefined
+            ? undefined
+            : async (delta) => {
+                if (delta.type === "text-delta") spoke = true;
+                await onDelta(delta);
+              };
         try {
           result = await callOnce(
             prepared,
             currentUser,
             remaining,
             abortSignal,
-            onDelta,
+            listener,
             signals,
             onStep === undefined
               ? undefined
@@ -498,7 +518,11 @@ export class AgentRun<T = unknown> {
         }
         if (!validate) {
           this.emitFinished(result);
-          return toAgentResult(result, accumulatedToolCalls);
+          return this.sayFinalText(
+            onDelta,
+            spoke,
+            toAgentResult(result, accumulatedToolCalls),
+          );
         }
         const verdict = await Promise.resolve(
           validate(toAgentResult(result, accumulatedToolCalls), {
@@ -508,7 +532,11 @@ export class AgentRun<T = unknown> {
         );
         if (verdict === undefined || verdict === null) {
           this.emitFinished(result);
-          return toAgentResult(result, accumulatedToolCalls);
+          return this.sayFinalText(
+            onDelta,
+            spoke,
+            toAgentResult(result, accumulatedToolCalls),
+          );
         }
         if (typeof verdict !== "string" || verdict.trim() === "") {
           throw rcError("RC5003", undefined, {

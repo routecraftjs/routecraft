@@ -54,6 +54,8 @@ export interface AcpHarness {
 /** One `session/update` as the client saw it. */
 export interface SeenUpdate {
   readonly at: number;
+  /** Which `connect()` call's client saw it: 1 for the first, counting up. */
+  readonly connection: number;
   readonly sessionId: string;
   readonly update: unknown;
 }
@@ -200,17 +202,20 @@ export async function acpHarness(
 
   const seen: SeenUpdate[] = [];
   const url = `http://127.0.0.1:${port}${options.acp?.path ?? "/acp"}`;
+  let connections = 0;
 
   return {
     t,
     url,
     seen,
     async connect(op, connectOptions) {
+      const connection = ++connections;
       const app = client({ name: "test-editor" }).onNotification(
         "session/update",
         ({ params }) => {
           seen.push({
             at: Date.now(),
+            connection,
             sessionId: params.sessionId,
             update: params.update,
           });
