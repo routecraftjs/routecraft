@@ -42,8 +42,8 @@ interface ServeOptions {
   readonly port?: number;
   /** Whether `session/resume` finds the conversation. */
   readonly resume?: "found" | "gone";
-  /** Whether a prompt waits for `release()` before answering. */
-  readonly hold?: boolean;
+  /** A method whose handler waits for `release()` before answering. */
+  readonly hold?: "session/prompt" | "session/new";
 }
 
 /**
@@ -70,8 +70,9 @@ function serve(options: ServeOptions = {}): Served {
         authMethods: [],
       };
     })
-    .onRequest("session/new", () => {
+    .onRequest("session/new", async () => {
       methods.push("session/new");
+      if (options.hold === "session/new") await released;
       return { sessionId: "session-1" };
     })
     .onRequest("session/resume", ({ params }) => {
@@ -89,7 +90,7 @@ function serve(options: ServeOptions = {}): Served {
           .map((block) => (block.type === "text" ? block.text : ""))
           .join(""),
       );
-      if (options.hold === true) await released;
+      if (options.hold === "session/prompt") await released;
       await client.notify("session/update", {
         sessionId: params.sessionId,
         update: {
@@ -453,7 +454,7 @@ profiles:
    * @expectedResult The editor's waiting prompt gets `cancelled` rather than hanging or an error, because the protocol does not replay what a dead transport had in flight and a turn that ended with no reply is what cancelled means; a prompt sent after the restart is answered normally
    */
   test("a prompt in flight during the outage is cancelled, the next one answered", async () => {
-    const first = up({ hold: true });
+    const first = up({ hold: "session/prompt" });
     const editor = editorSide([
       INITIALIZE,
       NEW_SESSION,
@@ -491,6 +492,38 @@ profiles:
     editor.finish();
     expect(await settledWithin(running, 5_000)).toEqual({ code: 0 });
   }, 20_000);
+
+  /**
+   * @case Any other request in flight when the instance goes away is answered with an error naming the outage
+   * @preconditions A bridge whose instance holds a `session/new` open and is then stopped
+   * @expectedResult The editor's waiting request gets a JSON-RPC error rather than hanging: only a prompt has a stop reason to carry the outage in, so every other request is told in the error what happened and that it was not answered
+   */
+  test("another request in flight during the outage gets an error naming it", async () => {
+    const first = up({ hold: "session/new" });
+    const editor = editorSide([INITIALIZE, NEW_SESSION]);
+
+    const running = acpCommand({
+      url: first.url,
+      cwd: settings(""),
+      home: emptyHome(),
+      env: {},
+      stdin: editor.stdin,
+      stdout: editor.stdout,
+      stderr: () => undefined,
+    });
+    await waitFor(() => first.methods.includes("session/new"));
+
+    first.stop();
+    await waitFor(() => editor.read().some((message) => message.id === 2));
+    const answer = editor.read().find((message) => message.id === 2);
+    expect(answer?.result).toBeUndefined();
+    expect(answer?.error?.code).toBe(-32000);
+    expect(answer?.error?.message).toContain("Lost the connection");
+    expect(answer?.error?.message).toContain("session/new");
+
+    editor.finish();
+    expect(await settledWithin(running, 5_000)).toEqual({ code: 0 });
+  });
 
   /**
    * @case A conversation the instance came back without is reported, and the bridge still serves the rest
