@@ -271,12 +271,19 @@ describe("the surface checks what the editor answers", () => {
     ];
     for (const [method, good, bad] of cases) {
       const check = await responseCheck(method);
-      expect([method, check(good)]).toEqual([method, undefined]);
-      expect([method, check(bad) === undefined]).toEqual([method, false]);
+      expect([method, await check(good)]).toEqual([method, undefined]);
+      expect([method, (await check(bad)) === undefined]).toEqual([
+        method,
+        false,
+      ]);
     }
     const update = await updateCheck();
-    expect(update({ sessionUpdate: "plan", entries: [] })).toBeUndefined();
-    expect(update({ sessionUpdate: "agent_message_chunk" })).toBeDefined();
+    expect(
+      await update({ sessionUpdate: "plan", entries: [] }),
+    ).toBeUndefined();
+    expect(
+      await update({ sessionUpdate: "agent_message_chunk" }),
+    ).toBeDefined();
   });
 
   /**

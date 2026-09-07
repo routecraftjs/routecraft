@@ -142,7 +142,7 @@ export function surface<M extends SurfaceMethod, T = unknown>(
           });
         }
         const issues =
-          check(answer) ??
+          (await check(answer)) ??
           (method === "session/request_permission"
             ? optional(permissionSelectionIssue(sent, answer))
             : undefined);
@@ -195,7 +195,7 @@ surface.notify = function notify<T = unknown>(
       send: async (exchange: Exchange<T>): Promise<void> => {
         const { connection, ref } = resolveSurface(exchange, "session/update");
         const built = resolve(update, exchange);
-        const issues = (await updateCheck())(built);
+        const issues = await (await updateCheck())(built);
         if (issues !== undefined) {
           const rendered = formatSchemaIssues(issues);
           throw rcError("AI1019", new Error(rendered), {

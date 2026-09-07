@@ -23,20 +23,20 @@
  * being wrong, and never lets a permission call fall closed for it.
  */
 
-import { rcError } from "@routecraft/routecraft";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
+import { rcError, validateAgainst } from "@routecraft/routecraft";
 import { ACP_PACKAGE, loadAcpSchema, loadAcpSdk } from "../acp/sdk.ts";
 
 /** One thing a check found wrong, in the shape `formatSchemaIssues` renders. */
-export interface ProtocolIssue {
-  readonly message: string;
-  readonly path?: readonly PropertyKey[];
-}
+export type ProtocolIssue = StandardSchemaV1.Issue;
 
 /** What a check found wrong. */
 export type ProtocolIssues = readonly ProtocolIssue[];
 
 /** A validator for one wire shape: `undefined` when the value conforms. */
-export type ProtocolCheck = (value: unknown) => ProtocolIssues | undefined;
+export type ProtocolCheck = (
+  value: unknown,
+) => Promise<ProtocolIssues | undefined>;
 
 /** The subsystem the peer is loaded for, in the RC5017 hint. */
 const CONSUMER = "surface (protocol validation)";
@@ -117,9 +117,9 @@ function checkFor(name: string, consumer: string): Promise<ProtocolCheck> {
           message: `${consumer}: the protocol schema the installed ${ACP_PACKAGE} ships has no definition named "${name}", so this version of @routecraft/ai cannot check it. Align the two packages' versions.`,
         });
       }
-      let parser: { safeParse: (value: unknown) => SafeParsed };
+      let schema: StandardSchemaV1;
       try {
-        parser = z.fromJSONSchema({
+        schema = z.fromJSONSchema({
           ...(def as object),
           $defs: defs,
         } as Parameters<typeof z.fromJSONSchema>[0]);
@@ -128,23 +128,15 @@ function checkFor(name: string, consumer: string): Promise<ProtocolCheck> {
           message: `${consumer}: the protocol schema the installed ${ACP_PACKAGE} ships for "${name}" could not be turned into a check. Align the two packages' versions.`,
         });
       }
-      return (value) => {
-        const parsed = parser.safeParse(value);
-        return parsed.success ? undefined : parsed.error.issues;
+      return async (value) => {
+        const result = await validateAgainst(schema, value);
+        return result.ok ? undefined : result.issues;
       };
     });
     checks.set(name, pending);
   }
   return pending;
 }
-
-/** The slice of a zod parse result this module reads. */
-type SafeParsed =
-  | { readonly success: true }
-  | {
-      readonly success: false;
-      readonly error: { readonly issues: ProtocolIssues };
-    };
 
 /**
  * The check for what an editor answers a method with.
@@ -186,7 +178,7 @@ export function updateCheck(): Promise<ProtocolCheck> {
  */
 async function elicitationCheck(): Promise<ProtocolCheck> {
   const { CreateElicitationResponse } = await loadAcpSdk(CONSUMER);
-  return (value) => {
+  return async (value) => {
     if (value === null || typeof value !== "object") {
       return [{ message: "expected an object" }];
     }
