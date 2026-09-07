@@ -108,6 +108,21 @@ function stdinStream(): ReadableStream<Uint8Array> {
 }
 
 /**
+ * The SDK types its transports by message shape rather than by
+ * {@link BridgeTransport}; the relay reads only the JSON-RPC envelope, which
+ * every shape carries. Routing both the editor pipe and the instance
+ * connection through this one cast means an SDK shape change that drops
+ * `readable`/`writable` fails to compile here, rather than silently at two
+ * separate call sites.
+ */
+function asBridgeTransport(transport: {
+  readonly readable: ReadableStream<unknown>;
+  readonly writable: WritableStream<never>;
+}): BridgeTransport {
+  return transport as unknown as BridgeTransport;
+}
+
+/**
  * Run the bridge until the editor closes its side.
  *
  * Both halves are the SDK's own transports. The relay reads each message
@@ -161,14 +176,9 @@ export async function acpCommand(options: AcpOptions = {}): Promise<AcpResult> {
   );
 
   const outcome = await runBridge({
-    // The SDK types its messages by shape; the relay reads only the
-    // JSON-RPC envelope, which every shape carries.
-    editor: editor as unknown as BridgeTransport,
+    editor: asBridgeTransport(editor),
     connect: () =>
-      createHttpStream(url, {
-        headers,
-        cookieStore,
-      }) as unknown as BridgeTransport,
+      asBridgeTransport(createHttpStream(url, { headers, cookieStore })),
     target: url,
     log: options.stderr ?? ((line) => process.stderr.write(`${line}\n`)),
   });

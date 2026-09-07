@@ -22,6 +22,8 @@
  * it to come right. Reconnection is for a connection that once worked.
  */
 
+import { messageOf } from "./util.js";
+
 /** A JSON-RPC 2.0 message as it crosses the relay. */
 export interface RpcMessage {
   readonly jsonrpc: "2.0";
@@ -84,6 +86,25 @@ const CONNECTION_LOST = -32000;
 /** The prefix on ids of requests the relay makes for itself. */
 const OWN_ID_PREFIX = "craft-acp:";
 
+/** How many editor messages the relay holds while no transport can take them. */
+const MAX_QUEUED = 200;
+
+/**
+ * The methods the relay must understand to restore a connection after an
+ * outage. Mirrors `@routecraft/ai`'s ACP mount; the CLI does not depend on
+ * that package (see `ACP_AGENT_HEADER`'s own note in `acp.ts`), so this is
+ * duplicated rather than shared, and is spelled once here rather than
+ * scattered through the module.
+ */
+const METHOD = {
+  initialize: "initialize",
+  newSession: "session/new",
+  loadSession: "session/load",
+  resumeSession: "session/resume",
+  closeSession: "session/close",
+  prompt: "session/prompt",
+} as const;
+
 type State = "connected" | "connecting" | "lost" | "done";
 
 interface EditorRequest {
@@ -124,6 +145,16 @@ class Bridge {
   private readonly queue: RpcMessage[] = [];
   private ownSequence = 0;
   private reconnecting = false;
+  /**
+   * Bumped on every `attach()` and on every connecting-phase failure. A
+   * transport's read loop tags itself with the value current when it
+   * started; if that value has moved on by the time the loop ends, this
+   * transport has already been superseded and its failure must not be
+   * acted on against whatever replaced it.
+   */
+  private generation = 0;
+  /** The last reason a connecting-phase attempt failed, for the periodic line. */
+  private lastFailureReason: string | undefined;
 
   private readonly delays: readonly number[];
   private readonly handshakeTimeoutMs: number;
@@ -155,7 +186,7 @@ class Bridge {
       );
     } catch (error: unknown) {
       this.options.log(
-        `The editor's side of the pipe failed: ${describe(error)}`,
+        `The editor's side of the pipe failed: ${messageOf(error)}`,
       );
     }
     this.editorClosed();
@@ -169,33 +200,47 @@ class Bridge {
       // connection made has nowhere to go: the connection that asked is
       // gone, and posting it to the new one would be posting an id it
       // never issued.
-      const key = idKey(message.id);
-      if (key === undefined || !this.instanceRequests.has(key)) return;
+      const key = keyOf(message.id);
+      if (!this.instanceRequests.has(key)) return;
       this.instanceRequests.delete(key);
       await this.toInstance(message);
       return;
     }
 
-    if (message.method === "initialize" && isRequest(message)) {
+    if (message.method === METHOD.initialize && isRequest(message)) {
       this.initialize = message;
     }
     if (isRequest(message)) {
       const params = paramsOf(message);
-      this.editorRequests.set(idKey(message.id) as string, {
-        id: message.id as string | number,
-        method: message.method as string,
+      this.editorRequests.set(keyOf(message.id), {
+        id: message.id,
+        method: message.method,
         ...(typeof params["sessionId"] === "string"
           ? { sessionId: params["sessionId"] }
           : {}),
         ...(typeof params["cwd"] === "string" ? { cwd: params["cwd"] } : {}),
       });
-      if (message.method === "session/close") {
+      if (message.method === METHOD.closeSession) {
         const sessionId = params["sessionId"];
         if (typeof sessionId === "string") this.sessions.delete(sessionId);
       }
     }
 
     if (this.state !== "connected") {
+      if (this.queue.length >= MAX_QUEUED) {
+        if (isRequest(message)) {
+          this.editorRequests.delete(keyOf(message.id));
+          this.toEditor({
+            jsonrpc: "2.0",
+            id: message.id,
+            error: {
+              code: CONNECTION_LOST,
+              message: `Lost the connection to the instance; too many messages queued during the outage, "${message.method}" was dropped rather than queued.`,
+            },
+          });
+        }
+        return;
+      }
       this.queue.push(message);
       return;
     }
@@ -206,9 +251,11 @@ class Bridge {
    * Write to the current transport.
    *
    * A write that fails never reached the instance, so the message goes
-   * back to the front of the queue for the next transport rather than
-   * being answered for as lost: only a request the instance may have
-   * received is answered by {@link lost}, and this one was not.
+   * back to the front of the queue for the next transport. The failure
+   * also runs {@link lost}, which answers every other in-flight editor
+   * request for the connection that just died; if this message's own
+   * request is one of those (the read side found the same loss first),
+   * it has already been answered and must not be queued again.
    */
   private async toInstance(message: RpcMessage): Promise<void> {
     const writer = this.writer;
@@ -219,11 +266,12 @@ class Bridge {
     try {
       await writer.write(message);
     } catch (error: unknown) {
-      const key = idKey(message.id);
-      if (key !== undefined && isRequest(message)) {
-        this.editorRequests.delete(key);
-      }
-      this.queue.unshift(message);
+      const isEditorRequest = isRequest(message);
+      const key = isEditorRequest ? keyOf(message.id) : undefined;
+      const alreadyAnswered =
+        key !== undefined && !this.editorRequests.has(key);
+      if (key !== undefined) this.editorRequests.delete(key);
+      if (!alreadyAnswered) this.queue.unshift(message);
       this.lost(error);
     }
   }
@@ -252,30 +300,37 @@ class Bridge {
   // ---------------------------------------------------------- the instance
 
   private attach(transport: BridgeTransport): void {
+    this.generation += 1;
+    const generation = this.generation;
     this.writer = transport.writable.getWriter();
-    void this.readInstance(transport);
+    void this.readInstance(transport, generation);
   }
 
-  private async readInstance(transport: BridgeTransport): Promise<void> {
+  private async readInstance(
+    transport: BridgeTransport,
+    generation: number,
+  ): Promise<void> {
     let failure: unknown = new Error("the instance closed the connection");
     try {
       await readEach(transport.readable, (message) => {
-        this.fromInstance(message);
+        this.fromInstance(message, generation);
       });
     } catch (error: unknown) {
       failure = error;
     }
-    if (this.state === "done") return;
+    // A transport that has already been superseded by a newer `attach()`
+    // (this one lost the race, or was explicitly aborted by `lost()`) must
+    // not report its own end as a fresh loss against whatever replaced it.
+    if (this.state === "done" || generation !== this.generation) return;
     this.lost(failure);
   }
 
-  private fromInstance(message: RpcMessage): void {
-    if (this.state === "done") return;
+  private fromInstance(message: RpcMessage, generation: number): void {
+    if (this.state === "done" || generation !== this.generation) return;
     this.everConnected = true;
 
     if (isResponse(message)) {
-      const key = idKey(message.id);
-      if (key === undefined) return;
+      const key = keyOf(message.id);
       const own = this.ownRequests.get(key);
       if (own !== undefined) {
         this.ownRequests.delete(key);
@@ -292,7 +347,7 @@ class Bridge {
     }
 
     if (isRequest(message)) {
-      this.instanceRequests.add(idKey(message.id) as string);
+      this.instanceRequests.add(keyOf(message.id));
     }
     this.toEditor(message);
   }
@@ -300,7 +355,7 @@ class Bridge {
   /** A conversation the editor now holds, from the request that attached it. */
   private noteAttached(request: EditorRequest, response: RpcMessage): void {
     if (request.cwd === undefined) return;
-    if (request.method === "session/new") {
+    if (request.method === METHOD.newSession) {
       const result = response.result as { sessionId?: unknown } | undefined;
       if (typeof result?.sessionId === "string") {
         this.sessions.set(result.sessionId, request.cwd);
@@ -308,8 +363,8 @@ class Bridge {
       return;
     }
     if (
-      (request.method === "session/load" ||
-        request.method === "session/resume") &&
+      (request.method === METHOD.loadSession ||
+        request.method === METHOD.resumeSession) &&
       request.sessionId !== undefined
     ) {
       this.sessions.set(request.sessionId, request.cwd);
@@ -335,15 +390,26 @@ class Bridge {
       return;
     }
 
+    // Bumping the generation here, not only in `attach()`, means a
+    // transport whose read loop is still unwinding when a *different*
+    // failure (a write, or a handshake timeout) calls `lost()` first is
+    // marked stale immediately, before its own `readInstance` callback
+    // can run and act on a connection that is no longer current.
     const wasConnecting = this.state === "connecting";
+    this.generation += 1;
     this.state = "lost";
+    void this.writer?.abort().catch(() => undefined);
     this.writer = undefined;
     for (const own of this.ownRequests.values()) own.reject(error);
     this.ownRequests.clear();
-    if (wasConnecting) return;
+    if (wasConnecting) {
+      this.lastFailureReason = messageOf(error);
+      return;
+    }
 
+    this.lastFailureReason = undefined;
     this.options.log(
-      `Lost the connection to ${this.options.target}: ${describe(error)}. Waiting for it to come back.`,
+      `Lost the connection to ${this.options.target}: ${messageOf(error)}. Waiting for it to come back.`,
     );
     this.failInFlight();
     this.instanceRequests.clear();
@@ -354,7 +420,7 @@ class Bridge {
   private failInFlight(): void {
     for (const request of this.editorRequests.values()) {
       this.toEditor(
-        request.method === "session/prompt"
+        request.method === METHOD.prompt
           ? {
               jsonrpc: "2.0",
               id: request.id,
@@ -388,24 +454,20 @@ class Bridge {
         attempt += 1;
         if (attempt > 1 && attempt % ATTEMPTS_PER_LOG === 1) {
           this.options.log(
-            `Still waiting for ${this.options.target} (attempt ${attempt}, ${elapsed(startedAt)}).`,
+            `Still waiting for ${this.options.target} (attempt ${attempt}, ${elapsed(startedAt)})${this.lastFailureReason !== undefined ? `: ${this.lastFailureReason}` : ""}.`,
           );
         }
         this.state = "connecting";
-        const transport = this.options.connect();
-        this.attach(transport);
         try {
+          const transport = this.options.connect();
+          this.attach(transport);
           await withTimeout(this.handshake(), this.handshakeTimeoutMs);
-        } catch {
-          // The transport's readable reports the same failure through
-          // `lost`, which returns the state to "lost" for the next turn
-          // of the loop. A timeout is the one failure only this side
-          // sees, so the transport is torn down here for that case.
-          if (this.state === "connecting") {
-            this.state = "lost";
-            void this.writer?.abort().catch(() => undefined);
-            this.writer = undefined;
-          }
+        } catch (error: unknown) {
+          // Covers a `connect()`/`attach()` throw as well as a handshake
+          // timeout; a transport failure surfaces through `readInstance`
+          // instead and calls `lost()` itself, which this is a no-op
+          // against once that has already moved the state on.
+          this.lost(error);
           continue;
         }
         if (this.state !== "connecting") continue;
@@ -430,12 +492,15 @@ class Bridge {
     if (this.initialize === undefined) {
       throw new Error("the editor never initialized");
     }
-    const initialized = await this.own("initialize", this.initialize.params);
+    const initialized = await this.own(
+      METHOD.initialize,
+      this.initialize.params,
+    );
     if (initialized.error !== undefined) {
       throw new Error(`initialize was refused: ${initialized.error.message}`);
     }
     for (const [sessionId, cwd] of [...this.sessions]) {
-      const resumed = await this.own("session/resume", {
+      const resumed = await this.own(METHOD.resumeSession, {
         sessionId,
         cwd,
         mcpServers: [],
@@ -460,7 +525,7 @@ class Bridge {
     this.ownSequence += 1;
     const id = `${OWN_ID_PREFIX}${this.ownSequence}`;
     const response = new Promise<RpcMessage>((resolve, reject) => {
-      this.ownRequests.set(idKey(id) as string, { resolve, reject });
+      this.ownRequests.set(keyOf(id), { resolve, reject });
     });
     // A transport that dies mid-write rejects the write and, through
     // `lost`, this response too; the caller sees the first and nobody
@@ -503,7 +568,9 @@ async function readEach(
   }
 }
 
-function isRequest(message: RpcMessage): boolean {
+function isRequest(
+  message: RpcMessage,
+): message is RpcMessage & { id: string | number; method: string } {
   return (
     typeof message.method === "string" &&
     message.id !== undefined &&
@@ -511,16 +578,19 @@ function isRequest(message: RpcMessage): boolean {
   );
 }
 
-function isResponse(message: RpcMessage): boolean {
+function isResponse(
+  message: RpcMessage,
+): message is RpcMessage & { id: string | number } {
   return (
     message.method === undefined &&
     message.id !== undefined &&
+    message.id !== null &&
     ("result" in message || "error" in message)
   );
 }
 
-function idKey(id: RpcMessage["id"]): string | undefined {
-  if (id === undefined || id === null) return undefined;
+/** The map key for a request or response id known not to be null. */
+function keyOf(id: string | number): string {
   return `${typeof id}:${String(id)}`;
 }
 
@@ -528,10 +598,6 @@ function paramsOf(message: RpcMessage): Record<string, unknown> {
   return message.params !== null && typeof message.params === "object"
     ? (message.params as Record<string, unknown>)
     : {};
-}
-
-function describe(error: unknown): string {
-  return error instanceof Error ? error.message : String(error);
 }
 
 function elapsed(since: number): string {

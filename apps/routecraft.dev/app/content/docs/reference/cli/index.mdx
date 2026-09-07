@@ -281,7 +281,7 @@ craft acp --url https://eywa.example --token "$CRAFT_TOKEN" --agent zoe
 
 The protocol is mounted at `/acp`, and the bridge is not where that is configurable: the mount's own `path` option is the instance's to choose, and a person pointing an editor at an instance that moved it says so with the full URL.
 
-**There is no login.** A token in the profile authenticates, exactly as `token:` does for every other command, and it travels as `Authorization: Bearer` on every request. An instance that advertises no authentication method is conforming, not misconfigured.
+**There is no login.** A token in the profile authenticates, exactly as `token:` does for every other command, and it travels as `Authorization: Bearer` on every request. An instance that advertises no authentication method is conforming, not misconfigured. A cleartext bearer is only ever sent to a loopback address, and a reconnection presents it again on every attempt: whatever answers there when the bridge reconnects receives it, so do not leave a bearer-authenticated `craft acp` reconnecting against a loopback port something else could come to hold.
 
 **The agent travels as a header.** `--agent` becomes a `Routecraft-Agent` request header, and every conversation the connection opens belongs to that agent for its whole life. A name the instance does not hold is refused by name rather than quietly served by somebody else. Register one editor entry per agent to talk to more than one: see [One agent per editor entry](/docs/advanced/talk-from-your-editor#one-agent-per-editor-entry).
 

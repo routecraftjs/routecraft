@@ -18,7 +18,7 @@ import { agent as acpAgent, RequestError } from "@agentclientprotocol/sdk";
 import { createNodeHttpHandler } from "@agentclientprotocol/sdk/experimental/node";
 import { AcpServer } from "@agentclientprotocol/sdk/experimental/server";
 
-import { acpCommand, ACP_AGENT_HEADER } from "../src/acp.js";
+import { acpCommand, ACP_AGENT_HEADER, type AcpResult } from "../src/acp.js";
 
 /** What one stub instance recorded about the requests it served. */
 interface Served {
@@ -239,27 +239,43 @@ describe("craft acp", () => {
   }
 
   /**
+   * Runs the bridge against one instance and one editor side: the shape
+   * every case shares except the ones exercising settings resolution or an
+   * address nothing is listening on.
+   */
+  function bridge(
+    instance: Served,
+    editor: {
+      stdin: ReadableStream<Uint8Array>;
+      stdout: WritableStream<Uint8Array>;
+    },
+    stderr: (line: string) => void = () => undefined,
+  ): Promise<AcpResult> {
+    return acpCommand({
+      url: instance.url,
+      cwd: settings(""),
+      home: emptyHome(),
+      env: {},
+      stdin: editor.stdin,
+      stdout: editor.stdout,
+      stderr,
+    });
+  }
+
+  /**
    * @case A request and a notification cross the bridge in both directions, unchanged
    * @preconditions A stub instance speaking the protocol, and an editor writing an initialize, a session/new and a prompt
    * @expectedResult The prompt reaches the instance as written and the agent's own notification and response reach the editor, so the bridge is a pipe rather than a participant
    */
   test("forwards a request and a notification both ways", async () => {
     const instance = up();
-    const home = emptyHome();
     const editor = editorSide([
       INITIALIZE,
       NEW_SESSION,
       JSON.stringify(prompt(3, "ping")),
     ]);
 
-    const running = acpCommand({
-      url: instance.url,
-      cwd: settings(""),
-      home,
-      env: {},
-      stdin: editor.stdin,
-      stdout: editor.stdout,
-    });
+    const running = bridge(instance, editor);
     // Give the three messages their round trips, then close the editor's
     // side, which is what closing an editor tab looks like from here.
     await waitFor(() => editor.read().length >= 4);
@@ -376,15 +392,7 @@ profiles:
     const editor = editorSide([INITIALIZE]);
     const lines: string[] = [];
 
-    const running = acpCommand({
-      url: instance.url,
-      cwd: settings(""),
-      home: emptyHome(),
-      env: {},
-      stdin: editor.stdin,
-      stdout: editor.stdout,
-      stderr: (line) => lines.push(line),
-    });
+    const running = bridge(instance, editor, (line) => lines.push(line));
     // Connected: the reply came back, so both directions are live.
     await waitFor(() => editor.read().length >= 1);
 
@@ -409,15 +417,7 @@ profiles:
     const editor = editorSide([INITIALIZE, NEW_SESSION]);
     const lines: string[] = [];
 
-    const running = acpCommand({
-      url: first.url,
-      cwd: settings(""),
-      home: emptyHome(),
-      env: {},
-      stdin: editor.stdin,
-      stdout: editor.stdout,
-      stderr: (line) => lines.push(line),
-    });
+    const running = bridge(first, editor, (line) => lines.push(line));
     await waitFor(() => editor.read().length >= 2);
 
     first.stop();
@@ -462,15 +462,7 @@ profiles:
     ]);
 
     const lines: string[] = [];
-    const running = acpCommand({
-      url: first.url,
-      cwd: settings(""),
-      home: emptyHome(),
-      env: {},
-      stdin: editor.stdin,
-      stdout: editor.stdout,
-      stderr: (line) => lines.push(line),
-    });
+    const running = bridge(first, editor, (line) => lines.push(line));
     await waitFor(() => first.prompts.length === 1);
 
     first.stop();
@@ -502,15 +494,7 @@ profiles:
     const first = up({ hold: "session/new" });
     const editor = editorSide([INITIALIZE, NEW_SESSION]);
 
-    const running = acpCommand({
-      url: first.url,
-      cwd: settings(""),
-      home: emptyHome(),
-      env: {},
-      stdin: editor.stdin,
-      stdout: editor.stdout,
-      stderr: () => undefined,
-    });
+    const running = bridge(first, editor);
     await waitFor(() => first.methods.includes("session/new"));
 
     first.stop();
@@ -535,15 +519,7 @@ profiles:
     const editor = editorSide([INITIALIZE, NEW_SESSION]);
     const lines: string[] = [];
 
-    const running = acpCommand({
-      url: first.url,
-      cwd: settings(""),
-      home: emptyHome(),
-      env: {},
-      stdin: editor.stdin,
-      stdout: editor.stdout,
-      stderr: (line) => lines.push(line),
-    });
+    const running = bridge(first, editor, (line) => lines.push(line));
     await waitFor(() => editor.read().length >= 2);
 
     first.stop();
@@ -584,14 +560,7 @@ profiles:
     const instance = up();
     const editor = editorSide([INITIALIZE]);
 
-    const running = acpCommand({
-      url: instance.url,
-      cwd: settings(""),
-      home: emptyHome(),
-      env: {},
-      stdin: editor.stdin,
-      stdout: editor.stdout,
-    });
+    const running = bridge(instance, editor);
     await waitFor(() => editor.read().length >= 1);
     editor.finish();
 
