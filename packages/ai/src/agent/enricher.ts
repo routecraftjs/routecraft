@@ -83,7 +83,9 @@ export interface AgentByNameOverrides<T = unknown> {
   /**
    * Per-request token-delta listener. Mirrors `AgentOptions.onDelta`
    * but lives at the call site so each dispatch can stream into its
-   * own consumer without cross-talk.
+   * own consumer without cross-talk. Same contract: the listener has the
+   * whole reply before the dispatch returns, as one final delta when the
+   * provider streamed none.
    */
   onDelta?: AgentDeltaListener;
   /**
@@ -103,6 +105,18 @@ export interface AgentByNameOverrides<T = unknown> {
    * Wins over `onDelta` when both are set and it resolves to a listener.
    */
   onDeltaFor?: AgentDeltaListenerSource<T>;
+  /**
+   * Keep a message that queues behind a running turn open until the turn
+   * that consumes it ends, and answer this dispatch with that turn's
+   * result instead of acknowledging `queued`.
+   *
+   * For a caller that is itself holding a request open on the person's
+   * side, which today is the ACP mount. Not a public option: how a queued
+   * message is answered is decided per surface, not per route.
+   *
+   * @internal
+   */
+  hold?: boolean;
   /**
    * The conversation this message belongs to. Same contract as
    * {@link AgentOptions.session}; the per-call value wins over one on the
@@ -403,6 +417,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
         ...(revivedPark !== undefined
           ? { revived: revivedPark.suspensionId }
           : {}),
+        ...(perCall?.hold === true ? { hold: true } : {}),
         interrupt:
           revivedPark === undefined &&
           (typeof interrupt === "function"
@@ -509,6 +524,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
    * What the session runtime calls to run one turn. A fresh run per call,
    * because the boundary turn that consumes an inbox reuses this executor
    * after the first run has finished, and a run is one turn's state.
+   *
    */
   private sessionExecutor(
     input: Omit<AgentRunInput<T>, "onStep" | "resume">,

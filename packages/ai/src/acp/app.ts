@@ -45,7 +45,10 @@ import type {
 } from "@agentclientprotocol/sdk";
 import type { Principal } from "@routecraft/routecraft";
 import { version as PACKAGE_VERSION } from "../../package.json";
-import type { AgentSessionSummary } from "../agent/session/types.ts";
+import type {
+  AgentSessionOutcome,
+  AgentSessionSummary,
+} from "../agent/session/types.ts";
 import { registerSurface } from "../surface/index.ts";
 import type {
   AgentSurfaceConnection,
@@ -647,11 +650,17 @@ function titleFrom(message: string): string {
 /**
  * Why the turn stopped.
  *
- * An interrupted turn is `cancelled`, which is what a person who pressed
- * stop is entitled to see. Everything else ended the turn: a queued
- * message is answered by the turn that consumes it, and an idle revival
- * had nothing to run.
+ * `end_turn` only for a reply: the request was held until the turn that
+ * consumed its message ended, so a reply is the ordinary outcome. An
+ * interrupted turn is `cancelled`, which is what a person who pressed stop
+ * is entitled to see. A message this process could not answer (it queued
+ * while the instance was shutting down, or another process consumed it)
+ * is `cancelled` too: it is still in the conversation and the next turn
+ * answers it, and telling the editor the turn ended would show the
+ * message finished with nothing under it.
  */
-function stopReasonFor(status: string | undefined): StopReason {
-  return status === "interrupted" ? "cancelled" : "end_turn";
+function stopReasonFor(
+  status: AgentSessionOutcome["status"] | undefined,
+): StopReason {
+  return status === "replied" ? "end_turn" : "cancelled";
 }

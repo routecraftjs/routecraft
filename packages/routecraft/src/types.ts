@@ -453,6 +453,20 @@ type ExchangeScoped = {
 };
 
 /**
+ * What every tool-call event carries.
+ *
+ * `session` names the conversation the call was made in, when the agent
+ * was dispatched with one. A session's boundary turn runs on the exchange
+ * that parked, which may be an earlier caller's, so the exchange identity
+ * alone cannot say which conversation a call belongs to; the session can.
+ */
+type ToolCallScoped = ExchangeScoped & {
+  toolCallId: string;
+  toolName: string;
+  session?: string;
+};
+
+/**
  * Every event the framework emits, mapped to its detail payload.
  *
  * Event names are a FIXED, finite set: identity (route id, plugin id,
@@ -1022,26 +1036,18 @@ export interface EventDetailsMap {
    * exactly the case where that input is least trustworthy, so it is not
    * carried here even under snapshot capture.
    */
-  "route:agent:tool:refused": ExchangeScoped & {
-    toolCallId: string;
-    toolName: string;
+  "route:agent:tool:refused": ToolCallScoped & {
     /** Error code when the guard threw a Routecraft error, e.g. `RC5002`. */
     rc?: string;
   };
-  "route:agent:tool:invoked": ExchangeScoped & {
-    toolCallId: string;
-    toolName: string;
+  "route:agent:tool:invoked": ToolCallScoped & {
     _snapshot: { input: unknown };
   };
-  "route:agent:tool:result": ExchangeScoped & {
-    toolCallId: string;
-    toolName: string;
+  "route:agent:tool:result": ToolCallScoped & {
     _snapshot: { output: unknown };
     duration: number;
   };
-  "route:agent:tool:error": ExchangeScoped & {
-    toolCallId: string;
-    toolName: string;
+  "route:agent:tool:error": ToolCallScoped & {
     errorName: string;
     _snapshot: { error: unknown };
     duration: number;

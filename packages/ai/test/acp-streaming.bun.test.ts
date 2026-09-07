@@ -11,7 +11,11 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
 import { agentPlugin, tools } from "../src/index.ts";
-import { acpHarness, type AcpHarness } from "./helpers/acp-harness.ts";
+import {
+  acpHarness,
+  describeUpdates,
+  type AcpHarness,
+} from "./helpers/acp-harness.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
 import { MODEL } from "./helpers/suspend-fixtures.ts";
 
@@ -133,17 +137,7 @@ describe("the ACP transport", () => {
         .withSession((session) => session.prompt("go")),
     );
 
-    const order = h.seen.map((entry) => {
-      const update = entry.update as {
-        sessionUpdate: string;
-        content?: { text?: string };
-        status?: string;
-      };
-      return update.sessionUpdate === "agent_message_chunk"
-        ? `chunk:${update.content?.text}`
-        : `${update.sessionUpdate}:${update.status ?? ""}`;
-    });
-    expect(order).toEqual([
+    expect(describeUpdates(h.seen)).toEqual([
       "chunk:before",
       "tool_call:in_progress",
       "tool_call_update:completed",

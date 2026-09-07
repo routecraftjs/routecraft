@@ -35,7 +35,6 @@ export class TurnUpdates {
   private pumping = false;
   private drained: Promise<void> = Promise.resolve();
   private closed = false;
-  private sentMessage = false;
 
   constructor(private readonly sink: UpdateSink) {}
 
@@ -49,9 +48,6 @@ export class TurnUpdates {
    */
   push(update: SessionUpdate): Promise<void> {
     if (this.closed) return Promise.resolve();
-    if (update.sessionUpdate === "agent_message_chunk") {
-      this.sentMessage = true;
-    }
     return new Promise<void>((resolve, reject) => {
       this.queue.push({
         update,
@@ -59,18 +55,6 @@ export class TurnUpdates {
       });
       this.pump();
     });
-  }
-
-  /**
-   * Whether any of the agent's own words have gone to the editor.
-   *
-   * A provider that streams sends them as deltas. One that does not sends
-   * nothing at all until the turn ends, and the person would watch an
-   * empty window while the answer sat in the result; this is how the turn
-   * knows to send it once at the end instead.
-   */
-  get sentAnyMessage(): boolean {
-    return this.sentMessage;
   }
 
   /**

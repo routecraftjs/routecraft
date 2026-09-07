@@ -93,6 +93,16 @@ export interface AgentTurnRequest<T = unknown> {
   ) => Promise<AgentSessionPark>;
   /** The stored continuation this exchange revives, when it is one. */
   readonly revived?: string;
+  /**
+   * Keep this dispatch open when its message queues behind a running
+   * turn, and answer it with the result of the turn that consumes the
+   * message, rather than acknowledging `queued` at once.
+   *
+   * For a caller that is itself holding a request open: an editor's
+   * `session/prompt` has to stay open until the reply has streamed, or
+   * the editor shows the message finished with nothing under it.
+   */
+  readonly hold?: boolean;
 }
 
 /** What a caller asks of the session listing. @internal */
@@ -124,6 +134,8 @@ export interface AgentSessionInit {
 
 /** A turn this process is running. */
 interface ActiveTurn {
+  /** Minted per turn: an exchange runs several turns, so its id cannot name one. */
+  readonly id: string;
   readonly controller: AbortController;
   /** The exchange the turn runs on, for attributing events. */
   readonly exchange: Exchange<unknown>;
@@ -224,6 +236,16 @@ export class AgentSessionRuntime {
   }
 
   /**
+   * The id of the turn this process is running for the session right now,
+   * or `undefined` when it runs none. What a delta or a tool event emitted
+   * during a turn belongs to, for a consumer that attributes output per
+   * turn rather than per exchange.
+   */
+  turnIdOf(key: AgentSessionKey): string | undefined {
+    return this.active.get(key)?.id;
+  }
+
+  /**
    * Handle one message for a session: run a turn when the session is
    * idle, queue the message when one is running, and interrupt that turn
    * first when asked to.
@@ -231,7 +253,10 @@ export class AgentSessionRuntime {
    * A queued message is acknowledged, not answered: the reply belongs to
    * the turn that consumes it, which the boundary starts on its own. An
    * interrupting caller waits for that turn and gets its reply, because
-   * the interrupt exists so their message is answered now.
+   * the interrupt exists so their message is answered now. A caller that
+   * asked to `hold` waits the same way without interrupting, so several
+   * messages queued behind one turn are answered together by the boundary
+   * turn and every one of their callers receives that reply.
    */
   async turn<T>(req: AgentTurnRequest<T>): Promise<AgentResult> {
     const k = req.key;
@@ -286,12 +311,13 @@ export class AgentSessionRuntime {
         agentName: req.agent,
         session: req.key,
       });
-    } else if (this.active.get(k) === running) {
+    } else if (this.active.get(k) === running && req.hold !== true) {
       return this.queued(req.key, req.agent, record.inbox.length);
     }
-    // The turn ended while the message was being written, or this caller
-    // interrupted it: either way the message is in the inbox and is
-    // answered by whichever turn consumes it. Wait for that turn. A turn
+    // The turn ended while the message was being written, this caller
+    // interrupted it, or this caller holds: either way the message is in
+    // the inbox and is answered by whichever turn consumes it. Wait for
+    // that turn. A turn
     // that fails propagates whether or not it read the message: one that
     // failed before reaching the inbox failed on the store, and starting
     // another against the same fault would spin.
@@ -875,14 +901,16 @@ export class AgentSessionRuntime {
     req: AgentTurnRequest<T>,
     incoming: string | LlmPromptPart[] | undefined,
   ): ActiveTurn {
+    const id = randomUUID();
     const controller = new AbortController();
     const consumed = new Set<string>();
-    const outcome = this.execute(k, req, incoming, controller, consumed);
+    const outcome = this.execute(k, req, incoming, controller, consumed, id);
     // Observed here so a turn nobody awaits (a boundary follow-up that the
     // route tracks) never surfaces as an unhandled rejection; the waiters
     // that do await it still receive the rejection.
     outcome.catch(() => undefined);
     const turn: ActiveTurn = {
+      id,
       controller,
       exchange: req.exchange,
       consumed,
@@ -899,6 +927,7 @@ export class AgentSessionRuntime {
     incoming: string | LlmPromptPart[] | undefined,
     controller: AbortController,
     consumed: Set<string>,
+    turnId: string,
   ): Promise<AgentResult> {
     const { key, exchange, executor } = req;
     // What an append landing on this session while it is idle runs on.
@@ -1012,6 +1041,7 @@ export class AgentSessionRuntime {
             id: key,
             status: "interrupted",
             queued: after.inbox.length,
+            turn: turnId,
           },
         };
       }
@@ -1031,6 +1061,7 @@ export class AgentSessionRuntime {
           id: key,
           status: "replied",
           queued: after.inbox.length,
+          turn: turnId,
         },
       };
     } finally {

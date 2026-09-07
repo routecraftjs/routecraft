@@ -69,6 +69,10 @@ A harness names its own with the `Routecraft-Agent` request header, which is wha
 
 Every agent the context holds is advertised to every credential holder. There is no per-agent visibility rule: agents are not what carries the security here, hands are, and each one authorizes the caller on every call under the principal of the person who typed the prompt.
 
+## A prompt sent while a turn runs
+
+A `session/prompt` that arrives while the conversation's turn is running is queued behind it and answered, together with anything else that queued, by the turn that runs next. The request stays open until that reply has streamed and returns `end_turn` only then; several held on one conversation return in the order they were sent. A prompt this instance cannot answer returns `cancelled`, never `end_turn` with nothing shown. `session/cancel` interrupts the running turn alone: its request returns `cancelled` and a queued message is still answered by the next turn. The full behaviour is in [Sending while a turn runs](/docs/advanced/talk-from-your-editor#sending-while-a-turn-runs).
+
 ## Who can see a conversation
 
 A conversation belongs to the person who started it. The mount lists, loads and resumes only the conversations whose owner matches the caller's subject; somebody else's session id is answered as if it did not exist, so probing for one tells the prober nothing. A mount with no wall has no subjects to tell apart, and every conversation on it belongs to the same unnamed person.
