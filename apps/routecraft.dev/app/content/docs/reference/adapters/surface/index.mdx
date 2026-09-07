@@ -68,6 +68,8 @@ What a malformed answer does depends on the method, because the two cases have d
 
 The protocol reserves `_meta` on every message and forbids assumptions about its values, so that field is never checked; and a field the SDK itself defaults when it fails to parse is accepted whatever it holds. Both are the SDK's own liberties, mirrored so an answer the SDK would accept is not refused here.
 
+The checks are built from the schema the installed SDK ships, so a method the protocol adds is checked the day its SDK does. A check that cannot be built, because the installed schema has no response for the method or the converter refuses its definition, is [`RC5003`](/docs/reference/errors#rc-5003) before the editor is asked: a mismatch between `@routecraft/ai` and the SDK version, never reported as the editor's answer, and never a permission call falling closed for it. Align the two versions.
+
 ## How it fails
 
 Five ways, each with a different fix, which is why each has its own code:
