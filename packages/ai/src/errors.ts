@@ -238,7 +238,7 @@ registerErrorCodes(
       category: "Adapter",
       message: "Agent session store failed",
       suggestion:
-        "The store configured by sessions: { store } (the sqlite file at .routecraft/sessions.db by default) could not be opened, migrated, read or written. Check the path and its permissions, that one process at a time holds the file, and under Node that better-sqlite3 is installed; a store that is busy answers this code too, and that call can be retried.",
+        "The store configured by sessions: { store } (the sqlite file at .routecraft/sessions.db by default) could not be opened, migrated, read or written. Check the path and its permissions, that one process at a time holds the file, and under Node that better-sqlite3 is installed; a store that is busy answers this code too, and that call can be retried. Each store also needs its own file: every sqlite store versions itself through one PRAGMA user_version per database, so pointing this one and the suspension store at a single path is refused rather than made to work.",
       docs: `${DOCS_BASE}#ai-1012`,
       retryable: true,
     },

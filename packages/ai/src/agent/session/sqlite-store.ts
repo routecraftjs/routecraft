@@ -2,8 +2,10 @@ import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import {
   isRoutecraftError,
+  describeSqliteFile,
   isSqliteBusy,
   migrateSqlite,
+  SQLITE_APPLICATION_IDS,
   rcError,
   resolveDatabasePath,
   resolveSqliteDriver,
@@ -250,14 +252,23 @@ function initialise(db: SqliteDatabase, path: string): void {
   migrateSqlite(db, {
     schemaVersion: SCHEMA_VERSION,
     migrations: MIGRATIONS,
-    onFailure: (failure) =>
-      failure.kind === "downgrade"
-        ? rcError("AI1012", undefined, {
-            message: `The agent session store at "${path}" is on schema version ${failure.current}, newer than this build understands (${SCHEMA_VERSION}). Run the newer Routecraft build, or point sessions.store at a fresh file.`,
-          })
-        : rcError("AI1012", failure.cause, {
-            message: `The agent session store at "${path}" could not be migrated to schema version ${SCHEMA_VERSION}.`,
-          }),
+    applicationId: SQLITE_APPLICATION_IDS.session,
+    identityTable: "agent_sessions",
+    onFailure: (failure) => {
+      if (failure.kind === "foreign") {
+        return rcError("AI1012", undefined, {
+          message: `The file at "${path}" is not an agent session store; ${describeSqliteFile(failure)}. Point sessions.store at its own file: every store keeps one, and they cannot share.`,
+        });
+      }
+      if (failure.kind === "downgrade") {
+        return rcError("AI1012", undefined, {
+          message: `The agent session store at "${path}" is on schema version ${failure.current}, newer than this build understands (${SCHEMA_VERSION}). Run the newer Routecraft build, or point sessions.store at a fresh file.`,
+        });
+      }
+      return rcError("AI1012", failure.cause, {
+        message: `The agent session store at "${path}" could not be migrated to schema version ${SCHEMA_VERSION}.`,
+      });
+    },
   });
 }
 

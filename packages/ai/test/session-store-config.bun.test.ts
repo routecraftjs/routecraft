@@ -3,14 +3,18 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  claimDatabasePath,
   MemorySuspensionStore,
   resolveSqliteDriver,
+  SQLITE_APPLICATION_IDS,
+  SqliteSuspensionStore,
   type SqliteDriverLoaders,
 } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { agentPlugin, llmPlugin } from "../src/index.ts";
 import {
   AgentSessionRuntime,
+  DEFAULT_SESSION_DB_PATH,
   MemorySessionStore,
   SESSION_STORE_ENV,
   SqliteSessionStore,
@@ -347,5 +351,302 @@ describe("session store resolution", () => {
     };
     expect(row.user_version).toBe(2);
     check.close();
+  });
+
+  /**
+   * @case The store refuses a suspension database instead of reporting a version
+   * @preconditions A file opened by the suspension store first, which stamps its own identity and schema version 4
+   * @expectedResult AI1012 says the file is not an agent session store and names what it is. Reported in the field from JetBrains: the old message said the file was "newer than this build understands (2)" and told the reader to run a newer build, which no build could ever satisfy because the file belongs to another store
+   */
+  test("a suspension database is refused as foreign, not as a newer version", async () => {
+    const path = join(scratch, "suspensions-as-sessions.db");
+    const suspensions = await SqliteSuspensionStore.open({ path });
+    await suspensions.close();
+
+    const failure = await SqliteSessionStore.open({ path }).then(
+      () => undefined,
+      (err: Error) => err,
+    );
+    expect(failure).toBeDefined();
+    expect(failure!.message).toContain("is not an agent session store");
+    expect(failure!.message).toContain("suspension");
+    expect(failure!.message).not.toContain("newer than this build");
+    expect(failure!.message).not.toContain("Run the newer Routecraft build");
+  });
+
+  /**
+   * @case A fresh database is stamped with the session store's identity
+   * @preconditions No file at the path
+   * @expectedResult application_id carries the session store's tag, so another store opening it later can say whose it is
+   */
+  test("a fresh database is stamped with the session identity", async () => {
+    const path = join(scratch, "stamped.db");
+    const store = await SqliteSessionStore.open({ path });
+    await store.close();
+
+    const driver = await resolveSqliteDriver("test");
+    const check = new driver.Database(path);
+    const row = check.prepare("PRAGMA application_id").get() as {
+      application_id: number;
+    };
+    expect(row.application_id).toBe(SQLITE_APPLICATION_IDS.session);
+    check.close();
+  });
+
+  /**
+   * @case A file written before stamping existed is adopted rather than refused
+   * @preconditions A version 1 file carrying agent_sessions and application_id 0, which is every database the published canary wrote
+   * @expectedResult It migrates and is stamped, so the identity check never strands a file this store really does own
+   */
+  test("an unstamped file carrying our own table is adopted", async () => {
+    const path = join(scratch, "legacy-unstamped.db");
+    const driver = await resolveSqliteDriver("test");
+    const seed = new driver.Database(path);
+    seed.exec(`CREATE TABLE agent_sessions (
+       agent      TEXT    NOT NULL,
+       session    TEXT    NOT NULL,
+       version    INTEGER NOT NULL,
+       record     TEXT    NOT NULL,
+       updated_at INTEGER NOT NULL,
+       PRIMARY KEY (agent, session)
+     );`);
+    seed.exec("PRAGMA user_version = 1");
+    seed.close();
+
+    const store = await SqliteSessionStore.open({ path });
+    expect(await store.create(key, { kind: "agent-session" })).toEqual({
+      won: true,
+    });
+    await store.close();
+
+    const check = new driver.Database(path);
+    expect(
+      (
+        check.prepare("PRAGMA application_id").get() as {
+          application_id: number;
+        }
+      ).application_id,
+    ).toBe(SQLITE_APPLICATION_IDS.session);
+    check.close();
+  });
+
+  /**
+   * @case An unstamped file holding a foreign schema is refused
+   * @preconditions A file with somebody else's table and a non-zero user_version, and no identity stamp
+   * @expectedResult Refused as foreign and the message lists the tables it actually holds, which is what an operator sees running sqlite3 against it
+   */
+  test("an unstamped file holding a foreign schema is refused", async () => {
+    const path = join(scratch, "legacy-foreign.db");
+    const driver = await resolveSqliteDriver("test");
+    const seed = new driver.Database(path);
+    seed.exec("CREATE TABLE somebody_elses (id TEXT PRIMARY KEY)");
+    seed.exec("PRAGMA user_version = 3");
+    seed.close();
+
+    const failure = await SqliteSessionStore.open({ path }).then(
+      () => undefined,
+      (err: Error) => err,
+    );
+    expect(failure).toBeDefined();
+    expect(failure!.message).toContain("is not an agent session store");
+    expect(failure!.message).toContain("somebody_elses");
+  });
+
+  /**
+   * @case Two stores configured onto one file are refused at resolution
+   * @preconditions A context whose suspension store already claimed a path, then sessions: { store } pointed at the same path
+   * @expectedResult AI1012 names both settings and the shared path. Reported in the field: both were configured onto .routecraft/sessions.db, nothing objected, and the failure surfaced later inside the ACP auth loop as a schema version the build did not understand
+   */
+  test("two stores on one path are refused, naming both settings", async () => {
+    const path = join(scratch, "shared-by-two.db");
+    t = await testContext()
+      .with({ suspension: { store: { path } } })
+      .build();
+
+    const failure = await createSessionStore(t.ctx, {
+      store: { path },
+    }).then(
+      () => undefined,
+      (err: Error) => err,
+    );
+    expect(failure).toBeDefined();
+    expect(failure!.message).toContain("sessions: { store }");
+    expect(failure!.message).toContain("suspension: { store }");
+    expect(failure!.message).toContain(path);
+    expect(failure).toMatchObject({ rc: "AI1012" });
+  });
+
+  /**
+   * @case A foreign file whose only schema object is a view is refused, not claimed
+   * @preconditions An unstamped file at a migratable version holding a view and no tables
+   * @expectedResult Refused as foreign, and the file is left untouched with application_id still 0. Deciding emptiness over tables alone read a view-only file as unused, stamped it, and created agent_sessions inside somebody else's database
+   */
+  test("a file holding only a view is not mistaken for an empty one", async () => {
+    const path = join(scratch, "view-only.db");
+    const driver = await resolveSqliteDriver("test");
+    const seed = new driver.Database(path);
+    seed.exec("CREATE TABLE base (id TEXT PRIMARY KEY)");
+    seed.exec("CREATE VIEW somebody_elses_view AS SELECT id FROM base");
+    seed.exec("DROP TABLE base");
+    seed.close();
+
+    const failure = await SqliteSessionStore.open({ path }).then(
+      () => undefined,
+      (err: Error) => err,
+    );
+    expect(failure).toBeDefined();
+    expect(failure!.message).toContain("is not an agent session store");
+
+    const check = new driver.Database(path);
+    expect(
+      (
+        check.prepare("PRAGMA application_id").get() as {
+          application_id: number;
+        }
+      ).application_id,
+    ).toBe(0);
+    expect(
+      check
+        .prepare("SELECT name FROM sqlite_master WHERE type = 'table'")
+        .all(),
+    ).toEqual([]);
+    check.close();
+  });
+
+  /**
+   * @case A path a replaced store gave up stops blocking another store
+   * @preconditions The unconfigured default resolves and claims the default path, then a sessions block replaces it with a different path
+   * @expectedResult The default path is free for the suspension store to claim. Holding the released path refused a valid configuration, because agentPlugin resolves a default that sessionsPlugin then closes and replaces
+   */
+  test("replacing the session store releases the path it gave up", async () => {
+    t = await testContext().build();
+    await createSessionStore(t.ctx, {}, false);
+    const explicit = await createSessionStore(t.ctx, {
+      store: { path: join(scratch, "moved-elsewhere.db") },
+    });
+    await explicit.close();
+
+    expect(() =>
+      claimDatabasePath({
+        scope: t!.ctx,
+        path: DEFAULT_SESSION_DB_PATH,
+        claimant: "suspension: { store }",
+        onConflict: (conflict) =>
+          new Error(`refused, held by ${conflict.held}`),
+      }),
+    ).not.toThrow();
+  });
+
+  /**
+   * @case A refused claim leaves the claimant holding what it already had
+   * @preconditions One claimant holding a path, then failing to claim a second one another claimant owns
+   * @expectedResult The first path is still held, so releasing on replacement never drops a claim on a claim that did not succeed
+   */
+  test("a refused claim does not release the path already held", () => {
+    const scope = {};
+    const first = join(scratch, "held-first.db");
+    const taken = join(scratch, "taken-by-other.db");
+    claimDatabasePath({
+      scope,
+      path: first,
+      claimant: "sessions: { store }",
+      onConflict: () => new Error("unexpected"),
+    });
+    claimDatabasePath({
+      scope,
+      path: taken,
+      claimant: "suspension: { store }",
+      onConflict: () => new Error("unexpected"),
+    });
+    expect(() =>
+      claimDatabasePath({
+        scope,
+        path: taken,
+        claimant: "sessions: { store }",
+        onConflict: () => new Error("refused"),
+      }),
+    ).toThrow("refused");
+    expect(() =>
+      claimDatabasePath({
+        scope,
+        path: first,
+        claimant: "suspension: { store }",
+        onConflict: () => new Error("still held"),
+      }),
+    ).toThrow("still held");
+  });
+
+  /**
+   * @case A store replaced by the memory backend gives up the path it held
+   * @preconditions The unconfigured default claims the default path, then a sessions block chooses "memory"
+   * @expectedResult The default path is free. The release only fired when the replacement claimed another file, so a replacement with no file at all left the path held and refused the next store to want it
+   */
+  test("replacing the store with memory releases the path", async () => {
+    t = await testContext().build();
+    await createSessionStore(t.ctx, {}, false);
+    await createSessionStore(t.ctx, { store: "memory" });
+
+    expect(() =>
+      claimDatabasePath({
+        scope: t!.ctx,
+        path: DEFAULT_SESSION_DB_PATH,
+        claimant: "suspension: { store }",
+        onConflict: (conflict) =>
+          new Error(`refused, held by ${conflict.held}`),
+      }),
+    ).not.toThrow();
+  });
+
+  /**
+   * @case A store replaced by a caller's own backend gives up the path it held
+   * @preconditions The unconfigured default claims the default path, then a sessions block supplies a SessionStore instance
+   * @expectedResult The default path is free. A supplied backend never reaches the claim at all, so nothing released what the default had taken
+   */
+  test("replacing the store with a supplied backend releases the path", async () => {
+    t = await testContext().build();
+    await createSessionStore(t.ctx, {}, false);
+    await createSessionStore(t.ctx, { store: new MemorySessionStore() });
+
+    expect(() =>
+      claimDatabasePath({
+        scope: t!.ctx,
+        path: DEFAULT_SESSION_DB_PATH,
+        claimant: "suspension: { store }",
+        onConflict: (conflict) =>
+          new Error(`refused, held by ${conflict.held}`),
+      }),
+    ).not.toThrow();
+  });
+
+  /**
+   * @case Claiming ":memory:" gives up the file the claimant held
+   * @preconditions One claimant holding a file path, then claiming ":memory:"
+   * @expectedResult The file is free for another claimant. ":memory:" returned before the release ran, so a store moving to an in-process database kept blocking the file it had left
+   */
+  test("claiming :memory: releases the file the claimant held", () => {
+    const scope = {};
+    const file = join(scratch, "left-behind.db");
+    claimDatabasePath({
+      scope,
+      path: file,
+      claimant: "sessions: { store }",
+      onConflict: () => new Error("unexpected"),
+    });
+    claimDatabasePath({
+      scope,
+      path: ":memory:",
+      claimant: "sessions: { store }",
+      onConflict: () => new Error("unexpected"),
+    });
+
+    expect(() =>
+      claimDatabasePath({
+        scope,
+        path: file,
+        claimant: "suspension: { store }",
+        onConflict: (conflict) =>
+          new Error(`refused, held by ${conflict.held}`),
+      }),
+    ).not.toThrow();
   });
 });
