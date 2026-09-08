@@ -61,7 +61,7 @@ test("repeated graceful signals remain idempotent", async () => {
 /**
  * @case SIGQUIT forces an immediate exit before graceful shutdown begins
  * @preconditions A shutdown handler is installed and SIGQUIT is invoked first
- * @expectedResult The process exits with code 1 and context.stop is not called
+ * @expectedResult The handler requests and records process.exit code 1, and context.stop is not called
  */
 test("SIGQUIT forces immediate exit before graceful shutdown", () => {
   const source = new URL("../src/shutdown.ts", import.meta.url).href;
