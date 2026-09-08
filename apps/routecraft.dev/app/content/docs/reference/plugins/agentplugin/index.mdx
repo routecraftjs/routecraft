@@ -388,7 +388,7 @@ agentPlugin({
 
 Flat array of items. Each item is one of:
 
-- **Bare string**: name lookup. Plain ids resolve against the fn registry; `Direct(<routeId>)` wraps a direct route via `directTool` (the LLM-facing tool name becomes `direct__<routeId>`); `MCP(server:tool)` resolves against `MCP_TOOL_REGISTRY` (populated by `defineConfig.mcp` / `mcpPlugin({ clients })`), and `MCP(server)` (or the raw `mcp__server__tool` / `mcp__server` / `mcp__server__*` forms) expands at dispatch time to every tool the named server exposed. The raw `mcp__server__tool` form is the string Claude Code agent files carry, so they resolve unchanged, provided the server segment is unambiguous: the form is split at the first `__` after the prefix, so a client whose own name is empty, carries a `__`, or ends in `_` would misresolve. `mcpPlugin({ clients })` rejects such a name at startup, which is what makes the guarantee hold for any client it registered; see [client names](/docs/reference/plugins/mcpplugin).
+- **Bare string**: name lookup. Plain ids resolve against the fn registry; `Direct(<routeId>)` wraps a direct route via `directTool` (the LLM-facing tool name becomes `direct__<routeId>`), a route imported from another instance through [`remotes`](/docs/reference/plugins/remotesplugin) included: `Direct(hello)` reaches the default remote's route under its bare name, `Direct(lab:hello)` any other remote's under its qualified one, and `Remote(lab)` expands at dispatch time to every route imported from that remote; `MCP(server:tool)` resolves against `MCP_TOOL_REGISTRY` (populated by `defineConfig.mcp` / `mcpPlugin({ clients })`), and `MCP(server)` (or the raw `mcp__server__tool` / `mcp__server` / `mcp__server__*` forms) expands at dispatch time to every tool the named server exposed. The raw `mcp__server__tool` form is the string Claude Code agent files carry, so they resolve unchanged, provided the server segment is unambiguous: the form is split at the first `__` after the prefix, so a client whose own name is empty, carries a `__`, or ends in `_` would misresolve. `mcpPlugin({ clients })` rejects such a name at startup, which is what makes the guarantee hold for any client it registered; see [client names](/docs/reference/plugins/mcpplugin).
 - **`{ name, guard?, description? }`**: same name lookup, with optional per-binding overrides. The guard runs after schema validation and before the handler; throwing surfaces back to the LLM as a tool error so the model can self-correct. The `description` override applies only to this binding for fn-style names. MCP references reject `description` (the MCP server is the source of truth for description and schema; do not override).
 
 #### Authoring grammar vs wire names
@@ -399,6 +399,7 @@ Flat array of items. Each item is one of:
 |------|-----------|----------------|
 | fn | `fetchOrder` | `fetchOrder` |
 | capability | `Direct(cancel-order)` | `direct__cancel-order` |
+| imported capability, qualified | `Direct(lab:hello)`, or any `Remote(lab)` expansion | `remote__lab__hello` |
 | MCP client tool | `MCP(github:create_issue)` | `mcp__github__create_issue` |
 | block loader | (declared via `blocks`) | `_block__load__<name>` |
 
@@ -406,7 +407,7 @@ Flat array of items. Each item is one of:
 
 **An MCP client name may not be empty, contain `__`, or end in `_`**, which `mcpPlugin({ clients })` rejects with RC5003 at startup; see [client names](/docs/reference/plugins/mcpplugin) for why. Constraining the server half is what leaves the tool half free, so a remote may use `__` in its own tool names and `mcp__github__issues__create` resolves correctly.
 
-`Direct(<routeId>)` needs no equivalent rule. A direct wire name carries exactly one separator by construction, and everything after it is the route id, so there is nothing to disambiguate.
+`Direct(<routeId>)` needs no equivalent rule. A direct wire name carries exactly one separator by construction, and everything after it is the route id, so there is nothing to disambiguate. A qualified imported route is the one case with two: `remote__lab__hello` splits at the first separator into the remote and the id, and a remote's name is constrained at configuration exactly as an MCP client's is (no `__`, no trailing `_`), which is what leaves the id half free. The default remote's routes referenced bare keep the `direct__` form, because to the agent they are local.
 
 ### Disabled routes are not offered
 
@@ -590,7 +591,7 @@ agentPlugin({
 | Key | Governs |
 |-----|---------|
 | `fn` | In-process fns registered via `agentPlugin({ functions })` |
-| `direct` | Capabilities in the capability registry, reached via `Direct(<routeId>)` or a `directTool` alias |
+| `direct` | Capabilities in the capability registry, reached via `Direct(<routeId>)`, `Remote(<name>)` or a `directTool` alias. A capability imported from another instance carries `source.remote` (`'default'`, `'lab'`, absent for a local route), so `direct: (tool) => tool.source.remote === undefined` keeps an agent local-only |
 | `mcp` | Tools discovered from external MCP clients |
 
 Each value is `true`, `false`, or a predicate:

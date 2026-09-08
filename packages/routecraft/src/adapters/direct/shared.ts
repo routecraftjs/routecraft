@@ -140,8 +140,13 @@ export function sanitizeEndpoint(endpoint: string): string {
  * IMPORTANT: This implements single-consumer semantics where only the
  * last route to subscribe to an endpoint will receive messages.
  * Previous subscribers are automatically replaced (last one wins).
+ *
+ * Exported for the remotes plugin, which hands one to a local route that
+ * subscribes onto an endpoint a remote already holds.
+ *
+ * @internal
  */
-class InMemoryDirectChannel<T> implements DirectChannel<T> {
+export class InMemoryDirectChannel<T> implements DirectChannel<T> {
   private handler: ((message: T) => Promise<T>) | null = null;
 
   async send(endpoint: string, message: T): Promise<T> {

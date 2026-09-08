@@ -105,6 +105,9 @@ export interface ErrorCodeRegistry {
   RC5059: RCMeta;
   RC5060: RCMeta;
   RC5061: RCMeta;
+  RC5062: RCMeta;
+  RC5063: RCMeta;
+  RC5064: RCMeta;
   RC9901: RCMeta;
 }
 
@@ -616,6 +619,30 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     suggestion:
       "The response to an `http({ url })` call is larger than the route allows, so it was refused rather than read. The cap defaults to 10 MB, matching the http plugin's inbound `maxBodySize`; raise it with `http({ url, maxBodySize })` when the endpoint genuinely returns more, or ask the endpoint for less (a narrower query, a page, a range request). The body is never truncated to fit: half a JSON document parses as though it were whole, and a route acting on it would be wrong rather than failed. A declared `Content-Length` over the cap is refused before any byte is read; a body that declares nothing is abandoned mid-stream the moment the count crosses the ceiling, so the message names whichever number was seen.",
     docs: `${DOCS_BASE}#rc-5061`,
+    retryable: false,
+  },
+  RC5062: {
+    category: "Runtime",
+    message: "Remote instance unreachable",
+    suggestion:
+      "A dispatch to a route imported through `defineConfig({ remotes })` never got an answer from the remote instance: the connection was refused, the name did not resolve, or the request timed out. Check the remote's `url` and that the instance is running and serving its ops surface. A refused connection is safe to retry; a timeout is not, because the remote may still be running the work it accepted, and the message says which of the two it was.",
+    docs: `${DOCS_BASE}#rc-5062`,
+    retryable: true,
+  },
+  RC5063: {
+    category: "Runtime",
+    message: "Remote instance refused the credential",
+    suggestion:
+      "The remote's door answered 401 or 403 to a dispatch on an imported route, so the problem is the credential and not the route. The message carries the door's own reason: no credential was presented (`remotes.<name>.auth.token` is unset or resolved to nothing), the credential was rejected, or it is valid but lacks the dispatch tier's scope, which needs a token carrying that scope rather than a new sign-in. When the remote advertises RFC 9728 metadata the message also names who issues acceptable tokens.",
+    docs: `${DOCS_BASE}#rc-5063`,
+    retryable: false,
+  },
+  RC5064: {
+    category: "Runtime",
+    message: "Remote dispatch failed",
+    suggestion:
+      "The remote instance answered a dispatch on an imported route with an error. Its own error code rides in the message and on `cause`, and is what to read first: the ops door sends the code and never the message, so the remote's logs hold the detail. A `RC5060` from the remote means the route stopped being dispatchable there (it declared `direct({ internal: true })`, or lost its direct source); anything else is the route's own failure, exactly as it would have surfaced to a caller on the remote.",
+    docs: `${DOCS_BASE}#rc-5064`,
     retryable: false,
   },
   RC9901: {

@@ -127,6 +127,9 @@ export function renderRouteDetail(
     lines.push(`Dispatchable ${route.dispatchable ? "yes" : "no"}`);
     lines.push(`Enabled      ${route.enabled ? "yes" : "no"}`);
     lines.push(`Sources      ${route.sources.join(", ")}`);
+    if (route.remote !== undefined) {
+      lines.push(`Remote       ${route.remote}`);
+    }
     if (route.requiresPrincipal) {
       lines.push(`Authorize    route entry requires a principal`);
     }

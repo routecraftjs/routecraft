@@ -998,6 +998,33 @@ The cap applies to error responses too, so a 500 answering with a gigabyte is re
 **Suggestion**  
 Raise the ceiling on the call when the endpoint legitimately returns more than 10 MB: `http({ url, maxBodySize: 50_000_000 })`. Otherwise ask the endpoint for less, with a narrower query, a page, or a range request.
 
+## RC5062
+Remote instance unreachable
+
+**Why it happens**  
+A dispatch to a route imported through [`defineConfig({ remotes })`](/docs/reference/plugins/remotesplugin) never got an answer from the remote instance. The connection was refused, the name did not resolve, or the request timed out. The message names the remote and the route, and says which of the three it was.
+
+**Suggestion**  
+Check the remote's `url` and that the instance is running and serving its ops surface. A refused connection is safe to retry, and the code is marked retryable for it. A timeout is not: the remote may still be running the work it accepted, so a retry could run a non-idempotent route twice, and a timeout carries `retryable: false` on the error itself.
+
+## RC5063
+Remote instance refused the credential
+
+**Why it happens**  
+The remote's door answered 401 or 403 to a dispatch on an imported route, so the problem is the credential and not the route. The message carries the door's own reason: no credential was presented (`remotes.<name>.auth.token` is unset or resolved to nothing), the credential was rejected, or it is valid but lacks the dispatch tier's scope.
+
+**Suggestion**  
+A missing scope needs a token carrying it rather than a new sign-in; the message names the scope. When the remote advertises RFC 9728 metadata the message also names who issues acceptable tokens. The credential is read per request when `auth.token` is a function, so a rotated token takes effect on the next call without a restart.
+
+## RC5064
+Remote dispatch failed
+
+**Why it happens**  
+The remote instance answered a dispatch on an imported route with an error. Its own error code rides in the message and on `cause`, and is what to read first: the ops door sends the code and never the message, so the detail is in the remote's logs.
+
+**Suggestion**  
+A `RC5060` from the remote means the route stopped being dispatchable there (it declared `direct({ internal: true })`, or lost its direct source); anything else is the route's own failure, exactly as it would have surfaced to a caller on the remote. Read the remote's logs for the exchange, and fix the route where it lives.
+
 ## RC9901
 Unknown error
 
