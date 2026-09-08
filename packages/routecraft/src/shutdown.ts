@@ -5,15 +5,16 @@ import type { CraftContext } from "./context.ts";
  *
  * **First signal** (Ctrl+C): closes intake so sources stop producing, lets
  * in-flight exchanges run to their natural end, runs plugin teardown, then
- * exits 0. In-flight work is NOT cancelled here; that is the difference
- * between the two signals.
+ * exits 0. In-flight work is NOT cancelled here. Repeated SIGINT/SIGTERM
+ * signals are ignored while this graceful shutdown is in progress.
  *
- * **Second signal** (Ctrl+C again): forces an immediate exit for when
- * graceful shutdown is stuck or taking too long.
+ * **Dedicated force signals** (Ctrl+Backslash/SIGQUIT or Ctrl+Break/SIGBREAK):
+ * force an immediate exit for when graceful shutdown is stuck or taking too
+ * long. They force exit even when graceful shutdown has not started.
  *
- * Stage one is bounded by `shutdown: { timeout }` even without a second
- * signal, which is what an orchestrator needs: it sends one SIGTERM and then
- * SIGKILLs, so there is no second Ctrl-C coming. On that deadline in-flight
+ * Stage one is bounded by `shutdown: { timeout }` even without a force signal,
+ * which is what an orchestrator needs: it sends one SIGTERM and then SIGKILLs,
+ * so there is no dedicated force signal coming. On that deadline in-flight
  * execution is abandoned and the process exits 1, so exit-code-sensitive
  * tooling can tell a forced shutdown from a clean one.
  *
@@ -29,19 +30,19 @@ import type { CraftContext } from "./context.ts";
 export function shutdownHandler(context: CraftContext): () => void {
   let shuttingDown = false;
 
-  const onSignal = async (signal: string) => {
+  const onGracefulSignal = async (signal: "SIGINT" | "SIGTERM") => {
     if (shuttingDown) {
-      context.logger.warn(
+      context.logger.info(
         { signal },
-        "Received signal during shutdown; forcing exit now",
+        "Received repeated signal during graceful shutdown; ignoring",
       );
-      process.exit(1);
+      return;
     }
 
     shuttingDown = true;
     context.logger.info(
       { signal },
-      "Received signal; shutting down gracefully (press Ctrl+C again to force)",
+      "Received signal; shutting down gracefully (use Ctrl+Backslash or Ctrl+Break to force)",
     );
 
     try {
@@ -57,13 +58,24 @@ export function shutdownHandler(context: CraftContext): () => void {
     }
   };
 
-  const sigintHandler = () => void onSignal("SIGINT");
-  const sigtermHandler = () => void onSignal("SIGTERM");
+  const onForceSignal = (signal: "SIGQUIT" | "SIGBREAK") => {
+    context.logger.warn({ signal }, "Received force signal; exiting now");
+    process.exit(1);
+  };
+
+  const sigintHandler = () => void onGracefulSignal("SIGINT");
+  const sigtermHandler = () => void onGracefulSignal("SIGTERM");
+  const sigquitHandler = () => onForceSignal("SIGQUIT");
+  const sigbreakHandler = () => onForceSignal("SIGBREAK");
   process.on("SIGINT", sigintHandler);
   process.on("SIGTERM", sigtermHandler);
+  process.on("SIGQUIT", sigquitHandler);
+  process.on("SIGBREAK", sigbreakHandler);
 
   return () => {
     process.off("SIGINT", sigintHandler);
     process.off("SIGTERM", sigtermHandler);
+    process.off("SIGQUIT", sigquitHandler);
+    process.off("SIGBREAK", sigbreakHandler);
   };
 }
