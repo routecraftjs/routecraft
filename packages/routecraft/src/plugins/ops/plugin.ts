@@ -26,7 +26,11 @@ import { createManagementApi } from "./management";
 import { createManagementHandler } from "./mount";
 import { createHealthHandler } from "./report";
 import { HealthState } from "./state";
-import { OPS_HEALTH_STATE } from "./store";
+import {
+  OPS_CONTRIBUTED_INDICATORS,
+  OPS_HEALTH_STATE,
+  type ContributedIndicator,
+} from "./store";
 import { enforcesWall } from "./tier";
 import type { Indicator, OpsPluginOptions, OpsTiers } from "./types";
 
@@ -50,6 +54,10 @@ interface Runtime {
   unsubscribes: (() => void)[];
   /** The mount's effective validator exists (its own auth, or the server's). */
   authConfigured: boolean;
+  /** Every indicator name registered on the ledger, from options and contributions. */
+  indicatorNames: Set<string>;
+  /** Contributed indicators bound at start, released at teardown. */
+  contributed: ContributedIndicator[];
   unmount?: () => void;
 }
 
@@ -142,15 +150,17 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
           ctx.emit("plugin:ops:health:changed", change);
         },
       });
+      const names = new Set<string>();
       const runtime: Runtime = {
         state,
         unsubscribes: [],
         authConfigured: mountAuth.configured,
+        indicatorNames: names,
+        contributed: [],
       };
       runtimes.set(ctx, runtime);
       ctx.setStore(OPS_HEALTH_STATE, state);
 
-      const names = new Set<string>();
       for (const indicator of indicators) {
         if (!isIndicator(indicator)) {
           throw rcError("RC5053", undefined, {
@@ -356,6 +366,31 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
         );
       }
 
+      // Indicators other plugins contributed from their apply(), bound here
+      // because a contributor may have applied after this plugin did. Names
+      // share one report with ops.indicators, so a clash is refused rather
+      // than letting whichever registered last own the key.
+      for (const entry of ctx.getStore(OPS_CONTRIBUTED_INDICATORS)?.values() ??
+        []) {
+        if (runtime.indicatorNames.has(entry.name)) {
+          throw rcError("RC5053", undefined, {
+            message: `Indicator "${entry.name}" is both listed in ops.indicators and contributed by a plugin. Indicator names are the keys of the health report, so they must be unique.`,
+          });
+        }
+        runtime.indicatorNames.add(entry.name);
+        const maxAgeMs =
+          entry.maxAge === undefined
+            ? undefined
+            : parseDuration(entry.maxAge, "maxAge");
+        runtime.state.registerIndicator(entry.name, {
+          ...(maxAgeMs !== undefined ? { maxAgeMs } : {}),
+          ...(entry.domain !== undefined ? { domain: entry.domain } : {}),
+        });
+        const { state } = runtime;
+        entry.report = (health) => state.reportIndicator(entry.name, health);
+        runtime.contributed.push(entry);
+      }
+
       const unbound = unboundIndicators();
       if (unbound.length > 0) {
         ctx.logger.warn(
@@ -387,6 +422,7 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
         runtime.state.contextStopped();
         for (const unsubscribe of runtime.unsubscribes) unsubscribe();
         for (const indicator of indicators) unbindIndicator(indicator, ctx);
+        for (const entry of runtime.contributed) delete entry.report;
         runtimes.delete(ctx);
       }
     },
