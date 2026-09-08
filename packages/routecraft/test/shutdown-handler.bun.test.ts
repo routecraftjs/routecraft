@@ -1,8 +1,11 @@
 import { afterEach, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
 import { shutdownHandler } from "../src/shutdown.ts";
 import type { CraftContext } from "../src/context.ts";
 
-const makeContext = (stop: () => Promise<{ forced: boolean; pending: string[] }>) =>
+const makeContext = (
+  stop: () => Promise<{ forced: boolean; pending: string[] }>,
+) =>
   ({
     logger: {
       info: () => {},
@@ -11,12 +14,14 @@ const makeContext = (stop: () => Promise<{ forced: boolean; pending: string[] }>
     stop,
   }) as unknown as CraftContext;
 
-const invoke = (signal: NodeJS.Signals): void => {
+const invoke = (
+  signal: "SIGINT" | "SIGTERM" | "SIGQUIT" | "SIGBREAK",
+): void => {
   const handler = process
     .listeners(signal)
     .find((listener) => listener.name === `${signal.toLowerCase()}Handler`);
   if (!handler) throw new Error(`No handler installed for ${signal}`);
-  handler();
+  (handler as (receivedSignal: typeof signal) => void)(signal);
 };
 
 /**
@@ -30,22 +35,27 @@ test("repeated graceful signals remain idempotent", async () => {
   process.exit = ((code: number) => {
     exits.push(code);
   }) as typeof process.exit;
-  const deferred = Promise.withResolvers<{ forced: boolean; pending: string[] }>();
+  const deferred = Promise.withResolvers<{
+    forced: boolean;
+    pending: string[];
+  }>();
   const context = makeContext(() => deferred.promise);
   const cleanup = shutdownHandler(context);
+  try {
+    invoke("SIGINT");
+    invoke("SIGINT");
+    invoke("SIGTERM");
+    invoke("SIGTERM");
+    deferred.resolve({ forced: false, pending: [] });
+    await Promise.resolve();
+    await Promise.resolve();
 
-  invoke("SIGINT");
-  invoke("SIGINT");
-  invoke("SIGTERM");
-  invoke("SIGTERM");
-  deferred.resolve({ forced: false, pending: [] });
-  await Promise.resolve();
-  await Promise.resolve();
-
-  expect(exits).not.toContain(1);
-  expect(exits).toContain(0);
-  cleanup();
-  process.exit = originalExit;
+    expect(exits).not.toContain(1);
+    expect(exits).toContain(0);
+  } finally {
+    cleanup();
+    process.exit = originalExit;
+  }
 });
 
 /**
@@ -54,16 +64,26 @@ test("repeated graceful signals remain idempotent", async () => {
  * @expectedResult The process exits with code 1 and context.stop is not called
  */
 test("SIGQUIT forces immediate exit before graceful shutdown", () => {
-  const source = new URL("../src/shutdown.ts", import.meta.url).pathname;
+  const source = new URL("../src/shutdown.ts", import.meta.url).href;
   const script = `
     const { shutdownHandler } = await import(${JSON.stringify(source)});
-    shutdownHandler({ logger: { info() {}, warn() {} }, stop: () => { throw new Error("stop called"); } });
+    const result = { exits: [], stopCalled: false };
+    process.exit = (code) => { result.exits.push(code); };
+    const cleanup = shutdownHandler({ logger: { info() {}, warn() {} }, stop: async () => { result.stopCalled = true; return { forced: false, pending: [] }; } });
     const force = process.listeners("SIGQUIT").find((listener) => listener.name === "sigquitHandler");
     force();
+    cleanup();
+    console.log(JSON.stringify(result));
   `;
-  const result = Bun.spawnSync([process.execPath, "-e", script]);
+  const subprocess = spawnSync(process.execPath, ["-e", script], {
+    encoding: "utf8",
+  });
 
-  expect(result.exitCode).toBe(1);
+  expect(subprocess.status).toBe(0);
+  expect(JSON.parse(subprocess.stdout)).toEqual({
+    exits: [1],
+    stopCalled: false,
+  });
 });
 
 /**
@@ -82,9 +102,9 @@ test("SIGBREAK forces immediate exit during graceful shutdown", () => {
     graceful();
     force();
   `;
-  const result = Bun.spawnSync([process.execPath, "-e", script]);
+  const result = spawnSync(process.execPath, ["-e", script]);
 
-  expect(result.exitCode).toBe(1);
+  expect(result.status).toBe(1);
 });
 
 /**
@@ -99,12 +119,14 @@ test("cleanup removes all shutdown signal handlers", () => {
       process.listenerCount(signal),
     ]),
   );
-  const cleanup = shutdownHandler(makeContext(async () => ({ forced: false, pending: [] })));
+  const cleanup = shutdownHandler(
+    makeContext(async () => ({ forced: false, pending: [] })),
+  );
 
   cleanup();
 
   for (const signal of before.keys()) {
-    expect(process.listenerCount(signal)).toBe(before.get(signal));
+    expect(process.listenerCount(signal)).toBe(before.get(signal)!);
   }
 });
 
