@@ -187,7 +187,7 @@ Retiring a deferral emits [`route:exchange:expired`](/docs/reference/events) and
 
 ## Deferral raised from a step
 
-`.defer()` is one of two ways an exchange defers. The other is a **defer-capable step** raising a deferral from inside its own execution; the shipped case is the agent step, whose tool handlers deferral through `ctx.defer()` (see [Durable agents](/docs/advanced/durable-agents)). The differences are worth knowing:
+`.defer()` is one of two ways an exchange defers. The other is a **defer-capable step** raising a deferral from inside its own execution; the shipped case is the agent step, whose tool handlers defer through `ctx.defer()` (see [Durable agents](/docs/advanced/durable-agents)). The differences are worth knowing:
 
 - **Resume re-enters the step itself**, not the step after it: the step must finish the work it deferred in the middle of. Its own definition is therefore covered by the continuation hash, so editing an inline agent's options (system prompt, model, tools) invalidates its deferred runs through the [`RC5048`](/docs/reference/errors#rc-5048) re-ask path, exactly as editing a continuation step does.
 - **Positional refusals move to runtime.** Whether a capable step ever defers is dynamic, so a route that fans an agent out over a `.split()` or into a `.multicast()` path builds fine; the first actual deferral from such a position is refused with [`RC5051`](/docs/reference/errors#rc-5051), carrying the same explanation the build-time refusal gives a static `.defer()`.

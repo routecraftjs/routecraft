@@ -32,7 +32,7 @@ afterAll(() => {
 
 function record(overrides: Partial<NewDeferral> = {}): NewDeferral {
   return {
-    id: "sus-1",
+    id: "def-1",
     routeId: "payout",
     position: 2,
     continuationHash: "c".repeat(64),
@@ -87,7 +87,7 @@ describe("deferral store (cross-runtime)", () => {
     await first.close();
 
     store = await SqliteDeferralStore.open({ path });
-    const read = await store.get("sus-1");
+    const read = await store.get("def-1");
 
     expect(read?.state).toBe("waiting");
     expect(read?.exchange.body).toEqual({ amountCents: 50_000 });
@@ -110,19 +110,19 @@ describe("deferral store (cross-runtime)", () => {
     store = await SqliteDeferralStore.open({ path: ":memory:" });
     await store.create(record());
 
-    const first = await store.markResumed("sus-1", {
+    const first = await store.markResumed("def-1", {
       at: new Date(),
       by: { subject: "a" },
     });
-    const second = await store.markResumed("sus-1", {
+    const second = await store.markResumed("def-1", {
       at: new Date(),
       by: { subject: "b" },
     });
 
     expect(first.won).toBe(true);
     expect(second.won).toBe(false);
-    expect((await store.get("sus-1"))?.outcome?.by?.subject).toBe("a");
-    expect((await store.get("sus-1"))?.outcome?.kind).toBe("resumed");
+    expect((await store.get("def-1"))?.outcome?.by?.subject).toBe("a");
+    expect((await store.get("def-1"))?.outcome?.kind).toBe("resumed");
   });
 
   /**
@@ -135,17 +135,17 @@ describe("deferral store (cross-runtime)", () => {
     store = await SqliteDeferralStore.open({ path: ":memory:" });
     await store.create(record({ stepState: { turns: 1 } }));
     const expected = stepStateFingerprint(
-      (await store.get("sus-1"))?.stepState,
+      (await store.get("def-1"))?.stepState,
     );
 
-    const first = await store.replaceStepState("sus-1", expected, { turns: 2 });
-    const second = await store.replaceStepState("sus-1", expected, {
+    const first = await store.replaceStepState("def-1", expected, { turns: 2 });
+    const second = await store.replaceStepState("def-1", expected, {
       turns: 3,
     });
 
     expect(first.won).toBe(true);
     expect(second.won).toBe(false);
-    expect((await store.get("sus-1"))?.stepState).toEqual({ turns: 2 });
+    expect((await store.get("def-1"))?.stepState).toEqual({ turns: 2 });
   });
 
   /**
@@ -159,13 +159,13 @@ describe("deferral store (cross-runtime)", () => {
     store = await SqliteDeferralStore.open({ path: ":memory:" });
     await store.create(record({ stepState: { turns: 1 } }));
     const expected = stepStateFingerprint(
-      (await store.get("sus-1"))?.stepState,
+      (await store.get("def-1"))?.stepState,
     );
 
-    const result = await store.replaceStepState("sus-1", expected, undefined);
+    const result = await store.replaceStepState("def-1", expected, undefined);
 
     expect(result.won).toBe(true);
-    expect((await store.get("sus-1"))?.stepState).toBeUndefined();
+    expect((await store.get("def-1"))?.stepState).toBeUndefined();
   });
 
   /**
@@ -178,11 +178,11 @@ describe("deferral store (cross-runtime)", () => {
     store = await SqliteDeferralStore.open({ path: ":memory:" });
     await store.create(record({ stepState: { turns: 1 } }));
     const expected = stepStateFingerprint(
-      (await store.get("sus-1"))?.stepState,
+      (await store.get("def-1"))?.stepState,
     );
-    await store.markResumed("sus-1", { at: new Date(), by: { subject: "a" } });
+    await store.markResumed("def-1", { at: new Date(), by: { subject: "a" } });
 
-    const result = await store.replaceStepState("sus-1", expected, {
+    const result = await store.replaceStepState("def-1", expected, {
       turns: 9,
     });
 

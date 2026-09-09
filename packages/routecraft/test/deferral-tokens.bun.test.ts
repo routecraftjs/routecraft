@@ -21,9 +21,9 @@ describe("resume tokens", () => {
     const signer = new ResumeTokenSigner(SECRET, "config");
     const at = new Date("2026-08-10T09:00:00.000Z");
 
-    const payload = signer.verify(signer.mint("sus-1", at));
+    const payload = signer.verify(signer.mint("def-1", at));
 
-    expect(payload.id).toBe("sus-1");
+    expect(payload.id).toBe("def-1");
     expect(payload.iat).toBe(at.getTime());
   });
 
@@ -69,9 +69,9 @@ describe("resume tokens", () => {
    */
   test("rejects a token whose payload was swapped", () => {
     const signer = new ResumeTokenSigner(SECRET, "config");
-    const genuine = signer.mint("sus-1");
+    const genuine = signer.mint("def-1");
     const forged = Buffer.from(
-      JSON.stringify({ v: 1, id: "sus-2", iat: Date.now() }),
+      JSON.stringify({ v: 1, id: "def-2", iat: Date.now() }),
       "utf8",
     ).toString("base64url");
 
@@ -86,7 +86,7 @@ describe("resume tokens", () => {
    * @expectedResult The second signer rejects the first's token with RC5041
    */
   test("rejects a token signed with another secret", () => {
-    const minted = new ResumeTokenSigner(SECRET, "config").mint("sus-1");
+    const minted = new ResumeTokenSigner(SECRET, "config").mint("def-1");
     const other = new ResumeTokenSigner(
       "a-different-secret-also-32-bytes-long",
       "config",
@@ -146,7 +146,7 @@ describe("signing secret resolution", () => {
       env: { [DEFERRAL_SECRET_ENV]: "from-env-secret-padded-to-32-bytes" },
     });
     expect(signer.source).toBe("env");
-    expect(signer.verify(signer.mint("sus-1")).id).toBe("sus-1");
+    expect(signer.verify(signer.mint("def-1")).id).toBe("def-1");
   });
 
   /**
@@ -201,7 +201,7 @@ describe("signing secret resolution", () => {
   test("mints an ephemeral key when permitted", () => {
     const signer = resolveSigningSecret({ env: {}, allowEphemeral: true });
     expect(signer.source).toBe("ephemeral");
-    expect(signer.verify(signer.mint("sus-1")).id).toBe("sus-1");
+    expect(signer.verify(signer.mint("def-1")).id).toBe("def-1");
   });
 
   /**
@@ -214,7 +214,7 @@ describe("signing secret resolution", () => {
     const first = resolveSigningSecret({ env: {}, allowEphemeral: true });
     const second = resolveSigningSecret({ env: {}, allowEphemeral: true });
 
-    expect(() => second.verify(first.mint("sus-1"))).toThrow(
+    expect(() => second.verify(first.mint("def-1"))).toThrow(
       expect.objectContaining({ rc: "RC5041" }),
     );
   });

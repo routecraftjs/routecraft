@@ -128,8 +128,9 @@ it.
 
 A domain concept gets one word, and that word inflects. Deferral is the
 worked example: `defer` is the verb, `deferral` the noun, `deferred` the
-state. `.defer()` produces a `Deferral`, and a run that reached one is
-deferred.
+state. `.defer()` writes a `Deferral` record and answers the caller with a
+`Deferred` acknowledgment, and a run that reached one is deferred. The two
+types are the record and the receipt, not synonyms.
 
 Two rules follow, and both were learned by breaking them:
 
@@ -148,7 +149,8 @@ A `CraftConfig` key is singular when it configures one subsystem, and plural
 only when it holds a map of names the author invents.
 
 Singular: `llm`, `embedding`, `agent`, `mcp`, `acp`, `http`, `ops`,
-`telemetry`, `cron`, `mail`, `direct`, `shutdown`, `deferral`. Plural:
+`telemetry`, `cron`, `mail`, `direct`, `carddav`, `shutdown`, `deferral`.
+Plural:
 `servers` (`{ public, internal }`) and `remotes` (`{ origin, upstream }`).
 
 How many things a subsystem manages does not decide it. `agent` holds the

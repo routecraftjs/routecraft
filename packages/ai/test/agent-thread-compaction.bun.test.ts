@@ -42,7 +42,7 @@ function deferred(
   messages: ThreadMessage[] = thread(),
 ): NewDeferral {
   return {
-    id: "sus-1",
+    id: "def-1",
     routeId: "approvals",
     position: 2,
     continuationHash: "c".repeat(64),
@@ -175,7 +175,7 @@ describe("replaceDeferredThread", () => {
     await store.create(deferred());
 
     const shorter = thread().slice(1);
-    const result = await replaceDeferredThread(store, "sus-1", () => shorter);
+    const result = await replaceDeferredThread(store, "def-1", () => shorter);
 
     expect(result.won).toBe(true);
     const state = result.deferral?.stepState as {
@@ -198,12 +198,12 @@ describe("replaceDeferredThread", () => {
     await store.create(deferred());
 
     await expect(
-      replaceDeferredThread(store, "sus-1", (messages) =>
+      replaceDeferredThread(store, "def-1", (messages) =>
         messages.filter((message) => message.role !== "tool"),
       ),
     ).rejects.toMatchObject({ rc: "AI1008" });
 
-    const after = (await store.get("sus-1"))?.stepState as {
+    const after = (await store.get("def-1"))?.stepState as {
       messages: ThreadMessage[];
     };
     expect(after.messages).toHaveLength(3);
@@ -217,10 +217,10 @@ describe("replaceDeferredThread", () => {
   test("does not rewrite a run that already resumed", async () => {
     const store = new MemoryDeferralStore();
     await store.create(deferred());
-    await store.markResumed("sus-1", { at: new Date() });
+    await store.markResumed("def-1", { at: new Date() });
 
     let invoked = false;
-    const result = await replaceDeferredThread(store, "sus-1", (messages) => {
+    const result = await replaceDeferredThread(store, "def-1", (messages) => {
       invoked = true;
       return messages;
     });
@@ -244,13 +244,13 @@ describe("replaceDeferredThread", () => {
   test("refuses a compaction built on a stale read", async () => {
     const store = new MemoryDeferralStore();
     await store.create(deferred());
-    const before = (await store.get("sus-1"))?.stepState;
+    const before = (await store.get("def-1"))?.stepState;
 
-    const first = await replaceDeferredThread(store, "sus-1", (messages) =>
+    const first = await replaceDeferredThread(store, "def-1", (messages) =>
       messages.slice(1),
     );
     const second = await store.replaceStepState(
-      "sus-1",
+      "def-1",
       stepStateFingerprint(before),
       {
         agentId: "aria",
@@ -276,7 +276,7 @@ describe("replaceDeferredThread", () => {
     const store = new MemoryDeferralStore();
     await store.create(deferred());
 
-    const result = await replaceDeferredThread(store, "sus-1", (messages) => {
+    const result = await replaceDeferredThread(store, "def-1", (messages) => {
       (messages as ThreadMessage[]).splice(0, 1);
       return messages;
     });
@@ -297,13 +297,13 @@ describe("replaceDeferredThread", () => {
     await store.create(deferred());
 
     await expect(
-      replaceDeferredThread(store, "sus-1", (messages) => {
+      replaceDeferredThread(store, "def-1", (messages) => {
         (messages as ThreadMessage[]).length = 0;
         return messages;
       }),
     ).rejects.toMatchObject({ rc: "AI1008" });
 
-    const after = (await store.get("sus-1"))?.stepState as {
+    const after = (await store.get("def-1"))?.stepState as {
       messages: ThreadMessage[];
     };
     expect(after.messages).toHaveLength(3);
@@ -330,7 +330,7 @@ describe("replaceDeferredThread", () => {
     await store.create(deferred({ stepState: { note: "not an agent" } }));
 
     await expect(
-      replaceDeferredThread(store, "sus-1", (m) => m),
+      replaceDeferredThread(store, "def-1", (m) => m),
     ).rejects.toMatchObject({ rc: "AI1007" });
   });
 });

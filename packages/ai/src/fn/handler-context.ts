@@ -22,7 +22,7 @@ import "../errors.ts";
 
 /**
  * What the agent tool bridge wires into a handler context when the
- * dispatch can actually defers: the dispatching exchange's deferral
+ * dispatch can actually defer: the dispatching exchange's deferral
  * identity. Absent on every other surface, which is what makes
  * `ctx.defer` a typed refusal there.
  *

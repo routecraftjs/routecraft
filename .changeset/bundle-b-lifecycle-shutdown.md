@@ -21,7 +21,7 @@ abandoned, and the process exits non-zero: `craft start --once` reports a
 forced shutdown as a failure for the same reason. What a forced stage accepts
 losing is stated in the configuration reference: exchanges abandoned mid-step
 with no terminal event. Nothing is settled or denied on the way down, so a
-deferred deferral survives a forced shutdown exactly as it survives a
+deferred exchange survives a forced shutdown exactly as it survives a
 graceful one.
 
 **API CHANGE: `context.stop()` resolves with `{ forced, pending }`** instead

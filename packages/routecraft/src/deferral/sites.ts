@@ -226,7 +226,7 @@ export interface ResolvedDeferSites {
 /**
  * Whether a built route can raise a durable deferral: statically (a
  * declared `.defer()`) or at runtime (a defer-capable step that MAY
- * deferral). The predicate transports key on to advertise a `Deferred`
+ * defer). The predicate transports key on to advertise a `Deferred`
  * acknowledgment arm, owned here next to the fields it reads so a new way
  * for a route to defer updates every consumer in one edit.
  */

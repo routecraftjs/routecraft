@@ -81,4 +81,4 @@ user-visible changes:
 - Listeners reap idle connections after 255s, and mounts that hold quiet
   long-lived streams (the MCP transport; custom mounts via
   `longLived: true`) exempt their requests per request, so silent streams
-  are never cut while deferred sockets still get reaped.
+  are never cut while idle sockets still get reaped.

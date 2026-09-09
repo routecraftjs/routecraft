@@ -124,6 +124,10 @@ describe("agent durable deferral (ctx.defer)", () => {
 
     const store = t.ctx.getStore(DEFERRAL_RUNTIME)!.store;
     const record = await store.get(deferred.deferralId);
+    // The acknowledgment saying "deferred" and the record being resumable are
+    // two claims, and only the second one is what a resume will act on.
+    expect(record!.state).toBe("waiting");
+    expect(record!.waitingFor).toBe("resume");
     expect(record!.meta).toEqual({ question: "pay acme?" });
     expect(seenIds[0]).toBe(deferred.deferralId);
     expect(seenDeferrals[0]!.id).toBe(seenIds[0]!);
@@ -782,7 +786,7 @@ describe("agent durable deferral (ctx.defer)", () => {
       "ask",
       new AbortController().signal,
       undefined,
-      { id: "sus-1", mintToken: () => "token" },
+      { id: "def-1", mintToken: () => "token" },
     );
 
     expect(() => ctx.defer({ ttl: "3 days" as never })).toThrow();

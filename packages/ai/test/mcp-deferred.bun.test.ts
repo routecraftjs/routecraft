@@ -224,6 +224,10 @@ describe("MCP carries Deferred (#581)", () => {
     const record = await t.ctx
       .getStore(DEFERRAL_RUNTIME)!
       .store.get(ack.deferralId);
+    // Asserted before the resume below, so a record the acknowledgment called
+    // deferred but the store left unresumable fails here rather than surfacing
+    // as a confusing failure inside the resume.
+    expect(record!.state).toBe("waiting");
     expect(record!.meta).toEqual({
       channel: "finance",
       requires: ["payouts:approve"],

@@ -12,7 +12,7 @@ A `ttl` used to be enforced only when a late answer arrived. Nobody presents a t
 
 **Settled records are now purged.** `retention` (default `90d`, `"never"` to keep everything) drives `purgeSettled` once at boot and hourly after. Previously nothing ever removed a settled record, so a long-running process accumulated every exchange that ever deferred.
 
-**The sweep pages on a keyset cursor** ordered `(expiresAt, id)`, advancing past every visited record, so records a context cannot retire (a renamed route's deferred deferrals, a shared store) can never starve the work behind them, whatever their number.
+**The sweep pages on a keyset cursor** ordered `(expiresAt, id)`, advancing past every visited record, so records a context cannot retire (a renamed route's deferrals, a shared store) can never starve the work behind them, whatever their number.
 
 **What an out-of-tree store implements.** `findExpired(now, limit, after?)` takes a required limit and an optional keyset cursor and must order by `(expiresAt, id)`; `claimExpiry(id, at)` takes the delivery claim and `releaseClaims(before)` releases stale ones; `markExpired` / `markDenied` settle a claimed record rather than a merely waiting one; `resumedWithoutContinuation(limit?)` is diagnostic-only. A record is resumable while it is `waiting` with no `claimedAt`, which the exported `resumable(record)` predicate answers, and the shipped sqlite backend spells the same compare as its `WHERE` clause.
 

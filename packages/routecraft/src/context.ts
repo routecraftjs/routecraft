@@ -1845,7 +1845,7 @@ export class CraftContext {
    *
    * What this accepts losing: in-flight exchanges are abandoned mid-step and
    * emit no terminal event. What it does NOT do is settle or deny anything on
-   * the way down, so a deferred deferral survives a forced shutdown exactly
+   * the way down, so a deferred exchange survives a forced shutdown exactly
    * as it survives a graceful one.
    *
    * It does NOT reach the deferral sweeper. The sweeper stops cooperatively
@@ -1863,7 +1863,7 @@ export class CraftContext {
     this.logger.warn(
       { timeoutMs: this.shutdownTimeoutMs, pending },
       pending.length > 0
-        ? "Graceful shutdown did not drain in time; abandoning in-flight work and forcing shutdown. Deferred deferrals are left untouched."
+        ? "Graceful shutdown did not drain in time; abandoning in-flight work and forcing shutdown. Deferred exchanges are left untouched."
         : "Graceful shutdown did not complete in time; forcing shutdown.",
     );
     for (const route of this.routes) {

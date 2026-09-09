@@ -142,5 +142,5 @@ A tool whose route dispatches an agent may defer, so if it declares `.output()` 
 ## Related
 
 - [`.defer()`](/docs/reference/operations/defer) and [`.resume()`](/docs/reference/operations/resume): the primitive this rides on, including the crash boundary (durability starts at a declared deferral, never mid-step).
-- [agentPlugin](/docs/reference/plugins/agentplugin): registering the fns whose handlers deferral.
+- [agentPlugin](/docs/reference/plugins/agentplugin): registering the fns whose handlers defer.
 - [Events](/docs/reference/events): `route:exchange:deferred` / `:resumed` / `:expired` fire for agent defers exactly as for route defers; the agent tier adds no parallel event set.

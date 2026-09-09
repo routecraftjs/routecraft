@@ -29,7 +29,7 @@ afterAll(() => {
  */
 function record(overrides: Partial<NewDeferral> = {}): NewDeferral {
   return {
-    id: "sus-1",
+    id: "def-1",
     routeId: "payout",
     position: 3,
     continuationHash: "c".repeat(64),
@@ -99,7 +99,7 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       });
       await store.create(written);
 
-      const read = await store.get("sus-1");
+      const read = await store.get("def-1");
       expect(read).toBeDefined();
       expect(read?.routeId).toBe("payout");
       expect(read?.position).toBe(3);
@@ -151,7 +151,7 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       await store.create(written);
       (written.exchange.body as { amountCents: number }).amountCents = 1;
 
-      const read = await store.get("sus-1");
+      const read = await store.get("def-1");
       expect((read?.exchange.body as { amountCents: number }).amountCents).toBe(
         75_000,
       );
@@ -167,7 +167,7 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       await store.create(record());
       const at = new Date("2026-08-11T08:00:00.000Z");
 
-      const result = await store.markResumed("sus-1", {
+      const result = await store.markResumed("def-1", {
         at,
         by: { subject: "user:jaco", issuer: "https://idp.example" },
       });
@@ -190,11 +190,11 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       await store.create(record());
 
       const [first, second] = await Promise.all([
-        store.markResumed("sus-1", {
+        store.markResumed("def-1", {
           at: new Date("2026-08-11T08:00:00.000Z"),
           by: { subject: "first" },
         }),
-        store.markResumed("sus-1", {
+        store.markResumed("def-1", {
           at: new Date("2026-08-11T08:00:01.000Z"),
           by: { subject: "second" },
         }),
@@ -205,7 +205,7 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       const loser = first.won ? second : first;
       // The loser is told what happened instead, without a second read.
       expect(loser.deferral?.outcome?.kind).toBe("resumed");
-      expect((await store.get("sus-1"))?.outcome?.by?.subject).toBe(
+      expect((await store.get("def-1"))?.outcome?.by?.subject).toBe(
         winner.deferral?.outcome?.by?.subject,
       );
     });
@@ -222,12 +222,12 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       );
 
       const [resumed, claimed] = await Promise.all([
-        store.markResumed("sus-1", { at: new Date() }),
-        store.claimExpiry("sus-1", new Date()),
+        store.markResumed("def-1", { at: new Date() }),
+        store.claimExpiry("def-1", new Date()),
       ]);
 
       expect([resumed.won, claimed.won].filter(Boolean)).toHaveLength(1);
-      const stored = await store.get("sus-1");
+      const stored = await store.get("def-1");
       expect(stored?.outcome?.kind ?? "claimed").toBe(
         resumed.won ? "resumed" : "claimed",
       );
@@ -261,7 +261,7 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
         claimedAt: new Date("2026-08-10T09:30:00.000Z"),
       } as unknown as Parameters<DeferralStore["create"]>[0]);
 
-      const stored = await store.get("sus-1");
+      const stored = await store.get("def-1");
 
       expect(stored?.state).toBe("waiting");
       expect(stored?.continuation).toBeUndefined();
@@ -278,10 +278,10 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
     test("refuses to resume a deferral that already settled", async () => {
       store = await open();
       await store.create(record());
-      await store.claimExpiry("sus-1", new Date());
-      await store.markExpired("sus-1");
+      await store.claimExpiry("def-1", new Date());
+      await store.markExpired("def-1");
 
-      const result = await store.markResumed("sus-1", { at: new Date() });
+      const result = await store.markResumed("def-1", { at: new Date() });
 
       expect(result.won).toBe(false);
       expect(result.deferral?.outcome?.kind).toBe("expired");
@@ -305,9 +305,9 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
     test("refuses to resume a deferral whose delivery is claimed", async () => {
       store = await open();
       await store.create(record());
-      await store.claimExpiry("sus-1", new Date("2026-08-11T08:00:00.000Z"));
+      await store.claimExpiry("def-1", new Date("2026-08-11T08:00:00.000Z"));
 
-      const result = await store.markResumed("sus-1", { at: new Date() });
+      const result = await store.markResumed("def-1", { at: new Date() });
 
       expect(result.won).toBe(false);
       expect(result.deferral?.state).toBe("waiting");
@@ -329,14 +329,14 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
     test("a released claim is resumable again", async () => {
       store = await open();
       await store.create(record());
-      await store.claimExpiry("sus-1", new Date("2026-08-11T08:00:00.000Z"));
-      expect((await store.markResumed("sus-1", { at: new Date() })).won).toBe(
+      await store.claimExpiry("def-1", new Date("2026-08-11T08:00:00.000Z"));
+      expect((await store.markResumed("def-1", { at: new Date() })).won).toBe(
         false,
       );
 
       await store.releaseClaims(new Date("2026-08-11T09:00:00.000Z"));
 
-      const result = await store.markResumed("sus-1", { at: new Date() });
+      const result = await store.markResumed("def-1", { at: new Date() });
       expect(result.won).toBe(true);
       expect(result.deferral?.outcome?.kind).toBe("resumed");
     });
@@ -350,11 +350,11 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       store = await open();
       await store.create(record());
 
-      const unclaimed = await store.markDenied("sus-1", "too eager");
+      const unclaimed = await store.markDenied("def-1", "too eager");
       expect(unclaimed.won).toBe(false);
 
       const claimedAt = new Date("2026-08-11T09:00:00.000Z");
-      const claim = await store.claimExpiry("sus-1", claimedAt);
+      const claim = await store.claimExpiry("def-1", claimedAt);
       expect(claim.won).toBe(true);
       expect(claim.deferral?.state).toBe("waiting");
       expect(claim.deferral?.claimedAt).toBeDefined();
@@ -362,7 +362,7 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
         claimedAt.toISOString(),
       );
 
-      const result = await store.markDenied("sus-1", "run cancelled");
+      const result = await store.markDenied("def-1", "run cancelled");
       expect(result.won).toBe(true);
       expect(result.deferral?.outcome?.kind).toBe("denied");
       expect(result.deferral?.outcome?.reason).toBe("run cancelled");
@@ -463,10 +463,10 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
     test("caches the continuation result of execution two", async () => {
       store = await open();
       await store.create(record());
-      await store.markResumed("sus-1", { at: new Date() });
-      await store.recordContinuation("sus-1", continuation);
+      await store.markResumed("def-1", { at: new Date() });
+      await store.recordContinuation("def-1", continuation);
 
-      const read = await store.get("sus-1");
+      const read = await store.get("def-1");
       expect(read?.continuation?.status).toBe("completed");
       expect(read?.continuation?.body).toEqual({ paid: true });
       expect(read?.continuation?.at.getTime()).toBe(continuation.at.getTime());
@@ -790,7 +790,7 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       );
 
       expect(await store.purgeSettled(new Date())).toBe(0);
-      expect((await store.get("sus-1"))?.state).toBe("waiting");
+      expect((await store.get("def-1"))?.state).toBe("waiting");
     });
 
     /**
@@ -810,7 +810,7 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
         turnsUsed: 2,
       };
       const result = await store.replaceStepState(
-        "sus-1",
+        "def-1",
         stepStateFingerprint(written.stepState),
         next,
       );
@@ -820,7 +820,7 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       expect(result.deferral?.state).toBe("waiting");
       expect(result.deferral?.exchange).toEqual(written.exchange);
       expect(result.deferral?.meta).toEqual(written.meta);
-      expect((await store.get("sus-1"))?.stepState).toEqual(next);
+      expect((await store.get("def-1"))?.stepState).toEqual(next);
     });
 
     /**
@@ -834,11 +834,11 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       await store.create(written);
       const stale = stepStateFingerprint(written.stepState);
 
-      const first = await store.replaceStepState("sus-1", stale, {
+      const first = await store.replaceStepState("def-1", stale, {
         messages: [],
         turnsUsed: 1,
       });
-      const second = await store.replaceStepState("sus-1", stale, {
+      const second = await store.replaceStepState("def-1", stale, {
         messages: [],
         turnsUsed: 99,
       });
@@ -861,10 +861,10 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       store = await open();
       const written = record({ stepState: { messages: [], turnsUsed: 0 } });
       await store.create(written);
-      await store.markResumed("sus-1", { at: new Date() });
+      await store.markResumed("def-1", { at: new Date() });
 
       const result = await store.replaceStepState(
-        "sus-1",
+        "def-1",
         stepStateFingerprint(written.stepState),
         { messages: [], turnsUsed: 5 },
       );
@@ -897,12 +897,12 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
 
       await expect(
         store.replaceStepState(
-          "sus-1",
+          "def-1",
           stepStateFingerprint(written.stepState),
           { cycle: circular() },
         ),
       ).rejects.toMatchObject({ rc: "RC5042" });
-      expect((await store.get("sus-1"))?.stepState).toEqual(written.stepState);
+      expect((await store.get("def-1"))?.stepState).toEqual(written.stepState);
     });
   });
 }
@@ -931,7 +931,7 @@ describe("SqliteDeferralStore durability", () => {
     await first.close();
 
     const second = await SqliteDeferralStore.open({ path });
-    const read = await second.get("sus-1");
+    const read = await second.get("def-1");
     await second.close();
 
     expect(read?.routeId).toBe("payout");
@@ -1016,7 +1016,7 @@ describe("DeferralStore compare-and-swap under real concurrency", () => {
           new Promise<{ subject: string; won: boolean }>((resolve, reject) => {
             const child = spawn(
               process.execPath,
-              [worker, path, "sus-1", String(startAt), subject],
+              [worker, path, "def-1", String(startAt), subject],
               { stdio: ["ignore", "pipe", "pipe"] },
             );
             let stdout = "";
@@ -1037,7 +1037,7 @@ describe("DeferralStore compare-and-swap under real concurrency", () => {
     expect(winners).toHaveLength(1);
 
     const store = await SqliteDeferralStore.open({ path });
-    const read = await store.get("sus-1");
+    const read = await store.get("def-1");
     await store.close();
     expect(read?.outcome?.kind).toBe("resumed");
     expect(read?.outcome?.by?.subject).toBe(winners[0]?.subject);
