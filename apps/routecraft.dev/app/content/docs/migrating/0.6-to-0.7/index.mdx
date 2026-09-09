@@ -88,7 +88,7 @@ craft()
 
 Four things beyond the rename:
 
-- **A stale name is refused at runtime, not only by TypeScript.** `timer({ intervalMs: 60_000 })` from plain JavaScript, through an `as any`, or through an options object spread in used to run silently on the 1000ms default. Every authored options surface now rejects a key ending in `Ms`, and the removed options (`timer({ exactTime })`, `timer({ timePattern })`, `timer({ jitter })`, `cron({ jitter })`, `retry({ exponential })`), with `RC5003` naming what to write instead. The context's own config (`shutdown`, each `servers.<name>`, `telemetry.sqlite`) is checked in the constructor.
+- **A stale name is refused at runtime, not only by TypeScript.** `timer({ intervalMs: 60_000 })` from plain JavaScript, through an `as any`, or through an options object spread in used to run silently on the 1000ms default. Every authored options surface now rejects a key ending in `Ms`, the options removed for their own reasons (`timer({ exactTime })`, `timer({ timePattern })`, `retry({ exponential })`), and the name a straight desuffixing would guess (`timer({ jitter })` and `cron({ jitter })`, which point at `maxJitter`), each with `RC5003` naming what to write instead. The context's own config (`shutdown`, each `servers.<name>`, `telemetry.sqlite`) is checked in the constructor.
 - **`jitter` on `timer()` and `cron()` is `maxJitter`**, not the bare `jitter` a straight desuffixing would give: each delay is drawn uniformly from `[0, maxJitter)`, and `.retry({ jitter })` is a fraction in `[0, 1]`, which stays as it was. One name meaning two types on two operations is the defect this change closes.
 - **`.throttle({ per })` accepts a `Duration`.** The unit words keep their meaning, and a bare number is milliseconds as everywhere else a `Duration` is accepted: `per: 60` is a 60ms window. Write `per: "60s"` or `per: "minute"`.
 - **`craft start --timeout` accepts a duration string** (`--timeout 30s`); a bare number is still milliseconds.
@@ -113,6 +113,7 @@ export default defineConfig({
 
 ```ts
 import { defineConfig } from "@routecraft/routecraft";
+import "@routecraft/ai"; // augments CraftConfig with mcp
 
 export default defineConfig({
   servers: { public: { host: "0.0.0.0", port: 8080 } },
