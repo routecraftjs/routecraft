@@ -210,7 +210,11 @@ export function createOpsHttpClient(
       // A 200 from something that is not this API (a wrong port, a proxy's
       // error page) would otherwise be cast to the caller's type and crash
       // in the renderer rather than here, where the address can be named.
-      if (parsed === null || typeof parsed !== "object") {
+      if (
+        parsed === null ||
+        typeof parsed !== "object" ||
+        Array.isArray(parsed)
+      ) {
         throw new OpsClientError(
           "error",
           `The instance at ${addressBlame()} answered ${String(response.status)} with a body this client does not recognise. Check that the address is a routecraft ops server.`,
@@ -222,10 +226,11 @@ export function createOpsHttpClient(
 
     // A body that is not JSON still carries the reason on the error path: a
     // proxy's plain-text refusal names the thing that refused.
-    const wire: WireError =
+    const wire = sanitizeWire(
       parsed === null || typeof parsed !== "object"
         ? textAsWireError(text)
-        : (parsed as WireError);
+        : (parsed as WireError),
+    );
     if (response.status === 401 || response.status === 403) {
       const challenge = parseBearerChallenge(
         response.headers.get("www-authenticate"),
@@ -415,7 +420,7 @@ export function createOpsHttpClient(
     dispatch: (id: string, body: unknown) =>
       call<OpsDispatchOutcome>(
         `/ops/routes/${encodeURIComponent(id)}/exchanges`,
-        { method: "POST", body: body ?? {} },
+        { method: "POST", body },
       ),
   };
 }
@@ -562,6 +567,20 @@ function describeWireError(wire: WireError, status: number): string {
 function textAsWireError(text: string): WireError {
   const message = text.trim();
   return message.length > 0 ? { message } : {};
+}
+
+/**
+ * Strip and bound every string the wire supplied before it reaches an error
+ * message. The body came from whatever answered at the address, which may
+ * be a proxy or a stranger, and an error message reaches terminals and logs.
+ */
+function sanitizeWire(wire: WireError): WireError {
+  const out: WireError = {};
+  for (const key of ["error", "reason", "scope", "code", "message"] as const) {
+    const value = wire[key];
+    if (typeof value === "string") out[key] = printable(value);
+  }
+  return out;
 }
 
 /** A thrown value's message; non-Error throws (a `ResolveMessage`) still carry one. */

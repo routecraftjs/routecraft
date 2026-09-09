@@ -93,8 +93,19 @@ export interface ContributedIndicator {
   readonly name: string;
   readonly domain?: FailureDomain;
   readonly maxAge?: Duration;
-  /** Installed by the ops plugin when it binds the indicator; absent until then. */
-  report?: (health: Health) => void;
+  /**
+   * Where reports go: one sink per ops ledger that bound the indicator, so a
+   * context carrying two ops mounts reports into both. Empty until an ops
+   * plugin binds it, and empty again after teardown.
+   */
+  readonly sinks: Set<(health: Health) => void>;
+  /**
+   * The most recent report, replayed to a ledger that binds after it was
+   * made. A contributor whose start() ran before the ops plugin's would
+   * otherwise have its first verdict lost, and a remote unreachable at boot
+   * would read as up until its next refresh.
+   */
+  last?: Health;
 }
 
 /**
@@ -125,7 +136,7 @@ declare module "@routecraft/routecraft" {
  */
 export function contributeOpsIndicator(
   ctx: CraftContext,
-  definition: Omit<ContributedIndicator, "report">,
+  definition: Omit<ContributedIndicator, "sinks" | "last">,
 ): (health: Health) => void {
   assertIndicatorName(definition.name, "contributeOpsIndicator");
   const registry =
@@ -136,8 +147,11 @@ export function contributeOpsIndicator(
       message: `Indicator "${definition.name}" is already contributed on this context. One contributor per name.`,
     });
   }
-  const entry: ContributedIndicator = { ...definition };
+  const entry: ContributedIndicator = { ...definition, sinks: new Set() };
   registry.set(definition.name, entry);
   ctx.setStore(OPS_CONTRIBUTED_INDICATORS, registry);
-  return (health) => entry.report?.(health);
+  return (health) => {
+    entry.last = health;
+    for (const sink of entry.sinks) sink(health);
+  };
 }

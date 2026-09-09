@@ -32,7 +32,7 @@ import {
   type ContributedIndicator,
 } from "./store";
 import { enforcesWall } from "./tier";
-import type { Indicator, OpsPluginOptions, OpsTiers } from "./types";
+import type { Health, Indicator, OpsPluginOptions, OpsTiers } from "./types";
 
 /**
  * Everything the mount answers. Claimed exhaustively so the server's
@@ -56,8 +56,11 @@ interface Runtime {
   authConfigured: boolean;
   /** Every indicator name registered on the ledger, from options and contributions. */
   indicatorNames: Set<string>;
-  /** Contributed indicators bound at start, released at teardown. */
-  contributed: ContributedIndicator[];
+  /** Contributed indicators bound at start, with this ledger's sink, released at teardown. */
+  contributed: Array<{
+    entry: ContributedIndicator;
+    sink: (health: Health) => void;
+  }>;
   unmount?: () => void;
 }
 
@@ -387,8 +390,14 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
           ...(entry.domain !== undefined ? { domain: entry.domain } : {}),
         });
         const { state } = runtime;
-        entry.report = (health) => state.reportIndicator(entry.name, health);
-        runtime.contributed.push(entry);
+        const sink = (health: Health): void => {
+          state.reportIndicator(entry.name, health);
+        };
+        entry.sinks.add(sink);
+        // A contributor whose start() already ran reported into nothing; its
+        // last verdict is what the ledger should open with.
+        if (entry.last !== undefined) sink(entry.last);
+        runtime.contributed.push({ entry, sink });
       }
 
       const unbound = unboundIndicators();
@@ -422,7 +431,9 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
         runtime.state.contextStopped();
         for (const unsubscribe of runtime.unsubscribes) unsubscribe();
         for (const indicator of indicators) unbindIndicator(indicator, ctx);
-        for (const entry of runtime.contributed) delete entry.report;
+        for (const { entry, sink } of runtime.contributed) {
+          entry.sinks.delete(sink);
+        }
         runtimes.delete(ctx);
       }
     },

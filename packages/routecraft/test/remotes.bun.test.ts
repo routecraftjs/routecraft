@@ -37,16 +37,20 @@ const JWT_ISSUER = "https://idp.test";
 const JWT_AUDIENCE = "https://api.test";
 const SUSPENSION_SECRET = "remotes-suspension-secret-0123456789";
 
-/** A credential admitted to both tiers. */
-const OPERATOR = signHs256({
-  secret: JWT_SECRET,
-  claims: { scope: "ops:introspection ops:dispatch" },
-});
+/**
+ * A credential admitted to both tiers, minted per request: the helper's
+ * tokens live for a minute, and a suite must not depend on finishing in one.
+ */
+const operator = (): string =>
+  signHs256({
+    secret: JWT_SECRET,
+    claims: { scope: "ops:introspection ops:dispatch" },
+  });
 /** A credential admitted to the listing and refused at dispatch. */
-const READER = signHs256({
-  secret: JWT_SECRET,
-  claims: { scope: "ops:introspection" },
-});
+const reader = (): string =>
+  signHs256({ secret: JWT_SECRET, claims: { scope: "ops:introspection" } });
+/** The base64url head every HS256 JWT starts with, which no log line may carry. */
+const JWT_HEAD = "eyJhbGciOi";
 /** Not a credential at all; distinctive so a log line carrying it is findable. */
 const FORGED = "forged-bearer-0f3a9c1e-never-log-me";
 
@@ -296,8 +300,8 @@ describe("remotes", () => {
     const url = `http://127.0.0.1:${String(server.port)}`;
     local = await startLocal({
       remotes: {
-        default: { url, auth: { token: OPERATOR } },
-        lab: { url, auth: { token: () => OPERATOR } },
+        default: { url, auth: { token: operator } },
+        lab: { url, auth: { token: operator } },
       },
       routes: [
         craft()
@@ -340,8 +344,8 @@ describe("remotes", () => {
     const url = `http://127.0.0.1:${String(server.port)}`;
     local = await startLocal({
       remotes: {
-        default: { url, auth: { token: OPERATOR } },
-        lab: { url, auth: { token: OPERATOR } },
+        default: { url, auth: { token: operator } },
+        lab: { url, auth: { token: operator } },
       },
     });
 
@@ -395,7 +399,7 @@ describe("remotes", () => {
     const url = `http://127.0.0.1:${String(server.port)}`;
     let warnings: string[] = [];
     local = await startLocal({
-      remotes: { default: { url, auth: { token: OPERATOR } } },
+      remotes: { default: { url, auth: { token: operator } } },
       routes: [
         craft()
           .id("hello")
@@ -455,8 +459,8 @@ describe("remotes", () => {
     const url = `http://127.0.0.1:${String(server.port)}`;
     local = await startLocal({
       remotes: {
-        lab: { url, auth: { token: OPERATOR } },
-        reader: { url, auth: { token: READER } },
+        lab: { url, auth: { token: operator } },
+        reader: { url, auth: { token: reader } },
       },
     });
 
@@ -500,7 +504,7 @@ describe("remotes", () => {
           auth: {
             token: () => {
               reads += 1;
-              return OPERATOR;
+              return operator();
             },
           },
         },
@@ -527,7 +531,7 @@ describe("remotes", () => {
       ),
     ).toBe(true);
     expect(logs!.everything.some((line) => line.includes(FORGED))).toBe(false);
-    expect(logs!.everything.some((line) => line.includes(OPERATOR))).toBe(
+    expect(logs!.everything.some((line) => line.includes(JWT_HEAD))).toBe(
       false,
     );
   });
@@ -598,7 +602,7 @@ describe("remotes", () => {
       remotes: {
         lab: {
           url: `http://127.0.0.1:${String(port)}`,
-          auth: { token: OPERATOR },
+          auth: { token: operator },
           refresh: "100ms",
         },
       },
