@@ -137,7 +137,7 @@ function makeDeferRefusal(
     // combination rather than the unbound dispatch it is not.
     if (inSession) {
       throw rcError("AI1011", undefined, {
-        message: `ctx.defer in tool "${toolName}": a turn of an agent dispatched with "session" cannot defer. The session's continuation is revived from its own record, and an approval has no deferred exchange to resume into here. Deferral from a sessionless agent, or move the approval into a route the agent calls as a tool.`,
+        message: `ctx.defer in tool "${toolName}": a turn of an agent dispatched with "session" cannot defer. The session's continuation is revived from its own record, and an approval has no deferred exchange to resume into here. Defer from a sessionless agent, or move the approval into a route the agent calls as a tool.`,
       });
     }
     throw rcError("AI1006", undefined, {

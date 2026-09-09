@@ -959,7 +959,7 @@ describe("agent sessions", () => {
     );
     const transcript = JSON.stringify(record?.messages);
     expect(transcript).toContain("cannot defer");
-    expect(transcript).toContain("Deferral from a sessionless agent");
+    expect(transcript).toContain("Defer from a sessionless agent");
     const summary = await AgentSessionRuntime.for(t.ctx).summary(
       "s",
       "operator",

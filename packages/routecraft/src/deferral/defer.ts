@@ -25,7 +25,7 @@ import { type Deferred, createDeferred } from "./deferred.ts";
 import type { NewDeferral } from "./types.ts";
 
 /**
- * Deferral an exchange: everything that happens between a `.defer()`
+ * Deferring an exchange: everything that happens between a `.defer()`
  * producing its outcome and execution one answering.
  *
  * Ordering is deliberate and load-bearing. The exchange is serialized

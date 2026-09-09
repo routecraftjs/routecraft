@@ -251,7 +251,7 @@ declare module "@routecraft/routecraft" {
     ): Retyped<this, SetBody<S, StandardSchemaV1.InferOutput<Schema>>>;
 
     /**
-     * Deferral the exchange durably and exit the pipeline, to be resumed later
+     * Defer the exchange durably and exit the pipeline, to be resumed later
      * at the next step.
      *
      * This run ends here and replies immediately with the `Deferred`

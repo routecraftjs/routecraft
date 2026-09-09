@@ -234,7 +234,7 @@ registerErrorCodes(
       category: "Adapter",
       message: "A tool asked to defer an agent session turn",
       suggestion:
-        "ctx.defer() was called by a tool inside an agent dispatched with session. A session turn stores its transcript when it ends and is revived from the session record, not from a deferred exchange, so there is no continuation for an approval to resume into. Deferral from a sessionless agent, or move the approval into a route the agent calls as a tool.",
+        "ctx.defer() was called by a tool inside an agent dispatched with session. A session turn stores its transcript when it ends and is revived from the session record, not from a deferred exchange, so there is no continuation for an approval to resume into. Defer from a sessionless agent, or move the approval into a route the agent calls as a tool.",
       docs: `${DOCS_BASE}#ai-1011`,
       retryable: false,
     },

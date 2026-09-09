@@ -226,7 +226,7 @@
     "name": "defer",
     "category": "Flow Control",
     "signature": ".defer({ schema?, ttl?, meta? })",
-    "description": "Deferral the exchange durably and answer now; resume later at the next step."
+    "description": "Defer the exchange durably and answer now; resume later at the next step."
   },
   {
     "name": "resume",

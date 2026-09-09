@@ -78,7 +78,7 @@ export enum OperationType {
   DEBOUNCE = "debounce",
   /** Short-circuit the pipeline: drop the exchange without further steps */
   HALT = "halt",
-  /** Deferral the exchange durably and exit the pipeline, to be resumed later at the next step */
+  /** Defer the exchange durably and exit the pipeline, to be resumed later at the next step */
   DEFER = "defer",
   /** Revive a deferred exchange addressed by a signed resume token */
   RESUME = "resume",

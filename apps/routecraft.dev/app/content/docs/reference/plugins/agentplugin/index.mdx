@@ -652,7 +652,7 @@ Two ways for a handler to wait on a human, chosen by how long the wait is:
 |---|---|
 | Under a minute | A blocking `await` is fine. HTTP timeouts and restart risk are low. |
 | 1 to 10 minutes | Blocking works on most platforms. Acceptable for "ask user, get reply during a meeting" flows. |
-| Longer than that | Deferral the run durably with `ctx.defer()`: the loop survives restarts and continues when the resume arrives through any ingress. See [Durable agents](/docs/advanced/durable-agents). |
+| Longer than that | Defer the run durably with `ctx.defer()`: the loop survives restarts and continues when the resume arrives through any ingress. See [Durable agents](/docs/advanced/durable-agents). |
 
 A blocking tool handler:
 

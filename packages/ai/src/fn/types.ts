@@ -109,7 +109,7 @@ export interface FnHandlerContext {
   readonly session?: FnSessionView;
 
   /**
-   * Deferral the run: the handler cannot answer now, so the agent's tool loop
+   * Defer the run: the handler cannot answer now, so the agent's tool loop
    * stops, the exchange is durably deferred through the core store, and
    * the caller receives the framework's `Deferred` acknowledgment.
    * `return ctx.defer({ schema, ttl })` is the whole protocol; the
