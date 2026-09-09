@@ -18,8 +18,6 @@
 
 Routecraft is a TypeScript framework for AI automation. A capability is a route: a typed pipeline from a source, through operations, to a destination. The same route is an MCP tool for Claude or Cursor, a tool for an agent you run yourself, an HTTP endpoint, or a scheduled job, depending only on its source. Agents are routes too, with the same guardrails around a model call as around any other step. Nothing is reachable until you write a route for it.
 
-This page describes `main`, which is ahead of the last release. Install `@routecraft/routecraft@canary` to run what it describes, or the latest release for what the [docs](https://routecraft.dev/docs) freeze to.
-
 ## Five minutes: an agent you own
 
 [craft-harness](https://github.com/routecraftjs/craft-harness) is a complete agent built out of Routecraft capabilities: chat, a sandboxed shell, web fetch and search, a workspace, memory, a scheduler, human approvals, and the editor capabilities. Every one of them is an ordinary route in `capabilities/` you can read on one screen and change.
@@ -93,7 +91,7 @@ export default craft()
 
 Tools are an allowlist of capabilities, never a blacklist. An agent can also be a markdown file under `agents/` with frontmatter for its model and tools, which `craft start` discovers with everything else in the project. Because the agent is a step in a route, `.authorize()`, `.throttle()`, `.retry()`, `.timeout()` and `.circuitBreaker()` apply to the model call exactly as to any other step.
 
-## What is on main today
+## What you get
 
 - **Work that survives a restart.** [`.suspend()`](https://routecraft.dev/docs/reference/operations/suspend) parks an exchange in a store, and [`.resume()`](https://routecraft.dev/docs/reference/operations/resume) revives it by token, hours or days later, from any transport. [Durable agents](https://routecraft.dev/docs/advanced/durable-agents) park mid-conversation the same way.
 - **Agents with sessions and background tools.** A conversation is a record a person owns; a tool can hand a long job to a route and come back when it finishes. [Agent adapter](https://routecraft.dev/docs/reference/adapters/agent).
