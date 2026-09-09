@@ -6,7 +6,7 @@ import "../errors.ts";
 
 /**
  * What the agent tier persists in the core deferral record's `stepState`
- * slot: the closure state of a tool loop parked mid-flight. The store never
+ * slot: the closure state of a tool loop deferred mid-flight. The store never
  * interprets it; this module is the single owner of its shape.
  *
  * `messages` is the ModelMessage thread up to and including the deferred
@@ -15,8 +15,8 @@ import "../errors.ts";
  * resolved strings and plain JSON ever land here: the system prompt,
  * blocks, and tools are re-resolved live when the step re-runs.
  *
- * `turnsUsed` makes the `maxTurns` budget survive the park: a park is not a
- * fresh dispatch, and a reset would make park/resume cycling an
+ * `turnsUsed` makes the `maxTurns` budget survive the deferral: a deferral is not a
+ * fresh dispatch, and a reset would make deferral/resume cycling an
  * unbounded-budget loop.
  */
 export interface AgentStepState {
@@ -25,7 +25,7 @@ export interface AgentStepState {
   readonly deferredToolCallId: string;
   readonly turnsUsed: number;
   /**
-   * Token spend accumulated before the park, when any model call reported
+   * Token spend accumulated before the deferral, when any model call reported
    * one. Travels with `turnsUsed` for the same reason: a cancelled resumed
    * run must report the WHOLE run's spend, not just the slice after the
    * resume.
@@ -71,13 +71,13 @@ export const DEFERRED_TOOL_PLACEHOLDER = {
 
 /**
  * The tool result a LOSING defer signal is rewritten to when a sibling in
- * the same batch already parked the run. Recorded as an error output so the
+ * the same batch already deferred the run. Recorded as an error output so the
  * resumed model knows the tool did not run to completion and can retry it.
  *
  * @internal
  */
 export const SIBLING_DEFERRED_MESSAGE =
-  "A sibling tool call in this batch already deferred the run. This call did not park; retry it after the resume if it is still needed.";
+  "A sibling tool call in this batch already deferred the run. This call did not defer; retry it after the resume if it is still needed.";
 
 /**
  * Validate step state read back off a deferral record.
@@ -125,7 +125,7 @@ export function parseStepState(value: unknown): AgentStepState {
 
 /**
  * Turn a persisted `stepState` back into the session input a re-entrant
- * dispatch resumes from: validate the record, check it was parked by the
+ * dispatch resumes from: validate the record, check it was deferred by the
  * agent this route now dispatches, and splice the approver's answer into
  * the deferred call's tool result.
  *
@@ -140,7 +140,7 @@ export function parseStepState(value: unknown): AgentStepState {
  * @param answer - The validated-or-raw resume result to deliver as the
  *   deferred call's tool output
  * @returns The thread with the answer in place, and the turns already spent
- * @throws AI1007 when the state is malformed, was parked by a different
+ * @throws AI1007 when the state is malformed, was deferred by a different
  *   agent, or its thread no longer contains the deferred call
  *
  * @internal
@@ -159,13 +159,13 @@ export function rehydrateSession(
     // The registered options behind a by-name agent are NOT covered by
     // the continuation hash (only step definitions are), so the name is
     // the one identity the record can pin. A mismatch means the route
-    // was rebound to a different agent under the parked exchange.
+    // was rebound to a different agent under the deferred exchange.
     throw rcError("AI1007", undefined, {
-      message: `This deferral was parked by agent "${state.agentId}", but the resumed route now dispatches ${
+      message: `This deferral was deferred by agent "${state.agentId}", but the resumed route now dispatches ${
         agentIdentity === undefined
           ? "an agent with no identity (synthetic dispatch)"
           : `"${agentIdentity}"`
-      }. Restore the original agent binding, or treat the parked work as lost and re-ask.`,
+      }. Restore the original agent binding, or treat the deferred work as lost and re-ask.`,
     });
   }
   const swapped = replaceToolResultOutput(
@@ -213,7 +213,7 @@ export interface ToolResultOutput {
  * @param output - The replacement output slot
  * @returns `{ messages, found }`: the (possibly new) thread and whether the
  *   call was found. The caller decides whether absence is an error; the
- *   resume path treats it as AI1007, the park path as a wiring bug.
+ *   resume path treats it as AI1007, the deferral path as a wiring bug.
  *
  * @internal
  */

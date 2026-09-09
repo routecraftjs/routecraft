@@ -58,7 +58,7 @@ describe("the resume authorize hook", () => {
 
   /**
    * @case A door with no hook keeps the historical bearer behaviour exactly
-   * @preconditions A parked record and a .resume() declaring no authorize
+   * @preconditions A deferred record and a .resume() declaring no authorize
    * @expectedResult Any holder of a valid token resumes it, unchanged from before the hook existed
    */
   test("no hook is bearer, exactly as before", async () => {
@@ -76,12 +76,12 @@ describe("the resume authorize hook", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(await t.client.sendDirect("payout", {}));
+    const deferred = asDeferred(await t.client.sendDirect("payout", {}));
     const ack = (await t.client.sendDirect("answers", {
-      token: parked.token,
+      token: deferred.token,
     })) as { status: string };
     expect(ack.status).toBe("resumed");
-    expect((await store.get(parked.deferralId))?.status).toBe("resumed");
+    expect((await store.get(deferred.deferralId))?.status).toBe("resumed");
   });
 
   /**
@@ -110,19 +110,19 @@ describe("the resume authorize hook", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(await t.client.sendDirect("payout", {}));
+    const deferred = asDeferred(await t.client.sendDirect("payout", {}));
     await expect(
-      t.client.sendDirect("answers", { who: "bob", token: parked.token }),
+      t.client.sendDirect("answers", { who: "bob", token: deferred.token }),
     ).rejects.toThrow(/refused this principal/);
 
-    const untouched = await store.get(parked.deferralId);
+    const untouched = await store.get(deferred.deferralId);
     expect(untouched?.status).toBe("deferred");
     expect(untouched?.claimedAt).toBeUndefined();
     expect(untouched?.deniedReason).toBeUndefined();
 
     const ack = (await t.client.sendDirect("answers", {
       who: "alice",
-      token: parked.token,
+      token: deferred.token,
     })) as { status: string };
     expect(ack.status).toBe("resumed");
   });
@@ -153,16 +153,16 @@ describe("the resume authorize hook", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(await t.client.sendDirect("payout", {}));
+    const deferred = asDeferred(await t.client.sendDirect("payout", {}));
     await t.client.sendDirect("answers", {
       who: "alice",
-      token: parked.token,
+      token: deferred.token,
     });
-    expect((await store.get(parked.deferralId))?.status).toBe("resumed");
+    expect((await store.get(deferred.deferralId))?.status).toBe("resumed");
 
     // Alice would now read `duplicate`. Bob must not learn even that much.
     await expect(
-      t.client.sendDirect("answers", { who: "bob", token: parked.token }),
+      t.client.sendDirect("answers", { who: "bob", token: deferred.token }),
     ).rejects.toThrow(/refused this principal/);
   });
 
@@ -192,9 +192,9 @@ describe("the resume authorize hook", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(await t.client.sendDirect("payout", {}));
+    const deferred = asDeferred(await t.client.sendDirect("payout", {}));
     // Break the continuation the way a redeploy would.
-    const record = (await store.get(parked.deferralId)) as Deferral;
+    const record = (await store.get(deferred.deferralId)) as Deferral;
     await store.create({
       ...record,
       id: `${record.id}-edited`,
@@ -256,10 +256,10 @@ describe("the resume authorize hook", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(await t.client.sendDirect("payout", {}));
-    await t.client.sendDirect("answers", { token: parked.token });
+    const deferred = asDeferred(await t.client.sendDirect("payout", {}));
+    await t.client.sendDirect("answers", { token: deferred.token });
     expect(ran).toEqual([{ approved: true }]);
-    expect((await store.get(parked.deferralId))?.status).toBe("resumed");
+    expect((await store.get(deferred.deferralId))?.status).toBe("resumed");
   });
 
   /**
@@ -282,8 +282,8 @@ describe("the resume authorize hook", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(await t.client.sendDirect("payout", {}));
-    const record = (await store.get(parked.deferralId)) as Deferral;
+    const deferred = asDeferred(await t.client.sendDirect("payout", {}));
+    const record = (await store.get(deferred.deferralId)) as Deferral;
     await store.create({
       ...record,
       id: `${record.id}-bound`,
@@ -336,8 +336,8 @@ describe("the resume authorize hook", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(await t.client.sendDirect("payout", {}));
-    const record = (await store.get(parked.deferralId)) as Deferral;
+    const deferred = asDeferred(await t.client.sendDirect("payout", {}));
+    const record = (await store.get(deferred.deferralId)) as Deferral;
     await store.create({
       ...record,
       id: `${record.id}-bound`,
@@ -419,9 +419,9 @@ describe("the resume authorize hook", () => {
 
     const messages: string[] = [];
     for (const door of ["says-no", "blows-up", "never-settles"]) {
-      const parked = asDeferred(await t.client.sendDirect("payout", {}));
+      const deferred = asDeferred(await t.client.sendDirect("payout", {}));
       try {
-        await t.client.sendDirect(door, { token: parked.token });
+        await t.client.sendDirect(door, { token: deferred.token });
         throw new Error(`expected ${door} to refuse`);
       } catch (err) {
         messages.push((err as Error).message);
@@ -472,18 +472,18 @@ describe("the resume authorize hook", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(await t.client.sendDirect("payout", {}));
+    const deferred = asDeferred(await t.client.sendDirect("payout", {}));
     await expect(
-      t.client.sendDirect("answers", { token: parked.token }),
+      t.client.sendDirect("answers", { token: deferred.token }),
     ).rejects.toMatchObject({ rc: "RC5047" });
   });
 
   /**
-   * @case The hook sees the record's metadata view and never the parked body
+   * @case The hook sees the record's metadata view and never the deferred body
    * @preconditions A site attaching meta, over a body the hook must not receive
    * @expectedResult Exactly the documented fields arrive, meta round-trips verbatim, and nothing carries the body
    */
-  test("meta round-trips from park to hook, without the body", async () => {
+  test("meta round-trips from deferral to hook, without the body", async () => {
     const seen: unknown[] = [];
     t = await testContext()
       .with(deferring())
@@ -509,10 +509,10 @@ describe("the resume authorize hook", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(
+    const deferred = asDeferred(
       await t.client.sendDirect("payout", { secret: "do-not-leak" }),
     );
-    await t.client.sendDirect("answers", { token: parked.token });
+    await t.client.sendDirect("answers", { token: deferred.token });
 
     const view = seen[0] as Record<string, unknown>;
     expect(view["meta"]).toEqual({
@@ -534,7 +534,7 @@ describe("the resume authorize hook", () => {
   /**
    * @case meta is subject to the same plain-JSON rule as the exchange
    * @preconditions A site attaching a function in meta
-   * @expectedResult The park fails with RC5042 naming the slot, rather than writing a record the store cannot round-trip
+   * @expectedResult The deferral fails with RC5042 naming the slot, rather than writing a record the store cannot round-trip
    */
   test("meta refuses a value the store cannot round-trip", async () => {
     t = await testContext()
@@ -588,9 +588,9 @@ describe("the resume authorize hook", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(await t.client.sendDirect("payout", {}));
+    const deferred = asDeferred(await t.client.sendDirect("payout", {}));
     await expect(
-      t.client.sendDirect("answers", { token: parked.token }),
+      t.client.sendDirect("answers", { token: deferred.token }),
     ).rejects.toThrow(/refused this principal/);
     expect(transitions).toBe(0);
   });
@@ -611,7 +611,7 @@ describe("the resume authorize hook", () => {
   });
 });
 
-describe("the parked answer schema", () => {
+describe("the deferred answer schema", () => {
   let t: TestContext | undefined;
 
   afterEach(async () => {
@@ -620,9 +620,9 @@ describe("the parked answer schema", () => {
   });
 
   /**
-   * @case A site with no schema parks with no ingress contract at all
+   * @case A site with no schema defers with no ingress contract at all
    * @preconditions .defer() with no schema, resumed with a value no approval schema would accept
-   * @expectedResult The park carries no schema rendering, the answer is delivered unvalidated, and the descriptor records the absence
+   * @expectedResult The deferral carries no schema rendering, the answer is delivered unvalidated, and the descriptor records the absence
    */
   test("a schema-less site accepts any answer and records the absence", async () => {
     const store = new MemoryDeferralStore();
@@ -643,21 +643,21 @@ describe("the parked answer schema", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(await t.client.sendDirect("consent", {}));
-    expect(parked.schema).toBeUndefined();
-    expect((await store.get(parked.deferralId))?.schema.absent).toBe(true);
+    const deferred = asDeferred(await t.client.sendDirect("consent", {}));
+    expect(deferred.schema).toBeUndefined();
+    expect((await store.get(deferred.deferralId))?.schema.absent).toBe(true);
 
     await t.client.sendDirect("answers", {
-      token: parked.token,
+      token: deferred.token,
       result: "yes",
     });
     expect(seen).toEqual(["yes"]);
   });
 
   /**
-   * @case Removing a static site's schema invalidates records parked under it
-   * @preconditions A record parked with a declared schema, then a redeploy whose site declares none
-   * @expectedResult RC5048, because a static site always describes what it declares today: falling back to the stored descriptor would compare it against itself and accept the parked answer unvalidated
+   * @case Removing a static site's schema invalidates records deferred under it
+   * @preconditions A record deferred with a declared schema, then a redeploy whose site declares none
+   * @expectedResult RC5048, because a static site always describes what it declares today: falling back to the stored descriptor would compare it against itself and accept the deferred answer unvalidated
    */
   test("a removed static schema takes the RC5048 re-ask", async () => {
     const store = new MemoryDeferralStore();
@@ -673,7 +673,9 @@ describe("the parked answer schema", () => {
       ])
       .build();
     await withSchema.startAndWaitReady();
-    const parked = asDeferred(await withSchema.client.sendDirect("payout", {}));
+    const deferred = asDeferred(
+      await withSchema.client.sendDirect("payout", {}),
+    );
     await withSchema.stop();
 
     try {
@@ -686,7 +688,7 @@ describe("the parked answer schema", () => {
         .build();
       await t2.startAndWaitReady();
       await expect(
-        t2.client.sendDirect("answers", { token: parked.token }),
+        t2.client.sendDirect("answers", { token: deferred.token }),
       ).rejects.toMatchObject({ rc: "RC5048" });
     } finally {
       if (t2) await t2.stop();
@@ -770,10 +772,10 @@ describe("the parked answer schema", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(await t.client.sendDirect("payout", {}));
+    const deferred = asDeferred(await t.client.sendDirect("payout", {}));
     // Extra keys the schema strips, so seeing them proves the hook ran first.
     await t.client.sendDirect("approvals", {
-      token: parked.token,
+      token: deferred.token,
       result: { approved: true, note: "sent from the approval mail" },
     });
 
@@ -809,15 +811,15 @@ describe("the parked answer schema", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(await t.client.sendDirect("payout", {}));
+    const deferred = asDeferred(await t.client.sendDirect("payout", {}));
     await expect(
       t.client.sendDirect("approvals", {
         who: "mallory",
-        token: parked.token,
+        token: deferred.token,
         result: "not an approval object at all",
       }),
     ).rejects.toMatchObject({ rc: "RC5056" });
-    expect((await store.get(parked.deferralId))?.status).toBe("deferred");
+    expect((await store.get(deferred.deferralId))?.status).toBe("deferred");
 
     // The same malformed payload from the principal the hook accepts DOES
     // reach the validator, which is what proves the refusal above was the
@@ -825,11 +827,11 @@ describe("the parked answer schema", () => {
     await expect(
       t.client.sendDirect("approvals", {
         who: "alice",
-        token: parked.token,
+        token: deferred.token,
         result: "not an approval object at all",
       }),
     ).rejects.toMatchObject({ rc: "RC5049" });
-    expect((await store.get(parked.deferralId))?.status).toBe("deferred");
+    expect((await store.get(deferred.deferralId))?.status).toBe("deferred");
   });
 
   /**
@@ -852,20 +854,20 @@ describe("the parked answer schema", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(await t.client.sendDirect("payout", {}));
+    const deferred = asDeferred(await t.client.sendDirect("payout", {}));
     await expect(
       t.client.sendDirect("approvals", {
-        token: parked.token,
+        token: deferred.token,
         result: { approved: "yes please" },
       }),
     ).rejects.toMatchObject({ rc: "RC5049" });
-    expect((await store.get(parked.deferralId))?.status).toBe("deferred");
+    expect((await store.get(deferred.deferralId))?.status).toBe("deferred");
 
     await t.client.sendDirect("approvals", {
-      token: parked.token,
+      token: deferred.token,
       result: { approved: true },
     });
-    expect((await store.get(parked.deferralId))?.status).toBe("resumed");
+    expect((await store.get(deferred.deferralId))?.status).toBe("resumed");
   });
   /**
    * @case tokenFor refuses to mint an unbound credential for an untyped caller

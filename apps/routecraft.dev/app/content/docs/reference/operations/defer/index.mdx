@@ -14,7 +14,7 @@ defer(options: {
 }): RouteBuilder<Current>
 ```
 
-Park the exchange durably and exit the pipeline. The run that reaches a `.defer()` ends there and replies immediately; the exchange continues from the next step later, when [`.resume()`](/docs/reference/operations/resume) arrives with the payload.
+Deferral the exchange durably and exit the pipeline. The run that reaches a `.defer()` ends there and replies immediately; the exchange continues from the next step later, when [`.resume()`](/docs/reference/operations/resume) arrives with the payload.
 
 ```ts skip="fragment: PayoutRequest, Approval, executePayout are illustrative"
 craft()
@@ -42,7 +42,7 @@ craft()
 | Option | Type | Default | Required | Description |
 |--------|------|---------|----------|-------------|
 | `schema` | `StandardSchemaV1` | -- | No | What a valid resume payload looks like. Types `ex.deferral.result` for every step after the defer, and is what the submitted payload is validated against at resume time. Omit to declare no contract: nothing is validated at the ingress and `ex.deferral.result` types `unknown`. |
-| `ttl` | `Duration`: milliseconds, or `"<n><unit>"` with unit `ms` / `s` / `m` / `h` / `d` | [`deferral.defaultTtl`](/docs/reference/configuration#deferral), itself `72h` | No | How long the deferral stays resumable, for example `"500ms"`, `"30s"`, `"72h"`, `"7d"`. Omit to inherit the context default. A deferral with no deadline at all needs `defaultTtl: 'never'` on the context, because a parked exchange nothing will ever retire is a leak rather than a default. A malformed value fails at the call site with `RC5003`, on `.defer()` and `ctx.defer()` alike; code that computes a ttl can validate it under the same rules with the exported `parseDuration(value, field)`. |
+| `ttl` | `Duration`: milliseconds, or `"<n><unit>"` with unit `ms` / `s` / `m` / `h` / `d` | [`deferral.defaultTtl`](/docs/reference/configuration#deferral), itself `72h` | No | How long the deferral stays resumable, for example `"500ms"`, `"30s"`, `"72h"`, `"7d"`. Omit to inherit the context default. A deferral with no deadline at all needs `defaultTtl: 'never'` on the context, because a deferred exchange nothing will ever retire is a leak rather than a default. A malformed value fails at the call site with `RC5003`, on `.defer()` and `ctx.defer()` alike; code that computes a ttl can validate it under the same rules with the exported `parseDuration(value, field)`. |
 | `meta` | plain JSON | -- | No | Anything the resuming route needs to decide who may resume, or an operator needs to read off the record. Persisted verbatim, never interpreted, and never surfaced on the acknowledgment. See [Who may resume](#who-may-resume). |
 
 <Callout type="warning" title="There is no approve or deny">
@@ -72,10 +72,10 @@ A route with a reachable defer therefore has output type `Output | Deferred`. Ea
 | Source | Rendering |
 |--------|-----------|
 | `http()` | `202 Accepted`, the `Deferred` value as the body, `Retry-After` from the `ttl` |
-| `mcp()` | an ordinary `isError: false` tool result whose `structuredContent` is the acknowledgment; a tool that declares `.output()` and can park advertises `oneOf: [Output, Deferred]`, and on the 2025 protocol revision both sides arrive inside the `{ result: ... }` envelope (see [Running an MCP server](/docs/advanced/expose-as-mcp#deferrable-tools)) |
+| `mcp()` | an ordinary `isError: false` tool result whose `structuredContent` is the acknowledgment; a tool that declares `.output()` and can defer advertises `oneOf: [Output, Deferred]`, and on the 2025 protocol revision both sides arrive inside the `{ result: ... }` envelope (see [Running an MCP server](/docs/advanced/expose-as-mcp#deferrable-tools)) |
 | `direct()` | the value itself; the caller narrows with `isDeferred(result)` |
 | `cron()`, `simple()`, file | nothing on the wire, a log line only; completion is simply deferred |
-| queue sources | ack, never nack: the work is parked in the deferral store, and a redelivery would ask the approver twice |
+| queue sources | ack, never nack: the work is deferred in the deferral store, and a redelivery would ask the approver twice |
 
 The route's real output flows to its destinations on execution two, not back to the original transport.
 
@@ -97,12 +97,12 @@ The framework does not define how approvals work. It has no notion of an approve
 
 What it does guarantee is the part you cannot build from outside:
 
-- The token addresses exactly one parked record and is single-use.
+- The token addresses exactly one deferred record and is single-use.
 - The claim is a compare-and-swap, so one resume wins and late or duplicate ones read the settled outcome.
 - **Every refusal happens before that claim**, so saying no costs the rightful principal nothing.
 - Both principals and the record are handed to your code at the one moment deciding is free.
 
-So the decision lives on the resuming route, in [`.resume({ authorize })`](/docs/reference/operations/resume#securing-resume), and `meta` is how the park carries whatever that decision needs:
+So the decision lives on the resuming route, in [`.resume({ authorize })`](/docs/reference/operations/resume#securing-resume), and `meta` is how the deferral carries whatever that decision needs:
 
 ```ts skip="fragment: a chain shown without its route"
 .tap(direct('notify-approver'))
@@ -113,7 +113,7 @@ So the decision lives on the resuming route, in [`.resume({ authorize })`](/docs
 })
 ```
 
-`meta` is plain JSON under the same rule as the exchange body ([`RC5042`](/docs/reference/errors#rc-5042) for anything that cannot round-trip), persisted verbatim, and never read by the framework. Because it lives only on the record, a parker that snapshots its policy there gets **policy travels with the park** by construction: the resuming hook reads the record, so editing this site changes nothing for records already parked.
+`meta` is plain JSON under the same rule as the exchange body ([`RC5042`](/docs/reference/errors#rc-5042) for anything that cannot round-trip), persisted verbatim, and never read by the framework. Because it lives only on the record, a defer site that snapshots its policy there gets **policy travels with the deferral** by construction: the resuming hook reads the record, so editing this site changes nothing for records already deferred.
 
 <Callout type="warning" title="`meta` is authored by the deferring step">
 
@@ -121,11 +121,11 @@ On the agent surface that step is the MODEL, and the model has read whatever unt
 
 </Callout>
 
-The continuation always runs as the **parked** principal, restored from storage and [marked restored](/docs/reference/operations/resume#securing-resume). The resuming hook gates who may inject the payload and receive the result; it never changes whose authority the rest of the route executes under.
+The continuation always runs as the **deferred** principal, restored from storage and [marked restored](/docs/reference/operations/resume#securing-resume). The resuming hook gates who may inject the payload and receive the result; it never changes whose authority the rest of the route executes under.
 
 ## The branch-rejoin rule
 
-A defer branch rejoins the main flow only if it restored the main flow's contract; otherwise it must leave the flow entirely (drop, or complete). The body crosses the park untouched, so the fast path and the approved path are indistinguishable downstream, and `ex.deferral` is never read by the main flow.
+A defer branch rejoins the main flow only if it restored the main flow's contract; otherwise it must leave the flow entirely (drop, or complete). The body crosses the deferral untouched, so the fast path and the approved path are indistinguishable downstream, and `ex.deferral` is never read by the main flow.
 
 ## ex.deferral
 
@@ -133,10 +133,10 @@ A defer branch rejoins the main flow only if it restored the main flow's contrac
 
 | Field | Available | Description |
 |-------|-----------|-------------|
-| `id` | always | The deferral id this exchange would park as. |
+| `id` | always | The deferral id this exchange would defer as. |
 | `token` | always | Signed, single-use resume token for that id. Mintable before the defer runs, which is what makes a notification step useful. |
-| `tokenFor(call)` | always | A credential bound to one call on the record. Only a step that can raise several calls against one park needs it; see [Durable agents](/docs/advanced/durable-agents). |
-| `sequence` | always | How many times this exchange has already parked. |
+| `tokenFor(call)` | always | A credential bound to one call on the record. Only a step that can raise several calls against one deferral needs it; see [Durable agents](/docs/advanced/durable-agents). |
+| `sequence` | always | How many times this exchange has already deferred. |
 | `result` | after a resume | The validated payload, typed by `schema`. `unknown` when the site declared none. |
 | `resumedBy` | after a resume | Who resumed it, when the resume ingress had an authenticated principal. |
 | `resumedAt` | after a resume | When the resume was accepted. |
@@ -147,13 +147,13 @@ A defer branch rejoins the main flow only if it restored the main flow's contrac
 
 - **Inside `.split()`.** A durable aggregator would have to track N outstanding children across restarts. Split the work into per-item child capabilities instead: each is its own exchange and defers independently.
 - **Inside a `.multicast()` path or a `.dispatch()` target.** Those exchanges are isolated side flows, so a resumed continuation would have nowhere to rejoin.
-- **Under a step-scope wrapper** (`.retry()`, `.timeout()`, `.cache()`, …), which fails with [`RC5003`](/docs/reference/errors#rc-5003). Parking is not a failure to re-attempt. Put `.error()` at route scope instead, where it also catches revival failures.
-- **On a route with route-scope `.cache()`**, also [`RC5003`](/docs/reference/errors#rc-5003). The cache filters wrap the user pipeline, which a park exits and a resume re-enters partway down, so neither the check nor the store would ever run and the cache would silently do nothing. Use a step-scope `.cache()` on the expensive step instead.
+- **Under a step-scope wrapper** (`.retry()`, `.timeout()`, `.cache()`, …), which fails with [`RC5003`](/docs/reference/errors#rc-5003). Deferring is not a failure to re-attempt. Put `.error()` at route scope instead, where it also catches revival failures.
+- **On a route with route-scope `.cache()`**, also [`RC5003`](/docs/reference/errors#rc-5003). The cache filters wrap the user pipeline, which a deferral exits and a resume re-enters partway down, so neither the check nor the store would ever run and the cache would silently do nothing. Use a step-scope `.cache()` on the expensive step instead.
 
 Two more refusals happen outside build time, each as early as it can be known and both well before a resume:
 
 - A context whose routes can reach a defer (or a [`.resume()`](/docs/reference/operations/resume)) but which configured no [`deferral`](/docs/reference/configuration#deferral) block fails at **startup** with [`RC5052`](/docs/reference/errors#rc-5052).
-- An exchange holding anything that is not plain JSON data (a function, a class instance, a `Secret`) fails at **defer time**, with [`RC5042`](/docs/reference/errors#rc-5042) naming the offending path. Deliberately at the park rather than at the resume: the deploy that introduced the value is what should fail, not the approver's click days later.
+- An exchange holding anything that is not plain JSON data (a function, a class instance, a `Secret`) fails at **defer time**, with [`RC5042`](/docs/reference/errors#rc-5042) naming the offending path. Deliberately at the deferral rather than at the resume: the deploy that introduced the value is what should fail, not the approver's click days later.
 
 <Callout type="warning" title="Durable from the defer point onward">
 
@@ -163,7 +163,7 @@ Deferral guarantees durability from a **declared** defer point. It is not genera
 
 ## Resilience on the continuation
 
-A resume runs the continuation inside a chain **rebuilt** from the positions that survive a park, in their usual order ([pre-from filter chain](/docs/advanced/filter-chain#a-resumed-exchange-re-enters-partway-down-the-chain)). Route-scope `.error()`, `.retry()`, `.timeout()` and `.concurrency()` apply to execution two; `authorize`, `parse`, `input`, `throttle` and `circuitBreaker` do not, because they describe an exchange arriving at the route and this one arrived once. `cache` is refused at build alongside a reachable defer. Of the positions that stay off, `throttle` and `circuitBreaker` have step-scope forms you can declare inside the continuation, where they bound the step rather than the arrival. `authorize`, `parse` and `input` have no step-scope equivalent, because each describes an exchange entering a route: work that needs one of those belongs on a route that has its own chain, reached with `.to(direct('...'))`.
+A resume runs the continuation inside a chain **rebuilt** from the positions that survive a deferral, in their usual order ([pre-from filter chain](/docs/advanced/filter-chain#a-resumed-exchange-re-enters-partway-down-the-chain)). Route-scope `.error()`, `.retry()`, `.timeout()` and `.concurrency()` apply to execution two; `authorize`, `parse`, `input`, `throttle` and `circuitBreaker` do not, because they describe an exchange arriving at the route and this one arrived once. `cache` is refused at build alongside a reachable defer. Of the positions that stay off, `throttle` and `circuitBreaker` have step-scope forms you can declare inside the continuation, where they bound the step rather than the arrival. `authorize`, `parse` and `input` have no step-scope equivalent, because each describes an exchange entering a route: work that needs one of those belongs on a route that has its own chain, reached with `.to(direct('...'))`.
 
 <Callout type="warning" title="Route-scope `.retry()` reaches the continuation">
 
@@ -187,15 +187,15 @@ Retiring a deferral emits [`route:exchange:expired`](/docs/reference/events) and
 
 ## Deferral raised from a step
 
-`.defer()` is one of two ways an exchange parks. The other is a **defer-capable step** raising a deferral from inside its own execution; the shipped case is the agent step, whose tool handlers park through `ctx.defer()` (see [Durable agents](/docs/advanced/durable-agents)). The differences are worth knowing:
+`.defer()` is one of two ways an exchange defers. The other is a **defer-capable step** raising a deferral from inside its own execution; the shipped case is the agent step, whose tool handlers deferral through `ctx.defer()` (see [Durable agents](/docs/advanced/durable-agents)). The differences are worth knowing:
 
-- **Resume re-enters the step itself**, not the step after it: the step must finish the work it parked in the middle of. Its own definition is therefore covered by the continuation hash, so editing an inline agent's options (system prompt, model, tools) invalidates its parked runs through the [`RC5048`](/docs/reference/errors#rc-5048) re-ask path, exactly as editing a continuation step does.
+- **Resume re-enters the step itself**, not the step after it: the step must finish the work it deferred in the middle of. Its own definition is therefore covered by the continuation hash, so editing an inline agent's options (system prompt, model, tools) invalidates its deferred runs through the [`RC5048`](/docs/reference/errors#rc-5048) re-ask path, exactly as editing a continuation step does.
 - **Positional refusals move to runtime.** Whether a capable step ever defers is dynamic, so a route that fans an agent out over a `.split()` or into a `.multicast()` path builds fine; the first actual deferral from such a position is refused with [`RC5051`](/docs/reference/errors#rc-5051), carrying the same explanation the build-time refusal gives a static `.defer()`.
 - **The startup runtime check stays static.** A context needs a [`deferral`](/docs/reference/configuration#deferral) block at startup only for static `.defer()` (and `.resume()`) routes; an agent route without one starts fine, and a `ctx.defer()` there fails as an ordinary step error with [`RC5052`](/docs/reference/errors#rc-5052) naming the one config line.
-- **A cancelled run cannot leave a live link.** A run aborted around its own park (an elapsed route-scope `.timeout()`) refuses to park, or immediately denies the just-written deferral, failing with [`RC5054`](/docs/reference/errors#rc-5054); a token presented later reads [`RC5050`](/docs/reference/errors#rc-5050). `context.stop()` is not cancellation: a parked exchange survives the stop, which is the store's entire purpose.
+- **A cancelled run cannot leave a live link.** A run aborted around its own deferral (an elapsed route-scope `.timeout()`) refuses to defer, or immediately denies the just-written deferral, failing with [`RC5054`](/docs/reference/errors#rc-5054); a token presented later reads [`RC5050`](/docs/reference/errors#rc-5050). `context.stop()` is not cancellation: a deferred exchange survives the stop, which is the store's entire purpose.
 
 ## Related
 
 - [`.resume()`](/docs/reference/operations/resume) -- the other half.
-- [Configuration → deferral](/docs/reference/configuration#deferral) -- where parked exchanges are stored and how tokens are signed.
+- [Configuration → deferral](/docs/reference/configuration#deferral) -- where deferred exchanges are stored and how tokens are signed.
 - [Events](/docs/reference/events) -- `route:exchange:deferred`, `:resumed`, `:expired`.

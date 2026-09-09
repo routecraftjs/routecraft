@@ -74,9 +74,9 @@ export interface FnHandlerContext {
   readonly correlationId?: string;
 
   /**
-   * Id of the deferral this dispatch's exchange would park as (or parked
+   * Id of the deferral this dispatch's exchange would defer as (or deferred
    * as), populated BEFORE the handler runs so a callback URL can be built
-   * ahead of the actual park. Present only inside an agent dispatch on a
+   * ahead of the actual deferral. Present only inside an agent dispatch on a
    * route-bound exchange; undefined on other surfaces (proxied MCP tool
    * guards, `testFn`). Renamed from the `checkpointId` stub per the naming
    * decision on #417.
@@ -109,14 +109,14 @@ export interface FnHandlerContext {
   readonly session?: FnSessionView;
 
   /**
-   * Park the run: the handler cannot answer now, so the agent's tool loop
+   * Deferral the run: the handler cannot answer now, so the agent's tool loop
    * stops, the exchange is durably deferred through the core store, and
    * the caller receives the framework's `Deferred` acknowledgment.
    * `return ctx.defer({ schema, ttl })` is the whole protocol; the
    * returned sentinel must be returned as-is, immediately.
    *
    * In-flight sibling tool calls of the same batch are awaited and their
-   * results persisted before the park; a second defer signal in one
+   * results persisted before the deferral; a second defer signal in one
    * batch is recorded as a tool error the resumed model can retry.
    *
    * Only available inside an agent dispatch on a route-bound exchange:
@@ -133,7 +133,7 @@ export interface FnHandlerContext {
  * to build its resumption channel.
  */
 export interface FnDeferralView {
-  /** Id the exchange would park as (or parked as). */
+  /** Id the exchange would defer as (or deferred as). */
   readonly id: string;
   /**
    * Signed, single-use resume token for {@link FnDeferralView.id}.

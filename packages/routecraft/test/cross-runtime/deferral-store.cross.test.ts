@@ -14,7 +14,7 @@ import {
  * The store has a genuine runtime-specific driver split (`bun:sqlite` under
  * Bun, `better-sqlite3` under Node, per the decision recorded in
  * `src/shared/sqlite/driver.ts`), and the whole point of the feature is
- * that a parked exchange survives a restart. So the properties that make
+ * that a deferred exchange survives a restart. So the properties that make
  * durability real, a record that reads back after a reopen and a
  * compare-and-swap that produces exactly one winner, are proven on both
  * runtimes rather than on whichever one CI happens to run first.
@@ -73,7 +73,7 @@ describe("deferral store (cross-runtime)", () => {
   });
 
   /**
-   * @case A parked exchange outlives the process that parked it
+   * @case A deferred exchange outlives the process that deferred it
    * @preconditions A record written to an on-disk database, then reopened
    * @expectedResult Every persisted field reads back unchanged
    */
@@ -168,7 +168,7 @@ describe("deferral store (cross-runtime)", () => {
   });
 
   /**
-   * @case A swap never touches a record that left the parked state
+   * @case A swap never touches a record that left the deferred state
    * @preconditions A record that has already resumed
    * @expectedResult Refused with the record returned untouched, so a
    *   compaction cannot rewrite a run that is executing its continuation

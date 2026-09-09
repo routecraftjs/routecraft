@@ -51,7 +51,7 @@ function mailbox(message: {
  * A queue-shaped source that records how each delivery settled.
  *
  * The contract under test is the epic's: a defer must ACK, never nack.
- * The work is durably parked in the deferral store, so redelivery would
+ * The work is durably deferred in the deferral store, so redelivery would
  * create a second deferral for the same message and ask the approver
  * twice.
  */
@@ -83,7 +83,7 @@ describe("defer and resume across transports", () => {
   });
 
   /**
-   * @case An http() ingress parks and answers 202 with the acknowledgment
+   * @case An http() ingress defers and answers 202 with the acknowledgment
    * @preconditions POST route whose pipeline reaches .defer({ ttl }) before its destination
    * @expectedResult 202 Accepted, a Retry-After derived from the ttl, and the Deferred value as the JSON body; a later resume drives the continuation
    */
@@ -143,11 +143,11 @@ describe("defer and resume across transports", () => {
   });
 
   /**
-   * @case A route whose exchange never parks is unaffected by the 202 path
+   * @case A route whose exchange never defers is unaffected by the 202 path
    * @preconditions The same http() route, taking a .choice() branch that does not defer
    * @expectedResult 200 with the route's declared output, so the acknowledgment rendering never leaks into ordinary responses
    */
-  test("http() still answers 200 when the exchange does not park", async () => {
+  test("http() still answers 200 when the exchange does not defer", async () => {
     let port = 0;
     t = await testContext()
       .on(
@@ -191,13 +191,13 @@ describe("defer and resume across transports", () => {
 
   /**
    * @case A mail-born exchange is continued by an answer from a different transport
-   * @preconditions A mail-shaped source parks the exchange; an http() ingress route ending in .resume() receives the answer
+   * @preconditions A mail-shaped source defers the exchange; an http() ingress route ending in .resume() receives the answer
    * @expectedResult The continuation runs with the mail envelope intact and the answer in place, without the original source taking any part in execution two
    */
   test("a mail-born exchange resumes from an http ingress", async () => {
     let port = 0;
     const continued: Array<{ from: unknown; approved: boolean }> = [];
-    const parked: string[] = [];
+    const deferred: string[] = [];
 
     t = await testContext()
       .on(
@@ -221,10 +221,10 @@ describe("defer and resume across transports", () => {
               text: "Taxi to the airport, 84 EUR",
             }),
           )
-          // The notification step: mints the token BEFORE the park, which is
+          // The notification step: mints the token BEFORE the deferral, which is
           // what the approver's link would carry.
           .tap((ex) => {
-            parked.push(ex.deferral.token);
+            deferred.push(ex.deferral.token);
           })
           .defer({ schema: Approval })
           .tap((ex) => {
@@ -251,12 +251,12 @@ describe("defer and resume across transports", () => {
     await t.startAndWaitReady();
     await t.drain();
 
-    expect(parked).toHaveLength(1);
+    expect(deferred).toHaveLength(1);
 
     const response = await fetch(`http://127.0.0.1:${port}/approve`, {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ token: parked[0], verdict: "yes" }),
+      body: JSON.stringify({ token: deferred[0], verdict: "yes" }),
     });
 
     expect(response.status).toBe(200);
@@ -267,7 +267,7 @@ describe("defer and resume across transports", () => {
   /**
    * @case A queue-shaped source acks a deferred delivery
    * @preconditions A source that acks when the handler resolves and nacks when it rejects
-   * @expectedResult The delivery is acked: the work is parked in the deferral store, so a redelivery would ask the approver a second time
+   * @expectedResult The delivery is acked: the work is deferred in the deferral store, so a redelivery would ask the approver a second time
    */
   test("a queue source acks on defer rather than nacking", async () => {
     const settled: Array<"ack" | "nack"> = [];

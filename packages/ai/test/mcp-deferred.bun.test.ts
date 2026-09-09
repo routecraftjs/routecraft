@@ -61,7 +61,7 @@ describe("MCP carries Deferred (#581)", () => {
       .routes([
         craft()
           .id("approve-payout")
-          .description("Parks for approval before paying out")
+          .description("Defers for approval before paying out")
           .output({ body: Payout })
           .from<{ amount: number }>(mcp())
           .defer({
@@ -114,7 +114,7 @@ describe("MCP carries Deferred (#581)", () => {
       .routes([
         craft()
           .id("agentic")
-          .description("Dispatches an agent that may park")
+          .description("Dispatches an agent that may defer")
           .output({ body: Payout })
           .from<{ q: string }>(mcp())
           .to(agent({ model: "anthropic:claude-opus-4-7", system: "x" }))
@@ -166,11 +166,11 @@ describe("MCP carries Deferred (#581)", () => {
   });
 
   /**
-   * @case End to end: an MCP client parks a tool, resumes through an ingress route, and the original contract is honored
+   * @case End to end: an MCP client defers a tool, resumes through an ingress route, and the original contract is honored
    * @preconditions Deferrable payout tool with .output(Payout); a direct-fronted .resume() ingress; event listeners on the plugin:mcp:tool family
    * @expectedResult The call replies isError false with the Deferred acknowledgment in structuredContent (matching the advertised second arm) and no trace of the site's meta; the record persists that meta verbatim; plugin:mcp:tool:deferred fires with the deferral id while completed/failed/declined stay silent; the resume runs execution two whose terminal body satisfies the declared output
    */
-  test("park over MCP, resume through an ingress, contract honored end to end", async () => {
+  test("deferral over MCP, resume through an ingress, contract honored end to end", async () => {
     const events: Array<{ name: string; detail: Record<string, unknown> }> = [];
     t = await testContext()
       .with(deferring())
@@ -178,7 +178,7 @@ describe("MCP carries Deferred (#581)", () => {
       .routes([
         craft()
           .id("approve-payout")
-          .description("Parks for approval before paying out")
+          .description("Defers for approval before paying out")
           .output({ body: Payout })
           .from<{ amount: number }>(mcp())
           .defer({

@@ -347,11 +347,11 @@ describe("cooperative cancellation of agent runs", () => {
   });
 
   /**
-   * @case Parked work SURVIVES context.stop(): cancellation of a live run and shutdown of a process are different things
-   * @preconditions An agent run parks; the context is then stopped
+   * @case Deferred work SURVIVES context.stop(): cancellation of a live run and shutdown of a process are different things
+   * @preconditions An agent run defers; the context is then stopped
    * @expectedResult The deferral record is still "deferred" in the store after the stop; nothing denied it
    */
-  test("context.stop() never denies parked work", async () => {
+  test("context.stop() never denies deferred work", async () => {
     const store = new MemoryDeferralStore();
     const sink = spy();
     const ask = {
@@ -383,9 +383,9 @@ describe("cooperative cancellation of agent runs", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = await t.client.sendDirect("assistant", "go");
-    expect(isDeferred(parked)).toBe(true);
-    const id = (parked as { deferralId: string }).deferralId;
+    const deferred = await t.client.sendDirect("assistant", "go");
+    expect(isDeferred(deferred)).toBe(true);
+    const id = (deferred as { deferralId: string }).deferralId;
 
     await t.stop();
     t = undefined;
@@ -395,11 +395,11 @@ describe("cooperative cancellation of agent runs", () => {
   });
 
   /**
-   * @case Parked work survives a FORCED shutdown too, not only a graceful one
-   * @preconditions One agent run parks, a second run hangs so the deadline is reached, and shutdown.timeout is short
-   * @expectedResult The forced stage abandons the hung run but leaves the parked record deferred: a forced stage two may abandon execution, and must still never settle or deny a park
+   * @case Deferred work survives a FORCED shutdown too, not only a graceful one
+   * @preconditions One agent run defers, a second run hangs so the deadline is reached, and shutdown.timeout is short
+   * @expectedResult The forced stage abandons the hung run but leaves the deferred record deferred: a forced stage two may abandon execution, and must still never settle or deny a deferral
    */
-  test("a forced shutdown never denies parked work", async () => {
+  test("a forced shutdown never denies deferred work", async () => {
     const store = new MemoryDeferralStore();
     const sink = spy();
     const ask = {
@@ -439,9 +439,9 @@ describe("cooperative cancellation of agent runs", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = await t.client.sendDirect("assistant", "go");
-    expect(isDeferred(parked)).toBe(true);
-    const id = (parked as { deferralId: string }).deferralId;
+    const deferred = await t.client.sendDirect("assistant", "go");
+    expect(isDeferred(deferred)).toBe(true);
+    const id = (deferred as { deferralId: string }).deferralId;
 
     // A second run that never finishes, so the deadline is what ends the stop.
     void t.client.sendDirect("assistant", "again").catch(() => undefined);

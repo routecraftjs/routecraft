@@ -34,14 +34,14 @@ export interface DeferSite {
    * For a defer on the main flow this is simply the steps after it. For a
    * defer inside a `.choice()` branch it is the rest of that branch
    * followed by the steps after the choice, which is the same sequence the
-   * executor would have run had the exchange never parked (a matched branch
+   * executor would have run had the exchange never deferred (a matched branch
    * rejoins the main flow).
    *
    * For a re-entrant site the continuation additionally INCLUDES the
    * deferring step itself at its head, because the step must re-run to
-   * finish the work it parked in the middle of. That head is therefore also
+   * finish the work it deferred in the middle of. That head is therefore also
    * covered by the continuation hash: editing a defer-capable step's own
-   * definition (an inline agent's options, say) invalidates its parked
+   * definition (an inline agent's options, say) invalidates its deferred
    * exchanges, which is correct because that definition is what resumes.
    */
   readonly continuation: ReadonlyArray<Step<Adapter>>;
@@ -96,7 +96,7 @@ export interface DeferCapableStep extends Step<Adapter> {
   /** Assigned by {@link resolveDeferSites} when the step sits on the primary flow. */
   deferSite?: DeferSite;
   /**
-   * Why no site was assigned, when the step sits somewhere a durable park
+   * Why no site was assigned, when the step sits somewhere a durable deferral
    * cannot be revived from (inside a `.split()` fan-out, or a
    * `.multicast()` path / `.dispatch()` target). Deferability of a
    * capable step is dynamic, so the refusal cannot fail the build the way a
@@ -140,7 +140,7 @@ export function deferHostOf(step: Step<Adapter>): DeferCapableStep | undefined {
 export interface DeferRequest {
   /**
    * Live schema the eventual resume payload is validated against, when the site
-   * declared one. Absent parks with no ingress validation, which is the
+   * declared one. Absent defers with no ingress validation, which is the
    * click-yes case: the route's own continuation is then the only reader of
    * whatever arrives.
    */
@@ -148,12 +148,12 @@ export interface DeferRequest {
   /** Resolved TTL in milliseconds, when one was declared. */
   readonly expiresInMs?: number;
   /**
-   * Whatever the deferring step attached at park. Persisted verbatim and
+   * Whatever the deferring step attached at deferral. Persisted verbatim and
    * handed to the resume route's `authorize` hook; never interpreted here.
    */
   readonly meta?: unknown;
   /**
-   * Identity of the call this park belongs to, when the deferring step
+   * Identity of the call this deferral belongs to, when the deferring step
    * mints one credential per call. Persisted as the record's `callBinding`
    * and carried as the token's `sub` claim.
    */
@@ -169,7 +169,7 @@ export interface DeferRequest {
 }
 
 /**
- * A step that can park the exchange. Implemented by the `.defer()` step;
+ * A step that can defer the exchange. Implemented by the `.defer()` step;
  * declared here so the walk can recognise one without importing the
  * operation (which imports this module back).
  *
@@ -214,7 +214,7 @@ interface NestingStep extends Step<Adapter> {
  * that were assigned a re-entrant site. The two lists are kept apart
  * because they answer different questions: static sites are what the
  * startup runtime check (`RC5052`) and the route-scope cache refusal key
- * on, while re-entrant sites only say a step MAY park at runtime.
+ * on, while re-entrant sites only say a step MAY defer at runtime.
  *
  * @internal
  */
@@ -226,9 +226,9 @@ export interface ResolvedDeferSites {
 /**
  * Whether a built route can raise a durable deferral: statically (a
  * declared `.defer()`) or at runtime (a defer-capable step that MAY
- * park). The predicate transports key on to advertise a `Deferred`
+ * deferral). The predicate transports key on to advertise a `Deferred`
  * acknowledgment arm, owned here next to the fields it reads so a new way
- * for a route to park updates every consumer in one edit.
+ * for a route to defer updates every consumer in one edit.
  */
 export function routeCanDefer(definition: RouteDefinition): boolean {
   return (
@@ -239,7 +239,7 @@ export function routeCanDefer(definition: RouteDefinition): boolean {
 
 /**
  * Resolve every defer site in a route, refusing the positions where a
- * durable park cannot be revived.
+ * durable deferral cannot be revived.
  *
  * Runs at build time so an incoherent route fails on the deploy that
  * introduced it rather than on the first large payout. Assigns each
@@ -249,7 +249,7 @@ export function routeCanDefer(definition: RouteDefinition): boolean {
  * A static `.defer()` in an unrevivable position fails the build; a
  * defer-capable step there gets a stored refusal instead, because whether
  * it ever defers is dynamic, and refusing the build would reject every
- * route that fans an agent out over a split whether or not any tool parks.
+ * route that fans an agent out over a split whether or not any tool defers.
  * The refusal carries the same explanation and fires as `RC5051` on the
  * first actual deferral.
  *
@@ -360,7 +360,7 @@ function walk(
         host.deferRefusal = unrevivablePosition(route.id, "sealed", "raised");
       } else {
         // The step itself heads the continuation: a re-entrant resume runs
-        // the step again to finish the work it parked in the middle of.
+        // the step again to finish the work it deferred in the middle of.
         host.deferSite = {
           position,
           continuation: [step, ...after],
@@ -460,7 +460,7 @@ function unrevivablePosition(
   const mover = form === "declares" ? "the defer" : "the deferring step";
   const body =
     position === "split"
-      ? `inside a .split() fan-out, between the split and its .aggregate(). Reviving one parked child would mean tracking every outstanding sibling across restarts, which is a distributed coordination problem in disguise. Move ${mover} out of the fan-out, or split the work into per-item child capabilities: each is then its own exchange and defers independently.`
+      ? `inside a .split() fan-out, between the split and its .aggregate(). Reviving one deferred child would mean tracking every outstanding sibling across restarts, which is a distributed coordination problem in disguise. Move ${mover} out of the fan-out, or split the work into per-item child capabilities: each is then its own exchange and defers independently.`
       : `inside a .multicast() path or .dispatch() target. Those exchanges are isolated side flows rather than the route's primary flow, so a resumed continuation would have nowhere to rejoin. Move ${mover} onto the main flow, or onto a .choice() branch of it.`;
   return `Route "${routeId}" ${subject} ${body}`;
 }

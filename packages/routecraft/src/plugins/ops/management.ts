@@ -51,7 +51,7 @@ import type {
  * Unrelated to the deferral descriptor's constant of the same value:
  * that one is folded into a stored hash and must not move, this one is
  * descriptive, and sharing a single mutable constant between them would
- * couple a display choice to every parked exchange's digest.
+ * couple a display choice to every deferred exchange's digest.
  */
 const JSON_SCHEMA_TARGET = "draft-2020-12";
 
@@ -201,7 +201,7 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
      * its reader there would put an operator's network back-pressure inside
      * a route step.
      *
-     * The generator parks on a promise rather than polling, and the signal
+     * The generator defers on a promise rather than polling, and the signal
      * resolves it. Cancelling the response is not enough on its own: an
      * async generator delivers a queued `return()` only after the pending
      * `next()` settles, so a tail with nothing to yield would sit on that

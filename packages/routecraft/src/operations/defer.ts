@@ -54,10 +54,10 @@ export interface DeferOptions<
    * operator needs to read off the record.
    *
    * Plain JSON, persisted verbatim, and never interpreted by the framework:
-   * how approvals work is the application's design. A parker that snapshots
-   * its policy here gets "policy travels with the park" for free, because
+   * how approvals work is the application's design. A defer site that snapshots
+   * its policy here gets "policy travels with the deferral" for free, because
    * the record is what `.resume({ authorize })` reads and editing this site
-   * cannot reach records already parked.
+   * cannot reach records already deferred.
    */
   meta?: unknown;
 }
@@ -68,11 +68,11 @@ export interface DeferAdapter extends Adapter {
 }
 
 /**
- * Step that parks the exchange and exits the pipeline.
+ * Step that defers the exchange and exits the pipeline.
  *
  * It performs no effects of its own: it produces the `defer` outcome and
- * the executor does the parking. Nothing is scheduled, no worker waits, and
- * the route stays live for every other exchange, because a parked exchange
+ * the executor does the deferring. Nothing is scheduled, no worker waits, and
+ * the route stays live for every other exchange, because a deferred exchange
  * lives in the deferral store rather than in this process.
  */
 export class DeferStep implements DeferrableStep {
@@ -84,7 +84,7 @@ export class DeferStep implements DeferrableStep {
   /**
    * Assigned by the build-time site resolver. A step that never got one is
    * not reachable from a built route, so there is no continuation to revive
-   * and the step refuses rather than parking an exchange nothing can wake.
+   * and the step refuses rather than deferring an exchange nothing can wake.
    */
   site?: DeferSite;
 
@@ -96,7 +96,7 @@ export class DeferStep implements DeferrableStep {
    */
   readonly schema?: StandardSchemaV1;
 
-  /** Policy inputs the parker attached, persisted verbatim on the record. */
+  /** Policy inputs the defer site attached, persisted verbatim on the record. */
   readonly meta?: unknown;
 
   readonly #expiresInMs?: number;

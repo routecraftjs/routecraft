@@ -2,7 +2,7 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { BRAND, isBranded, setBrand } from "../brand.ts";
 
 /**
- * What execution one returns when a route parks.
+ * What execution one returns when a route defers.
  *
  * A durable defer cannot hold a caller: the resume payload arrives in
  * hours or days and the process will be restarted first. So the run that
@@ -20,7 +20,7 @@ import { BRAND, isBranded, setBrand } from "../brand.ts";
  */
 export interface Deferred {
   readonly status: "deferred";
-  /** The parked exchange's deferral id. */
+  /** The deferred exchange's deferral id. */
   readonly deferralId: string;
   /** Signed, single-use token that resumes it. */
   readonly token: string;
@@ -38,7 +38,7 @@ export interface Deferred {
 }
 
 /**
- * Mint the acknowledgment value for a parked exchange.
+ * Mint the acknowledgment value for a deferred exchange.
  *
  * Branded so a transport can recognise it (`http()` answers `202` rather
  * than `200`) without string-sniffing a `status` field that any user body
@@ -59,7 +59,7 @@ export function createDeferred(value: Omit<Deferred, "status">): Deferred {
  * Transports call this on a route's terminal body to decide how to render
  * it. It is a brand check rather than a shape check on purpose: a route
  * whose real output happens to have `status: "deferred"` must not be
- * mistaken for a parked exchange.
+ * mistaken for a deferred exchange.
  */
 export function isDeferred(value: unknown): value is Deferred {
   return isBranded(value, BRAND.Deferred);
@@ -69,7 +69,7 @@ export function isDeferred(value: unknown): value is Deferred {
  * JSON Schema for the {@link Deferred} acknowledgment, draft 2020-12.
  *
  * The shape a transport publishes when it advertises that a tool or route
- * may park: the MCP server derives `oneOf: [Output, Deferred]` for a
+ * may defer: the MCP server derives `oneOf: [Output, Deferred]` for a
  * deferrable tool's `outputSchema` from this rendering. Closed for
  * additional properties so the advertised contract is exactly the value
  * {@link createDeferred} mints.
@@ -77,7 +77,7 @@ export function isDeferred(value: unknown): value is Deferred {
 export const DEFERRED_JSON_SCHEMA = {
   type: "object",
   description:
-    "The run parked at a durable deferral. The resume payload is delivered out of band with the resume token, and the real result is produced when the run continues.",
+    "The run deferred at a durable deferral. The resume payload is delivered out of band with the resume token, and the real result is produced when the run continues.",
   properties: {
     status: { const: "deferred" },
     deferralId: { type: "string" },

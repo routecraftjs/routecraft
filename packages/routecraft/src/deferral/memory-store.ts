@@ -20,7 +20,7 @@ import type {
  * backend is available. Everything it holds dies with the process, so it is
  * the right choice for tests and for a route whose deferrals are
  * genuinely ephemeral, and the wrong choice for the feature's headline
- * promise: an exchange parked here does not survive a restart. The store
+ * promise: an exchange deferred here does not survive a restart. The store
  * factory logs a warning whenever it falls back to this backend for that
  * reason.
  *

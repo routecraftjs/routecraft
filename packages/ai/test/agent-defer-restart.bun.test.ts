@@ -81,8 +81,8 @@ describe("agent deferral across a restart (stepState adoption)", () => {
   });
 
   /**
-   * @case A deferred agent survives a restart: park in one process, resume in the next, loop continues to a final AgentResult
-   * @preconditions Context A parks the run (stepState written through the shared store) and stops; context B is built fresh over the same store and secret
+   * @case A deferred agent survives a restart: deferral in one process, resume in the next, loop continues to a final AgentResult
+   * @preconditions Context A defers the run (stepState written through the shared store) and stops; context B is built fresh over the same store and secret
    * @expectedResult B's resume revives the loop at the deferred tool call with the answer in place, B's sink receives the final AgentResult, and a duplicate resume returns the first outcome without re-running anything
    */
   test("kill, restart, resume: the loop continues to a final AgentResult", async () => {
@@ -95,7 +95,7 @@ describe("agent deferral across a restart (stepState adoption)", () => {
 
     a = await contextWith(store, sinkA, "be useful").build();
     await a.startAndWaitReady();
-    const parked = asDeferred(await a.client.sendDirect("assistant", "go"));
+    const deferred = asDeferred(await a.client.sendDirect("assistant", "go"));
     await a.stop();
     a = undefined;
 
@@ -104,7 +104,7 @@ describe("agent deferral across a restart (stepState adoption)", () => {
     llm.script.push({ text: "done after restart" });
 
     const ack = (await b.client.sendDirect("answers", {
-      token: parked.token,
+      token: deferred.token,
       result: { approved: true },
     })) as { status: string; outcome: { status: string } };
     expect(ack.status).toBe("resumed");
@@ -120,7 +120,7 @@ describe("agent deferral across a restart (stepState adoption)", () => {
     expect(resumedPrompt).toContain('"approved":true');
 
     const duplicate = (await b.client.sendDirect("answers", {
-      token: parked.token,
+      token: deferred.token,
       result: { approved: true },
     })) as { status: string; outcome: { status: string } };
     expect(duplicate.status).toBe("duplicate");
@@ -130,11 +130,11 @@ describe("agent deferral across a restart (stepState adoption)", () => {
   });
 
   /**
-   * @case Editing an inline agent's options under a parked run invalidates it through the RC5048 re-ask path
-   * @preconditions Context A parks with system "v1" and stops; context B redeploys the route with system "v2" (the agent step heads the hashed continuation)
+   * @case Editing an inline agent's options under a deferred run invalidates it through the RC5048 re-ask path
+   * @preconditions Context A defers with system "v1" and stops; context B redeploys the route with system "v2" (the agent step heads the hashed continuation)
    * @expectedResult The resume is refused with RC5048 in the ingress, the record is denied, and the deferred route's error channel received the re-ask
    */
-  test("an edited inline agent invalidates its parked run with RC5048", async () => {
+  test("an edited inline agent invalidates its deferred run with RC5048", async () => {
     const store = new MemoryDeferralStore();
     const sinkA = spy();
     const sinkB = spy();
@@ -144,7 +144,7 @@ describe("agent deferral across a restart (stepState adoption)", () => {
 
     a = await contextWith(store, sinkA, "v1").build();
     await a.startAndWaitReady();
-    const parked = asDeferred(await a.client.sendDirect("assistant", "go"));
+    const deferred = asDeferred(await a.client.sendDirect("assistant", "go"));
     await a.stop();
     a = undefined;
 
@@ -153,12 +153,12 @@ describe("agent deferral across a restart (stepState adoption)", () => {
 
     await expect(
       b.client.sendDirect("answers", {
-        token: parked.token,
+        token: deferred.token,
         result: { approved: true },
       }),
     ).rejects.toMatchObject({ rc: "RC5048" });
 
-    const record = await store.get(parked.deferralId);
+    const record = await store.get(deferred.deferralId);
     expect(record?.status).toBe("denied");
     // The re-ask reached the deferred route's own error channel, which has
     // no handler here, so the failure surfaces on the context's error log.

@@ -58,7 +58,7 @@ export interface AgentDeferOptions {
  */
 export interface AgentDeferSentinel {
   readonly status: "defer-requested";
-  /** What the handler asked for. Read by the agent runtime at the park. */
+  /** What the handler asked for. Read by the agent runtime at the deferral. */
   readonly request: AgentDeferOptions;
 }
 
@@ -100,7 +100,7 @@ export function isDeferSentinel(value: unknown): value is AgentDeferSentinel {
  * **Prefer `ctx.defer()`**, which is the documented path. Control flow
  * through exceptions has a footgun this class cannot remove: a handler that
  * wraps its work in `try/catch` will silently swallow a thrown deferral
- * and carry on, handing the model a garbage tool result instead of parking
+ * and carry on, handing the model a garbage tool result instead of deferring
  * the run. The sentinel return cannot be swallowed that way.
  *
  * Outside an agent dispatch (a proxied MCP tool guard, `testFn`), throwing
@@ -131,7 +131,7 @@ export class DeferError extends Error {
   readonly schema?: StandardSchemaV1;
   /** How long the deferral stays resumable. Omitted means the context default. */
   readonly ttl?: Duration;
-  /** Policy inputs the parker attached. See {@link AgentDeferOptions.meta}. */
+  /** Policy inputs the defer site attached. See {@link AgentDeferOptions.meta}. */
   readonly meta?: unknown;
 
   constructor(opts?: AgentDeferOptions) {

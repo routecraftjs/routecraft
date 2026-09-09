@@ -65,7 +65,7 @@ export const DATE_TAG = "$routecraft.date";
  * The result is a detached deep copy, so the store never holds a reference
  * into an exchange a later step could still mutate.
  *
- * @param exchange - The exchange being parked.
+ * @param exchange - The exchange being deferred.
  * @returns JSON data safe to hand to any store backend.
  * @throws RC5042 when a value in `body` or `headers` cannot be persisted.
  *
@@ -175,7 +175,7 @@ function encode(
   if (kind === "string" || kind === "boolean") return value;
   if (kind === "number") {
     // NaN and Infinity serialize to null, which would quietly change the
-    // value under a parked exchange. Refuse instead of rounding it off.
+    // value under a deferred exchange. Refuse instead of rounding it off.
     if (!Number.isFinite(value)) {
       throw refuse(path, `a non-finite number (${String(value)})`);
     }

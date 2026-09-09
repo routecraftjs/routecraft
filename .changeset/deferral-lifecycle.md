@@ -6,13 +6,13 @@ Deferrals expire, heal their own delivery, and get retired on a schedule; plugin
 
 A `ttl` used to be enforced only when a late answer arrived. Nobody presents a token for a deferral that timed out, so an unanswered one sat in the store past its deadline and its route was never told: the "nobody approved in 72 hours, escalate" flow the deadline exists for did not run. A sweeper now retires overdue deferrals on a schedule, emitting `route:exchange:expired` and re-entering the route's error channel with `RC5047`, and scans at startup before the context reports ready so an outage's backlog reaches its routes ahead of new traffic.
 
-**Deferrals now expire by default.** Omitting `ttl` previously meant no expiry at all; it now means the context's `defaultTtl`, which is `72h`. A deployment relying on parks that live indefinitely must set `deferral: { defaultTtl: 'never' }`.
+**Deferrals now expire by default.** Omitting `ttl` previously meant no expiry at all; it now means the context's `defaultTtl`, which is `72h`. A deployment relying on deferrals that live indefinitely must set `deferral: { defaultTtl: 'never' }`.
 
 **Expiry delivery is crash-safe, and at-least-once.** Retiring is claim (`deferred` -> the new `expiring` status) -> notify -> finalize (`expired` / `denied`). A process that dies mid-delivery leaves a claim the sweeper releases after `expiryLease` (default `60m`) and redelivers, so the approver hears about the expiry despite the crash; a crash after notifying but before finalizing redelivers one duplicate escalation. A token presented while a record is `expiring` reads as expired (`RC5047`), and a released record is past its deadline, so a late answer is refused either way.
 
 **Settled records are now purged.** `retention` (default `90d`, `"never"` to keep everything) drives `purgeSettled` once at boot and hourly after. Previously nothing ever removed a settled record, so a long-running process accumulated every exchange that ever deferred.
 
-**The sweep pages on a keyset cursor** ordered `(expiresAt, id)`, advancing past every visited record, so records a context cannot retire (a renamed route's parked deferrals, a shared store) can never starve the work behind them, whatever their number.
+**The sweep pages on a keyset cursor** ordered `(expiresAt, id)`, advancing past every visited record, so records a context cannot retire (a renamed route's deferred deferrals, a shared store) can never starve the work behind them, whatever their number.
 
 **Breaking for out-of-tree stores.** `DeferralStore` changes shape: `findExpired(now, limit, after?)` takes a required limit and an optional keyset cursor and must order by `(expiresAt, id)`; new required members `claimExpiry(id, at)` and `releaseExpiring(before)`; `markExpired` / `markDenied` now finalize from `expiring` rather than transitioning from `deferred`; `resumedWithoutTerminal(limit?)` is required and diagnostic-only; `DeferralStatus` gains `"expiring"` and records gain `claimedAt`. The shipped sqlite backend migrates its schema automatically on open (version 2: `claimed_at` column, `(status, expires_at, id)` sweep index).
 

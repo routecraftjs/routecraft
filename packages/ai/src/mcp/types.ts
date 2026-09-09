@@ -100,11 +100,11 @@ export interface McpLocalToolEntry {
   /** Output schemas (response body, response headers); forwarded to `tools/list`. */
   output?: import("@routecraft/routecraft").RouteSchemas;
   /**
-   * The route behind this tool can park at a durable deferral: it carries
+   * The route behind this tool can defer at a durable deferral: it carries
    * a static `.defer()` site, or a defer-capable step (an agent whose
    * tool may raise one). Recorded at registration so the advertised output
    * arms include the framework's `Deferred` acknowledgment: a run that
-   * parks answers with it instead of the declared output, and a schema that
+   * defers answers with it instead of the declared output, and a schema that
    * omitted the arm would be one the server provably violates. Deliberately
    * an over-approximation ("may defer"), which is the honest direction:
    * a client must be able to handle the acknowledgment even if a given

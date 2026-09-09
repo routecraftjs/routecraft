@@ -22,7 +22,7 @@ import type { ResolvedTool } from "./tools/selection.ts";
  * exchange identity `ctx.defer` / `ctx.deferral` are wired from, and
  * the collector the bridge records raised signals into. The session reads
  * the collector after each model call; a non-empty batch stops the loop
- * and parks. Absent when the dispatch cannot park (no route-bound
+ * and defers. Absent when the dispatch cannot defer (no route-bound
  * exchange), which turns `ctx.defer` into a typed AI1006 refusal.
  *
  * @internal
@@ -33,10 +33,10 @@ export interface AgentDeferralBridge {
 }
 
 /**
- * The park identity one dispatch shares across its whole tool batch.
+ * The deferral identity one dispatch shares across its whole tool batch.
  *
  * One level up from the per-CALL wiring the handler context gets: the id
- * names the park and is the same for every handler in a batch, while the
+ * names the deferral and is the same for every handler in a batch, while the
  * credential each handler hands out names its own call.
  *
  * @internal
@@ -222,7 +222,7 @@ export async function buildVercelTools(
             // it was minted outside the handler context. Same refusal.
             if (!deferrals) {
               throw rcError("AI1006", undefined, {
-                message: `Tool "${r.name}" returned a defer sentinel, but this dispatch has no exchange to park. Durable deferral is only available inside an agent dispatch on a route-bound exchange.`,
+                message: `Tool "${r.name}" returned a defer sentinel, but this dispatch has no exchange to defer. Durable deferral is only available inside an agent dispatch on a route-bound exchange.`,
               });
             }
             deferrals.signals.push({
@@ -232,7 +232,7 @@ export async function buildVercelTools(
             });
             // The recorded result is a neutral placeholder: the winner's is
             // replaced by the real answer at resume, a loser's is rewritten
-            // to a retryable error before the park. The SDK still requires
+            // to a retryable error before the deferral. The SDK still requires
             // every tool call to carry a result, which is why the bridge
             // answers instead of throwing.
             output = DEFERRED_TOOL_PLACEHOLDER;
@@ -278,7 +278,7 @@ export async function buildVercelTools(
         } catch (err) {
           // The throw form of the defer signal, honoured as an escape
           // hatch for handlers that cannot thread a return value out. Only
-          // inside a parkable dispatch: elsewhere it stays an ordinary
+          // inside a deferrable dispatch: elsewhere it stays an ordinary
           // error, which is the pre-durable behaviour.
           if (isDeferError(err) && deferrals) {
             deferrals.signals.push({

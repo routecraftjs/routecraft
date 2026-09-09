@@ -9,7 +9,7 @@ import {
 import type { SerializedExchange, DeferralSchema } from "./types.ts";
 
 /**
- * Hash the continuation of a parked exchange: the steps that have NOT run
+ * Hash the continuation of a deferred exchange: the steps that have NOT run
  * yet, plus the schema the eventual resume payload is validated against.
  *
  * ## Why the tail and not the pipeline
@@ -58,7 +58,7 @@ import type { SerializedExchange, DeferralSchema } from "./types.ts";
  *
  * The reasoning is asymmetric and it is the whole argument. Normalization
  * can only ever fold two distinct sources onto one digest. Every such fold
- * is a chance to MISS a change, and a missed change means a parked approval
+ * is a chance to MISS a change, and a missed change means a deferred approval
  * resumes into behaviour its approver never authorized. The opposite error,
  * treating an inert edit as a change, costs an error-channel re-ask, which
  * is a path this design already provides and expects to be used.
@@ -68,7 +68,7 @@ import type { SerializedExchange, DeferralSchema } from "./types.ts";
  * found three separate ways to desynchronize it (automatic semicolon
  * insertion, regex literals, and an apostrophe inside a comment), each
  * fixable only by moving closer to a real JavaScript tokenizer, and each
- * failing in the direction that resumes a parked approval into different
+ * failing in the direction that resumes a deferred approval into different
  * behaviour. The scanner was deleted rather than completed.
  *
  * ## What that costs, and why it is the right trade
@@ -78,7 +78,7 @@ import type { SerializedExchange, DeferralSchema } from "./types.ts";
  * build that changes emitted text (a different minifier, new bundler
  * settings, a TypeScript target bump) all move it for steps whose behaviour
  * did not change. Every one of those outcomes is an error-channel re-ask,
- * never a wrong resume. Deployments that park approvals for days should pin
+ * never a wrong resume. Deployments that deferral approvals for days should pin
  * line endings and build settings; the configuration reference says so for
  * users.
  *
@@ -94,7 +94,7 @@ import type { SerializedExchange, DeferralSchema } from "./types.ts";
  * resume would run, which for a static `.defer()` is the steps after it
  * and for a re-entrant site includes the deferring step itself at its
  * head. Same digest as {@link continuationHash} over the equivalent slice,
- * so records parked before this helper existed keep verifying.
+ * so records deferred before this helper existed keep verifying.
  *
  * @internal
  */
@@ -118,7 +118,7 @@ export function continuationTailHash(
  *
  * The schema itself is a live object with a validate function, so it cannot
  * be persisted. What is persisted is this descriptor: a hash that folds
- * into {@link continuationHash} so a schema changed under a parked exchange
+ * into {@link continuationHash} so a schema changed under a deferred exchange
  * is caught, plus an optional JSON Schema rendering for the caller and the
  * operator. Validation at resume always runs against the live schema read
  * back off the route.
@@ -164,7 +164,7 @@ export function describeSchema(schema?: StandardSchemaV1): DeferralSchema {
   // The two ways to get here are not equally expected, and the caller is
   // told which. A library with no `jsonSchema` extension at all never had a
   // rendering to lose. A library that OFFERS the extension and then yields
-  // nothing has lost one it advertised, and that is worth a word at the park
+  // nothing has lost one it advertised, and that is worth a word at the deferral
   // rather than a surprise at the approver's click.
   const degraded =
     jsonSchema === undefined && standard?.jsonSchema !== undefined;
@@ -238,7 +238,7 @@ export function actionFingerprint(input: {
  * keeps its config in an `options` property and exposes a `fetch` whose
  * source text is identical for every instance, so hashing callables alone
  * would give `http({ url: bankA })` and `http({ url: bankB })` the same
- * digest and let a parked approval resume into a different payee.
+ * digest and let a deferred approval resume into a different payee.
  *
  * `adapterId` is read separately and excluded from the config walk so it is
  * not counted twice.
@@ -297,12 +297,12 @@ function describable(value: unknown, depth = 0): unknown {
   // A callback nested in options is a step definition just as much as a
   // top-level adapter callable: `http({ url: (ex) => bankA(ex) })` and the
   // same with `bankB` differ only here. Collapsing it to a placeholder
-  // would let the tail's actual target change under a parked approval.
+  // would let the tail's actual target change under a deferred approval.
   if (kind === "function") return sourceOf(value as object);
   if (value instanceof Date) return value.toISOString();
   // Carriers an adapter option realistically uses to name its target. Left
   // to the opaque collapse below they would all hash alike, so a payee
-  // spelled `new URL(...)` could be edited under a parked approval without
+  // spelled `new URL(...)` could be edited under a deferred approval without
   // moving the digest.
   if (value instanceof URL) return `[url:${value.href}]`;
   if (value instanceof RegExp) return `[regexp:${value.source}/${value.flags}]`;
@@ -332,7 +332,7 @@ function describable(value: unknown, depth = 0): unknown {
   // `__proto__` is a genuine own key on anything that came from JSON.parse,
   // and assigning it on an object literal hits the Object.prototype setter,
   // which drops the field. Dropped here it would let a tail option carrying
-  // that key change under a parked approval without moving the digest.
+  // that key change under a deferred approval without moving the digest.
   const projected: Record<string, unknown> = Object.create(null);
   for (const [key, entry] of Object.entries(value as Record<string, unknown>)) {
     projected[key] = describable(entry, depth + 1);

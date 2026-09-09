@@ -13,11 +13,11 @@ import {
 import "../errors.ts";
 
 /**
- * Editing the thread of a run that is parked, safely.
+ * Editing the thread of a run that is deferred, safely.
  *
- * The motivating caller is compaction: a long-running agent parks at an
+ * The motivating caller is compaction: a long-running agent defers at an
  * approval, its thread has grown past what the model will accept, and the
- * only moment to shrink it is while it is still parked. Doing that touches
+ * only moment to shrink it is while it is still deferred. Doing that touches
  * two things that are easy to get wrong, so both live here rather than at
  * the call site.
  *
@@ -115,7 +115,7 @@ function firstResultBeforeItsCall(
 }
 
 /**
- * Refuse a rewritten thread a parked run could not be resumed from.
+ * Refuse a rewritten thread a deferred run could not be resumed from.
  *
  * The rules are the ones that make a resume possible at all, not a taste
  * check on the summary:
@@ -131,7 +131,7 @@ function firstResultBeforeItsCall(
  *   `AI1007` AFTER the approval has been spent.
  *
  * @param messages - The rewritten thread
- * @param deferredToolCallId - The parked call the resume answers
+ * @param deferredToolCallId - The deferred call the resume answers
  * @throws AI1008 when the thread cannot be resumed from
  */
 export function assertResumableThread(
@@ -200,7 +200,7 @@ export function assertResumableThread(
 }
 
 /**
- * Rewrite the message thread of a parked agent run, in place, without
+ * Rewrite the message thread of a deferred agent run, in place, without
  * disturbing anything else about the record.
  *
  * The rewrite is applied to the thread as it stands in the store, checked
@@ -212,15 +212,15 @@ export function assertResumableThread(
  * Nothing but `messages` changes. `turnsUsed` in particular is left alone:
  * shrinking the conversation does not give the run its budget back.
  *
- * @param store - The deferral store holding the parked run
- * @param deferralId - The parked run
+ * @param store - The deferral store holding the deferred run
+ * @param deferralId - The deferred run
  * @param rewrite - Given the stored thread, returns the replacement
  * @returns Whether this caller performed the replacement, and the record as
  *   it stands afterwards
  * @throws AI1007 when the stored step state is not an agent record
  * @throws AI1008 when the rewrite produced an unresumable thread
  */
-export async function replaceParkedThread(
+export async function replaceDeferredThread(
   store: DeferralStore,
   deferralId: string,
   rewrite: (
@@ -246,7 +246,7 @@ export async function replaceParkedThread(
   // A copy, because the rewrite is allowed to edit in place and a custom
   // store may have handed back its own record rather than a detached one.
   // Without this, a rewrite that then fails validation, or loses the swap,
-  // would still have corrupted the parked thread.
+  // would still have corrupted the deferred thread.
   const messages = await rewrite(structuredClone(state.messages));
   assertResumableThread(messages, state.deferredToolCallId);
 

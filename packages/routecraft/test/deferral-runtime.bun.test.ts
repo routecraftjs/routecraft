@@ -187,7 +187,7 @@ describe("deferral runtime resolution", () => {
    * @case A deployment that asked for durability is not silently downgraded
    * @preconditions An explicitly configured store path and no available driver
    * @expectedResult Startup fails with the driver's RC5017 rather than
-   *   quietly losing every parked approval
+   *   quietly losing every deferred approval
    */
   test("fails rather than degrading when a store path was configured", async () => {
     await expect(

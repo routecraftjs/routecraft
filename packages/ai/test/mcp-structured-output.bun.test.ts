@@ -166,14 +166,14 @@ describe("MCP structured output (#574)", () => {
   /**
    * @case A deferrable tool's acknowledgment reaches the client in the shape its own advertisement promises
    * @preconditions mcp()-fronted route with .output() and a reachable .defer(), so tools/list advertises a oneOf root; the real SDK client
-   * @expectedResult The park answers rather than failing the call, and the acknowledgment arrives inside the result envelope, matching the wrap the same era applies to the oneOf-rooted advertisement
+   * @expectedResult The deferral answers rather than failing the call, and the acknowledgment arrives inside the result envelope, matching the wrap the same era applies to the oneOf-rooted advertisement
    */
   test("a deferral acknowledgment matches the advertised union", async () => {
     const connected = await connect(
       [
         craft()
           .id("approve-payout")
-          .description("Parks for approval before paying out")
+          .description("Defers for approval before paying out")
           .output({ body: z.object({ paid: z.boolean() }) })
           .from<{ amount: number }>(mcp())
           .defer({ schema: z.object({ approved: z.boolean() }) })
@@ -231,7 +231,7 @@ describe("MCP structured output (#574)", () => {
   /**
    * @case The advertisement travels with the value instead of being looked up again
    * @preconditions mcp()-fronted deferrable route (oneOf root, so the wrap depends entirely on the schema); handleToolCall driven directly, then the route's entry deleted from the live registry as an unsubscribe would
-   * @expectedResult The result carries the advertised schema it was produced under, and still carries it after the entry is gone, so a route that unsubscribes while parked cannot have its acknowledgment published against a schema the server can no longer find
+   * @expectedResult The result carries the advertised schema it was produced under, and still carries it after the entry is gone, so a route that unsubscribes while deferred cannot have its acknowledgment published against a schema the server can no longer find
    */
   test("the result carries the schema it was produced under", async () => {
     t = await testContext()
@@ -240,7 +240,7 @@ describe("MCP structured output (#574)", () => {
       .routes([
         craft()
           .id("approve-payout")
-          .description("Parks for approval before paying out")
+          .description("Defers for approval before paying out")
           .output({ body: z.object({ paid: z.boolean() }) })
           .from<{ amount: number }>(mcp())
           .defer({ schema: z.object({ approved: z.boolean() }) })

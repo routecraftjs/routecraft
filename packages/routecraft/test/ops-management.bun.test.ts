@@ -752,11 +752,11 @@ describe("the ops management API", () => {
   });
 
   /**
-   * @case A parked dispatch answers with the standard Deferred acknowledgment
+   * @case A deferred dispatch answers with the standard Deferred acknowledgment
    * @preconditions A deferrable route, dispatch open
-   * @expectedResult 202 with outcome deferred and the deferral id and token. A park is an outcome and not an error: the operator at the terminal is often exactly who the park is waiting for
+   * @expectedResult 202 with outcome deferred and the deferral id and token. A deferral is an outcome and not an error: the operator at the terminal is often exactly who the deferral is waiting for
    */
-  test("returns the Deferred acknowledgment for a parked dispatch", async () => {
+  test("returns the Deferred acknowledgment for a deferred dispatch", async () => {
     const port = await start({
       tiers: { dispatch: true },
       deferral: true,

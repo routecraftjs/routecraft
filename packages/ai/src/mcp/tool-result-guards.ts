@@ -20,7 +20,7 @@ import "../errors.ts";
  * {@link enforceAdvertisedOutput} accepts a body matching any of them, so the
  * promise and its enforcement cannot drift apart.
  *
- * A route that can park (a static `.defer()` site, or a defer-capable
+ * A route that can defer (a static `.defer()` site, or a defer-capable
  * agent step) answers execution one with the framework's `Deferred`
  * acknowledgment rather than its declared output, so its contract is the
  * union: `tools/list` publishes `oneOf: [Output, Deferred]` and the
@@ -94,7 +94,7 @@ export async function enforceAdvertisedOutput(
   if (arms.some((arm) => wasOutputValidated(exchange, arm))) {
     return exchange.body;
   }
-  // A run that parked at a `.defer()` answers with the framework's
+  // A run that deferred at a `.defer()` answers with the framework's
   // acknowledgment, which is deliberately not the route's declared output
   // and which the pipeline therefore does not validate either. Rejecting it
   // would fail every deferral of a tool that declares one.

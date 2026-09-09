@@ -378,7 +378,7 @@ type ExchangeOutcome = "completed" | "failed" | "dropped" | "deferred";
  * hanging until it is killed.
  *
  * A deferral is terminal for the run that produced it: the exchange
- * parks durably and `route:exchange:deferred` takes the place of
+ * defers durably and `route:exchange:deferred` takes the place of
  * `:completed`, so waiting for a completion that is not coming is the
  * same hang under a different name.
  *

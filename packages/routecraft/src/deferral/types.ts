@@ -1,5 +1,5 @@
 /**
- * Lifecycle state of a parked exchange.
+ * Lifecycle state of a deferred exchange.
  *
  * `deferred` is the only state a deferral can be resumed from. `expiring`
  * is a delivery claim, not an outcome: whoever wins it owns telling the
@@ -27,7 +27,7 @@ export interface ExpiredScanCursor {
 }
 
 /**
- * The persisted form of a parked exchange: exactly the two stored slots of
+ * The persisted form of a deferred exchange: exactly the two stored slots of
  * `Exchange` (`body` and `headers`), per
  * `.standards/exchange-state-model.md`. Derivations (`id`, `principal`,
  * `logger`) are rebuilt by constructing a `DefaultExchange` around these
@@ -48,7 +48,7 @@ export interface SerializedExchange {
  * be persisted. What is persisted is a reference: the `(routeId, position)`
  * pair on the record identifies the deferring step, whose live `schema` is
  * read back off the route at resume time, and `hash` is folded into
- * `continuationHash` so a schema that changed under a parked exchange fails
+ * `continuationHash` so a schema that changed under a deferred exchange fails
  * the compatibility check rather than validating against the wrong
  * contract.
  *
@@ -110,7 +110,7 @@ export interface PrincipalRef {
 export interface SerializedOutcome {
   /**
    * How execution two ended. `deferred` is the two-stage-approval case:
-   * the continuation reached ANOTHER `.defer()` and parked again, so the
+   * the continuation reached ANOTHER `.defer()` and deferred again, so the
    * work is neither finished nor failed. It is recorded distinctly because
    * calling it `completed` would tell a receipt, a dashboard, and every
    * duplicate resume that the work finished while it is still waiting on
@@ -127,7 +127,7 @@ export interface SerializedOutcome {
 }
 
 /**
- * A parked exchange plus everything needed to revive it.
+ * A deferred exchange plus everything needed to revive it.
  *
  * The record is deliberately free of anything agent-shaped. A deferring
  * step that needs to carry closure state of its own puts it in
@@ -136,9 +136,9 @@ export interface SerializedOutcome {
  * of growing a second one.
  */
 export interface Deferral {
-  /** Deferral identity. Distinct from the parked exchange's own id. */
+  /** Deferral identity. Distinct from the deferred exchange's own id. */
   readonly id: string;
-  /** Route the parked exchange belongs to. Resume re-enters this route. */
+  /** Route the deferred exchange belongs to. Resume re-enters this route. */
   readonly routeId: string;
   /** Index of the deferring step. Execution two resumes at `position + 1`. */
   readonly position: number;
@@ -147,7 +147,7 @@ export interface Deferral {
    * resume-payload schema descriptor.
    *
    * {@link Deferral.meta} is deliberately NOT folded in. It lives only on
-   * the record, so it has no live copy to drift from: a parker that
+   * the record, so it has no live copy to drift from: a defer site that
    * snapshots its policy there is protected by where the value lives rather
    * than by a tamper check.
    *
@@ -160,17 +160,17 @@ export interface Deferral {
   readonly exchange: SerializedExchange;
   readonly schema: DeferralSchema;
   /**
-   * Whatever the deferring step attached at park, persisted verbatim and
+   * Whatever the deferring step attached at deferral, persisted verbatim and
    * handed back to the resume route's `authorize` hook.
    *
-   * The framework never reads it. Who may resume a parked run is the
-   * application's policy, and this is where the park carries whatever that
-   * policy needs: a channel name, the roles the parker required, an amount,
-   * a snapshot of the policy in force at park time. Subject to the same
+   * The framework never reads it. Who may resume a deferred run is the
+   * application's policy, and this is where the deferral carries whatever that
+   * policy needs: a channel name, the roles the defer site required, an amount,
+   * a snapshot of the policy in force at deferral time. Subject to the same
    * plain-JSON rule as the exchange (`RC5042`).
    *
    * On the agent surface it is supplied by a tool handler, which means the
-   * MODEL influenced it. Treat it as data the parker chose, not as a fact
+   * MODEL influenced it. Treat it as data the defer site chose, not as a fact
    * the framework vouches for.
    */
   readonly meta?: unknown;
@@ -178,11 +178,11 @@ export interface Deferral {
    * Which call this record belongs to, when the deferring step mints one
    * credential per call.
    *
-   * A batch of parallel tool calls shares one record (one park) while each
+   * A batch of parallel tool calls shares one record (one deferral) while each
    * handler sends its own recipient a link. Only the call that actually won
-   * the park may be resumed, so its identity is recorded here and every
+   * the deferral may be resumed, so its identity is recorded here and every
    * credential carries the same value as its `sub` claim. A losing sibling's
-   * recipient then takes `RC5055` rather than resuming a park that was never
+   * recipient then takes `RC5055` rather than resuming a deferral that was never
    * theirs.
    *
    * Absent for an ordinary `.defer()`, where there is nothing to
@@ -216,7 +216,7 @@ export interface Deferral {
    * When the record left `deferred` for a terminal state (`resumed`,
    * `expired`, `denied`). This is the retention clock:
    * {@link DeferralStore.purgeSettled} measures from here, so a record
-   * that parks for months and settles today is kept for the full retention
+   * that defers for months and settles today is kept for the full retention
    * window from today. For a resumed record it equals {@link resumedAt}.
    */
   readonly settledAt?: Date;
@@ -234,7 +234,7 @@ export interface Deferral {
  * A record is born `deferred`, so the fields only a transition can produce
  * are not part of the input. Taking a full {@link Deferral} would let a
  * caller insert a record that is already settled, and every compare-and-swap
- * in the contract then refuses to move it: the exchange is parked
+ * in the contract then refuses to move it: the exchange is deferred
  * permanently, with no error to notice.
  */
 export type NewDeferral = Omit<Deferral, DeferralTransitionField> & {
@@ -294,7 +294,7 @@ export interface PendingDeferralSummary {
 }
 
 /**
- * Persistence contract for parked exchanges.
+ * Persistence contract for deferred exchanges.
  *
  * Two backends ship: {@link MemoryDeferralStore} for tests and ephemeral
  * use, and {@link SqliteDeferralStore} as the durable default wherever
@@ -310,7 +310,7 @@ export interface PendingDeferralSummary {
  */
 export interface DeferralStore {
   /**
-   * Persist a newly parked exchange. Throws if `record.id` already exists:
+   * Persist a newly deferred exchange. Throws if `record.id` already exists:
    * a deferral id is minted per defer and a collision means a bug, not
    * a retry. The stored record is `deferred`; only the `mark*` transitions
    * move it out of that state.
@@ -382,10 +382,10 @@ export interface DeferralStore {
    * Compare-and-swap the opaque {@link Deferral.stepState} slot of a
    * record that is STILL `deferred`, leaving every other field alone.
    *
-   * The one write that edits a parked record in place rather than settling
-   * it. Compaction is the motivating caller: an agent's parked thread grows
+   * The one write that edits a deferred record in place rather than settling
+   * it. Compaction is the motivating caller: an agent's deferred thread grows
    * past what the model will accept, and shrinking it has to happen while
-   * the exchange stays parked, because a resume that lands on an
+   * the exchange stays deferred, because a resume that lands on an
    * unshrinkable thread has nowhere to go.
    *
    * Two races are closed by the same compare. `expected` is the
@@ -447,7 +447,7 @@ export interface DeferralStore {
     after?: ExpiredScanCursor,
   ): Promise<Deferral[]>;
 
-  /** Count and oldest `deferredAt` across deferrals still parked. */
+  /** Count and oldest `deferredAt` across deferrals still deferred. */
   pending(): Promise<PendingDeferralSummary>;
 
   /**
@@ -491,8 +491,8 @@ export interface DeferralStore {
    * through {@link DeferralStore.markExpired}.
    *
    * The cutoff is `settledAt`, not `deferredAt`: retention promises how
-   * long a SETTLED record is kept, and measuring from the park would purge
-   * a record that parked for 89 days and settled on day 89 one day after
+   * long a SETTLED record is kept, and measuring from the deferral would purge
+   * a record that deferred for 89 days and settled on day 89 one day after
    * it settled.
    */
   purgeSettled(before: Date): Promise<number>;

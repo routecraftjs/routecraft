@@ -33,9 +33,9 @@ export interface DeferSignalRequest {
    */
   readonly meta?: unknown;
   /**
-   * Identity of the call this park belongs to, so a batch that mints one
+   * Identity of the call this deferral belongs to, so a batch that mints one
    * credential per call cannot have one call's recipient resume another's
-   * park.
+   * deferral.
    */
   readonly callBinding?: string;
   /**
@@ -48,7 +48,7 @@ export interface DeferSignalRequest {
 }
 
 /**
- * The throwable a defer-capable adapter raises to park the exchange it is
+ * The throwable a defer-capable adapter raises to defer the exchange it is
  * executing.
  *
  * An `Error` subclass on purpose: the signal is control flow, and the
@@ -69,7 +69,7 @@ export class DeferSignal extends Error {
   constructor(request: DeferSignalRequest) {
     super(
       "A durable deferral was raised from a step without a revivable defer site. " +
-        "A deferral can only park from a .to() / .enrich() step of a built route's " +
+        "A deferral can only deferral from a .to() / .enrich() step of a built route's " +
         "primary flow (or a .choice() branch of it): not from a .tap() snapshot, a " +
         ".multicast() path, a .dispatch() target, inside a .split() fan-out, or a " +
         "dispatch that never entered a route.",
@@ -85,7 +85,7 @@ export class DeferSignal extends Error {
  * Public alongside {@link DeferSignal} for the same audience: a runtime
  * hosting defer-capable steps (the agent tier is the shipped one) uses it
  * to let a raised deferral pass through its own error accounting instead
- * of reporting a park as a failure.
+ * of reporting a deferral as a failure.
  */
 export function isDeferSignal(value: unknown): value is DeferSignal {
   return isBranded(value, BRAND.DeferSignal);

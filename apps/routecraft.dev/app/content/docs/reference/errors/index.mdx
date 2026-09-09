@@ -451,16 +451,16 @@ Agent run cancelled
 The dispatch's abort signal fired (a route stop, an elapsed `.timeout()`, or a [forced shutdown](/docs/reference/configuration#shutdown); a graceful shutdown drains the run instead of cancelling it) and the agent loop stopped cooperatively: between turns at the cheap checkpoint, or mid-turn when the signal reached the model call or a tool handler. The error's `cause` is an `AgentCancellationCause` with typed `turnsUsed` and `usage` fields (cache tokens included when the provider reports them), so cost accounting and traces read the spend structurally instead of parsing a message; a partial result never masquerades as a finished `AgentResult`.
 
 **Suggestion**  
-Cancellation is terminal: re-dispatch the work as a new exchange if it should run again. A run that parked at a deferral BEFORE the abort survives independently; a run whose park raced the abort is refused or denied with [RC5054](#rc-5054), so no stale resume link is left behind.
+Cancellation is terminal: re-dispatch the work as a new exchange if it should run again. A run that deferred at a deferral BEFORE the abort survives independently; a run whose deferral raced the abort is refused or denied with [RC5054](#rc-5054), so no stale resume link is left behind.
 
 ## AI1006
 Agent deferral unavailable on this surface
 
 **Why it happens**  
-`ctx.defer()` was called where no exchange can be durably parked: a proxied MCP tool guard, a `testFn` dispatch, or an agent invoked over a synthetic exchange with no route binding. The refusal happens at the moment of the call, before anything could be written, so there is never a half-created record.
+`ctx.defer()` was called where no exchange can be durably deferred: a proxied MCP tool guard, a `testFn` dispatch, or an agent invoked over a synthetic exchange with no route binding. The refusal happens at the moment of the call, before anything could be written, so there is never a half-created record.
 
 **Suggestion**  
-Dispatch the agent through a route: its exchange is then route-bound, the hosting `.to()` / `.enrich()` step carries a revivable defer site, and `ctx.defer()` parks. If this surface genuinely cannot park (an MCP proxy guard), drop the deferral from the handler; a guard's job is admission, not waiting.
+Dispatch the agent through a route: its exchange is then route-bound, the hosting `.to()` / `.enrich()` step carries a revivable defer site, and `ctx.defer()` defers. If this surface genuinely cannot defer (an MCP proxy guard), drop the deferral from the handler; a guard's job is admission, not waiting.
 
 ## AI1007
 Agent deferral state invalid at rehydration
@@ -469,15 +469,15 @@ Agent deferral state invalid at rehydration
 A resumed exchange carried `stepState` this agent cannot re-enter. Either the persisted value is not the `{ agentId, messages, deferredToolCallId, turnsUsed }` record the runtime writes, the thread does not contain the deferred tool call the payload should land on, or the record names a different agent than the one the route now dispatches. That last case exists because a by-name agent's registered options are not covered by the continuation hash (only step definitions are), so the persisted `agentId` is the identity the record can pin.
 
 **Suggestion**  
-Restore the agent binding the record names, or treat the parked work as lost and re-ask with a fresh deferral. The deferral was already claimed when this fired, so the failure is recorded as its terminal outcome and the deferred route's `.error()` handler receives it.
+Restore the agent binding the record names, or treat the deferred work as lost and re-ask with a fresh deferral. The deferral was already claimed when this fired, so the failure is recorded as its terminal outcome and the deferred route's `.error()` handler receives it.
 
 ## AI1008
-Parked agent thread replacement refused
+Deferred agent thread replacement refused
 
 **Why it happens**  
-A rewrite of a parked run's message thread produced a thread the run could not be resumed from. Compaction is the caller this exists for: an agent parks at an approval, its conversation has outgrown the model's context window, and the only moment to shrink it is while the exchange is still parked.
+A rewrite of a deferred run's message thread produced a thread the run could not be resumed from. Compaction is the caller this exists for: an agent defers at an approval, its conversation has outgrown the model's context window, and the only moment to shrink it is while the exchange is still deferred.
 
-Refused: an empty thread or an entry that is not a message, a tool call with no result (or a result with no call), a result placed before the call that produced it, a missing or empty `toolCallId`, an id used twice, and a thread that no longer contains the deferred call the approver's answer lands on. All but the last are what a summariser breaks by dropping or reordering a message it judged uninteresting; every provider rejects the thread that comes out. The last is the reason the guard runs before the store is written rather than after: a thread missing the deferred call is only discovered at revival, as [AI1007](#ai-1007), by which point the approval has been spent and the run cannot be recovered. AI1008 is the recoverable half of that pair. It is raised by `assertResumableThread` while the rewrite is still in hand, nothing has been persisted, and the parked run resumes from the thread it already had.
+Refused: an empty thread or an entry that is not a message, a tool call with no result (or a result with no call), a result placed before the call that produced it, a missing or empty `toolCallId`, an id used twice, and a thread that no longer contains the deferred call the approver's answer lands on. All but the last are what a summariser breaks by dropping or reordering a message it judged uninteresting; every provider rejects the thread that comes out. The last is the reason the guard runs before the store is written rather than after: a thread missing the deferred call is only discovered at revival, as [AI1007](#ai-1007), by which point the approval has been spent and the run cannot be recovered. AI1008 is the recoverable half of that pair. It is raised by `assertResumableThread` while the rewrite is still in hand, nothing has been persisted, and the deferred run resumes from the thread it already had.
 
 **Suggestion**  
 - Drop a tool call and its result together, never one of the pair.
@@ -508,13 +508,13 @@ Every named agent session (`agent(name, { session })`) is one record in the defe
 - Check that one process, on one version of `@routecraft/ai`, owns the store.
 
 ## AI1011
-A tool asked to park an agent session turn
+A tool asked to defer an agent session turn
 
 **Why it happens**  
-A tool called `ctx.defer()` inside an agent dispatched with `session`. A session turn stores its transcript when it ends and is revived from the session record rather than from a parked exchange, so there is no continuation an approval could resume into; the refusal lands in the tool, as a typed error the model reads, before anything is written.
+A tool called `ctx.defer()` inside an agent dispatched with `session`. A session turn stores its transcript when it ends and is revived from the session record rather than from a deferred exchange, so there is no continuation an approval could resume into; the refusal lands in the tool, as a typed error the model reads, before anything is written.
 
 **Suggestion**  
-- Park from a sessionless agent, where `ctx.defer()` parks the dispatch itself.
+- Deferral from a sessionless agent, where `ctx.defer()` defers the dispatch itself.
 - Move the approval into a route the agent calls as a tool, and let that route defer.
 
 ## AI1012
@@ -675,10 +675,10 @@ If the caller should receive a value, recover with a body in `.error()` instead 
 Unsupported step outcome
 
 **Why it happens**  
-A step returned a `StepOutcome` the engine cannot schedule. In practice this only happens with a custom step: the built-in steps always return a supported kind. Either the kind is one this build does not know, or a `defer` outcome arrived without the request the executor parks from, which only the framework's own [`.defer()`](/docs/reference/operations/defer) step can produce. This is **not retryable**: the same step returns the same outcome every time.
+A step returned a `StepOutcome` the engine cannot schedule. In practice this only happens with a custom step: the built-in steps always return a supported kind. Either the kind is one this build does not know, or a `defer` outcome arrived without the request the executor defers from, which only the framework's own [`.defer()`](/docs/reference/operations/defer) step can produce. This is **not retryable**: the same step returns the same outcome every time.
 
 **Suggestion**  
-Return one of the supported outcomes from your step: `continue`, `complete`, `drop`, `branch`, or `fanOut`. To park an exchange, use `.defer()` rather than hand-rolling the outcome: the executor needs the site the builder assigns to work out what would run on resume.
+Return one of the supported outcomes from your step: `continue`, `complete`, `drop`, `branch`, or `fanOut`. To deferral an exchange, use `.defer()` rather than hand-rolling the outcome: the executor needs the site the builder assigns to work out what would run on resume.
 
 ## RC5033
 Dedupe key derivation failed
@@ -828,7 +828,7 @@ Unlike [`RC5044`](#rc-5044) this is transient, so it is registered retryable and
 Deferral not found
 
 **Why it happens**  
-The resume token verified, but the store holds no deferral under that id. Either the record was purged by retention, or this process is pointed at a different store than the one that parked the exchange (an in-memory store after a restart, a different SQLite path), or the deferred route is not registered in the context doing the resuming.
+The resume token verified, but the store holds no deferral under that id. Either the record was purged by retention, or this process is pointed at a different store than the one that deferred the exchange (an in-memory store after a restart, a different SQLite path), or the deferred route is not registered in the context doing the resuming.
 
 **Suggestion**  
 Check that `deferral.store` names the same location on every node, and that the context running `.resume()` also has the deferred route registered: resume re-enters that route's pipeline, so it has to be there.
@@ -837,7 +837,7 @@ Check that `deferral.store` names the same location on every node, and that the 
 Deferral expired
 
 **Why it happens**  
-The deferral's `ttl` elapsed, so the parked exchange is no longer resumable. Either a late resume arrived and was refused, or the background sweeper retired the deferral on its own schedule with no resume ever arriving, which is the case a `ttl` mostly exists for.
+The deferral's `ttl` elapsed, so the deferred exchange is no longer resumable. Either a late resume arrived and was refused, or the background sweeper retired the deferral on its own schedule with no resume ever arriving, which is the case a `ttl` mostly exists for.
 
 **Suggestion**  
 This is catchable rather than terminal: the deferred route's own `.error()` handler receives it and can notify and re-ask with a fresh deferral. Raise `ttl` on `.defer()` if the window is genuinely too short for the people it waits on.
@@ -846,12 +846,12 @@ This is catchable rather than terminal: the deferred route's own `.error()` hand
 Deferral continuation changed
 
 **Why it happens**  
-The steps after the defer point, or the declared `schema`, changed while the exchange was parked. The stored approval no longer authorizes what would now run, so resuming is refused before any of those steps execute.
+The steps after the defer point, or the declared `schema`, changed while the exchange was deferred. The stored approval no longer authorizes what would now run, so resuming is refused before any of those steps execute.
 
 Editing a step BEFORE the defer point does not trigger this: those steps already ran, and changing them cannot affect what happens after the resume.
 
 **Suggestion**  
-Catch it in the deferred route's route-scope `.error()` and re-ask. Note the hash also moves for edits that change emitted step source without changing behaviour (a formatting pass, different line endings, a build-settings change), so a deployment that parks approvals for days should pin those; see [Configuration → deferral](/docs/reference/configuration#deferral).
+Catch it in the deferred route's route-scope `.error()` and re-ask. Note the hash also moves for edits that change emitted step source without changing behaviour (a formatting pass, different line endings, a build-settings change), so a deployment that defers approvals for days should pin those; see [Configuration → deferral](/docs/reference/configuration#deferral).
 
 ## RC5049
 Deferral result rejected
@@ -866,7 +866,7 @@ The deferral is left resumable, so a corrected payload still works. Check the ma
 Deferral denied
 
 **Why it happens**  
-The deferral was marked denied before this resume arrived, typically because the run carrying the parked exchange was cancelled.
+The deferral was marked denied before this resume arrived, typically because the run carrying the deferred exchange was cancelled.
 
 **Suggestion**  
 A denied deferral is terminal. Re-submit the work as a new exchange rather than resuming.
@@ -875,7 +875,7 @@ A denied deferral is terminal. Re-submit the work as a new exchange rather than 
 Defer not supported at this position
 
 **Why it happens**  
-A `.defer()` was declared where the framework cannot durably park and revive the exchange: inside a `.split()` that no `.aggregate()` balances, or inside a `.multicast()` path or `.dispatch()` target.
+A `.defer()` was declared where the framework cannot durably deferral and revive the exchange: inside a `.split()` that no `.aggregate()` balances, or inside a `.multicast()` path or `.dispatch()` target.
 
 **Suggestion**  
 Split the work into per-item child capabilities, each its own exchange deferring independently, or move the defer onto the main flow or a `.choice()` branch of it. Raised at `craft()` build time, so it fails on the deploy that introduced it.
@@ -884,10 +884,10 @@ Split the work into per-item child capabilities, each its own exchange deferring
 Deferral runtime not configured
 
 **Why it happens**  
-A route in this context can reach a durable `.defer()`, but nothing configured where parked exchanges are stored or how resume tokens are signed.
+A route in this context can reach a durable `.defer()`, but nothing configured where deferred exchanges are stored or how resume tokens are signed.
 
 **Suggestion**  
-Add `deferral: {}` to `defineConfig` to take the defaults, or `deferral: { store, secret }` to be explicit. It is deliberately not implicit: a durable defer that silently parks into memory loses everything it promised on the next restart.
+Add `deferral: {}` to `defineConfig` to take the defaults, or `deferral: { store, secret }` to be explicit. It is deliberately not implicit: a durable defer that silently defers into memory loses everything it promised on the next restart.
 
 `deferral: {}` applies defaults; it does not supply a signing secret. In production, set `secret` or the `ROUTECRAFT_DEFERRAL_SECRET` environment variable, or startup fails with [`RC5040`](#rc-5040) instead. An ephemeral key is minted only for tests and development, because a key that dies with the process makes every outstanding resume token unverifiable across exactly the restart deferral exists to survive.
 
@@ -910,25 +910,25 @@ Pushing through a handle that is merely unregistered is not this error. It is de
 Deferral cancelled by run abort
 
 **Why it happens**  
-The run raised a durable deferral while it was being cancelled: a route stop or an elapsed `.timeout()` aborted the run in the narrow window around the park. If the abort won the race, the exchange was never parked; if the park won, the just-created deferral was immediately denied so its resume link is dead, and a token presented later reads [RC5050](#rc-5050). Either way the caller sees this error instead of a resumable acknowledgment, which keeps the two stories consistent: a run reported as cancelled must not be resumable later.
+The run raised a durable deferral while it was being cancelled: a route stop or an elapsed `.timeout()` aborted the run in the narrow window around the deferral. If the abort won the race, the exchange was never deferred; if the deferral won, the just-created deferral was immediately denied so its resume link is dead, and a token presented later reads [RC5050](#rc-5050). Either way the caller sees this error instead of a resumable acknowledgment, which keeps the two stories consistent: a run reported as cancelled must not be resumable later.
 
 **Suggestion**  
-Nothing needs repair; the exchange's work simply did not park. Re-dispatch it as a new exchange if it should run again. Note the boundary: this is about the cancellation race only. A parked exchange whose process merely stops or restarts SURVIVES it; `context.stop()` never denies parked work, because surviving the stop is the store's entire purpose.
+Nothing needs repair; the exchange's work simply did not defer. Re-dispatch it as a new exchange if it should run again. Note the boundary: this is about the cancellation race only. A deferred exchange whose process merely stops or restarts SURVIVES it; `context.stop()` never denies deferred work, because surviving the stop is the store's entire purpose.
 
 ## RC5055
 Resume credential not bound to this call
 
 **Why it happens**  
-The token verifies and names a real deferral, but it was minted for a different call than the one the record is parked on. A parallel batch of agent tool calls produces ONE park, while each handler mints its own credential: only the call that actually won the park may be resumed, so a losing sibling's recipient presenting their link lands here.
+The token verifies and names a real deferral, but it was minted for a different call than the one the record is deferred on. A parallel batch of agent tool calls produces ONE deferral, while each handler mints its own credential: only the call that actually won the deferral may be resumed, so a losing sibling's recipient presenting their link lands here.
 
 **Suggestion**  
-Nothing is wrong with the record; it is still resumable by the rightful credential. Design so at most one tool per turn can park (one approval tool, or mutually exclusive guards) rather than handing two recipients two links backed by one park. The refusal is deliberately non-destructive: it leaves the record exactly as it found it, so the winning call's recipient can still resume.
+Nothing is wrong with the record; it is still resumable by the rightful credential. Design so at most one tool per turn can defer (one approval tool, or mutually exclusive guards) rather than handing two recipients two links backed by one deferral. The refusal is deliberately non-destructive: it leaves the record exactly as it found it, so the winning call's recipient can still resume.
 
 ## RC5056
 Resume refused by the route's authorize hook
 
 **Why it happens**  
-The [`.resume({ authorize })`](/docs/reference/operations/resume#securing-resume) hook on the ingress route refused this principal. Who may resume a parked run is your application's policy, not the framework's: the hook receives the live principal, the parked principal snapshot, the raw submitted payload, and the record's context, and decides.
+The [`.resume({ authorize })`](/docs/reference/operations/resume#securing-resume) hook on the ingress route refused this principal. Who may resume a deferred run is your application's policy, not the framework's: the hook receives the live principal, the deferred principal snapshot, the raw submitted payload, and the record's context, and decides.
 
 A hook that returns false, one that throws, and one that never settles before the route's own `.timeout()` all produce this one code with the same message. That is deliberate: a hook whose failures can be told apart from outside is an oracle for what it knows.
 
@@ -941,9 +941,9 @@ A door that declares no hook is bearer by design: any holder of a valid token ma
 Deferral sequence header unusable
 
 **Why it happens**  
-The framework-owned `routecraft.deferral.sequence` header carries a value the park counter cannot use: a non-numeric or negative value, or one at the exhaustion bound, refused before the counter can ever store a value whose own increment would leave the safe-integer range. Headers are a writable bag, so a step (or an external system the headers were round-tripped through) can mangle this one like any other.
+The framework-owned `routecraft.deferral.sequence` header carries a value the deferral counter cannot use: a non-numeric or negative value, or one at the exhaustion bound, refused before the counter can ever store a value whose own increment would leave the safe-integer range. Headers are a writable bag, so a step (or an external system the headers were round-tripped through) can mangle this one like any other.
 
-It is a refusal rather than a reset on purpose. The deferral id derives from this counter, and resume tokens sign the id: a counter silently reset to zero re-derives an id an earlier park of the same exchange already used, and an old unspent resume link would then verify against the new park. The error is raised only on deferral surfaces (`ex.deferral`, or the park itself); routes that never touch deferral are unaffected by a mangled header.
+It is a refusal rather than a reset on purpose. The deferral id derives from this counter, and resume tokens sign the id: a counter silently reset to zero re-derives an id an earlier deferral of the same exchange already used, and an old unspent resume link would then verify against the new deferral. The error is raised only on deferral surfaces (`ex.deferral`, or the deferral itself); routes that never touch deferral are unaffected by a mangled header.
 
 **Suggestion**  
 Find what overwrote the header. The usual culprit is code that rebuilds a headers object by hand or passes headers through an external system that coerces values to strings. If the message reports exhaustion rather than a malformed value, treat it the same way: the bound is not reachable by deferring in a loop, so a plausible-looking huge value is still corruption.

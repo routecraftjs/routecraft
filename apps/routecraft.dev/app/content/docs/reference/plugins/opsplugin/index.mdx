@@ -307,14 +307,14 @@ Three outcomes, told apart because they need different answers:
 | `outcome` | Status | Meaning |
 | --- | --- | --- |
 | `completed` | 200 | The route ran and produced `body` |
-| `deferred` | 202 | The route parked; `deferral` carries the acknowledgment |
+| `deferred` | 202 | The route deferred; `deferral` carries the acknowledgment |
 | `dropped` | 200 | A filter rejected the exchange, so there is no result body |
 
 A route that fails answers 500 carrying the framework's error `code`, which is what lets a client tell an `.authorize()` refusal from a broken step.
 
 **No bypass, and no synthetic operator principal.** A dispatch runs the full [pre-from chain](/docs/advanced/filter-chain), and the principal is the one the mount's validator minted from the presented credential. A downstream `.authorize()` cannot distinguish an operator dispatch from any other authenticated caller, which is the point: the management door is built from the framework's own primitives rather than beside them.
 
-A park is an outcome and not an error. The response is the standard [`Deferred`](/docs/advanced/durable-agents) acknowledgment every other surface returns, carrying the deferral id, the single-use resume token and the expiry. There is no resume verb here: who may resume a parked run is the application's policy, expressed with `.resume({ authorize })`, and a management resume door would be the framework building the bypass it deliberately refused to build.
+A deferral is an outcome and not an error. The response is the standard [`Deferred`](/docs/advanced/durable-agents) acknowledgment every other surface returns, carrying the deferral id, the single-use resume token and the expiry. There is no resume verb here: who may resume a deferred run is the application's policy, expressed with `.resume({ authorize })`, and a management resume door would be the framework building the bypass it deliberately refused to build.
 
 ### Contributed resources
 
@@ -332,7 +332,7 @@ registerOpsResource(ctx, {
 
 A collection answer is the same `{ items, nextCursor? }` envelope as the route listing, and the contributor pages it with the same helpers the mount uses: `parsePageQuery(query)` reads `limit` and `after` (refusing a bad limit with `RC5059`), `decodeCursor(after, scope)` checks a cursor against the contributor's own filter scope, and `takePage(sorted, scope, limit, after)` takes the page and mints the next cursor, all exported from `@routecraft/routecraft`. A throw from either read is answered by the mount: `RC5059` as a 400 carrying the message, since it is the caller's; anything else as a 500 carrying the resource name and the error's code, never its message. `routes` and `events` are the mount's own names and refused, as is a second registration of one name. Registration needs no ops plugin to be present: it is inert until a mount exists.
 
-**`agent-sessions`** is the one shipped: [`@routecraft/ai`](/docs/reference/adapters/agent#sessions-an-agent-that-remembers) registers it, and it lists every named agent session with the person it belongs to (`owner`, `null` for a session no principal opened), the directory it is bound to (`cwd`, absent unless it was opened with one), its human-readable `title`, its turn state (`idle`, `running`, or `stale` for a turn a restart cut short), the depth of its inbox, the background calls it is waiting on, whether a continuation is stored for them (`parked`), its transcript length and its turn count. `?agent=` narrows the collection to one agent, `limit` and `after` page it exactly as the route listing (the cursor is bound to the `agent` filter), and `GET /ops/agent-sessions/{session}` answers one summary, because a conversation is named by its id alone. A page costs one store read per session the filter considers, because ownership is applied before the page is sliced: a cursor is minted from the last row of a page and is reversible, so slicing first would hand a caller an identifier the filter exists to withhold. A store with an owner-aware listing could do better, and the contract does not have one. A context with no deferral store lists nothing, which the collection cannot tell apart from a store with no sessions.
+**`agent-sessions`** is the one shipped: [`@routecraft/ai`](/docs/reference/adapters/agent#sessions-an-agent-that-remembers) registers it, and it lists every named agent session with the person it belongs to (`owner`, `null` for a session no principal opened), the directory it is bound to (`cwd`, absent unless it was opened with one), its human-readable `title`, its turn state (`idle`, `running`, or `stale` for a turn a restart cut short), the depth of its inbox, the background calls it is waiting on, whether a continuation is stored for them (`deferred`), its transcript length and its turn count. `?agent=` narrows the collection to one agent, `limit` and `after` page it exactly as the route listing (the cursor is bound to the `agent` filter), and `GET /ops/agent-sessions/{session}` answers one summary, because a conversation is named by its id alone. A page costs one store read per session the filter considers, because ownership is applied before the page is sliced: a cursor is minted from the last row of a page and is reversible, so slicing first would hand a caller an identifier the filter exists to withhold. A store with an owner-aware listing could do better, and the contract does not have one. A context with no deferral store lists nothing, which the collection cannot tell apart from a store with no sessions.
 
 This resource reads every session, whoever owns it. That is the deliberate operator privilege: `owner` gates who may list and read a conversation over a protocol surface such as [`acpPlugin()`](/docs/reference/plugins/acpplugin), and the management credential is what sees past it. It is what makes "who owns this conversation and which directory is it bound to" an answerable question.
 
@@ -343,7 +343,7 @@ curl -H "authorization: Bearer $TOKEN" 'http://127.0.0.1:8080/ops/agent-sessions
 ```json
 {
   "items": [
-    { "agent": "max", "session": "feature-login", "owner": "jaco", "cwd": "/work/eywa", "title": "Feature login", "turn": "idle", "inbox": 0, "background": 1, "parked": true, "messages": 14, "turns": 6, "updatedAt": "2026-09-04T21:40:11.522Z" }
+    { "agent": "max", "session": "feature-login", "owner": "jaco", "cwd": "/work/eywa", "title": "Feature login", "turn": "idle", "inbox": 0, "background": 1, "deferred": true, "messages": 14, "turns": 6, "updatedAt": "2026-09-04T21:40:11.522Z" }
   ]
 }
 ```
@@ -448,7 +448,7 @@ For a probe checking several subsystems, or a business route flagging a dependen
 ```ts skip="fragment: mailHealth are illustrative"
 mailHealth.down({ subsystem: 'imap' })
 mailHealth.up()
-mailHealth.inactive()   // parked for maintenance: reports inactive, never pages
+mailHealth.inactive()   // deferred for maintenance: reports inactive, never pages
 ```
 
 Details must stay structural (enums, numbers, booleans). Log the error where it happened; it does not belong on the endpoint.

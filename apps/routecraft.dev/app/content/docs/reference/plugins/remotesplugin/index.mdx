@@ -86,7 +86,7 @@ A dispatch through an imported endpoint maps the remote's outcome onto the in-pr
 |------------|------|
 | completes | the body |
 | drops | [`RC5031`](/docs/reference/errors#rc-5031), as for a local drop |
-| parks on a `.defer()` | the standard `Deferred` acknowledgment; resume is at the remote's door, under its policy |
+| defers on a `.defer()` | the standard `Deferred` acknowledgment; resume is at the remote's door, under its policy |
 | fails (500 with a code) | [`RC5064`](/docs/reference/errors#rc-5064), carrying the remote's code as cause |
 | refuses the credential (401 or 403) | [`RC5063`](/docs/reference/errors#rc-5063), naming the door's own reason, so a credential problem is distinguishable from a broken route |
 | cannot be reached, loses the connection, or does not answer in time | [`RC5062`](/docs/reference/errors#rc-5062); a connection that never opened is retryable, a lost connection or a timeout is not |

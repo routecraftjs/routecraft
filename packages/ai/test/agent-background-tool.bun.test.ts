@@ -167,7 +167,7 @@ describe("background tools", () => {
   /**
    * @case A background call returns a handle at once, the turn replies before the route finishes, and the completion starts the next turn on its own
    * @preconditions sandbox-run is held open by the test; the agent calls it and answers; the route is released after the reply, and no further message is sent
-   * @expectedResult The tool result the model saw is { handle: "sandbox-run:<dispatchId>", status: "running" } and the dispatched exchange carries the handle on its headers; the reply arrives while the route is still running and the turn's exchange is parked with one background call; once released, background:completed is emitted, the stored continuation is revived and a second model call is made with no new message, whose only user part carries the result text naming the handle; that turn's reply reaches the chat route's downstream step; a later message is a third call carrying only itself. With the revival removed this fails: no second call is made until a message arrives
+   * @expectedResult The tool result the model saw is { handle: "sandbox-run:<dispatchId>", status: "running" } and the dispatched exchange carries the handle on its headers; the reply arrives while the route is still running and the turn's exchange is deferred with one background call; once released, background:completed is emitted, the stored continuation is revived and a second model call is made with no new message, whose only user part carries the result text naming the handle; that turn's reply reaches the chat route's downstream step; a later message is a third call carrying only itself. With the revival removed this fails: no second call is made until a message arrives
    */
   test("the turn continues past the call and the completion starts the next turn", async () => {
     const store = new MemoryDeferralStore();
@@ -179,7 +179,7 @@ describe("background tools", () => {
     for (const name of [
       "route:agent:session:background:started",
       "route:agent:session:background:completed",
-      "route:agent:session:parked",
+      "route:agent:session:deferred",
       "route:agent:session:revived",
     ] as const) {
       t.ctx.on(name, () => {
@@ -201,7 +201,7 @@ describe("background tools", () => {
     expect(receipt.handle).toMatch(/^sandbox-run:[0-9a-f-]{36}$/);
     expect(events).toEqual([
       "route:agent:session:background:started",
-      "route:agent:session:parked",
+      "route:agent:session:deferred",
     ]);
     // The model was told the tool is asynchronous.
     const advertised = (
@@ -220,7 +220,7 @@ describe("background tools", () => {
     await t.ctx.getRouteById("chat")!.drain();
     expect(events).toEqual([
       "route:agent:session:background:started",
-      "route:agent:session:parked",
+      "route:agent:session:deferred",
       "route:agent:session:background:completed",
       "route:agent:session:revived",
     ]);

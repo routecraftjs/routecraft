@@ -78,9 +78,9 @@ export enum OperationType {
   DEBOUNCE = "debounce",
   /** Short-circuit the pipeline: drop the exchange without further steps */
   HALT = "halt",
-  /** Park the exchange durably and exit the pipeline, to be resumed later at the next step */
+  /** Deferral the exchange durably and exit the pipeline, to be resumed later at the next step */
   DEFER = "defer",
-  /** Revive a parked exchange addressed by a signed resume token */
+  /** Revive a deferred exchange addressed by a signed resume token */
   RESUME = "resume",
 }
 
@@ -278,7 +278,7 @@ export type Exchange<T = unknown> = {
 
   /**
    * Durable-deferral view of this exchange: the id and signed token it
-   * would park as, and (after a resume) the payload that revived it.
+   * would defer as, and (after a resume) the payload that revived it.
    *
    * Sugar over the `routecraft.deferral.*` headers plus the context's
    * token signer, in the same shape as `principal` and `logger`. Readable
@@ -301,10 +301,10 @@ type ExchangeInternals = {
   context: CraftContext;
   route?: Route;
   /**
-   * The sequence the next park in this run must use, set by an aside park
-   * (`parkAside`). The aside stores the successor sequence on the record
-   * it writes, as a `.defer()` park does, but the live exchange runs
-   * on with its headers unchanged, so a later park in the same run would
+   * The sequence the next deferral in this run must use, set by an aside deferral
+   * (`deferAside`). The aside stores the successor sequence on the record
+   * it writes, as a `.defer()` deferral does, but the live exchange runs
+   * on with its headers unchanged, so a later deferral in the same run would
    * derive the id the aside just took. Shared across rewraps like the
    * flags above.
    *
@@ -402,7 +402,7 @@ type ExchangeInternals = {
    */
   outputValidatedAgainst?: StandardSchemaV1;
   /**
-   * Set when the exchange parked at a `.defer()`. Read after
+   * Set when the exchange deferred at a `.defer()`. Read after
    * `runPipeline` returns to skip `.output()` validation and
    * `exchange:completed`: execution one ends with the `Deferred`
    * acknowledgment as its body, which is deliberately NOT the route's
@@ -427,7 +427,7 @@ type ExchangeInternals = {
    *
    * On internals rather than headers deliberately: it is runtime context
    * for exactly one step execution on this process, not exchange state, and
-   * it must never be re-serialized into the next park (the step builds a
+   * it must never be re-serialized into the next deferral (the step builds a
    * fresh stepState for that).
    *
    * @internal
@@ -526,7 +526,7 @@ export function setResumeStepState(exchange: Exchange, state: unknown): void {
  * Reading does NOT consume the state: the executor clears it when the step
  * settles, so a step-scope or route-scope `.retry()` re-running a failed
  * resume attempt still sees it, while a later defer-capable step in the
- * same continuation (or a fresh park by the same step) starts clean.
+ * same continuation (or a fresh deferral by the same step) starts clean.
  */
 export function peekResumeStepState(exchange: Exchange): unknown {
   return internalsOf(exchange)?.resumeStepState;
@@ -575,7 +575,7 @@ export function cloneExchange<T>(
       [HeadersKeys.ID]: randomUUID(),
       // The fresh id above is what makes a clone distinguishable in logs,
       // but it would also point `ex.deferral` at a deferral that never
-      // parks. Record which exchange this is a snapshot OF so a `.tap()`
+      // defers. Record which exchange this is a snapshot OF so a `.tap()`
       // notification can mint the resume token for the exchange that will.
       [DEFERRAL_OWNER_HEADER]:
         exchange.headers[DEFERRAL_OWNER_HEADER] ?? exchange.id,
@@ -683,9 +683,9 @@ export function wasOutputValidated(
 }
 
 /**
- * Mark an exchange as parked at a `.defer()`. Idempotent. Called by the
+ * Mark an exchange as deferred at a `.defer()`. Idempotent. Called by the
  * executor once the deferral is durably stored, never before: the flag
- * suppresses the exchange's completion accounting, so setting it for a park
+ * suppresses the exchange's completion accounting, so setting it for a deferral
  * that then failed to write would lose the exchange from every ledger.
  *
  * @internal
@@ -696,8 +696,8 @@ export function markDeferred(exchange: Exchange): void {
 }
 
 /**
- * Record the sequence the next park in this run must use, after an aside
- * park took the current one. See `ExchangeInternals.deferralSequence`.
+ * Record the sequence the next deferral in this run must use, after an aside
+ * deferral took the current one. See `ExchangeInternals.deferralSequence`.
  *
  * @internal
  */
@@ -707,7 +707,7 @@ export function noteAsideSequence(exchange: Exchange, next: number): void {
 }
 
 /**
- * The sequence an aside park in this run advanced to, or `undefined` when
+ * The sequence an aside deferral in this run advanced to, or `undefined` when
  * none did and the header is the whole truth.
  *
  * @internal
@@ -718,7 +718,7 @@ export function asideSequenceOf(exchange: Exchange): number | undefined {
 
 /**
  * Returns true if the exchange (or any rewrap of it sharing the same
- * internals) parked at a `.defer()` during this run.
+ * internals) deferred at a `.defer()` during this run.
  *
  * @internal
  */

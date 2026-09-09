@@ -45,11 +45,11 @@ describe("defer and resume", () => {
   });
 
   /**
-   * @case A route parks at .defer() and answers execution one with the Deferred acknowledgment
+   * @case A route defers at .defer() and answers execution one with the Deferred acknowledgment
    * @preconditions direct() ingress, one .defer({ expect }), a sink after it
    * @expectedResult The caller receives a branded Deferred value carrying the deferral id, a token and the expect rendering; the steps after the defer have not run
    */
-  test("defer parks the exchange and answers with an acknowledgment", async () => {
+  test("defer defers the exchange and answers with an acknowledgment", async () => {
     const after: unknown[] = [];
     t = await testContext()
       .with(deferring())
@@ -80,8 +80,8 @@ describe("defer and resume", () => {
   });
 
   /**
-   * @case A resume revives the parked exchange at position N+1 with the answer in place
-   * @preconditions A parked payout, and a second route ending in .resume() fed by its own direct() ingress
+   * @case A resume revives the deferred exchange at position N+1 with the answer in place
+   * @preconditions A deferred payout, and a second route ending in .resume() fed by its own direct() ingress
    * @expectedResult Only the steps after the defer run, ex.deferral.result carries the validated answer, and the acknowledgment reports the continuation's terminal outcome
    */
   test("resume runs the continuation with ex.deferral.result populated", async () => {
@@ -105,7 +105,7 @@ describe("defer and resume", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(
+    const deferred = asDeferred(
       await t.client.sendDirect("payout", {
         amountCents: 90_000,
         payee: "acme",
@@ -113,18 +113,18 @@ describe("defer and resume", () => {
     );
 
     const acknowledgment = await t.client.sendDirect("answers", {
-      token: parked.token,
+      token: deferred.token,
       result: { approved: true, note: "ok" },
     });
 
     expect(acknowledgment).toMatchObject({
       status: "resumed",
       routeId: "payout",
-      deferralId: parked.deferralId,
+      deferralId: deferred.deferralId,
     });
     expect(ran).toHaveLength(1);
     expect(ran[0]?.approved).toBe(true);
-    // The body crossed the park untouched, which is what lets a defer
+    // The body crossed the deferral untouched, which is what lets a defer
     // branch rejoin the main flow on the contract it left on.
     expect(ran[0]?.body).toEqual({ amountCents: 90_000, payee: "acme" });
     expect(t.errors).toHaveLength(0);
@@ -154,18 +154,18 @@ describe("defer and resume", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(
+    const deferred = asDeferred(
       await t.client.sendDirect("payout", {
         amountCents: 25_000,
         payee: "acme",
       }),
     );
     const first = (await t.client.sendDirect("answers", {
-      token: parked.token,
+      token: deferred.token,
       result: { approved: true },
     })) as { status: string; outcome: { status: string; body?: unknown } };
     const second = (await t.client.sendDirect("answers", {
-      token: parked.token,
+      token: deferred.token,
       result: { approved: true },
     })) as { status: string; outcome: { status: string; body?: unknown } };
 
@@ -177,8 +177,8 @@ describe("defer and resume", () => {
   });
 
   /**
-   * @case The continuation changed under a parked exchange
-   * @preconditions The exchange parks in one context; a second context runs the same route with an edited step after the defer point, sharing the store
+   * @case The continuation changed under a deferred exchange
+   * @preconditions The exchange defers in one context; a second context runs the same route with an edited step after the defer point, sharing the store
    * @expectedResult The resume is refused with RC5048 before any continuation step runs, the ingress caller sees the error, and the deferred route's .error() handler receives it
    */
   test("a changed continuation re-enters the route error channel with RC5048", async () => {
@@ -187,7 +187,7 @@ describe("defer and resume", () => {
       deferral: { store, secret: SECRET },
     };
 
-    const parkContext = await testContext()
+    const deferContext = await testContext()
       .with(shared)
       .routes([
         craft()
@@ -198,14 +198,14 @@ describe("defer and resume", () => {
           .to(noop()),
       ])
       .build();
-    await parkContext.startAndWaitReady();
-    const parked = asDeferred(
-      await parkContext.client.sendDirect("payout", {
+    await deferContext.startAndWaitReady();
+    const deferred = asDeferred(
+      await deferContext.client.sendDirect("payout", {
         amountCents: 25_000,
         payee: "acme",
       }),
     );
-    await parkContext.stop();
+    await deferContext.stop();
 
     const caught: unknown[] = [];
     const paid: unknown[] = [];
@@ -234,7 +234,7 @@ describe("defer and resume", () => {
 
     await expect(
       t.client.sendDirect("answers", {
-        token: parked.token,
+        token: deferred.token,
         result: { approved: true },
       }),
     ).rejects.toMatchObject({ rc: "RC5048" });
@@ -246,7 +246,7 @@ describe("defer and resume", () => {
 
   /**
    * @case An answer that does not satisfy the deferring step's expect schema
-   * @preconditions A parked payout; the resume presents { approved: "yes" }
+   * @preconditions A deferred payout; the resume presents { approved: "yes" }
    * @expectedResult RC5049 in the ingress route ONLY (the deferred route's own .error() never sees it), nothing after the defer runs, and the deferral stays resumable so a corrected answer completes normally
    */
   test("an answer that fails expect is refused with RC5049 and leaves the deferral resumable", async () => {
@@ -276,7 +276,7 @@ describe("defer and resume", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(
+    const deferred = asDeferred(
       await t.client.sendDirect("payout", {
         amountCents: 10,
         payee: "acme",
@@ -285,7 +285,7 @@ describe("defer and resume", () => {
 
     await expect(
       t.client.sendDirect("answers", {
-        token: parked.token,
+        token: deferred.token,
         result: { approved: "yes" },
       }),
     ).rejects.toMatchObject({ rc: "RC5049" });
@@ -295,7 +295,7 @@ describe("defer and resume", () => {
     // Still resumable: the answerer corrects the payload and the
     // continuation runs exactly as it would have the first time.
     const acknowledgment = (await t.client.sendDirect("answers", {
-      token: parked.token,
+      token: deferred.token,
       result: { approved: true },
     })) as { status: string; outcome: { status: string } };
     expect(acknowledgment.status).toBe("resumed");
@@ -335,15 +335,15 @@ describe("defer and resume", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(
+    const deferred = asDeferred(
       await t.client.sendDirect("payout", { amountCents: 1, payee: "acme" }),
     );
-    expect(parked.expiresAt).toBeString();
+    expect(deferred.expiresAt).toBeString();
     await new Promise((resolve) => setTimeout(resolve, 10));
 
     await expect(
       t.client.sendDirect("answers", {
-        token: parked.token,
+        token: deferred.token,
         result: { approved: true },
       }),
     ).rejects.toMatchObject({ rc: "RC5047" });
@@ -390,11 +390,11 @@ describe("defer and resume", () => {
   });
 
   /**
-   * @case The route keeps serving other exchanges while one is parked
-   * @preconditions One exchange parked at a defer inside a .choice() branch; a second exchange takes the fast path while it is parked
-   * @expectedResult The second exchange completes normally and the parked one still resumes afterwards, proving nothing waits on the route
+   * @case The route keeps serving other exchanges while one is deferred
+   * @preconditions One exchange deferred at a defer inside a .choice() branch; a second exchange takes the fast path while it is deferred
+   * @expectedResult The second exchange completes normally and the deferred one still resumes afterwards, proving nothing waits on the route
    */
-  test("a parked exchange does not block the route", async () => {
+  test("a deferred exchange does not block the route", async () => {
     const completed: unknown[] = [];
     t = await testContext()
       .with(deferring())
@@ -422,7 +422,7 @@ describe("defer and resume", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(
+    const deferred = asDeferred(
       await t.client.sendDirect("payout", {
         amountCents: 90_000,
         payee: "big",
@@ -437,7 +437,7 @@ describe("defer and resume", () => {
     expect(completed).toEqual([{ amountCents: 100, payee: "small" }]);
 
     await t.client.sendDirect("answers", {
-      token: parked.token,
+      token: deferred.token,
       result: { approved: true },
     });
     // The approved payout rejoined the main flow behind the fast one, on
@@ -483,14 +483,14 @@ describe("defer and resume", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(
+    const deferred = asDeferred(
       await t.client.sendDirect("payout", {
         amountCents: 90_000,
         payee: "big",
       }),
     );
     const acknowledgment = (await t.client.sendDirect("answers", {
-      token: parked.token,
+      token: deferred.token,
       result: { approved: false },
     })) as { outcome: { status: string } };
 
@@ -501,7 +501,7 @@ describe("defer and resume", () => {
   /**
    * @case The deferral token is readable before the defer step runs
    * @preconditions A .tap() ahead of the .defer() reads ex.deferral.token and ex.deferral.id
-   * @expectedResult The values it read are the ones the eventual acknowledgment carries, so a notification sent before the park contains a working link
+   * @expectedResult The values it read are the ones the eventual acknowledgment carries, so a notification sent before the deferral contains a working link
    */
   test("ex.deferral.token is mintable before the defer step", async () => {
     const notified: Array<{ id: string; token: string }> = [];
@@ -524,13 +524,13 @@ describe("defer and resume", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(
+    const deferred = asDeferred(
       await t.client.sendDirect("payout", { amountCents: 1, payee: "acme" }),
     );
     await t.drain();
 
     expect(notified).toHaveLength(1);
-    expect(notified[0]?.id).toBe(parked.deferralId);
+    expect(notified[0]?.id).toBe(deferred.deferralId);
     // Tokens are minted per call, so compare what they resolve to rather
     // than the strings: what matters is that the early one resumes.
     const acknowledgment = await t.client.sendDirect("answers", {
@@ -577,11 +577,11 @@ describe("defer and resume", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(
+    const deferred = asDeferred(
       await t.client.sendDirect("payout", { amountCents: 1, payee: "acme" }),
     );
     await t.client.sendDirect("answers", {
-      token: parked.token,
+      token: deferred.token,
       result: { approved: true },
     });
     await t.drain();
@@ -593,7 +593,7 @@ describe("defer and resume", () => {
 
   /**
    * @case A principal that came back from the store is not a verified one
-   * @preconditions The parked exchange carried an authenticated principal; the continuation runs authorize()
+   * @preconditions The deferred exchange carried an authenticated principal; the continuation runs authorize()
    * @expectedResult RC5043: the restored shape has no live credential behind it, so the continuation must re-verify rather than trust what was read off disk (#355)
    */
   test("a resumed exchange's principal is refused by authorize", async () => {
@@ -620,11 +620,11 @@ describe("defer and resume", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(
+    const deferred = asDeferred(
       await t.client.sendDirect("payout", { amountCents: 1, payee: "acme" }),
     );
     const acknowledgment = (await t.client.sendDirect("answers", {
-      token: parked.token,
+      token: deferred.token,
       result: { approved: true },
     })) as { outcome: { status: string; error?: { rc?: string } } };
 
@@ -634,8 +634,8 @@ describe("defer and resume", () => {
   });
 
   /**
-   * @case A revived exchange keeps the identity it parked with
-   * @preconditions An exchange parks, then resumes; ids are captured on both sides of the park
+   * @case A revived exchange keeps the identity it deferred with
+   * @preconditions An exchange defers, then resumes; ids are captured on both sides of the deferral
    * @expectedResult Execution two runs under the SAME routecraft.id and correlation id as execution one, because a resume is a continuation rather than a route ingress (#573 mints a fresh id at every ingress); deferral ids are derived from the exchange id, and the deferred / resumed / expired events key off it
    */
   test("a resumed exchange retains its exchange id and correlation id", async () => {
@@ -670,11 +670,11 @@ describe("defer and resume", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(
+    const deferred = asDeferred(
       await t.client.sendDirect("payout", { amountCents: 1, payee: "acme" }),
     );
     await t.client.sendDirect("answers", {
-      token: parked.token,
+      token: deferred.token,
       result: { approved: true },
     });
     await t.drain();
@@ -684,12 +684,12 @@ describe("defer and resume", () => {
     expect(seen[1]?.correlationId).toBe(seen[0]!.correlationId);
     // And the deferral the token named is derived from that same id, which
     // is what keeps the :deferred and :resumed events on one exchange.
-    expect(parked.deferralId.startsWith(seen[0]!.id)).toBe(true);
+    expect(deferred.deferralId.startsWith(seen[0]!.id)).toBe(true);
   });
 
   /**
    * @case A continuation that reaches a second .defer() is not a completion
-   * @preconditions A two-stage approval: the continuation of the first park contains another .defer()
+   * @preconditions A two-stage approval: the continuation of the first deferral contains another .defer()
    * @expectedResult The first deferral's terminal outcome is "deferred" with no body, so the receipt does not claim the work finished and the first approver's response does not carry the second approver's resume token
    */
   test("a chained deferral records a deferred outcome, not a completion", async () => {
@@ -708,11 +708,11 @@ describe("defer and resume", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(
+    const deferred = asDeferred(
       await t.client.sendDirect("payout", { amountCents: 1, payee: "acme" }),
     );
     const first = (await t.client.sendDirect("answers", {
-      token: parked.token,
+      token: deferred.token,
       result: { approved: true },
     })) as {
       status: string;
@@ -725,7 +725,7 @@ describe("defer and resume", () => {
     expect(first.outcome.body).toBeUndefined();
 
     const duplicate = (await t.client.sendDirect("answers", {
-      token: parked.token,
+      token: deferred.token,
       result: { approved: true },
     })) as { status: string; outcome: { status: string; body?: unknown } };
     expect(duplicate.status).toBe("duplicate");
@@ -735,7 +735,7 @@ describe("defer and resume", () => {
 
   /**
    * @case A changed continuation is reported to the deferred route once, not once per replay
-   * @preconditions A parked exchange whose route changed under it; the same token is presented twice
+   * @preconditions A deferred exchange whose route changed under it; the same token is presented twice
    * @expectedResult Both attempts fail in the ingress, but the deferred route's .error() handler runs exactly once: a replayed token cannot drive its re-ask notifications
    */
   test("a changed continuation re-asks exactly once across replays", async () => {
@@ -744,7 +744,7 @@ describe("defer and resume", () => {
       deferral: { store, secret: SECRET },
     };
 
-    const parkContext = await testContext()
+    const deferContext = await testContext()
       .with(shared)
       .routes([
         craft()
@@ -755,14 +755,14 @@ describe("defer and resume", () => {
           .to(noop()),
       ])
       .build();
-    await parkContext.startAndWaitReady();
-    const parked = asDeferred(
-      await parkContext.client.sendDirect("payout", {
+    await deferContext.startAndWaitReady();
+    const deferred = asDeferred(
+      await deferContext.client.sendDirect("payout", {
         amountCents: 25_000,
         payee: "acme",
       }),
     );
-    await parkContext.stop();
+    await deferContext.stop();
 
     const caught: unknown[] = [];
     t = await testContext()
@@ -785,7 +785,7 @@ describe("defer and resume", () => {
 
     const answer = () =>
       t!.client.sendDirect("answers", {
-        token: parked.token,
+        token: deferred.token,
         result: { approved: true },
       });
 
@@ -797,7 +797,7 @@ describe("defer and resume", () => {
 
   /**
    * @case The route lost its .defer() entirely, rather than changing its tail
-   * @preconditions The exchange parks; the redeployed route has no .defer() at the stored position; the token is then replayed
+   * @preconditions The exchange defers; the redeployed route has no .defer() at the stored position; the token is then replayed
    * @expectedResult The stored denial reason names the cause it was actually refused for, so the RC5050 a replay reads back does not report a changed continuation for a route that no longer defers at all
    */
   test("a removed defer site records its own denial reason", async () => {
@@ -806,7 +806,7 @@ describe("defer and resume", () => {
       deferral: { store, secret: SECRET },
     };
 
-    const parkContext = await testContext()
+    const deferContext = await testContext()
       .with(shared)
       .routes([
         craft()
@@ -816,14 +816,14 @@ describe("defer and resume", () => {
           .to(noop()),
       ])
       .build();
-    await parkContext.startAndWaitReady();
-    const parked = asDeferred(
-      await parkContext.client.sendDirect("payout", {
+    await deferContext.startAndWaitReady();
+    const deferred = asDeferred(
+      await deferContext.client.sendDirect("payout", {
         amountCents: 25_000,
         payee: "acme",
       }),
     );
-    await parkContext.stop();
+    await deferContext.stop();
 
     t = await testContext()
       .with(shared)
@@ -837,7 +837,7 @@ describe("defer and resume", () => {
 
     const answer = () =>
       t!.client.sendDirect("answers", {
-        token: parked.token,
+        token: deferred.token,
         result: { approved: true },
       });
 
@@ -850,7 +850,7 @@ describe("defer and resume", () => {
 
   /**
    * @case A continuation refusal that loses its compare-and-swap to a concurrent sweep
-   * @preconditions The route changed under a parked exchange, and the record reaches a terminal state between the read and the denial
+   * @preconditions The route changed under a deferred exchange, and the record reaches a terminal state between the read and the denial
    * @expectedResult The losing request reports the winner's terminal state (RC5047) rather than its own RC5048, matching the expiry and duplicate paths: whoever won the transition says what happened
    */
   test("a denial that loses the race reports the winner's outcome", async () => {
@@ -868,7 +868,7 @@ describe("defer and resume", () => {
       deferral: { store, secret: SECRET },
     };
 
-    const parkContext = await testContext()
+    const deferContext = await testContext()
       .with(shared)
       .routes([
         craft()
@@ -879,14 +879,14 @@ describe("defer and resume", () => {
           .to(noop()),
       ])
       .build();
-    await parkContext.startAndWaitReady();
-    const parked = asDeferred(
-      await parkContext.client.sendDirect("payout", {
+    await deferContext.startAndWaitReady();
+    const deferred = asDeferred(
+      await deferContext.client.sendDirect("payout", {
         amountCents: 25_000,
         payee: "acme",
       }),
     );
-    await parkContext.stop();
+    await deferContext.stop();
 
     const caught: unknown[] = [];
     t = await testContext()
@@ -909,7 +909,7 @@ describe("defer and resume", () => {
 
     await expect(
       t.client.sendDirect("answers", {
-        token: parked.token,
+        token: deferred.token,
         result: { approved: true },
       }),
     ).rejects.toMatchObject({ rc: "RC5047" });
@@ -935,7 +935,7 @@ describe("defer and resume", () => {
 
   /**
    * @case Deferral lifecycle events land on the fixed event registry
-   * @preconditions A park and a resume observed through ctx.on()
+   * @preconditions A deferral and a resume observed through ctx.on()
    * @expectedResult route:exchange:deferred carries the deferral id and position and replaces :completed for execution one; route:exchange:resumed precedes execution two's :started / :completed
    */
   test("deferred and resumed events fire on the fixed registry", async () => {
@@ -966,23 +966,23 @@ describe("defer and resume", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(
+    const deferred = asDeferred(
       await t.client.sendDirect("payout", { amountCents: 1, payee: "acme" }),
     );
     expect(seen.filter((name) => name === "deferred")).toHaveLength(1);
     expect(details["deferred"]?.[0]).toMatchObject({
       routeId: "payout",
-      deferralId: parked.deferralId,
+      deferralId: deferred.deferralId,
       position: 0,
     });
 
     await t.client.sendDirect("answers", {
-      token: parked.token,
+      token: deferred.token,
       result: { approved: true },
     });
     expect(details["resumed"]?.[0]).toMatchObject({
       routeId: "payout",
-      deferralId: parked.deferralId,
+      deferralId: deferred.deferralId,
     });
     expect(seen.indexOf("resumed")).toBeLessThan(seen.lastIndexOf("completed"));
   });
@@ -990,7 +990,7 @@ describe("defer and resume", () => {
   /**
    * @case An exchange holding a value that cannot be persisted
    * @preconditions A step puts a function on the body before the defer
-   * @expectedResult The defer fails with RC5042 at park time (not at resume), naming the offending path, and the exchange never reaches the store
+   * @expectedResult The defer fails with RC5042 at deferral time (not at resume), naming the offending path, and the exchange never reaches the store
    */
   test("defer refuses an exchange that cannot be persisted", async () => {
     t = await testContext()
@@ -1014,7 +1014,7 @@ describe("defer and resume", () => {
   /**
    * @case A route that can defer runs in a context with no deferral config
    * @preconditions No `deferral` block on the context
-   * @expectedResult context.start() refuses with RC5052 rather than parking into a store nobody chose
+   * @expectedResult context.start() refuses with RC5052 rather than deferring into a store nobody chose
    */
   test("starting a deferrable route without a deferral runtime is RC5052", async () => {
     // Deliberately not assigned to `t`: the context never starts, so there
@@ -1038,7 +1038,7 @@ describe("defer and resume", () => {
   /**
    * @case .defer() inside an unbalanced .split()
    * @preconditions A route that splits an array and defers per child
-   * @expectedResult craft().build() refuses with RC5051 rather than parking children nothing can aggregate
+   * @expectedResult craft().build() refuses with RC5051 rather than deferring children nothing can aggregate
    */
   test("defer inside .split() is refused at build time", () => {
     expect(() =>
@@ -1071,7 +1071,7 @@ describe("defer and resume", () => {
   /**
    * @case Route-scope .cache() on a route that can defer
    * @preconditions .cache() staged before .from(), and a .defer() in the pipeline
-   * @expectedResult craft().build() refuses with RC5003: the cache filters wrap the user pipeline, which a park exits and a resume re-enters partway down, so the cache would silently never run
+   * @expectedResult craft().build() refuses with RC5003: the cache filters wrap the user pipeline, which a deferral exits and a resume re-enters partway down, so the cache would silently never run
    */
   test("route-scope .cache() with a reachable defer is refused at build time", () => {
     expect(() =>
@@ -1115,13 +1115,13 @@ describe("defer and resume", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(
+    const deferred = asDeferred(
       await t.client.sendDirect("payout", { amountCents: 1, payee: "acme" }),
     );
     await new Promise((resolve) => setTimeout(resolve, 10));
     await expect(
       t.client.sendDirect("answers", {
-        token: parked.token,
+        token: deferred.token,
         result: { approved: true },
       }),
     ).rejects.toMatchObject({ rc: "RC5047" });
@@ -1139,7 +1139,7 @@ describe("defer and resume", () => {
   /**
    * @case A step-scope wrapper around .defer()
    * @preconditions .retry() staged immediately before a .defer()
-   * @expectedResult The wrapper refuses at construction (RC5003): parking is not a failure to re-attempt, and a wrapped park has no coherent recovery
+   * @expectedResult The wrapper refuses at construction (RC5003): deferring is not a failure to re-attempt, and a wrapped deferral has no coherent recovery
    */
   test("a step-scope wrapper cannot wrap .defer()", () => {
     expect(() =>
@@ -1181,11 +1181,11 @@ describe("defer and resume", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(
+    const deferred = asDeferred(
       await t.client.sendDirect("typed", { amountCents: 1, payee: "acme" }),
     );
     await t.client.sendDirect("answers", {
-      token: parked.token,
+      token: deferred.token,
       result: { approved: true },
     });
     await t.drain();
@@ -1235,7 +1235,7 @@ describe("defer and resume", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(
+    const deferred = asDeferred(
       await t.client.sendDirect("payout", { amountCents: 1, payee: "acme" }),
     );
 
@@ -1243,7 +1243,7 @@ describe("defer and resume", () => {
     // validation sleep is what carries the clock past the deadline.
     await expect(
       t.client.sendDirect("answers", {
-        token: parked.token,
+        token: deferred.token,
         result: { approved: true },
       }),
     ).rejects.toMatchObject({ rc: "RC5047" });
@@ -1251,7 +1251,7 @@ describe("defer and resume", () => {
     expect(continued).toHaveLength(0);
     expect(caught).toHaveLength(1);
     const runtime = t.ctx.getStore(DEFERRAL_RUNTIME);
-    const record = await runtime?.store.get(parked.deferralId);
+    const record = await runtime?.store.get(deferred.deferralId);
     expect(record?.status).toBe("resumed");
     expect(record?.terminal?.status).toBe("failed");
     expect(record?.terminal?.error?.rc).toBe("RC5047");
@@ -1287,7 +1287,7 @@ describe("defer and resume", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(
+    const deferred = asDeferred(
       await t.client.sendDirect("payout", {
         amountCents: 25_000,
         payee: "acme",
@@ -1295,13 +1295,13 @@ describe("defer and resume", () => {
     );
 
     const acknowledgment = (await t.client.sendDirect("answers", {
-      token: parked.token,
+      token: deferred.token,
       result: { approved: true },
     })) as { status: string; outcome: { status: string } };
 
     expect(acknowledgment.status).toBe("resumed");
     expect(acknowledgment.outcome.status).toBe("completed");
-    expect((await backing.get(parked.deferralId))?.terminal).toBeUndefined();
+    expect((await backing.get(deferred.deferralId))?.terminal).toBeUndefined();
   });
 });
 
@@ -1317,7 +1317,7 @@ describe("the deferral sequence guard", () => {
    * @case A missing sequence header is the counter at zero
    * @preconditions Headers without the framework-owned sequence entry
    * @expectedResult readSequence returns 0 and the derived id carries ~0,
-   *   because every exchange that has never parked legitimately carries no
+   *   because every exchange that has never deferred legitimately carries no
    *   counter
    */
   test("a missing header reads as zero", async () => {
@@ -1332,7 +1332,7 @@ describe("the deferral sequence guard", () => {
    * @preconditions Header values a counter cannot use: a string, a negative,
    *   a float, and a non-safe integer
    * @expectedResult RC5057 naming the header as malformed for each, never a
-   *   silent reset to 0: a reset re-derives an id an earlier park already
+   *   silent reset to 0: a reset re-derives an id an earlier deferral already
    *   used, and resume tokens sign the id
    */
   test("a malformed header refuses with RC5057", async () => {
@@ -1353,7 +1353,7 @@ describe("the deferral sequence guard", () => {
    * @case Exhaustion is refused distinguishably, and the bound is coherent
    * @preconditions The bound value, and the last acceptable value below it
    * @expectedResult The bound refuses with an exhaustion message (not
-   *   "malformed"); its predecessor is accepted, and the successor a park
+   *   "malformed"); its predecessor is accepted, and the successor a deferral
    *   would write for it is exactly the bound, so the failure surfaces on
    *   the next read instead of resetting
    */
@@ -1372,14 +1372,14 @@ describe("the deferral sequence guard", () => {
   });
 
   /**
-   * @case A route that mangles the framework header cannot park
+   * @case A route that mangles the framework header cannot defer
    * @preconditions A step overwrites the sequence header with a string
    *   before .defer()
-   * @expectedResult The park fails with RC5057 as an ordinary step failure
-   *   (the exchange was never parked and no record exists), instead of
+   * @expectedResult The deferral fails with RC5057 as an ordinary step failure
+   *   (the exchange was never deferred and no record exists), instead of
    *   deriving a reused id from a reset counter
    */
-  test("a park after header tampering fails with RC5057 and writes nothing", async () => {
+  test("a deferral after header tampering fails with RC5057 and writes nothing", async () => {
     t = await testContext()
       .with(deferring())
       .routes([

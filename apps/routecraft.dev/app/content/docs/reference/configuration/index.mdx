@@ -82,7 +82,7 @@ A disabled route is registered and known to the context, not started, not intaki
 | `remotes` | `RemotesConfig` | No | -- | Other running instances whose dispatchable routes become direct endpoints here ([details](#remotes)) |
 | `mail` | `MailContextConfig` | No | -- | Mail adapter accounts (IMAP/SMTP) keyed by name |
 | `telemetry` | `TelemetryOptions` | No | -- | Telemetry plugin configuration (SQLite, OpenTelemetry) |
-| `deferral` | `DeferralConfig` | Only when a route can reach `.defer()` or `.resume()` | -- | Where parked exchanges are stored and how resume tokens are signed. A context with a deferrable route and no `deferral` block refuses to start with `RC5052`; the fields inside it are individually optional ([details](#deferral)) |
+| `deferral` | `DeferralConfig` | Only when a route can reach `.defer()` or `.resume()` | -- | Where deferred exchanges are stored and how resume tokens are signed. A context with a deferrable route and no `deferral` block refuses to start with `RC5052`; the fields inside it are individually optional ([details](#deferral)) |
 | `shutdown` | `{ timeout?: Duration }` | No | `{ timeout: 30000 }` | How long a graceful shutdown may drain before it is forced ([details](#shutdown)) |
 | `plugins` | `CraftPlugin[]` | No | -- | Custom plugins to initialize before routes are registered |
 
@@ -265,7 +265,7 @@ Bind the server the surface sits on somewhere the probes can reach. A Kubernetes
 
 ### deferral
 
-Configures where parked exchanges are persisted, and the secret used to sign the resume tokens an approver is handed. Required as soon as any route can reach a [`.defer()`](/docs/reference/operations/defer): such a context refuses to start without it, with [`RC5052`](/docs/reference/errors#rc-5052). A context that never defers does not need the key.
+Configures where deferred exchanges are persisted, and the secret used to sign the resume tokens an approver is handed. Required as soon as any route can reach a [`.defer()`](/docs/reference/operations/defer): such a context refuses to start without it, with [`RC5052`](/docs/reference/errors#rc-5052). A context that never defers does not need the key.
 
 It is deliberately not implicit. This setting decides whether a deployment survives a restart and whether resume tokens outlive the process, and defaulting it silently would hand a route that promises durability an in-memory store nobody chose.
 
@@ -274,8 +274,8 @@ import { defineConfig } from '@routecraft/routecraft'
 
 export const craftConfig = defineConfig({
   deferral: {
-    // A mounted volume in a container deployment, so parked exchanges
-    // outlive the container that parked them.
+    // A mounted volume in a container deployment, so deferred exchanges
+    // outlive the container that deferred them.
     store: { path: '/data/deferrals.db' },
   },
 })
@@ -283,12 +283,12 @@ export const craftConfig = defineConfig({
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `store` | `string \| { path: string } \| "memory" \| DeferralStore` | `.routecraft/deferrals.db` | Where parked exchanges live. A path opens the SQLite backend. `"memory"` opts into the in-process backend, accepting that parked exchanges die with the process. A `DeferralStore` instance plugs in a backend of your own. |
+| `store` | `string \| { path: string } \| "memory" \| DeferralStore` | `.routecraft/deferrals.db` | Where deferred exchanges live. A path opens the SQLite backend. `"memory"` opts into the in-process backend, accepting that deferred exchanges die with the process. A `DeferralStore` instance plugs in a backend of your own. |
 | `secret` | `string` | -- | HMAC secret for signing resume tokens. Prefer the environment variable below; this field is for deployments that fetch secrets at boot and pass them in code. |
 | `defaultTtl` | `Duration \| "never"` | `72h` | How long a deferral stays resumable when [`.defer()`](/docs/reference/operations/defer) names no `ttl` of its own. `"never"` opts the context out of default expiry entirely, so an unanswered deferral is kept until something else retires it. |
 | `sweepInterval` | `Duration` | `60s` | How often the sweeper looks for overdue deferrals. TTLs are measured in hours, so sub-minute precision buys nothing; the knob is for tests and for deployments that want expiry noticed sooner. |
 | `expiryLease` | `Duration` | `60m` | How long an expiry-delivery claim is honoured before the sweeper releases it for redelivery. Only a crash mid-delivery ever spends it; keep it longer than your slowest `.error()` handler, or one healthy process will double-deliver by itself. |
-| `retention` | `Duration \| "never"` | `90d` | How long settled deferrals (resumed, expired, denied) are kept before the sweeper purges them, measured from the moment the record settled, not from when it parked: an approval that waited 89 days and resolved yesterday still gets its full window. `"never"` keeps everything for audit deployments, and the store then grows with every exchange that ever deferred. |
+| `retention` | `Duration \| "never"` | `90d` | How long settled deferrals (resumed, expired, denied) are kept before the sweeper purges them, measured from the moment the record settled, not from when it deferred: an approval that waited 89 days and resolved yesterday still gets its full window. `"never"` keeps everything for audit deployments, and the store then grows with every exchange that ever deferred. |
 
 The `store` and `secret` settings are also readable from the environment, which is how a container deployment supplies them. `defaultTtl`, `sweepInterval`, `expiryLease` and `retention` are config-only:
 
@@ -299,15 +299,15 @@ The `store` and `secret` settings are also readable from the environment, which 
 
 An explicit config value wins over the environment.
 
-**Every deferral gets a deadline unless you say otherwise.** A parked exchange with no expiry is one nothing will ever retire: it holds its serialized body indefinitely, and the route that parked it is never told nobody answered. So `defaultTtl` applies to any `.defer()` that names no `ttl`, a sweeper retires deferrals once they are overdue, and the route hears about it through its own error channel ([`RC5047`](/docs/reference/errors#rc-5047)). A deployment whose approvals legitimately have no horizon sets `defaultTtl: 'never'` and takes on retiring them itself.
+**Every deferral gets a deadline unless you say otherwise.** A deferred exchange with no expiry is one nothing will ever retire: it holds its serialized body indefinitely, and the route that deferred it is never told nobody answered. So `defaultTtl` applies to any `.defer()` that names no `ttl`, a sweeper retires deferrals once they are overdue, and the route hears about it through its own error channel ([`RC5047`](/docs/reference/errors#rc-5047)). A deployment whose approvals legitimately have no horizon sets `defaultTtl: 'never'` and takes on retiring them itself.
 
-**The store backend is chosen per runtime.** Under Bun it is `bun:sqlite`, a built-in. Under Node it is `better-sqlite3`, an optional peer: install it (`bun add better-sqlite3`) to get a durable store on Node. Without it, an unconfigured context falls back to the in-memory backend and warns that parked exchanges will not survive a restart, while a context that named a `store` path fails to start rather than silently losing durability it asked for.
+**The store backend is chosen per runtime.** Under Bun it is `bun:sqlite`, a built-in. Under Node it is `better-sqlite3`, an optional peer: install it (`bun add better-sqlite3`) to get a durable store on Node. Without it, an unconfigured context falls back to the in-memory backend and warns that deferred exchanges will not survive a restart, while a context that named a `store` path fails to start rather than silently losing durability it asked for.
 
-**If you park exchanges, pin your line endings and build settings across deploys.** A parked exchange records a hash of the steps that have not run yet, so that a change to what an approval authorises invalidates it rather than resuming into different behaviour. That hash reads step identity from function source text **verbatim**, with no normalisation, because any normalisation that made two different sources hash alike would also be a way to miss a real change. The consequence is that the hash is sensitive to more than your source tree: a formatting pass, a checkout with different line endings, and a build that changes emitted text (a different minifier, new bundler settings, a TypeScript target bump) each move it for steps whose behaviour did not change. Every one of those outcomes is safe rather than silent, since affected exchanges re-enter their route's error channel and can be re-asked; none of them can resume an approval into different behaviour, which is the trade being made. For a repository whose routes park approvals for days, commit a `.gitattributes` with `* text eol=lf` (or the equivalent pin for your platform) so checkouts agree on line endings, and keep build settings stable between releases. Running TypeScript directly (the default under Bun, with no bundler in the path) removes the build half of this entirely.
+**If you deferral exchanges, pin your line endings and build settings across deploys.** A deferred exchange records a hash of the steps that have not run yet, so that a change to what an approval authorises invalidates it rather than resuming into different behaviour. That hash reads step identity from function source text **verbatim**, with no normalisation, because any normalisation that made two different sources hash alike would also be a way to miss a real change. The consequence is that the hash is sensitive to more than your source tree: a formatting pass, a checkout with different line endings, and a build that changes emitted text (a different minifier, new bundler settings, a TypeScript target bump) each move it for steps whose behaviour did not change. Every one of those outcomes is safe rather than silent, since affected exchanges re-enter their route's error channel and can be re-asked; none of them can resume an approval into different behaviour, which is the trade being made. For a repository whose routes deferral approvals for days, commit a `.gitattributes` with `* text eol=lf` (or the equivalent pin for your platform) so checkouts agree on line endings, and keep build settings stable between releases. Running TypeScript directly (the default under Bun, with no bundler in the path) removes the build half of this entirely.
 
 ### sessions
 
-Added by `@routecraft/ai`. Configures where [agent sessions](/docs/reference/adapters/agent#sessions-an-agent-that-remembers) keep their records: the transcript, the inbox and the background calls a conversation is waiting on. Optional: without it the SQLite backend at `.routecraft/sessions.db` is used, and the file is created by the first session written rather than at boot, so a context whose agents never hold a conversation never grows a database. The continuation a turn stores between turns is a parked exchange and lives in the [deferral](#deferral) store, which `session` therefore still needs.
+Added by `@routecraft/ai`. Configures where [agent sessions](/docs/reference/adapters/agent#sessions-an-agent-that-remembers) keep their records: the transcript, the inbox and the background calls a conversation is waiting on. Optional: without it the SQLite backend at `.routecraft/sessions.db` is used, and the file is created by the first session written rather than at boot, so a context whose agents never hold a conversation never grows a database. The continuation a turn stores between turns is a deferred exchange and lives in the [deferral](#deferral) store, which `session` therefore still needs.
 
 ```ts
 import { defineConfig } from '@routecraft/routecraft'
@@ -414,9 +414,9 @@ stage leaves, so it names route ids rather than a total. Then:
   process to run the sweep picks them up once it expires. Note that plugin
   teardown waits for that in-flight sweep rather than abandoning it, which is
   part of why teardown sits outside the bound.
-- **Nothing is settled or denied on the way down.** A parked deferral
+- **Nothing is settled or denied on the way down.** A deferred deferral
   survives a forced shutdown exactly as it survives a graceful one. Only a
-  cancelled run denies its own park, and shutdown is not that.
+  cancelled run denies its own deferral, and shutdown is not that.
 
 A clean shutdown inside the bound exits 0. A forced one exits 1, so
 exit-code-sensitive tooling can tell them apart; `craft start --once`

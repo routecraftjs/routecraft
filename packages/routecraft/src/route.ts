@@ -345,12 +345,12 @@ export type RouteDefinition<T = unknown> = {
    * Every defer-capable `.to()` / `.enrich()` step the route carries on
    * its primary flow, each holding the re-entrant {@link DeferSite} the
    * walk assigned it. Separate from {@link RouteDefinition.deferSteps}
-   * deliberately: a capable step only MAY park at runtime, so it does not
+   * deliberately: a capable step only MAY defer at runtime, so it does not
    * make the route require a deferral runtime at startup (`RC5052` stays
-   * keyed to static sites; a runtime park without the runtime fails as an
+   * keyed to static sites; a runtime deferral without the runtime fails as an
    * ordinary step error naming the config line), and it does not trip the
    * route-scope cache refusal, whose "silently never caches" reasoning
-   * assumes every run parks.
+   * assumes every run defers.
    *
    * @internal
    */
@@ -482,7 +482,7 @@ export interface Route<T = unknown> {
    * route: its own `exchange:started` / `:completed` pair, the route-scope
    * `.error()` handler, and `.output()` validation before completion.
    *
-   * The entry point for execution two. The steps handed in are the parked
+   * The entry point for execution two. The steps handed in are the deferred
    * exchange's continuation, so the route resumes partway down its pipeline
    * without re-running what already ran, and without re-running the
    * pre-from filter chain (authorize, parse, input, throttle, cache), all
@@ -502,7 +502,7 @@ export interface Route<T = unknown> {
    * not currently running in it.
    *
    * The resume path uses it so a revival failure (an expired deferral, a
-   * continuation that changed under a parked exchange) reaches the
+   * continuation that changed under a deferred exchange) reaches the
    * DEFERRED route's `.error()` handler rather than only the ingress
    * route's. That is the difference between a route that can notify the
    * approver and re-ask, and an approver left at a dead link.
@@ -1126,7 +1126,7 @@ export class DefaultRoute implements Route {
       // Framework-level output validation runs on successful, non-dropped
       // exchanges before we declare completion. A failure falls through the
       // same path as a thrown step: errorHandler if set, else a failed result.
-      // A parked exchange is exempt from the output stage AND from
+      // A deferred exchange is exempt from the output stage AND from
       // completion: its body is the `Deferred` acknowledgment rather than
       // the route's declared output (the two arms of the route's
       // `Output | Deferred` type), and its terminal event was
@@ -1239,7 +1239,7 @@ export class DefaultRoute implements Route {
       // principal, which came back from the store marked restored. A target
       // declaring `.authorize()` refuses it for that reason (RC5043), which
       // is the correct answer: nothing re-verified that identity across the
-      // park.
+      // deferral.
       ...this.executorDeps(),
       definition: detachedDefinition(
         this.definition,

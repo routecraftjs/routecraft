@@ -32,9 +32,9 @@ export interface TestFnHandlerContext {
   abortSignal: AbortSignal;
   /**
    * Structural twin of the production `ctx.defer`: returns a sentinel
-   * shaped like the one the agent runtime parks on, so a unit test can
+   * shaped like the one the agent runtime defers on, so a unit test can
    * assert that a handler asked to defer (and with what) without
-   * standing up an agent loop. Nothing is parked under `testFn`; drive the
+   * standing up an agent loop. Nothing is deferred under `testFn`; drive the
    * handler through a route to exercise the durable path.
    */
   defer: (options?: TestFnDeferOptions) => TestFnDeferSentinel;

@@ -36,7 +36,7 @@ export interface ResumeTokenPayload {
    * reached through whichever tool call won a parallel batch, and every
    * handler in that batch is handed a credential before the winner is
    * known. Binding the credential to its own call is what stops the loser's
-   * recipient from resuming the winner's park: revive compares this claim
+   * recipient from resuming the winner's deferral: revive compares this claim
    * against the record's own `stepState.deferredToolCallId` and refuses a
    * mismatch before touching the record.
    *
@@ -75,7 +75,7 @@ export class ResumeTokenSigner {
    *
    * Callable BEFORE the deferring step runs, which is what lets a
    * notification step earlier in the pipeline put a working resume link in
-   * the message it sends. Nothing about the parked exchange is needed to
+   * the message it sends. Nothing about the deferred exchange is needed to
    * sign: the deferral id is derivable from the exchange (see
    * {@link deferralIdFor}), and the token carries no claims of its own.
    *
@@ -180,25 +180,25 @@ export type SigningSecretSource = "config" | "env" | "ephemeral";
 const DEFERRAL_ID_SEPARATOR = "~";
 
 /**
- * Derive the id of a deferral from the exchange that will park.
+ * Derive the id of a deferral from the exchange that will defer.
  *
  * Deterministic on purpose: `ex.deferral.token` and
  * `ex.deferral.resumeUrl` must be readable by a notification step that
  * runs BEFORE the defer, so the id cannot be minted by the defer step
  * itself. The exchange id is the natural key, and `sequence` distinguishes
- * successive parks of the same exchange, which happens whenever a route
+ * successive defers of the same exchange, which happens whenever a route
  * defers, resumes, and defers again for a second approval.
  *
- * The sequence is always appended, including for the first park. Omitting it
+ * The sequence is always appended, including for the first deferral. Omitting it
  * at zero looks tidier and collides: an exchange whose id already ends in
  * `~1` (ids are `randomUUID()` by default but an adapter may set
  * `headers["routecraft.id"]` from an upstream message id) would produce the
- * same deferral id as that exchange's second park. Two unrelated parked
+ * same deferral id as that exchange's second deferral. Two unrelated deferred
  * exchanges sharing an id means one overwrites the other in the store.
  * Appending unconditionally is injective, because the suffix is a canonical
  * decimal after the final separator.
  *
- * @param exchangeId - The parking exchange's id.
+ * @param exchangeId - The deferring exchange's id.
  * @param sequence - How many times this exchange has already deferred.
  *
  * @internal

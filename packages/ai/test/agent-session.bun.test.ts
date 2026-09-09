@@ -7,7 +7,7 @@ import {
   craft,
   direct,
   noop,
-  parkAside,
+  deferAside,
   type Principal,
   type RouteDefinition,
 } from "@routecraft/routecraft";
@@ -113,8 +113,8 @@ const quickFn = {
   handler: () => Promise.resolve("fast done"),
 };
 
-/** A tool that asks to park the turn it runs in. */
-const parkerFn = {
+/** A tool that asks to defer the turn it runs in. */
+const deferrerFn = {
   description: "Asks for an approval",
   input: z.object({}),
   handler: (_input: unknown, ctx: FnHandlerContext) => ctx.defer(),
@@ -173,14 +173,14 @@ function contextWith(
       plugins: [
         llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
         agentPlugin({
-          functions: { slow: slowFn, quick: quickFn, parker: parkerFn },
+          functions: { slow: slowFn, quick: quickFn, deferrer: deferrerFn },
           agents: {
             max: {
               description: "Max",
               model: MODEL,
               system: "be useful",
               user: (ex) => (ex.body as ChatMessage).message,
-              tools: tools(["slow", "quick", "parker"]),
+              tools: tools(["slow", "quick", "deferrer"]),
             },
           },
         }),
@@ -852,11 +852,11 @@ describe("agent sessions", () => {
   });
 
   /**
-   * @case A queued message is attributed to its poster while the turn that consumes it runs under the exchange that parked
+   * @case A queued message is attributed to its poster while the turn that consumes it runs under the exchange that deferred
    * @preconditions Alice's turn is held in the slow tool; Bob and an anonymous caller queue a message each; the tool is released and the boundary turn consumes both
    * @expectedResult The delivered user message carries a bracketed attribution per part naming "bob" and an anonymous caller, the stored transcript holds the same, and the exchange the boundary turn ran on carries Alice's principal, not Bob's
    */
-  test("a queued message names its poster and runs under the parked exchange", async () => {
+  test("a queued message names its poster and runs under the deferred exchange", async () => {
     const store = new MemoryDeferralStore();
     const sink = spy();
     t = await contextWith(store, sink).build();
@@ -883,7 +883,7 @@ describe("agent sessions", () => {
     ]);
     const stored = await recordsFor(store).get("s");
     expect(JSON.stringify(stored?.value)).toContain('[Message from \\"bob\\"]');
-    // The boundary turn ran on Alice's parked exchange: its downstream
+    // The boundary turn ran on Alice's deferred exchange: its downstream
     // delivery carries her principal, whoever queued the text.
     const boundary = sink.received[sink.received.length - 1]!;
     expect((boundary.body as AgentResult).text).toBe("hello both");
@@ -943,28 +943,28 @@ describe("agent sessions", () => {
   });
 
   /**
-   * @case A tool that asks to park a session turn is refused with AI1011 and the turn goes on
-   * @preconditions The parker tool calls ctx.defer() inside a session turn; the model then answers
-   * @expectedResult The tool's result is an error naming the session combination, the turn replies normally, and the store holds only the session record and no parked continuation
+   * @case A tool that asks to defer a session turn is refused with AI1011 and the turn goes on
+   * @preconditions The defer site tool calls ctx.defer() inside a session turn; the model then answers
+   * @expectedResult The tool's result is an error naming the session combination, the turn replies normally, and the store holds only the session record and no deferred continuation
    */
-  test("a tool cannot park a session turn", async () => {
+  test("a tool cannot defer a session turn", async () => {
     const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
-    llm.script.push({ toolCalls: [{ toolName: "parker" }] }, { text: "ok" });
+    llm.script.push({ toolCalls: [{ toolName: "deferrer" }] }, { text: "ok" });
     const reply = await send(t, { session: "s", message: "approve this" });
     expect(reply.text).toBe("ok");
     const record = await new AgentSessionStore(recordsFor(store), store).load(
       "s",
     );
     const transcript = JSON.stringify(record?.messages);
-    expect(transcript).toContain("cannot park");
-    expect(transcript).toContain("Park from a sessionless agent");
+    expect(transcript).toContain("cannot defer");
+    expect(transcript).toContain("Deferral from a sessionless agent");
     const summary = await AgentSessionRuntime.for(t.ctx).summary(
       "s",
       "operator",
     );
-    expect(summary).toMatchObject({ parked: false, turns: 1 });
+    expect(summary).toMatchObject({ deferred: false, turns: 1 });
     expect(t.errors).toHaveLength(0);
   });
 
@@ -1087,20 +1087,20 @@ describe("agent sessions", () => {
   /**
    * @case Removing a session settles the continuation it was the only reference to
    * @preconditions A session record naming a stored continuation, then removed
-   * @expectedResult The deferral is denied rather than left deferred. An aside park carries no expiry and the boot walk finds parks by reading session records, so a delete that left it behind would leave a deferral nothing can ever revive or retire
+   * @expectedResult The deferral is denied rather than left deferred. An aside deferral carries no expiry and the boot walk finds defers by reading session records, so a delete that left it behind would leave a deferral nothing can ever revive or retire
    */
   test("removing a session settles its stored continuation", async () => {
     const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const exchange = new DefaultExchange(t.ctx, { body: {} });
-    const { deferralId } = await parkAside(
+    const { deferralId } = await deferAside(
       t.ctx,
       exchange,
       { position: 0, continuation: [] },
       "chat",
       (id) => ({
-        kind: "agent-session-park",
+        kind: "agent-session-deferral",
         agent: "max",
         session: "finished",
         deferralId: id,
@@ -1109,7 +1109,7 @@ describe("agent sessions", () => {
     const sessions = new AgentSessionStore(recordsFor(store), store);
     await updateRecord(sessions, "finished", "max", (r) => ({
       ...r,
-      park: { deferralId, routeId: "chat" },
+      deferral: { deferralId, routeId: "chat" },
     }));
     // The hazard is reachable: the record is the only thing naming it.
     expect((await store.get(deferralId))?.status).toBe("deferred");
@@ -1122,7 +1122,7 @@ describe("agent sessions", () => {
 
   /**
    * @case Releasing a stored continuation settles it in the store rather than leaving it live
-   * @preconditions A continuation stored with parkAside, so its record is "deferred"; releasePark is called on it
+   * @preconditions A continuation stored with deferAside, so its record is "deferred"; releaseDeferral is called on it
    * @expectedResult The record's status is "denied" afterwards; a second release is a no-op that does not throw
    */
   test("a released continuation is denied, not orphaned", async () => {
@@ -1130,13 +1130,13 @@ describe("agent sessions", () => {
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const exchange = new DefaultExchange(t.ctx, { body: {} });
-    const { deferralId } = await parkAside(
+    const { deferralId } = await deferAside(
       t.ctx,
       exchange,
       { position: 0, continuation: [] },
       "chat",
       (id) => ({
-        kind: "agent-session-park",
+        kind: "agent-session-deferral",
         agent: "max",
         session: "s",
         deferralId: id,
@@ -1144,16 +1144,16 @@ describe("agent sessions", () => {
     );
     expect((await store.get(deferralId))?.status).toBe("deferred");
     const sessions = new AgentSessionStore(recordsFor(store), store);
-    await sessions.releasePark(deferralId, "test");
+    await sessions.releaseDeferral(deferralId, "test");
     expect((await store.get(deferralId))?.status).toBe("denied");
-    await sessions.releasePark(deferralId, "again");
+    await sessions.releaseDeferral(deferralId, "again");
     expect((await store.get(deferralId))?.status).toBe("denied");
   });
 
   /**
    * @case A continuation the deferral store no longer holds falls back to a turn in process, and the record stops naming it
-   * @preconditions One turn ran with a background call outstanding and stored a real aside park through parkAside, announced on the record first; the park's deferral record is then deleted from the store, as a lost or purged file would leave it; a message is posted to the idle session
-   * @expectedResult The revival fails, the follow-up turn runs in process carrying the posted message, and the record no longer names the deleted park: the background call is still outstanding, so that turn stored a fresh continuation, which the deferral store holds
+   * @preconditions One turn ran with a background call outstanding and stored a real aside deferral through deferAside, announced on the record first; the deferral's deferral record is then deleted from the store, as a lost or purged file would leave it; a message is posted to the idle session
+   * @expectedResult The revival fails, the follow-up turn runs in process carrying the posted message, and the record no longer names the deleted deferral: the background call is still outstanding, so that turn stored a fresh continuation, which the deferral store holds
    */
   test("a deleted continuation falls back to a turn in process", async () => {
     const store = new MemoryDeferralStore();
@@ -1161,7 +1161,7 @@ describe("agent sessions", () => {
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
     const runtime = new AgentSessionRuntime(t.ctx, sessions);
-    const key = "deleted-park";
+    const key = "deleted-deferral";
     await updateRecord(sessions, key, "max", (r) => ({
       ...r,
       background: [
@@ -1186,14 +1186,14 @@ describe("agent sessions", () => {
       by: null,
       interrupt: false,
       executor,
-      park: async (announce) => {
-        const { deferralId } = await parkAside(
+      defer: async (announce) => {
+        const { deferralId } = await deferAside(
           t!.ctx,
           exchange,
           { position: 0, continuation: [] },
           "chat",
           (id) => ({
-            kind: "agent-session-park",
+            kind: "agent-session-deferral",
             agent: "max",
             session: key,
             deferralId: id,
@@ -1206,9 +1206,9 @@ describe("agent sessions", () => {
         return { deferralId, routeId: "chat" };
       },
     });
-    const parked = await sessions.load(key);
-    expect(parked?.park?.deferralId).toBe(announced[0]);
-    expect(parked?.parking).toBeUndefined();
+    const deferred = await sessions.load(key);
+    expect(deferred?.deferral?.deferralId).toBe(announced[0]);
+    expect(deferred?.deferring).toBeUndefined();
     expect(MemoryDeferralStore.unsafeRecords(store).delete(announced[0]!)).toBe(
       true,
     );
@@ -1222,23 +1222,25 @@ describe("agent sessions", () => {
     expect(seen).toHaveLength(2);
     expect(JSON.stringify(seen[1])).toContain("the build finished");
     const after = await sessions.load(key);
-    expect(after?.park?.deferralId).toBeDefined();
-    expect(after?.park?.deferralId).not.toBe(announced[0]);
-    expect((await store.get(after!.park!.deferralId))?.status).toBe("deferred");
+    expect(after?.deferral?.deferralId).toBeDefined();
+    expect(after?.deferral?.deferralId).not.toBe(announced[0]);
+    expect((await store.get(after!.deferral!.deferralId))?.status).toBe(
+      "deferred",
+    );
   });
 
   /**
-   * @case A continuation whose write fails after the park was announced is settled, not left live
-   * @preconditions A turn with a background call outstanding whose park callback creates a real aside park, announces it on the record, and then fails, as a store that commits and then reports failure would
-   * @expectedResult The park reads denied rather than staying deferred, and the record names neither a park nor a parking
+   * @case A continuation whose write fails after the deferral was announced is settled, not left live
+   * @preconditions A turn with a background call outstanding whose deferral callback creates a real aside deferral, announces it on the record, and then fails, as a store that commits and then reports failure would
+   * @expectedResult The deferral reads denied rather than staying deferred, and the record names neither a deferral nor a deferring
    */
-  test("a park announced by a failing write is released", async () => {
+  test("a deferral announced by a failing write is released", async () => {
     const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
     const runtime = new AgentSessionRuntime(t.ctx, sessions);
-    const key = "failed-park";
+    const key = "failed-deferral";
     await updateRecord(sessions, key, "max", (r) => ({
       ...r,
       background: [
@@ -1258,14 +1260,14 @@ describe("agent sessions", () => {
         run: () => Promise.resolve({ text: "ok" } as AgentResult),
         thread: () => undefined,
       },
-      park: async (announce) => {
-        await parkAside(
+      defer: async (announce) => {
+        await deferAside(
           t!.ctx,
           exchange,
           { position: 0, continuation: [] },
           "chat",
           (id) => ({
-            kind: "agent-session-park",
+            kind: "agent-session-deferral",
             agent: "max",
             session: key,
             deferralId: id,
@@ -1275,20 +1277,20 @@ describe("agent sessions", () => {
             await announce({ deferralId: id, routeId: "chat" });
           },
         );
-        // The park is written; what follows it is not.
+        // The deferral is written; what follows it is not.
         throw new Error("the store committed and then reported a failure");
       },
     });
     expect(announced).toHaveLength(1);
     expect((await store.get(announced[0]!))?.status).toBe("denied");
     const record = await sessions.load(key);
-    expect(record?.park).toBeUndefined();
-    expect(record?.parking).toBeUndefined();
+    expect(record?.deferral).toBeUndefined();
+    expect(record?.deferring).toBeUndefined();
   });
 
   /**
-   * @case A record whose continuation fields are not park pairs fails at the record boundary
-   * @preconditions A stored record whose parking is null, as a corrupt or hand-edited row would carry
+   * @case A record whose continuation fields are not defer pairs fails at the record boundary
+   * @preconditions A stored record whose deferring is null, as a corrupt or hand-edited row would carry
    * @expectedResult The read is AI1010 naming the continuation, rather than a TypeError inside the boot walk
    */
   test("a record naming a continuation of the wrong shape is AI1010", async () => {
@@ -1302,17 +1304,17 @@ describe("agent sessions", () => {
     const stored = await records.get(key);
     await records.replace(key, stored!.version, {
       ...(stored!.value as object),
-      parking: null,
+      deferring: null,
     });
     await expect(sessions.load(key)).rejects.toThrow(/AI1010|continuation/);
   });
 
   /**
-   * @case A park the boot cannot release keeps its reference for the next boot
-   * @preconditions A record whose parking names a real park, and a deferral store whose claim fails
-   * @expectedResult driveBoot() leaves the parking field in place and the park unsettled
+   * @case A deferral the boot cannot release keeps its reference for the next boot
+   * @preconditions A record whose deferring names a real deferral, and a deferral store whose claim fails
+   * @expectedResult driveBoot() leaves the deferring field in place and the deferral unsettled
    */
-  test("a park the boot cannot release keeps its reference", async () => {
+  test("a deferral the boot cannot release keeps its reference", async () => {
     const store = new MemoryDeferralStore();
     const sink = spy();
     t = await contextWith(store, sink).build();
@@ -1320,13 +1322,13 @@ describe("agent sessions", () => {
     const sessions = new AgentSessionStore(recordsFor(store), store);
     const exchange = new DefaultExchange(t.ctx, { body: {} });
     const key = "unreleasable";
-    const { deferralId } = await parkAside(
+    const { deferralId } = await deferAside(
       t.ctx,
       exchange,
       { position: 0, continuation: [] },
       "chat",
       (id) => ({
-        kind: "agent-session-park",
+        kind: "agent-session-deferral",
         agent: "max",
         session: key,
         deferralId: id,
@@ -1334,20 +1336,20 @@ describe("agent sessions", () => {
     );
     await updateRecord(sessions, key, "max", (r) => ({
       ...r,
-      parking: { deferralId, routeId: "chat" },
+      deferring: { deferralId, routeId: "chat" },
     }));
     store.claimExpiry = () => {
       throw new Error("the deferral store is unreachable");
     };
     const runtime = new AgentSessionRuntime(t.ctx, sessions);
     await runtime.driveBoot();
-    expect((await sessions.load(key))?.parking?.deferralId).toBe(deferralId);
+    expect((await sessions.load(key))?.deferring?.deferralId).toBe(deferralId);
     expect((await store.get(deferralId))?.status).toBe("deferred");
   });
 
   /**
    * @case A continuation announced while the boot was releasing an older one is left alone
-   * @preconditions A record whose parking names a real park; a turn announces its own parking while the boot's release is in flight
+   * @preconditions A record whose deferring names a real deferral; a turn announces its own deferring while the boot's release is in flight
    * @expectedResult The boot clears only what it released, so the record still names the newer continuation
    */
   test("the boot leaves a continuation announced under it", async () => {
@@ -1357,13 +1359,13 @@ describe("agent sessions", () => {
     const sessions = new AgentSessionStore(recordsFor(store), store);
     const exchange = new DefaultExchange(t.ctx, { body: {} });
     const key = "raced";
-    const { deferralId } = await parkAside(
+    const { deferralId } = await deferAside(
       t.ctx,
       exchange,
       { position: 0, continuation: [] },
       "chat",
       (id) => ({
-        kind: "agent-session-park",
+        kind: "agent-session-deferral",
         agent: "max",
         session: key,
         deferralId: id,
@@ -1371,30 +1373,30 @@ describe("agent sessions", () => {
     );
     await updateRecord(sessions, key, "max", (r) => ({
       ...r,
-      parking: { deferralId, routeId: "chat" },
+      deferring: { deferralId, routeId: "chat" },
     }));
-    const realRelease = sessions.releasePark.bind(sessions);
-    sessions.releasePark = async (id, reason) => {
+    const realRelease = sessions.releaseDeferral.bind(sessions);
+    sessions.releaseDeferral = async (id, reason) => {
       await realRelease(id, reason);
       // The window: a turn started here announces its own continuation.
       await updateRecord(sessions, key, "max", (r) => ({
         ...r,
-        parking: { deferralId: "started-under-the-boot", routeId: "chat" },
+        deferring: { deferralId: "started-under-the-boot", routeId: "chat" },
       }));
     };
     await new AgentSessionRuntime(t.ctx, sessions).driveBoot();
-    expect((await sessions.load(key))?.parking?.deferralId).toBe(
+    expect((await sessions.load(key))?.deferring?.deferralId).toBe(
       "started-under-the-boot",
     );
     expect((await store.get(deferralId))?.status).toBe("denied");
   });
 
   /**
-   * @case A park whose release fails keeps its reference on the record, so a later boot still finds it
-   * @preconditions A turn with a background call outstanding whose park callback announces a real park and then fails, over a deferral store whose claim fails
-   * @expectedResult The record still names the announced park, which is still deferred
+   * @case A deferral whose release fails keeps its reference on the record, so a later boot still finds it
+   * @preconditions A turn with a background call outstanding whose deferral callback announces a real deferral and then fails, over a deferral store whose claim fails
+   * @expectedResult The record still names the announced deferral, which is still deferred
    */
-  test("a park the turn cannot release keeps its reference", async () => {
+  test("a deferral the turn cannot release keeps its reference", async () => {
     const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
@@ -1420,14 +1422,14 @@ describe("agent sessions", () => {
         run: () => Promise.resolve({ text: "ok" } as AgentResult),
         thread: () => undefined,
       },
-      park: async (announce) => {
-        await parkAside(
+      defer: async (announce) => {
+        await deferAside(
           t!.ctx,
           exchange,
           { position: 0, continuation: [] },
           "chat",
           (id) => ({
-            kind: "agent-session-park",
+            kind: "agent-session-deferral",
             agent: "max",
             session: key,
             deferralId: id,
@@ -1443,14 +1445,16 @@ describe("agent sessions", () => {
         throw new Error("the store committed and then reported a failure");
       },
     });
-    expect((await sessions.load(key))?.parking?.deferralId).toBe(announced[0]);
+    expect((await sessions.load(key))?.deferring?.deferralId).toBe(
+      announced[0],
+    );
     expect((await store.get(announced[0]!))?.status).toBe("deferred");
   });
 
   /**
-   * @case A park the previous process announced but never named is released at boot
-   * @preconditions A real aside park in the deferral store and a session record whose parking field names it with no park, as a crash between the two writes leaves them; a second record's parking names an id that was never created
-   * @expectedResult After driveBoot() the first park reads denied and both records have no parking field, and the boot did not fail on the id that never existed
+   * @case A deferral the previous process announced but never named is released at boot
+   * @preconditions A real aside deferral in the deferral store and a session record whose deferring field names it with no deferral, as a crash between the two writes leaves them; a second record's deferring names an id that was never created
+   * @expectedResult After driveBoot() the first deferral reads denied and both records have no deferring field, and the boot did not fail on the id that never existed
    */
   test("an announced continuation nothing names is released at boot", async () => {
     const store = new MemoryDeferralStore();
@@ -1459,13 +1463,13 @@ describe("agent sessions", () => {
     const sessions = new AgentSessionStore(recordsFor(store), store);
     const exchange = new DefaultExchange(t.ctx, { body: {} });
     const orphan = "orphan";
-    const { deferralId } = await parkAside(
+    const { deferralId } = await deferAside(
       t.ctx,
       exchange,
       { position: 0, continuation: [] },
       "chat",
       (id) => ({
-        kind: "agent-session-park",
+        kind: "agent-session-deferral",
         agent: "max",
         session: orphan,
         deferralId: id,
@@ -1473,27 +1477,27 @@ describe("agent sessions", () => {
     );
     await updateRecord(sessions, orphan, "max", (r) => ({
       ...r,
-      parking: { deferralId, routeId: "chat" },
+      deferring: { deferralId, routeId: "chat" },
     }));
     const phantom = "phantom";
     await updateRecord(sessions, phantom, "max", (r) => ({
       ...r,
-      parking: { deferralId: "never-created", routeId: "chat" },
+      deferring: { deferralId: "never-created", routeId: "chat" },
     }));
     expect((await store.get(deferralId))?.status).toBe("deferred");
     const runtime = new AgentSessionRuntime(t.ctx, sessions);
     await runtime.driveBoot();
     expect((await store.get(deferralId))?.status).toBe("denied");
-    expect((await sessions.load(orphan))?.parking).toBeUndefined();
-    expect((await sessions.load(phantom))?.parking).toBeUndefined();
+    expect((await sessions.load(orphan))?.deferring).toBeUndefined();
+    expect((await sessions.load(phantom))?.deferring).toBeUndefined();
   });
 
   /**
-   * @case A post that lands between the turn's park and its cleanup still starts the next turn
-   * @preconditions A session with one background call outstanding; the turn parks; the store write that records the park is followed, before the turn sees it, by a post to the inbox; the stored continuation cannot be revived (its id is not a real deferral), so the follow-up runs in process
+   * @case A post that lands between the turn's deferral and its cleanup still starts the next turn
+   * @preconditions A session with one background call outstanding; the turn defers; the store write that records the deferral is followed, before the turn sees it, by a post to the inbox; the stored continuation cannot be revived (its id is not a real deferral), so the follow-up runs in process
    * @expectedResult A second executor run starts on its own with the posted message, rather than the session waiting for the next message
    */
-  test("a post in the park-to-cleanup gap is delivered", async () => {
+  test("a post in the deferral-to-cleanup gap is delivered", async () => {
     const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
@@ -1509,9 +1513,9 @@ describe("agent sessions", () => {
     const realUpdate = sessions.update.bind(sessions);
     sessions.update = async (k, mutate) => {
       const record = await realUpdate(k, mutate);
-      if (record.park !== undefined && !posted) {
+      if (record.deferral !== undefined && !posted) {
         posted = true;
-        // The gap: the park is written, the turn has not cleared `active`.
+        // The gap: the deferral is written, the turn has not cleared `active`.
         await runtime.post(key, "max", {
           kind: "message",
           content: "the build finished",
@@ -1538,7 +1542,7 @@ describe("agent sessions", () => {
       by: null,
       interrupt: false,
       executor,
-      park: async () => ({ deferralId: "not-a-record", routeId: "chat" }),
+      defer: async () => ({ deferralId: "not-a-record", routeId: "chat" }),
     });
     const deadline = Date.now() + 5_000;
     while (seen.length < 2 && Date.now() < deadline) await sleep(5);
@@ -1834,8 +1838,8 @@ describe("agent sessions", () => {
     const sessions = new AgentSessionStore(recordsFor(store), store);
     const { realLoad, gates, entered } = gateLoads(sessions);
     const releasing = gate();
-    const realRelease = sessions.releasePark.bind(sessions);
-    sessions.releasePark = async (id, reason) => {
+    const realRelease = sessions.releaseDeferral.bind(sessions);
+    sessions.releaseDeferral = async (id, reason) => {
       await releasing.wait;
       return realRelease(id, reason);
     };
@@ -1859,7 +1863,7 @@ describe("agent sessions", () => {
       exchange,
       by: null,
       executor,
-      park: async () => ({ deferralId: "not-a-record", routeId: "chat" }),
+      defer: async () => ({ deferralId: "not-a-record", routeId: "chat" }),
     };
     const first = runtime.turn({ ...request, message: "a", interrupt: false });
     await sleep(10);
@@ -1872,7 +1876,7 @@ describe("agent sessions", () => {
     const one = await first;
     expect(one.session?.status).toBe("interrupted");
     await until(() => entered() === 2);
-    expect((await realLoad(key))?.park).toBeDefined();
+    expect((await realLoad(key))?.deferral).toBeDefined();
     const stopped = runtime.stop();
     recordRead.open();
     const two = await Promise.race([
@@ -1888,7 +1892,7 @@ describe("agent sessions", () => {
     expect(runs).toBe(1);
     expect(runtime.isRunning(key)).toBe(false);
     const record = await realLoad(key);
-    expect(record?.park).toBeUndefined();
+    expect(record?.deferral).toBeUndefined();
     expect(record?.inbox).toHaveLength(1);
   });
 
@@ -1923,7 +1927,7 @@ describe("agent sessions", () => {
       by: null,
       interrupt: false,
       executor,
-      park: async () => ({ deferralId: "not-a-record", routeId: "chat" }),
+      defer: async () => ({ deferralId: "not-a-record", routeId: "chat" }),
     });
     await sleep(10);
     await runtime.post(key, "max", {
@@ -1938,7 +1942,7 @@ describe("agent sessions", () => {
     expect(runs).toBe(1);
     expect(runtime.isRunning(key)).toBe(false);
     const record = await sessions.load(key);
-    expect(record?.park).toBeUndefined();
+    expect(record?.deferral).toBeUndefined();
     expect(record?.inbox.map((m) => m.kind)).toEqual(["message"]);
   });
 
@@ -2011,30 +2015,30 @@ describe("agent sessions", () => {
 
   /**
    * @case Removing a session settles the continuation it named
-   * @preconditions A record naming a park and an announced-but-unnamed parking, both live in the deferral store
-   * @expectedResult Both are settled before the record is deleted. Nothing else names them once the record is gone, and an aside park carries no expiry, so leaving them would leave a deferral nothing can ever revive or retire
+   * @preconditions A record naming a deferral and an announced-but-unnamed deferring, both live in the deferral store
+   * @expectedResult Both are settled before the record is deleted. Nothing else names them once the record is gone, and an aside deferral carries no expiry, so leaving them would leave a deferral nothing can ever revive or retire
    */
   test("removing a session releases its stored continuations", async () => {
     const store = new MemoryDeferralStore();
     const records = recordsFor(store);
     const sessions = new AgentSessionStore(records, store);
-    const session = "parked";
+    const session = "deferred";
 
     const released: string[] = [];
-    const realRelease = sessions.releasePark.bind(sessions);
-    sessions.releasePark = async (id: string, reason: string) => {
+    const realRelease = sessions.releaseDeferral.bind(sessions);
+    sessions.releaseDeferral = async (id: string, reason: string) => {
       released.push(id);
       return realRelease(id, reason);
     };
 
     await updateRecord(sessions, session, "max", (record) => ({
       ...record,
-      park: { deferralId: "park-1", routeId: "r" },
-      parking: { deferralId: "park-2", routeId: "r" },
+      deferral: { deferralId: "deferral-1", routeId: "r" },
+      deferring: { deferralId: "deferral-2", routeId: "r" },
     }));
 
     await sessions.remove(session);
-    expect(released.sort()).toEqual(["park-1", "park-2"]);
+    expect(released.sort()).toEqual(["deferral-1", "deferral-2"]);
     expect(await records.get(session)).toBeUndefined();
   });
 });

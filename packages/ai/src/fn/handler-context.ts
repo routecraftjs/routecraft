@@ -22,22 +22,22 @@ import "../errors.ts";
 
 /**
  * What the agent tool bridge wires into a handler context when the
- * dispatch can actually park: the dispatching exchange's deferral
+ * dispatch can actually deferral: the dispatching exchange's deferral
  * identity. Absent on every other surface, which is what makes
  * `ctx.defer` a typed refusal there.
  *
  * @internal
  */
 export interface FnDeferralWiring {
-  /** Id the dispatching exchange would park as. */
+  /** Id the dispatching exchange would defer as. */
   readonly id: string;
   /**
    * Mint the signed resume token for that id (lazily; may throw RC5052).
    *
    * Bound to THIS tool call. Every handler in a parallel batch reads the
-   * same deferral id (they name the park, not the call) but gets its own
+   * same deferral id (they name the deferral, not the call) but gets its own
    * credential, so a recipient sent a link by a handler that then lost the
-   * park cannot resume the winner's park: their token carries the losing
+   * deferral cannot resume the winner's deferral: their token carries the losing
    * call's binding and takes `RC5055`.
    */
   readonly mintToken: () => string;
@@ -54,7 +54,7 @@ export interface FnDeferralWiring {
  * forwards to runs under the same trace as the turn that called it.
  *
  * `deferral` wires the durable-deferral affordances: with it,
- * `ctx.defer()` mints the sentinel the bridge converts into a park and
+ * `ctx.defer()` mints the sentinel the bridge converts into a deferral and
  * `ctx.deferralId` / `ctx.deferral` carry the dispatching exchange's
  * deferral identity. Without it (proxied MCP tool guards, synthetic
  * dispatches), `ctx.defer()` refuses with `AI1006` at the moment it is
@@ -133,15 +133,15 @@ function makeDeferRefusal(
 ): (options?: AgentDeferOptions) => AgentDeferSentinel {
   return () => {
     // A session turn is revived from the session record, never from a
-    // parked exchange, so the wiring is withheld and the refusal names the
+    // deferred exchange, so the wiring is withheld and the refusal names the
     // combination rather than the unbound dispatch it is not.
     if (inSession) {
       throw rcError("AI1011", undefined, {
-        message: `ctx.defer in tool "${toolName}": a turn of an agent dispatched with "session" cannot park. The session's continuation is revived from its own record, and an approval has no parked exchange to resume into here. Park from a sessionless agent, or move the approval into a route the agent calls as a tool.`,
+        message: `ctx.defer in tool "${toolName}": a turn of an agent dispatched with "session" cannot defer. The session's continuation is revived from its own record, and an approval has no deferred exchange to resume into here. Deferral from a sessionless agent, or move the approval into a route the agent calls as a tool.`,
       });
     }
     throw rcError("AI1006", undefined, {
-      message: `ctx.defer in tool "${toolName}": durable deferral is only available inside an agent dispatch on a route-bound exchange. This dispatch has no exchange to park (a proxied MCP tool guard, a synthetic test dispatch), so nothing was written.`,
+      message: `ctx.defer in tool "${toolName}": durable deferral is only available inside an agent dispatch on a route-bound exchange. This dispatch has no exchange to defer (a proxied MCP tool guard, a synthetic test dispatch), so nothing was written.`,
     });
   };
 }

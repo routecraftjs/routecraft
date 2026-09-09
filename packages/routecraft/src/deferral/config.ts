@@ -25,7 +25,7 @@ import {
 } from "./sweeper.ts";
 
 /**
- * Environment variable naming where parked exchanges are persisted. Either
+ * Environment variable naming where deferred exchanges are persisted. Either
  * a file path or the literal `memory`. Overridden by an explicit
  * `deferral: { store }`.
  */
@@ -48,13 +48,13 @@ declare module "@routecraft/routecraft" {
 }
 
 /**
- * Where parked exchanges live.
+ * Where deferred exchanges live.
  *
  * - A path (or `{ path }`) opens the sqlite backend at that location. This
  *   is the value a container deployment sets to a mounted volume, which is
  *   the whole point of it being configurable.
  * - `"memory"` opts into the in-process backend explicitly, accepting that
- *   parked exchanges die with the process.
+ *   deferred exchanges die with the process.
  * - A {@link DeferralStore} instance plugs in a backend of your own
  *   (postgres, redis) without waiting for core to ship one.
  */
@@ -66,7 +66,7 @@ export type DeferralStoreConfig =
  */
 export interface DeferralConfig {
   /**
-   * Where parked exchanges are persisted. Defaults to the sqlite backend at
+   * Where deferred exchanges are persisted. Defaults to the sqlite backend at
    * {@link DEFAULT_DEFERRAL_DB_PATH}, or to whatever
    * {@link DEFERRAL_STORE_ENV} names.
    */
@@ -165,7 +165,7 @@ export interface DeferralRuntime {
   /**
    * Milliseconds a deferral stays resumable when `.defer()` names no
    * `ttl`. Undefined when the context opted out with `defaultTtl: "never"`,
-   * which is the only way to park something with no deadline at all.
+   * which is the only way to defer something with no deadline at all.
    */
   readonly defaultTtlMs?: number;
   /**
@@ -310,7 +310,7 @@ export async function createDeferralRuntime(
     releaseClaimant({ scope: context, claimant: DEFERRAL_CLAIMANT });
     context.logger.warn(
       { err, path },
-      "No durable deferral store available; parked exchanges will NOT survive a restart. Install better-sqlite3 (Node) or configure deferral: { store } to keep deferrals durable.",
+      "No durable deferral store available; deferred exchanges will NOT survive a restart. Install better-sqlite3 (Node) or configure deferral: { store } to keep deferrals durable.",
     );
     return runtime(new MemoryDeferralStore(), "memory", true);
   }

@@ -68,7 +68,7 @@ export function streamAgentDeltas(
    *
    * Everything that reclaims a run lives in the generator's `finally`, which
    * only exists once someone has begun iterating. Starting eagerly meant an
-   * iterable nobody read filled the buffer, parked the producer on a
+   * iterable nobody read filled the buffer, deferred the producer on a
    * back-pressure promise no consumer would ever release, and left the
    * provider generating and billing until the process ended. Lazily, an
    * abandoned stream costs nothing.
@@ -92,7 +92,7 @@ export function streamAgentDeltas(
   return {
     async *[Symbol.asyncIterator](): AsyncGenerator<AgentDelta> {
       // One consumer only. Two iterators share `wakeConsumer`'s single slot,
-      // so the second overwrites the first's resolver and both park forever;
+      // so the second overwrites the first's resolver and both deferral forever;
       // a named refusal beats a deadlock.
       if (started) {
         throw rcError("RC5003", undefined, {
@@ -122,7 +122,7 @@ export function streamAgentDeltas(
         }
       } finally {
         cancel(new Error("Agent delta stream was closed by its consumer"));
-        // A producer parked on back-pressure would otherwise hold the run
+        // A producer deferred on back-pressure would otherwise hold the run
         // open waiting for a consumer that has gone.
         releaseProducer();
       }

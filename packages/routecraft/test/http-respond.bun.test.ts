@@ -88,7 +88,7 @@ async function bootHttp(
 /**
  * Every timing claim in this file is proved by ordering against a promise the
  * test resolves itself, never by waiting a few milliseconds: the pipeline
- * parks on a gate, the assertion runs, and only then is the gate opened. A
+ * defers on a gate, the assertion runs, and only then is the gate opened. A
  * sleep would pass on a fast machine whether or not the response actually
  * preceded the pipeline.
  */
@@ -104,8 +104,8 @@ describe("HTTP source respond", () => {
 
   /**
    * @case The 202 arrives before the pipeline finishes
-   * @preconditions a responder answering 202 without awaiting `finished`, on a route whose step parks on a deferred the test resolves only after asserting the response
-   * @expectedResult The fetch resolves 202 with an empty body while the step is still parked; the step then completes
+   * @preconditions a responder answering 202 without awaiting `finished`, on a route whose step defers on a deferred the test resolves only after asserting the response
+   * @expectedResult The fetch resolves 202 with an empty body while the step is still deferred; the step then completes
    */
   test("answers 202 before a slow pipeline step completes", async () => {
     const gate = Promise.withResolvers<void>();
@@ -137,7 +137,7 @@ describe("HTTP source respond", () => {
     expect(res.status).toBe(202);
     expect(await res.text()).toBe("");
     // The load-bearing assertion: the response is already in hand while the
-    // pipeline is still parked, so the answer cannot have waited on it.
+    // pipeline is still deferred, so the answer cannot have waited on it.
     expect(stepEntered).toBe(true);
     expect(stepFinished).toBe(false);
 
@@ -486,7 +486,7 @@ describe("HTTP source respond", () => {
     });
     expect(res.status).toBe(202);
 
-    // Asserted while the pipeline is still parked, so the event cannot have
+    // Asserted while the pipeline is still deferred, so the event cannot have
     // been emitted at the end of the run.
     await completed.promise;
     expect(event?.status).toBe(202);
@@ -496,8 +496,8 @@ describe("HTTP source respond", () => {
 
   /**
    * @case A graceful shutdown waits for a detached run
-   * @preconditions a responder answering 202 without awaiting `finished`, the pipeline parked on a deferred, stop() called immediately on receiving the 202 and never waiting for the pipeline to be observed first
-   * @expectedResult stop() does not resolve while the detached run is parked, and the run completes rather than being abandoned. Stopping without first waiting for the step is deliberate: it also pins the ordering, because a dispatcher that answered before starting the run would enqueue after the drain had already found the route idle, and the delivery would be lost
+   * @preconditions a responder answering 202 without awaiting `finished`, the pipeline deferred on a deferred, stop() called immediately on receiving the 202 and never waiting for the pipeline to be observed first
+   * @expectedResult stop() does not resolve while the detached run is deferred, and the run completes rather than being abandoned. Stopping without first waiting for the step is deliberate: it also pins the ordering, because a dispatcher that answered before starting the run would enqueue after the drain had already found the route idle, and the delivery would be lost
    */
   test("shutdown waits for a detached run in flight", async () => {
     const gate = Promise.withResolvers<void>();
@@ -667,7 +667,7 @@ describe("HTTP source respond", () => {
       http: {},
     });
 
-    // A body delivered in two chunks: the dispatcher parks in its body read
+    // A body delivered in two chunks: the dispatcher defers in its body read
     // between them, which is where the shutdown lands.
     const gap = Promise.withResolvers<void>();
     const body = new ReadableStream<Uint8Array>({
@@ -825,7 +825,7 @@ describe("HTTP source respond", () => {
 
   /**
    * @case A responder returning undefined defers to the pipeline
-   * @preconditions A responder that returns undefined, on a route whose step parks on a deferred and then sets a body and a status
+   * @preconditions A responder that returns undefined, on a route whose step defers on a deferred and then sets a body and a status
    * @expectedResult The request is held open until the pipeline finishes and is answered with its result, so returning undefined is the same as configuring no responder at all. The step runs exactly ONCE: the dispatcher awaits the run it already started rather than starting a second, which would process every delivery twice and answer from the wrong one
    */
   test("a responder returning undefined answers with the pipeline result", async () => {
@@ -861,7 +861,7 @@ describe("HTTP source respond", () => {
       return res;
     });
 
-    // Held open: the caller is still waiting while the pipeline is parked,
+    // Held open: the caller is still waiting while the pipeline is deferred,
     // which is the whole difference from a responder that answers early.
     await sleep(30);
     expect(answered).toBe(false);
@@ -879,8 +879,8 @@ describe("HTTP source respond", () => {
 
   /**
    * @case A responder can build its answer from the request alone
-   * @preconditions A responder reading the request body and returning a 202 carrying a value derived from it, never touching finished, on a route whose step parks on a deferred
-   * @expectedResult The 202 and its derived body arrive while the step is still parked, and the pipeline afterwards runs to its destination
+   * @preconditions A responder reading the request body and returning a 202 carrying a value derived from it, never touching finished, on a route whose step defers on a deferred
+   * @expectedResult The 202 and its derived body arrive while the step is still deferred, and the pipeline afterwards runs to its destination
    */
   test("a responder maps its answer from the request and still detaches", async () => {
     const gate = Promise.withResolvers<void>();
@@ -972,8 +972,8 @@ describe("HTTP source respond", () => {
 
   /**
    * @case One responder decides per request
-   * @preconditions A responder returning a 202 for a status ping and undefined for anything else, on one route whose step parks on a deferred
-   * @expectedResult The ping is answered at once while the pipeline is parked; the real delivery is held open and answered with the pipeline's result, from the same route and the same responder
+   * @preconditions A responder returning a 202 for a status ping and undefined for anything else, on one route whose step defers on a deferred
+   * @expectedResult The ping is answered at once while the pipeline is deferred; the real delivery is held open and answered with the pipeline's result, from the same route and the same responder
    */
   test("a responder answers one request early and defers another", async () => {
     const gate = Promise.withResolvers<void>();
@@ -999,7 +999,7 @@ describe("HTTP source respond", () => {
     });
     t = bound.ctx;
 
-    // The ping is answered while the pipeline is still parked on the gate.
+    // The ping is answered while the pipeline is still deferred on the gate.
     const ping = await fetch(`http://127.0.0.1:${bound.port}/hooks/switch`, {
       method: "POST",
       headers: { "content-type": "application/json" },

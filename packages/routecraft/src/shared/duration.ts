@@ -70,7 +70,7 @@ export function parseDuration(
  * Bound a duration to what an `expiresAt` `Date` can actually hold.
  *
  * Both ends matter and both fail late without this. Below a millisecond
- * the deadline rounds to the moment of parking, so the deferral expires
+ * the deadline rounds to the moment of deferring, so the deferral expires
  * on arrival; beyond the Date range the arithmetic yields an Invalid Date
  * that is only discovered once the record is already in the store, where
  * every comparison against it is false.

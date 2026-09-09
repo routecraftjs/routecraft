@@ -24,7 +24,7 @@ type NonChainField =
   | "consumer"
   | "discovery"
   | "deferSteps"
-  // Site bookkeeping like deferSteps: which steps could park, not a
+  // Site bookkeeping like deferSteps: which steps could defer, not a
   // chain position. A detached run reaches those steps through its own
   // step array, and each host carries its site on the instance.
   | "reentrantDeferSteps"
@@ -128,7 +128,7 @@ export const CHAIN_SURVIVAL: Readonly<
   postParseFilters: {
     resume: {
       survives: false,
-      why: "cacheCheck (#9). Refused at build alongside a reachable defer, because a park exits the pipeline this filter wraps.",
+      why: "cacheCheck (#9). Refused at build alongside a reachable defer, because a deferral exits the pipeline this filter wraps.",
     },
     debounce: {
       survives: false,
@@ -156,7 +156,7 @@ export const CHAIN_SURVIVAL: Readonly<
   throttle: {
     resume: {
       survives: false,
-      why: "It admits new work into the route; a parked exchange was admitted on execution one. Answer arrival is governed by the resume ingress route's own throttle.",
+      why: "It admits new work into the route; a deferred exchange was admitted on execution one. Answer arrival is governed by the resume ingress route's own throttle.",
     },
     debounce: {
       survives: false,

@@ -9,29 +9,29 @@ import type { Deferral } from "./types.ts";
 /**
  * The record, as the resume route's `authorize` hook sees it.
  *
- * Deliberately no access to the parked body. The hook runs BEFORE the
+ * Deliberately no access to the deferred body. The hook runs BEFORE the
  * resuming principal has been authorized and before the record's own
- * lifecycle is disclosed, so a body-reading hook would put the parked
+ * lifecycle is disclosed, so a body-reading hook would put the deferred
  * payload in front of exactly the party the check exists to reject.
  */
 export interface DeferralRecordView {
   /** Deferral identity, the same value the acknowledgment carried. */
   readonly id: string;
   /**
-   * Whatever the deferring step attached at park.
+   * Whatever the deferring step attached at deferral.
    *
-   * The framework never reads it: this is where the park carries the
-   * application's own policy inputs. A parker that snapshots its policy
-   * here gets "policy travels with the park" for free, because the record
+   * The framework never reads it: this is where the deferral carries the
+   * application's own policy inputs. A defer site that snapshots its policy
+   * here gets "policy travels with the deferral" for free, because the record
    * is what the hook reads and editing the site cannot reach it.
    *
    * On the agent surface a tool handler supplies it, which means the MODEL
    * influenced it, and the model has read whatever untrusted tool output is
-   * in its thread. Treat it as what the parker chose, not as a fact the
+   * in its thread. Treat it as what the defer site chose, not as a fact the
    * framework vouches for.
    */
   readonly meta?: unknown;
-  /** Route the parked exchange belongs to. Not the resume ingress route. */
+  /** Route the deferred exchange belongs to. Not the resume ingress route. */
   readonly routeId: string;
   readonly deferredAt: Date;
   readonly expiresAt?: Date;
@@ -42,7 +42,7 @@ export interface DeferralRecordView {
  *
  * The two principals are not the same kind of thing, and the types say so.
  * `principal` was verified live by this ingress route's own
- * `.authenticate()`. `parked` came back out of the store, so it is marked
+ * `.authenticate()`. `deferred` came back out of the store, so it is marked
  * restored (`auth/restored.ts`) and `authorize()` refuses it anywhere it is
  * offered as a credential; here it is reference data, which is what makes a
  * "not the requester" comparison expressible at all.
@@ -50,8 +50,8 @@ export interface DeferralRecordView {
 export interface ResumeAuthorizerInput {
   /** Who is resuming, verified live by this route. Anonymous when it verified nobody. */
   readonly principal: Principal | undefined;
-  /** Who parked the exchange, restored from storage. Never a credential. */
-  readonly parked: Principal | undefined;
+  /** Who deferred the exchange, restored from storage. Never a credential. */
+  readonly deferred: Principal | undefined;
   /**
    * The submission, exactly as it arrived.
    *
@@ -81,7 +81,7 @@ export type ResumeAuthorizer = (
 ) => boolean | Promise<boolean>;
 
 /**
- * Read the parked principal back off a stored record.
+ * Read the deferred principal back off a stored record.
  *
  * Marked restored on the way out, so the one object in the resume path that
  * came from storage rather than from a live verification cannot be mistaken
@@ -89,7 +89,7 @@ export type ResumeAuthorizer = (
  *
  * @internal
  */
-export function parkedPrincipal(deferral: Deferral): Principal | undefined {
+export function deferredPrincipal(deferral: Deferral): Principal | undefined {
   const stored = deferral.exchange.headers[HeadersKeys.AUTH_PRINCIPAL];
   if (stored === undefined || typeof stored !== "object" || stored === null) {
     return undefined;
@@ -101,8 +101,8 @@ export function parkedPrincipal(deferral: Deferral): Principal | undefined {
  * The resume credential names the call it belongs to.
  *
  * A batch of parallel tool calls mints one credential per call against a
- * single record, because only one of them will win the park and the losers'
- * recipients must not be able to resume the winner's park. The record
+ * single record, because only one of them will win the deferral and the losers'
+ * recipients must not be able to resume the winner's deferral. The record
  * records which call it belongs to and the credential carries the same
  * value as its `sub` claim, so the pairing is checked here.
  *
@@ -122,7 +122,7 @@ export function checkCallBinding(
 ): void {
   if (deferral.callBinding === claimed) return;
   throw rcError("RC5055", undefined, {
-    message: `The resume credential presented for deferral "${deferral.id}" was not minted for the call this record is parked on.`,
+    message: `The resume credential presented for deferral "${deferral.id}" was not minted for the call this record is deferred on.`,
   });
 }
 

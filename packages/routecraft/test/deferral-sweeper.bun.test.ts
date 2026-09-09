@@ -40,10 +40,10 @@ function deferringWith(
 /**
  * A record that came due a second ago, written straight to the store.
  *
- * Synthetic rather than parked through a route because the sweeper never
+ * Synthetic rather than deferred through a route because the sweeper never
  * reads the continuation: it marks the record and re-enters the route's
  * error channel with the rehydrated exchange. What matters here is the
- * deadline and the route id, and going through a real park would mean
+ * deadline and the route id, and going through a real deferral would mean
  * sleeping out a real ttl once per record.
  */
 function overdue(
@@ -99,7 +99,7 @@ describe("the deferral sweeper", () => {
 
   /**
    * @case A deferral answered at the same moment the sweep retires it
-   * @preconditions One parked exchange; the sweep is handed a `now` past its deadline while the answer arrives before it, so both transitions are live at once
+   * @preconditions One deferred exchange; the sweep is handed a `now` past its deadline while the answer arrives before it, so both transitions are live at once
    * @expectedResult Exactly one of them wins, and the loser reports the winner's outcome rather than its own. Two winners would mean an approver told their answer was accepted while the route was told to re-ask, and the notification the transition gates would be sent twice
    */
   test("a resume racing the sweep produces exactly one outcome", async () => {
@@ -134,7 +134,7 @@ describe("the deferral sweeper", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(
+    const deferred = asDeferred(
       await t.client.sendDirect("payout", { amountCents: 1, payee: "acme" }),
     );
 
@@ -146,12 +146,12 @@ describe("the deferral sweeper", () => {
     const [swept, resumed] = await Promise.allSettled([
       sweeper.sweep(new Date(Date.now() + 2 * 60 * 60 * 1000)),
       t.client.sendDirect("answers", {
-        token: parked.token,
+        token: deferred.token,
         result: { approved: true },
       }),
     ]);
 
-    const record = await store.get(parked.deferralId);
+    const record = await store.get(deferred.deferralId);
     expect(swept.status).toBe("fulfilled");
 
     // Asserted symmetrically rather than against the winner this ordering
@@ -233,7 +233,7 @@ describe("the deferral sweeper", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(
+    const deferred = asDeferred(
       await t.client.sendDirect("payout", { amountCents: 1, payee: "acme" }),
     );
 
@@ -242,7 +242,7 @@ describe("the deferral sweeper", () => {
     await reachedTransition;
 
     const acknowledgment = (await t.client.sendDirect("answers", {
-      token: parked.token,
+      token: deferred.token,
       result: { approved: true },
     })) as { status: string; outcome: { status: string } };
     releaseSweep();
@@ -253,7 +253,7 @@ describe("the deferral sweeper", () => {
     expect(continued).toHaveLength(1);
     expect(expiredEvents).toHaveLength(0);
     expect(reasked).toHaveLength(0);
-    expect((await store.get(parked.deferralId))?.status).toBe("resumed");
+    expect((await store.get(deferred.deferralId))?.status).toBe("resumed");
   });
 
   /**
@@ -298,7 +298,7 @@ describe("the deferral sweeper", () => {
   /**
    * @case A route whose error handler throws while the sweep is retiring its deferral
    * @preconditions Three overdue records on a route whose .error() throws
-   * @expectedResult All three still retire, and each re-ask is reported failed. The sweep is the only thing that will ever visit these records, so one route's broken handler stranding the rest would leave them parked with nothing left to notice them
+   * @expectedResult All three still retire, and each re-ask is reported failed. The sweep is the only thing that will ever visit these records, so one route's broken handler stranding the rest would leave them deferred with nothing left to notice them
    */
   test("a throwing error handler does not strand the rest of the batch", async () => {
     const store = new MemoryDeferralStore();
@@ -543,7 +543,7 @@ describe("the deferral sweeper", () => {
   /**
    * @case A defer that names no ttl, in a context configuring one
    * @preconditions deferral: { defaultTtl: "30m" } and .defer() with no ttl
-   * @expectedResult The record carries a deadline half an hour out. Without a default, omitting ttl parks an exchange nothing will ever retire, which is the state the sweeper exists to prevent accumulating
+   * @expectedResult The record carries a deadline half an hour out. Without a default, omitting ttl defers an exchange nothing will ever retire, which is the state the sweeper exists to prevent accumulating
    */
   test("applies the configured default ttl to a defer that names none", async () => {
     const store = new MemoryDeferralStore();
@@ -560,10 +560,10 @@ describe("the deferral sweeper", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(
+    const deferred = asDeferred(
       await t.client.sendDirect("payout", { amountCents: 1, payee: "acme" }),
     );
-    const record = await store.get(parked.deferralId);
+    const record = await store.get(deferred.deferralId);
     const expiresAt = record?.expiresAt?.getTime() ?? 0;
 
     expect(expiresAt - Date.now()).toBeGreaterThan(29 * 60_000);
@@ -575,7 +575,7 @@ describe("the deferral sweeper", () => {
    * @preconditions deferral: { defaultTtl: "never" } and .defer() with no ttl
    * @expectedResult The record has no deadline and the sweep will not see it. This is the escape hatch for a deployment whose approvals legitimately have no horizon, and it has to be explicit because the default now expires
    */
-  test("parks with no deadline when the default ttl is never", async () => {
+  test("defers with no deadline when the default ttl is never", async () => {
     const store = new MemoryDeferralStore();
 
     t = await testContext()
@@ -590,12 +590,12 @@ describe("the deferral sweeper", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(
+    const deferred = asDeferred(
       await t.client.sendDirect("payout", { amountCents: 1, payee: "acme" }),
     );
 
-    expect(parked.expiresAt).toBeUndefined();
-    expect((await store.get(parked.deferralId))?.expiresAt).toBeUndefined();
+    expect(deferred.expiresAt).toBeUndefined();
+    expect((await store.get(deferred.deferralId))?.expiresAt).toBeUndefined();
     expect(
       await store.findExpired(new Date(Date.now() + 365 * 86_400_000), 100),
     ).toHaveLength(0);
@@ -827,7 +827,7 @@ describe("the deferral sweeper", () => {
 
   /**
    * @case The load-bearing joint: an answer meeting a claimed or released record
-   * @preconditions One parked exchange whose record is put through claim, then release, with answers presented at each stage
+   * @preconditions One deferred exchange whose record is put through claim, then release, with answers presented at each stage
    * @expectedResult A token presented while the record is expiring reads RC5047, and after the flip-back the answer is still refused because the record is past its deadline. The flip-back is only safe because both reads refuse; if either accepted, a crash window would let a dead approval run
    */
   test("an answer is refused while expiring and after the flip-back", async () => {
@@ -851,16 +851,16 @@ describe("the deferral sweeper", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(
+    const deferred = asDeferred(
       await t.client.sendDirect("payout", { amountCents: 1, payee: "acme" }),
     );
     await sleep(5);
 
     // Stage one: mid-delivery. The claim is held elsewhere.
-    await store.claimExpiry(parked.deferralId, new Date());
+    await store.claimExpiry(deferred.deferralId, new Date());
     await expect(
       t.client.sendDirect("answers", {
-        token: parked.token,
+        token: deferred.token,
         result: { approved: true },
       }),
     ).rejects.toMatchObject({ rc: "RC5047" });
@@ -869,10 +869,10 @@ describe("the deferral sweeper", () => {
     // record is deferred again, but past its deadline, so the lazy check
     // refuses the answer rather than reviving dead work.
     await store.releaseExpiring(new Date(Date.now() + 1));
-    expect((await store.get(parked.deferralId))?.status).toBe("deferred");
+    expect((await store.get(deferred.deferralId))?.status).toBe("deferred");
     await expect(
       t.client.sendDirect("answers", {
-        token: parked.token,
+        token: deferred.token,
         result: { approved: true },
       }),
     ).rejects.toMatchObject({ rc: "RC5047" });
@@ -901,14 +901,14 @@ describe("the deferral sweeper", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(
+    const deferred = asDeferred(
       await t.client.sendDirect("payout", { amountCents: 1, payee: "acme" }),
     );
-    await store.claimExpiry(parked.deferralId, new Date());
+    await store.claimExpiry(deferred.deferralId, new Date());
 
     await expect(
       t.client.sendDirect("answers", {
-        token: parked.token,
+        token: deferred.token,
         result: { approved: true },
       }),
     ).rejects.toMatchObject({ rc: "RC5050" });
@@ -924,7 +924,7 @@ describe("the deferral sweeper", () => {
     const day = 24 * 60 * 60 * 1000;
     // Settled via markResumed because its resumption time is the one
     // controllable settlement clock; retention measures settledAt, so a
-    // record merely PARKED 100 days ago would rightly be kept.
+    // record merely DEFERRED 100 days ago would rightly be kept.
     await store.create(
       overdue("sus-ancient", { deferredAt: new Date(Date.now() - 100 * day) }),
     );

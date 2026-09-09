@@ -9,13 +9,13 @@ import type { PrincipalRef } from "./types.ts";
  * Deferral state carried on the exchange.
  *
  * Per `.standards/exchange-state-model.md`, everything that must survive a
- * park lives in `headers`; `ex.deferral` is a derivation over these keys
+ * deferral lives in `headers`; `ex.deferral` is a derivation over these keys
  * plus the context's signer, in the same shape as `ex.principal` and
  * `ex.logger`. Nothing here is a second per-exchange bag.
  */
 export const DeferralHeaders = {
   /**
-   * How many times this exchange has already parked. Distinguishes
+   * How many times this exchange has already deferred. Distinguishes
    * successive deferrals of one exchange (a route that defers, resumes,
    * and defers again for a second approval), which is what keeps their
    * deferral ids distinct.
@@ -26,8 +26,8 @@ export const DeferralHeaders = {
    * clones an exchange (`.tap()`, `.multicast()`). A clone gets a fresh
    * `routecraft.id` by design, so without this a token minted inside a
    * `.tap()` notification would name a deferral that never exists. The
-   * canonical "notify before parking" step is exactly such a tap, so the affordance follows this key back to the exchange that will
-   * actually park.
+   * canonical "notify before deferring" step is exactly such a tap, so the affordance follows this key back to the exchange that will
+   * actually deferral.
    */
   OWNER: "routecraft.deferral.owner",
   /** The validated resume payload, written by the resume path before the continuation runs. */
@@ -66,9 +66,9 @@ declare module "@routecraft/routecraft" {
  * @template R - The resume payload type, threaded in by `.defer({ schema })`
  */
 export interface DeferralAffordance<R = unknown> {
-  /** Id of the deferral this exchange would park as (or parked as). */
+  /** Id of the deferral this exchange would defer as (or deferred as). */
   readonly id: string;
-  /** How many times this exchange has already parked. Zero before the first defer. */
+  /** How many times this exchange has already deferred. Zero before the first defer. */
   readonly sequence: number;
   /**
    * Signed, single-use resume token for {@link DeferralAffordance.id}.
@@ -79,15 +79,15 @@ export interface DeferralAffordance<R = unknown> {
   /**
    * A resume token bound to one specific call on this record.
    *
-   * Only a step that can raise several calls against one park needs this:
+   * Only a step that can raise several calls against one deferral needs this:
    * the agent tier's parallel tool batch is the shipped case, where every
-   * handler sees the same deferral id (it names the park, not the call)
+   * handler sees the same deferral id (it names the deferral, not the call)
    * and each sends its own recipient a link. Binding the credential to the
-   * call means the handler that then LOSES the park cannot have its
-   * recipient resume the winner's park; they take `RC5055` instead.
+   * call means the handler that then LOSES the deferral cannot have its
+   * recipient resume the winner's deferral; they take `RC5055` instead.
    *
-   * The binding is checked against what the record actually parked with, so
-   * minting one here without the park recording the same value refuses
+   * The binding is checked against what the record actually deferred with, so
+   * minting one here without the deferral recording the same value refuses
    * every resume. Plain `.defer()` sites use {@link
    * DeferralAffordance.token}.
    *
@@ -164,11 +164,11 @@ export function deferralAffordance(
 }
 
 /**
- * The deferral id an exchange parks as.
+ * The deferral id an exchange defers as.
  *
  * The one derivation, called by the `ex.deferral` affordance and by the
- * park path alike. They must agree: the affordance is what a notification
- * step mints a token from BEFORE the park, and the park is what writes the
+ * deferral path alike. They must agree: the affordance is what a notification
+ * step mints a token from BEFORE the deferral, and the deferral is what writes the
  * record that token has to find. Deriving it twice let them diverge for any
  * exchange carrying an owner header, which is every exchange a `.debounce()`
  * releases downstream, and the symptom was a resume link that verified and
@@ -191,8 +191,8 @@ export function deferralIdOf(
 }
 
 /**
- * The sequence a park derives its id from: the header's, unless an aside
- * park in this run already advanced past it (`asideSequenceOf`), which
+ * The sequence a deferral derives its id from: the header's, unless an aside
+ * deferral in this run already advanced past it (`asideSequenceOf`), which
  * the live exchange's frozen headers cannot carry.
  *
  * @internal
@@ -206,26 +206,26 @@ export function effectiveSequence(
 }
 
 /**
- * Read the park counter off an exchange's headers.
+ * Read the deferral counter off an exchange's headers.
  *
  * A missing header is the counter at zero: every exchange that has never
- * parked legitimately carries none. Anything else that is not a usable
+ * deferred legitimately carries none. Anything else that is not a usable
  * counter value REFUSES rather than resetting, because the deferral id
  * derives from this counter and resume tokens sign the id: a reset counter
- * re-derives an id an earlier park of the same owner already used, and an
- * old unspent link would verify against the new park. The store's
+ * re-derives an id an earlier deferral of the same owner already used, and an
+ * old unspent link would verify against the new deferral. The store's
  * create-collision check backstops the case where the earlier record still
  * exists; this refusal closes the silent path around it.
  *
  * The throw only ever reaches deferral surfaces (`ex.deferral` is a
- * lazy getter, and the park calls this on the way in), so an exchange with
+ * lazy getter, and the deferral calls this on the way in), so an exchange with
  * a mangled header still flows through routes that never touch deferral.
  *
  * @throws RC5057 when the header holds a malformed value, or a value at or
  *   above the exhaustion bound (`MAX_SAFE_INTEGER - 1`). The bound sits one
  *   below the safe-integer ceiling so every accepted value has a writable
  *   successor; that successor may be the bound itself, in which case
- *   exhaustion surfaces loudly on the read after the final park rather
+ *   exhaustion surfaces loudly on the read after the final deferral rather
  *   than as the reset this function exists to refuse
  *
  * @internal
@@ -235,7 +235,7 @@ export function readSequence(headers: ExchangeHeaders): number {
   if (raw === undefined) return 0;
   if (typeof raw !== "number" || !Number.isSafeInteger(raw) || raw < 0) {
     throw rcError("RC5057", undefined, {
-      message: `The deferral sequence header ("${DeferralHeaders.SEQUENCE}") is malformed: expected a non-negative safe integer, found ${JSON.stringify(raw)}. Refusing to derive a deferral id from it, because a reset counter reuses an id an earlier park already used.`,
+      message: `The deferral sequence header ("${DeferralHeaders.SEQUENCE}") is malformed: expected a non-negative safe integer, found ${JSON.stringify(raw)}. Refusing to derive a deferral id from it, because a reset counter reuses an id an earlier deferral already used.`,
     });
   }
   if (raw >= Number.MAX_SAFE_INTEGER - 1) {

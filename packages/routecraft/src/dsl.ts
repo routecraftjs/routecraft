@@ -251,7 +251,7 @@ declare module "@routecraft/routecraft" {
     ): Retyped<this, SetBody<S, StandardSchemaV1.InferOutput<Schema>>>;
 
     /**
-     * Park the exchange durably and exit the pipeline, to be resumed later
+     * Deferral the exchange durably and exit the pipeline, to be resumed later
      * at the next step.
      *
      * This run ends here and replies immediately with the `Deferred`
@@ -262,7 +262,7 @@ declare module "@routecraft/routecraft" {
      * its destinations on execution two, when `.resume()` revives the
      * exchange with the payload.
      *
-     * The body is unchanged across the park, so a branch that defers
+     * The body is unchanged across the deferral, so a branch that defers
      * rejoins the main flow with the contract it left on. The payload
      * arrives beside it, on `ex.deferral.result`, typed by `schema`.
      *
@@ -296,7 +296,7 @@ declare module "@routecraft/routecraft" {
     ): Retyped<this, SetDeferral<S, StandardSchemaV1.InferOutput<Schema>>>;
 
     /**
-     * Revive a parked exchange and run its continuation.
+     * Revive a deferred exchange and run its continuation.
      *
      * Addresses an EXCHANGE by signed token, not a route by name: any route
      * ending in `.resume()` is a resume ingress, whether it is fed by an

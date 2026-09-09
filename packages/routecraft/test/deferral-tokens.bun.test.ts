@@ -40,7 +40,7 @@ describe("resume tokens", () => {
   });
 
   /**
-   * @case Successive parks of one exchange get distinct ids
+   * @case Successive defers of one exchange get distinct ids
    * @preconditions The same exchange id at sequence 0 and 1
    * @expectedResult The ids differ, so a second approval does not collide
    *   with the first in the store
@@ -53,9 +53,9 @@ describe("resume tokens", () => {
   /**
    * @case Two unrelated exchanges never derive the same deferral id
    * @preconditions An exchange whose id already ends in the separator and a
-   *   sequence number, parked first, against another exchange parking for a
+   *   sequence number, deferred first, against another exchange deferring for a
    *   second time
-   * @expectedResult The ids differ. Colliding would let one parked exchange
+   * @expectedResult The ids differ. Colliding would let one deferred exchange
    *   overwrite the other in the store, losing an approval in flight
    */
   test("does not collide when an exchange id ends in a sequence suffix", () => {

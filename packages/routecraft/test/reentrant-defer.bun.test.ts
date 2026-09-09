@@ -24,7 +24,7 @@ const sleep = (ms: number): Promise<void> =>
   new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
- * A minimal defer-capable enricher: parks on first execution (carrying
+ * A minimal defer-capable enricher: defers on first execution (carrying
  * step-owned state), and on re-entry reports what it was handed back. The
  * agent tier is the shipped implementation of this protocol; this adapter
  * exercises the core seam without any AI machinery.
@@ -57,11 +57,11 @@ describe("re-entrant defer sites (defer-capable steps)", () => {
   });
 
   /**
-   * @case A defer-capable step parks with stepState and re-enters ITSELF on resume
+   * @case A defer-capable step defers with stepState and re-enters ITSELF on resume
    * @preconditions A .to(capable) step on the main flow; the signal carries stepState { n: 1 }; a resume ingress
    * @expectedResult Execution one replies with the acknowledgment; the resume re-runs the step, which receives the persisted stepState and the raw payload, and the steps after it run once
    */
-  test("a capable step parks, and resume re-enters the step with stepState", async () => {
+  test("a capable step defers, and resume re-enters the step with stepState", async () => {
     const sink = spy();
     t = await testContext()
       .with(deferring())
@@ -72,12 +72,12 @@ describe("re-entrant defer sites (defer-capable steps)", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(await t.client.sendDirect("capable", "work"));
-    expect(parked.schema).toBeDefined();
+    const deferred = asDeferred(await t.client.sendDirect("capable", "work"));
+    expect(deferred.schema).toBeDefined();
     expect(sink.received).toHaveLength(0);
 
     const ack = (await t.client.sendDirect("answers", {
-      token: parked.token,
+      token: deferred.token,
       result: { approved: true },
     })) as { status: string; outcome: { status: string } };
     expect(ack.status).toBe("resumed");
@@ -93,17 +93,17 @@ describe("re-entrant defer sites (defer-capable steps)", () => {
   });
 
   /**
-   * @case Step-owned state carrying a Date survives park and resume intact
-   * @preconditions A capable step whose stepState holds a Date; the store owns the one encoding boundary (the park does not pre-encode)
-   * @expectedResult The resumed step receives a real Date at the parked instant, not a tagged envelope and not an RC5042 refusal
+   * @case Step-owned state carrying a Date survives deferral and resume intact
+   * @preconditions A capable step whose stepState holds a Date; the store owns the one encoding boundary (the deferral does not pre-encode)
+   * @expectedResult The resumed step receives a real Date at the deferred instant, not a tagged envelope and not an RC5042 refusal
    */
   test("stepState round-trips a Date through the store", async () => {
-    const parkedAt = new Date("2026-08-19T12:00:00.000Z");
+    const deferredAt = new Date("2026-08-19T12:00:00.000Z");
     const withDate: Enricher<unknown, unknown> = {
       fetch: (ex: Exchange<unknown>) => {
         const state = peekResumeStepState(ex);
         if (state !== undefined) return { state };
-        throw new DeferSignal({ schema: Approval, stepState: { parkedAt } });
+        throw new DeferSignal({ schema: Approval, stepState: { deferredAt } });
       },
     };
     markDeferCapable(withDate);
@@ -117,25 +117,27 @@ describe("re-entrant defer sites (defer-capable steps)", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(await t.client.sendDirect("dated", "work"));
+    const deferred = asDeferred(await t.client.sendDirect("dated", "work"));
     await t.client.sendDirect("answers", {
-      token: parked.token,
+      token: deferred.token,
       result: { approved: true },
     });
 
     expect(sink.received).toHaveLength(1);
-    const body = sink.received[0]!.body as { state: { parkedAt: unknown } };
-    expect(body.state.parkedAt).toBeInstanceOf(Date);
-    expect((body.state.parkedAt as Date).getTime()).toBe(parkedAt.getTime());
+    const body = sink.received[0]!.body as { state: { deferredAt: unknown } };
+    expect(body.state.deferredAt).toBeInstanceOf(Date);
+    expect((body.state.deferredAt as Date).getTime()).toBe(
+      deferredAt.getTime(),
+    );
     expect(t.errors).toHaveLength(0);
   });
 
   /**
    * @case A step-scope wrapper around a capable step forwards the defer site to the inner host
    * @preconditions .timeout(5000) staged as a step-scope wrapper around .to(capable)
-   * @expectedResult The deferral converts inside the step and parks normally: the wrapper observes the outcome, never the raw throw (a retry wrapper would otherwise re-run the park)
+   * @expectedResult The deferral converts inside the step and defers normally: the wrapper observes the outcome, never the raw throw (a retry wrapper would otherwise re-run the deferral)
    */
-  test("a wrapped capable step still parks (site forwarded through the wrapper)", async () => {
+  test("a wrapped capable step still defers (site forwarded through the wrapper)", async () => {
     const sink = spy();
     t = await testContext()
       .with(deferring())
@@ -150,14 +152,14 @@ describe("re-entrant defer sites (defer-capable steps)", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(await t.client.sendDirect("wrapped", "work"));
-    expect(parked.status).toBe("deferred");
+    const deferred = asDeferred(await t.client.sendDirect("wrapped", "work"));
+    expect(deferred.status).toBe("deferred");
     expect(sink.received).toHaveLength(0);
     expect(t.errors).toHaveLength(0);
   });
 
   /**
-   * @case A runtime deferral inside a .split() fan-out is refused with RC5051, not parked
+   * @case A runtime deferral inside a .split() fan-out is refused with RC5051, not deferred
    * @preconditions A capable step under an unbalanced .split(); the route BUILDS (deferability is dynamic), and a child then defers
    * @expectedResult The child's dispatch fails with RC5051 naming the split refusal, and nothing is written to the store
    */
@@ -183,7 +185,7 @@ describe("re-entrant defer sites (defer-capable steps)", () => {
   });
 
   /**
-   * @case A runtime deferral inside a .multicast() path is refused with RC5051, not parked
+   * @case A runtime deferral inside a .multicast() path is refused with RC5051, not deferred
    * @preconditions A capable step inside a multicast path; the route builds, the path exchange then defers
    * @expectedResult The path fails with RC5051 naming the side-flow refusal, and nothing is written to the store
    */
@@ -208,7 +210,7 @@ describe("re-entrant defer sites (defer-capable steps)", () => {
   });
 });
 
-describe("cancellation around the park (RC5054)", () => {
+describe("cancellation around the deferral (RC5054)", () => {
   let t: TestContext | undefined;
 
   afterEach(async () => {
@@ -217,11 +219,11 @@ describe("cancellation around the park (RC5054)", () => {
   });
 
   /**
-   * @case A run cancelled BEFORE its park commits refuses to park
+   * @case A run cancelled BEFORE its deferral commits refuses to defer
    * @preconditions Route-scope .timeout(25) and a tap that outlives it before the .defer(); the caller is answered by the deadline
    * @expectedResult The caller receives RC5011 from the timeout; the abandoned run's defer is refused, so the store stays empty and no resume link exists
    */
-  test("abort before the park: nothing is written", async () => {
+  test("abort before the deferral: nothing is written", async () => {
     t = await testContext()
       .with(deferring())
       .routes([
@@ -250,11 +252,11 @@ describe("cancellation around the park (RC5054)", () => {
   });
 
   /**
-   * @case A run cancelled AFTER its park commits denies the just-created deferral
-   * @preconditions Route-scope .timeout(25); the store write itself outlives the deadline, so the abort is observed right after the park; the resume token was minted before the park
+   * @case A run cancelled AFTER its deferral commits denies the just-created deferral
+   * @preconditions Route-scope .timeout(25); the store write itself outlives the deadline, so the abort is observed right after the deferral; the resume token was minted before the deferral
    * @expectedResult The caller receives RC5011; the record is finalized denied ("run cancelled"); presenting the token afterwards fails catchably with RC5050 from the settled path
    */
-  test("abort after the park: the deferral is denied and the token is dead", async () => {
+  test("abort after the deferral: the deferral is denied and the token is dead", async () => {
     const backing = new MemoryDeferralStore();
     const store = storeWith(backing, {
       create: async (record) => {
@@ -295,8 +297,8 @@ describe("cancellation around the park (RC5054)", () => {
       record = await backing.get(ids[0]!);
     }
 
-    const parked = await backing.pending();
-    expect(parked.count).toBe(0);
+    const deferred = await backing.pending();
+    expect(deferred.count).toBe(0);
     expect(record?.status).toBe("denied");
     expect(record?.deniedReason).toBe("run cancelled");
 

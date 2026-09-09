@@ -118,7 +118,7 @@ normally.
 
 When a route [defers](/docs/reference/operations/defer) and is later resumed, execution two runs the continuation only: the steps after the defer point. It is the same exchange (same id, same correlation id) in the same route, but it did not enter the route again, so the positions that describe an arrival do not re-run.
 
-Nothing is left standing to fall back into: execution one unwound its chain when it parked. The framework builds a **fresh chain** for execution two out of the positions declared to survive, keeping their relative order, and runs the continuation inside it. That nesting is why `timeout` still wraps `concurrency` on a resume.
+Nothing is left standing to fall back into: execution one unwound its chain when it deferred. The framework builds a **fresh chain** for execution two out of the positions declared to survive, keeping their relative order, and runs the continuation inside it. That nesting is why `timeout` still wraps `concurrency` on a resume.
 
 Every position states its own answer. This is a declaration in the framework, not a side effect of how a continuation happens to be executed, so a position cannot quietly stop applying.
 
@@ -133,7 +133,7 @@ Every position states its own answer. This is a declaration in the framework, no
 | 7 | `retry` | **runs** | Attempts happen before any terminal outcome is recorded, so a retried continuation never spends the approval it was answering |
 | 8 | `timeout` | **runs** | Bounds execution two. Distinct from `ttl`, which is a store-side expiry on the deferral rather than a per-attempt deadline in this process. It wraps the bulkhead below it, so on a route that also declares `.concurrency()` the deadline covers the wait for a slot as well as the work. Route-scope `.retry()` mitigates this in practice, because it re-attempts before any terminal outcome is recorded; closing it properly means moving admission above the claim ([#598](https://github.com/routecraftjs/routecraft/issues/598)) |
 | 8.5 | `concurrency` | **runs**, in waiting form | Ingress executions and resumed continuations compete for the same limiter, because a bulkhead bounds work against a downstream and a continuation is that work. A continuation only ever **queues** for a slot: `mode: 'reject'` and `maxQueue` do not apply to it, because refusing below the claim would spend an approval on work that never ran. That wait has no deadline of its own, so size `max` for the answer rate you expect |
-| 9 / 10 | `cache` | refused at build | Both filters wrap the user pipeline, which a park exits and a resume re-enters partway down, so neither would ever run (`RC5003`) |
+| 9 / 10 | `cache` | refused at build | Both filters wrap the user pipeline, which a deferral exits and a resume re-enters partway down, so neither would ever run (`RC5003`) |
 | - | **your continuation** | runs | Steps after the defer, with their own step-scope wrappers |
 | - | `.output()` | runs | Execution two produces the route's real output |
 

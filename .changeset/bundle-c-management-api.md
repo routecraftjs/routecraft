@@ -27,7 +27,7 @@ Authentication is ordinary mount auth: the ops mount's own `auth`, else the name
 
 **Collections page for real.** Every collection response is `{ items, nextCursor }`, never a bare array, with keyset cursors matching the deferral store's idiom. A cursor is valid only for the filter that produced it, and a malformed `limit` is refused rather than clamped: a caller silently handed a bounded page cannot tell a truncated answer from a complete one.
 
-**A park is an outcome.** A dispatch against a deferrable route answers 202 with the standard `Deferred` acknowledgment. A drop is reported separately from a failure, because a filter saying no and a step breaking need different answers.
+**A deferral is an outcome.** A dispatch against a deferrable route answers 202 with the standard `Deferred` acknowledgment. A drop is reported separately from a failure, because a filter saying no and a step breaking need different answers.
 
 ## The clients
 

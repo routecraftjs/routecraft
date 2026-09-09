@@ -3,10 +3,10 @@
  *
  * Keyset cursors, matching `DeferralStore.findExpired`'s idiom rather
  * than inventing a second one. The reason is not consistency for its own
- * sake: the collections this API will grow (parked deferrals, exchange
+ * sake: the collections this API will grow (deferred deferrals, exchange
  * history) are live and mutating while an operator reads them, and offset
  * paging over a mutating set silently skips rows and repeats others. That
- * surfaces as "the console lost a parked payout", never as an error.
+ * surfaces as "the console lost a deferred payout", never as an error.
  *
  * A cursor is valid only for the filter that produced it, exactly as the
  * deferral store's cursor is valid only against the store that produced

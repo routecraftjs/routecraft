@@ -714,10 +714,10 @@ export {
   isDeferSignal,
   isDeferred,
   markDeferCapable,
-  // parkAside and reviveDeferral are @internal and re-exported on purpose:
+  // deferAside and reviveDeferral are @internal and re-exported on purpose:
   // @routecraft/ai stores and revives an agent session's continuation
   // through them, and a package cannot reach a deep import of core.
-  parkAside,
+  deferAside,
   reviveDeferral,
   routeCanDefer,
   stepStateFingerprint,

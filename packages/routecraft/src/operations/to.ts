@@ -189,7 +189,7 @@ export class ToStep<T = unknown, R = unknown>
     } catch (err) {
       // Converted here, inside the step, so a step-scope wrapper never
       // observes the raw throw (a retry wrapper would re-run the adapter
-      // and charge the parked work twice).
+      // and charge the deferred work twice).
       if (isDeferSignal(err)) {
         return convertDeferSignal(this, exchange, err);
       }

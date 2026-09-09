@@ -226,13 +226,13 @@
     "name": "defer",
     "category": "Flow Control",
     "signature": ".defer({ schema?, ttl?, meta? })",
-    "description": "Park the exchange durably and answer now; resume later at the next step."
+    "description": "Deferral the exchange durably and answer now; resume later at the next step."
   },
   {
     "name": "resume",
     "category": "Flow Control",
     "signature": ".resume(map?, { authorize? })",
-    "description": "Revive a parked exchange addressed by its signed resume token."
+    "description": "Revive a deferred exchange addressed by its signed resume token."
   },
   {
     "name": "tap",

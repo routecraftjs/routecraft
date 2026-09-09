@@ -84,10 +84,10 @@ describe("continuationTailHash", () => {
    *   before the defer point must not kill approvals in flight
    * @preconditions Two pipelines identical from the defer point onward,
    *   differing only in a step BEFORE it
-   * @expectedResult The continuation hashes match, so a parked exchange
+   * @expectedResult The continuation hashes match, so a deferred exchange
    *   stays resumable
    */
-  test("an edit before the defer point does not invalidate a parked exchange", () => {
+  test("an edit before the defer point does not invalidate a deferred exchange", () => {
     const before = [
       step("notify", (value) => value),
       step("defer", (value) => value),
@@ -112,7 +112,7 @@ describe("continuationTailHash", () => {
    * @expectedResult The hashes differ, so resume fails the compatibility
    *   check and the route can re-ask
    */
-  test("an edit after the defer point invalidates a parked exchange", () => {
+  test("an edit after the defer point invalidates a deferred exchange", () => {
     const before = [step("defer", (v) => v), step("pay", (v) => v * 2)];
     const after = [step("defer", (v) => v), step("pay", (v) => v * 20)];
 
@@ -126,7 +126,7 @@ describe("continuationTailHash", () => {
    * @preconditions An extra step appended after the defer point
    * @expectedResult The hashes differ
    */
-  test("appending a step to the tail invalidates a parked exchange", () => {
+  test("appending a step to the tail invalidates a deferred exchange", () => {
     const before = [step("defer", (v) => v), step("pay", (v) => v)];
     const after = [
       step("defer", (v) => v),
@@ -164,7 +164,7 @@ describe("continuationTailHash", () => {
    * @preconditions The same tail with two different expect schemas
    * @expectedResult The hashes differ
    */
-  test("a changed expect schema invalidates a parked exchange", () => {
+  test("a changed expect schema invalidates a deferred exchange", () => {
     const steps = [step("defer", (v) => v), step("pay", (v) => v)];
 
     expect(continuationTailHash(steps.slice(1), expected)).not.toBe(
@@ -194,7 +194,7 @@ describe("continuationTailHash", () => {
    * @expectedResult The hashes DIFFER. This is the accepted cost of refusing
    *   to normalize: every fold that would make these match is also a chance
    *   to miss a real change, and the failure this asserts costs an
-   *   error-channel re-ask while the one it prevents resumes a parked
+   *   error-channel re-ask while the one it prevents resumes a deferred
    *   approval into different behaviour.
    */
   test("does not normalize insignificant whitespace in step source", () => {
@@ -249,7 +249,7 @@ describe("continuationTailHash", () => {
    * @preconditions An expression arrow against a block-bodied equivalent
    * @expectedResult The hashes differ, because the token stream changed
    */
-  test("a rewritten function body invalidates a parked exchange", () => {
+  test("a rewritten function body invalidates a deferred exchange", () => {
     const compact = [step("s", (v) => v), step("pay", (value) => value * 2)];
     const block = [
       step("s", (v) => v),
@@ -268,7 +268,7 @@ describe("continuationTailHash over adapter configuration", () => {
   /**
    * @case An adapter target carried as a URL moves the digest when it changes
    * @preconditions Two tails identical but for the href of a URL-valued adapter option
-   * @expectedResult Different digests, so a payee spelled `new URL(...)` cannot be edited under a parked approval; a class instance the walk cannot project still collapses, which the hash JSDoc states as residue
+   * @expectedResult Different digests, so a payee spelled `new URL(...)` cannot be edited under a deferred approval; a class instance the walk cannot project still collapses, which the hash JSDoc states as residue
    */
   test("a URL-valued option is part of the digest", () => {
     expect(
@@ -286,7 +286,7 @@ describe("continuationTailHash over adapter configuration", () => {
 
   /**
    * @case A cycle through a collection-valued option terminates instead of exhausting the stack
-   * @preconditions An adapter option holding a Map that contains itself, hashed at park time
+   * @preconditions An adapter option holding a Map that contains itself, hashed at deferral time
    * @expectedResult The digest is produced rather than thrown, because the depth bound sits above every recursing branch; a Map is projected within the bound, so two different in-bounds Maps still differ
    */
   test("a self-referential collection option is bounded, not fatal", () => {
@@ -314,7 +314,7 @@ describe("continuationTailHash over adapter configuration", () => {
   });
 
   /**
-   * @case Repointing a destination in the tail invalidates a parked approval
+   * @case Repointing a destination in the tail invalidates a deferred approval
    * @preconditions Two pipelines whose only difference is an adapter option
    *   after the defer point, on a class-based adapter whose callable
    *   source is identical either way
@@ -340,7 +340,7 @@ describe("continuationTailHash over adapter configuration", () => {
    * @case The same configuration still hashes stably
    * @preconditions Two separately constructed adapters with equal options
    * @expectedResult The hashes match, so restarting the process does not
-   *   invalidate everything parked before it
+   *   invalidate everything deferred before it
    */
   test("identical adapter options hash identically across instances", () => {
     const options = { url: "https://bank-a.example/pay", retries: 3 };
@@ -420,7 +420,7 @@ describe("continuationTailHash over adapter configuration", () => {
 
 describe("continuationTailHash over factory-built adapters", () => {
   /**
-   * @case Repointing a real factory-built destination invalidates a parked
+   * @case Repointing a real factory-built destination invalidates a deferred
    *   approval
    * @preconditions Two tails differing only in what `file()` was called
    *   with. A factory returns a role facade whose own properties are bound
@@ -450,7 +450,7 @@ describe("continuationTailHash over factory-built adapters", () => {
    *   resolving to different files
    * @expectedResult The hashes differ. A callback nested in options would
    *   otherwise collapse to a placeholder and the target could change
-   *   freely under a parked exchange.
+   *   freely under a deferred exchange.
    */
   test("a changed callback inside factory options invalidates it", () => {
     const toA = [
@@ -475,7 +475,7 @@ describe("continuationTailHash over factory-built adapters", () => {
    *   file or an upstream payload produces
    * @expectedResult The hashes differ. Projecting options onto an ordinary
    *   object literal drops that key through the Object.prototype setter, and
-   *   the option could then change freely under a parked approval.
+   *   the option could then change freely under a deferred approval.
    */
   test("a changed option under a __proto__ key invalidates it", () => {
     const options = (role: string) =>
@@ -500,7 +500,7 @@ describe("continuationTailHash over factory-built adapters", () => {
    * @case The same configuration still hashes stably
    * @preconditions Two separately constructed adapters with equal arguments
    * @expectedResult The hashes match, so a restart does not invalidate
-   *   everything parked before it
+   *   everything deferred before it
    */
   test("identical factory arguments hash identically", () => {
     expect(
@@ -586,7 +586,7 @@ describe("describeSchema", () => {
   /**
    * @case A lazy producer that throws
    * @preconditions The extension's producer is vendor code that fails under every calling convention
-   * @expectedResult The defer is not failed by it: no rendering is claimed and a hash is still produced, but the descriptor is marked degraded so the park can say the changed-expect check is inert for this schema rather than leaving it silently so
+   * @expectedResult The defer is not failed by it: no rendering is claimed and a hash is still produced, but the descriptor is marked degraded so the deferral can say the changed-expect check is inert for this schema rather than leaving it silently so
    */
   test("marks a JSON Schema producer that throws as degraded", () => {
     const hostile = {

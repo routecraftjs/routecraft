@@ -820,7 +820,7 @@ export class CraftContext {
    * answer different questions. `apply()` wires the context and runs at
    * build time; `start()` begins work and needs the routes running. The
    * deferral sweeper is the first consumer: it re-enters a route's error
-   * channel when a parked exchange expires, which is not something that can
+   * channel when a deferred exchange expires, which is not something that can
    * be done against a route that has not started.
    *
    * A throw propagates to `context.start()`, which shuts the context down
@@ -904,7 +904,7 @@ export class CraftContext {
 
   /**
    * Refuse to start when a route can reach a `.defer()` and nothing
-   * configured where parked exchanges go.
+   * configured where deferred exchanges go.
    *
    * Deliberately not auto-provisioned. The deferral runtime decides
    * whether this deployment survives a restart and whether resume tokens
@@ -1845,7 +1845,7 @@ export class CraftContext {
    *
    * What this accepts losing: in-flight exchanges are abandoned mid-step and
    * emit no terminal event. What it does NOT do is settle or deny anything on
-   * the way down, so a parked deferral survives a forced shutdown exactly
+   * the way down, so a deferred deferral survives a forced shutdown exactly
    * as it survives a graceful one.
    *
    * It does NOT reach the deferral sweeper. The sweeper stops cooperatively
@@ -1863,7 +1863,7 @@ export class CraftContext {
     this.logger.warn(
       { timeoutMs: this.shutdownTimeoutMs, pending },
       pending.length > 0
-        ? "Graceful shutdown did not drain in time; abandoning in-flight work and forcing shutdown. Parked deferrals are left untouched."
+        ? "Graceful shutdown did not drain in time; abandoning in-flight work and forcing shutdown. Deferred deferrals are left untouched."
         : "Graceful shutdown did not complete in time; forcing shutdown.",
     );
     for (const route of this.routes) {

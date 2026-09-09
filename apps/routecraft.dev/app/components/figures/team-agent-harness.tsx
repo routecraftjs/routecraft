@@ -20,7 +20,7 @@ const PRIMITIVES = [
   {
     n: 1,
     title: 'Delegation',
-    body: 'asks the right person · parks the work · resumes',
+    body: 'asks the right person · defers the work · resumes',
   },
   {
     n: 2,

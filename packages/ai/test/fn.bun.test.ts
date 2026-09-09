@@ -309,7 +309,7 @@ describe("testFn - exercise fn handlers in isolation", () => {
   });
 
   /**
-   * @case A malformed ttl fails at the ctx.defer call, not at park time
+   * @case A malformed ttl fails at the ctx.defer call, not at deferral time
    * @preconditions Handler calls ctx.defer({ ttl: "3 days" }), which is
    *   not a duration the grammar accepts
    * @expectedResult RC5003 thrown from the handler's own call frame, same

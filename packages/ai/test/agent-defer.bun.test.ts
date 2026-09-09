@@ -69,11 +69,11 @@ describe("agent durable deferral (ctx.defer)", () => {
   ];
 
   /**
-   * @case A fn handler's ctx.defer parks the run, and execution one answers with the core Deferred value
+   * @case A fn handler's ctx.defer defers the run, and execution one answers with the core Deferred value
    * @preconditions direct-fronted agent route; scripted model calls the "ask" tool, whose handler returns ctx.defer({ schema, ttl, meta })
    * @expectedResult The caller receives the branded Deferred acknowledgment carrying id, token and the Approval JSON Schema, with no trace of `meta` on it; the record persists `meta` verbatim; the sink after the agent has not run; ctx.deferralId matched the acknowledgment's id
    */
-  test("ctx.defer parks the run and answers with the Deferred acknowledgment", async () => {
+  test("ctx.defer defers the run and answers with the Deferred acknowledgment", async () => {
     const sink = spy();
     const seenIds: Array<string | undefined> = [];
     // Recorded, not asserted, inside the handler: the tool bridge converts
@@ -109,33 +109,33 @@ describe("agent durable deferral (ctx.defer)", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(await t.client.sendDirect("assistant", "go"));
-    expect(parked.status).toBe("deferred");
-    expect(parked.deferralId).toBeString();
-    expect(parked.token).toBeString();
-    expect(parked.schema).toBeDefined();
-    expect(parked.expiresAt).toBeString();
+    const deferred = asDeferred(await t.client.sendDirect("assistant", "go"));
+    expect(deferred.status).toBe("deferred");
+    expect(deferred.deferralId).toBeString();
+    expect(deferred.token).toBeString();
+    expect(deferred.schema).toBeDefined();
+    expect(deferred.expiresAt).toBeString();
     // `meta` is hook input, not wire data. It rides the record and is handed
     // to `.resume({ authorize })`; the acknowledgment crosses to the caller,
     // so anything policy-shaped on it would be readable by the party the
     // hook exists to judge.
-    expect(Object.keys(parked)).not.toContain("meta");
-    expect(JSON.stringify(parked)).not.toContain("pay acme?");
+    expect(Object.keys(deferred)).not.toContain("meta");
+    expect(JSON.stringify(deferred)).not.toContain("pay acme?");
 
     const store = t.ctx.getStore(DEFERRAL_RUNTIME)!.store;
-    const record = await store.get(parked.deferralId);
+    const record = await store.get(deferred.deferralId);
     expect(record!.meta).toEqual({ question: "pay acme?" });
-    expect(seenIds[0]).toBe(parked.deferralId);
+    expect(seenIds[0]).toBe(deferred.deferralId);
     expect(seenDeferrals[0]!.id).toBe(seenIds[0]!);
     expect(seenDeferrals[0]!.token).toBeString();
     expect(sink.received).toHaveLength(0);
-    // The loop stopped at the park: no further scripted turns were consumed.
+    // The loop stopped at the deferral: no further scripted turns were consumed.
     expect(llm.script).toHaveLength(0);
   });
 
   /**
    * @case A resumed answer re-enters the agent step, lands as the deferred call's tool result, and the loop finishes
-   * @preconditions A parked run; the resume ingress receives the token plus an answer; one more scripted text turn
+   * @preconditions A deferred run; the resume ingress receives the token plus an answer; one more scripted text turn
    * @expectedResult The acknowledgment reports that execution two completed, the sink receives the final AgentResult, the second model call's thread contains the answer as the deferred call's tool result, and a duplicate resume returns the cached outcome without another model call
    */
   test("resume re-enters the loop with the answer and a duplicate is idempotent", async () => {
@@ -150,11 +150,11 @@ describe("agent durable deferral (ctx.defer)", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(await t.client.sendDirect("assistant", "go"));
+    const deferred = asDeferred(await t.client.sendDirect("assistant", "go"));
     llm.script.push({ text: "done: approved" });
 
     const ack = (await t.client.sendDirect("answers", {
-      token: parked.token,
+      token: deferred.token,
       result: { approved: true },
     })) as { status: string; outcome: { status: string } };
     expect(ack.status).toBe("resumed");
@@ -172,7 +172,7 @@ describe("agent durable deferral (ctx.defer)", () => {
     expect(resumedPrompt).toContain('"tool-result"');
 
     const duplicate = (await t.client.sendDirect("answers", {
-      token: parked.token,
+      token: deferred.token,
       result: { approved: true },
     })) as { status: string; outcome: { status: string } };
     expect(duplicate.status).toBe("duplicate");
@@ -182,11 +182,11 @@ describe("agent durable deferral (ctx.defer)", () => {
   });
 
   /**
-   * @case A revived agent run parks AGAIN later in the same continuation, minting a fresh deferral
-   * @preconditions Park one is resumed; the resumed model asks the "ask" tool a second question; a second resume answers it
-   * @expectedResult The second park is a new record under a new id and token (never a re-serialization of the first stepState), the first resume's outcome reports "deferred" with no body, and the second resume completes the run with both answers in the final model call's thread
+   * @case A revived agent run defers AGAIN later in the same continuation, minting a fresh deferral
+   * @preconditions Deferral one is resumed; the resumed model asks the "ask" tool a second question; a second resume answers it
+   * @expectedResult The second deferral is a new record under a new id and token (never a re-serialization of the first stepState), the first resume's outcome reports "deferred" with no body, and the second resume completes the run with both answers in the final model call's thread
    */
-  test("a resumed run can park again: two deferrals, two resumes, one completion", async () => {
+  test("a resumed run can defer again: two deferrals, two resumes, one completion", async () => {
     const sink = spy();
     const tokens: string[] = [];
     const ids: string[] = [];
@@ -211,13 +211,13 @@ describe("agent durable deferral (ctx.defer)", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(await t.client.sendDirect("assistant", "go"));
-    // The resumed model immediately asks a second question, parking again.
+    const deferred = asDeferred(await t.client.sendDirect("assistant", "go"));
+    // The resumed model immediately asks a second question, deferring again.
     llm.script.push({
       toolCalls: [{ toolName: "ask", input: { question: "ship it too?" } }],
     });
     const first = (await t.client.sendDirect("answers", {
-      token: parked.token,
+      token: deferred.token,
       result: { approved: true },
     })) as { status: string; outcome: { status: string; body?: unknown } };
     expect(first.status).toBe("resumed");
@@ -249,11 +249,11 @@ describe("agent durable deferral (ctx.defer)", () => {
   });
 
   /**
-   * @case Token spend survives the park: a cancelled resumed run reports the whole run's usage
-   * @preconditions Turn one reports 10 tokens and parks; the record persists stepState.usage; the resumed turn hangs in a tool until the context stops
-   * @expectedResult The parked record carries usage.totalTokens 10, and the cancellation of the resumed run fails with AI1005 reporting 1 turn and the 10 pre-park tokens rather than a spend of nothing
+   * @case Token spend survives the deferral: a cancelled resumed run reports the whole run's usage
+   * @preconditions Turn one reports 10 tokens and defers; the record persists stepState.usage; the resumed turn hangs in a tool until the context stops
+   * @expectedResult The deferred record carries usage.totalTokens 10, and the cancellation of the resumed run fails with AI1005 reporting 1 turn and the 10 pre-deferral tokens rather than a spend of nothing
    */
-  test("a cancelled resumed run reports the pre-park token spend", async () => {
+  test("a cancelled resumed run reports the pre-deferral token spend", async () => {
     const sink = spy();
     const hang = {
       description: "Hang until the run is cancelled",
@@ -293,9 +293,9 @@ describe("agent durable deferral (ctx.defer)", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(await t.client.sendDirect("assistant", "go"));
+    const deferred = asDeferred(await t.client.sendDirect("assistant", "go"));
     const runtime = t.ctx.getStore(DEFERRAL_RUNTIME)!;
-    const record = await runtime.store.get(parked.deferralId);
+    const record = await runtime.store.get(deferred.deferralId);
     expect(
       (record?.stepState as { usage?: { totalTokens?: number } })?.usage
         ?.totalTokens,
@@ -305,7 +305,7 @@ describe("agent durable deferral (ctx.defer)", () => {
     llm.script.push({ toolCalls: [{ toolName: "hang", input: {} }] });
     const ack = t.client
       .sendDirect("answers", {
-        token: parked.token,
+        token: deferred.token,
         result: { approved: true },
       })
       .then(
@@ -337,7 +337,7 @@ describe("agent durable deferral (ctx.defer)", () => {
   /**
    * @case Deferral during a parallel batch flushes in-flight siblings and persists their real results
    * @preconditions One batch calling "ask" (defers) and "lookup" (answers slowly); resume afterwards
-   * @expectedResult The park waits for the sibling, whose real output is in the persisted thread the resumed model call receives alongside the swapped answer
+   * @expectedResult The deferral waits for the sibling, whose real output is in the persisted thread the resumed model call receives alongside the swapped answer
    */
   test("a deferring call flushes in-flight siblings and keeps their results", async () => {
     const sink = spy();
@@ -375,10 +375,10 @@ describe("agent durable deferral (ctx.defer)", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(await t.client.sendDirect("assistant", "go"));
+    const deferred = asDeferred(await t.client.sendDirect("assistant", "go"));
     llm.script.push({ text: "done" });
     await t.client.sendDirect("answers", {
-      token: parked.token,
+      token: deferred.token,
       result: { approved: true },
     });
 
@@ -390,7 +390,7 @@ describe("agent durable deferral (ctx.defer)", () => {
   });
 
   /**
-   * @case Two defer signals in one batch produce exactly one park (one record per sequence number)
+   * @case Two defer signals in one batch produce exactly one deferral (one record per sequence number)
    * @preconditions One batch calling "ask" then "ask2", both of whose handlers defer
    * @expectedResult One deferral record exists and carries the FIRST call's meta; after resume, the loser's tool result reads as a retryable sibling-deferred error in the thread
    */
@@ -427,17 +427,17 @@ describe("agent durable deferral (ctx.defer)", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(await t.client.sendDirect("assistant", "go"));
+    const deferred = asDeferred(await t.client.sendDirect("assistant", "go"));
 
     const runtime = t.ctx.getStore(DEFERRAL_RUNTIME)!;
     const pending = await runtime.store.pending();
     expect(pending.count).toBe(1);
-    const record = await runtime.store.get(parked.deferralId);
+    const record = await runtime.store.get(deferred.deferralId);
     expect(record!.meta).toEqual({ question: "first?" });
 
     llm.script.push({ text: "done" });
     await t.client.sendDirect("answers", {
-      token: parked.token,
+      token: deferred.token,
       result: { approved: true },
     });
     expect(llm.calls.length).toBeGreaterThanOrEqual(2);
@@ -450,7 +450,7 @@ describe("agent durable deferral (ctx.defer)", () => {
   /**
    * @case meta attached by a tool handler reaches the resume route's hook
    * @preconditions ctx.defer({ meta }) on the agent surface, resumed through a door whose authorize reads it
-   * @expectedResult The hook receives the same value the handler attached, so agent parks and route parks are one mechanism
+   * @expectedResult The hook receives the same value the handler attached, so agent defers and route defers are one mechanism
    */
   test("ctx.defer meta round-trips to the resume hook", async () => {
     const sink = spy();
@@ -494,9 +494,9 @@ describe("agent durable deferral (ctx.defer)", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(await t.client.sendDirect("assistant", "go"));
+    const deferred = asDeferred(await t.client.sendDirect("assistant", "go"));
     llm.script.push({ text: "done" });
-    await t.client.sendDirect("answers", { token: parked.token });
+    await t.client.sendDirect("answers", { token: deferred.token });
 
     expect(seen[0]).toEqual({
       channel: "finance",
@@ -506,7 +506,7 @@ describe("agent durable deferral (ctx.defer)", () => {
   });
 
   /**
-   * @case A losing sibling's credential cannot resume the winner's park
+   * @case A losing sibling's credential cannot resume the winner's deferral
    * @preconditions One batch calling two deferring tools, each capturing its own ctx.deferral.token before returning
    * @expectedResult The loser's token is refused with RC5055 without touching the record, and the winner's token still resumes the run
    */
@@ -549,21 +549,21 @@ describe("agent durable deferral (ctx.defer)", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(await t.client.sendDirect("assistant", "go"));
+    const deferred = asDeferred(await t.client.sendDirect("assistant", "go"));
     expect(tokens["ask"]).not.toBe(tokens["ask2"]);
 
     const runtime = t.ctx.getStore(DEFERRAL_RUNTIME)!;
-    // One record, one park, two credentials: they name the calls, not the
-    // park, which is exactly what makes the losing one refusable.
-    const record = await runtime.store.get(parked.deferralId);
+    // One record, one deferral, two credentials: they name the calls, not the
+    // deferral, which is exactly what makes the losing one refusable.
+    const record = await runtime.store.get(deferred.deferralId);
     expect(record!.meta).toEqual({ question: "first?" });
     // The acknowledgment carries the WINNING call's binding, so the link
     // the winning handler already sent its recipient is the one that works.
-    expect(runtime.signer.verify(parked.token).sub).toBe(
+    expect(runtime.signer.verify(deferred.token).sub).toBe(
       runtime.signer.verify(tokens["ask"]!).sub,
     );
     expect(runtime.signer.verify(tokens["ask2"]!).sub).not.toBe(
-      runtime.signer.verify(parked.token).sub,
+      runtime.signer.verify(deferred.token).sub,
     );
     await expect(
       t.client.sendDirect("answers", {
@@ -571,13 +571,13 @@ describe("agent durable deferral (ctx.defer)", () => {
         result: { approved: true },
       }),
     ).rejects.toMatchObject({ rc: "RC5055" });
-    expect((await runtime.store.get(parked.deferralId))?.status).toBe(
+    expect((await runtime.store.get(deferred.deferralId))?.status).toBe(
       "deferred",
     );
 
     llm.script.push({ text: "done" });
     const ack = (await t.client.sendDirect("answers", {
-      token: parked.token,
+      token: deferred.token,
       result: { approved: true },
     })) as { status: string };
     expect(ack.status).toBe("resumed");
@@ -586,9 +586,9 @@ describe("agent durable deferral (ctx.defer)", () => {
   /**
    * @case The DeferError throw is honoured as an escape hatch, with no declared schema
    * @preconditions Handler throws DeferError({ meta }) declaring no schema
-   * @expectedResult The run parks, the acknowledgment advertises no schema, and a later payload of any JSON shape resumes the loop (the model validates, not the framework)
+   * @expectedResult The run defers, the acknowledgment advertises no schema, and a later payload of any JSON shape resumes the loop (the model validates, not the framework)
    */
-  test("DeferError parks the run and any JSON payload resumes it", async () => {
+  test("DeferError defers the run and any JSON payload resumes it", async () => {
     const sink = spy();
     const legacy = {
       description: "Legacy deferring tool",
@@ -612,12 +612,12 @@ describe("agent durable deferral (ctx.defer)", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(await t.client.sendDirect("assistant", "go"));
-    expect(parked.schema).toBeUndefined();
+    const deferred = asDeferred(await t.client.sendDirect("assistant", "go"));
+    expect(deferred.schema).toBeUndefined();
 
     llm.script.push({ text: "carried on" });
     const ack = (await t.client.sendDirect("answers", {
-      token: parked.token,
+      token: deferred.token,
       result: "free-form text, no schema anywhere",
     })) as { status: string };
     expect(ack.status).toBe("resumed");
@@ -644,10 +644,10 @@ describe("agent durable deferral (ctx.defer)", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(await t.client.sendDirect("assistant", "go"));
+    const deferred = asDeferred(await t.client.sendDirect("assistant", "go"));
     llm.script.push({ text: "handled junk" });
     const ack = (await t.client.sendDirect("answers", {
-      token: parked.token,
+      token: deferred.token,
       result: "not an approval object",
     })) as { status: string; outcome: { status: string } };
     expect(ack.status).toBe("resumed");
@@ -659,8 +659,8 @@ describe("agent durable deferral (ctx.defer)", () => {
   });
 
   /**
-   * @case The maxTurns budget survives the park: a resume with the budget exhausted takes the ordinary max-turns path
-   * @preconditions agent maxTurns: 1; the park consumed the single turn; then a resume arrives
+   * @case The maxTurns budget survives the deferral: a resume with the budget exhausted takes the ordinary max-turns path
+   * @preconditions agent maxTurns: 1; the deferral consumed the single turn; then a resume arrives
    * @expectedResult Execution two fails immediately with the max-turns RC5003 as the deferral's terminal outcome, without another model call
    */
   test("a resumed run inherits turnsUsed and an exhausted budget fails as max-turns", async () => {
@@ -689,9 +689,9 @@ describe("agent durable deferral (ctx.defer)", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(await t.client.sendDirect("assistant", "go"));
+    const deferred = asDeferred(await t.client.sendDirect("assistant", "go"));
     const ack = (await t.client.sendDirect("answers", {
-      token: parked.token,
+      token: deferred.token,
       result: { approved: true },
     })) as {
       status: string;
@@ -707,7 +707,7 @@ describe("agent durable deferral (ctx.defer)", () => {
   /**
    * @case ctx.defer in a context without a deferral runtime fails as a typed step error naming the config line
    * @preconditions No `deferral` block on the config (legal: the route has no static .defer()); the tool defers at runtime
-   * @expectedResult The dispatch fails with RC5052 telling the user to add deferral: {} to defineConfig; nothing is parked
+   * @expectedResult The dispatch fails with RC5052 telling the user to add deferral: {} to defineConfig; nothing is deferred
    */
   test("ctx.defer without a deferral runtime fails with RC5052", async () => {
     const sink = spy();
@@ -771,7 +771,7 @@ describe("agent durable deferral (ctx.defer)", () => {
   /**
    * @case A malformed ttl is refused at the ctx.defer call, before the
    *   handler unwinds
-   * @preconditions A wired handler context (the dispatch could park); the
+   * @preconditions A wired handler context (the dispatch could defer); the
    *   handler passes ttl: "3 days", which the duration grammar rejects
    * @expectedResult RC5003 thrown synchronously from ctx.defer itself,
    *   with the tool named in the message, instead of surfacing later at

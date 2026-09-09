@@ -446,7 +446,7 @@
   {
     "code": "AI1008",
     "category": "Adapter",
-    "message": "Parked agent thread replacement refused",
+    "message": "Deferred agent thread replacement refused",
     "retryable": false
   },
   {
@@ -464,7 +464,7 @@
   {
     "code": "AI1011",
     "category": "Adapter",
-    "message": "A tool asked to park an agent session turn",
+    "message": "A tool asked to defer an agent session turn",
     "retryable": false
   },
   {

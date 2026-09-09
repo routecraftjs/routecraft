@@ -4096,9 +4096,9 @@ describe("McpServer", () => {
     });
 
     /**
-     * @case A run that parks at a .defer() answers with its acknowledgment, not a schema violation
+     * @case A run that defers at a .defer() answers with its acknowledgment, not a schema violation
      * @preconditions Route declares .output() and reaches .defer() before producing that output, with an in-memory deferral store
-     * @expectedResult No error; the Deferred acknowledgment is published. The pipeline deliberately skips output validation for a parked run, so the boundary must not enforce the declared output against an acknowledgment that was never meant to satisfy it
+     * @expectedResult No error; the Deferred acknowledgment is published. The pipeline deliberately skips output validation for a deferred run, so the boundary must not enforce the declared output against an acknowledgment that was never meant to satisfy it
      */
     test("publishes the acknowledgment when the route defers", async () => {
       t = await testContext()
@@ -4107,7 +4107,7 @@ describe("McpServer", () => {
         .routes([
           craft()
             .id("approve-payout")
-            .description("Parks for approval before paying out")
+            .description("Defers for approval before paying out")
             .output({ body: z.object({ paid: z.boolean() }) })
             .from<{ amount: number }>(mcp())
             .defer({ schema: z.object({ approved: z.boolean() }) })

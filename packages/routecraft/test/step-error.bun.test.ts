@@ -699,7 +699,7 @@ describe(".error() step scope: dual-mode wrapper", () => {
   });
 
   /**
-   * @case A custom step returns a `defer` outcome without the request the executor parks from
+   * @case A custom step returns a `defer` outcome without the request the executor defers from
    * @preconditions Custom wrapper step returns { kind: "defer", exchange } with no `request`
    * @expectedResult Executor rejects it with RC5032 (fails loud) instead of silently dropping the exchange; the sink is never reached
    */
@@ -710,7 +710,7 @@ describe(".error() step scope: dual-mode wrapper", () => {
       label: "deferring-step",
       // Only `.defer()` can produce a coherent request (it needs the
       // site the build-time walk assigned), so a hand-rolled outcome
-      // without one must fail loud rather than park an exchange nothing
+      // without one must fail loud rather than deferral an exchange nothing
       // could revive.
       async execute(exchange: Exchange): Promise<StepOutcome> {
         return { kind: "defer", exchange } as unknown as StepOutcome;

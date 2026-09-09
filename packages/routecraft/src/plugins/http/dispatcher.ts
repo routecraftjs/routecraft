@@ -784,7 +784,7 @@ function serialiseResponse(body: unknown, headers: ExchangeHeaders): Response {
   // otherwise duplicates the header rather than replacing it.
   const extraHeaders = lowerCaseKeys(hint.headers);
 
-  // A parked exchange answers 202 with the acknowledgment as its body. HTTP
+  // A deferred exchange answers 202 with the acknowledgment as its body. HTTP
   // is the one transport with an out-of-band status channel, so the status
   // carries the `Output | Deferred` discrimination and the declared 200
   // body type stays the route's own output. `Retry-After` is the TTL, which

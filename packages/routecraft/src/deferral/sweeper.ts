@@ -27,7 +27,7 @@ export const DEFAULT_DEFERRAL_RETENTION = "90d";
  *
  * Three days. Long enough to survive a weekend, so an approver who is away
  * on Friday still has a live link on Monday, and short enough that an
- * unresumed park does not sit in the store forever. Configurable per
+ * unresumed deferral does not sit in the store forever. Configurable per
  * context, and overridable per defer.
  */
 export const DEFAULT_DEFERRAL_TTL = "72h";
@@ -167,7 +167,7 @@ export class DeferralSweeper {
           // consume the record with nobody able to run its error channel,
           // so it is left for the deployment that owns it. Counted rather
           // than logged per record: an orphaned route means one problem,
-          // not one problem per parked exchange.
+          // not one problem per deferred exchange.
           missing.set(
             deferral.routeId,
             (missing.get(deferral.routeId) ?? 0) + 1,
@@ -201,7 +201,7 @@ export class DeferralSweeper {
     if (visited > 0 && retired === 0 && !this.stopping) {
       this.context.logger.warn(
         { visited },
-        "Overdue deferrals were visited but none could be retired this pass. Each stays parked and is revisited next sweep; the route warnings above say why.",
+        "Overdue deferrals were visited but none could be retired this pass. Each stays deferred and is revisited next sweep; the route warnings above say why.",
       );
     }
     return retired;
@@ -249,7 +249,7 @@ export class DeferralSweeper {
       reported++;
       this.context.logger.warn(
         { routeId, count },
-        `${count} expired deferral(s) belong to route "${routeId}", which this context does not have, so they were left for a context that does. Either that route was renamed or removed while deferrals for it were still parked, or two deployments are sharing one deferral store and should not be.`,
+        `${count} expired deferral(s) belong to route "${routeId}", which this context does not have, so they were left for a context that does. Either that route was renamed or removed while deferrals for it were still deferred, or two deployments are sharing one deferral store and should not be.`,
       );
     }
     if (overflowRoutes > 0) {
@@ -262,7 +262,7 @@ export class DeferralSweeper {
 
   /**
    * Sweep what expired while the process was down, and report what is
-   * parked.
+   * deferred.
    *
    * Awaited by `start()` on purpose, so a context is not ready until its
    * overdue work has reached the routes that own it. An operator restarting
@@ -304,8 +304,8 @@ export class DeferralSweeper {
       },
       // `pending` counts every record the store holds, which includes the
       // records other tiers keep in it (agent session transcripts) and not
-      // only parked exchanges; the store cannot tell them apart.
-      "Deferral store scanned (pending counts every stored record, parked exchanges and agent session records alike)",
+      // only deferred exchanges; the store cannot tell them apart.
+      "Deferral store scanned (pending counts every stored record, deferred exchanges and agent session records alike)",
     );
 
     if (stranded.length > 0) {

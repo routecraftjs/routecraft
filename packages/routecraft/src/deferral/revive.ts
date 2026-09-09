@@ -15,7 +15,7 @@ import { continuationTailHash, describeSchema } from "./hash.ts";
 import {
   type ResumeAuthorizer,
   checkCallBinding,
-  parkedPrincipal,
+  deferredPrincipal,
   recordView,
   runAuthorizer,
 } from "./authorize.ts";
@@ -47,7 +47,7 @@ import type {
  * deferral knows the schema the deferring step declared.
  */
 export interface ResumeRequest {
-  /** The signed token minted when the exchange parked. */
+  /** The signed token minted when the exchange deferred. */
   token: string;
   /** The submitted payload, validated against the deferring step's `schema`. */
   result: unknown;
@@ -104,7 +104,7 @@ export interface ResumeAcknowledgment {
 }
 
 /**
- * Revive a parked exchange and run its continuation to completion.
+ * Revive a deferred exchange and run its continuation to completion.
  *
  * The order of checks is the security contract, and it is ordered rather
  * than merely "pre-claim" because the window before the claim is NOT inert:
@@ -186,7 +186,7 @@ export async function reviveDeferral(
       door.authorize,
       {
         principal: door.principal,
-        parked: parkedPrincipal(deferral),
+        deferred: deferredPrincipal(deferral),
         payload: request.result,
         record: recordView(deferral),
       },
@@ -249,7 +249,7 @@ export async function reviveDeferral(
 
   // For a static site: the descriptor of the LIVE schema, never the stored
   // one. The stored descriptor is what was folded into
-  // `deferral.continuationHash` at park time, so comparing it against
+  // `deferral.continuationHash` at deferral time, so comparing it against
   // itself is inert and a widened schema would resume into a contract its
   // approver never saw. The deferring step's own definition is excluded
   // from the hashed tail by design, which makes this descriptor the ONLY
@@ -262,14 +262,14 @@ export async function reviveDeferral(
   // the same residue class as the behaviour of what the tail calls.
   //
   // `meta` is deliberately NOT in the digest. It lives only on the record,
-  // so there is no live copy for it to drift from: a parker that snapshots
-  // its policy into `meta` gets policy-travels-with-the-park by
+  // so there is no live copy for it to drift from: a defer site that snapshots
+  // its policy into `meta` gets policy-travels-with-the-deferral by
   // construction rather than by a tamper check.
   //
   // The branch keys on RE-ENTRANCY, not on whether a live schema was found.
   // A static site always describes what it declares TODAY, absence included:
   // keying on `site.schema` would make a removed schema fall through to the
-  // stored descriptor, compare it against itself, and accept the parked
+  // stored descriptor, compare it against itself, and accept the deferred
   // payload unvalidated with no re-ask, which is the exact edit the absent
   // sentinel exists to catch.
   const current = continuationTailHash(
@@ -288,7 +288,7 @@ export async function reviveDeferral(
       route,
       deferral,
       "continuation changed",
-      `Route "${deferral.routeId}" changed after position ${deferral.position} while this exchange was parked, so the stored payload no longer authorizes what would run.`,
+      `Route "${deferral.routeId}" changed after position ${deferral.position} while this exchange was deferred, so the stored payload no longer authorizes what would run.`,
     );
   }
 
@@ -384,10 +384,10 @@ export async function reviveDeferral(
       resumedAt,
       ...(request.resumedBy ? { resumedBy: request.resumedBy } : {}),
     });
-    // The step-owned closure state goes back to the step that parked it,
+    // The step-owned closure state goes back to the step that deferred it,
     // through internals rather than headers: it is runtime context for one
     // re-entrant execution on this process, never exchange state, and must
-    // not be re-serialized into a second park.
+    // not be re-serialized into a second deferral.
     if (site.site.reentrant && deferral.stepState !== undefined) {
       setResumeStepState(exchange, decodePersistable(deferral.stepState));
     }
@@ -513,7 +513,7 @@ async function refuseContinuation(
 /**
  * Read an identity header straight off the stored exchange.
  *
- * Event payloads carry the PARKED exchange's identity, not the ingress
+ * Event payloads carry the DEFERRED exchange's identity, not the ingress
  * route's, because the events describe the deferred exchange's lifecycle:
  * a consumer correlating `:deferred` with `:resumed` has to see the same
  * ids on both. Rehydrating a whole exchange just to read two headers would
@@ -701,14 +701,14 @@ async function reask(
 }
 
 /**
- * Rebuild the parked exchange on this process, with the payload in place.
+ * Rebuild the deferred exchange on this process, with the payload in place.
  *
  * The resume state goes on headers rather than being handed to the steps
  * some other way, because it has to survive a SECOND defer of the same
  * exchange, and headers are the exchange's state (see
  * `.standards/exchange-state-model.md`). It is stored LIVE (a `Date` in the
  * payload stays a `Date`); the serialization rules apply to it at the next
- * park, the same as to every other header.
+ * deferral, the same as to every other header.
  *
  * @internal
  */

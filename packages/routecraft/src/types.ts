@@ -185,7 +185,7 @@ export function extractOutcomeMetadata(
  *   (choice routes into the matched branch).
  * - `fanOut`: schedule each child exchange independently through the
  *   remaining steps (split).
- * - `defer`: park `exchange` durably and exit the pipeline, to be resumed
+ * - `defer`: deferral `exchange` durably and exit the pipeline, to be resumed
  *   later at the next step. Produced by `.defer()`. The executor
  *   serializes the exchange, writes the deferral, emits
  *   `route:exchange:deferred`, and schedules nothing further for it;
@@ -457,7 +457,7 @@ type ExchangeScoped = {
  *
  * `session` names the conversation the call was made in, when the agent
  * was dispatched with one. A session's boundary turn runs on the exchange
- * that parked, which may be an earlier caller's, so the exchange identity
+ * that deferred, which may be an earlier caller's, so the exchange identity
  * alone cannot say which conversation a call belongs to; the session can.
  */
 type ToolCallScoped = ExchangeScoped & {
@@ -581,7 +581,7 @@ export interface EventDetailsMap {
   };
   "route:exchange:restored": ExchangeScoped & { source: string };
   /**
-   * The exchange parked at a `.defer()` and execution one ended. This is
+   * The exchange deferred at a `.defer()` and execution one ended. This is
    * that run's terminal event, in place of `:completed`: the body the
    * source receives is the `Deferred` acknowledgment, and the route's real
    * output flows on execution two.
@@ -594,7 +594,7 @@ export interface EventDetailsMap {
     expiresAt?: Date;
   };
   /**
-   * A parked exchange was revived and its continuation is about to run.
+   * A deferred exchange was revived and its continuation is about to run.
    * Execution two's `:started` follows immediately, and that run gets its
    * own `:completed` / `:failed` / `:dropped`.
    */
@@ -1133,13 +1133,13 @@ export interface EventDetailsMap {
    * completion, the queued messages, or a boot revives to run the next
    * turn and the route's downstream steps.
    */
-  "route:agent:session:parked": ExchangeScoped & {
+  "route:agent:session:deferred": ExchangeScoped & {
     agentName: string;
     session: string;
     deferralId: string;
-    /** Messages waiting when the park was stored. */
+    /** Messages waiting when the deferral was stored. */
     inbox: number;
-    /** Background calls still running when the park was stored. */
+    /** Background calls still running when the deferral was stored. */
     background: number;
   };
   /**

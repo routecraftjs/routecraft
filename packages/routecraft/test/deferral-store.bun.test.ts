@@ -157,7 +157,7 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
     });
 
     /**
-     * @case Resuming a parked exchange records the receipt
+     * @case Resuming a deferred exchange records the receipt
      * @preconditions A deferred record; markResumed with a principal ref
      * @expectedResult The caller won, and status / resumedAt / resumedBy are set
      */
@@ -233,7 +233,7 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
     /**
      * @case A new deferral never carries settled state from its input
      * @preconditions A creation record polluted with the fields only a
-     *   transition may write, as a caller re-parking a record read back out
+     *   transition may write, as a caller re-deferring a record read back out
      *   of the store would produce
      * @expectedResult The stored record is deferred and clean. Keeping a
      *   terminal outcome alive on a record that reports itself deferred
@@ -493,12 +493,12 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
 
     /**
      * @case A resume that never recorded an outcome is reported as crash residue
-     * @preconditions Three records: one still parked, one resumed and settled, one resumed with no terminal
+     * @preconditions Three records: one still deferred, one resumed and settled, one resumed with no terminal
      * @expectedResult Only the resumed-with-no-terminal record is returned. It is invisible to findExpired (it is no longer deferred) and its approval is already spent, so the boot summary is the only place it can ever surface
      */
     test("reports resumes that never recorded an outcome", async () => {
       store = await open();
-      await store.create(record({ id: "still-parked" }));
+      await store.create(record({ id: "still-deferred" }));
       await store.create(record({ id: "settled" }));
       await store.create(record({ id: "stranded" }));
 
@@ -513,7 +513,7 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
 
     /**
      * @case Stranded resumes come back oldest first and honour a limit
-     * @preconditions Two stranded records parked at different times, read back with a limit of one
+     * @preconditions Two stranded records deferred at different times, read back with a limit of one
      * @expectedResult The older one. The boot summary reports the oldest age, so the ordering is what makes that figure mean anything
      */
     test("orders stranded resumes oldest first", async () => {
@@ -554,7 +554,7 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
     });
 
     /**
-     * @case The startup scan reports what is still parked
+     * @case The startup scan reports what is still deferred
      * @preconditions Two deferred records and one resumed
      * @expectedResult Count covers only the deferred ones, oldest is the earliest deferredAt
      */
@@ -608,7 +608,7 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
      * @case Settled records are reclaimable, so a long-running process does
      *   not accumulate every exchange that ever deferred
      * @preconditions One record settled before the cutoff, one old
-     *   still-parked record, and one record settled after the cutoff
+     *   still-deferred record, and one record settled after the cutoff
      * @expectedResult Only the one settled before the cutoff is purged
      */
     test("purgeSettled reclaims settled records past the cutoff", async () => {
@@ -616,7 +616,7 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       const old = new Date("2026-07-01T09:00:00.000Z");
       const recent = new Date("2026-08-09T09:00:00.000Z");
       await store.create(record({ id: "old-settled", deferredAt: old }));
-      await store.create(record({ id: "old-parked", deferredAt: old }));
+      await store.create(record({ id: "old-deferred", deferredAt: old }));
       await store.create(record({ id: "recent-settled", deferredAt: recent }));
       await store.markResumed("old-settled", {
         at: new Date("2026-07-02T09:00:00.000Z"),
@@ -630,26 +630,26 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
 
       expect(purged).toBe(1);
       expect(await store.get("old-settled")).toBeUndefined();
-      expect(await store.get("old-parked")).toBeDefined();
+      expect(await store.get("old-deferred")).toBeDefined();
       expect(await store.get("recent-settled")).toBeDefined();
     });
 
     /**
-     * @case Retention is measured from settlement, not from the park
-     * @preconditions A record parked long before the cutoff that settled
-     *   after it (the day-89 shape: parked for months, resolved recently)
+     * @case Retention is measured from settlement, not from the deferral
+     * @preconditions A record deferred long before the cutoff that settled
+     *   after it (the day-89 shape: deferred for months, resolved recently)
      * @expectedResult The record survives the purge; measuring from
      *   deferredAt would have deleted it the day after it settled
      */
-    test("purgeSettled keeps a long-parked, recently settled record", async () => {
+    test("purgeSettled keeps a long-deferred, recently settled record", async () => {
       store = await open();
       await store.create(
         record({
-          id: "parked-in-may",
+          id: "deferred-in-may",
           deferredAt: new Date("2026-05-01T09:00:00.000Z"),
         }),
       );
-      await store.markResumed("parked-in-may", {
+      await store.markResumed("deferred-in-may", {
         at: new Date("2026-08-09T09:00:00.000Z"),
       });
 
@@ -658,7 +658,7 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       );
 
       expect(purged).toBe(0);
-      const kept = await store.get("parked-in-may");
+      const kept = await store.get("deferred-in-may");
       expect(kept?.status).toBe("resumed");
       expect(kept?.settledAt?.toISOString()).toBe("2026-08-09T09:00:00.000Z");
     });
@@ -716,12 +716,12 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
     });
 
     /**
-     * @case A parked exchange is never reclaimed by retention, however old
-     * @preconditions One long-parked, still-deferred record
+     * @case A deferred exchange is never reclaimed by retention, however old
+     * @preconditions One long-deferred, still-deferred record
      * @expectedResult purgeSettled leaves it alone; only the sweeper may
      *   move it out of the deferred state
      */
-    test("purgeSettled never touches a still-parked record", async () => {
+    test("purgeSettled never touches a still-deferred record", async () => {
       store = await open();
       await store.create(
         record({ deferredAt: new Date("2020-01-01T00:00:00.000Z") }),
@@ -732,11 +732,11 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
     });
 
     /**
-     * @case replaceStepState swaps the slot of a still-parked record
+     * @case replaceStepState swaps the slot of a still-deferred record
      * @preconditions A deferred record carrying a step state, replaced under its own fingerprint
      * @expectedResult The caller wins, the new state is stored, and nothing else on the record moved
      */
-    test("replaceStepState swaps the slot of a parked record", async () => {
+    test("replaceStepState swaps the slot of a deferred record", async () => {
       store = await open();
       const written = record({
         stepState: { messages: [{ role: "user" }], turnsUsed: 2 },
@@ -791,8 +791,8 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
     });
 
     /**
-     * @case replaceStepState never edits a record that left the parked state
-     * @preconditions A record already resumed, then a replacement under the fingerprint it was parked with
+     * @case replaceStepState never edits a record that left the deferred state
+     * @preconditions A record already resumed, then a replacement under the fingerprint it was deferred with
      * @expectedResult The swap is refused, so a compaction cannot rewrite the thread of a run already executing its continuation
      */
     test("replaceStepState refuses a record that is no longer deferred", async () => {
@@ -825,7 +825,7 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
 
     /**
      * @case A replacement that breaks the plain-JSON rule is refused
-     * @preconditions A parked record and a replacement holding a circular reference
+     * @preconditions A deferred record and a replacement holding a circular reference
      * @expectedResult RC5042 on both backends, so an unpersistable value cannot be written on one and refused on the other
      */
     test("replaceStepState refuses a replacement the store cannot persist", async () => {
@@ -857,7 +857,7 @@ contractSuite("sqlite (on disk)", () =>
 
 describe("SqliteDeferralStore durability", () => {
   /**
-   * @case A parked exchange outlives the store object that wrote it
+   * @case A deferred exchange outlives the store object that wrote it
    * @preconditions A record written to an on-disk database, then the store closed
    *   and reopened at the same path
    * @expectedResult The record reads back from the reopened store

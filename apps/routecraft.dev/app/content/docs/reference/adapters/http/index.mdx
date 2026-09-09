@@ -327,7 +327,7 @@ request. `plugin:http:request:completed` fires when the stream closes, with
 A client that disconnects cancels the route's iterator, visible as a `return()`
 delivered into a generator's `finally` block or as a `for await` loop exiting.
 
-**That return is delivered late for a producer parked on an inner `await`.**
+**That return is delivered late for a producer deferred on an inner `await`.**
 Async iteration settles a pending step before it delivers a return, so a
 generator sitting on `await nextRowFromTheDatabase()` learns nothing about the
 disconnect until that await resolves on its own. A source that can be quiet for

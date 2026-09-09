@@ -198,7 +198,7 @@ export interface StreamBodyOptions {
  * first calls `return()` on the route's iterator, which is what a
  * `for await` loop or a generator's `finally` block sees.
  *
- * A generator parked on an inner `await` when the client disconnects sees
+ * A generator deferred on an inner `await` when the client disconnects sees
  * its `return()` queued behind that pending `next()`: async iteration
  * settles a pending step before it delivers a return. A producer that must
  * unblock promptly watches its own cancellation source.
@@ -280,7 +280,7 @@ export function streamResponseBody(
     },
     cancel(reason) {
       // Ended before the teardown, not after: `return()` into a generator
-      // parked on an inner await sits behind that pending `next()`, and the
+      // deferred on an inner await sits behind that pending `next()`, and the
       // request's completion must not wait on something that may never
       // settle. Not awaited for the same reason.
       end();

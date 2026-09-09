@@ -39,7 +39,7 @@ function exchangeWith(
 
 describe("deferral serialization", () => {
   /**
-   * @case A parked exchange comes back the way it went in
+   * @case A deferred exchange comes back the way it went in
    * @preconditions An exchange with a nested body and custom headers
    * @expectedResult Body and headers round-trip field for field
    */
@@ -424,7 +424,7 @@ describe("deferral serialization hostile input", () => {
    * @case Symbol-keyed state is refused, not silently discarded
    * @preconditions A body carrying a symbol-keyed property, which is the
    *   framework's own idiom for attaching state
-   * @expectedResult RC5042, because parking successfully and losing the
+   * @expectedResult RC5042, because deferring successfully and losing the
    *   data is the failure mode the whole walk exists to prevent
    */
   test("refuses a symbol-keyed property", () => {

@@ -37,9 +37,9 @@ import {
  *   step-scope `.error()` would falsely suggest it covers failures of
  *   the RELEASED exchange (those run detached, bypassing wrappers).
  *   Wrap the steps DOWNSTREAM of `.debounce()` instead.
- * - `defer`: exits the pipeline and parks the exchange durably. It never
+ * - `defer`: exits the pipeline and defers the exchange durably. It never
  *   fails per-exchange, so a recovering wrapper could never trigger, while
- *   the ones that CAN act would each act wrongly: `.retry()` would re-park
+ *   the ones that CAN act would each act wrongly: `.retry()` would re-deferral
  *   an exchange that did not fail, `.timeout()` would bound a wait that is
  *   measured in days and lives in the store rather than in this process,
  *   and `.cache()` would replay a single-use resume token to a second
@@ -135,7 +135,7 @@ export abstract class WrapperStep<
         message:
           `Wrapper operations (.error() / .retry() / .timeout() / .throttle() / .circuitBreaker() / .concurrency() / .cache() / .delay()) cannot wrap "${inner.operation}" steps. ` +
           `Aggregate consumes pending siblings (shared join state), split fans out children, debounce holds exchanges ` +
-          `outside the queue for a later detached release, and defer parks the exchange durably outside this process; ` +
+          `outside the queue for a later detached release, and defer defers the exchange durably outside this process; ` +
           `all have semantics that conflict with per-execution wrapper recovery. Wrap the steps downstream of ` +
           `split/debounce/defer or upstream of aggregate instead, or put .error() at route scope.`,
       });

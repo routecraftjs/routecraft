@@ -14,7 +14,7 @@ import {
   setStartedAt,
 } from "../exchange.ts";
 import { isRecovery, applyDropDirective } from "../recovery.ts";
-import { parkExchange } from "../deferral/defer.ts";
+import { deferExchange } from "../deferral/defer.ts";
 import { SPLIT_PARENT_STORE } from "../operations/split.ts";
 import { rcError, RoutecraftError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
@@ -131,7 +131,7 @@ export async function runPipeline(
   exchange: Exchange;
   failed: boolean;
   dropped: boolean;
-  /** The exchange parked at a `.defer()`; execution one ends here. */
+  /** The exchange deferred at a `.defer()`; execution one ends here. */
   deferred: boolean;
   error?: unknown;
 }> {
@@ -507,7 +507,7 @@ export async function runPipeline(
           // events; schedule nothing.
           break;
         case "defer": {
-          // The exchange parks here and this run ends: the executor
+          // The exchange defers here and this run ends: the executor
           // serializes it, writes the deferral, and answers with the
           // `Deferred` acknowledgment. Nothing is scheduled beyond that
           // (`steps: []`), no worker waits, and the route stays live for
@@ -515,30 +515,30 @@ export async function runPipeline(
           // store rather than in this process.
           if (!outcome.request) {
             throw rcError("RC5032", undefined, {
-              message: `Step "${stepLabel}" returned a "defer" outcome without a defer request, so the engine cannot work out what to park or what would resume.`,
+              message: `Step "${stepLabel}" returned a "defer" outcome without a defer request, so the engine cannot work out what to defer or what would resume.`,
             });
           }
           // A cancelled run must not leave a live resume link behind: the
           // caller is being told the run failed (a timeout, a stop), so an
           // approver clicking days later would continue work its caller
-          // already saw cancelled. Before the store write, refusing to park
+          // already saw cancelled. Before the store write, refusing to defer
           // is free; an abort that lands during the write is resolved
-          // inside `parkExchange` (deny, then RC5054) BEFORE the deferred
+          // inside `deferExchange` (deny, then RC5054) BEFORE the deferred
           // event, so one exchange never announces two terminals. The
           // caller's RC5054 is the notification; no re-ask is delivered.
           if (deps.abortSignal?.aborted) {
             throw rcError("RC5054", deps.abortSignal.reason, {
-              message: `Step "${stepLabel}" raised a deferral after its run was cancelled; nothing was parked.`,
+              message: `Step "${stepLabel}" raised a deferral after its run was cancelled; nothing was deferred.`,
             });
           }
-          const parked = await parkExchange(
+          const deferred = await deferExchange(
             deps.context,
             outcome.exchange,
             outcome.request,
             deps.routeId,
             deps.abortSignal,
           );
-          queue.push({ exchange: parked, steps: [] });
+          queue.push({ exchange: deferred, steps: [] });
           break;
         }
       }
@@ -841,12 +841,12 @@ function segmentResultToOutcome(result: {
   dropped: boolean;
 }): StepOutcome {
   if (result.dropped) return { kind: "drop" } as const;
-  // A run that parked inside the segment has already been answered with its
-  // `Deferred` acknowledgment, and the parking is recorded on the
+  // A run that deferred inside the segment has already been answered with its
+  // `Deferred` acknowledgment, and the deferring is recorded on the
   // exchange's shared internals, so the outer run must schedule nothing
-  // further rather than continuing into steps the parked exchange is no
+  // further rather than continuing into steps the deferred exchange is no
   // longer at. It is `complete`, not a second `defer`: the exchange is
-  // parked once, by the run that reached the step.
+  // deferred once, by the run that reached the step.
   if (isDeferredRun(result.exchange)) {
     return { kind: "complete", exchange: result.exchange } as const;
   }
@@ -955,7 +955,7 @@ function makeDownstreamRunner(
  *
  * Two callers, sharing the run's shape but not its chain. `debounce`
  * releases a held exchange into the steps that follow it, and a resume
- * revives a parked exchange into its continuation. Neither is a side-effect
+ * revives a deferred exchange into its continuation. Neither is a side-effect
  * clone: in both cases the exchange IS the route's primary flow, resuming
  * partway down a pipeline whose earlier steps must not re-run.
  *
@@ -1019,7 +1019,7 @@ export function runDetachedPipeline(
       start,
     );
 
-    // A run that parked at a `.defer()` ends with the `Deferred`
+    // A run that deferred at a `.defer()` ends with the `Deferred`
     // acknowledgment rather than the route's output, and its terminal
     // event was `route:exchange:deferred`. Completing it here would both
     // claim an output it does not carry and give the exchange two
@@ -1054,7 +1054,7 @@ export interface DetachedResult {
   failed: boolean;
   dropped: boolean;
   /**
-   * The run parked at a `.defer()`. Distinct from every other outcome:
+   * The run deferred at a `.defer()`. Distinct from every other outcome:
    * the exchange is neither finished nor failed, and its terminal body is
    * the `Deferred` acknowledgment rather than the route's output. A caller
    * that treats it as a completion publishes both a false receipt and the
@@ -1178,7 +1178,7 @@ function buildRetrySegmentStep(
         scope: "route" as const,
       };
       // A resumed continuation may retry: each attempt must re-enter the
-      // deferring step with the same parked state, even though a settled
+      // deferring step with the same deferred state, even though a settled
       // step inside a prior attempt already cleared it (a later step's
       // retryable failure would otherwise re-run the agent from scratch).
       const resumeSnapshot = peekResumeStepState(exchange);
@@ -1369,10 +1369,10 @@ function buildConcurrencySegmentStep(
         {
           // Intake: a queued segment step is released as soon as shutdown
           // begins and admitted with a no-op release (see `#joinWaitLine`),
-          // so the drain runs it instead of leaving it parked behind a slot
+          // so the drain runs it instead of leaving it deferred behind a slot
           // that will never free. Also cancelled when an outer segment
           // abandons this attempt (e.g. a route-scope timeout firing while
-          // this exchange is still parked in the bulkhead queue).
+          // this exchange is still deferred in the bulkhead queue).
           signal: anySignal(deps.route.intakeSignal, abandon),
           ...concurrencyEmitHooks(deps.context, scoped, true),
         },

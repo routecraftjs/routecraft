@@ -7,7 +7,7 @@
  *
  * Two callers share it for different reasons. The deferral descriptor
  * (`deferral/hash.ts`) folds the rendering into `continuationHash` so a
- * schema edited under a parked exchange is caught. The ops management API
+ * schema edited under a deferred exchange is caught. The ops management API
  * publishes it so an operator can see what a route accepts without reading
  * the source.
  *

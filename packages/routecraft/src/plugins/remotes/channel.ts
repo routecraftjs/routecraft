@@ -6,7 +6,7 @@
  * and a `directTool` all reach it through the code paths they already use.
  * A send becomes `POST /ops/routes/{id}/exchanges` on the remote, and the
  * remote's outcome is mapped onto the in-process one: a completed exchange
- * is the body, a drop is `RC5031`, a park is the standard `Deferred`
+ * is the body, a drop is `RC5031`, a deferral is the standard `Deferred`
  * acknowledgment, and the door's own refusals and failures become codes a
  * caller can tell apart.
  */
@@ -106,10 +106,10 @@ export class RemoteDirectChannel implements DirectChannel<Exchange> {
           headers: exchange.headers,
         });
       case "deferred": {
-        // Re-branded so the local transports recognise the park the way they
+        // Re-branded so the local transports recognise the deferral the way they
         // recognise one of their own: the ops door answers 202, an agent
         // tool reports it, and a route with `.defer()` downstream is not
-        // fooled by a body that merely looks parked. Resume stays at the
+        // fooled by a body that merely looks deferred. Resume stays at the
         // remote's door, under the remote's policy.
         const { deferralId, token, schema, expiresAt } = outcome.deferral;
         return new DefaultExchange(ctx, {

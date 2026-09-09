@@ -54,10 +54,10 @@ export interface ResumeOptions {
    * refused caller learns nothing about it.
    *
    * Receives the live principal (whatever this route's `.authenticate()`
-   * resolved, or undefined when it resolved nobody), the parked principal
+   * resolved, or undefined when it resolved nobody), the deferred principal
    * restored from storage, the raw submitted payload, and the record's
    * context, including the `meta` the defer site attached. Never the
-   * parked body.
+   * deferred body.
    *
    * Omitted, the door is bearer: any holder of a valid token may resume.
    * That is the historical behaviour and it stays the default, so securing
@@ -67,10 +67,10 @@ export interface ResumeOptions {
 }
 
 /**
- * Step that revives a parked exchange addressed by a signed token.
+ * Step that revives a deferred exchange addressed by a signed token.
  *
  * It addresses an EXCHANGE, not a route. `direct("x")` names a route and
- * enters it through its source; resume names one parked exchange and
+ * enters it through its source; resume names one deferred exchange and
  * re-enters its pipeline partway down. That is why a Gmail-born exchange
  * can be continued by a WhatsApp-born resume: the original source takes no
  * part in execution two, and sources create exchanges rather than revive
@@ -99,7 +99,7 @@ export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
       if (typeof options.authorize !== "function") {
         throw rcError("RC5003", undefined, {
           message:
-            ".resume({ authorize }) must be a function receiving { principal, parked, payload, record } and returning a boolean (or a promise of one).",
+            ".resume({ authorize }) must be a function receiving { principal, deferred, payload, record } and returning a boolean (or a promise of one).",
         });
       }
       this.authorize = options.authorize;
@@ -130,7 +130,7 @@ export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
     const route = getExchangeRoute(exchange);
     const hookSignal = anySignal(route?.intakeSignal, signalCtx.signal);
     // Only a principal this ingress verified live may stand as the resuming
-    // party. A revived exchange carries its parked principal back marked
+    // party. A revived exchange carries its deferred principal back marked
     // restored, so a route that both defers and resumes would otherwise
     // hand the hook storage data under a contract that says verified live.
     const live =

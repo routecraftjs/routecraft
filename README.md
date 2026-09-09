@@ -93,7 +93,7 @@ Tools are an allowlist of capabilities, never a blacklist. An agent can also be 
 
 ## What you get
 
-- **Work that survives a restart.** [`.defer()`](https://routecraft.dev/docs/reference/operations/defer) parks an exchange in a store, and [`.resume()`](https://routecraft.dev/docs/reference/operations/resume) revives it by token, hours or days later, from any transport. [Durable agents](https://routecraft.dev/docs/advanced/durable-agents) park mid-conversation the same way.
+- **Work that survives a restart.** [`.defer()`](https://routecraft.dev/docs/reference/operations/defer) defers an exchange in a store, and [`.resume()`](https://routecraft.dev/docs/reference/operations/resume) revives it by token, hours or days later, from any transport. [Durable agents](https://routecraft.dev/docs/advanced/durable-agents) deferral mid-conversation the same way.
 - **Agents with sessions and background tools.** A conversation is a record a person owns; a tool can hand a long job to a route and come back when it finishes. [Agent adapter](https://routecraft.dev/docs/reference/adapters/agent).
 - **Talk to your agents from your editor.** `craft acp` and the `acp` config key serve the Agent Client Protocol. [Talk from your editor](https://routecraft.dev/docs/advanced/talk-from-your-editor).
 - **MCP both ways.** Expose routes as tools with `mcp()` and the `mcp` plugin; call other servers' tools as `MCP(server:tool)` in an agent's tool list. [Expose as MCP](https://routecraft.dev/docs/advanced/expose-as-mcp), [call an MCP](https://routecraft.dev/docs/advanced/call-an-mcp).

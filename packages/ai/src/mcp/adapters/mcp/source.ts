@@ -118,10 +118,10 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
     if (discovery?.title !== undefined) entry.title = discovery.title;
     if (discovery?.input !== undefined) entry.input = discovery.input;
     if (discovery?.output !== undefined) entry.output = discovery.output;
-    // A route that can park answers execution one with the framework's
+    // A route that can defer answers execution one with the framework's
     // Deferred acknowledgment instead of its declared output, so the
     // server must advertise the union. Static `.defer()` sites are
-    // definite; a defer-capable step (an agent) only MAY park, and the
+    // definite; a defer-capable step (an agent) only MAY defer, and the
     // over-approximation is the honest direction for a client.
     const definition = context.getRouteById(endpoint)?.definition;
     if (definition && routeCanDefer(definition)) {

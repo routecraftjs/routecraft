@@ -9,7 +9,7 @@ export const MODEL = "anthropic:claude-opus-4-7";
 
 /**
  * The canonical deferring fn shared by the deferral suites: asks a human
- * and parks on the answer. One copy, because the defer contract it
+ * and defers on the answer. One copy, because the defer contract it
  * exercises is exactly what these suites pin; a drifted twin would let a
  * regression hide in whichever suite kept the stale copy.
  */

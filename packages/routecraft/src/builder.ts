@@ -433,7 +433,7 @@ export type RouteOptions = Partial<Pick<RouteDefinition, "consumer">> & {
  *
  * A reachable `.defer()` is refused for a related reason: the cache
  * filters sit OUTSIDE the user pipeline (check before it, store after it),
- * while a park exits the pipeline and a resume re-enters it partway down.
+ * while a deferral exits the pipeline and a resume re-enters it partway down.
  * Neither filter would run on either execution, so the route would carry a
  * `.cache()` that silently never caches.
  *
@@ -450,7 +450,7 @@ function assertRouteScopeCacheCompatibility(route: RouteDefinition): void {
     throw rcError("RC5003", undefined, {
       message:
         `Route "${route.id}" has route-scope .cache() and a reachable .defer(). ` +
-        `The cache filters wrap the user pipeline, but a parked exchange exits it and ` +
+        `The cache filters wrap the user pipeline, but a deferred exchange exits it and ` +
         `resumes partway down, so neither the check nor the store would ever run and the ` +
         `cache would silently do nothing. Cache the expensive step with a step-scope ` +
         `.cache() instead, or drop the route-scope one.`,

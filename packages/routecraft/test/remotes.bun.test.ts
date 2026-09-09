@@ -91,7 +91,7 @@ function serverRoutes(): Routes {
       .to(noop()),
     craft()
       .id("payout")
-      .description("Parks until approved")
+      .description("Defers until approved")
       .input({ body: z.object({}) })
       .from(direct())
       .defer({ schema: z.object({ approved: z.boolean() }) })
@@ -702,7 +702,7 @@ describe("remotes", () => {
 
   /**
    * @case Every dispatch outcome maps onto the in-process one, against the real door
-   * @preconditions Routes on the remote that complete, drop, park and fail; one remote named with a credential admitted to the listing but not to dispatch
+   * @preconditions Routes on the remote that complete, drop, deferral and fail; one remote named with a credential admitted to the listing but not to dispatch
    * @expectedResult completed is the body; dropped is `RC5031`; deferred is the branded `Deferred` acknowledgment; a remote failure is `RC5064` carrying the remote's code with the client's error as cause; the refused dispatch is `RC5063` naming the missing scope. A caller can tell a credential problem from a broken route
    */
   test("maps completed, dropped, deferred, failed and refused onto local outcomes", async () => {
@@ -722,9 +722,9 @@ describe("remotes", () => {
     const dropped = await rejection(send("lab:picky", {}));
     expect(rcCodeOf(dropped)).toBe("RC5031");
 
-    const parked = await send("lab:payout", {});
-    expect(isDeferred(parked)).toBe(true);
-    expect((parked as { deferralId: string }).deferralId).toBeTruthy();
+    const deferred = await send("lab:payout", {});
+    expect(isDeferred(deferred)).toBe(true);
+    expect((deferred as { deferralId: string }).deferralId).toBeTruthy();
 
     const failed = await rejection(send("lab:boom", {}));
     expect(rcCodeOf(failed)).toBe("RC5064");

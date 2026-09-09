@@ -28,7 +28,7 @@ describe("the filter chain on a resumed continuation", () => {
 
   /**
    * @case Route-scope .concurrency() bounds resumed continuations, not only ingress executions
-   * @preconditions A route with route-scope .concurrency({ max: 1 }) and a .defer() before a slow step; two exchanges parked, then resumed concurrently
+   * @preconditions A route with route-scope .concurrency({ max: 1 }) and a .defer() before a slow step; two exchanges deferred, then resumed concurrently
    * @expectedResult The observed peak simultaneity inside the continuation never exceeds the declared max, because ingress executions and resumed continuations compete for the same bulkhead, which is the downstream the limit exists to protect
    */
   test("a resumed continuation competes for the route's bulkhead", async () => {
@@ -56,7 +56,7 @@ describe("the filter chain on a resumed continuation", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = await Promise.all([
+    const deferred = await Promise.all([
       t.client
         .sendDirect("payout", { amountCents: 10_000 })
         .then((body) => asDeferred(body)),
@@ -66,7 +66,7 @@ describe("the filter chain on a resumed continuation", () => {
     ]);
 
     await Promise.all(
-      parked.map((deferral) =>
+      deferred.map((deferral) =>
         t!.client.sendDirect("answers", {
           token: deferral.token,
           result: { approved: true },
@@ -81,7 +81,7 @@ describe("the filter chain on a resumed continuation", () => {
 
   /**
    * @case An ingress execution and a resumed continuation compete for the same bulkhead
-   * @preconditions .concurrency({ max: 1 }) on a route with slow work both before and after the defer; one exchange parked, then its resume raced against a fresh exchange entering the route
+   * @preconditions .concurrency({ max: 1 }) on a route with slow work both before and after the defer; one exchange deferred, then its resume raced against a fresh exchange entering the route
    * @expectedResult Peak simultaneity across both executions stays within the declared max. The two halves of the route's traffic share one limiter rather than each getting their own
    */
   test("an ingress execution and a continuation share one limiter", async () => {
@@ -112,13 +112,13 @@ describe("the filter chain on a resumed continuation", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(
+    const deferred = asDeferred(
       await t.client.sendDirect("payout", { amountCents: 10_000 }),
     );
 
     await Promise.all([
       t.client.sendDirect("answers", {
-        token: parked.token,
+        token: deferred.token,
         result: { approved: true },
       }),
       t.client.sendDirect("payout", { amountCents: 20_000 }),
@@ -156,11 +156,11 @@ describe("the filter chain on a resumed continuation", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(
+    const deferred = asDeferred(
       await t.client.sendDirect("payout", { amountCents: 10_000 }),
     );
     const receipt = (await t.client.sendDirect("answers", {
-      token: parked.token,
+      token: deferred.token,
       result: { approved: true },
     })) as { status: string; outcome: { status: string } };
 
@@ -182,8 +182,8 @@ describe("the filter chain on a resumed continuation", () => {
         craft()
           .id("payout")
           // A route-scope timeout bounds execution ONE as well, so the
-          // ingress has to reach the park inside this deadline. Generous
-          // enough that a loaded box still parks in time, while the
+          // ingress has to reach the deferral inside this deadline. Generous
+          // enough that a loaded box still defers in time, while the
           // continuation's wait exceeds it several times over.
           .timeout(150)
           .from(direct())
@@ -198,11 +198,11 @@ describe("the filter chain on a resumed continuation", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(
+    const deferred = asDeferred(
       await t.client.sendDirect("payout", { amountCents: 10_000 }),
     );
     const receipt = (await t.client.sendDirect("answers", {
-      token: parked.token,
+      token: deferred.token,
       result: { approved: true },
     })) as { outcome: { status: string; error?: { rc?: string } } };
 
@@ -240,11 +240,11 @@ describe("the filter chain on a resumed continuation", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asDeferred(
+    const deferred = asDeferred(
       await t.client.sendDirect("payout", { amountCents: 10_000 }),
     );
     const receipt = (await t.client.sendDirect("answers", {
-      token: parked.token,
+      token: deferred.token,
       result: { approved: true },
     })) as { outcome: { status: string; error?: { rc?: string } } };
 
@@ -256,7 +256,7 @@ describe("the filter chain on a resumed continuation", () => {
 
   /**
    * @case A saturated bulkhead delays a resumed continuation rather than refusing it
-   * @preconditions .concurrency({ max: 1, mode: "reject" }) on a route with a defer before a slow step; two exchanges parked, then resumed together so the second finds no free slot
+   * @preconditions .concurrency({ max: 1, mode: "reject" }) on a route with a defer before a slow step; two exchanges deferred, then resumed together so the second finds no free slot
    * @expectedResult Both continuations run and complete. A refusal here would be RC5026 recorded as the deferral's terminal outcome, destroying an approval for work that never ran, because the resume claims the deferral before the continuation starts. The bound still holds: the second waits for the slot the first is holding
    */
   test("a saturated bulkhead delays a continuation, never refuses it", async () => {
@@ -286,12 +286,12 @@ describe("the filter chain on a resumed continuation", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = [
+    const deferred = [
       asDeferred(await t.client.sendDirect("payout", { amountCents: 10_000 })),
       asDeferred(await t.client.sendDirect("payout", { amountCents: 20_000 })),
     ];
     const receipts = (await Promise.all(
-      parked.map((deferral) =>
+      deferred.map((deferral) =>
         t!.client.sendDirect("answers", {
           token: deferral.token,
           result: { approved: true },
@@ -309,7 +309,7 @@ describe("the filter chain on a resumed continuation", () => {
 
   /**
    * @case A reject-mode bulkhead still only delays a continuation when retry and timeout wrap it
-   * @preconditions .retry() and .timeout() alongside .concurrency({ max: 1, mode: "reject" }) on a deferring route; two exchanges parked, then resumed together
+   * @preconditions .retry() and .timeout() alongside .concurrency({ max: 1, mode: "reject" }) on a deferring route; two exchanges deferred, then resumed together
    * @expectedResult Both continuations complete. The bulkhead segment is built from the deps that carry the waiting form, and the nested definitions retry and timeout run under carry no concurrency position of their own, so no inner segment is built that could refuse
    */
   test("retry and timeout above the bulkhead do not restore refusal", async () => {
@@ -336,12 +336,12 @@ describe("the filter chain on a resumed continuation", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = [
+    const deferred = [
       asDeferred(await t.client.sendDirect("payout", { amountCents: 10_000 })),
       asDeferred(await t.client.sendDirect("payout", { amountCents: 20_000 })),
     ];
     const receipts = (await Promise.all(
-      parked.map((deferral) =>
+      deferred.map((deferral) =>
         t!.client.sendDirect("answers", {
           token: deferral.token,
           result: { approved: true },
@@ -383,7 +383,7 @@ describe("the filter chain on a resumed continuation", () => {
       .build();
     await context.startAndWaitReady();
 
-    const parked = [
+    const deferred = [
       asDeferred(
         await context.client.sendDirect("payout", { amountCents: 10_000 }),
       ),
@@ -393,7 +393,7 @@ describe("the filter chain on a resumed continuation", () => {
     ];
 
     const answered = Promise.all(
-      parked.map((deferral) =>
+      deferred.map((deferral) =>
         context.client.sendDirect("answers", {
           token: deferral.token,
           result: { approved: true },
@@ -402,7 +402,7 @@ describe("the filter chain on a resumed continuation", () => {
     );
 
     // Long enough for the first continuation to hold the slot and the second
-    // to be parked in the wait line, short enough that neither has finished.
+    // to be deferred in the wait line, short enough that neither has finished.
     await sleep(40);
     await context.stop();
 

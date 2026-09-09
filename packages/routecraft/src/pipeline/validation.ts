@@ -128,7 +128,7 @@ export async function validateAgainst<S extends StandardSchemaV1>(
  * the same shape. A third terminal state, or any change to the failure
  * path, now lands once.
  *
- * A failed, dropped, or parked run is exempt. The first two never produced
+ * A failed, dropped, or deferred run is exempt. The first two never produced
  * an output; the third produced the `Deferred` acknowledgment, which is
  * deliberately not the declared output but the other arm of the route's
  * `Output | Deferred` type.

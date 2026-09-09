@@ -328,7 +328,7 @@ describe("a prompt sent while a turn is running", () => {
 
   /**
    * @case A reply produced on another route's continuation still reaches the editor holding a request
-   * @preconditions A turn started by the app's own route (no editor listener) is held in a tool; the editor prompts, queuing behind it; the turn is released and parks on that route; the boundary turn revived there calls a tool and replies without streaming
+   * @preconditions A turn started by the app's own route (no editor listener) is held in a tool; the editor prompts, queuing behind it; the turn is released and defers on that route; the boundary turn revived there calls a tool and replies without streaming
    * @expectedResult The editor's request returns end_turn after the running turn's tool completion, the boundary turn's tool call and its reply text reached it once, so a conversation shared with a webhook still answers the editor live
    */
   test("a boundary turn on another route's continuation answers the held request", async () => {

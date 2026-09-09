@@ -24,7 +24,7 @@ export const BRAND = {
   Secret: Symbol.for("routecraft.secret"),
   /**
    * The `Deferred` acknowledgment execution one answers with. Branded so a
-   * transport recognises a parked exchange without shape-sniffing a body a
+   * transport recognises a deferred exchange without shape-sniffing a body a
    * user route could also carry.
    */
   Deferred: Symbol.for("routecraft.deferred"),
@@ -33,13 +33,13 @@ export const BRAND = {
    * execution (the agent tier's tool loop is the one shipped case). The
    * defer-site walk assigns a re-entrant site to `.to()` / `.enrich()`
    * steps whose adapter carries this brand, so a runtime deferral from
-   * such a step parks against a continuation that re-runs the step first.
+   * such a step defers against a continuation that re-runs the step first.
    * Core owns the symbol; consumer packages mark their adapters with it and
    * never define their own.
    */
   DeferCapable: Symbol.for("routecraft.adapter.deferCapable"),
   /**
-   * The throwable a defer-capable adapter raises to park the exchange it
+   * The throwable a defer-capable adapter raises to defer the exchange it
    * is executing. Converted into the ordinary `defer` StepOutcome at the
    * step boundary (`.to()` / `.enrich()`), never propagated as a failure.
    */

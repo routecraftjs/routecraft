@@ -35,7 +35,7 @@ export {
   SqliteSessionStore,
   sessionsPlugin,
 } from "./session/index.ts";
-export { assertResumableThread, replaceParkedThread } from "./thread.ts";
+export { assertResumableThread, replaceDeferredThread } from "./thread.ts";
 export { AgentCancellationCause } from "./run.ts";
 export type {
   AgentDefaultOptions,

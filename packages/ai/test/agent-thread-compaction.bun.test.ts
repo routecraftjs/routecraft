@@ -6,12 +6,12 @@ import {
 } from "@routecraft/routecraft";
 import {
   assertResumableThread,
-  replaceParkedThread,
+  replaceDeferredThread,
 } from "../src/agent/thread.ts";
 import type { ThreadMessage } from "../src/agent/deferral-state.ts";
 
 /**
- * A minimal parked thread: one tool call, its placeholder result, and the
+ * A minimal deferred thread: one tool call, its placeholder result, and the
  * user turn that caused it. Matches the ModelMessage shape the agent tier
  * persists, which is the shape the checks decode.
  */
@@ -37,7 +37,7 @@ function thread(toolCallId = "call-1"): ThreadMessage[] {
   ];
 }
 
-function parked(
+function deferred(
   overrides: Partial<NewDeferral> = {},
   messages: ThreadMessage[] = thread(),
 ): NewDeferral {
@@ -163,18 +163,18 @@ describe("assertResumableThread", () => {
   });
 });
 
-describe("replaceParkedThread", () => {
+describe("replaceDeferredThread", () => {
   /**
-   * @case A compaction of a parked run replaces only the thread
+   * @case A compaction of a deferred run replaces only the thread
    * @preconditions A deferred record holding an agent step state
    * @expectedResult The swap is won, messages are the rewritten ones, and turnsUsed is untouched so shrinking the conversation does not refund the budget
    */
   test("replaces the thread and leaves the rest of the state alone", async () => {
     const store = new MemoryDeferralStore();
-    await store.create(parked());
+    await store.create(deferred());
 
     const shorter = thread().slice(1);
-    const result = await replaceParkedThread(store, "sus-1", () => shorter);
+    const result = await replaceDeferredThread(store, "sus-1", () => shorter);
 
     expect(result.won).toBe(true);
     const state = result.deferral?.stepState as {
@@ -189,15 +189,15 @@ describe("replaceParkedThread", () => {
 
   /**
    * @case A rewrite that breaks the thread never reaches the store
-   * @preconditions A parked record and a rewrite that drops the tool result
+   * @preconditions A deferred record and a rewrite that drops the tool result
    * @expectedResult AI1008, and the stored thread is exactly what it was, so a failed compaction costs nothing
    */
   test("refuses a broken rewrite without touching the record", async () => {
     const store = new MemoryDeferralStore();
-    await store.create(parked());
+    await store.create(deferred());
 
     await expect(
-      replaceParkedThread(store, "sus-1", (messages) =>
+      replaceDeferredThread(store, "sus-1", (messages) =>
         messages.filter((message) => message.role !== "tool"),
       ),
     ).rejects.toMatchObject({ rc: "AI1008" });
@@ -215,11 +215,11 @@ describe("replaceParkedThread", () => {
    */
   test("does not rewrite a run that already resumed", async () => {
     const store = new MemoryDeferralStore();
-    await store.create(parked());
+    await store.create(deferred());
     await store.markResumed("sus-1", { at: new Date() });
 
     let invoked = false;
-    const result = await replaceParkedThread(store, "sus-1", (messages) => {
+    const result = await replaceDeferredThread(store, "sus-1", (messages) => {
       invoked = true;
       return messages;
     });
@@ -235,17 +235,17 @@ describe("replaceParkedThread", () => {
    * @expectedResult The second loses the compare and the first one's thread stands, rather than the second silently discarding it
    *
    *   The second call goes through the store rather than the helper on
-   *   purpose: `replaceParkedThread` takes its own read, so two calls to it
+   *   purpose: `replaceDeferredThread` takes its own read, so two calls to it
    *   are two independent compactions and cannot hold the same read. The
    *   fingerprint is what protects a caller that did, and this is where it
    *   is proven.
    */
   test("refuses a compaction built on a stale read", async () => {
     const store = new MemoryDeferralStore();
-    await store.create(parked());
+    await store.create(deferred());
     const before = (await store.get("sus-1"))?.stepState;
 
-    const first = await replaceParkedThread(store, "sus-1", (messages) =>
+    const first = await replaceDeferredThread(store, "sus-1", (messages) =>
       messages.slice(1),
     );
     const second = await store.replaceStepState(
@@ -273,9 +273,9 @@ describe("replaceParkedThread", () => {
    */
   test("compares against the pre-rewrite state, not the rewritten one", async () => {
     const store = new MemoryDeferralStore();
-    await store.create(parked());
+    await store.create(deferred());
 
-    const result = await replaceParkedThread(store, "sus-1", (messages) => {
+    const result = await replaceDeferredThread(store, "sus-1", (messages) => {
       (messages as ThreadMessage[]).splice(0, 1);
       return messages;
     });
@@ -293,10 +293,10 @@ describe("replaceParkedThread", () => {
    */
   test("keeps the stored thread when a mutating rewrite is refused", async () => {
     const store = new MemoryDeferralStore();
-    await store.create(parked());
+    await store.create(deferred());
 
     await expect(
-      replaceParkedThread(store, "sus-1", (messages) => {
+      replaceDeferredThread(store, "sus-1", (messages) => {
         (messages as ThreadMessage[]).length = 0;
         return messages;
       }),
@@ -315,21 +315,21 @@ describe("replaceParkedThread", () => {
    */
   test("reports a loss for an unknown deferral", async () => {
     const store = new MemoryDeferralStore();
-    const result = await replaceParkedThread(store, "nope", (m) => m);
+    const result = await replaceDeferredThread(store, "nope", (m) => m);
     expect(result).toEqual({ won: false, deferral: undefined });
   });
 
   /**
    * @case Step state that is not an agent record is refused
-   * @preconditions A parked record whose stepState was written by something else
+   * @preconditions A deferred record whose stepState was written by something else
    * @expectedResult AI1007 from the shared rehydration parser, rather than a rewrite over a shape nobody owns
    */
   test("refuses step state that is not an agent record", async () => {
     const store = new MemoryDeferralStore();
-    await store.create(parked({ stepState: { note: "not an agent" } }));
+    await store.create(deferred({ stepState: { note: "not an agent" } }));
 
     await expect(
-      replaceParkedThread(store, "sus-1", (m) => m),
+      replaceDeferredThread(store, "sus-1", (m) => m),
     ).rejects.toMatchObject({ rc: "AI1007" });
   });
 });

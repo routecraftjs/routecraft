@@ -85,8 +85,8 @@ export type { DeferralAffordance } from "./exchange-state.ts";
 
 export type { ResumeAcknowledgment, ResumeRequest } from "./revive.ts";
 
-// The in-process halves of park and resume, for a tier that stores a
+// The in-process halves of deferral and resume, for a tier that stores a
 // continuation beside a completing run and revives it itself (agent
 // sessions). Internal: the public surfaces are `.defer()` / `.resume()`.
-export { parkAside } from "./defer.ts";
+export { deferAside } from "./defer.ts";
 export { reviveDeferral } from "./revive.ts";
