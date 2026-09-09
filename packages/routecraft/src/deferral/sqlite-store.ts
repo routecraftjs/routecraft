@@ -51,7 +51,7 @@ const SQLITE_CONSUMER = "deferral store (sqlite)";
  * Schema version this build writes. Bumped whenever
  * {@link MIGRATIONS} grows an entry.
  */
-const SCHEMA_VERSION = 4;
+const SCHEMA_VERSION = 1;
 
 /**
  * How long a writer waits for a competing write lock before giving up.
@@ -67,6 +67,12 @@ const BUSY_TIMEOUT_MS = 5_000;
  * the store creates its own schema, there is no separate migrate step to
  * forget.
  *
+ * Version 1 is the first shape a release ever wrote. The chain that built it
+ * across the 0.7.0 canary is deliberately not carried: no released build
+ * produced those files, and keeping the steps would preserve the retired
+ * vocabulary in table and column names an operator only meets by opening the
+ * database.
+ *
  * Timestamps are stored as epoch milliseconds rather than SQLite datetimes
  * so ordering and comparison work without a date function, and JSON columns
  * hold the already-serialized exchange, so the store never re-encodes what
@@ -80,46 +86,22 @@ const MIGRATIONS: ReadonlyArray<string> = [
      continuation_hash  TEXT    NOT NULL,
      action_fingerprint TEXT    NOT NULL,
      exchange           TEXT    NOT NULL,
-     expect             TEXT    NOT NULL,
+     "schema"           TEXT    NOT NULL,
      step_state         TEXT,
      status             TEXT    NOT NULL,
-     deferred_at       INTEGER NOT NULL,
+     deferred_at        INTEGER NOT NULL,
      expires_at         INTEGER,
      resumed_at         INTEGER,
      resumed_by         TEXT,
      denied_reason      TEXT,
-     terminal           TEXT
+     terminal           TEXT,
+     claimed_at         INTEGER,
+     call_binding       TEXT,
+     meta               TEXT,
+     settled_at         INTEGER
    );
-   CREATE INDEX deferrals_sweep ON deferrals (status, expires_at);
-   CREATE INDEX deferrals_pending ON deferrals (status, deferred_at);`,
-  // v2: the expiring delivery claim and the keyset sweep cursor. The sweep
-  // index gains id so `(status, expires_at, id)` pages are index-served in
-  // cursor order.
-  `ALTER TABLE deferrals ADD COLUMN claimed_at INTEGER;
-   DROP INDEX IF EXISTS deferrals_sweep;
-   CREATE INDEX deferrals_sweep ON deferrals (status, expires_at, id);`,
-  // v3: the per-call credential binding, and the `meta` slot the resume
-  // route's authorize hook is handed. Both nullable: a record written
-  // before this migration carried neither, and reading one back as such is
-  // exactly right. `expect` becomes `schema` in the same step, so the
-  // column and the field it carries stop drifting apart.
-  `ALTER TABLE deferrals RENAME COLUMN "expect" TO "schema";
-   ALTER TABLE deferrals ADD COLUMN call_binding TEXT;
-   ALTER TABLE deferrals ADD COLUMN meta TEXT;`,
-  // v4: the retention clock. Retention used to be measured from
-  // deferred_at because no settlement timestamp existed, which purged a
-  // record that parked for 89 days and settled on day 89 one day later.
-  // Resumed rows backfill exactly from resumed_at. Expired and denied rows
-  // carry no trustworthy settlement evidence (expires_at is when an expired
-  // row came DUE, which a long outage puts far before the transition, and a
-  // denied row's deadline says nothing about when it was denied), so they
-  // take the migration moment and get one full retention window from the
-  // upgrade: longer residence, never a purge earlier than the new contract
-  // promises.
-  `ALTER TABLE deferrals ADD COLUMN settled_at INTEGER;
-   UPDATE deferrals SET settled_at = resumed_at WHERE status = 'resumed';
-   UPDATE deferrals SET settled_at = CAST(strftime('%s', 'now') AS INTEGER) * 1000
-    WHERE status IN ('expired', 'denied');
+   CREATE INDEX deferrals_sweep ON deferrals (status, expires_at, id);
+   CREATE INDEX deferrals_pending ON deferrals (status, deferred_at);
    CREATE INDEX deferrals_retention ON deferrals (status, settled_at);`,
 ];
 
@@ -586,7 +568,7 @@ function migrate(db: SqliteDatabase): void {
       }
       if (failure.kind === "downgrade") {
         return rcError("RC5044", undefined, {
-          message: `Deferral store schema version ${failure.current} is newer than this build understands (${SCHEMA_VERSION}). Run the newer Routecraft build, or point deferral.store.path at a fresh file.`,
+          message: `Deferral store schema version ${failure.current} is newer than this build understands (${SCHEMA_VERSION}). Run the newer Routecraft build, or point deferral.store.path at a fresh file. A file written by a 0.7.0 canary reports version 4: the schema was reset to 1 for the release and those files are not carried forward, so delete it rather than looking for a newer build.`,
         });
       }
       return rcError("RC5044", failure.cause, {

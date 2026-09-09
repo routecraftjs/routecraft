@@ -50,8 +50,8 @@ export function isSqliteBusy(cause: unknown): boolean {
  * `sqlite3` will show an operator.
  */
 export const SQLITE_APPLICATION_IDS = {
-  /** "RCSU", the deferral store. */
-  deferral: 0x5243_5355,
+  /** "RCDE", the deferral store. */
+  deferral: 0x5243_4445,
   /** "RCSE", the agent session store. */
   session: 0x5243_5345,
 } as const;
