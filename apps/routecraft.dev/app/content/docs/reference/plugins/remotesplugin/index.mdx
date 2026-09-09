@@ -1,0 +1,118 @@
+---
+title: remotesPlugin
+---
+
+<Lead>
+[← All plugins](/docs/reference/plugins)
+</Lead>
+
+```ts
+import { remotesPlugin } from '@routecraft/routecraft'
+```
+
+Names other running instances, and every dispatchable route they expose through the [ops management API](/docs/reference/plugins/opsplugin#management-api) becomes a direct endpoint here. `direct()`, `forward()`, `directTool()`, `Direct(...)` in an agent's tool list, the [tool policy](/docs/reference/plugins/agentplugin#tool-policy), the local `/ops/routes` listing, `craft ops routes` and `craft exec` all see them as routes, with nothing to learn.
+
+The shape it exists for: one constrained instance hosts approved capabilities behind its own door, with its own service credentials and its own `.authorize()`, and every engineer runs a local instance with their own agents and their own routes. The local instance names the server, calls its routes as if they were local, and promotes a route to the server when it proves useful. The ops API is plain HTTPS and JSON, which is what makes it reachable where richer protocols are not.
+
+`remotes` is a first-class core config key, so the common path is `defineConfig({ remotes: {...} })` rather than `plugins: [remotesPlugin(...)]`. The factory is exported for programmatic composition.
+
+```ts
+import { defineConfig } from '@routecraft/routecraft'
+
+export default defineConfig({
+  remotes: {
+    default: {
+      url: 'https://routecraft.example.internal',
+      auth: { token: () => process.env.RC_REMOTE_TOKEN },
+    },
+    lab: {
+      url: 'https://lab.example.internal',
+      auth: { token: () => process.env.RC_LAB_TOKEN },
+    },
+  },
+})
+```
+
+```ts skip="fragment: the routes and the tools list are illustrative"
+craft()
+  .id('greet-twice')
+  .from(direct())
+  .enrich(direct('hello'))      // the default remote's route, advertised bare
+  .enrich(direct('lab:hello'))  // any other remote is qualified
+
+agent({
+  tools: tools(['Direct(hello)', 'Direct(lab:hello)', 'Remote(lab)']),
+})
+```
+
+## Options
+
+Each entry under `remotes` is one remote, keyed by name:
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `url` | `string` | required | The instance's base URL, the origin its ops surface is mounted on |
+| `auth.token` | `string \| () => string \| undefined \| Promise<...>` | none | Bearer for the remote's door. A function is evaluated per request, so a rotated token is picked up without a restart |
+| `timeout` | `Duration` | `'30s'` | Per-request deadline against the remote |
+| `refresh` | `Duration \| false` | `'60s'` | How often the inventory is re-read. `false` leaves only the boot read and the refresh a 404 forces |
+
+A remote's name becomes one segment of the tool name a model sees (`remote__lab__hello`) and the prefix of every qualified endpoint (`lab:hello`), so it must match `/^[A-Za-z0-9][A-Za-z0-9_-]*$/`, must not contain `__` and must not end in `_`, the same rule an [MCP client name](/docs/reference/plugins/mcpplugin) follows for the same reason. A bearer over plain `http:` is refused at configuration unless the address is loopback, the rule [`craft`](/docs/reference/cli) already enforces: every hop between here and the remote can read it.
+
+## Names
+
+Git-style. The routes of the remote called `default` are advertised bare, exactly as a local route would be, so `direct('hello')` and `Direct(hello)` reach them with nothing to learn. Every other remote's routes are qualified `name:id`, and `default:id` names the default remote explicitly. Two remotes therefore never collide.
+
+**Local wins.** A local route with the same id as a default-remote route shadows it: the local route answers `direct('hello')`, the remote route stays reachable as `default:hello`, and the shadow is logged as a warning on every refresh that finds it and on every call that resolves to the local route while it exists. That overlap is the promotion window, the moment a capability exists on a laptop and on the server at once, and it is never an error. A local route whose id is itself a qualified name (`lab:hello`) shadows the remote route entirely until one of them is renamed, and the warning says so.
+
+A route of `default` whose own id starts with another remote's name and a colon (`lab:x` on the default remote, beside a remote called `lab`) would be advertised under an endpoint that remote already holds. It is skipped with an error in the log, and stays reachable as `default:lab:x`.
+
+## Credentials and identity
+
+The credential is the environment's. `auth.token` is read from wherever the deployment keeps it, as a string or as a function evaluated per request. The CLI settings file (`.routecraft/settings.yaml`) is for the local instance the CLI talks to, and core never reads it. The identity the remote sees is whatever its own validator mints from the token, so this plugin makes no call on api keys versus JWTs, and its docs describe none: the remote's [ops surface](/docs/reference/plugins/opsplugin#securing-it) decides.
+
+The local caller's principal is never forwarded. A route imported from a remote runs there under the identity the bearer carries, whoever dispatched it here, which is the same two-boundary rule an [MCP client](/docs/reference/plugins/agentplugin#array-form) follows: the principal authenticates the caller into this instance, and the remote's credential authenticates this instance into the remote.
+
+## Inventory and schemas
+
+The inventory is the framework's. At start, `GET /ops/routes?dispatchable=true` and `GET /ops/routes/{id}` for each route are read from every remote, awaited, so an imported route is a local endpoint by the time the context reports ready; then on the `refresh` interval; and forced by a dispatch that meets a 404 for a route the inventory still lists. A remote unreachable at boot registers nothing, logs a warning, and reports its `remote.<name>` [indicator](/docs/reference/plugins/opsplugin#define-indicator) down on the local health endpoint; its routes appear on the refresh that first reaches it, and a remote that blinks keeps the last inventory rather than taking every endpoint with it.
+
+Each route's `input` and `output` arrive as the JSON Schema the remote rendered and become the endpoint's discovery bundle, so an agent tool advertises the remote's input schema to the model exactly as it would a local route's, and validation runs where the schema lives: at the remote's door.
+
+## Outcomes
+
+A dispatch through an imported endpoint maps the remote's outcome onto the in-process one:
+
+| The remote | Here |
+|------------|------|
+| completes | the body |
+| drops | [`RC5031`](/docs/reference/errors#rc-5031), as for a local drop |
+| parks on a `.suspend()` | the standard `Suspended` acknowledgment; resume is at the remote's door, under its policy |
+| fails (500 with a code) | [`RC5064`](/docs/reference/errors#rc-5064), carrying the remote's code as cause |
+| refuses the credential (401 or 403) | [`RC5063`](/docs/reference/errors#rc-5063), naming the door's own reason, so a credential problem is distinguishable from a broken route |
+| cannot be reached, or does not answer in time | [`RC5062`](/docs/reference/errors#rc-5062); a refused connection is retryable, a timeout is not |
+| answers 404 | the inventory is refreshed, then [`RC5004`](/docs/reference/errors#rc-5004): the route is gone from the remote or its dispatch tier is closed |
+
+## In the listing and the tool policy
+
+An imported route shows in the local [`/ops/routes`](/docs/reference/plugins/opsplugin#listing-routes) as dispatchable with `sources: ["remote"]` and a `remote` field naming its origin; `?source=remote` lists exactly the imported ones. The agent tool policy's `direct` rule sees `source.remote` (`'default'`, `'lab'`, or absent for a local route), so a policy can keep an agent local-only:
+
+```ts
+import { agentPlugin } from '@routecraft/ai'
+
+agentPlugin({
+  toolPolicy: {
+    fn: true,
+    direct: (tool) => tool.source.remote === undefined,
+    mcp: false,
+  },
+})
+```
+
+**Re-exposure is intentional.** A local instance with an open dispatch tier re-exports every imported route under its own door, exactly as a tool fronting an authenticated REST call re-exports that call; gate the local tiers the way you would gate that tool.
+
+## Related
+
+- [opsPlugin](/docs/reference/plugins/opsplugin) for the management API a remote is read through, and the health indicator a remote reports into
+- [agentPlugin](/docs/reference/plugins/agentplugin#array-form) for `Direct(name:id)` and `Remote(name)`
+- [direct adapter](/docs/reference/adapters/direct) for the endpoints imported routes become
+- [`RC5062`](/docs/reference/errors#rc-5062), [`RC5063`](/docs/reference/errors#rc-5063), [`RC5064`](/docs/reference/errors#rc-5064)

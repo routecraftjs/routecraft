@@ -61,5 +61,12 @@
     "module": "@routecraft/os",
     "hint": "shell() context defaults.",
     "description": "Set context-wide defaults for shell(): isolation tier, timeout, and output cap. The lowest of the three precedence layers, under the ROUTECRAFT_SHELL_ISOLATION operator override and the call site."
+  },
+  {
+    "number": "10",
+    "name": "remotesPlugin",
+    "module": "@routecraft/routecraft",
+    "hint": "Routes of other instances.",
+    "description": "Name other running instances, and every dispatchable route they expose through the ops management API becomes a direct endpoint here, for direct(), forward(), agent tools and the local ops listing alike."
   }
 ]

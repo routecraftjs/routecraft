@@ -13,6 +13,13 @@ import type { RouteDiscovery } from "./route.ts";
 export interface Capability extends RouteDiscovery {
   /** Raw endpoint / route id, exactly as passed to `.id(...)` / `direct(...)`. */
   endpoint: string;
+  /**
+   * The remote this capability was imported from (`defineConfig({ remotes })`),
+   * absent for a capability a local route registered. Read by the ops
+   * listing to name the origin and by the agent tool policy so a rule can
+   * keep an agent local-only.
+   */
+  remote?: string;
 }
 
 /**
