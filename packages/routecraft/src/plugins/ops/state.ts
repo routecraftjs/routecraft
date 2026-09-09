@@ -471,10 +471,16 @@ export class HealthState implements HealthLedger {
   }
 
   /** Record an indicator report. Any report clears a prior `inactive` marker. */
-  reportIndicator(name: string, health: Health): void {
+  reportIndicator(
+    name: string,
+    health: Health,
+    reportedAt: number = this.now(),
+  ): void {
     const record = this.indicators.get(name);
     if (!record) return;
-    record.lastReportAt = this.now();
+    // A report replayed from before this ledger existed keeps its own time,
+    // so a maxAge window measures from the report and not from the binding.
+    record.lastReportAt = reportedAt;
     // Copied, not referenced: this object came from the caller and is handed
     // back in every subsequent report, so sharing it would let either side
     // rewrite a verdict after the fact. Values are structural scalars, so a

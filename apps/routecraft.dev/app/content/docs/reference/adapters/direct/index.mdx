@@ -123,6 +123,7 @@ Route-level metadata lives on the builder: `.title('...')`, `.description('...')
 **Key characteristics:**
 - **Synchronous**: Calling route waits for response from the consuming route
 - **Endpoint = route id**: The direct source uses the route's `.id()` as its endpoint name. Callers reference the consumer by that id.
+- **Ids with a remote prefix**: with [`remotes`](/docs/reference/plugins/remotesplugin) configured, `direct('lab:hello')` reaches route `hello` on the remote named `lab`, and `direct('hello')` reaches the default remote's `hello` unless a local route of that id shadows it. Nothing about the enricher changes: the endpoint is a direct endpoint like any other, and the transport behind it is the remote's ops door.
 - **Agent-only capabilities**: Omit `.id()` to register under a UUID the builder generates; agents can still discover the route via the registry, but it cannot be addressed as a string from code.
 - **Framework-enforced validation**: `.input()` and `.output()` schemas are validated by the engine, not the adapter. A validation failure throws `RC5002` and routes to the consumer route's error handler (both directions); unrecovered, it fails the exchange and rejects the sender.
 - **Automatic endpoint name sanitization**: URL-unsafe characters in the route id are URL-encoded for collision-free registry keys.

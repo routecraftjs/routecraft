@@ -240,6 +240,24 @@
     "retryable": false
   },
   {
+    "code": "RC5062",
+    "category": "Runtime",
+    "message": "Remote instance unreachable",
+    "retryable": true
+  },
+  {
+    "code": "RC5063",
+    "category": "Runtime",
+    "message": "Remote instance refused the credential",
+    "retryable": false
+  },
+  {
+    "code": "RC5064",
+    "category": "Runtime",
+    "message": "Remote dispatch failed",
+    "retryable": false
+  },
+  {
     "code": "RC9901",
     "category": "Runtime",
     "message": "Unknown error",

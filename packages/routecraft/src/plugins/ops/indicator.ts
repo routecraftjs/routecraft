@@ -84,6 +84,30 @@ export function isIndicator(value: unknown): value is Indicator {
 }
 
 /**
+ * Refuse a name that cannot be an indicator's.
+ *
+ * The name is the report key and one path segment of
+ * `/health/indicators/<name>`. A slash would split that segment, and `.` or
+ * `..` are eaten by URL normalisation before the handler ever sees them, so
+ * either way the component is unreachable at its own path: a typo that
+ * would otherwise present as an endpoint that is simply missing.
+ *
+ * @internal
+ */
+export function assertIndicatorName(name: string, surface: string): void {
+  if (name.trim() === "") {
+    throw rcError("RC5053", undefined, {
+      message: `${surface}: name must not be empty.`,
+    });
+  }
+  if (name === "." || name === ".." || name !== encodeURIComponent(name)) {
+    throw rcError("RC5053", undefined, {
+      message: `${surface}("${name}"): name must be usable as a single URL path segment. It is the key in the health report and the last segment of /health/indicators/<name>, so it cannot contain a slash, a space, or any character needing percent-encoding.`,
+    });
+  }
+}
+
+/**
  * Declare an indicator: a named dependency whose health the app reports.
  *
  * The returned handle is both the declaration and the push surface, and it is
@@ -122,25 +146,7 @@ export function isIndicator(value: unknown): value is Indicator {
  * @returns A handle to register in `ops.indicators` and push through.
  */
 export function defineIndicator(definition: IndicatorDefinition): Indicator {
-  if (definition.name.trim() === "") {
-    throw rcError("RC5053", undefined, {
-      message: "defineIndicator: name must not be empty.",
-    });
-  }
-  // The name is the report key and one path segment of
-  // `/health/indicators/<name>`. A slash would split that segment, and `.` or
-  // `..` are eaten by URL normalisation before the handler ever sees them, so
-  // either way the component is unreachable at its own path: a typo that
-  // would otherwise present as an endpoint that is simply missing.
-  if (
-    definition.name === "." ||
-    definition.name === ".." ||
-    definition.name !== encodeURIComponent(definition.name)
-  ) {
-    throw rcError("RC5053", undefined, {
-      message: `defineIndicator("${definition.name}"): name must be usable as a single URL path segment. It is the key in the health report and the last segment of /health/indicators/<name>, so it cannot contain a slash, a space, or any character needing percent-encoding.`,
-    });
-  }
+  assertIndicatorName(definition.name, "defineIndicator");
   // Parsed for its refusal, not its value: the resolved milliseconds are
   // computed again where the indicator registers. Validating here is what
   // makes a malformed duration fail at definition rather than at boot.

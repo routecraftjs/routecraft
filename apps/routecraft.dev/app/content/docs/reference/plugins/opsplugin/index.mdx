@@ -267,6 +267,8 @@ curl -H "authorization: Bearer $TOKEN" 'http://127.0.0.1:8080/ops/routes'
 
 **Not every route is dispatchable.** A `direct()` ingress makes the route id into a door; a cron-, mail- or http-sourced route runs from its own trigger and has none. That is a fact about the route, so it rides on the representation rather than splitting the collection in two, and a dispatch against a route without a door is refused distinguishably with [`RC5060`](/docs/reference/errors#rc-5060).
 
+**An imported route names its origin.** A route another instance exposes and [`remotes`](/docs/reference/plugins/remotesplugin) made dispatchable here is listed beside the local ones, under its local endpoint (`lab:hello`, or bare for the default remote), as `dispatchable: true` with `sources: ["remote"]` and a `remote` field naming the instance it came from; `?source=remote` lists exactly those. Dispatching one through this door runs it on the remote, which is the intentional re-exposure the remotes page describes.
+
 **A route can close its door on purpose.** [`direct({ internal: true })`](/docs/reference/adapters/direct) keeps the in-process endpoint (other routes compose against it unchanged) and skips the capability registry, so the route shows `dispatchable: false` here and a dispatch refuses with `RC5060` naming the declaration rather than advising a direct source the route already has. It is the opt-out for a trusting subroutine whose boundary route carries `.input()`, `.description()` and `.authorize()`; dispatch the boundary route instead.
 
 Query parameters narrow the one collection:
@@ -275,7 +277,7 @@ Query parameters narrow the one collection:
 | --- | --- |
 | `dispatchable` | `true` or `false`. Only routes that do, or do not, have a dispatch door |
 | `id` | Exact route id. Not a prefix |
-| `source` | Routes carrying a source of this kind (`direct`, `cron`, `mail`, ...) |
+| `source` | Routes carrying a source of this kind (`direct`, `cron`, `mail`, ...); `remote` for routes imported from another instance |
 | `limit` | Page size. A positive integer, at most 200. Defaults to 50 |
 | `after` | The `nextCursor` from the previous page |
 
@@ -426,6 +428,19 @@ Three rows earn an explanation.
 
 Source death and staleness stay independent on purpose. A dead scheduler takes the route `down` at once and lets the indicator go stale on its own clock, so "the probe stopped running" and "the dependency is unreachable" never get confused for one another.
 
+### Contributed by a plugin
+
+`defineIndicator` is the app's API: a handle declared in source and named in `ops.indicators`. A plugin that watches a dependency the app never wrote a line for has no handle to give the app, so it contributes the declaration from its `apply()` and reports through the function the contribution returns. This plugin binds it at `start()`, whatever order the two were applied in, into every ops ledger on the context; a report made before that is kept and replayed at its own time when the ledger binds, so a `maxAge` window measures from the report. In a context with no ops plugin a report goes nowhere, for the same reason a push through an unbound handle is inert. A name that is also listed in `ops.indicators` is refused at start, because indicator names are the keys of the report.
+
+```ts skip="fragment: ctx is illustrative"
+import { contributeOpsIndicator } from '@routecraft/routecraft'
+
+const report = contributeOpsIndicator(ctx, { name: 'remote.lab', domain: 'deployment' })
+report({ status: 'down', details: { routes: 0 } })
+```
+
+[`remotes`](/docs/reference/plugins/remotesplugin) is the one contributor shipped: each remote reports as `remote.<name>`, down while its inventory cannot be read and up once it has been, with the number of imported routes in `details`.
+
 ### Pushed by hand
 
 For a probe checking several subsystems, or a business route flagging a dependency mid-flight, push through the handle from any `.process()` or `.error()` step:
@@ -507,3 +522,4 @@ Point probes at the ops paths. The http built-ins cannot go red, including durin
 - [httpPlugin](/docs/reference/plugins/httpplugin) for the application's own HTTP surface
 - [`RC5053`](/docs/reference/errors#rc-5053), [`RC5059`](/docs/reference/errors#rc-5059), [`RC5060`](/docs/reference/errors#rc-5060)
 - [CLI reference](/docs/reference/cli#exec) for `craft exec` and the `craft ops` family
+- [remotesPlugin](/docs/reference/plugins/remotesplugin) for importing another instance's routes through this API

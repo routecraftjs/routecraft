@@ -458,6 +458,13 @@ export interface OpsRouteSummary {
   title?: string;
   description?: string;
   tags?: string[];
+  /**
+   * The remote this route was imported from, for a route another instance
+   * exposes and `defineConfig({ remotes })` made dispatchable here. Absent
+   * for a route this instance defines. Additive: an existing consumer that
+   * never reads it sees the listing it always saw.
+   */
+  remote?: string;
 }
 
 /** One route in full. Adds the schema renderings to the summary. */

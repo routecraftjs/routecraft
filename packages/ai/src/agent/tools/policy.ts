@@ -14,7 +14,19 @@ import type { McpToolAnnotations } from "../../mcp/types.ts";
  */
 export type AgentToolSource =
   | { readonly kind: "fn"; readonly id: string }
-  | { readonly kind: "direct"; readonly routeId: string }
+  | {
+      readonly kind: "direct";
+      readonly routeId: string;
+      /**
+       * The remote the capability was imported from through
+       * `defineConfig({ remotes })`, absent for a local route. Still
+       * `direct`, because the tool reaches a capability in the capability
+       * registry exactly as a local one does; the field is what lets a
+       * rule keep an agent local-only, or admit one remote and not
+       * another.
+       */
+      readonly remote?: string;
+    }
   | {
       readonly kind: "mcp";
       readonly server: string;
@@ -224,12 +236,14 @@ export type AgentToolPolicy = {
    *
    * - `fn`: in-process fns registered via `agentPlugin({ functions })`.
    * - `direct`: capabilities in the capability registry, reached via
-   *   `Direct(<routeId>)` or a `directTool` alias. Named for the
-   *   capability registry rather than for routes, because that registry
-   *   is what the agent surface can actually reach: a route sourced
-   *   only from `http()` or `mcp()` never registers a capability, so it
-   *   is not addressable as an agent tool and a rule here would give a
-   *   false impression of governing it.
+   *   `Direct(<routeId>)`, `Remote(<name>)` or a `directTool` alias.
+   *   Named for the capability registry rather than for routes, because
+   *   that registry is what the agent surface can actually reach: a
+   *   route sourced only from `http()` or `mcp()` never registers a
+   *   capability, so it is not addressable as an agent tool and a rule
+   *   here would give a false impression of governing it. A capability
+   *   imported from another instance carries `source.remote`, so a rule
+   *   can keep an agent local-only.
    * - `mcp`: tools discovered from external MCP clients.
    */
   [K in AgentToolPolicyKind]: AgentToolRule<K>;

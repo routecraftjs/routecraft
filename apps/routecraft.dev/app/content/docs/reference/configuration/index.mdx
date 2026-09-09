@@ -79,6 +79,7 @@ A disabled route is registered and known to the context, not started, not intaki
 | `servers` | `Record<string, HttpServerDefinition>` | Only when a surface mounts HTTP | -- | Named HTTP listeners that HTTP, MCP, ops, and custom plugins mount onto ([details](#servers-and-http)) |
 | `http` | `HttpPluginOptions` | No | -- | Serve routes over HTTP for the `http()` source ([details](#servers-and-http)) |
 | `ops` | `OpsConfig` | No | -- | Health, readiness, and liveness endpoints ([details](#ops)) |
+| `remotes` | `RemotesConfig` | No | -- | Other running instances whose dispatchable routes become direct endpoints here ([details](#remotes)) |
 | `mail` | `MailContextConfig` | No | -- | Mail adapter accounts (IMAP/SMTP) keyed by name |
 | `telemetry` | `TelemetryOptions` | No | -- | Telemetry plugin configuration (SQLite, OpenTelemetry) |
 | `suspension` | `SuspensionConfig` | Only when a route can reach `.suspend()` or `.resume()` | -- | Where parked exchanges are stored and how resume tokens are signed. A context with a suspendable route and no `suspension` block refuses to start with `RC5052`; the fields inside it are individually optional ([details](#suspension)) |
@@ -227,6 +228,38 @@ export const craftConfig = defineConfig({
 | `indicators` | `Indicator[]` | `[]` | Indicators to register, declared with [`defineIndicator`](/docs/reference/plugins/opsplugin#define-indicator). |
 
 Route lifecycle, circuit-breaker position, and the serving state are derived from events the framework already emits, so `ops: {}` alone gives a truthful surface. Indicators cover the dependencies the framework cannot see.
+
+### remotes
+
+Names other running instances, and every dispatchable route they expose through their [ops management API](/docs/reference/plugins/opsplugin#management-api) becomes a direct endpoint in this context. See [remotesPlugin](/docs/reference/plugins/remotesplugin) for the naming rule, the shadow rule, credentials, refresh and the outcome mapping.
+
+```ts
+import { defineConfig } from '@routecraft/routecraft'
+
+export default defineConfig({
+  remotes: {
+    default: {
+      url: 'https://routecraft.example.internal',
+      auth: { token: () => process.env.RC_REMOTE_TOKEN },
+    },
+    lab: {
+      url: 'https://lab.example.internal',
+      auth: { token: () => process.env.RC_LAB_TOKEN },
+    },
+  },
+})
+```
+
+Each entry is one remote, keyed by name. The routes of `default` are advertised bare (`direct('hello')`); every other remote's are qualified (`direct('lab:hello')`).
+
+| Option | Type | Default | Description |
+|--------|------|---------|-------------|
+| `url` | `string` | required | The instance's base URL |
+| `auth.token` | `string \| () => string \| undefined \| Promise<...>` | -- | Bearer for the remote's door, evaluated per request when a function |
+| `timeout` | `Duration` | `'30s'` | Per-request deadline against the remote |
+| `refresh` | `Duration \| false` | `'60s'` | How often the inventory is re-read; `false` disables the interval |
+
+The key applies after `ops`, whatever order the two are written in, so each remote's `remote.<name>` health indicator has a ledger to report into when the app carries an ops surface. The credential is read from the environment; the CLI's `.routecraft/settings.yaml` is for the local instance `craft` talks to and is never read here.
 
 Bind the server the surface sits on somewhere the probes can reach. A Kubernetes `httpGet` probe comes from the kubelet against the pod IP and a reverse-proxy check comes from the proxy, so neither reaches `127.0.0.1`; only a Docker `HEALTHCHECK`, which runs inside the container, does. Keep an internal-only port private at the network layer rather than by binding loopback.
 
