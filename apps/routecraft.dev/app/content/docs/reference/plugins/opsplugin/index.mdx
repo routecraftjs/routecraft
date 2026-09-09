@@ -430,7 +430,7 @@ Source death and staleness stay independent on purpose. A dead scheduler takes t
 
 ### Contributed by a plugin
 
-`defineIndicator` is the app's API: a handle declared in source and named in `ops.indicators`. A plugin that watches a dependency the app never wrote a line for has no handle to give the app, so it contributes the declaration from its `apply()` and reports through the function the contribution returns. This plugin binds it at `start()`, whatever order the two were applied in; before that, or in a context with no ops plugin, a report is inert for the same reason a push through an unbound handle is. A name that is also listed in `ops.indicators` is refused at start, because indicator names are the keys of the report.
+`defineIndicator` is the app's API: a handle declared in source and named in `ops.indicators`. A plugin that watches a dependency the app never wrote a line for has no handle to give the app, so it contributes the declaration from its `apply()` and reports through the function the contribution returns. This plugin binds it at `start()`, whatever order the two were applied in, into every ops ledger on the context; a report made before that is kept and replayed at its own time when the ledger binds, so a `maxAge` window measures from the report. In a context with no ops plugin a report goes nowhere, for the same reason a push through an unbound handle is inert. A name that is also listed in `ops.indicators` is refused at start, because indicator names are the keys of the report.
 
 ```ts skip="fragment: ctx is illustrative"
 import { contributeOpsIndicator } from '@routecraft/routecraft'

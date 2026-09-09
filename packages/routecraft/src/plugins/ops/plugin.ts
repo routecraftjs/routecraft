@@ -59,7 +59,7 @@ interface Runtime {
   /** Contributed indicators bound at start, with this ledger's sink, released at teardown. */
   contributed: Array<{
     entry: ContributedIndicator;
-    sink: (health: Health) => void;
+    sink: (health: Health, reportedAt: number) => void;
   }>;
   unmount?: () => void;
 }
@@ -390,13 +390,15 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
           ...(entry.domain !== undefined ? { domain: entry.domain } : {}),
         });
         const { state } = runtime;
-        const sink = (health: Health): void => {
-          state.reportIndicator(entry.name, health);
+        const sink = (health: Health, reportedAt: number): void => {
+          state.reportIndicator(entry.name, health, reportedAt);
         };
         entry.sinks.add(sink);
         // A contributor whose start() already ran reported into nothing; its
-        // last verdict is what the ledger should open with.
-        if (entry.last !== undefined) sink(entry.last);
+        // last verdict is what the ledger should open with, at the time it
+        // was made, so a maxAge window is measured from the report and not
+        // from this binding.
+        if (entry.last !== undefined) sink(entry.last.health, entry.last.at);
         runtime.contributed.push({ entry, sink });
       }
 

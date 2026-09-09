@@ -98,14 +98,14 @@ export interface ContributedIndicator {
    * context carrying two ops mounts reports into both. Empty until an ops
    * plugin binds it, and empty again after teardown.
    */
-  readonly sinks: Set<(health: Health) => void>;
+  readonly sinks: Set<(health: Health, reportedAt: number) => void>;
   /**
    * The most recent report, replayed to a ledger that binds after it was
    * made. A contributor whose start() ran before the ops plugin's would
    * otherwise have its first verdict lost, and a remote unreachable at boot
    * would read as up until its next refresh.
    */
-  last?: Health;
+  last?: { health: Health; at: number };
 }
 
 /**
@@ -129,8 +129,10 @@ declare module "@routecraft/routecraft" {
 /**
  * Contribute an indicator to the health report from a plugin's `apply()`.
  *
- * Returns the function to report through. Reports before the ops plugin
- * binds the indicator, or in a context with no ops plugin, are dropped.
+ * Returns the function to report through. A report made before an ops
+ * plugin binds the indicator is kept and replayed into the ledger when it
+ * binds, at the time it was made; in a context with no ops plugin a report
+ * goes nowhere.
  *
  * @throws RC5053 on a malformed name, or a name another contributor took
  */
@@ -151,7 +153,8 @@ export function contributeOpsIndicator(
   registry.set(definition.name, entry);
   ctx.setStore(OPS_CONTRIBUTED_INDICATORS, registry);
   return (health) => {
-    entry.last = health;
-    for (const sink of entry.sinks) sink(health);
+    const at = Date.now();
+    entry.last = { health, at };
+    for (const sink of entry.sinks) sink(health, at);
   };
 }
