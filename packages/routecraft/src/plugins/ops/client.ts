@@ -54,8 +54,14 @@ const DISCOVERY_TIMEOUT_MS = 5_000;
 
 /** Why a call did not produce an answer. Each needs a different remedy. */
 export type OpsFailureKind =
-  /** The instance could not be reached at all. */
+  /** The instance could not be reached at all; the request never left. */
   | "unreachable"
+  /**
+   * The request may have reached the instance: the connection was lost
+   * after it was sent, or while the answer was being read. Whatever it
+   * asked for may have run.
+   */
+  | "interrupted"
   /** The door refused: no credential, a bad one, or a missing scope. */
   | "refused"
   /** The tier is disabled, or the thing asked for does not exist. */
@@ -192,7 +198,7 @@ export function createOpsHttpClient(
         ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
       });
     } catch (error: unknown) {
-      throw classifyTransportFailure(error, addressBlame());
+      throw classifyTransportFailure(error, addressBlame(), "request");
     }
 
     // Inside its own guard: an abort part-way through the body is the same
@@ -202,7 +208,7 @@ export function createOpsHttpClient(
     try {
       text = await response.text();
     } catch (error: unknown) {
-      throw classifyTransportFailure(error, addressBlame());
+      throw classifyTransportFailure(error, addressBlame(), "response");
     }
     const parsed: unknown = text.length === 0 ? undefined : parseJson(text);
 
@@ -321,16 +327,19 @@ export function createOpsHttpClient(
   }
 
   /**
-   * Tell a request that never got an answer from one the instance refused
-   * to answer in time.
+   * Tell a request that never left from one the instance may have received.
    *
    * They need opposite reactions. "Could not reach it, start one" invites a
    * retry, which for a dispatch means running a possibly non-idempotent
-   * route a second time while the first is still going.
+   * route a second time while the first is still going. So a failure is
+   * `unreachable` only when the connection provably never opened; a
+   * connection lost after that, a timeout, or a failure while reading the
+   * answer all mean the request may have run.
    */
   function classifyTransportFailure(
     error: unknown,
     address: string,
+    phase: "request" | "response",
   ): OpsClientError {
     const aborted =
       error instanceof Error &&
@@ -341,11 +350,17 @@ export function createOpsHttpClient(
         `The instance at ${address} accepted the request but did not answer within ${String(timeoutMs / 1000)}s. Any work it started is still running there, so do not simply re-run this.`,
       );
     }
+    if (phase === "request" && neverConnected(error)) {
+      return new OpsClientError(
+        "unreachable",
+        `Could not reach a running instance at ${address}: ${messageOf(error)}${
+          advice.unreachable === undefined ? "" : `\n${advice.unreachable}`
+        }`,
+      );
+    }
     return new OpsClientError(
-      "unreachable",
-      `Could not reach a running instance at ${address}: ${messageOf(error)}${
-        advice.unreachable === undefined ? "" : `\n${advice.unreachable}`
-      }`,
+      "interrupted",
+      `The instance at ${address} may have received the request, but the connection was lost before it answered: ${messageOf(error)}. Any work it started may still be running there, so do not simply re-run this.`,
     );
   }
 
@@ -584,6 +599,44 @@ function sanitizeWire(wire: WireError): WireError {
 }
 
 /** A thrown value's message; non-Error throws (a `ResolveMessage`) still carry one. */
+/**
+ * The codes a runtime raises when no connection was ever established, so
+ * nothing was sent: refused, no route to the host, or a name that did not
+ * resolve. Node reports them on the cause of `fetch failed`, Bun on the
+ * error itself under its own names. Anything else is treated as possibly
+ * delivered, which is the safe reading for a request that may run work.
+ *
+ * `ETIMEDOUT` is deliberately absent: Node raises it for a connect that
+ * never completed and for a socket that went quiet after the request was
+ * written, and the code alone cannot tell the two apart. undici's own
+ * connect timeout has its own code and is listed.
+ */
+const NEVER_CONNECTED = new Set([
+  "ECONNREFUSED",
+  "EHOSTUNREACH",
+  "ENETUNREACH",
+  "EADDRNOTAVAIL",
+  "UND_ERR_CONNECT_TIMEOUT",
+  "ENOTFOUND",
+  "EAI_AGAIN",
+  "EAI_NONAME",
+  "EAI_FAIL",
+  "ConnectionRefused",
+  "FailedToOpenSocket",
+  "DNSException",
+]);
+
+function neverConnected(error: unknown): boolean {
+  let current: unknown = error;
+  for (let depth = 0; depth < 4 && current !== undefined; depth += 1) {
+    if (typeof current !== "object" || current === null) return false;
+    const code = (current as { code?: unknown }).code;
+    if (typeof code === "string" && NEVER_CONNECTED.has(code)) return true;
+    current = (current as { cause?: unknown }).cause;
+  }
+  return false;
+}
+
 function messageOf(error: unknown): string {
   if (error instanceof Error) return error.message;
   return typeof error === "object" && error !== null && "message" in error

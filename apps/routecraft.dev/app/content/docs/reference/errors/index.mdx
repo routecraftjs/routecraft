@@ -1002,10 +1002,10 @@ Raise the ceiling on the call when the endpoint legitimately returns more than 1
 Remote instance unreachable
 
 **Why it happens**  
-A dispatch to a route imported through [`defineConfig({ remotes })`](/docs/reference/plugins/remotesplugin) never got an answer from the remote instance. The connection was refused, the name did not resolve, or the request timed out. The message names the remote and the route, and says which of the three it was.
+A dispatch to a route imported through [`defineConfig({ remotes })`](/docs/reference/plugins/remotesplugin) never got an answer from the remote instance. The connection was refused or the name did not resolve, the connection was lost after the request was sent, or the request timed out. The message names the remote and the route, and says which it was.
 
 **Suggestion**  
-Check the remote's `url` and that the instance is running and serving its ops surface. A refused connection is safe to retry, and the code is marked retryable for it. A timeout is not: the remote may still be running the work it accepted, so a retry could run a non-idempotent route twice, and a timeout carries `retryable: false` on the error itself.
+Check the remote's `url` and that the instance is running and serving its ops surface. Only a connection that never opened is safe to retry, and the code is marked retryable for it. A connection lost after the request was sent, or a timeout, is not: the remote may still be running the work it accepted, so a retry could run a non-idempotent route twice, and those carry `retryable: false` on the error itself.
 
 ## RC5063
 Remote instance refused the credential
