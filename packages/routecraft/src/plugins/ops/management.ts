@@ -143,17 +143,26 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
    * Routes imported from other instances, keyed by local endpoint.
    *
    * Listed beside the local routes as dispatchable, with `remote` naming
-   * the origin. A local route with the same id wins (the remotes plugin
-   * never lists a shadowed endpoint), and the id check here covers the
-   * moment between a local route subscribing and the next refresh.
+   * the origin. A local route with the same id wins while it shadows the
+   * remote route, and the capability registry is what says so: `direct()`
+   * writes a local capability when the route subscribes, and the remotes
+   * plugin writes the remote's back when that route stops. A stopped
+   * route stays in `getRoutes()`, so the id alone cannot decide.
    */
   const remoteIndex = (): Map<string, RemoteRoute> =>
     ctx.getStore(REMOTE_ROUTES) ?? new Map<string, RemoteRoute>();
+
+  const remoteAnswers = (
+    id: string,
+    capabilities: Map<string, Capability>,
+  ): boolean =>
+    remoteIndex().has(id) && capabilities.get(id)?.remote !== undefined;
 
   const summaries = (): OpsRouteSummary[] => {
     const capabilities = capabilityIndex();
     const local = ctx
       .getRoutes()
+      .filter((route) => !remoteAnswers(route.definition.id, capabilities))
       .map((route) => summarise(ctx, route.definition, capabilities));
     const localIds = new Set(local.map((route) => route.id));
     const imported = [...remoteIndex().values()]
@@ -285,9 +294,9 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
 
     describeRoute(id: string): OpsRouteDetail | undefined {
       const capabilities = capabilityIndex();
-      const route = ctx
-        .getRoutes()
-        .find((candidate) => candidate.definition.id === id);
+      const route = remoteAnswers(id, capabilities)
+        ? undefined
+        : ctx.getRoutes().find((candidate) => candidate.definition.id === id);
       if (route) return detail(ctx, route.definition, capabilities);
       const imported = remoteIndex().get(id);
       return imported === undefined ? undefined : detailRemote(imported);
@@ -299,9 +308,9 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
       principal: Principal | undefined,
     ): Promise<OpsDispatchOutcome> {
       const capabilities = capabilityIndex();
-      const route = ctx
-        .getRoutes()
-        .find((candidate) => candidate.definition.id === id);
+      const route = remoteAnswers(id, capabilities)
+        ? undefined
+        : ctx.getRoutes().find((candidate) => candidate.definition.id === id);
       // An imported route has no definition here and needs none: its
       // capability is its door, and the channel behind it carries the
       // exchange to the instance that defines it. Re-exposing it through

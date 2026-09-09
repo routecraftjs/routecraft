@@ -68,6 +68,8 @@ interface RemoteRuntime {
   refreshMs: number | undefined;
   /** The channels this remote installed, by local endpoint. */
   channels: Map<string, RemoteDirectChannel>;
+  /** The last inventory's detail per local endpoint, shadowed ones included. */
+  details: Map<string, OpsRouteDetail>;
   timer?: ReturnType<typeof setInterval>;
   inflight?: Promise<void>;
   /** Whether the last refresh failed, so a repeat is logged quietly. */
@@ -79,6 +81,8 @@ interface RemoteRuntime {
 /** Per-context state. One plugin instance may serve several contexts. */
 interface Runtime {
   remotes: RemoteRuntime[];
+  /** Stops listening for local routes stopping. */
+  off?: () => void;
 }
 
 /** The health indicator an imported remote reports through. */
@@ -218,6 +222,7 @@ export function remotesPlugin(options: RemotesPluginOptions): CraftPlugin {
             report,
             refreshMs,
             channels: new Map(),
+            details: new Map(),
             down: false,
             seen: false,
           };
@@ -232,6 +237,16 @@ export function remotesPlugin(options: RemotesPluginOptions): CraftPlugin {
     async start(ctx: CraftContext) {
       const runtime = runtimes.get(ctx);
       if (!runtime) return;
+      // A local route that stops hands its endpoint to the remote route it
+      // shadowed. The direct source registers the capability at subscribe
+      // and nothing removes it at stop, so the transition has to rewrite
+      // the provenance as well as the channel, and this is the one place
+      // that knows both.
+      runtime.off = ctx.on("route:stopped", ({ details }) => {
+        for (const remote of runtime.remotes) {
+          lift(ctx, remote, details.routeId);
+        }
+      });
       await Promise.all(runtime.remotes.map((remote) => refresh(ctx, remote)));
       for (const remote of runtime.remotes) {
         if (remote.refreshMs === undefined) continue;
@@ -247,6 +262,7 @@ export function remotesPlugin(options: RemotesPluginOptions): CraftPlugin {
       const runtime = runtimes.get(ctx);
       if (!runtime) return;
       runtimes.delete(ctx);
+      runtime.off?.();
       for (const remote of runtime.remotes) {
         if (remote.timer !== undefined) clearInterval(remote.timer);
         delete remote.timer;
@@ -350,6 +366,7 @@ function install(
   const registry = ctx.getStore(CAPABILITY_REGISTRY);
   const existing = registry?.get(endpoint);
   const routes = ctx.getStore(REMOTE_ROUTES)!;
+  remote.details.set(endpoint, detail);
 
   if (
     isInternalEndpoint(ctx, endpoint) ||
@@ -392,6 +409,30 @@ function install(
     return;
   }
 
+  advertise(ctx, remote, endpoint, detail);
+
+  if (!remote.channels.has(endpoint)) {
+    const store = directStore(ctx);
+    // Whatever the store holds here is a placeholder an enricher created
+    // on demand before this inventory landed (a subscribed local route
+    // would have registered a capability and returned above), so replacing
+    // it is what makes that enricher's next fetch reach the remote.
+    const channel = new RemoteDirectChannel(
+      target(ctx, remote, endpoint, detail.id),
+    );
+    store.set(sanitizeEndpoint(endpoint), channel);
+    remote.channels.set(endpoint, channel);
+  }
+}
+
+/** Register the remote route as the capability behind a local endpoint. */
+function advertise(
+  ctx: CraftContext,
+  remote: RemoteRuntime,
+  endpoint: string,
+  detail: OpsRouteDetail,
+): void {
+  const { name } = remote;
   const capability: Capability = { endpoint, remote: name };
   if (detail.title !== undefined) capability.title = detail.title;
   if (detail.description !== undefined) {
@@ -411,20 +452,45 @@ function install(
     };
   }
   registerCapability(ctx, capability);
+  const routes = ctx.getStore(REMOTE_ROUTES)!;
   routes.set(endpoint, { remote: name, id: detail.id, endpoint, detail });
+}
 
-  if (!remote.channels.has(endpoint)) {
-    const store = directStore(ctx);
-    // Whatever the store holds here is a placeholder an enricher created
-    // on demand before this inventory landed (a subscribed local route
-    // would have registered a capability and returned above), so replacing
-    // it is what makes that enricher's next fetch reach the remote.
-    const channel = new RemoteDirectChannel(
-      target(ctx, remote, endpoint, detail.id),
-    );
-    store.set(sanitizeEndpoint(endpoint), channel);
-    remote.channels.set(endpoint, channel);
+/**
+ * Hand a shadowed endpoint to the remote route once the local route that
+ * shadowed it has stopped.
+ *
+ * A shadow is a channel this remote installed for an endpoint that is not
+ * listed as one of its routes. The transition rewrites both halves at
+ * once: the channel stops answering from the local route, and the
+ * capability registry says the endpoint is the remote's, so the listing
+ * and an agent's tool policy see a remote-backed endpoint and never a
+ * local one that quietly dispatches elsewhere. An internal endpoint is
+ * left alone: the app declared it is not a capability, and a remote route
+ * behind it would open the door the declaration closed.
+ */
+function lift(
+  ctx: CraftContext,
+  remote: RemoteRuntime,
+  endpoint: string,
+): void {
+  const channel = remote.channels.get(endpoint);
+  const detail = remote.details.get(endpoint);
+  const routes = ctx.getStore(REMOTE_ROUTES);
+  if (
+    channel === undefined ||
+    detail === undefined ||
+    routes?.has(endpoint) === true ||
+    isInternalEndpoint(ctx, endpoint)
+  ) {
+    return;
   }
+  channel.local = undefined;
+  advertise(ctx, remote, endpoint, detail);
+  ctx.logger.info(
+    { endpoint, remote: remote.name, remoteRouteId: detail.id },
+    `The local route on "${endpoint}" has stopped; the route "${detail.id}" of remote "${remote.name}" answers it from now on`,
+  );
 }
 
 /** Remove one endpoint this remote installed, restoring a shadowed local channel. */
@@ -435,6 +501,7 @@ function release(
 ): void {
   const channel = remote.channels.get(endpoint);
   remote.channels.delete(endpoint);
+  remote.details.delete(endpoint);
   const registry = ctx.getStore(CAPABILITY_REGISTRY);
   if (registry?.get(endpoint)?.remote === remote.name) {
     registry.delete(endpoint);

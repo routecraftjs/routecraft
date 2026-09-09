@@ -625,7 +625,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Runtime",
     message: "Remote instance unreachable",
     suggestion:
-      "A dispatch to a route imported through `defineConfig({ remotes })` never got an answer from the remote instance: the connection was refused, the name did not resolve, or the request timed out. Check the remote's `url` and that the instance is running and serving its ops surface. A refused connection is safe to retry; a timeout is not, because the remote may still be running the work it accepted, and the message says which of the two it was.",
+      "A dispatch to a route imported through `defineConfig({ remotes })` never got an answer from the remote instance: the connection was refused or the name did not resolve, the connection was lost after the request was sent, or the request timed out. Check the remote's `url` and that the instance is running and serving its ops surface. Only a connection that never opened is safe to retry; a lost connection or a timeout is not, because the remote may still be running the work it accepted, and the error carries `retryable: false` for those. The message says which it was.",
     docs: `${DOCS_BASE}#rc-5062`,
     retryable: true,
   },

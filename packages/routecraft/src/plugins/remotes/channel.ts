@@ -47,7 +47,9 @@ export interface RemoteTarget {
  * remote's inventory arrives; either way `local` is set and the local
  * route answers every send, with a warning naming the remote route that is
  * being shadowed, because a shadow is the promotion window and a caller
- * reading the logs should be able to see which of the two ran.
+ * reading the logs should be able to see which of the two ran. The plugin
+ * lifts the shadow when the local route stops, together with the
+ * capability's provenance, so the channel never decides that on its own.
  */
 export class RemoteDirectChannel implements DirectChannel<Exchange> {
   /** The local route's channel when one shadows this endpoint. */
@@ -61,7 +63,7 @@ export class RemoteDirectChannel implements DirectChannel<Exchange> {
   }
 
   async send(endpoint: string, exchange: Exchange): Promise<Exchange> {
-    if (this.local !== undefined && !this.shadowLifted()) {
+    if (this.local !== undefined) {
       const { ctx, remote, id, endpoint: local } = this.target;
       ctx.logger.warn(
         { endpoint: local, remote, remoteRouteId: id },
@@ -70,31 +72,6 @@ export class RemoteDirectChannel implements DirectChannel<Exchange> {
       return this.local.send(endpoint, exchange);
     }
     return this.dispatch(exchange);
-  }
-
-  /**
-   * Whether the shadowing local route has stopped since the wrapper was
-   * installed. A stopping route unsubscribes the channel it captured at
-   * start, not this wrapper, so the wrapper reads that channel's own
-   * subscription state rather than guessing from an error a route may
-   * legitimately throw. Only the in-memory channel exposes it; under a
-   * custom channel type the shadow holds until the inventory drops the
-   * endpoint.
-   */
-  private shadowLifted(): boolean {
-    if (
-      !(this.local instanceof InMemoryDirectChannel) ||
-      this.local.subscribed
-    ) {
-      return false;
-    }
-    const { ctx, remote, id, endpoint: local } = this.target;
-    this.local = undefined;
-    ctx.logger.info(
-      { endpoint: local, remote, remoteRouteId: id },
-      `The local route on "${local}" has stopped; the route "${id}" of remote "${remote}" answers it from now on`,
-    );
-    return true;
   }
 
   async subscribe(
@@ -181,6 +158,14 @@ export class RemoteDirectChannel implements DirectChannel<Exchange> {
       case "unreachable":
         return rcError("RC5062", error, {
           message: `Dispatching ${where}: ${error.message}`,
+        });
+      case "interrupted":
+        // The request may have run on the remote, so a retry could run a
+        // non-idempotent route twice, for the reason the timeout is not
+        // retryable either.
+        return rcError("RC5062", error, {
+          message: `Dispatching ${where}: ${error.message}`,
+          retryable: false,
         });
       case "refused":
         return rcError("RC5063", error, {

@@ -244,4 +244,65 @@ describe("tools() with imported routes", () => {
     expect(denied[0]!.output).toBeUndefined();
     expect(denied[0]!.error).toBeInstanceOf(Error);
   });
+
+  /**
+   * @case A shadowing local route that stops makes `Direct(hello)` a remote-backed tool, and a local-only rule then withholds it
+   * @preconditions A local `hello` shadowing the default remote's `hello`; `Direct(hello)` resolved before and after the local route stops
+   * @expectedResult Before the stop the tool's source carries no `remote` and is admitted by the local-only rule. After the stop the same reference resolves with `remote: "default"`, the rule drops it, and a call through the tool that is admitted reaches the remote. A tool must never be labelled local while its dispatch leaves the instance
+   */
+  test("relabels Direct(hello) as remote-backed once the shadowing local route stops", async () => {
+    server = await startServer();
+    const { url } = server;
+    local = await testContext()
+      .with({
+        remotes: { default: { url, auth: { token: operator } } },
+        plugins: [agentPlugin()],
+      })
+      .routes([
+        craft()
+          .id("hello")
+          .description("The local greeter")
+          .input({ body: z.object({ name: z.string() }) })
+          .from(direct())
+          .transform(() => ({ greeting: "local" }))
+          .to(noop()),
+        craft().id("keepalive").from(direct()).to(noop()),
+      ])
+      .build();
+    await local.startAndWaitReady();
+    const resolveHello = () => tools(["Direct(hello)"]).resolve(local!.ctx)[0]!;
+    const localOnly = (tool: ReturnType<typeof resolveHello>): boolean =>
+      tool.source.kind === "direct" && tool.source.remote === undefined;
+
+    const before = resolveHello();
+    expect(before.source).toEqual({ kind: "direct", routeId: "hello" });
+    expect(localOnly(before)).toBe(true);
+
+    const route = local.ctx
+      .getRoutes()
+      .find((candidate) => candidate.definition.id === "hello");
+    if (route === undefined) throw new Error("the local route is missing");
+    route.stop();
+    const deadline = Date.now() + 5_000;
+    while (
+      local.ctx.capabilities().find((c) => c.endpoint === "hello")?.remote !==
+      "default"
+    ) {
+      if (Date.now() > deadline) throw new Error("the shadow never lifted");
+      await new Promise((resolve) => setTimeout(resolve, 25));
+    }
+
+    const after = resolveHello();
+    expect(after.name).toBe("direct__hello");
+    expect(after.source).toEqual({
+      kind: "direct",
+      routeId: "hello",
+      remote: "default",
+    });
+    expect(localOnly(after)).toBe(false);
+    const answer: unknown = await local.client.sendDirect("hello", {
+      name: "agent",
+    });
+    expect(answer).toEqual({ greeting: "hello agent" });
+  });
 });

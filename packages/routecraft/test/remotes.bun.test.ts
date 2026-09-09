@@ -450,6 +450,143 @@ describe("remotes", () => {
   });
 
   /**
+   * @case A shadowing local route that stops hands the endpoint to the remote route, provenance included
+   * @preconditions A local `hello` shadowing the default remote's `hello`, with the remote refreshing every 100ms
+   * @expectedResult While the local route runs, `hello` is a local capability and answers locally. After `route.stop()` the capability carries `remote: "default"`, the local listing shows it as imported, a send reaches the remote, and the next inventory refresh keeps it that way. A tool policy reading `source.remote` must never see a local endpoint that dispatches elsewhere
+   */
+  test("hands a shadowed endpoint to the remote route when the local route stops", async () => {
+    server = await startServer();
+    const url = `http://127.0.0.1:${String(server.port)}`;
+    let everything: string[] = [];
+    local = await startLocal({
+      remotes: {
+        default: { url, auth: { token: operator }, refresh: "100ms" },
+      },
+      routes: [
+        craft()
+          .id("hello")
+          .description("The local greeter")
+          .input({ body: z.object({ name: z.string() }) })
+          .from(direct())
+          .transform(() => ({ greeting: "local" }))
+          .to(noop()),
+      ],
+      onBuilt: (t) => {
+        everything = captureLogs(t.ctx).everything;
+      },
+    });
+    const capability = () =>
+      local!.t.ctx.capabilities().find((c) => c.endpoint === "hello");
+
+    expect(capability()?.remote).toBeUndefined();
+    expect(await send("hello", { name: "x" })).toEqual({ greeting: "local" });
+
+    const route = local.t.ctx
+      .getRoutes()
+      .find((r) => r.definition.id === "hello");
+    if (route === undefined) throw new Error("the local route is missing");
+    route.stop();
+    await until(
+      () => capability()?.remote === "default",
+      "the endpoint to become the remote's",
+    );
+
+    expect(capability()?.description).toBe("Say hello");
+    expect(await send("hello", { name: "x" })).toEqual({
+      greeting: "hello x",
+    });
+    expect(
+      everything.filter((line) =>
+        line.includes('The local route on "hello" has stopped'),
+      ),
+    ).toHaveLength(1);
+    const listing = await call<OpsPage<OpsRouteSummary>>(
+      local.port,
+      "/ops/routes?id=hello",
+    );
+    expect(listing.body.items).toHaveLength(1);
+    expect(listing.body.items[0]).toMatchObject({
+      id: "hello",
+      sources: ["remote"],
+      remote: "default",
+    });
+
+    // Two refresh intervals later the inventory has been reconciled against
+    // the new provenance at least once and must not have re-shadowed it.
+    await new Promise((resolve) => setTimeout(resolve, 250));
+    expect(capability()?.remote).toBe("default");
+    expect(await send("hello", { name: "again" })).toEqual({
+      greeting: "hello again",
+    });
+  });
+
+  /**
+   * @case A connection lost after the request was sent is not retryable; one that never opened is
+   * @preconditions A stand-in remote that lists one route and, on dispatch, reads the body and drops the socket without answering; then the same remote gone entirely
+   * @expectedResult The dropped dispatch is `RC5062` with `retryable: false` and a message saying the remote may have received the request; the dispatch against the closed port is `RC5062` with `retryable: true`. A route that may already have run must not be retried by the framework's default policy
+   */
+  test("marks a connection lost after dispatch as not retryable", async () => {
+    let executions = 0;
+    const detail: OpsRouteDetail = {
+      id: "hello",
+      description: "Say hello",
+      sources: ["direct"],
+      dispatchable: true,
+    } as OpsRouteDetail;
+    const fake = createServer((req, res) => {
+      const { pathname } = new URL(req.url ?? "/", "http://127.0.0.1");
+      if (req.method === "POST") {
+        req.on("data", () => undefined);
+        req.on("end", () => {
+          executions += 1;
+          res.destroy();
+        });
+        return;
+      }
+      const body =
+        pathname === "/ops/routes"
+          ? { items: [detail] }
+          : pathname === "/ops/routes/hello"
+            ? detail
+            : undefined;
+      if (body === undefined) {
+        res.writeHead(404);
+        res.end();
+        return;
+      }
+      // Each request on its own connection: a socket dropped mid-reuse reads
+      // as a stale keep-alive to the client, which then retries on a fresh
+      // one, and this case is about a request that provably ran once.
+      res.writeHead(200, {
+        "content-type": "application/json",
+        connection: "close",
+      });
+      res.end(JSON.stringify(body));
+    });
+    await new Promise<void>((resolve) => fake.listen(0, "127.0.0.1", resolve));
+    const port = (fake.address() as AddressInfo).port;
+    local = await startLocal({
+      remotes: { lab: { url: `http://127.0.0.1:${String(port)}` } },
+    });
+
+    const dropped = await rejection(send("lab:hello", { name: "x" }));
+    expect(rcCodeOf(dropped)).toBe("RC5062");
+    expect((dropped as { retryable?: boolean }).retryable).toBe(false);
+    expect(dropped.message).toContain("may have received the request");
+    expect(executions).toBe(1);
+
+    await new Promise<void>((resolve) => {
+      fake.closeAllConnections();
+      fake.close(() => resolve());
+    });
+    const refused = await rejection(send("lab:hello", { name: "x" }));
+    expect(rcCodeOf(refused)).toBe("RC5062");
+    expect((refused as { retryable?: boolean }).retryable).toBe(true);
+    expect(refused.message).toContain("Could not reach a running instance");
+    expect(executions).toBe(1);
+  });
+
+  /**
    * @case Every dispatch outcome maps onto the in-process one, against the real door
    * @preconditions Routes on the remote that complete, drop, park and fail; one remote named with a credential admitted to the listing but not to dispatch
    * @expectedResult completed is the body; dropped is `RC5031`; suspended is the branded `Suspended` acknowledgment; a remote failure is `RC5064` carrying the remote's code with the client's error as cause; the refused dispatch is `RC5063` naming the missing scope. A caller can tell a credential problem from a broken route
