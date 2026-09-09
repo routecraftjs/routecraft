@@ -71,7 +71,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
 > The `craft` CLI runs on Bun (>=1.1.0). Node users embed `@routecraft/routecraft` programmatically; see the [Programmatic Invocation guide](https://routecraft.dev/docs/advanced/programmatic-invocation).
 
-Now talk to Claude: *"Send an email to john@example.com thanking him for yesterday's meeting"*
+Now talk to Claude: *"Send an email to john@company.com thanking him for yesterday's meeting"*
 
 Claude discovers your tool and uses it automatically. ✨
 
