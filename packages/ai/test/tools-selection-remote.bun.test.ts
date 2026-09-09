@@ -35,10 +35,12 @@ mock.module("../src/llm/providers/index.ts", () => ({
  */
 
 const JWT_SECRET = "remote-tools-jwt-secret-please-change-me";
-const OPERATOR = signHs256({
-  secret: JWT_SECRET,
-  claims: { scope: "ops:introspection ops:dispatch" },
-});
+/** Minted per request so the suite never depends on finishing inside a token's minute. */
+const operator = (): string =>
+  signHs256({
+    secret: JWT_SECRET,
+    claims: { scope: "ops:introspection ops:dispatch" },
+  });
 
 async function startServer(): Promise<{ t: TestContext; url: string }> {
   const t = await testContext()
@@ -107,8 +109,8 @@ describe("tools() with imported routes", () => {
     local = await testContext()
       .with({
         remotes: {
-          default: { url, auth: { token: OPERATOR } },
-          lab: { url, auth: { token: OPERATOR } },
+          default: { url, auth: { token: operator } },
+          lab: { url, auth: { token: operator } },
         },
         plugins: [
           agentPlugin({ functions: { labHello: directTool("lab:hello") } }),
@@ -179,7 +181,7 @@ describe("tools() with imported routes", () => {
       const sink = spy();
       const t = await testContext()
         .with({
-          remotes: { lab: { url, auth: { token: OPERATOR } } },
+          remotes: { lab: { url, auth: { token: operator } } },
           plugins: [
             llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
             agentPlugin(

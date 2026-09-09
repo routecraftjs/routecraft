@@ -17,6 +17,7 @@ import { DefaultExchange, type Exchange } from "../../exchange";
 import type { DirectChannel } from "../../adapters/direct/types";
 import { InMemoryDirectChannel } from "../../adapters/direct/shared";
 import { createSuspended } from "../../suspension/suspended";
+import { rcCodeOf } from "../../brand";
 import { OpsClientError, type OpsHttpClient } from "../ops/client";
 
 /** What a channel needs to know about the route it fronts. */
@@ -67,7 +68,20 @@ export class RemoteDirectChannel implements DirectChannel<Exchange> {
         { endpoint: local, remote, remoteRouteId: id },
         `Direct endpoint "${local}" is answered by the local route; the route "${id}" of remote "${remote}" is shadowed and stays reachable as "${remote}:${id}"`,
       );
-      return this.local.send(endpoint, exchange);
+      try {
+        return await this.local.send(endpoint, exchange);
+      } catch (error: unknown) {
+        // A local route that stops unsubscribes the channel it captured at
+        // start, not this wrapper, and the in-memory channel answers RC5004
+        // from then on. That is the one signal the wrapper gets that the
+        // shadow has lifted, so the remote takes over from here.
+        if (rcCodeOf(error) !== "RC5004") throw error;
+        this.local = undefined;
+        ctx.logger.info(
+          { endpoint: local, remote, remoteRouteId: id },
+          `The local route on "${local}" has stopped; the route "${id}" of remote "${remote}" answers it from now on`,
+        );
+      }
     }
     return this.dispatch(exchange);
   }
@@ -123,6 +137,14 @@ export class RemoteDirectChannel implements DirectChannel<Exchange> {
       case "dropped":
         throw rcError("RC5031", undefined, {
           message: `Route "${id}" on remote "${remote}" dropped the exchange instead of completing it; there is no response body. ${outcome.message}`,
+        });
+      default:
+        // The client only guarantees an object came back. Anything that is
+        // not one of the three outcomes is an instance this side does not
+        // understand, and it fails as a remote failure rather than as a
+        // TypeError in whoever reads the result.
+        throw rcError("RC5064", undefined, {
+          message: `Dispatching route "${id}" on remote "${remote}" (${this.target.describe()}): the remote answered with an envelope this instance does not recognise (outcome ${JSON.stringify((outcome as { outcome?: unknown }).outcome)}). Check that the address is a routecraft ops server of a compatible version.`,
         });
     }
   }
