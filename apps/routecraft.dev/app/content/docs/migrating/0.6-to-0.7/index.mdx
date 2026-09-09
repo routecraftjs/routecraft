@@ -1,0 +1,344 @@
+---
+title: Migrating from 0.6.x to 0.7.0
+---
+
+<Lead>
+What changed between Routecraft 0.6.0 and 0.7.0, and how to update.
+</Lead>
+
+0.7.0 is the durable release. A capability can park mid-pipeline and continue days later from another transport, an agent can do the same in the middle of a conversation, and a running instance can be driven, watched and reached over HTTP: from a terminal, from an editor, or from another instance. Almost all of that is additive. What follows is every change that can break a 0.6 project, in the order most projects meet them.
+
+1. **Time options lose their `Ms` suffix and take `Duration`.** `intervalMs` is `interval`, `timeoutMs` is `timeout`, and so on; a stale name fails the build with `RC5003` naming the replacement. Numbers keep working, and `'5m'` is now accepted everywhere. [Section 1](#1-time-options).
+2. **Listeners are declared once, under `servers`.** `http.port` / `http.host` and `mcp.port` / `mcp.host` are gone, listener events are renamed, the per-route `http({ auth })` option is removed, and `mcpPlugin` over HTTP needs an explicit `resource.url` in production. [Section 2](#2-servers-and-mounts).
+3. **Suspension.** `.suspend({ expect })` is `.suspend({ schema })`, the acknowledgment drops `question` and `reason`, parks expire by default, and a custom store gains members. [Section 3](#3-suspension).
+4. **Lifecycle.** A context is single-use, `plugin:started` moves to the new `start()` phase, `Route.signal` changes meaning, and shutdown drains before it abandons. [Section 4](#4-lifecycle-and-shutdown).
+5. **Agents and tools.** `currentTime()` and `randomUuid()` are removed, `checkpointId` is `suspensionId`, agent files load by frontmatter name, and `craft chat` is gone. [Section 5](#5-agents-and-tools).
+6. **MCP.** A dropped exchange is an error result, the advertised output schema is enforced, and primitive outputs carry `structuredContent`. [Section 6](#6-mcp).
+7. **The `http()` client.** A 10 MB body cap, a narrower `body` type, and a lower-case `content-type` no longer doubles the header. [Section 7](#7-http-client).
+8. **`forward()` carries the caller's headers**, which a strict target may now reject. [Section 8](#8-forward-carries-headers).
+9. **`html()` text extraction keeps whitespace and escaped markup.** [Section 9](#9-html-text-extraction).
+10. **Smaller breaks.** `timer({ exactTime })` and `timePattern` removed, `ops.auth: false` meaningful, thenable and callable schemas validate, ArkType suspension digests change, `.retry()` reaches continuations. [Section 10](#10-smaller-breaks).
+
+Routes built only from the DSL with framework adapters typically need section 1 (the rename is mechanical, and the build tells you where), section 2 if they serve HTTP or MCP, and section 3 if they suspend. The rest is for adapter authors, store authors and advanced integrations, plus two notes for anyone who ran a 0.7.0 canary ([section 11](#11-canary-only-notes)). [Section 12](#12-what-is-new-in-070) lists what is new, for context.
+
+---
+
+## 1. Time options: the `Ms` suffix is gone \{#1-time-options}
+
+Every option a route author writes that means a span of time now takes `Duration`, which is `number | "5m"`: a bare number is milliseconds, as before, and a string names its unit. The `Ms` suffix came off every such option, because a name ending in `Ms` that accepts `"5m"` lies. Values the framework reports are unchanged: `durationMs` on events, `backoffMs` on `route:retry:attempt` and `ageMs` on ops responses stay millisecond numbers, because they are data rather than configuration.
+
+| Surface | Old | New |
+| --- | --- | --- |
+| `timer()` | `intervalMs` | `interval` |
+| `timer()` | `delayMs` | `delay` |
+| `timer()` | `jitterMs` | `maxJitter` |
+| `cron()` | `jitterMs` | `maxJitter` |
+| `http()` | `timeoutMs` | `timeout` |
+| `mail()` | `pollIntervalMs` | `pollInterval` |
+| `mail({ reconnect })` | `baseDelayMs` | `baseDelay` |
+| `mail({ reconnect })` | `maxDelayMs` | `maxDelay` |
+| `.timeout()` | `.timeout(timeoutMs: number)` | `.timeout(duration: Duration)` |
+| `.delay()` | `.delay(delayMs: number)` | `.delay(duration: Duration)` |
+| `.retry()` | `backoffMs` | `backoff` |
+| `.retry()` | `maxBackoffMs` | `maxBackoff` |
+| `.circuitBreaker()` | `windowMs` | `window` |
+| `.circuitBreaker()` | `cooldownMs` | `cooldown` |
+| `.debounce()` | `waitMs` | `wait` |
+| `.debounce()` | `maxWaitMs` | `maxWait` |
+| `.batch()` | `flushIntervalMs` | `flushInterval` |
+| `.sample()` | `intervalMs` | `interval` |
+| `.cache()` | `ttl: number` | `ttl: Duration` (name unchanged) |
+| `.dedupe()` | `ttl: number` | `ttl: Duration` (name unchanged) |
+| `defineConfig` | `shutdown.timeoutMs` | `shutdown.timeout` |
+| `defineConfig` | `servers.<name>.shutdownGraceMs` | `servers.<name>.shutdownGrace` |
+| `defineConfig` | `telemetry.sqlite.eventFlushIntervalMs` | `telemetry.sqlite.eventFlushInterval` |
+| `defineIndicator` | `maxAgeMs` | `maxAge` |
+| `mcpPlugin` | `restartDelayMs` | `restartDelay` |
+| `mcpPlugin` | `toolRefreshIntervalMs` | `toolRefreshInterval` |
+| `shell()` / `shellPlugin()` | `timeout: number` | `timeout: Duration` (name unchanged) |
+| `@routecraft/testing` | `routesReadyTimeoutMs` | `routesReadyTimeout` |
+| `@routecraft/testing` | `delayBeforeDrainMs` | `delayBeforeDrain` |
+| `.throttle()` | `per: ThrottleTimeUnit` | `per: ThrottleTimeUnit \| Duration` (widened) |
+
+Existing numeric values keep working under every new name, so the migration is a rename and nothing else.
+
+**Before (0.6.x):**
+
+```ts expect-error="the 0.6 option names, which 0.7 refuses at build"
+import { craft, noop, timer } from "@routecraft/routecraft";
+
+craft()
+  .id("poll")
+  .from(timer({ intervalMs: 60_000 }))
+  .retry({ maxAttempts: 3, backoffMs: 1000, maxBackoffMs: 10_000 })
+  .to(noop());
+```
+
+**After (0.7.0):**
+
+```ts
+import { craft, noop, timer } from "@routecraft/routecraft";
+
+craft()
+  .id("poll")
+  .from(timer({ interval: "1m" }))
+  .retry({ maxAttempts: 3, backoff: "1s", maxBackoff: "10s" })
+  .to(noop());
+```
+
+Four things beyond the rename:
+
+- **A stale name is refused at runtime, not only by TypeScript.** `timer({ intervalMs: 60_000 })` from plain JavaScript, through an `as any`, or through an options object spread in used to run silently on the 1000ms default. Every authored options surface now rejects a key ending in `Ms`, the options removed for their own reasons (`timer({ exactTime })`, `timer({ timePattern })`, `retry({ exponential })`), and the name a straight desuffixing would guess (`timer({ jitter })` and `cron({ jitter })`, which point at `maxJitter`), each with `RC5003` naming what to write instead. The context's own config (`shutdown`, each `servers.<name>`, `telemetry.sqlite`) is checked in the constructor.
+- **`jitter` on `timer()` and `cron()` is `maxJitter`**, not the bare `jitter` a straight desuffixing would give: each delay is drawn uniformly from `[0, maxJitter)`, and `.retry({ jitter })` is a fraction in `[0, 1]`, which stays as it was. One name meaning two types on two operations is the defect this change closes.
+- **`.throttle({ per })` accepts a `Duration`.** The unit words keep their meaning, and a bare number is milliseconds as everywhere else a `Duration` is accepted: `per: 60` is a 60ms window. Write `per: "60s"` or `per: "minute"`.
+- **`craft start --timeout` accepts a duration string** (`--timeout 30s`); a bare number is still milliseconds.
+
+## 2. Servers and mounts \{#2-servers-and-mounts}
+
+A listener is declared once under `servers` and selected by name from every surface that serves HTTP: routes, MCP, ACP and the ops surface can share one port on distinct paths, or each gets its own.
+
+**Before (0.6.x):**
+
+```ts expect-error="http.port and mcp.port are removed in 0.7"
+import { defineConfig } from "@routecraft/routecraft";
+import { mcpPlugin } from "@routecraft/ai";
+
+export default defineConfig({
+  http: { host: "0.0.0.0", port: 8080 },
+  plugins: [mcpPlugin({ transport: "http", host: "0.0.0.0", port: 8081 })],
+});
+```
+
+**After (0.7.0):**
+
+```ts
+import { defineConfig } from "@routecraft/routecraft";
+import "@routecraft/ai"; // augments CraftConfig with mcp
+
+export default defineConfig({
+  servers: { public: { host: "0.0.0.0", port: 8080 } },
+  http: { server: "public" },
+  mcp: { server: "public", path: "/mcp" },
+});
+```
+
+Use a separate server name to give any surface a dedicated port. What else changed with it:
+
+- **Listener events are `server:listening`, `server:failed` and `server:closed`**, each carrying the server name. `plugin:http:server:listening` / `plugin:http:server:closed` and `plugin:mcp:server:listening` are removed; subscribe to `server:listening` on the MCP transport's named server instead.
+- **The per-route `http({ auth: "required" | "optional" | "skip" })` option is removed.** A mount decides authentication: `http: { mounts: { api: { path: "/api" }, public: { path: "/", auth: false } } }` walls `/api` under the server validator while the catch-all stays open, and a route picks a surface with `http({ mount: "api", path: "/orders" })`. A route on an open mount that needs identity declares `.authorize()`, which forces verification through the server validator. The former `"optional"` personalisation mode has no equivalent.
+- **One `auth` vocabulary on every mount.** Unset inherits the server validator as a wall when one exists; a config is the mount's own wall; `false` removes the wall and keeps the inherited validator reachable, so a route's `.authorize()` still pulls identity through it. On the MCP mount `auth: false` no longer means "credentials are never inspected": a valid token attaches a principal to tool calls and an invalid one is treated as absent. `serverAuthConfigured` is removed from `WebIngress` and `HttpMountContext` in favour of the resolved `HttpMountAuth` facts (`configured`, `own`, `optedOut`, `walled`).
+- **`server` is a mount property on http.** Each entry under `mounts` names its own listener (default `"default"`); the plugin's top-level `server` remains only as the single-mount shorthand and is refused alongside `mounts`.
+- **`mcpPlugin({ transport: "http" })` requires an explicit HTTPS `resource.url`** unless `NODE_ENV` is exactly `development` or `test`; an unset `NODE_ENV` counts as production. Previously an omitted `resource.url` silently advertised the bound address.
+- **`auth:rejected` reasons are one bounded vocabulary** (`invalid_token`, `unsupported_scheme`, `infrastructure`, `expired`, `insufficient_scope`), the missing-credential reason is `missing_header`, and both `auth:rejected` and `auth:success` carry `source` as `http`, `http:<name>` or `mcp`. A bearer verification that fails on the server side (JWKS unreachable) answers `500` rather than `401`, so a client keeps its cached token through an IdP blip.
+- **Mount paths are static canonical prefixes**: no `?`, `#`, `:param` segments, empty segments or percent-encoding. `mcpPlugin({ path })` is held to the same contract and rejects `"/"`, which was previously remapped to `/mcp`. The validator is exported as `normalizeStaticPathPrefix`.
+- **Listeners reap idle connections after 255s**, tunable per server with `idleTimeout` (refused above 255s rather than clamped, because Bun caps it there). Mounts that hold quiet long-lived streams exempt their requests, and `maxStreamingRequests` (default 500) caps the streams one listener carries.
+- **A declared server with nothing mounted fails the boot**, naming every mount and where it landed, so a plugin that failed to apply is told apart from a misspelt server name.
+
+## 3. Suspension \{#3-suspension}
+
+### 3.1 `expect` is `schema`, and it is optional
+
+**Before (0.6.x):**
+
+```ts expect-error="suspend took expect in 0.6; 0.7 takes schema"
+import { craft, direct, noop } from "@routecraft/routecraft";
+import { z } from "zod";
+
+craft()
+  .id("payout")
+  .from(direct())
+  .suspend({ expect: z.object({ approved: z.boolean() }) })
+  .to(noop());
+```
+
+**After (0.7.0):**
+
+```ts
+import { craft, direct, noop } from "@routecraft/routecraft";
+import { z } from "zod";
+
+craft()
+  .id("payout")
+  .from(direct())
+  .suspend({ schema: z.object({ approved: z.boolean() }) })
+  .to(noop());
+```
+
+The rename carries through `ctx.suspend()` in an agent tool, `SuspendError`, `testFn`'s structural suspend, the `Suspended` acknowledgment's wire field, the stored record, and `describeExpect`, which is `describeSchema`. A site that declares no `schema` parks with no contract, validates nothing at the resume ingress, and types `ex.suspension.result` as `unknown`. The SQLite store migrates itself.
+
+### 3.2 The acknowledgment carries the contract and nothing else
+
+`Suspended` no longer carries `question` or `reason`, and neither suspend surface accepts them. The acknowledgment is `{ status, suspensionId, token, schema?, expiresAt? }`: it crosses the wire to whoever called the route, so it carries the contract, while everything policy-shaped lives on the record where only the resume hook and an operator can read it. Put what you carried there into `.suspend({ meta })`, which is persisted verbatim and handed to `.resume({ authorize })`, or send it through the notification step that already runs before the park.
+
+### 3.3 Parks expire by default
+
+Omitting `ttl` used to mean no expiry. It now means the context's `defaultTtl`, which is `72h`; an overdue park is retired by a sweeper that emits `route:exchange:expired` and re-enters the route's error channel with `RC5047`, and scans at startup before the context reports ready. Settled records are purged after `retention` (default `90d`). A deployment relying on parks that live indefinitely sets both explicitly:
+
+```ts
+import { defineConfig } from "@routecraft/routecraft";
+
+export default defineConfig({
+  suspension: { defaultTtl: "never", retention: "never" },
+});
+```
+
+### 3.4 A custom `SuspensionStore` gains members
+
+The two shipped backends (`memory` and `sqlite`) already carry them; a store of your own has to add:
+
+- `findExpired(now, limit, after?)`: a required limit and an optional keyset cursor, ordered by `(expiresAt, id)`.
+- `claimExpiry(id, at)` and `releaseExpiring(before)`: expiry is claim, notify, finalize, so a crash mid-delivery is redelivered. `SuspensionStatus` gains `"expiring"` and records gain `claimedAt`; `markExpired` and `markDenied` now finalize from `expiring`.
+- `resumedWithoutTerminal(limit?)`: diagnostic-only, required.
+- `replaceStepState(id, fingerprint, next)`: a compare-and-swap on the opaque `stepState` slot of a record that is still parked, which is what agent compaction uses.
+- `settledAt` on every terminal transition, which is what retention now measures from.
+
+The SQLite store migrates its schema on open (versions 2 to 4).
+
+### 3.5 Continuations honour the filter chain
+
+A resumed continuation ran under a definition with empty filter arrays, so `.concurrency()`, `.retry()` and `.timeout()` did not apply to execution two. They do now. **A route that declares route-scope `.retry()` alongside `.suspend()` gains at-least-once execution of the steps after the park**, with no opt-in, so make those steps idempotent or move a side effect a downstream cannot absorb twice behind a step-scope wrapper. `authorize`, `parse`, `input`, `throttle`, `circuitBreaker` and `cache` stay off on a resume, each for a reason recorded on the [filter chain page](/docs/advanced/filter-chain).
+
+### 3.6 Securing resume
+
+Not a break, but the thing most suspending routes want next: `.resume({ authorize })` is one hook receiving `{ principal, parked, payload, record }`, refusing before the single-use link is spent and before the record's state is disclosed. With no hook the door stays bearer, exactly as in 0.6. Per-call credentials for a parallel tool batch come from `ex.suspension.tokenFor(call)`. See the [resume reference](/docs/reference/operations/resume).
+
+## 4. Lifecycle and shutdown \{#4-lifecycle-and-shutdown}
+
+- **A context is single-use.** `context.start()` after `context.stop()` refuses with `RC1004` instead of resolving readiness over routes whose controllers are gone. Build a fresh context from your config; the process is the restart unit, and `craft run` already behaves this way. Two concurrent `start()` calls collapse into one boot.
+- **`context.stop()` resolves `{ forced, pending }`** instead of `void`, and `context:stopped` carries the same payload. A clean stop reports `forced: false` and an empty `pending`; an `await context.stop()` call site is unaffected, and a handler typed against the old empty payload keeps compiling.
+- **`plugin:started` moves.** Plugins gain a `start()` phase between `apply` and `teardown`, running after every route has signalled readiness. The apply-phase events are `plugin:applying` / `plugin:applied`; `plugin:starting` / `plugin:started` bracket the new phase, so a subscriber to `plugin:started` keeps compiling and firing, later than before. `CraftContext.whenStarted()` resolves once every hook has finished, which is what `startAndWaitReady()` awaits.
+- **`teardown` takes a second argument, `{ partial, started }`.** Additive: `partial` says the context never finished starting, `started` says whether this plugin's own `start()` ran.
+- **`Route.signal` means "in-flight work is abandoned".** It used to fire at the start of shutdown; that meaning moved to the new `Route.intakeSignal`. Code that read `route.signal` to notice a shutdown keeps compiling and silently stops reacting to a graceful one: read `route.intakeSignal`. An out-of-repo implementation of `Route` must add `intakeSignal`, `abortExecution()` and `inFlightCount`.
+- **Shutdown drains.** The first signal closes intake and lets in-flight exchanges finish; only the forced stage abandons them, at `shutdown.timeout` (default 30s; set it below your platform's kill timer). At the deadline one warn line names the routes still working, execution is abandoned, and the process exits non-zero. A non-positive or non-finite `shutdown.timeout` is refused with `RC5058`. A route disabled at runtime drains the same way, bounded by `.enabled({ drainGrace })`.
+- **A lifecycle hook must not `await` its own `ctx.stop()`**: shutdown now waits for an in-flight `apply()` or `start()` before teardown, so the awaited form waits for itself. `throw` to abort the boot, or call `ctx.stop()` without awaiting it.
+- **`route:started` fires earlier for a callable source**, when the route invokes the callable rather than on its first message, so a quiet polling route no longer delays readiness by the 30s backstop.
+- **A context whose routes are all disabled no longer auto-stops**, because a disabled route has not completed.
+
+## 5. Agents and tools \{#5-agents-and-tools}
+
+### 5.1 `currentTime()` and `randomUuid()` are removed
+
+Both were fn factories you assigned a tool name in `agentPlugin({ functions })`. Declare the fn inline under the same name and every `tools([...])` reference keeps working:
+
+**Before (0.6.x):**
+
+```ts expect-error="the currentTime factory is removed in 0.7"
+import { agentPlugin, currentTime } from "@routecraft/ai";
+
+agentPlugin({ functions: { CurrentTime: currentTime() } });
+```
+
+**After (0.7.0):**
+
+```ts
+import { agentPlugin } from "@routecraft/ai";
+import { z } from "zod";
+
+agentPlugin({
+  functions: {
+    CurrentTime: {
+      description: "Current date and time in ISO 8601.",
+      input: z.object({}),
+      handler: () => new Date().toISOString(),
+      tags: ["read-only", "idempotent"],
+    },
+  },
+});
+```
+
+The `randomUuid()` replacement is the same shape with `handler: () => crypto.randomUUID()` and `tags: ["read-only"]`. `directTool()` is now the only fn builder the framework ships.
+
+### 5.2 `FnHandlerContext`
+
+`checkpointId` is renamed `suspensionId`, and `suspend` is a required member, so a hand-built handler context must provide one. `makeFnHandlerContext` and `testFn` both do, and `@routecraft/testing`'s `TestFnHandlerContext` includes a structural `suspend` that returns the sentinel shape without parking anything.
+
+### 5.3 Agent files
+
+`agents()` walks the `agents/` folder recursively, matching Claude Code's subagent convention, and an agent's identity is its frontmatter `name`: the filename no longer has to match, so nothing that loaded before stops loading. Three things can: **duplicate names throw**, naming both files; a directory holding `AGENT.md` is one agent and its `name` must match the directory; and **`skills:` frontmatter has new semantics**, declaring where an agent's skills come from (local paths, `npm:` refs) rather than naming blocks, which is what the key removed in 0.6 did. `disallowedTools` without `tools` is rejected at load, because a deny list against inherited defaults cannot be honoured.
+
+### 5.4 `craft chat` is removed
+
+With no shim, alias or pointer. The interactive interface is an editor speaking the Agent Client Protocol: `craft acp` is the bridge, and `acp:` on `defineConfig` serves it. See [talk from your editor](/docs/advanced/talk-from-your-editor).
+
+## 6. MCP \{#6-mcp}
+
+- **A route that drops the exchange answers an error result.** A `.filter()` rejecting, a `.choice()` matching no branch or a handler returning `recovery.drop()` used to publish the caller's own request as the tool's result. Such a call is now `isError: true` under `AI2002`, emits `plugin:mcp:tool:declined` and logs at warn; `plugin:mcp:tool:failed` keeps meaning a failure. A route that should return a value on that path needs a branch that produces one, or `.error()` recovering with a body.
+- **The advertised `outputSchema` is enforced.** A body the route's own `.output()` already validated is not re-checked; a result that reached the server without passing through it (a tool registered directly, a suspension) is validated at the surface and refused with `AI2001` if it contradicts the promise. `validateAgainst` and `wasOutputValidated` are exported for any request/reply adapter enforcing a schema at its own boundary.
+- **Primitive and array outputs carry `structuredContent`.** A tool declaring `.output({ body: z.string() })` used to advertise a schema and then omit `structuredContent`, which a spec-compliant client rejects. The value is now published in the envelope the protocol era expects (`{"result": "42.50"}` on the 2025 era, unwrapped on 2026). A client reading only the text block sees no change; an object output is byte-identical. A suspending tool advertises `oneOf: [Output, Suspended]` and its park emits `plugin:mcp:tool:suspended` rather than `completed`.
+- **`McpIcon.sizes` is `readonly string[]`**, and the default icon set gains a 96x96 PNG per theme, growing from 772 B to 3840 B per inheriting tool; `icons: []` opts out.
+- **`mcpPlugin({ auth: false })`** now attaches a principal when a valid token is presented, per the mount vocabulary in section 2.
+
+## 7. The `http()` client \{#7-http-client}
+
+- **The response body is capped at 10 MB.** A declared `Content-Length` above the cap is refused before the body is read; otherwise the count is checked as bytes arrive. Exceeding it fails with `RC5061` naming the option and the size; the body is never truncated to fit. Raise `maxBodySize` on a call that legitimately moves more, or pass `Infinity` to opt out.
+- **`body` is typed as `HttpRequestPayload`** (string, number, boolean, null, object, `Uint8Array`, `ArrayBuffer`, `URLSearchParams`, `FormData`). In practice only `bigint` and `symbol` bodies stop compiling, and in exchange `body: (ex) => ...` gets `ex` typed as the route's exchange with no annotation.
+- **A lower-case `content-type` header no longer doubles up.** The client used to add `Content-Type: application/json` when it found no header spelled exactly that way.
+- New and additive: `redirect: "follow" | "manual" | "error"` (a 3xx under `"manual"` does not trip `throwOnHttpError`; `isRedirect` is exported) and `responseBody: "bytes"` for a `Uint8Array` that arrives intact.
+
+## 8. `forward()` carries the caller's headers \{#8-forward-carries-headers}
+
+`forward()` built the forwarded exchange with no headers, so a target's `.authorize()` refused it with `RC5012` or ran it with no authority at all, and the correlation chain broke at the boundary. It now passes the caller's headers by reference, which brings it to parity with a `direct()` destination. Two consequences to check:
+
+- A target route with a strict `.input({ headers })` schema now sees the caller's headers and may reject a forward that previously passed.
+- Forwarding a principal whose `expiresAt` has passed surfaces the expiry error rather than `RC5012`.
+
+Every route ingress now mints a fresh `routecraft.id` rather than inheriting one, and drops `routecraft.split_hierarchy`, so a forwarded or `direct()`-dispatched exchange never collides with its caller in a store keyed by exchange id or joins the caller's aggregation. `Route.getForward()` (internal) takes the calling exchange as a required argument.
+
+## 9. `html()` text extraction \{#9-html-text-extraction}
+
+`extract: "text"`, `"innerText"` and `"textContent"` no longer run a tag-stripping regex over text cheerio had already decoded. Two things change, on every role that extracts:
+
+- **Whitespace inside the match survives.** Only the ends are trimmed, per matched element, so a `<pre>` keeps its newlines and ordinary page indentation is no longer flattened to single spaces.
+- **Escaped markup survives.** `Array&lt;string&gt;` extracts as `Array<string>` rather than `Array`. The value is decoded and unsanitised, so escape it at the sink before writing extracted text into HTML or a line-structured format.
+
+You are affected if a route compares extracted text to a literal, keys or hashes on it, validates it against a schema, or writes it to a line-oriented sink. Collapse in the route where you want the old shape:
+
+```ts
+import { craft, direct, html, noop } from "@routecraft/routecraft";
+
+craft()
+  .id("card-text")
+  .from(direct())
+  .transform(html<unknown, string>({ selector: ".card", extract: "text" }))
+  .transform((text) => text.replace(/\s+/g, " "))
+  .to(noop());
+```
+
+`<style>` and `<script>` subtrees are still removed. `extract: "html"`, `"outerHtml"` and `"attr"` are unchanged.
+
+## 10. Smaller breaks \{#10-smaller-breaks}
+
+- **`timer({ exactTime })` and `timer({ timePattern })` are removed.** `timePattern` was never read; `exactTime` anchored only the first fire and then ran on `interval`. Use `cron("0 9 * * *", { timezone: "Europe/Amsterdam" })`, which pulls the `croner` optional peer.
+- **`ops.auth: false` is no longer refused.** It carries the server plugin's meaning: no validator is effective for the ops mount, the `health.details` gate closes, and a scope-gated tier has nothing to check against and fails the boot.
+- **A schema whose `validate()` returns a thenable now validates** instead of passing the caller's input back as accepted. A body such a schema rejects now fails with `RC5002`; a schema that never settles hangs the validation instead of silently passing, and nothing bounds that wait. A `validate()` returning a non-record fails with a message instead of crashing.
+- **Callable schemas (ArkType) are accepted** wherever the framework asks "is this a Standard Schema", and a suspension parked under one now hashes its rendered JSON Schema. **The digest changes for ArkType only**: an ArkType park from before the upgrade resumes into `RC5048` (continuation changed), is denied, and re-asks its approver. Settle or drain those before upgrading if a re-ask is disruptive. Zod digests are byte-identical.
+- **The suspension park counter refuses corruption** with `RC5057` instead of resetting to zero, which could have re-derived an id an earlier park already used.
+- **An event handler returning a bare thenable** is no longer logged as having thrown.
+- **`@routecraft/testing`'s `startAndWaitReady()`** no longer rejects when a startup exchange fails while another source is still coming up, and its readiness gate settles a route that starts or is disabled.
+- **`apiKey()` gains `scopes`** and is refused alongside `verify`; `apiKey({ scheme })` was already removed in 0.6.
+
+## 11. Canary-only notes \{#11-canary-only-notes}
+
+Nothing released is affected by these; they matter only if you ran a `0.7.0-canary-*` build.
+
+- The `surface()` params callback no longer takes `sessionId`; remove the `sessionId: ''` placeholder from every callback. The adapter fills in the running turn's session.
+- The SQLite session schema is version 2 and keyed by session id alone. A database written by a canary or a recent `main` checkout loses its stored conversations on first open.
+- `startedBy` on the `agent-sessions` management resource is `owner`.
+- `sessions: { store }` and `suspension: { store }` resolving to the same file are refused at boot, naming both settings, and every SQLite file carries the identity of the store that owns it.
+
+## 12. What is new in 0.7.0 \{#12-what-is-new-in-070}
+
+For context, no migration required:
+
+- **Durable suspend and resume.** [`.suspend()`](/docs/reference/operations/suspend), [`.resume()`](/docs/reference/operations/resume), the suspension store with signed tokens, the sweeper, `.resume({ authorize })`, `meta`, `tokenFor`, and re-entrant suspend sites for adapters that park mid-step.
+- **Durable agents and sessions.** `ctx.suspend()` inside a tool parks the loop; `agent(name, { session })` keeps a transcript with an inbox, one turn at a time, `interrupt: true`, and `directTool(id, { background: true })` for work that outlasts a turn. See [durable agents](/docs/advanced/durable-agents) and the [agent adapter](/docs/reference/adapters/agent).
+- **Talk to an agent from your editor.** `acp:` on `defineConfig`, `craft acp`, profiles, the model and thinking-level pickers, and the [`surface()`](/docs/reference/adapters/surface) adapter for a capability that reaches the editor. See [talk from your editor](/docs/advanced/talk-from-your-editor).
+- **The ops surface.** Health, readiness, indicators, the management API, contributed resources and the event tail, behind scope-gated tiers. See the [ops plugin](/docs/reference/plugins/opsplugin).
+- **Remotes.** Another instance's dispatchable routes as direct endpoints. See the [remotes plugin](/docs/reference/plugins/remotesplugin).
+- **The project runtime.** `craft start` boots a project from its layout, Claude Code agent files load unchanged, `registerProjectDiscoverer` lets a package claim a folder. See [project structure](/docs/introduction/project-structure) and the [CLI reference](/docs/reference/cli).
+- **`.enabled()`**, `authorize({ anyScope, effective })`, `direct({ internal: true })`, RFC 9728 discovery on every http surface, `timingSafeStringEqual`, `isStandardSchema`, `validateAgainst`, `isDropped`, `parseDuration`, `anySignal`.
+- **The `http()` source**: Server-Sent Events and streaming bodies, `respond` for early acknowledgment, the Standard Webhooks signature scheme, `maxStreamingRequests` and `idleTimeout`. **The `http()` client**: `redirect`, `responseBody: "bytes"`.
+- **`shell()`** in `@routecraft/os`, isolated by default, with the `docker` tier; the `require-untrusted-shell-args` lint rule.
+- **Model controls**: `reasoning`, `providerOptions`, the sampling block on `agent()`, content parts in the user prompt, `agent({ stream: true })`, typed prompt callbacks.
+- **MCP**: default icons with a PNG per theme, `plugin:mcp:tool:declined` and `plugin:mcp:tool:suspended`.
+- **New error codes**: `RC1004`, `RC5040` to `RC5064`, `AI1004` to `AI1019`, `AI2001` and `AI2002`, `OS1001` and `OS1004`. See the [errors reference](/docs/reference/errors).
