@@ -579,6 +579,62 @@ describe("remotes", () => {
   });
 
   /**
+   * @case A shadowing local route disabled by `.enabled()` hands the endpoint to the remote route, and takes it back when re-enabled
+   * @preconditions A local `hello` with an `.enabled()` predicate beside the default remote's `hello`
+   * @expectedResult Enabled, the local route answers and the capability is local. Disabled through `reevaluateEnablement`, the capability carries `remote: "default"`, the listing shows the imported route, and a send reaches the remote: a disabled local route must not hide the remote route that shares its id, on the tool surface or at the door. Re-enabled, the local route wins again
+   */
+  test("hands a shadowed endpoint to the remote route while the local route is disabled", async () => {
+    server = await startServer();
+    const url = `http://127.0.0.1:${String(server.port)}`;
+    let on = true;
+    local = await startLocal({
+      remotes: { default: { url, auth: { token: operator } } },
+      routes: [
+        craft()
+          .id("hello")
+          .description("The local greeter")
+          .enabled(() => (on ? true : "switched off"))
+          .input({ body: z.object({ name: z.string() }) })
+          .from(direct())
+          .transform(() => ({ greeting: "local" }))
+          .to(noop()),
+      ],
+    });
+    const capability = () =>
+      local!.t.ctx.capabilities().find((c) => c.endpoint === "hello");
+    expect(capability()?.remote).toBeUndefined();
+    expect(await send("hello", { name: "x" })).toEqual({ greeting: "local" });
+
+    on = false;
+    await local.t.ctx.reevaluateEnablement("hello");
+    await until(
+      () => capability()?.remote === "default",
+      "the remote route to take the endpoint",
+    );
+    expect(await send("hello", { name: "x" })).toEqual({
+      greeting: "hello x",
+    });
+    const listing = await call<OpsPage<OpsRouteSummary>>(
+      local.port,
+      "/ops/routes?id=hello",
+    );
+    expect(listing.body.items).toHaveLength(1);
+    expect(listing.body.items[0]).toMatchObject({
+      id: "hello",
+      sources: ["remote"],
+      remote: "default",
+    });
+
+    on = true;
+    await local.t.ctx.reevaluateEnablement("hello");
+    await until(
+      () => capability()?.remote === undefined,
+      "the local route to take the endpoint back",
+    );
+    expect(await send("hello", { name: "x" })).toEqual({ greeting: "local" });
+  });
+
+  /**
    * @case A connection lost after the request was sent is not retryable; one that never opened is
    * @preconditions A stand-in remote that lists one route and, on dispatch, reads the body and drops the socket without answering; then the same remote gone entirely
    * @expectedResult The dropped dispatch is `RC5062` with `retryable: false` and a message saying the remote may have received the request; the dispatch against the closed port is `RC5062` with `retryable: true`. A route that may already have run must not be retried by the framework's default policy

@@ -605,12 +605,18 @@ function sanitizeWire(wire: WireError): WireError {
  * resolve. Node reports them on the cause of `fetch failed`, Bun on the
  * error itself under its own names. Anything else is treated as possibly
  * delivered, which is the safe reading for a request that may run work.
+ *
+ * `ETIMEDOUT` is deliberately absent: Node raises it for a connect that
+ * never completed and for a socket that went quiet after the request was
+ * written, and the code alone cannot tell the two apart. undici's own
+ * connect timeout has its own code and is listed.
  */
 const NEVER_CONNECTED = new Set([
   "ECONNREFUSED",
   "EHOSTUNREACH",
   "ENETUNREACH",
   "EADDRNOTAVAIL",
+  "UND_ERR_CONNECT_TIMEOUT",
   "ENOTFOUND",
   "EAI_AGAIN",
   "EAI_NONAME",

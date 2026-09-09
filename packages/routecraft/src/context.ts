@@ -1146,9 +1146,17 @@ export class CraftContext {
     // offered to the model rather than being offered and failing on call.
     // A route disabled at boot never subscribed and so never registered
     // here at all; this covers the route disabled AFTER it started, whose
-    // registry entry outlives the transition.
+    // registry entry outlives the transition. A capability imported from
+    // another instance is that instance's to enable: it shares an id with
+    // a local route only while it holds the endpoint the local route gave
+    // up, and filtering it on the local predicate would hide the one that
+    // answers.
     return [...registry.values()]
-      .filter((capability) => this.enablement.isEnabled(capability.endpoint))
+      .filter(
+        (capability) =>
+          capability.remote !== undefined ||
+          this.enablement.isEnabled(capability.endpoint),
+      )
       .map(snapshotCapability);
   }
 
