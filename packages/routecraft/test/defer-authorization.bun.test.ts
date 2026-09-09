@@ -81,7 +81,9 @@ describe("the resume authorize hook", () => {
       token: deferred.token,
     })) as { status: string };
     expect(ack.status).toBe("resumed");
-    expect((await store.get(deferred.deferralId))?.status).toBe("resumed");
+    expect((await store.get(deferred.deferralId))?.outcome?.kind).toBe(
+      "resumed",
+    );
   });
 
   /**
@@ -116,9 +118,9 @@ describe("the resume authorize hook", () => {
     ).rejects.toThrow(/refused this principal/);
 
     const untouched = await store.get(deferred.deferralId);
-    expect(untouched?.status).toBe("deferred");
+    expect(untouched?.state).toBe("waiting");
     expect(untouched?.claimedAt).toBeUndefined();
-    expect(untouched?.deniedReason).toBeUndefined();
+    expect(untouched?.outcome?.reason).toBeUndefined();
 
     const ack = (await t.client.sendDirect("answers", {
       who: "alice",
@@ -158,7 +160,9 @@ describe("the resume authorize hook", () => {
       who: "alice",
       token: deferred.token,
     });
-    expect((await store.get(deferred.deferralId))?.status).toBe("resumed");
+    expect((await store.get(deferred.deferralId))?.outcome?.kind).toBe(
+      "resumed",
+    );
 
     // Alice would now read `duplicate`. Bob must not learn even that much.
     await expect(
@@ -199,12 +203,10 @@ describe("the resume authorize hook", () => {
       ...record,
       id: `${record.id}-edited`,
       continuationHash: "0".repeat(64),
-      status: undefined,
-      terminal: undefined,
-      resumedAt: undefined,
-      resumedBy: undefined,
+      state: undefined,
+      outcome: undefined,
+      continuation: undefined,
       claimedAt: undefined,
-      deniedReason: undefined,
     } as never);
     const runtime = t.ctx.getStore(DEFERRAL_RUNTIME)!;
     const token = runtime.signer.mint(`${record.id}-edited`);
@@ -213,15 +215,17 @@ describe("the resume authorize hook", () => {
       t.client.sendDirect("answers", { who: "bob", token }),
     ).rejects.toThrow(/refused this principal/);
     const untouched = await store.get(`${record.id}-edited`);
-    expect(untouched?.status).toBe("deferred");
-    expect(untouched?.deniedReason).toBeUndefined();
+    expect(untouched?.state).toBe("waiting");
+    expect(untouched?.outcome?.reason).toBeUndefined();
     expect(untouched?.claimedAt).toBeUndefined();
 
     // Only a caller the hook accepted may settle it.
     await expect(
       t.client.sendDirect("answers", { who: "alice", token }),
     ).rejects.toMatchObject({ rc: "RC5048" });
-    expect((await store.get(`${record.id}-edited`))?.status).toBe("denied");
+    expect((await store.get(`${record.id}-edited`))?.outcome?.kind).toBe(
+      "denied",
+    );
   });
 
   /**
@@ -259,7 +263,9 @@ describe("the resume authorize hook", () => {
     const deferred = asDeferred(await t.client.sendDirect("payout", {}));
     await t.client.sendDirect("answers", { token: deferred.token });
     expect(ran).toEqual([{ approved: true }]);
-    expect((await store.get(deferred.deferralId))?.status).toBe("resumed");
+    expect((await store.get(deferred.deferralId))?.outcome?.kind).toBe(
+      "resumed",
+    );
   });
 
   /**
@@ -288,12 +294,10 @@ describe("the resume authorize hook", () => {
       ...record,
       id: `${record.id}-bound`,
       callBinding: "call-winner",
-      status: undefined,
-      terminal: undefined,
-      resumedAt: undefined,
-      resumedBy: undefined,
+      state: undefined,
+      outcome: undefined,
+      continuation: undefined,
       claimedAt: undefined,
-      deniedReason: undefined,
     } as never);
     const runtime = t.ctx.getStore(DEFERRAL_RUNTIME)!;
     const winner = runtime.signer.mint(
@@ -308,7 +312,9 @@ describe("the resume authorize hook", () => {
     );
 
     await t.client.sendDirect("answers", { token: winner });
-    expect((await store.get(`${record.id}-bound`))?.status).toBe("resumed");
+    expect((await store.get(`${record.id}-bound`))?.outcome?.kind).toBe(
+      "resumed",
+    );
 
     // The winner would now read `duplicate`. The loser must not learn that.
     await expect(
@@ -343,12 +349,10 @@ describe("the resume authorize hook", () => {
       id: `${record.id}-bound`,
       callBinding: "call-winner",
       continuationHash: "0".repeat(64),
-      status: undefined,
-      terminal: undefined,
-      resumedAt: undefined,
-      resumedBy: undefined,
+      state: undefined,
+      outcome: undefined,
+      continuation: undefined,
       claimedAt: undefined,
-      deniedReason: undefined,
     } as never);
     const runtime = t.ctx.getStore(DEFERRAL_RUNTIME)!;
     const loser = runtime.signer.mint(
@@ -366,14 +370,16 @@ describe("the resume authorize hook", () => {
       t.client.sendDirect("answers", { token: loser }),
     ).rejects.toMatchObject({ rc: "RC5055" });
     const untouched = await store.get(`${record.id}-bound`);
-    expect(untouched?.status).toBe("deferred");
-    expect(untouched?.deniedReason).toBeUndefined();
+    expect(untouched?.state).toBe("waiting");
+    expect(untouched?.outcome?.reason).toBeUndefined();
     expect(untouched?.claimedAt).toBeUndefined();
 
     await expect(
       t.client.sendDirect("answers", { token: winner }),
     ).rejects.toMatchObject({ rc: "RC5048" });
-    expect((await store.get(`${record.id}-bound`))?.status).toBe("denied");
+    expect((await store.get(`${record.id}-bound`))?.outcome?.kind).toBe(
+      "denied",
+    );
   });
 
   /**
@@ -819,7 +825,7 @@ describe("the deferred answer schema", () => {
         result: "not an approval object at all",
       }),
     ).rejects.toMatchObject({ rc: "RC5056" });
-    expect((await store.get(deferred.deferralId))?.status).toBe("deferred");
+    expect((await store.get(deferred.deferralId))?.state).toBe("waiting");
 
     // The same malformed payload from the principal the hook accepts DOES
     // reach the validator, which is what proves the refusal above was the
@@ -831,7 +837,7 @@ describe("the deferred answer schema", () => {
         result: "not an approval object at all",
       }),
     ).rejects.toMatchObject({ rc: "RC5049" });
-    expect((await store.get(deferred.deferralId))?.status).toBe("deferred");
+    expect((await store.get(deferred.deferralId))?.state).toBe("waiting");
   });
 
   /**
@@ -861,13 +867,15 @@ describe("the deferred answer schema", () => {
         result: { approved: "yes please" },
       }),
     ).rejects.toMatchObject({ rc: "RC5049" });
-    expect((await store.get(deferred.deferralId))?.status).toBe("deferred");
+    expect((await store.get(deferred.deferralId))?.state).toBe("waiting");
 
     await t.client.sendDirect("approvals", {
       token: deferred.token,
       result: { approved: true },
     });
-    expect((await store.get(deferred.deferralId))?.status).toBe("resumed");
+    expect((await store.get(deferred.deferralId))?.outcome?.kind).toBe(
+      "resumed",
+    );
   });
   /**
    * @case tokenFor refuses to mint an unbound credential for an untyped caller

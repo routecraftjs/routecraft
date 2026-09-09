@@ -62,6 +62,7 @@ function overdue(
       headers: { "routecraft.id": id, "routecraft.route": "payout" },
     },
     schema: { hash: "e".repeat(64) },
+    waitingFor: "resume",
     deferredAt: new Date(now - 60_000),
     expiresAt: new Date(now - 1_000),
     ...overrides,
@@ -159,15 +160,15 @@ describe("the deferral sweeper", () => {
     // scheduling detail; that exactly one of them lands, and that the other
     // reports it, is the contract. The resume-wins side is forced
     // deterministically by the test below.
-    if (record?.status === "resumed") {
+    if (record?.outcome?.kind === "resumed") {
       expect(swept.status === "fulfilled" && swept.value).toBe(0);
       expect(expiredEvents).toHaveLength(0);
       expect(reasked).toHaveLength(0);
       expect(continued).toHaveLength(1);
       expect(resumed.status).toBe("fulfilled");
-      expect(record.terminal?.status).toBe("completed");
+      expect(record.continuation?.status).toBe("completed");
     } else {
-      expect(record?.status).toBe("expired");
+      expect(record?.outcome?.kind).toBe("expired");
       expect(swept.status === "fulfilled" && swept.value).toBe(1);
       expect(expiredEvents).toHaveLength(1);
       expect(reasked).toHaveLength(1);
@@ -244,16 +245,18 @@ describe("the deferral sweeper", () => {
     const acknowledgment = (await t.client.sendDirect("answers", {
       token: deferred.token,
       result: { approved: true },
-    })) as { status: string; outcome: { status: string } };
+    })) as { status: string; continuation: { status: string } };
     releaseSweep();
 
     expect(await sweeping).toBe(0);
     expect(acknowledgment.status).toBe("resumed");
-    expect(acknowledgment.outcome.status).toBe("completed");
+    expect(acknowledgment.continuation.status).toBe("completed");
     expect(continued).toHaveLength(1);
     expect(expiredEvents).toHaveLength(0);
     expect(reasked).toHaveLength(0);
-    expect((await store.get(deferred.deferralId))?.status).toBe("resumed");
+    expect((await store.get(deferred.deferralId))?.outcome?.kind).toBe(
+      "resumed",
+    );
   });
 
   /**
@@ -335,7 +338,7 @@ describe("the deferral sweeper", () => {
     expect(await sweeper.sweep()).toBe(3);
 
     for (const id of ["sus-a", "sus-b", "sus-c"]) {
-      expect((await store.get(id))?.status).toBe("expired");
+      expect((await store.get(id))?.outcome?.kind).toBe("expired");
     }
     // Non-vacuous: the handler ran for all three and threw every time, so
     // the batch survived a failing re-ask rather than never reaching one.
@@ -377,9 +380,9 @@ describe("the deferral sweeper", () => {
     const sweeper = new DeferralSweeper(t.ctx, store, sweeperOptions);
     expect(await sweeper.sweep()).toBe(2);
 
-    expect((await store.get("sus-a"))?.status).toBe("expired");
-    expect((await store.get("sus-b"))?.status).toBe("deferred");
-    expect((await store.get("sus-c"))?.status).toBe("expired");
+    expect((await store.get("sus-a"))?.outcome?.kind).toBe("expired");
+    expect((await store.get("sus-b"))?.state).toBe("waiting");
+    expect((await store.get("sus-c"))?.outcome?.kind).toBe("expired");
     const failedRetirement = said(
       t.contextLogger.error.mock.calls,
       "Failed to retire",
@@ -412,7 +415,7 @@ describe("the deferral sweeper", () => {
     const sweeper = new DeferralSweeper(t.ctx, store, sweeperOptions);
     expect(await sweeper.sweep()).toBe(0);
 
-    expect((await store.get("sus-ghost"))?.status).toBe("deferred");
+    expect((await store.get("sus-ghost"))?.state).toBe("waiting");
     const missingRoute = said(
       t.contextLogger.warn.mock.calls,
       "which this context does not have",
@@ -464,8 +467,8 @@ describe("the deferral sweeper", () => {
     ]);
 
     expect(outcome).toBe(1);
-    expect((await store.get("sus-live"))?.status).toBe("expired");
-    expect((await store.get("ghost-0"))?.status).toBe("deferred");
+    expect((await store.get("sus-live"))?.outcome?.kind).toBe("expired");
+    expect((await store.get("ghost-0"))?.state).toBe("waiting");
   }, 10_000);
 
   /**
@@ -495,8 +498,8 @@ describe("the deferral sweeper", () => {
       .build();
     await t.startAndWaitReady();
 
-    expect((await store.get("sus-a"))?.status).toBe("expired");
-    expect((await store.get("sus-b"))?.status).toBe("expired");
+    expect((await store.get("sus-a"))?.outcome?.kind).toBe("expired");
+    expect((await store.get("sus-b"))?.outcome?.kind).toBe("expired");
     expect(reasked).toHaveLength(2);
     const startupScan = said(
       t.contextLogger.info.mock.calls,
@@ -506,8 +509,8 @@ describe("the deferral sweeper", () => {
   });
 
   /**
-   * @case A record left resumed with no terminal outcome by a crash
-   * @preconditions A deferral marked resumed, with no terminal recorded, present at startup
+   * @case A record left resumed with no continuation result by a crash
+   * @preconditions A deferral marked resumed, with no continuation recorded, present at startup
    * @expectedResult The boot summary counts it and the warning says nothing will retry it. A resume wins its transition before the continuation runs, so this record has spent its approval and half applied its side effects: reporting it is the only safe response, and it is the first moment anyone could learn it exists
    */
   test("reports crash residue in the startup summary", async () => {
@@ -537,7 +540,7 @@ describe("the deferral sweeper", () => {
     expect(
       said(t.contextLogger.warn.mock.calls, "nothing will retry them"),
     ).toBeDefined();
-    expect((await store.get("sus-stranded"))?.status).toBe("resumed");
+    expect((await store.get("sus-stranded"))?.outcome?.kind).toBe("resumed");
   });
 
   /**
@@ -624,11 +627,11 @@ describe("the deferral sweeper", () => {
 
     await store.create(overdue("sus-late"));
     for (let attempt = 0; attempt < 40; attempt++) {
-      if ((await store.get("sus-late"))?.status === "expired") break;
+      if ((await store.get("sus-late"))?.outcome?.kind === "expired") break;
       await sleep(10);
     }
 
-    expect((await store.get("sus-late"))?.status).toBe("expired");
+    expect((await store.get("sus-late"))?.outcome?.kind).toBe("expired");
   });
 
   /**
@@ -722,7 +725,7 @@ describe("the deferral sweeper", () => {
     // Well past several sweep intervals: nothing may claim it after this.
     await sleep(100);
 
-    expect((await store.get("sus-at-shutdown"))?.status).toBe("deferred");
+    expect((await store.get("sus-at-shutdown"))?.state).toBe("waiting");
     expect(reasked).toHaveLength(0);
     await store.close();
   });
@@ -752,7 +755,7 @@ describe("the deferral sweeper", () => {
     await store.create(overdue("sus-after-stop"));
     await sleep(100);
 
-    expect((await store.get("sus-after-stop"))?.status).toBe("deferred");
+    expect((await store.get("sus-after-stop"))?.state).toBe("waiting");
     await store.close();
   });
 
@@ -791,7 +794,7 @@ describe("the deferral sweeper", () => {
     const sweeper = new DeferralSweeper(t.ctx, store, sweeperOptions);
     expect(await sweeper.sweep()).toBe(1);
 
-    expect((await store.get("sus-crashed"))?.status).toBe("expired");
+    expect((await store.get("sus-crashed"))?.outcome?.kind).toBe("expired");
     expect(reasked).toHaveLength(1);
   });
 
@@ -822,7 +825,7 @@ describe("the deferral sweeper", () => {
     const sweeper = new DeferralSweeper(t.ctx, store, sweeperOptions);
     expect(await sweeper.sweep()).toBe(0);
 
-    expect((await store.get("sus-claimed"))?.status).toBe("expiring");
+    expect((await store.get("sus-claimed"))?.claimedAt).toBeDefined();
   });
 
   /**
@@ -868,8 +871,8 @@ describe("the deferral sweeper", () => {
     // Stage two: the deliverer died and the lease released the claim. The
     // record is deferred again, but past its deadline, so the lazy check
     // refuses the answer rather than reviving dead work.
-    await store.releaseExpiring(new Date(Date.now() + 1));
-    expect((await store.get(deferred.deferralId))?.status).toBe("deferred");
+    await store.releaseClaims(new Date(Date.now() + 1));
+    expect((await store.get(deferred.deferralId))?.state).toBe("waiting");
     await expect(
       t.client.sendDirect("answers", {
         token: deferred.token,
@@ -923,7 +926,7 @@ describe("the deferral sweeper", () => {
     const store = new MemoryDeferralStore();
     const day = 24 * 60 * 60 * 1000;
     // Settled via markResumed because its resumption time is the one
-    // controllable settlement clock; retention measures settledAt, so a
+    // controllable settlement clock; retention measures the outcome, so a
     // record merely DEFERRED 100 days ago would rightly be kept.
     await store.create(
       overdue("sus-ancient", { deferredAt: new Date(Date.now() - 100 * day) }),

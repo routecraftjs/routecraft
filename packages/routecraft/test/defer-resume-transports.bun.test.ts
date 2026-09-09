@@ -137,9 +137,9 @@ describe("defer and resume across transports", () => {
     const acknowledgment = (await t.client.sendDirect("answers", {
       token: body.token,
       result: { approved: true },
-    })) as { status: string; outcome: { status: string; body: unknown } };
+    })) as { status: string; continuation: { status: string; body: unknown } };
     expect(acknowledgment.status).toBe("resumed");
-    expect(acknowledgment.outcome.body).toEqual({ paid: true });
+    expect(acknowledgment.continuation.body).toEqual({ paid: true });
   });
 
   /**

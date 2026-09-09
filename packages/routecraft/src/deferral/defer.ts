@@ -209,6 +209,7 @@ function describeRecord(
       exchange: serialized,
     }),
     deferredAt,
+    waitingFor: "resume",
     ...(ttlMs !== undefined
       ? { expiresAt: new Date(deferredAt.getTime() + ttlMs) }
       : {}),
@@ -317,11 +318,11 @@ async function denyDeferredOnCancellation(
     // Losing the claim means someone else already settled the record (an
     // resume that raced in, the sweeper). Whoever won owns the outcome.
     if (!claim.won) return true;
-    // `markDenied` is itself a compare-and-swap out of `expiring`. Reporting
+    // `markDenied` is itself a compare-and-swap against the claim. Reporting
     // a confirmed denial without reading it would be the one thing this
     // return value exists to prevent: if the claim's lease elapsed in
-    // between, the record stays `expiring`, `releaseExpiring` returns it to
-    // `deferred`, and the link the caller was told is dead comes back.
+    // between, `releaseClaims` has cleared it, the record is resumable
+    // again, and the link the caller was told is dead comes back.
     const denied = await runtime.store.markDenied(deferralId, "run cancelled");
     if (!denied.won) {
       exchange.logger.error(

@@ -40,9 +40,9 @@ export class AgentSessionStore {
    * hold a live continuation for a turn that already happened.
    */
   async releaseDeferral(deferralId: string, reason: string): Promise<void> {
-    // Claim first: `markDenied` only leaves `expiring`, and a record nothing
-    // revives is still `deferred`. Losing the claim means another party
-    // settled it already, and that outcome stands.
+    // Claim first: `markDenied` only settles a claimed record, and a record
+    // nothing revives is still waiting and unclaimed. Losing the claim means
+    // another party settled it already, and that outcome stands.
     const claim = await this.defers.claimExpiry(deferralId, new Date());
     if (!claim.won) return;
     await this.defers.markDenied(deferralId, reason);

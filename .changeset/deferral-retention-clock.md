@@ -6,8 +6,6 @@
 
 Retention counts from settlement, not from the deferral (#634).
 
-`purgeSettled` used to measure the retention window from `deferredAt` because the store carried no settlement timestamp, so a record that deferred for 89 days and resolved on day 89 was purged one day after settling. Records now carry `settledAt`, stamped on every terminal transition (resumed, expired, denied), and retention measures from it: a settled record gets the full configured window from the moment it settled, however long it was deferred before that.
-
-**The SQLite store migrates itself to schema v4.** Resumed rows backfill exactly from `resumed_at`. Expired and denied rows carry no trustworthy settlement evidence (a due time is not a settlement time, and a long outage can put the two far apart), so they are stamped with the migration moment and keep one full retention window from the upgrade: they may live longer than they would have under the old clock, and are never purged earlier than the new contract promises.
+`purgeSettled` measures the retention window from settlement rather than from the deferral, so a record that waits 89 days and settles on day 89 gets the full configured window from the moment it settled rather than being purged the next day. The timestamp is `outcome.at`, stamped by whichever transition settled the record (resumed, expired, denied), and a settled record the store cannot date is skipped rather than purged on a fallback clock.
 
 `parseDuration(value, field)` is now exported from `@routecraft/routecraft`, so code that computes a ttl can validate it under exactly the rules the defer surfaces apply. `ctx.defer({ ttl })` (and its `testFn` twin) now validate the ttl at the call site with `RC5003`, matching `.defer()`, instead of surfacing a malformed duration after the handler has unwound.

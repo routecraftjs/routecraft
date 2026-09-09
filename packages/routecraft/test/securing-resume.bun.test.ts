@@ -92,13 +92,15 @@ describe("securing resume: the documented patterns", () => {
     await expect(
       t.client.sendDirect("approvals", { who: "alice", token: deferred.token }),
     ).rejects.toThrow(/refused this principal/);
-    expect((await store.get(deferred.deferralId))?.status).toBe("deferred");
+    expect((await store.get(deferred.deferralId))?.state).toBe("waiting");
 
     await t.client.sendDirect("approvals", {
       who: "bob",
       token: deferred.token,
     });
-    expect((await store.get(deferred.deferralId))?.status).toBe("resumed");
+    expect((await store.get(deferred.deferralId))?.outcome?.kind).toBe(
+      "resumed",
+    );
   });
 
   /**
@@ -154,7 +156,9 @@ describe("securing resume: the documented patterns", () => {
       scopes: ["payouts:approve"],
       token: deferred.token,
     });
-    expect((await store.get(deferred.deferralId))?.status).toBe("resumed");
+    expect((await store.get(deferred.deferralId))?.outcome?.kind).toBe(
+      "resumed",
+    );
   });
 
   /**
@@ -198,7 +202,7 @@ describe("securing resume: the documented patterns", () => {
         token: deferred.token,
       }),
     ).rejects.toThrow(/refused this principal/);
-    expect((await store.get(deferred.deferralId))?.status).toBe("deferred");
+    expect((await store.get(deferred.deferralId))?.state).toBe("waiting");
   });
 
   /**
@@ -236,10 +240,12 @@ describe("securing resume: the documented patterns", () => {
     await expect(
       t.client.sendDirect("ops-door", { token: deferred.token }),
     ).rejects.toThrow(/refused this principal/);
-    expect((await store.get(deferred.deferralId))?.status).toBe("deferred");
+    expect((await store.get(deferred.deferralId))?.state).toBe("waiting");
 
     await t.client.sendDirect("finance-door", { token: deferred.token });
-    expect((await store.get(deferred.deferralId))?.status).toBe("resumed");
+    expect((await store.get(deferred.deferralId))?.outcome?.kind).toBe(
+      "resumed",
+    );
   });
 
   /**
@@ -313,7 +319,7 @@ describe("securing resume: the documented patterns", () => {
     await expect(
       t.client.sendDirect("approvals", { who: "alice", token: deferred.token }),
     ).rejects.toThrow(/refused this principal/);
-    expect((await store.get(deferred.deferralId))?.status).toBe("deferred");
+    expect((await store.get(deferred.deferralId))?.state).toBe("waiting");
   });
 
   /**
@@ -362,7 +368,9 @@ describe("securing resume: the documented patterns", () => {
       who: "alice",
       token: deferred.token,
     });
-    expect((await store.get(deferred.deferralId))?.status).toBe("resumed");
+    expect((await store.get(deferred.deferralId))?.outcome?.kind).toBe(
+      "resumed",
+    );
   });
 
   /**
@@ -400,7 +408,7 @@ describe("securing resume: the documented patterns", () => {
     await expect(
       t.client.sendDirect("continue", { who: "alice", token: deferred.token }),
     ).rejects.toThrow(/refused this principal/);
-    expect((await store.get(deferred.deferralId))?.status).toBe("deferred");
+    expect((await store.get(deferred.deferralId))?.state).toBe("waiting");
   });
   /**
    * @case Threshold by scope: the submitted amount decides which scope the hook demands
@@ -462,7 +470,7 @@ describe("securing resume: the documented patterns", () => {
       token: small.token,
       amount: 250,
     });
-    expect((await store.get(small.deferralId))?.status).toBe("resumed");
+    expect((await store.get(small.deferralId))?.outcome?.kind).toBe("resumed");
 
     const large = asDeferred(await t.client.sendDirect("payout", {}));
     await expect(
@@ -473,7 +481,7 @@ describe("securing resume: the documented patterns", () => {
         amount: 25_000,
       }),
     ).rejects.toThrow(/refused this principal/);
-    expect((await store.get(large.deferralId))?.status).toBe("deferred");
+    expect((await store.get(large.deferralId))?.state).toBe("waiting");
 
     await t.client.sendDirect("approvals", {
       who: "senior",
@@ -481,6 +489,6 @@ describe("securing resume: the documented patterns", () => {
       token: large.token,
       amount: 25_000,
     });
-    expect((await store.get(large.deferralId))?.status).toBe("resumed");
+    expect((await store.get(large.deferralId))?.outcome?.kind).toBe("resumed");
   });
 });

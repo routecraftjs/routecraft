@@ -238,10 +238,10 @@ describe("MCP carries Deferred (#581)", () => {
     const resumeAck = (await t.client.sendDirect("answers", {
       token: ack.token,
       result: { approved: true },
-    })) as { status: string; outcome: { status: string; body?: unknown } };
+    })) as { status: string; continuation: { status: string; body?: unknown } };
     expect(resumeAck.status).toBe("resumed");
-    expect(resumeAck.outcome.status).toBe("completed");
-    expect(resumeAck.outcome.body).toEqual({ paid: true });
+    expect(resumeAck.continuation.status).toBe("completed");
+    expect(resumeAck.continuation.body).toEqual({ paid: true });
     expect(t.errors).toHaveLength(0);
   });
 

@@ -41,6 +41,7 @@ function record(overrides: Partial<NewDeferral> = {}): NewDeferral {
     schema: { hash: "e".repeat(64), jsonSchema: { type: "object" } },
     meta: { channel: "email", reviewers: ["alice"] },
     callBinding: "call-1",
+    waitingFor: "resume",
     deferredAt: new Date("2026-08-10T09:00:00.000Z"),
     ...overrides,
   };
@@ -53,7 +54,7 @@ function circular(): Record<string, unknown> {
   return node;
 }
 
-const terminal: SerializedOutcome = {
+const continuation: SerializedOutcome = {
   status: "completed",
   body: { paid: true },
   at: new Date("2026-08-11T09:00:00.000Z"),
@@ -109,7 +110,7 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       expect(read?.stepState).toEqual(written.stepState);
       expect(read?.meta).toEqual(written.meta);
       expect(read?.callBinding).toBe(written.callBinding);
-      expect(read?.status).toBe("deferred");
+      expect(read?.state).toBe("waiting");
       expect(read?.deferredAt.getTime()).toBe(written.deferredAt.getTime());
       expect(read?.expiresAt?.getTime()).toBe(written.expiresAt!.getTime());
     });
@@ -172,10 +173,10 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       });
 
       expect(result.won).toBe(true);
-      expect(result.deferral?.status).toBe("resumed");
-      expect(result.deferral?.resumedAt?.getTime()).toBe(at.getTime());
-      expect(result.deferral?.resumedBy?.subject).toBe("user:jaco");
-      expect(result.deferral?.resumedBy?.issuer).toBe("https://idp.example");
+      expect(result.deferral?.outcome?.kind).toBe("resumed");
+      expect(result.deferral?.outcome?.at?.getTime()).toBe(at.getTime());
+      expect(result.deferral?.outcome?.by?.subject).toBe("user:jaco");
+      expect(result.deferral?.outcome?.by?.issuer).toBe("https://idp.example");
     });
 
     /**
@@ -203,9 +204,9 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       const winner = first.won ? first : second;
       const loser = first.won ? second : first;
       // The loser is told what happened instead, without a second read.
-      expect(loser.deferral?.status).toBe("resumed");
-      expect((await store.get("sus-1"))?.resumedBy?.subject).toBe(
-        winner.deferral?.resumedBy?.subject,
+      expect(loser.deferral?.outcome?.kind).toBe("resumed");
+      expect((await store.get("sus-1"))?.outcome?.by?.subject).toBe(
+        winner.deferral?.outcome?.by?.subject,
       );
     });
 
@@ -227,7 +228,9 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
 
       expect([resumed.won, claimed.won].filter(Boolean)).toHaveLength(1);
       const stored = await store.get("sus-1");
-      expect(stored?.status).toBe(resumed.won ? "resumed" : "expiring");
+      expect(stored?.outcome?.kind ?? "claimed").toBe(
+        resumed.won ? "resumed" : "claimed",
+      );
     });
 
     /**
@@ -236,7 +239,7 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
      *   transition may write, as a caller re-deferring a record read back out
      *   of the store would produce
      * @expectedResult The stored record is deferred and clean. Keeping a
-     *   terminal outcome alive on a record that reports itself deferred
+     *   continuation result alive on a record that reports itself waiting
      *   would let a resume answer from a cached result of a run that is not
      *   this one, and the two backends would stop being substitutable.
      */
@@ -247,28 +250,32 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
         // The type forbids these; a store is a persistence boundary and
         // enforces its own invariants rather than trusting the caller's
         // compiler, which is what this asserts.
-        status: "resumed",
-        terminal,
-        resumedAt: new Date("2026-08-10T10:00:00.000Z"),
-        resumedBy: { subject: "someone-else" },
-        deniedReason: "stale",
+        state: "settled",
+        outcome: {
+          kind: "resumed",
+          at: new Date("2026-08-10T10:00:00.000Z"),
+          by: { subject: "someone-else" },
+          reason: "stale",
+        },
+        continuation,
+        claimedAt: new Date("2026-08-10T09:30:00.000Z"),
       } as unknown as Parameters<DeferralStore["create"]>[0]);
 
       const stored = await store.get("sus-1");
 
-      expect(stored?.status).toBe("deferred");
-      expect(stored?.terminal).toBeUndefined();
-      expect(stored?.resumedAt).toBeUndefined();
-      expect(stored?.resumedBy).toBeUndefined();
-      expect(stored?.deniedReason).toBeUndefined();
+      expect(stored?.state).toBe("waiting");
+      expect(stored?.continuation).toBeUndefined();
+      expect(stored?.outcome?.at).toBeUndefined();
+      expect(stored?.outcome?.by).toBeUndefined();
+      expect(stored?.outcome?.reason).toBeUndefined();
     });
 
     /**
-     * @case A terminal state is not resumable
+     * @case A settled record is not resumable
      * @preconditions A record already marked expired
      * @expectedResult markResumed reports it lost and leaves the state alone
      */
-    test("refuses to resume a deferral that already left the deferred state", async () => {
+    test("refuses to resume a deferral that already settled", async () => {
       store = await open();
       await store.create(record());
       await store.claimExpiry("sus-1", new Date());
@@ -277,7 +284,61 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       const result = await store.markResumed("sus-1", { at: new Date() });
 
       expect(result.won).toBe(false);
-      expect(result.deferral?.status).toBe("expired");
+      expect(result.deferral?.outcome?.kind).toBe("expired");
+    });
+
+    /**
+     * @case A record with a delivery claim outstanding is not resumable,
+     *   even though it is still waiting
+     * @preconditions One record whose expiry claim was taken and not settled
+     * @expectedResult markResumed reports it lost, and the record is
+     *   unchanged: still waiting, still claimed, with no outcome
+     *
+     *   The claim is a second axis rather than a state of its own, so
+     *   "waiting" alone does not mean resumable. This is the case that
+     *   distinguishes the two, and without it a later reader could compare
+     *   on `state` and reintroduce a second notification for one expiry:
+     *   the claim holder owns telling the route, and a resume let in behind
+     *   it would tell the approver their answer was accepted while the
+     *   sweeper tells the route to re-ask.
+     */
+    test("refuses to resume a deferral whose delivery is claimed", async () => {
+      store = await open();
+      await store.create(record());
+      await store.claimExpiry("sus-1", new Date("2026-08-11T08:00:00.000Z"));
+
+      const result = await store.markResumed("sus-1", { at: new Date() });
+
+      expect(result.won).toBe(false);
+      expect(result.deferral?.state).toBe("waiting");
+      expect(result.deferral?.claimedAt?.toISOString()).toBe(
+        "2026-08-11T08:00:00.000Z",
+      );
+      expect(result.deferral?.outcome).toBeUndefined();
+    });
+
+    /**
+     * @case Releasing a stale claim makes the record resumable again
+     * @preconditions A claimed record whose claim is released by the lease
+     * @expectedResult The resume that lost while the claim stood now wins
+     *
+     *   The other half of the claim's healing contract. `releaseClaims`
+     *   asserts the fields it clears below; this asserts what clearing them
+     *   is FOR, which is the behaviour a crashed deliverer must not cost.
+     */
+    test("a released claim is resumable again", async () => {
+      store = await open();
+      await store.create(record());
+      await store.claimExpiry("sus-1", new Date("2026-08-11T08:00:00.000Z"));
+      expect((await store.markResumed("sus-1", { at: new Date() })).won).toBe(
+        false,
+      );
+
+      await store.releaseClaims(new Date("2026-08-11T09:00:00.000Z"));
+
+      const result = await store.markResumed("sus-1", { at: new Date() });
+      expect(result.won).toBe(true);
+      expect(result.deferral?.outcome?.kind).toBe("resumed");
     });
 
     /**
@@ -295,15 +356,16 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       const claimedAt = new Date("2026-08-11T09:00:00.000Z");
       const claim = await store.claimExpiry("sus-1", claimedAt);
       expect(claim.won).toBe(true);
-      expect(claim.deferral?.status).toBe("expiring");
+      expect(claim.deferral?.state).toBe("waiting");
+      expect(claim.deferral?.claimedAt).toBeDefined();
       expect(claim.deferral?.claimedAt?.toISOString()).toBe(
         claimedAt.toISOString(),
       );
 
       const result = await store.markDenied("sus-1", "run cancelled");
       expect(result.won).toBe(true);
-      expect(result.deferral?.status).toBe("denied");
-      expect(result.deferral?.deniedReason).toBe("run cancelled");
+      expect(result.deferral?.outcome?.kind).toBe("denied");
+      expect(result.deferral?.outcome?.reason).toBe("run cancelled");
     });
 
     /**
@@ -311,22 +373,22 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
      * @preconditions Two expiring records, one claimed before the cutoff and one after
      * @expectedResult Only the stale claim flips back to deferred with its claimedAt cleared, so the next sweep redelivers exactly the work whose deliverer died
      */
-    test("releaseExpiring flips back only stale claims", async () => {
+    test("releaseClaims flips back only stale claims", async () => {
       store = await open();
       await store.create(record({ id: "stale" }));
       await store.create(record({ id: "fresh" }));
       await store.claimExpiry("stale", new Date("2026-08-11T08:00:00.000Z"));
       await store.claimExpiry("fresh", new Date("2026-08-11T09:30:00.000Z"));
 
-      const released = await store.releaseExpiring(
+      const released = await store.releaseClaims(
         new Date("2026-08-11T09:00:00.000Z"),
       );
 
       expect(released).toBe(1);
       const stale = await store.get("stale");
-      expect(stale?.status).toBe("deferred");
+      expect(stale?.state).toBe("waiting");
       expect(stale?.claimedAt).toBeUndefined();
-      expect((await store.get("fresh"))?.status).toBe("expiring");
+      expect((await store.get("fresh"))?.claimedAt).toBeDefined();
     });
 
     /**
@@ -395,30 +457,30 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
 
     /**
      * @case A duplicate resume can be answered from the cached outcome
-     * @preconditions A resumed record with a recorded terminal outcome
+     * @preconditions A resumed record with a recorded continuation result
      * @expectedResult The outcome reads back with its timestamp intact
      */
-    test("caches the terminal outcome of execution two", async () => {
+    test("caches the continuation result of execution two", async () => {
       store = await open();
       await store.create(record());
       await store.markResumed("sus-1", { at: new Date() });
-      await store.recordTerminal("sus-1", terminal);
+      await store.recordContinuation("sus-1", continuation);
 
       const read = await store.get("sus-1");
-      expect(read?.terminal?.status).toBe("completed");
-      expect(read?.terminal?.body).toEqual({ paid: true });
-      expect(read?.terminal?.at.getTime()).toBe(terminal.at.getTime());
+      expect(read?.continuation?.status).toBe("completed");
+      expect(read?.continuation?.body).toEqual({ paid: true });
+      expect(read?.continuation?.at.getTime()).toBe(continuation.at.getTime());
     });
 
     /**
-     * @case Recording a terminal outcome for an unknown id is a no-op
+     * @case Recording a continuation result for an unknown id is a no-op
      * @preconditions Empty store
      * @expectedResult The call resolves without throwing
      */
-    test("ignores a terminal outcome for an unknown id", async () => {
+    test("ignores a continuation result for an unknown id", async () => {
       store = await open();
       await expect(
-        store.recordTerminal("ghost", terminal),
+        store.recordContinuation("ghost", continuation),
       ).resolves.toBeUndefined();
     });
 
@@ -493,8 +555,8 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
 
     /**
      * @case A resume that never recorded an outcome is reported as crash residue
-     * @preconditions Three records: one still deferred, one resumed and settled, one resumed with no terminal
-     * @expectedResult Only the resumed-with-no-terminal record is returned. It is invisible to findExpired (it is no longer deferred) and its approval is already spent, so the boot summary is the only place it can ever surface
+     * @preconditions Three records: one still waiting, one resumed and settled, one resumed with no continuation
+     * @expectedResult Only the resumed-with-no-continuation record is returned. It is invisible to findExpired (it is no longer deferred) and its approval is already spent, so the boot summary is the only place it can ever surface
      */
     test("reports resumes that never recorded an outcome", async () => {
       store = await open();
@@ -503,10 +565,10 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       await store.create(record({ id: "stranded" }));
 
       await store.markResumed("settled", { at: new Date() });
-      await store.recordTerminal("settled", terminal);
+      await store.recordContinuation("settled", continuation);
       await store.markResumed("stranded", { at: new Date() });
 
-      const crashResidue = await store.resumedWithoutTerminal();
+      const crashResidue = await store.resumedWithoutContinuation();
 
       expect(crashResidue.map((entry) => entry.id)).toEqual(["stranded"]);
     });
@@ -533,7 +595,7 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       await store.markResumed("older", { at: new Date() });
       await store.markResumed("newer", { at: new Date() });
 
-      const bounded = await store.resumedWithoutTerminal(1);
+      const bounded = await store.resumedWithoutContinuation(1);
 
       expect(bounded.map((entry) => entry.id)).toEqual(["older"]);
     });
@@ -659,18 +721,18 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
 
       expect(purged).toBe(0);
       const kept = await store.get("deferred-in-may");
-      expect(kept?.status).toBe("resumed");
-      expect(kept?.settledAt?.toISOString()).toBe("2026-08-09T09:00:00.000Z");
+      expect(kept?.outcome?.kind).toBe("resumed");
+      expect(kept?.outcome?.at?.toISOString()).toBe("2026-08-09T09:00:00.000Z");
     });
 
     /**
-     * @case Every terminal transition stamps the retention clock
+     * @case Every settling transition stamps the retention clock
      * @preconditions One record resumed, one expired, one denied
-     * @expectedResult All three read back with a settledAt; the resumed one
-     *   equals the resumption time, the claim-finalized ones are stamped at
-     *   the write
+     * @expectedResult All three read back with an `outcome.at`; the resumed
+     *   one equals the resumption time, the claim-settled ones are stamped
+     *   at the write
      */
-    test("markExpired and markDenied stamp settledAt at the write", async () => {
+    test("markExpired and markDenied stamp outcome.at at the write", async () => {
       store = await open();
       const floor = Date.now();
       await store.create(record({ id: "r" }));
@@ -684,11 +746,11 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       await store.claimExpiry("d", new Date());
       await store.markDenied("d", "cancelled");
 
-      expect((await store.get("r"))?.settledAt?.toISOString()).toBe(
+      expect((await store.get("r"))?.outcome?.at?.toISOString()).toBe(
         "2026-08-11T09:00:00.000Z",
       );
-      const expired = (await store.get("e"))?.settledAt;
-      const denied = (await store.get("d"))?.settledAt;
+      const expired = (await store.get("e"))?.outcome?.at;
+      const denied = (await store.get("d"))?.outcome?.at;
       expect(expired?.getTime()).toBeGreaterThanOrEqual(floor);
       expect(denied?.getTime()).toBeGreaterThanOrEqual(floor);
     });
@@ -712,7 +774,7 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       );
 
       expect(purged).toBe(0);
-      expect((await store.get("claimed"))?.status).toBe("expiring");
+      expect((await store.get("claimed"))?.claimedAt).toBeDefined();
     });
 
     /**
@@ -728,7 +790,7 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       );
 
       expect(await store.purgeSettled(new Date())).toBe(0);
-      expect((await store.get("sus-1"))?.status).toBe("deferred");
+      expect((await store.get("sus-1"))?.state).toBe("waiting");
     });
 
     /**
@@ -755,7 +817,7 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
 
       expect(result.won).toBe(true);
       expect(result.deferral?.stepState).toEqual(next);
-      expect(result.deferral?.status).toBe("deferred");
+      expect(result.deferral?.state).toBe("waiting");
       expect(result.deferral?.exchange).toEqual(written.exchange);
       expect(result.deferral?.meta).toEqual(written.meta);
       expect((await store.get("sus-1"))?.stepState).toEqual(next);
@@ -808,7 +870,7 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       );
 
       expect(result.won).toBe(false);
-      expect(result.deferral?.status).toBe("resumed");
+      expect(result.deferral?.outcome?.kind).toBe("resumed");
       expect(result.deferral?.stepState).toEqual(written.stepState);
     });
 
@@ -873,7 +935,7 @@ describe("SqliteDeferralStore durability", () => {
     await second.close();
 
     expect(read?.routeId).toBe("payout");
-    expect(read?.status).toBe("deferred");
+    expect(read?.state).toBe("waiting");
   });
 
   /**
@@ -895,14 +957,15 @@ describe("SqliteDeferralStore durability", () => {
   });
 
   /**
-   * @case A terminal record that cannot be dated is skipped, not purged
-   * @preconditions A resumed record whose settled_at was nulled by hand,
+   * @case A settled record that cannot be dated is skipped, not purged
+   * @preconditions A resumed record whose outcome_at was nulled by hand,
    *   which no public transition can produce
    * @expectedResult purgeSettled leaves it in place, however generous the
-   *   cutoff: SQL NULL never compares below it. The memory backend's half
-   *   of this contract has its own case below, through its own seam
+   *   cutoff: SQL NULL never compares below it. It reads back as settled
+   *   with no outcome, which is the same shape the memory backend produces
+   *   for the same injection in its own case below
    */
-  test("purgeSettled skips a settled row with no settled_at", async () => {
+  test("purgeSettled skips a settled row with no outcome_at", async () => {
     const path = join(scratch, "undated.db");
     const seed = await SqliteDeferralStore.open({ path });
     await seed.create(record({ id: "undated" }));
@@ -911,12 +974,14 @@ describe("SqliteDeferralStore durability", () => {
 
     const { Database } = await import("bun:sqlite");
     const db = new Database(path);
-    db.exec("UPDATE deferrals SET settled_at = NULL WHERE id = 'undated'");
+    db.exec("UPDATE deferrals SET outcome_at = NULL WHERE id = 'undated'");
     db.close();
 
     const store = await SqliteDeferralStore.open({ path });
     expect(await store.purgeSettled(new Date("2999-01-01"))).toBe(0);
-    expect((await store.get("undated"))?.status).toBe("resumed");
+    const undated = await store.get("undated");
+    expect(undated?.state).toBe("settled");
+    expect(undated?.outcome).toBeUndefined();
     await store.close();
   });
 });
@@ -974,31 +1039,33 @@ describe("DeferralStore compare-and-swap under real concurrency", () => {
     const store = await SqliteDeferralStore.open({ path });
     const read = await store.get("sus-1");
     await store.close();
-    expect(read?.status).toBe("resumed");
-    expect(read?.resumedBy?.subject).toBe(winners[0]?.subject);
+    expect(read?.outcome?.kind).toBe("resumed");
+    expect(read?.outcome?.by?.subject).toBe(winners[0]?.subject);
   }, 30_000);
 });
 
 describe("MemoryDeferralStore injected states", () => {
   /**
    * @case The memory backend honours the same undated-record contract
-   * @preconditions A resumed record whose settledAt was deleted through the
-   *   store's test seam, a state no public transition can produce
+   * @preconditions A settled record whose outcome was deleted through the
+   *   store's test seam, a shape no public transition can produce
    * @expectedResult purgeSettled leaves it in place, matching sqlite's NULL
    *   comparison in the durability block's twin case. Refusing to delete a
    *   record you cannot date is the contract both backends share, and this
    *   case is what keeps the memory store's skip from silently regressing
    *   into a fallback on the clock #634 removed
    */
-  test("memory purgeSettled skips a record with no settledAt", async () => {
+  test("memory purgeSettled skips a settled record with no outcome", async () => {
     const store = new MemoryDeferralStore();
     await store.create(record({ id: "undated" }));
     await store.markResumed("undated", { at: new Date("2026-08-11") });
     const live = MemoryDeferralStore.unsafeRecords(store).get("undated")!;
-    delete (live as { settledAt?: Date }).settledAt;
+    delete (live as { outcome?: unknown }).outcome;
 
     expect(await store.purgeSettled(new Date("2999-01-01"))).toBe(0);
-    expect((await store.get("undated"))?.status).toBe("resumed");
+    const undated = await store.get("undated");
+    expect(undated?.state).toBe("settled");
+    expect(undated?.outcome).toBeUndefined();
     await store.close();
   });
 });

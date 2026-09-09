@@ -84,7 +84,7 @@ interface KindPolicy {
  * One rule governs the `resume` column. A position that REFUSES work
  * without attempting it must not sit below the store transition, because a
  * resume claims its deferral before the continuation starts, so a refusal
- * becomes that deferral's terminal outcome and spends an approval on work
+ * becomes that deferral's continuation result and spends an approval on work
  * that never ran. A position that BOUNDS work already underway is safe.
  *
  * `timeout` (#8) satisfies the rule only in the common case. It wraps the
@@ -184,7 +184,7 @@ export const CHAIN_SURVIVAL: Readonly<
   retry: {
     resume: {
       survives: true,
-      why: "Retrying a continuation is the wanted behaviour and is safe against the transition: attempts run before any terminal outcome is recorded, so a retried continuation never spends an approval.",
+      why: "Retrying a continuation is the wanted behaviour and is safe against the transition: attempts run before any continuation result is recorded, so a retried continuation never spends an approval.",
     },
     debounce: {
       survives: false,

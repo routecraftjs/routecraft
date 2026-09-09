@@ -28,6 +28,7 @@ import {
 } from "./serialize.ts";
 import type { DeferSite } from "./sites.ts";
 import type { Principal } from "../auth/types.ts";
+import { resumable } from "./types.ts";
 import type {
   PrincipalRef,
   SerializedOutcome,
@@ -92,15 +93,22 @@ export interface ResumeDoor {
 export interface ResumeAcknowledgment {
   /**
    * `"resumed"` when this call revived the exchange; `"duplicate"` when the
-   * deferral had already been resumed and this is the cached terminal
-   * outcome of that first revival. A duplicate re-runs nothing.
+   * deferral had already been resumed and this is the cached result of that
+   * first revival. A duplicate re-runs nothing.
    */
   readonly status: "resumed" | "duplicate";
   readonly deferralId: string;
   /** Route the revived exchange belongs to. Not the ingress route. */
   readonly routeId: string;
-  /** How execution two ended. */
-  readonly outcome: SerializedOutcome;
+  /**
+   * How execution two ended.
+   *
+   * Named for the run rather than called an outcome, because
+   * {@link Deferral.outcome} is how the DEFERRAL ended (resumed, expired,
+   * denied) and the two would otherwise share a word while meaning
+   * different things on adjacent types.
+   */
+  readonly continuation: SerializedOutcome;
 }
 
 /**
@@ -121,7 +129,7 @@ export interface ResumeAcknowledgment {
  * 3. The route's own `authorize` hook accepts the principal (`RC5056`), if
  *    it declared one. This is where an application's policy runs; the
  *    framework has none of its own.
- * 4. Only now the lifecycle: a duplicate gets the cached terminal outcome
+ * 4. Only now the lifecycle: a duplicate gets the cached continuation result
  *    rather than a second execution, an expired record `RC5047`, a denied
  *    one `RC5050`. Steps 2 and 3 sit above this deliberately, so a refused
  *    caller learns nothing about the record's state.
@@ -195,8 +203,8 @@ export async function reviveDeferral(
     );
   }
 
-  if (deferral.status !== "deferred") {
-    return settled(deferral);
+  if (!resumable(deferral)) {
+    return unresumable(deferral);
   }
 
   const route = context.getRouteById(deferral.routeId);
@@ -230,7 +238,7 @@ export async function reviveDeferral(
       // accepted: reporting an expiry to this caller would be a false
       // negative about work that is running. Whoever won says what
       // happened.
-      if (cas.deferral) return settled(cas.deferral);
+      if (cas.deferral) return unresumable(cas.deferral);
     }
     throw error;
   }
@@ -330,14 +338,14 @@ export async function reviveDeferral(
   });
   if (!cas.won) {
     // Lost the race. Whoever won says what happened: a concurrent resume
-    // yields its cached outcome, the sweeper an expiry, a cancellation a
+    // yields its cached result, the sweeper an expiry, a cancellation a
     // denial. Reading the post-attempt record avoids a second store read.
     if (!cas.deferral) {
       throw rcError("RC5046", undefined, {
         message: `Deferral "${id}" disappeared while it was being resumed.`,
       });
     }
-    return settled(cas.deferral);
+    return unresumable(cas.deferral);
   }
 
   // The deadline is re-checked AFTER winning the transition. The check
@@ -354,7 +362,7 @@ export async function reviveDeferral(
     });
     // Winning `markResumed` means the sweeper cannot also report this, so
     // the notification is ours to send exactly once.
-    await runtime.store.recordTerminal(id, {
+    await runtime.store.recordContinuation(id, {
       status: "failed",
       error: { rc: "RC5047", message: expiry.message },
       at: resumedAt,
@@ -371,13 +379,13 @@ export async function reviveDeferral(
 
   // Everything from here is under one catch, because this resume has won
   // `markResumed` and nothing else will ever settle the record. A throw
-  // between the transition and `recordTerminal` (a stored exchange the
+  // between the transition and `recordContinuation` (a stored exchange the
   // deserializer refuses, a `route:exchange:resumed` subscriber that fails)
-  // would otherwise leave the deferral `resumed` with no terminal
+  // would otherwise leave the deferral resumed with no continuation result
   // forever, and every later resume would be told the first resume has not
-  // recorded an outcome yet. Recording the failure keeps a replay
-  // idempotent, which is the contract a claimed deferral owes.
-  let outcome: SerializedOutcome;
+  // recorded one yet. Recording the failure keeps a replay idempotent, which
+  // is the contract a claimed deferral owes.
+  let continuation: SerializedOutcome;
   try {
     const exchange = rehydrate(context, route, deferral, {
       result: payload,
@@ -401,7 +409,7 @@ export async function reviveDeferral(
       ...(request.resumedBy ? { resumedBy: request.resumedBy } : {}),
     });
 
-    outcome = await runContinuation(
+    continuation = await runContinuation(
       route,
       exchange,
       site.site.continuation,
@@ -410,13 +418,13 @@ export async function reviveDeferral(
   } catch (error) {
     // Best-effort, and the ordering is the point: the original error must
     // reach the ingress route whatever the store does. A throw from
-    // `recordTerminal` here would mask it AND leave the record unsettled,
+    // `recordContinuation` here would mask it AND leave the record unsettled,
     // reproducing one level up the condition this block exists to remove.
     // `rc` is carried like the expiry path carries RC5047, so a duplicate
     // resume and an operator dashboard see the code rather than prose.
     const failure = error as { rc?: string; message?: string } | undefined;
     try {
-      await runtime.store.recordTerminal(id, {
+      await runtime.store.recordContinuation(id, {
         status: "failed",
         error: {
           ...(typeof failure?.rc === "string" ? { rc: failure.rc } : {}),
@@ -427,22 +435,22 @@ export async function reviveDeferral(
     } catch (unrecorded) {
       route.logger.error(
         { deferralId: id, err: unrecorded },
-        "Could not record the terminal outcome of a failed revival. The deferral stays resumed with no outcome and needs an operator.",
+        "Could not record the continuation result of a failed revival. The deferral stays resumed with no result and needs an operator.",
       );
     }
     throw error;
   }
   try {
-    await runtime.store.recordTerminal(id, outcome);
+    await runtime.store.recordContinuation(id, continuation);
   } catch (err) {
-    // The work is DONE: destinations fired and the outcome below is true.
+    // The work is DONE: destinations fired and the result below is true.
     // Throwing here would tell the caller the work failed after it
     // succeeded, and the boot scan would later count the record as a
-    // half-run continuation. A missing cached outcome only costs a
+    // half-run continuation. A missing cached result only costs a
     // duplicate resume its cached reply.
     route.logger.error(
       { deferralId: id, err },
-      "Could not cache the terminal outcome of a completed revival. The work finished; a duplicate resume will be told the outcome is unrecorded.",
+      "Could not cache the continuation result of a completed revival. The work finished; a duplicate resume will be told the result is unrecorded.",
     );
   }
 
@@ -450,7 +458,7 @@ export async function reviveDeferral(
     status: "resumed",
     deferralId: id,
     routeId: deferral.routeId,
-    outcome,
+    continuation,
   };
 }
 
@@ -489,10 +497,10 @@ async function refuseContinuation(
   if (!cas.won) {
     // Whoever won the transition says what happened, as on the expiry and
     // duplicate paths. A replay that lost to the denial has to read back the
-    // stored `deniedReason` rather than this request's RC5048, and a resume
+    // stored denial reason rather than this request's RC5048, and a resume
     // that won `markResumed` on the way in was accepted: reporting a changed
     // continuation for it would describe work that is running as refused.
-    if (cas.deferral) return settled(cas.deferral);
+    if (cas.deferral) return unresumable(cas.deferral);
     throw error;
   }
   await reask(context, route, deferral, error);
@@ -538,31 +546,32 @@ function correlationIdOf(deferral: Deferral): string {
 }
 
 /**
- * Reply to a resume that arrived after the deferral already settled.
+ * Reply to a resume that arrived at a deferral nothing can resume any more:
+ * one that has settled, or one a delivery claim is outstanding on.
  *
  * A duplicate resume is the normal case here (an approver double-clicks, a
  * webhook is redelivered), and it must not re-run the continuation: the
- * cached terminal outcome is exactly what the first resume produced. The
- * other settled states are terminal failures the caller has to see.
+ * cached continuation result is exactly what the first resume produced. The
+ * other cases are failures the caller has to see.
  *
  * @internal
  */
-function settled(deferral: Deferral): ResumeAcknowledgment {
-  if (deferral.status === "resumed") {
+function unresumable(deferral: Deferral): ResumeAcknowledgment {
+  if (deferral.outcome?.kind === "resumed") {
     return {
       status: "duplicate",
       deferralId: deferral.id,
       routeId: deferral.routeId,
-      // A resumed deferral whose terminal outcome is missing means
+      // A resumed deferral whose continuation result is missing means
       // execution two is still running (or the process died mid-run). Report
       // it as such rather than inventing a completion.
-      outcome: deferral.terminal ?? {
+      continuation: deferral.continuation ?? {
         status: "failed",
         error: {
           message:
-            "The first resume of this deferral has not recorded a terminal outcome yet.",
+            "The first resume of this deferral has not recorded a continuation result yet.",
         },
-        at: deferral.resumedAt ?? deferral.deferredAt,
+        at: deferral.outcome.at,
       },
     };
   }
@@ -574,7 +583,7 @@ function settled(deferral: Deferral): ResumeAcknowledgment {
   // once per request rather than once per event, from a token anyone who
   // saw the original link still holds.
   //
-  // An `expiring` claim is disambiguated by WHEN it was taken, not by the
+  // An outstanding claim is disambiguated by WHEN it was taken, not by the
   // clock now: an expiry claim is only ever taken once the deadline has
   // passed, and a denial claim only while it has not, so the claim
   // timestamp against the deadline says which flow owns the record. The
@@ -584,13 +593,13 @@ function settled(deferral: Deferral): ResumeAcknowledgment {
   const expiryClaim =
     deferral.expiresAt !== undefined &&
     claimRef.getTime() >= deferral.expiresAt.getTime();
-  throw deferral.status === "expired" ||
-    (deferral.status === "expiring" && expiryClaim)
+  throw deferral.outcome?.kind === "expired" ||
+    (deferral.outcome === undefined && expiryClaim)
     ? rcError("RC5047", undefined, {
         message: `Deferral "${deferral.id}" expired before a resume arrived.`,
       })
     : rcError("RC5050", undefined, {
-        message: `Deferral "${deferral.id}" was denied${deferral.deniedReason ? `: ${deferral.deniedReason}` : ""}.`,
+        message: `Deferral "${deferral.id}" was denied${deferral.outcome?.reason ? `: ${deferral.outcome.reason}` : ""}.`,
       });
 }
 
@@ -625,9 +634,9 @@ export async function expireDeferral(
     message: `Deferral "${deferral.id}" expired at ${deadline.toISOString()}.`,
   });
   // Claim, deliver, finalize. The claim is what makes a crash mid-delivery
-  // healable: a record left `expiring` is released back to `deferred` once
-  // its lease elapses and the next sweep redelivers it, where a record
-  // finalized before delivery would be terminal with its approver never
+  // healable: a claim left outstanding is released once its lease elapses
+  // and the next sweep redelivers it, where a record
+  // settled before delivery would be terminal with its approver never
   // told. The cost is that a crash AFTER delivery but before finalize
   // redelivers once; notification is at-least-once by design.
   const cas = await store.claimExpiry(deferral.id, new Date());

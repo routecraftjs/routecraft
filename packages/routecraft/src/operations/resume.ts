@@ -79,7 +79,7 @@ export interface ResumeOptions {
  * The revived route runs to completion before this step resolves, so the
  * acknowledgment it puts in the ingress body reports how execution two
  * actually ended. That is also what makes a duplicate resume cheap: it
- * returns the cached terminal outcome of the first one instead of running
+ * returns the cached continuation result of the first one instead of running
  * anything.
  */
 export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
@@ -172,7 +172,7 @@ export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
         deferralId: acknowledgment.deferralId,
         resumedRouteId: acknowledgment.routeId,
         status: acknowledgment.status,
-        outcome: acknowledgment.outcome.status,
+        outcome: acknowledgment.continuation.status,
       },
     };
   }

@@ -106,9 +106,9 @@ describe("agent deferral across a restart (stepState adoption)", () => {
     const ack = (await b.client.sendDirect("answers", {
       token: deferred.token,
       result: { approved: true },
-    })) as { status: string; outcome: { status: string } };
+    })) as { status: string; continuation: { status: string } };
     expect(ack.status).toBe("resumed");
-    expect(ack.outcome.status).toBe("completed");
+    expect(ack.continuation.status).toBe("completed");
 
     expect(sinkA.received).toHaveLength(0);
     expect(sinkB.received).toHaveLength(1);
@@ -122,9 +122,9 @@ describe("agent deferral across a restart (stepState adoption)", () => {
     const duplicate = (await b.client.sendDirect("answers", {
       token: deferred.token,
       result: { approved: true },
-    })) as { status: string; outcome: { status: string } };
+    })) as { status: string; continuation: { status: string } };
     expect(duplicate.status).toBe("duplicate");
-    expect(duplicate.outcome.status).toBe("completed");
+    expect(duplicate.continuation.status).toBe("completed");
     expect(llm.calls).toHaveLength(2);
     expect(b.errors).toHaveLength(0);
   });
@@ -159,7 +159,7 @@ describe("agent deferral across a restart (stepState adoption)", () => {
     ).rejects.toMatchObject({ rc: "RC5048" });
 
     const record = await store.get(deferred.deferralId);
-    expect(record?.status).toBe("denied");
+    expect(record?.outcome?.kind).toBe("denied");
     // The re-ask reached the deferred route's own error channel, which has
     // no handler here, so the failure surfaces on the context's error log.
     expect(b.errors.some((e) => (e as { rc?: string }).rc === "RC5048")).toBe(

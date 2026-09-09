@@ -1,17 +1,37 @@
 /**
- * Lifecycle state of a deferred exchange.
+ * Whether a deferred exchange is still waiting or has settled.
  *
- * `deferred` is the only state a deferral can be resumed from. `expiring`
- * is a delivery claim, not an outcome: whoever wins it owns telling the
- * route, and the record is finalized to `expired` or `denied` afterwards. A
- * claim whose holder died is released back to `deferred` once its lease
- * elapses, so the next sweep redelivers. The remaining three states are
- * terminal. Every transition goes through the store's compare-and-swap
- * methods so exactly one caller wins a race between a resume, a sweep, and
- * a cancellation.
+ * Two values, because the five that came before were answers to three
+ * different questions. What the work is waiting FOR is
+ * {@link Deferral.waitingFor}; how it settled is {@link Deferral.outcome};
+ * whether a delivery claim is outstanding is {@link Deferral.claimedAt}. A
+ * reader asks one of those and reads the field that answers it, instead of
+ * inferring all three from which of five values a record landed on.
+ *
+ * A deferral is resumable while it is `waiting` AND unclaimed. The claim is
+ * a second axis rather than a third state: whoever holds it owns telling the
+ * route, and a claim whose holder died is released by
+ * {@link DeferralStore.releaseClaims} once its lease elapses, so the next
+ * sweep redelivers. Every transition goes through the store's
+ * compare-and-swap methods so exactly one caller wins a race between a
+ * resume, a sweep, and a cancellation.
  */
-export type DeferralStatus =
-  "deferred" | "expiring" | "resumed" | "expired" | "denied";
+export type DeferralState = "waiting" | "settled";
+
+/**
+ * What a deferral is waiting for.
+ *
+ * One value today: `.defer()` waits for somebody to call `.resume()`. It is
+ * a stored field rather than an implied constant so a management surface can
+ * group by it, and so the kinds #737 and #738 add (asking a person, handing
+ * work outside the process) widen this union instead of introducing a second
+ * vocabulary beside it.
+ *
+ * Kept on a settled record too, because it says what the work WAS waiting
+ * for. That is what makes "expired while waiting for a resume" readable off
+ * one record rather than reconstructed from two.
+ */
+export type DeferralWaitingFor = "resume";
 
 /**
  * Keyset cursor for {@link DeferralStore.findExpired}.
@@ -103,7 +123,31 @@ export interface PrincipalRef {
 }
 
 /**
- * The cached outcome of execution two, written once the resumed exchange
+ * How a deferral settled.
+ *
+ * Present exactly when {@link Deferral.state} is `settled` and absent
+ * exactly while it is `waiting`. Nothing in the type system enforces that
+ * pairing; the store's transitions do, because every one of them writes
+ * `state` and `outcome` in the same compare-and-swap.
+ */
+export interface DeferralOutcome {
+  /** Which way it ended. */
+  readonly kind: "resumed" | "expired" | "denied";
+  /**
+   * When the record left the waiting state. This is the retention clock:
+   * {@link DeferralStore.purgeSettled} measures from here, so a record that
+   * waits for months and settles today is kept for the full retention
+   * window from today.
+   */
+  readonly at: Date;
+  /** Why a `denied` deferral was denied (cancellation, operator action). */
+  readonly reason?: string;
+  /** Who resumed it. Only ever set on a `resumed` outcome. */
+  readonly by?: PrincipalRef;
+}
+
+/**
+ * The cached result of execution two, written once the resumed exchange
  * settles. A duplicate resume returns this instead of running the
  * continuation a second time.
  */
@@ -206,32 +250,28 @@ export interface Deferral {
   /** When the sweeper will expire this deferral. Absent means no TTL. */
   readonly expiresAt?: Date;
   /**
-   * When the current `expiring` delivery claim was taken, which is BEFORE
-   * the notification: it is a claim timestamp, not proof of delivery.
-   * Cleared when a stale claim is released; kept on a finalized record.
+   * When the outstanding delivery claim was taken, which is BEFORE the
+   * notification: it is a claim timestamp, not proof of delivery. Set only
+   * on a `waiting` record, cleared when a stale claim is released, and kept
+   * on a settled one as the record of who got there first.
+   *
+   * Load-bearing rather than informational: a claimed record is not
+   * resumable, because the claim holder owns the outcome. That is the
+   * compare every transition out of `waiting` makes.
    */
   readonly claimedAt?: Date;
-  readonly status: DeferralStatus;
-  /**
-   * When the record left `deferred` for a terminal state (`resumed`,
-   * `expired`, `denied`). This is the retention clock:
-   * {@link DeferralStore.purgeSettled} measures from here, so a record
-   * that defers for months and settles today is kept for the full retention
-   * window from today. For a resumed record it equals {@link resumedAt}.
-   */
-  readonly settledAt?: Date;
-  /** Cached terminal outcome of execution two, for idempotent re-resume. */
-  readonly terminal?: SerializedOutcome;
-  readonly resumedBy?: PrincipalRef;
-  readonly resumedAt?: Date;
-  /** Why a `denied` deferral was denied (cancellation, operator action). */
-  readonly deniedReason?: string;
+  readonly state: DeferralState;
+  readonly waitingFor: DeferralWaitingFor;
+  /** How it settled. Absent while {@link Deferral.state} is `waiting`. */
+  readonly outcome?: DeferralOutcome;
+  /** Cached result of execution two, for idempotent re-resume. */
+  readonly continuation?: SerializedOutcome;
 }
 
 /**
  * A deferral as it is handed to {@link DeferralStore.create}.
  *
- * A record is born `deferred`, so the fields only a transition can produce
+ * A record is born `waiting`, so the fields only a transition can produce
  * are not part of the input. Taking a full {@link Deferral} would let a
  * caller insert a record that is already settled, and every compare-and-swap
  * in the contract then refuses to move it: the exchange is deferred
@@ -250,13 +290,7 @@ export type NewDeferral = Omit<Deferral, DeferralTransitionField> & {
  * The fields only a `mark*` transition may write.
  */
 type DeferralTransitionField =
-  | "status"
-  | "terminal"
-  | "resumedBy"
-  | "resumedAt"
-  | "settledAt"
-  | "deniedReason"
-  | "claimedAt";
+  "state" | "outcome" | "continuation" | "claimedAt";
 
 /**
  * Details recorded when a resume wins the compare-and-swap.
@@ -267,12 +301,12 @@ export interface DeferralResumption {
 }
 
 /**
- * Result of a compare-and-swap out of `deferred`.
+ * Result of a compare-and-swap on a deferral.
  *
  * `won` is the load-bearing field: it reports whether THIS caller performed
  * the transition. A resume arriving at the same moment the sweeper expires
  * the deferral produces exactly one `won: true`, and the loser reads
- * `deferral.status` to find out what happened instead.
+ * `deferral.outcome` to find out what happened instead.
  *
  * `deferral` is the record as it stands after the attempt, so a loser
  * does not need a second read to react. It is `undefined` only when the id
@@ -287,10 +321,35 @@ export interface DeferralCasResult {
  * What the startup scan reports at info level.
  */
 export interface PendingDeferralSummary {
-  /** Deferrals still in `deferred` state. */
+  /** Deferrals still waiting. */
   readonly count: number;
   /** `deferredAt` of the oldest of them, absent when there are none. */
   readonly oldest?: Date;
+}
+
+/**
+ * Whether a deferral can still be resumed: waiting, with no delivery claim
+ * outstanding.
+ *
+ * The two-field condition every transition out of waiting compares against,
+ * named once so the stores, the revival path and the sweeper cannot drift on
+ * it. A claimed record is deliberately excluded even though it is still
+ * waiting: the claim holder owns the outcome, and letting a resume in behind
+ * it would produce two notifications for one event.
+ */
+export function resumable(deferral: Deferral): boolean {
+  return deferral.state === "waiting" && deferral.claimedAt === undefined;
+}
+
+/**
+ * Whether a delivery claim is outstanding on a waiting deferral, which is
+ * what {@link DeferralStore.markExpired} and
+ * {@link DeferralStore.markDenied} settle.
+ */
+export function claimed(
+  deferral: Deferral,
+): deferral is Deferral & { readonly claimedAt: Date } {
+  return deferral.state === "waiting" && deferral.claimedAt !== undefined;
 }
 
 /**
@@ -312,8 +371,8 @@ export interface DeferralStore {
   /**
    * Persist a newly deferred exchange. Throws if `record.id` already exists:
    * a deferral id is minted per defer and a collision means a bug, not
-   * a retry. The stored record is `deferred`; only the `mark*` transitions
-   * move it out of that state.
+   * a retry. The stored record is `waiting` and unclaimed; only the
+   * transitions below move it.
    */
   create(record: NewDeferral): Promise<void>;
 
@@ -321,8 +380,8 @@ export interface DeferralStore {
   get(id: string): Promise<Deferral | undefined>;
 
   /**
-   * Compare-and-swap `deferred` -> `resumed`, recording who resumed it and
-   * when. Exactly one concurrent caller wins.
+   * Settle an unclaimed waiting deferral as `resumed`, recording who resumed
+   * it and when. Exactly one concurrent caller wins.
    */
   markResumed(
     id: string,
@@ -330,13 +389,13 @@ export interface DeferralStore {
   ): Promise<DeferralCasResult>;
 
   /**
-   * Compare-and-swap `deferred` -> `expiring`, recording when the claim
-   * was taken. Winning this claim is the right to notify the route: the
-   * caller delivers the re-ask and then finalizes with
-   * {@link DeferralStore.markExpired} or
-   * {@link DeferralStore.markDenied}. A claim is not an outcome, so a
+   * Claim an unclaimed waiting deferral for delivery, recording when the
+   * claim was taken. The record stays `waiting`, which is the point: a claim
+   * is not an outcome. Winning it is the right to notify the route, and the
+   * caller delivers the re-ask and then settles with
+   * {@link DeferralStore.markExpired} or {@link DeferralStore.markDenied}. A
    * holder that dies mid-delivery is healed by
-   * {@link DeferralStore.releaseExpiring} rather than leaving the record
+   * {@link DeferralStore.releaseClaims} rather than leaving the record
    * stuck.
    *
    * A released EXPIRY claim is overdue, so the next sweep redelivers it. A
@@ -348,17 +407,17 @@ export interface DeferralStore {
   claimExpiry(id: string, at: Date): Promise<DeferralCasResult>;
 
   /**
-   * Compare-and-swap `expiring` -> `expired`, finalizing a delivered claim
-   * and stamping {@link Deferral.settledAt} at the write. `expiresAt`
-   * still says when the deferral came due and `claimedAt` when its
-   * delivery was claimed; `settledAt` is when the record actually left the
-   * live states, which is what retention measures from.
+   * Settle a claimed deferral as `expired`, stamping
+   * {@link DeferralOutcome.at} at the write. `expiresAt` still says when the
+   * deferral came due and `claimedAt` when its delivery was claimed; the
+   * outcome's own timestamp is when the record actually stopped waiting,
+   * which is what retention measures from.
    */
   markExpired(id: string): Promise<DeferralCasResult>;
 
   /**
-   * Compare-and-swap `expiring` -> `denied`, finalizing a delivered claim
-   * and stamping {@link Deferral.settledAt} at the write.
+   * Settle a claimed deferral as `denied`, stamping
+   * {@link DeferralOutcome.at} at the write.
    * The claim-first shape applies to denial for the same reason as expiry:
    * a crash between the transition and the notification must heal by
    * redelivery, not strand the approver. Cancellation (#552) will claim
@@ -367,8 +426,10 @@ export interface DeferralStore {
   markDenied(id: string, reason?: string): Promise<DeferralCasResult>;
 
   /**
-   * Release every `expiring` claim taken at or before `before` back to
-   * `deferred`, clearing `claimedAt`, and report how many were released.
+   * Release every delivery claim taken at or before `before` by clearing
+   * {@link Deferral.claimedAt}, and report how many were released. The
+   * records were and remain `waiting`; what changes is that they are
+   * resumable and sweepable again.
    *
    * This is the healing half of the claim: a released record is past its
    * deadline, so the next ordinary sweep pass redelivers it. A crash after
@@ -376,13 +437,14 @@ export interface DeferralStore {
    * after the lease elapses, which is the accepted at-least-once trade;
    * a crash before delivery costs nothing but the lease's delay.
    */
-  releaseExpiring(before: Date): Promise<number>;
+  releaseClaims(before: Date): Promise<number>;
 
   /**
    * Compare-and-swap the opaque {@link Deferral.stepState} slot of a
-   * record that is STILL `deferred`, leaving every other field alone.
+   * record that is STILL waiting and unclaimed, leaving every other field
+   * alone.
    *
-   * The one write that edits a deferred record in place rather than settling
+   * The one write that edits a waiting record in place rather than settling
    * it. Compaction is the motivating caller: an agent's deferred thread grows
    * past what the model will accept, and shrinking it has to happen while
    * the exchange stays deferred, because a resume that lands on an
@@ -392,8 +454,8 @@ export interface DeferralStore {
    * `stepStateFingerprint` of the state the caller read and rewrote, so two
    * compactions of the same record produce one winner and one `won: false`
    * holding the state that landed, instead of the second silently
-   * discarding the first. And the swap only matches a `deferred` row, so a
-   * resume or a sweep that got there first wins outright: the compaction is
+   * discarding the first. And the swap only matches an unclaimed waiting
+   * row, so a resume or a sweep that got there first wins outright: the compaction is
    * refused rather than rewriting the thread of a run that is already
    * executing its continuation.
    *
@@ -415,19 +477,22 @@ export interface DeferralStore {
   ): Promise<DeferralCasResult>;
 
   /**
-   * Cache the terminal outcome of execution two so a duplicate resume can
-   * reply without re-running the continuation. Silently ignores an unknown
-   * id: the outcome is a convenience, and losing the race to a sweep must
-   * not turn into a second failure on the way out.
+   * Cache the result of execution two so a duplicate resume can reply
+   * without re-running the continuation. Silently ignores an unknown id: the
+   * cache is a convenience, and losing the race to a sweep must not turn
+   * into a second failure on the way out.
    *
    * Unconditional by design: only the caller that won `markResumed` ever
-   * writes a terminal, so there is no competing writer for this row and a
-   * compare would defend nothing.
+   * writes a continuation, so there is no competing writer for this row and
+   * a compare would defend nothing.
    */
-  recordTerminal(id: string, terminal: SerializedOutcome): Promise<void>;
+  recordContinuation(
+    id: string,
+    continuation: SerializedOutcome,
+  ): Promise<void>;
 
   /**
-   * Deferrals still in `deferred` state whose `expiresAt` is at or
+   * Deferrals still waiting and unclaimed whose `expiresAt` is at or
    * before `now`, ordered by `(expiresAt ASC, id ASC)` and starting
    * strictly after `after` when one is given. `limit` bounds one page so a
    * backlog accumulated while the process was down does not produce an
@@ -447,53 +512,53 @@ export interface DeferralStore {
     after?: ExpiredScanCursor,
   ): Promise<Deferral[]>;
 
-  /** Count and oldest `deferredAt` across deferrals still deferred. */
+  /** Count and oldest `deferredAt` across deferrals still waiting. */
   pending(): Promise<PendingDeferralSummary>;
 
   /**
-   * Records stuck at `resumed` with no terminal outcome, oldest first.
+   * Records settled as `resumed` whose continuation never landed, oldest
+   * first.
    *
    * This is crash residue. A resume wins the compare-and-swap out of
-   * `deferred` BEFORE running the continuation and records the outcome
-   * after, so a record in this state means the process died between the two.
+   * `waiting` BEFORE running the continuation and caches the result after,
+   * so a record in this state means the process died between the two.
    * The approval is spent, the work half ran, and nothing will ever revisit
    * it: it is invisible to {@link DeferralStore.findExpired}, which only
-   * looks at `deferred` records.
+   * looks at waiting records.
    *
-   * DIAGNOSTIC ONLY. Do not build automatic recovery on this. Re-running a
+   * Re-running a
    * continuation whose side effects may have half happened needs a lease on
-   * the `resumed` state and idempotent continuations, which is the
+   * the resumed outcome and idempotent continuations, which is the
    * admission-and-idempotency work tracked separately. What this method is
    * for is the boot summary after an outage, which is the first moment
    * anyone could learn such a record exists.
    *
-   * The asymmetry with the `expiring` lease is deliberate: expiry
+   * The asymmetry with the delivery claim is deliberate: expiry
    * NOTIFICATIONS heal by redelivery because re-sending a nag is safe,
    * while this residue is a half-run CONTINUATION and is only ever
    * reported.
    *
    * @param limit - Cap on records returned. Omit for all of them.
    */
-  resumedWithoutTerminal(limit?: number): Promise<Deferral[]>;
+  resumedWithoutContinuation(limit?: number): Promise<Deferral[]>;
 
   /**
-   * Delete settled deferrals (`resumed`, `expired`, `denied`) whose
-   * {@link Deferral.settledAt} is before `before`, and report how many
-   * went.
+   * Delete settled deferrals whose {@link DeferralOutcome.at} is before
+   * `before`, and report how many went.
    *
    * A settled record holds a full serialized exchange body plus its cached
-   * terminal outcome, and nothing else ever removes one. Without a
+   * continuation, and nothing else ever removes one. Without a
    * retention path a long-running process accumulates every exchange that
    * ever deferred: on disk under sqlite, and on the heap under the
    * in-memory backend, which is also the automatic fallback for a Node
-   * install without a driver. Still-deferred records are never touched,
-   * whatever their age; expiring them is the sweeper's job and goes
-   * through {@link DeferralStore.markExpired}.
+   * install without a driver. Waiting records are never touched, whatever
+   * their age; expiring them is the sweeper's job and goes through
+   * {@link DeferralStore.markExpired}.
    *
-   * The cutoff is `settledAt`, not `deferredAt`: retention promises how
-   * long a SETTLED record is kept, and measuring from the deferral would purge
-   * a record that deferred for 89 days and settled on day 89 one day after
-   * it settled.
+   * The cutoff is the outcome's timestamp, not `deferredAt`: retention
+   * promises how long a SETTLED record is kept, and measuring from the
+   * deferral would purge a record that waited 89 days and settled on day 89
+   * one day after it settled.
    */
   purgeSettled(before: Date): Promise<number>;
 

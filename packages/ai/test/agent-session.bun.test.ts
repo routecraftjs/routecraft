@@ -1112,11 +1112,11 @@ describe("agent sessions", () => {
       deferral: { deferralId, routeId: "chat" },
     }));
     // The hazard is reachable: the record is the only thing naming it.
-    expect((await store.get(deferralId))?.status).toBe("deferred");
+    expect((await store.get(deferralId))?.state).toBe("waiting");
 
     await sessions.remove("finished");
 
-    expect((await store.get(deferralId))?.status).toBe("denied");
+    expect((await store.get(deferralId))?.outcome?.kind).toBe("denied");
     expect(await sessions.load("finished")).toBeUndefined();
   });
 
@@ -1142,12 +1142,12 @@ describe("agent sessions", () => {
         deferralId: id,
       }),
     );
-    expect((await store.get(deferralId))?.status).toBe("deferred");
+    expect((await store.get(deferralId))?.state).toBe("waiting");
     const sessions = new AgentSessionStore(recordsFor(store), store);
     await sessions.releaseDeferral(deferralId, "test");
-    expect((await store.get(deferralId))?.status).toBe("denied");
+    expect((await store.get(deferralId))?.outcome?.kind).toBe("denied");
     await sessions.releaseDeferral(deferralId, "again");
-    expect((await store.get(deferralId))?.status).toBe("denied");
+    expect((await store.get(deferralId))?.outcome?.kind).toBe("denied");
   });
 
   /**
@@ -1224,8 +1224,8 @@ describe("agent sessions", () => {
     const after = await sessions.load(key);
     expect(after?.deferral?.deferralId).toBeDefined();
     expect(after?.deferral?.deferralId).not.toBe(announced[0]);
-    expect((await store.get(after!.deferral!.deferralId))?.status).toBe(
-      "deferred",
+    expect((await store.get(after!.deferral!.deferralId))?.state).toBe(
+      "waiting",
     );
   });
 
@@ -1282,7 +1282,7 @@ describe("agent sessions", () => {
       },
     });
     expect(announced).toHaveLength(1);
-    expect((await store.get(announced[0]!))?.status).toBe("denied");
+    expect((await store.get(announced[0]!))?.outcome?.kind).toBe("denied");
     const record = await sessions.load(key);
     expect(record?.deferral).toBeUndefined();
     expect(record?.deferring).toBeUndefined();
@@ -1344,7 +1344,7 @@ describe("agent sessions", () => {
     const runtime = new AgentSessionRuntime(t.ctx, sessions);
     await runtime.driveBoot();
     expect((await sessions.load(key))?.deferring?.deferralId).toBe(deferralId);
-    expect((await store.get(deferralId))?.status).toBe("deferred");
+    expect((await store.get(deferralId))?.state).toBe("waiting");
   });
 
   /**
@@ -1388,7 +1388,7 @@ describe("agent sessions", () => {
     expect((await sessions.load(key))?.deferring?.deferralId).toBe(
       "started-under-the-boot",
     );
-    expect((await store.get(deferralId))?.status).toBe("denied");
+    expect((await store.get(deferralId))?.outcome?.kind).toBe("denied");
   });
 
   /**
@@ -1448,7 +1448,7 @@ describe("agent sessions", () => {
     expect((await sessions.load(key))?.deferring?.deferralId).toBe(
       announced[0],
     );
-    expect((await store.get(announced[0]!))?.status).toBe("deferred");
+    expect((await store.get(announced[0]!))?.state).toBe("waiting");
   });
 
   /**
@@ -1484,10 +1484,10 @@ describe("agent sessions", () => {
       ...r,
       deferring: { deferralId: "never-created", routeId: "chat" },
     }));
-    expect((await store.get(deferralId))?.status).toBe("deferred");
+    expect((await store.get(deferralId))?.state).toBe("waiting");
     const runtime = new AgentSessionRuntime(t.ctx, sessions);
     await runtime.driveBoot();
-    expect((await store.get(deferralId))?.status).toBe("denied");
+    expect((await store.get(deferralId))?.outcome?.kind).toBe("denied");
     expect((await sessions.load(orphan))?.deferring).toBeUndefined();
     expect((await sessions.load(phantom))?.deferring).toBeUndefined();
   });

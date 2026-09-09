@@ -73,7 +73,7 @@ The revived route runs to completion before `.resume()` continues, so the acknow
 
 `outcome.status` is how execution two ended, so it is not always `completed`: a continuation that reaches a second `.defer()` reports `deferred` and carries no body, because that body would be the SECOND deferral's acknowledgment and handing approver A approver B's resume token is not a receipt. `dropped` and `failed` are the other two.
 
-A duplicate resume (an approver double-clicks, a webhook is redelivered) returns the first one's cached terminal outcome with `status: "duplicate"` and re-runs nothing.
+A duplicate resume (an approver double-clicks, a webhook is redelivered) returns the first one's cached continuation result with `status: "duplicate"` and re-runs nothing.
 
 ## Securing resume
 

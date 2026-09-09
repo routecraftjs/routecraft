@@ -320,7 +320,7 @@ declare module "@routecraft/routecraft" {
      * The revived route runs to completion before this step continues, so
      * the acknowledgment placed in the body reports how execution two
      * ended, and the ingress route can reply on the caller's own channel.
-     * A duplicate resume returns the first one's cached terminal outcome
+     * A duplicate resume returns the first one's cached continuation result
      * without re-running anything.
      *
      * @param map - Maps the ingress exchange to `{ token, result }`

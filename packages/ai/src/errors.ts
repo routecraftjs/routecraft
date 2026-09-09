@@ -202,7 +202,7 @@ registerErrorCodes(
       category: "Adapter",
       message: "Agent deferral state invalid at rehydration",
       suggestion:
-        "A resumed exchange carried stepState this agent cannot re-enter: the persisted shape is not the { agentId, messages, deferredToolCallId, turnsUsed } record the runtime writes, or it names a different agent than the one the route now dispatches. The deferral was already claimed, so this failure is recorded as its terminal outcome and reaches the deferred route's error channel. Restore the agent binding the record names, or treat the deferred work as lost and re-ask.",
+        "A resumed exchange carried stepState this agent cannot re-enter: the persisted shape is not the { agentId, messages, deferredToolCallId, turnsUsed } record the runtime writes, or it names a different agent than the one the route now dispatches. The deferral was already claimed, so this failure is recorded as its continuation result and reaches the deferred route's error channel. Restore the agent binding the record names, or treat the deferred work as lost and re-ask.",
       docs: `${DOCS_BASE}#ai-1007`,
       retryable: false,
     },

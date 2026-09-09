@@ -82,7 +82,7 @@ describe("defer and resume", () => {
   /**
    * @case A resume revives the deferred exchange at position N+1 with the answer in place
    * @preconditions A deferred payout, and a second route ending in .resume() fed by its own direct() ingress
-   * @expectedResult Only the steps after the defer run, ex.deferral.result carries the validated answer, and the acknowledgment reports the continuation's terminal outcome
+   * @expectedResult Only the steps after the defer run, ex.deferral.result carries the validated answer, and the acknowledgment reports the continuation's result
    */
   test("resume runs the continuation with ex.deferral.result populated", async () => {
     const ran: Array<{ body: unknown; approved: boolean }> = [];
@@ -131,7 +131,7 @@ describe("defer and resume", () => {
   });
 
   /**
-   * @case A duplicate resume returns the cached terminal outcome instead of re-running the continuation
+   * @case A duplicate resume returns the cached continuation result instead of re-running the continuation
    * @preconditions A deferral already resumed once; the same token presented again
    * @expectedResult The second call reports status "duplicate" with the first run's outcome, and the continuation ran exactly once
    */
@@ -163,16 +163,16 @@ describe("defer and resume", () => {
     const first = (await t.client.sendDirect("answers", {
       token: deferred.token,
       result: { approved: true },
-    })) as { status: string; outcome: { status: string; body?: unknown } };
+    })) as { status: string; continuation: { status: string; body?: unknown } };
     const second = (await t.client.sendDirect("answers", {
       token: deferred.token,
       result: { approved: true },
-    })) as { status: string; outcome: { status: string; body?: unknown } };
+    })) as { status: string; continuation: { status: string; body?: unknown } };
 
     expect(first.status).toBe("resumed");
     expect(second.status).toBe("duplicate");
-    expect(second.outcome.status).toBe("completed");
-    expect(second.outcome.body).toEqual(first.outcome.body);
+    expect(second.continuation.status).toBe("completed");
+    expect(second.continuation.body).toEqual(first.continuation.body);
     expect(runs).toBe(1);
   });
 
@@ -297,9 +297,9 @@ describe("defer and resume", () => {
     const acknowledgment = (await t.client.sendDirect("answers", {
       token: deferred.token,
       result: { approved: true },
-    })) as { status: string; outcome: { status: string } };
+    })) as { status: string; continuation: { status: string } };
     expect(acknowledgment.status).toBe("resumed");
-    expect(acknowledgment.outcome.status).toBe("completed");
+    expect(acknowledgment.continuation.status).toBe("completed");
     expect(ran).toHaveLength(1);
     expect(caught).toHaveLength(0);
   });
@@ -492,9 +492,9 @@ describe("defer and resume", () => {
     const acknowledgment = (await t.client.sendDirect("answers", {
       token: deferred.token,
       result: { approved: false },
-    })) as { outcome: { status: string } };
+    })) as { continuation: { status: string } };
 
-    expect(acknowledgment.outcome.status).toBe("dropped");
+    expect(acknowledgment.continuation.status).toBe("dropped");
     expect(paid).toHaveLength(0);
   });
 
@@ -626,10 +626,10 @@ describe("defer and resume", () => {
     const acknowledgment = (await t.client.sendDirect("answers", {
       token: deferred.token,
       result: { approved: true },
-    })) as { outcome: { status: string; error?: { rc?: string } } };
+    })) as { continuation: { status: string; error?: { rc?: string } } };
 
-    expect(acknowledgment.outcome.status).toBe("failed");
-    expect(acknowledgment.outcome.error?.rc).toBe("RC5043");
+    expect(acknowledgment.continuation.status).toBe("failed");
+    expect(acknowledgment.continuation.error?.rc).toBe("RC5043");
     expect(reached).toHaveLength(0);
   });
 
@@ -690,7 +690,7 @@ describe("defer and resume", () => {
   /**
    * @case A continuation that reaches a second .defer() is not a completion
    * @preconditions A two-stage approval: the continuation of the first deferral contains another .defer()
-   * @expectedResult The first deferral's terminal outcome is "deferred" with no body, so the receipt does not claim the work finished and the first approver's response does not carry the second approver's resume token
+   * @expectedResult The first deferral's continuation result is "deferred" with no body, so the receipt does not claim the work finished and the first approver's response does not carry the second approver's resume token
    */
   test("a chained deferral records a deferred outcome, not a completion", async () => {
     t = await testContext()
@@ -716,21 +716,21 @@ describe("defer and resume", () => {
       result: { approved: true },
     })) as {
       status: string;
-      outcome: { status: string; body?: unknown };
+      continuation: { status: string; body?: unknown };
     };
 
     expect(first.status).toBe("resumed");
-    expect(first.outcome.status).toBe("deferred");
+    expect(first.continuation.status).toBe("deferred");
     // No body: it would be the SECOND acknowledgment, token included.
-    expect(first.outcome.body).toBeUndefined();
+    expect(first.continuation.body).toBeUndefined();
 
     const duplicate = (await t.client.sendDirect("answers", {
       token: deferred.token,
       result: { approved: true },
-    })) as { status: string; outcome: { status: string; body?: unknown } };
+    })) as { status: string; continuation: { status: string; body?: unknown } };
     expect(duplicate.status).toBe("duplicate");
-    expect(duplicate.outcome.status).toBe("deferred");
-    expect(duplicate.outcome.body).toBeUndefined();
+    expect(duplicate.continuation.status).toBe("deferred");
+    expect(duplicate.continuation.body).toBeUndefined();
   });
 
   /**
@@ -1196,7 +1196,7 @@ describe("defer and resume", () => {
   /**
    * @case An answer that arrives in time but validates past the deadline
    * @preconditions .defer({ ttl: "200ms" }) with an expect schema whose async validate sleeps well past it; the answer is presented before the deadline
-   * @expectedResult RC5047 in the ingress route, a failed terminal carrying RC5047, and one re-ask. The deadline is re-checked AFTER winning markResumed because validation is user code that can await; without the re-check a slow validation would run the continuation past the window its route declared closed
+   * @expectedResult RC5047 in the ingress route, a failed continuation result carrying RC5047, and one re-ask. The deadline is re-checked AFTER winning markResumed because validation is user code that can await; without the re-check a slow validation would run the continuation past the window its route declared closed
    */
   test("a slow validation cannot carry an answer past the deadline", async () => {
     const caught: unknown[] = [];
@@ -1252,24 +1252,24 @@ describe("defer and resume", () => {
     expect(caught).toHaveLength(1);
     const runtime = t.ctx.getStore(DEFERRAL_RUNTIME);
     const record = await runtime?.store.get(deferred.deferralId);
-    expect(record?.status).toBe("resumed");
-    expect(record?.terminal?.status).toBe("failed");
-    expect(record?.terminal?.error?.rc).toBe("RC5047");
+    expect(record?.outcome?.kind).toBe("resumed");
+    expect(record?.continuation?.status).toBe("failed");
+    expect(record?.continuation?.error?.rc).toBe("RC5047");
   });
 
   /**
-   * @case The terminal cache write fails after a continuation succeeded
-   * @preconditions A store whose recordTerminal throws once execution two completes
+   * @case The continuation cache write fails after a continuation succeeded
+   * @preconditions A store whose recordContinuation throws once execution two completes
    * @expectedResult The answerer still receives the completed acknowledgment. The work is done and destinations fired, so a transient store error at that moment must not report the work as failed; the only cost is that a duplicate resume is told the outcome is unrecorded
    */
-  test("a failed terminal cache write does not fail a completed resume", async () => {
+  test("a failed continuation cache write does not fail a completed resume", async () => {
     const backing = new MemoryDeferralStore();
     const store = storeWith(backing, {
-      recordTerminal: async (id, terminal) => {
-        if (terminal.status === "completed") {
+      recordContinuation: async (id, continuation) => {
+        if (continuation.status === "completed") {
           throw new Error("the database went away");
         }
-        return backing.recordTerminal(id, terminal);
+        return backing.recordContinuation(id, continuation);
       },
     });
 
@@ -1297,11 +1297,13 @@ describe("defer and resume", () => {
     const acknowledgment = (await t.client.sendDirect("answers", {
       token: deferred.token,
       result: { approved: true },
-    })) as { status: string; outcome: { status: string } };
+    })) as { status: string; continuation: { status: string } };
 
     expect(acknowledgment.status).toBe("resumed");
-    expect(acknowledgment.outcome.status).toBe("completed");
-    expect((await backing.get(deferred.deferralId))?.terminal).toBeUndefined();
+    expect(acknowledgment.continuation.status).toBe("completed");
+    expect(
+      (await backing.get(deferred.deferralId))?.continuation,
+    ).toBeUndefined();
   });
 });
 

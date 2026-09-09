@@ -20,7 +20,7 @@ const TOKEN_VERSION = 1;
  * sender verification, a per-recipient link), which is where an
  * authenticated principal is available. Nor does the token enforce single use on its own; the store's
  * compare-and-swap does that, so a replayed token finds the deferral
- * already resumed and gets the cached terminal outcome instead of a second
+ * already resumed and gets the cached continuation result instead of a second
  * execution.
  */
 export interface ResumeTokenPayload {

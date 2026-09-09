@@ -42,6 +42,7 @@ function record(overrides: Partial<NewDeferral> = {}): NewDeferral {
       headers: { "routecraft.id": "ex-1" },
     },
     schema: { hash: "e".repeat(64) },
+    waitingFor: "resume",
     deferredAt: new Date("2026-08-10T09:00:00.000Z"),
     ...overrides,
   };
@@ -88,7 +89,7 @@ describe("deferral store (cross-runtime)", () => {
     store = await SqliteDeferralStore.open({ path });
     const read = await store.get("sus-1");
 
-    expect(read?.status).toBe("deferred");
+    expect(read?.state).toBe("waiting");
     expect(read?.exchange.body).toEqual({ amountCents: 50_000 });
     expect(read?.expiresAt?.toISOString()).toBe("2026-08-13T09:00:00.000Z");
   });
@@ -120,8 +121,8 @@ describe("deferral store (cross-runtime)", () => {
 
     expect(first.won).toBe(true);
     expect(second.won).toBe(false);
-    expect((await store.get("sus-1"))?.resumedBy?.subject).toBe("a");
-    expect((await store.get("sus-1"))?.status).toBe("resumed");
+    expect((await store.get("sus-1"))?.outcome?.by?.subject).toBe("a");
+    expect((await store.get("sus-1"))?.outcome?.kind).toBe("resumed");
   });
 
   /**

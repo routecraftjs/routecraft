@@ -27,10 +27,12 @@ import type {
   SerializedOutcome,
   Deferral,
   DeferralCasResult,
+  DeferralOutcome,
   DeferralSchema,
   DeferralResumption,
-  DeferralStatus,
+  DeferralState,
   DeferralStore,
+  DeferralWaitingFor,
 } from "./types.ts";
 
 /**
@@ -58,6 +60,17 @@ const SCHEMA_VERSION = 1;
  * Set explicitly because the two drivers ship different defaults.
  */
 const BUSY_TIMEOUT_MS = 5_000;
+
+/**
+ * The resumable compare, spelled once. `resumable()` in `types.ts` is the
+ * same condition in TypeScript, and the memory backend uses that; a store
+ * whose `WHERE` clause drifted from it would accept a resume the other
+ * backend refuses.
+ */
+const RESUMABLE = "state = 'waiting' AND claimed_at IS NULL";
+
+/** The claimed compare, the other half of {@link RESUMABLE}. */
+const CLAIMED = "state = 'waiting' AND claimed_at IS NOT NULL";
 
 /**
  * Forward-only migrations, applied in order from the database's current
@@ -88,21 +101,23 @@ const MIGRATIONS: ReadonlyArray<string> = [
      exchange           TEXT    NOT NULL,
      "schema"           TEXT    NOT NULL,
      step_state         TEXT,
-     status             TEXT    NOT NULL,
+     state              TEXT    NOT NULL,
+     waiting_for        TEXT    NOT NULL,
      deferred_at        INTEGER NOT NULL,
      expires_at         INTEGER,
-     resumed_at         INTEGER,
-     resumed_by         TEXT,
-     denied_reason      TEXT,
-     terminal           TEXT,
      claimed_at         INTEGER,
+     outcome_kind       TEXT,
+     outcome_at         INTEGER,
+     outcome_reason     TEXT,
+     outcome_by         TEXT,
+     continuation       TEXT,
      call_binding       TEXT,
-     meta               TEXT,
-     settled_at         INTEGER
+     meta               TEXT
    );
-   CREATE INDEX deferrals_sweep ON deferrals (status, expires_at, id);
-   CREATE INDEX deferrals_pending ON deferrals (status, deferred_at);
-   CREATE INDEX deferrals_retention ON deferrals (status, settled_at);`,
+   CREATE INDEX deferrals_sweep ON deferrals (state, claimed_at, expires_at, id);
+   CREATE INDEX deferrals_pending ON deferrals (state, deferred_at);
+   CREATE INDEX deferrals_retention ON deferrals (state, outcome_at);
+   CREATE INDEX deferrals_stranded ON deferrals (outcome_kind, deferred_at);`,
 ];
 
 /**
@@ -111,8 +126,8 @@ const MIGRATIONS: ReadonlyArray<string> = [
  * One implementation over two drivers: `bun:sqlite` under Bun and
  * `better-sqlite3` under Node. Both are synchronous, which is what makes
  * the compare-and-swap methods genuinely atomic here: a single `UPDATE
- * ... WHERE status = 'deferred'` either changes one row or none, and the
- * driver returns which. See `shared/sqlite/driver.ts` for the runtime-split
+ * ... WHERE state = 'waiting' AND claimed_at IS NULL` either changes one row
+ * or none, and the driver returns which. See `shared/sqlite/driver.ts` for the runtime-split
  * decision, the version matrix behind it, and the graduation condition for
  * `node:sqlite`.
  *
@@ -179,8 +194,8 @@ export class SqliteDeferralStore implements DeferralStore {
           `INSERT INTO deferrals (
              id, route_id, position, continuation_hash, action_fingerprint,
              exchange, "schema", call_binding, meta,
-             step_state, status, deferred_at, expires_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+             step_state, state, waiting_for, deferred_at, expires_at
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           record.id,
@@ -197,7 +212,8 @@ export class SqliteDeferralStore implements DeferralStore {
           record.stepState === undefined
             ? null
             : JSON.stringify(encodePersistable(record.stepState, "stepState")),
-          "deferred" satisfies DeferralStatus,
+          "waiting" satisfies DeferralState,
+          record.waitingFor,
           record.deferredAt.getTime(),
           record.expiresAt ? record.expiresAt.getTime() : null,
         );
@@ -243,10 +259,10 @@ export class SqliteDeferralStore implements DeferralStore {
     return this.#transition(
       id,
       `UPDATE deferrals
-          SET status = 'resumed', resumed_at = ?, settled_at = ?, resumed_by = ?
-        WHERE id = ? AND status = 'deferred'`,
+          SET state = 'settled', outcome_kind = 'resumed',
+              outcome_at = ?, outcome_by = ?
+        WHERE id = ? AND ${RESUMABLE}`,
       [
-        resumption.at.getTime(),
         resumption.at.getTime(),
         resumption.by ? JSON.stringify(resumption.by) : null,
       ],
@@ -256,8 +272,8 @@ export class SqliteDeferralStore implements DeferralStore {
   async claimExpiry(id: string, at: Date): Promise<DeferralCasResult> {
     return this.#transition(
       id,
-      `UPDATE deferrals SET status = 'expiring', claimed_at = ?
-        WHERE id = ? AND status = 'deferred'`,
+      `UPDATE deferrals SET claimed_at = ?
+        WHERE id = ? AND ${RESUMABLE}`,
       [at.getTime()],
     );
   }
@@ -265,8 +281,9 @@ export class SqliteDeferralStore implements DeferralStore {
   async markExpired(id: string): Promise<DeferralCasResult> {
     return this.#transition(
       id,
-      `UPDATE deferrals SET status = 'expired', settled_at = ?
-        WHERE id = ? AND status = 'expiring'`,
+      `UPDATE deferrals
+          SET state = 'settled', outcome_kind = 'expired', outcome_at = ?
+        WHERE id = ? AND ${CLAIMED}`,
       [Date.now()],
     );
   }
@@ -274,18 +291,20 @@ export class SqliteDeferralStore implements DeferralStore {
   async markDenied(id: string, reason?: string): Promise<DeferralCasResult> {
     return this.#transition(
       id,
-      `UPDATE deferrals SET status = 'denied', denied_reason = ?, settled_at = ?
-        WHERE id = ? AND status = 'expiring'`,
+      `UPDATE deferrals
+          SET state = 'settled', outcome_kind = 'denied',
+              outcome_reason = ?, outcome_at = ?
+        WHERE id = ? AND ${CLAIMED}`,
       [reason ?? null, Date.now()],
     );
   }
 
-  async releaseExpiring(before: Date): Promise<number> {
-    return guard("release stale expiry claims", () => {
+  async releaseClaims(before: Date): Promise<number> {
+    return guard("release stale delivery claims", () => {
       this.#db
         .prepare(
-          `UPDATE deferrals SET status = 'deferred', claimed_at = NULL
-            WHERE status = 'expiring' AND claimed_at <= ?`,
+          `UPDATE deferrals SET claimed_at = NULL
+            WHERE state = 'waiting' AND claimed_at <= ?`,
         )
         .run(before.getTime());
       return (
@@ -318,12 +337,21 @@ export class SqliteDeferralStore implements DeferralStore {
     try {
       this.#db.exec("BEGIN IMMEDIATE");
       const current = this.#db
-        .prepare(`SELECT status, step_state FROM deferrals WHERE id = ?`)
+        .prepare(
+          `SELECT state, claimed_at, step_state FROM deferrals WHERE id = ?`,
+        )
         .get(id) as
-        { status: string; step_state: string | null } | undefined | null;
+        | {
+            state: string;
+            claimed_at: number | null;
+            step_state: string | null;
+          }
+        | undefined
+        | null;
       if (
         current != null &&
-        current.status === "deferred" &&
+        current.state === "waiting" &&
+        current.claimed_at === null &&
         stepStateFingerprint(
           current.step_state === null
             ? undefined
@@ -333,7 +361,7 @@ export class SqliteDeferralStore implements DeferralStore {
         this.#db
           .prepare(
             `UPDATE deferrals SET step_state = ?
-             WHERE id = ? AND status = 'deferred'`,
+             WHERE id = ? AND ${RESUMABLE}`,
           )
           // `create` guards the same way. `bun:sqlite` binds an undefined
           // parameter as NULL and `better-sqlite3` rejects it, so the branch
@@ -364,11 +392,14 @@ export class SqliteDeferralStore implements DeferralStore {
     };
   }
 
-  async recordTerminal(id: string, terminal: SerializedOutcome): Promise<void> {
-    guard(`record the terminal outcome of "${id}"`, () => {
+  async recordContinuation(
+    id: string,
+    continuation: SerializedOutcome,
+  ): Promise<void> {
+    guard(`record the continuation result of "${id}"`, () => {
       this.#db
-        .prepare(`UPDATE deferrals SET terminal = ? WHERE id = ?`)
-        .run(JSON.stringify(serializeTerminal(terminal)), id);
+        .prepare(`UPDATE deferrals SET continuation = ? WHERE id = ?`)
+        .run(JSON.stringify(serializeContinuation(continuation)), id);
     });
   }
 
@@ -386,7 +417,7 @@ export class SqliteDeferralStore implements DeferralStore {
         ? this.#db
             .prepare(
               `SELECT * FROM deferrals
-                WHERE status = 'deferred'
+                WHERE ${RESUMABLE}
                   AND expires_at IS NOT NULL
                   AND expires_at <= ?
                   AND (expires_at > ? OR (expires_at = ? AND id > ?))
@@ -403,7 +434,7 @@ export class SqliteDeferralStore implements DeferralStore {
         : this.#db
             .prepare(
               `SELECT * FROM deferrals
-                WHERE status = 'deferred'
+                WHERE ${RESUMABLE}
                   AND expires_at IS NOT NULL
                   AND expires_at <= ?
                 ORDER BY expires_at ASC, id ASC
@@ -414,14 +445,14 @@ export class SqliteDeferralStore implements DeferralStore {
     });
   }
 
-  async resumedWithoutTerminal(limit?: number): Promise<Deferral[]> {
+  async resumedWithoutContinuation(limit?: number): Promise<Deferral[]> {
     assertSweepLimit(limit);
     return guard("scan for stranded resumes", () => {
       const rows = this.#db
         .prepare(
           `SELECT * FROM deferrals
-          WHERE status = 'resumed'
-            AND terminal IS NULL
+          WHERE outcome_kind = 'resumed'
+            AND continuation IS NULL
           ORDER BY deferred_at ASC
           LIMIT ?`,
         )
@@ -435,7 +466,7 @@ export class SqliteDeferralStore implements DeferralStore {
       const row = this.#db
         .prepare(
           `SELECT COUNT(*) AS count, MIN(deferred_at) AS oldest
-           FROM deferrals WHERE status = 'deferred'`,
+           FROM deferrals WHERE state = 'waiting'`,
         )
         .get() as { count: number; oldest: number | null } | undefined;
       const count = row?.count ?? 0;
@@ -451,8 +482,8 @@ export class SqliteDeferralStore implements DeferralStore {
       this.#db
         .prepare(
           `DELETE FROM deferrals
-          WHERE status IN ('resumed', 'expired', 'denied')
-            AND settled_at < ?`,
+          WHERE state = 'settled'
+            AND outcome_at < ?`,
         )
         .run(before.getTime());
       return (
@@ -470,13 +501,14 @@ export class SqliteDeferralStore implements DeferralStore {
   }
 
   /**
-   * Run a conditional `UPDATE` that only matches a still-deferred row, and
-   * report whether this caller performed it.
+   * Run a conditional `UPDATE` that only matches a row in the state the
+   * caller expected, and report whether this caller performed it.
    *
    * The update and the read-back run inside one immediate transaction so
    * the returned record is the state this transition produced, not a state
-   * some later writer moved on to. The `WHERE status = 'deferred'` clause
-   * is the compare half of the compare-and-swap; `changes` is the answer.
+   * some later writer moved on to. The {@link RESUMABLE} or {@link CLAIMED}
+   * clause is the compare half of the compare-and-swap; `changes` is the
+   * answer.
    */
   #transition(
     id: string,
@@ -614,21 +646,22 @@ interface DeferralRow {
   call_binding: string | null;
   meta: string | null;
   step_state: string | null;
-  status: string;
+  state: string;
+  waiting_for: string;
   deferred_at: number;
   expires_at: number | null;
   claimed_at: number | null;
-  settled_at: number | null;
-  resumed_at: number | null;
-  resumed_by: string | null;
-  denied_reason: string | null;
-  terminal: string | null;
+  outcome_kind: string | null;
+  outcome_at: number | null;
+  outcome_reason: string | null;
+  outcome_by: string | null;
+  continuation: string | null;
 }
 
 /** @internal */
 function toDeferral(row: DeferralRow): Deferral {
-  const terminal = row.terminal
-    ? (JSON.parse(row.terminal) as SerializedOutcome & { at: string })
+  const continuation = row.continuation
+    ? (JSON.parse(row.continuation) as SerializedOutcome & { at: string })
     : undefined;
   return {
     id: row.id,
@@ -643,35 +676,49 @@ function toDeferral(row: DeferralRow): Deferral {
     ...(row.step_state !== null
       ? { stepState: JSON.parse(row.step_state) as unknown }
       : {}),
-    status: row.status as DeferralStatus,
+    state: row.state as DeferralState,
+    waitingFor: row.waiting_for as DeferralWaitingFor,
     deferredAt: new Date(row.deferred_at),
     ...(row.expires_at !== null ? { expiresAt: new Date(row.expires_at) } : {}),
     ...(row.claimed_at != null ? { claimedAt: new Date(row.claimed_at) } : {}),
-    ...(row.settled_at != null ? { settledAt: new Date(row.settled_at) } : {}),
-    ...(row.resumed_at !== null ? { resumedAt: new Date(row.resumed_at) } : {}),
-    ...(row.resumed_by !== null
-      ? { resumedBy: JSON.parse(row.resumed_by) as PrincipalRef }
+    // Both columns or neither. A row carrying one of them is only reachable
+    // by raw SQL, and reading it back as a partial outcome would mean
+    // inventing the missing half: a kind for a row that never settled, or a
+    // date the retention sweep would then act on. Absent is what it is, and
+    // it is what the memory backend produces for the same injection.
+    ...(row.outcome_kind !== null && row.outcome_at !== null
+      ? {
+          outcome: {
+            kind: row.outcome_kind as DeferralOutcome["kind"],
+            at: new Date(row.outcome_at),
+            ...(row.outcome_reason !== null
+              ? { reason: row.outcome_reason }
+              : {}),
+            ...(row.outcome_by !== null
+              ? { by: JSON.parse(row.outcome_by) as PrincipalRef }
+              : {}),
+          },
+        }
       : {}),
-    ...(row.denied_reason !== null ? { deniedReason: row.denied_reason } : {}),
-    ...(terminal
-      ? { terminal: { ...terminal, at: new Date(terminal.at) } }
+    ...(continuation
+      ? { continuation: { ...continuation, at: new Date(continuation.at) } }
       : {}),
   };
 }
 
 /**
- * `Date` does not survive `JSON.stringify` as a `Date`, so the terminal
- * outcome's timestamp is written as an ISO string and revived in
+ * `Date` does not survive `JSON.stringify` as a `Date`, so the continuation
+ * result's timestamp is written as an ISO string and revived in
  * {@link toDeferral}.
  *
  * @internal
  */
-function serializeTerminal(terminal: SerializedOutcome): unknown {
+function serializeContinuation(continuation: SerializedOutcome): unknown {
   return {
-    ...terminal,
-    ...(terminal.body !== undefined
-      ? { body: encodePersistable(terminal.body, "terminal.body") }
+    ...continuation,
+    ...(continuation.body !== undefined
+      ? { body: encodePersistable(continuation.body, "continuation.body") }
       : {}),
-    at: terminal.at.toISOString(),
+    at: continuation.at.toISOString(),
   };
 }

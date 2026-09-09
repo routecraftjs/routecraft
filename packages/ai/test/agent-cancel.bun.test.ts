@@ -391,7 +391,7 @@ describe("cooperative cancellation of agent runs", () => {
     t = undefined;
 
     const record = await store.get(id);
-    expect(record?.status).toBe("deferred");
+    expect(record?.state).toBe("waiting");
   });
 
   /**
@@ -451,7 +451,7 @@ describe("cooperative cancellation of agent runs", () => {
     expect(outcome.forced).toBe(true);
 
     const record = await store.get(id);
-    expect(record?.status).toBe("deferred");
+    expect(record?.state).toBe("waiting");
     t = undefined;
   });
 

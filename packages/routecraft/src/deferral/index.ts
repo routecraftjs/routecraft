@@ -9,9 +9,12 @@ export type {
   DeferralCasResult,
   DeferralSchema,
   DeferralResumption,
-  DeferralStatus,
+  DeferralState,
+  DeferralOutcome,
+  DeferralWaitingFor,
   DeferralStore,
 } from "./types.ts";
+export { claimed, resumable } from "./types.ts";
 
 export { MemoryDeferralStore } from "./memory-store.ts";
 export {

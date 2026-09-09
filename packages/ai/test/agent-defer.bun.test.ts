@@ -156,9 +156,9 @@ describe("agent durable deferral (ctx.defer)", () => {
     const ack = (await t.client.sendDirect("answers", {
       token: deferred.token,
       result: { approved: true },
-    })) as { status: string; outcome: { status: string } };
+    })) as { status: string; continuation: { status: string } };
     expect(ack.status).toBe("resumed");
-    expect(ack.outcome.status).toBe("completed");
+    expect(ack.continuation.status).toBe("completed");
 
     expect(sink.received).toHaveLength(1);
     const result = sink.received[0]!.body as AgentResult;
@@ -174,9 +174,9 @@ describe("agent durable deferral (ctx.defer)", () => {
     const duplicate = (await t.client.sendDirect("answers", {
       token: deferred.token,
       result: { approved: true },
-    })) as { status: string; outcome: { status: string } };
+    })) as { status: string; continuation: { status: string } };
     expect(duplicate.status).toBe("duplicate");
-    expect(duplicate.outcome.status).toBe("completed");
+    expect(duplicate.continuation.status).toBe("completed");
     expect(llm.calls).toHaveLength(2);
     expect(t.errors).toHaveLength(0);
   });
@@ -219,12 +219,12 @@ describe("agent durable deferral (ctx.defer)", () => {
     const first = (await t.client.sendDirect("answers", {
       token: deferred.token,
       result: { approved: true },
-    })) as { status: string; outcome: { status: string; body?: unknown } };
+    })) as { status: string; continuation: { status: string; body?: unknown } };
     expect(first.status).toBe("resumed");
-    expect(first.outcome.status).toBe("deferred");
+    expect(first.continuation.status).toBe("deferred");
     // No body: handing the second acknowledgment (token included) to the
     // first answerer would give approver A approver B's capability.
-    expect(first.outcome.body).toBeUndefined();
+    expect(first.continuation.body).toBeUndefined();
 
     expect(ids).toHaveLength(2);
     expect(ids[1]).not.toBe(ids[0]);
@@ -234,9 +234,9 @@ describe("agent durable deferral (ctx.defer)", () => {
     const second = (await t.client.sendDirect("answers", {
       token: tokens[1]!,
       result: { approved: true },
-    })) as { status: string; outcome: { status: string } };
+    })) as { status: string; continuation: { status: string } };
     expect(second.status).toBe("resumed");
-    expect(second.outcome.status).toBe("completed");
+    expect(second.continuation.status).toBe("completed");
 
     expect(sink.received).toHaveLength(1);
     expect((sink.received[0]!.body as AgentResult).text).toBe("both approved");
@@ -571,8 +571,8 @@ describe("agent durable deferral (ctx.defer)", () => {
         result: { approved: true },
       }),
     ).rejects.toMatchObject({ rc: "RC5055" });
-    expect((await runtime.store.get(deferred.deferralId))?.status).toBe(
-      "deferred",
+    expect((await runtime.store.get(deferred.deferralId))?.state).toBe(
+      "waiting",
     );
 
     llm.script.push({ text: "done" });
@@ -649,9 +649,9 @@ describe("agent durable deferral (ctx.defer)", () => {
     const ack = (await t.client.sendDirect("answers", {
       token: deferred.token,
       result: "not an approval object",
-    })) as { status: string; outcome: { status: string } };
+    })) as { status: string; continuation: { status: string } };
     expect(ack.status).toBe("resumed");
-    expect(ack.outcome.status).toBe("completed");
+    expect(ack.continuation.status).toBe("completed");
     expect(llm.calls.length).toBeGreaterThanOrEqual(2);
     expect(JSON.stringify(llm.calls[1]!.user)).toContain(
       "not an approval object",
@@ -661,7 +661,7 @@ describe("agent durable deferral (ctx.defer)", () => {
   /**
    * @case The maxTurns budget survives the deferral: a resume with the budget exhausted takes the ordinary max-turns path
    * @preconditions agent maxTurns: 1; the deferral consumed the single turn; then a resume arrives
-   * @expectedResult Execution two fails immediately with the max-turns RC5003 as the deferral's terminal outcome, without another model call
+   * @expectedResult Execution two fails immediately with the max-turns RC5003 as the deferral's continuation result, without another model call
    */
   test("a resumed run inherits turnsUsed and an exhausted budget fails as max-turns", async () => {
     const sink = spy();
@@ -695,10 +695,10 @@ describe("agent durable deferral (ctx.defer)", () => {
       result: { approved: true },
     })) as {
       status: string;
-      outcome: { status: string; error?: { message: string } };
+      continuation: { status: string; error?: { message: string } };
     };
-    expect(ack.outcome.status).toBe("failed");
-    expect(ack.outcome.error?.message).toMatch(/maxTurns \(1\) reached/);
+    expect(ack.continuation.status).toBe("failed");
+    expect(ack.continuation.error?.message).toMatch(/maxTurns \(1\) reached/);
     // No second model call was spent on a budget that was already gone.
     expect(llm.calls).toHaveLength(1);
     expect(sink.received).toHaveLength(0);

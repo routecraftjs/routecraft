@@ -2,6 +2,7 @@ import { rcError } from "../error.ts";
 import { compareCodeUnits } from "../shared/compare.ts";
 import { stepStateFingerprint } from "./hash.ts";
 import { encodePersistable } from "./serialize.ts";
+import { claimed, resumable } from "./types.ts";
 import type {
   ExpiredScanCursor,
   NewDeferral,
@@ -37,9 +38,9 @@ export class MemoryDeferralStore implements DeferralStore {
 
   /**
    * The live record map, bypassing the transitions and the clone-on-read
-   * boundary. A test seam: the purge contract must hold for states the
-   * public transitions cannot produce (a terminal record with no
-   * `settledAt`), and proving that on this backend requires injecting one.
+   * boundary. A test seam: the purge contract must hold for shapes the
+   * public transitions cannot produce (a settled record with no outcome),
+   * and proving that on this backend requires injecting one.
    * Sqlite's equivalent seam is raw SQL against the database file.
    *
    * @internal
@@ -83,7 +84,8 @@ export class MemoryDeferralStore implements DeferralStore {
           ...(record.expiresAt !== undefined
             ? { expiresAt: record.expiresAt }
             : {}),
-          status: "deferred",
+          state: "waiting",
+          waitingFor: record.waitingFor,
         }),
       ),
     );
@@ -98,51 +100,46 @@ export class MemoryDeferralStore implements DeferralStore {
     id: string,
     resumption: DeferralResumption,
   ): Promise<DeferralCasResult> {
-    return this.#transition(id, {
-      status: "resumed",
-      resumedAt: resumption.at,
-      settledAt: resumption.at,
-      ...(resumption.by ? { resumedBy: resumption.by } : {}),
+    return this.#transition(id, resumable, {
+      state: "settled",
+      outcome: {
+        kind: "resumed",
+        at: resumption.at,
+        ...(resumption.by ? { by: resumption.by } : {}),
+      },
     });
   }
 
   async claimExpiry(id: string, at: Date): Promise<DeferralCasResult> {
-    return this.#transition(id, { status: "expiring", claimedAt: at });
+    return this.#transition(id, resumable, { claimedAt: at });
   }
 
   async markExpired(id: string): Promise<DeferralCasResult> {
-    return this.#transition(
-      id,
-      { status: "expired", settledAt: new Date() },
-      "expiring",
-    );
+    return this.#transition(id, claimed, {
+      state: "settled",
+      outcome: { kind: "expired", at: new Date() },
+    });
   }
 
   async markDenied(id: string, reason?: string): Promise<DeferralCasResult> {
-    return this.#transition(
-      id,
-      {
-        status: "denied",
-        settledAt: new Date(),
-        ...(reason !== undefined ? { deniedReason: reason } : {}),
+    return this.#transition(id, claimed, {
+      state: "settled",
+      outcome: {
+        kind: "denied",
+        at: new Date(),
+        ...(reason !== undefined ? { reason } : {}),
       },
-      "expiring",
-    );
+    });
   }
 
-  async releaseExpiring(before: Date): Promise<number> {
+  async releaseClaims(before: Date): Promise<number> {
     let released = 0;
     for (const [id, record] of this.#records) {
-      if (record.status !== "expiring") continue;
-      if (
-        record.claimedAt === undefined ||
-        record.claimedAt.getTime() > before.getTime()
-      ) {
-        continue;
-      }
+      if (!claimed(record)) continue;
+      if (record.claimedAt.getTime() > before.getTime()) continue;
       // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructure to omit
       const { claimedAt: _claimedAt, ...rest } = record;
-      this.#records.set(id, clone({ ...rest, status: "deferred" }));
+      this.#records.set(id, clone(rest));
       released++;
     }
     return released;
@@ -162,7 +159,7 @@ export class MemoryDeferralStore implements DeferralStore {
     const record = this.#records.get(id);
     if (!record) return { won: false, deferral: undefined };
     if (
-      record.status !== "deferred" ||
+      !resumable(record) ||
       stepStateFingerprint(record.stepState) !== expected
     ) {
       return { won: false, deferral: clone(record) };
@@ -177,17 +174,22 @@ export class MemoryDeferralStore implements DeferralStore {
     return { won: true, deferral: clone(stored) };
   }
 
-  async recordTerminal(id: string, terminal: SerializedOutcome): Promise<void> {
+  async recordContinuation(
+    id: string,
+    continuation: SerializedOutcome,
+  ): Promise<void> {
     const record = this.#records.get(id);
     if (!record) return;
     this.#records.set(
       id,
       clone({
         ...record,
-        terminal: {
-          ...terminal,
-          ...(terminal.body !== undefined
-            ? { body: encodePersistable(terminal.body, "terminal.body") }
+        continuation: {
+          ...continuation,
+          ...(continuation.body !== undefined
+            ? {
+                body: encodePersistable(continuation.body, "continuation.body"),
+              }
             : {}),
         },
       }),
@@ -218,7 +220,7 @@ export class MemoryDeferralStore implements DeferralStore {
     const found = [...this.#records.values()]
       .filter(
         (record) =>
-          record.status === "deferred" &&
+          resumable(record) &&
           record.expiresAt !== undefined &&
           record.expiresAt.getTime() <= now.getTime() &&
           (after === undefined ||
@@ -234,9 +236,10 @@ export class MemoryDeferralStore implements DeferralStore {
     return found.slice(0, limit).map(clone);
   }
 
-  async resumedWithoutTerminal(limit?: number): Promise<Deferral[]> {
+  async resumedWithoutContinuation(limit?: number): Promise<Deferral[]> {
     return this.#scan(
-      (record) => record.status === "resumed" && record.terminal === undefined,
+      (record) =>
+        record.outcome?.kind === "resumed" && record.continuation === undefined,
       limit,
     );
   }
@@ -245,7 +248,7 @@ export class MemoryDeferralStore implements DeferralStore {
     let count = 0;
     let oldest: Date | undefined;
     for (const record of this.#records.values()) {
-      if (record.status !== "deferred") continue;
+      if (record.state !== "waiting") continue;
       count++;
       if (!oldest || record.deferredAt.getTime() < oldest.getTime()) {
         oldest = record.deferredAt;
@@ -257,21 +260,16 @@ export class MemoryDeferralStore implements DeferralStore {
   async purgeSettled(before: Date): Promise<number> {
     let purged = 0;
     for (const [id, record] of this.#records) {
-      // Terminal states by name, never "not deferred": `expiring` is a live
-      // delivery claim, and purging one mid-delivery would strand the
-      // finalize against a row that no longer exists.
-      if (
-        record.status !== "resumed" &&
-        record.status !== "expired" &&
-        record.status !== "denied"
-      )
-        continue;
-      // A terminal record without settledAt is only reachable by injection
+      // Settled only. A waiting record with a delivery claim outstanding is
+      // still live, and purging one mid-delivery would strand the finalize
+      // against a row that no longer exists.
+      if (record.state !== "settled") continue;
+      // A settled record without an outcome is only reachable by injection
       // around the transitions. Skipped, never dated by fallback: sqlite's
       // NULL comparison skips the same row, and refusing to delete a record
       // you cannot date beats purging it on the clock #634 removed.
-      if (record.settledAt === undefined) continue;
-      if (record.settledAt.getTime() >= before.getTime()) continue;
+      if (record.outcome === undefined) continue;
+      if (record.outcome.at.getTime() >= before.getTime()) continue;
       this.#records.delete(id);
       purged++;
     }
@@ -299,18 +297,22 @@ export class MemoryDeferralStore implements DeferralStore {
   }
 
   /**
-   * Compare-and-swap out of `from` (default `deferred`). Synchronous from
-   * read to write so two concurrent callers cannot both observe the
-   * pre-transition state.
+   * Compare-and-swap a record `matches` accepts. Synchronous from read to
+   * write so two concurrent callers cannot both observe the pre-transition
+   * state.
+   *
+   * The compare is a predicate rather than a state value because the
+   * resumable condition spans two fields: waiting, and no delivery claim
+   * outstanding. Sqlite spells the same compare as its `WHERE` clause.
    */
   #transition(
     id: string,
-    fields: Partial<Deferral> & { status: Deferral["status"] },
-    from: Deferral["status"] = "deferred",
+    matches: (record: Deferral) => boolean,
+    fields: Partial<Deferral>,
   ): DeferralCasResult {
     const record = this.#records.get(id);
     if (!record) return { won: false, deferral: undefined };
-    if (record.status !== from) {
+    if (!matches(record)) {
       return { won: false, deferral: clone(record) };
     }
     // `fields` carries caller-owned values (a `Date`, a `PrincipalRef`), so

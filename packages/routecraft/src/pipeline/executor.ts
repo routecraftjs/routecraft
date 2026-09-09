@@ -1046,7 +1046,7 @@ export function runDetachedPipeline(
 /**
  * What a detached run reports back. `error` is present exactly when
  * `failed` is true and the failure reached the run's boundary, which is
- * what a resume needs to cache as the deferral's terminal outcome.
+ * what a resume needs to cache as the deferral's continuation result.
  *
  * @internal
  */

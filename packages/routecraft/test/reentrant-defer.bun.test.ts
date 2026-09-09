@@ -79,9 +79,9 @@ describe("re-entrant defer sites (defer-capable steps)", () => {
     const ack = (await t.client.sendDirect("answers", {
       token: deferred.token,
       result: { approved: true },
-    })) as { status: string; outcome: { status: string } };
+    })) as { status: string; continuation: { status: string } };
     expect(ack.status).toBe("resumed");
-    expect(ack.outcome.status).toBe("completed");
+    expect(ack.continuation.status).toBe("completed");
 
     expect(sink.received).toHaveLength(1);
     expect(sink.received[0]!.body).toEqual({
@@ -292,15 +292,15 @@ describe("cancellation around the deferral (RC5054)", () => {
     // wall-clock margin a loaded runner can miss.
     const deadline = Date.now() + 2_000;
     let record = await backing.get(ids[0]!);
-    while (record?.status === "deferred" && Date.now() < deadline) {
+    while (record?.state === "waiting" && Date.now() < deadline) {
       await sleep(10);
       record = await backing.get(ids[0]!);
     }
 
     const deferred = await backing.pending();
     expect(deferred.count).toBe(0);
-    expect(record?.status).toBe("denied");
-    expect(record?.deniedReason).toBe("run cancelled");
+    expect(record?.outcome?.kind).toBe("denied");
+    expect(record?.outcome?.reason).toBe("run cancelled");
 
     const resume = t.client.sendDirect("answers", {
       token: tokens[0]!,

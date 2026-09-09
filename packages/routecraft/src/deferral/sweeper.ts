@@ -6,8 +6,8 @@ import type { ExpiredScanCursor, DeferralStore } from "./types.ts";
 export const DEFAULT_SWEEP_INTERVAL = "60s";
 
 /**
- * How long an `expiring` delivery claim is honoured before it is released
- * back to `deferred` for redelivery.
+ * How long a delivery claim is honoured before it is released for
+ * redelivery.
  *
  * Deliberately generous relative to handler work: a lease shorter than a
  * slow error handler would make one healthy process double-deliver by
@@ -115,16 +115,16 @@ export class DeferralSweeper {
    * scan able to say whether a restart had work waiting for it.
    */
   async sweep(now: Date = new Date()): Promise<number> {
-    // Heal before scanning: a claim whose holder died mid-delivery flips
-    // back to `deferred` once its lease elapses, and the released records
-    // are past their deadline, so this same pass redelivers them.
-    const released = await this.store.releaseExpiring(
+    // Heal before scanning: a claim whose holder died mid-delivery is
+    // released once its lease elapses, and the released records are past
+    // their deadline, so this same pass redelivers them.
+    const released = await this.store.releaseClaims(
       new Date(now.getTime() - this.options.leaseMs),
     );
     if (released > 0) {
       this.context.logger.info(
         { released },
-        "Released stale expiry claims for redelivery; a process died while delivering them.",
+        "Released stale delivery claims for redelivery; a process died while delivering them.",
       );
     }
 
@@ -288,7 +288,8 @@ export class DeferralSweeper {
   private async runStartScan(): Promise<void> {
     const retired = await this.sweep();
     const summary = await this.store.pending();
-    const stranded = await this.store.resumedWithoutTerminal(STRANDED_REPORT);
+    const stranded =
+      await this.store.resumedWithoutContinuation(STRANDED_REPORT);
 
     this.context.logger.info(
       {

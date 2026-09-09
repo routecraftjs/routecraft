@@ -55,6 +55,7 @@ function deferred(
       deferredToolCallId: "call-1",
       turnsUsed: 3,
     },
+    waitingFor: "resume",
     deferredAt: new Date("2026-08-27T09:00:00.000Z"),
     ...overrides,
   };
@@ -225,7 +226,7 @@ describe("replaceDeferredThread", () => {
     });
 
     expect(result.won).toBe(false);
-    expect(result.deferral?.status).toBe("resumed");
+    expect(result.deferral?.outcome?.kind).toBe("resumed");
     expect(invoked).toBe(false);
   });
 

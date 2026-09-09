@@ -1,5 +1,6 @@
 import {
   rcError,
+  resumable,
   stepStateFingerprint,
   type DeferralCasResult,
   type DeferralStore,
@@ -229,7 +230,7 @@ export async function replaceDeferredThread(
 ): Promise<DeferralCasResult> {
   const record = await store.get(deferralId);
   if (!record) return { won: false, deferral: undefined };
-  if (record.status !== "deferred") {
+  if (!resumable(record)) {
     // Reported without attempting the swap. The store would refuse it too,
     // but calling a rewrite (an LLM call, in the compaction case) on a run
     // that has already resumed is work with no possible outcome.

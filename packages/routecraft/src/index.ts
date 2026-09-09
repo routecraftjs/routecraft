@@ -746,10 +746,13 @@ export type {
   DeferralSchema,
   DeferralResumption,
   DeferralRuntime,
-  DeferralStatus,
+  DeferralState,
+  DeferralOutcome,
+  DeferralWaitingFor,
   DeferralStore,
   DeferralStoreConfig,
 } from "./deferral/index.ts";
+export { claimed, resumable } from "./deferral/index.ts";
 export {
   type MailAuth,
   type MailReconnectOptions,

@@ -162,11 +162,11 @@ describe("the filter chain on a resumed continuation", () => {
     const receipt = (await t.client.sendDirect("answers", {
       token: deferred.token,
       result: { approved: true },
-    })) as { status: string; outcome: { status: string } };
+    })) as { status: string; continuation: { status: string } };
 
     expect(attempts).toBe(3);
     expect(receipt.status).toBe("resumed");
-    expect(receipt.outcome.status).toBe("completed");
+    expect(receipt.continuation.status).toBe("completed");
     expect(t.errors).toHaveLength(0);
   });
 
@@ -204,10 +204,10 @@ describe("the filter chain on a resumed continuation", () => {
     const receipt = (await t.client.sendDirect("answers", {
       token: deferred.token,
       result: { approved: true },
-    })) as { outcome: { status: string; error?: { rc?: string } } };
+    })) as { continuation: { status: string; error?: { rc?: string } } };
 
-    expect(receipt.outcome.status).toBe("failed");
-    expect(receipt.outcome.error?.rc).toBe("RC5011");
+    expect(receipt.continuation.status).toBe("failed");
+    expect(receipt.continuation.error?.rc).toBe("RC5011");
   });
 
   /**
@@ -246,10 +246,10 @@ describe("the filter chain on a resumed continuation", () => {
     const receipt = (await t.client.sendDirect("answers", {
       token: deferred.token,
       result: { approved: true },
-    })) as { outcome: { status: string; error?: { rc?: string } } };
+    })) as { continuation: { status: string; error?: { rc?: string } } };
 
-    expect(receipt.outcome.status).toBe("failed");
-    expect(receipt.outcome.error?.rc).toBe("RC5011");
+    expect(receipt.continuation.status).toBe("failed");
+    expect(receipt.continuation.error?.rc).toBe("RC5011");
     await sleep(700);
     expect(after).toBe(0);
   });
@@ -297,9 +297,9 @@ describe("the filter chain on a resumed continuation", () => {
           result: { approved: true },
         }),
       ),
-    )) as Array<{ outcome: { status: string } }>;
+    )) as Array<{ continuation: { status: string } }>;
 
-    expect(receipts.map((r) => r.outcome.status)).toEqual([
+    expect(receipts.map((r) => r.continuation.status)).toEqual([
       "completed",
       "completed",
     ]);
@@ -347,13 +347,15 @@ describe("the filter chain on a resumed continuation", () => {
           result: { approved: true },
         }),
       ),
-    )) as Array<{ outcome: { status: string; error?: { rc?: string } } }>;
+    )) as Array<{ continuation: { status: string; error?: { rc?: string } } }>;
 
-    expect(receipts.map((r) => r.outcome.status)).toEqual([
+    expect(receipts.map((r) => r.continuation.status)).toEqual([
       "completed",
       "completed",
     ]);
-    expect(receipts.every((r) => r.outcome.error?.rc !== "RC5026")).toBe(true);
+    expect(receipts.every((r) => r.continuation.error?.rc !== "RC5026")).toBe(
+      true,
+    );
     expect(ran).toBe(2);
   });
 
@@ -407,12 +409,12 @@ describe("the filter chain on a resumed continuation", () => {
     await context.stop();
 
     const receipts = (await answered) as Array<{
-      outcome: { status: string; error?: { rc?: string } };
+      continuation: { status: string; error?: { rc?: string } };
     }>;
 
     expect(ran).toBe(2);
     expect(
-      receipts.every((receipt) => receipt.outcome.error?.rc !== "RC5026"),
+      receipts.every((receipt) => receipt.continuation.error?.rc !== "RC5026"),
     ).toBe(true);
   });
 
