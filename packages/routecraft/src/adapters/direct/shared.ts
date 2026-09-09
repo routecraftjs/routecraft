@@ -149,6 +149,11 @@ export function sanitizeEndpoint(endpoint: string): string {
 export class InMemoryDirectChannel<T> implements DirectChannel<T> {
   private handler: ((message: T) => Promise<T>) | null = null;
 
+  /** Whether a route currently answers on this channel. */
+  get subscribed(): boolean {
+    return this.handler !== null;
+  }
+
   async send(endpoint: string, message: T): Promise<T> {
     if (this.handler) {
       // Synchronous behavior - single consumer gets the message and we wait for result

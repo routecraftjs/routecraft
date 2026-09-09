@@ -17,7 +17,6 @@ import { DefaultExchange, type Exchange } from "../../exchange";
 import type { DirectChannel } from "../../adapters/direct/types";
 import { InMemoryDirectChannel } from "../../adapters/direct/shared";
 import { createSuspended } from "../../suspension/suspended";
-import { rcCodeOf } from "../../brand";
 import { OpsClientError, type OpsHttpClient } from "../ops/client";
 
 /** What a channel needs to know about the route it fronts. */
@@ -62,28 +61,40 @@ export class RemoteDirectChannel implements DirectChannel<Exchange> {
   }
 
   async send(endpoint: string, exchange: Exchange): Promise<Exchange> {
-    if (this.local !== undefined) {
+    if (this.local !== undefined && !this.shadowLifted()) {
       const { ctx, remote, id, endpoint: local } = this.target;
       ctx.logger.warn(
         { endpoint: local, remote, remoteRouteId: id },
         `Direct endpoint "${local}" is answered by the local route; the route "${id}" of remote "${remote}" is shadowed and stays reachable as "${remote}:${id}"`,
       );
-      try {
-        return await this.local.send(endpoint, exchange);
-      } catch (error: unknown) {
-        // A local route that stops unsubscribes the channel it captured at
-        // start, not this wrapper, and the in-memory channel answers RC5004
-        // from then on. That is the one signal the wrapper gets that the
-        // shadow has lifted, so the remote takes over from here.
-        if (rcCodeOf(error) !== "RC5004") throw error;
-        this.local = undefined;
-        ctx.logger.info(
-          { endpoint: local, remote, remoteRouteId: id },
-          `The local route on "${local}" has stopped; the route "${id}" of remote "${remote}" answers it from now on`,
-        );
-      }
+      return this.local.send(endpoint, exchange);
     }
     return this.dispatch(exchange);
+  }
+
+  /**
+   * Whether the shadowing local route has stopped since the wrapper was
+   * installed. A stopping route unsubscribes the channel it captured at
+   * start, not this wrapper, so the wrapper reads that channel's own
+   * subscription state rather than guessing from an error a route may
+   * legitimately throw. Only the in-memory channel exposes it; under a
+   * custom channel type the shadow holds until the inventory drops the
+   * endpoint.
+   */
+  private shadowLifted(): boolean {
+    if (
+      !(this.local instanceof InMemoryDirectChannel) ||
+      this.local.subscribed
+    ) {
+      return false;
+    }
+    const { ctx, remote, id, endpoint: local } = this.target;
+    this.local = undefined;
+    ctx.logger.info(
+      { endpoint: local, remote, remoteRouteId: id },
+      `The local route on "${local}" has stopped; the route "${id}" of remote "${remote}" answers it from now on`,
+    );
+    return true;
   }
 
   async subscribe(
