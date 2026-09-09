@@ -124,6 +124,24 @@ changed the adapter's TYPE from an option VALUE, which forced overload
 sprawl and widened-option holes (see issue #532); roles-on-slots removed
 it.
 
+## Config key plurality
+
+A `CraftConfig` key is singular when it configures one subsystem, and plural
+only when it holds a map of names the author invents.
+
+Singular: `llm`, `embedding`, `agent`, `mcp`, `acp`, `http`, `ops`,
+`telemetry`, `cron`, `mail`, `direct`, `shutdown`, `deferral`. Plural:
+`servers` (`{ public, internal }`) and `remotes` (`{ origin, upstream }`).
+
+How many things a subsystem manages does not decide it. `agent` holds the
+whole agent and tool registry, and `llm` configures every provider, and both
+are singular, because the author writes one settings block rather than naming
+the entries. `sessions` is the only settings block carrying a plural, and is
+the outlier rather than the precedent.
+
+Why: the key names what is being configured, and a map is the one case where
+a reader has to know the keys underneath are theirs to choose.
+
 ## Summary
 
 | What | Convention |
@@ -134,6 +152,7 @@ it.
 | File-family file I/O | single `XxxFileOptions`, shared by all roles; `chunked` / `append` / `delete` options |
 | Acronyms in identifiers | first-letter caps only (`Http`, `Carddav`, `Jsonl`) |
 | Schema fields | `input` / `output` (route builder and adapter options) |
+| Config keys | singular per subsystem; plural only for a map of author-chosen names |
 | Domain prompt source | `user` (chat) or `using` (embedding); not `input` |
 
 For the structural pattern (base, union, intersection), see [adapter-architecture.md](./adapter-architecture.md). For factory option-type rules, see [type-safety-and-schemas.md](./type-safety-and-schemas.md#factory-option-types).
