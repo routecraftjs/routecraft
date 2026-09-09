@@ -63,7 +63,7 @@ export function spy<T = unknown>(): SpyAdapter<T> {
   const adapter: SpyAdapter<T> = {
     adapterId: "routecraft.adapter.spy",
     // Placeholders: both are redefined below as non-enumerable, because a
-    // step's description for the suspension hash folds an adapter's own
+    // step's description for the deferral hash folds an adapter's own
     // enumerable properties, and captured state that grows with every
     // delivery would move the digest under a parked exchange.
     received: state.received,

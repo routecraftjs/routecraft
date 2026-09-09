@@ -14,7 +14,7 @@ import {
 } from "@agentclientprotocol/sdk";
 import { createHttpStream } from "@agentclientprotocol/sdk/experimental/http-client";
 import {
-  MemorySuspensionStore,
+  MemoryDeferralStore,
   type AnyRouteBuilder,
   type CraftPlugin,
   type Principal,
@@ -171,7 +171,7 @@ export async function acpHarness(
   options: AcpHarnessOptions,
 ): Promise<AcpHarness> {
   let port = 0;
-  const suspension = new MemorySuspensionStore();
+  const deferral = new MemoryDeferralStore();
   const t = await testContext()
     .on("server:listening", ({ details }) => {
       port = details.port;
@@ -186,7 +186,7 @@ export async function acpHarness(
             : {}),
         },
       },
-      suspension: { store: suspension },
+      deferral: { store: deferral },
       sessions: { store: options.sessionStore ?? new MemorySessionStore() },
       shutdown: { timeout: 500 },
       plugins: [

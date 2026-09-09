@@ -82,7 +82,7 @@ A disabled route is registered and known to the context, not started, not intaki
 | `remotes` | `RemotesConfig` | No | -- | Other running instances whose dispatchable routes become direct endpoints here ([details](#remotes)) |
 | `mail` | `MailContextConfig` | No | -- | Mail adapter accounts (IMAP/SMTP) keyed by name |
 | `telemetry` | `TelemetryOptions` | No | -- | Telemetry plugin configuration (SQLite, OpenTelemetry) |
-| `suspension` | `SuspensionConfig` | Only when a route can reach `.suspend()` or `.resume()` | -- | Where parked exchanges are stored and how resume tokens are signed. A context with a suspendable route and no `suspension` block refuses to start with `RC5052`; the fields inside it are individually optional ([details](#suspension)) |
+| `deferral` | `DeferralConfig` | Only when a route can reach `.defer()` or `.resume()` | -- | Where parked exchanges are stored and how resume tokens are signed. A context with a deferrable route and no `deferral` block refuses to start with `RC5052`; the fields inside it are individually optional ([details](#deferral)) |
 | `shutdown` | `{ timeout?: Duration }` | No | `{ timeout: 30000 }` | How long a graceful shutdown may drain before it is forced ([details](#shutdown)) |
 | `plugins` | `CraftPlugin[]` | No | -- | Custom plugins to initialize before routes are registered |
 
@@ -263,9 +263,9 @@ The key applies after `ops`, whatever order the two are written in, so each remo
 
 Bind the server the surface sits on somewhere the probes can reach. A Kubernetes `httpGet` probe comes from the kubelet against the pod IP and a reverse-proxy check comes from the proxy, so neither reaches `127.0.0.1`; only a Docker `HEALTHCHECK`, which runs inside the container, does. Keep an internal-only port private at the network layer rather than by binding loopback.
 
-### suspension
+### deferral
 
-Configures where parked exchanges are persisted, and the secret used to sign the resume tokens an approver is handed. Required as soon as any route can reach a [`.suspend()`](/docs/reference/operations/suspend): such a context refuses to start without it, with [`RC5052`](/docs/reference/errors#rc-5052). A context that never suspends does not need the key.
+Configures where parked exchanges are persisted, and the secret used to sign the resume tokens an approver is handed. Required as soon as any route can reach a [`.defer()`](/docs/reference/operations/defer): such a context refuses to start without it, with [`RC5052`](/docs/reference/errors#rc-5052). A context that never defers does not need the key.
 
 It is deliberately not implicit. This setting decides whether a deployment survives a restart and whether resume tokens outlive the process, and defaulting it silently would hand a route that promises durability an in-memory store nobody chose.
 
@@ -273,33 +273,33 @@ It is deliberately not implicit. This setting decides whether a deployment survi
 import { defineConfig } from '@routecraft/routecraft'
 
 export const craftConfig = defineConfig({
-  suspension: {
+  deferral: {
     // A mounted volume in a container deployment, so parked exchanges
     // outlive the container that parked them.
-    store: { path: '/data/suspensions.db' },
+    store: { path: '/data/deferrals.db' },
   },
 })
 ```
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
-| `store` | `string \| { path: string } \| "memory" \| SuspensionStore` | `.routecraft/suspensions.db` | Where parked exchanges live. A path opens the SQLite backend. `"memory"` opts into the in-process backend, accepting that parked exchanges die with the process. A `SuspensionStore` instance plugs in a backend of your own. |
+| `store` | `string \| { path: string } \| "memory" \| DeferralStore` | `.routecraft/deferrals.db` | Where parked exchanges live. A path opens the SQLite backend. `"memory"` opts into the in-process backend, accepting that parked exchanges die with the process. A `DeferralStore` instance plugs in a backend of your own. |
 | `secret` | `string` | -- | HMAC secret for signing resume tokens. Prefer the environment variable below; this field is for deployments that fetch secrets at boot and pass them in code. |
-| `defaultTtl` | `Duration \| "never"` | `72h` | How long a suspension stays resumable when [`.suspend()`](/docs/reference/operations/suspend) names no `ttl` of its own. `"never"` opts the context out of default expiry entirely, so an unanswered suspension is kept until something else retires it. |
-| `sweepInterval` | `Duration` | `60s` | How often the sweeper looks for overdue suspensions. TTLs are measured in hours, so sub-minute precision buys nothing; the knob is for tests and for deployments that want expiry noticed sooner. |
+| `defaultTtl` | `Duration \| "never"` | `72h` | How long a deferral stays resumable when [`.defer()`](/docs/reference/operations/defer) names no `ttl` of its own. `"never"` opts the context out of default expiry entirely, so an unanswered deferral is kept until something else retires it. |
+| `sweepInterval` | `Duration` | `60s` | How often the sweeper looks for overdue deferrals. TTLs are measured in hours, so sub-minute precision buys nothing; the knob is for tests and for deployments that want expiry noticed sooner. |
 | `expiryLease` | `Duration` | `60m` | How long an expiry-delivery claim is honoured before the sweeper releases it for redelivery. Only a crash mid-delivery ever spends it; keep it longer than your slowest `.error()` handler, or one healthy process will double-deliver by itself. |
-| `retention` | `Duration \| "never"` | `90d` | How long settled suspensions (resumed, expired, denied) are kept before the sweeper purges them, measured from the moment the record settled, not from when it parked: an approval that waited 89 days and resolved yesterday still gets its full window. `"never"` keeps everything for audit deployments, and the store then grows with every exchange that ever suspended. |
+| `retention` | `Duration \| "never"` | `90d` | How long settled deferrals (resumed, expired, denied) are kept before the sweeper purges them, measured from the moment the record settled, not from when it parked: an approval that waited 89 days and resolved yesterday still gets its full window. `"never"` keeps everything for audit deployments, and the store then grows with every exchange that ever deferred. |
 
 The `store` and `secret` settings are also readable from the environment, which is how a container deployment supplies them. `defaultTtl`, `sweepInterval`, `expiryLease` and `retention` are config-only:
 
 | Variable | Purpose |
 |----------|---------|
-| `ROUTECRAFT_SUSPENSION_STORE` | Store location: a file path, or the literal `memory`. |
-| `ROUTECRAFT_SUSPENSION_SECRET` | Resume-token signing secret. |
+| `ROUTECRAFT_DEFERRAL_STORE` | Store location: a file path, or the literal `memory`. |
+| `ROUTECRAFT_DEFERRAL_SECRET` | Resume-token signing secret. |
 
 An explicit config value wins over the environment.
 
-**Every suspension gets a deadline unless you say otherwise.** A parked exchange with no expiry is one nothing will ever retire: it holds its serialized body indefinitely, and the route that parked it is never told nobody answered. So `defaultTtl` applies to any `.suspend()` that names no `ttl`, a sweeper retires suspensions once they are overdue, and the route hears about it through its own error channel ([`RC5047`](/docs/reference/errors#rc-5047)). A deployment whose approvals legitimately have no horizon sets `defaultTtl: 'never'` and takes on retiring them itself.
+**Every deferral gets a deadline unless you say otherwise.** A parked exchange with no expiry is one nothing will ever retire: it holds its serialized body indefinitely, and the route that parked it is never told nobody answered. So `defaultTtl` applies to any `.defer()` that names no `ttl`, a sweeper retires deferrals once they are overdue, and the route hears about it through its own error channel ([`RC5047`](/docs/reference/errors#rc-5047)). A deployment whose approvals legitimately have no horizon sets `defaultTtl: 'never'` and takes on retiring them itself.
 
 **The store backend is chosen per runtime.** Under Bun it is `bun:sqlite`, a built-in. Under Node it is `better-sqlite3`, an optional peer: install it (`bun add better-sqlite3`) to get a durable store on Node. Without it, an unconfigured context falls back to the in-memory backend and warns that parked exchanges will not survive a restart, while a context that named a `store` path fails to start rather than silently losing durability it asked for.
 
@@ -307,14 +307,14 @@ An explicit config value wins over the environment.
 
 ### sessions
 
-Added by `@routecraft/ai`. Configures where [agent sessions](/docs/reference/adapters/agent#sessions-an-agent-that-remembers) keep their records: the transcript, the inbox and the background calls a conversation is waiting on. Optional: without it the SQLite backend at `.routecraft/sessions.db` is used, and the file is created by the first session written rather than at boot, so a context whose agents never hold a conversation never grows a database. The continuation a turn stores between turns is a parked exchange and lives in the [suspension](#suspension) store, which `session` therefore still needs.
+Added by `@routecraft/ai`. Configures where [agent sessions](/docs/reference/adapters/agent#sessions-an-agent-that-remembers) keep their records: the transcript, the inbox and the background calls a conversation is waiting on. Optional: without it the SQLite backend at `.routecraft/sessions.db` is used, and the file is created by the first session written rather than at boot, so a context whose agents never hold a conversation never grows a database. The continuation a turn stores between turns is a parked exchange and lives in the [deferral](#deferral) store, which `session` therefore still needs.
 
 ```ts
 import { defineConfig } from '@routecraft/routecraft'
 import '@routecraft/ai'
 
 export const craftConfig = defineConfig({
-  suspension: { store: { path: '/data/suspensions.db' } },
+  deferral: { store: { path: '/data/deferrals.db' } },
   sessions: { store: { path: '/data/sessions.db' } },
 })
 ```
@@ -327,15 +327,15 @@ export const craftConfig = defineConfig({
 |----------|---------|
 | `ROUTECRAFT_SESSION_STORE` | Store location: a file path, or the literal `memory`. An explicit config value wins. |
 
-The backend is chosen per runtime exactly as the suspension store's is: `bun:sqlite` under Bun, `better-sqlite3` under Node. An explicitly configured path that cannot be opened fails at startup with [`AI1012`](/docs/reference/errors#ai-1012); the unconfigured default falls back to memory with a warning when no driver is available. A value that names neither a location nor a backend is refused at startup with [`RC5003`](/docs/reference/errors#rc-5003). A store instance you supply is never closed by the context.
+The backend is chosen per runtime exactly as the deferral store's is: `bun:sqlite` under Bun, `better-sqlite3` under Node. An explicitly configured path that cannot be opened fails at startup with [`AI1012`](/docs/reference/errors#ai-1012); the unconfigured default falls back to memory with a warning when no driver is available. A value that names neither a location nor a backend is refused at startup with [`RC5003`](/docs/reference/errors#rc-5003). A store instance you supply is never closed by the context.
 
 <Callout type="warning">
-**Each SQLite store keeps its own file.** A SQLite database carries one `PRAGMA user_version`, and every file-backed store versions its own schema through it, so one path given to both `sessions` and `suspension` can satisfy neither. Two stores configured onto one path are refused at startup, naming both settings; a file that already belongs to another store is refused when it is opened, naming what the file actually is.
+**Each SQLite store keeps its own file.** A SQLite database carries one `PRAGMA user_version`, and every file-backed store versions its own schema through it, so one path given to both `sessions` and `deferral` can satisfy neither. Two stores configured onto one path are refused at startup, naming both settings; a file that already belongs to another store is refused when it is opened, naming what the file actually is.
 
-This is a property of the file-backed default rather than a rule about stores. A `SessionStore` or `SuspensionStore` of your own may hold several stores in one database, each with its own table and no shared version counter. Where conversations live stays your choice.
+This is a property of the file-backed default rather than a rule about stores. A `SessionStore` or `DeferralStore` of your own may hold several stores in one database, each with its own table and no shared version counter. Where conversations live stays your choice.
 </Callout>
 
-Records have no retention: nothing expires a session, so a deployment that opens one per inbound message sizes its volume by how many it will ever open. Retiring a session is not built yet. In tests, `testContext()` substitutes an in-memory suspension store but not a session store, so a test that holds a conversation passes `sessions: { store: 'memory' }` to leave no database behind.
+Records have no retention: nothing expires a session, so a deployment that opens one per inbound message sizes its volume by how many it will ever open. Retiring a session is not built yet. In tests, `testContext()` substitutes an in-memory deferral store but not a session store, so a test that holds a conversation passes `sessions: { store: 'memory' }` to leave no database behind.
 
 ### acp
 
@@ -369,7 +369,7 @@ export const craftConfig = defineConfig({
 
 The agents it serves are the ones `craft start` discovered under `agents/` or the ones written under [`agent`](#ecosystem-keys-added-by); the key applies after `agent` whichever is written first. Agents registered only through `plugins: [agentPlugin()]` are not visible to it, because `plugins` apply after every key: use the `plugins: [agentPlugin(), acpPlugin()]` form for that, in that order. A context holding no agents when the key applies fails the build with [`RC5003`](/docs/reference/errors#rc-5003) rather than serving a protocol with nothing behind it.
 
-**The signing secret is required, at least 32 bytes, and never generated for you.** A context whose routes can reach a durable suspend fails at startup with [`RC5040`](/docs/reference/errors#rc-5040) when no secret is configured. The secret is deliberately not stored alongside the suspensions: a store compromise must not also yield forgeable resume tokens. `testContext()`, `NODE_ENV=development` and `NODE_ENV=test` mint an ephemeral in-memory key so tests and local iteration need no setup; that key is regenerated on every start, so tokens minted before a restart stop verifying, and the framework warns when it is in use.
+**The signing secret is required, at least 32 bytes, and never generated for you.** A context whose routes can reach a durable defer fails at startup with [`RC5040`](/docs/reference/errors#rc-5040) when no secret is configured. The secret is deliberately not stored alongside the deferrals: a store compromise must not also yield forgeable resume tokens. `testContext()`, `NODE_ENV=development` and `NODE_ENV=test` mint an ephemeral in-memory key so tests and local iteration need no setup; that key is regenerated on every start, so tokens minted before a restart stop verifying, and the framework warns when it is in use.
 
 ### shutdown
 
@@ -407,14 +407,14 @@ stage leaves, so it names route ids rather than a total. Then:
 - **In-flight exchanges are abandoned mid-step** and emit no terminal
   event. A subscriber counting `route:exchange:completed` against
   `route:exchange:started` will see the difference.
-- **A sweep the suspension sweeper had already begun does not finish its
+- **A sweep the deferral sweeper had already begun does not finish its
   round.** This is not specific to the forced stage: the sweeper stops
   cooperatively as soon as shutdown begins, gracefully or not. Records it had
   claimed are not lost either way, because the claim is a lease and the next
   process to run the sweep picks them up once it expires. Note that plugin
   teardown waits for that in-flight sweep rather than abandoning it, which is
   part of why teardown sits outside the bound.
-- **Nothing is settled or denied on the way down.** A parked suspension
+- **Nothing is settled or denied on the way down.** A parked deferral
   survives a forced shutdown exactly as it survives a graceful one. Only a
   cancelled run denies its own park, and shutdown is not that.
 

@@ -42,17 +42,17 @@ declare module "@routecraft/routecraft" {
     /** MCP tool call completed successfully. */
     "plugin:mcp:tool:completed": { tool: string } & McpToolProvenance;
     /**
-     * MCP tool call parked at a durable suspension: execution one answered
-     * with the `Suspended` acknowledgment and the real result belongs to
+     * MCP tool call parked at a durable deferral: execution one answered
+     * with the `Deferred` acknowledgment and the real result belongs to
      * execution two. Separate from `completed` because a parked run
      * reported as finished is a false receipt (the same honesty rule that
      * gives declines their own event).
      *
      * Local routes only: a proxied call cannot park an exchange of ours.
      */
-    "plugin:mcp:tool:suspended": {
+    "plugin:mcp:tool:deferred": {
       tool: string;
-      suspensionId: string;
+      deferralId: string;
     };
     /** MCP tool call failed. */
     "plugin:mcp:tool:failed": {
@@ -110,9 +110,9 @@ declare module "@routecraft/routecraft" {
     AI1004: RCMeta;
     /** Agent run cancelled */
     AI1005: RCMeta;
-    /** Agent suspension unavailable on this surface */
+    /** Agent deferral unavailable on this surface */
     AI1006: RCMeta;
-    /** Agent suspension state invalid at rehydration */
+    /** Agent deferral state invalid at rehydration */
     AI1007: RCMeta;
     /** Parked agent thread replacement refused */
     AI1008: RCMeta;
@@ -192,17 +192,17 @@ registerErrorCodes(
     },
     AI1006: {
       category: "Adapter",
-      message: "Agent suspension unavailable on this surface",
+      message: "Agent deferral unavailable on this surface",
       suggestion:
-        "ctx.suspend() was called where no exchange can be durably parked: a proxied MCP tool guard, a testFn dispatch, or an agent invoked over a synthetic exchange with no route binding. The refusal happens at the call, before anything is written. Dispatch the agent through a route (its exchange is then route-bound and parkable), or drop the suspension from this handler.",
+        "ctx.defer() was called where no exchange can be durably parked: a proxied MCP tool guard, a testFn dispatch, or an agent invoked over a synthetic exchange with no route binding. The refusal happens at the call, before anything is written. Dispatch the agent through a route (its exchange is then route-bound and parkable), or drop the deferral from this handler.",
       docs: `${DOCS_BASE}#ai-1006`,
       retryable: false,
     },
     AI1007: {
       category: "Adapter",
-      message: "Agent suspension state invalid at rehydration",
+      message: "Agent deferral state invalid at rehydration",
       suggestion:
-        "A resumed exchange carried stepState this agent cannot re-enter: the persisted shape is not the { agentId, messages, suspendedToolCallId, turnsUsed } record the runtime writes, or it names a different agent than the one the route now dispatches. The suspension was already claimed, so this failure is recorded as its terminal outcome and reaches the suspended route's error channel. Restore the agent binding the record names, or treat the parked work as lost and re-ask.",
+        "A resumed exchange carried stepState this agent cannot re-enter: the persisted shape is not the { agentId, messages, deferredToolCallId, turnsUsed } record the runtime writes, or it names a different agent than the one the route now dispatches. The deferral was already claimed, so this failure is recorded as its terminal outcome and reaches the deferred route's error channel. Restore the agent binding the record names, or treat the parked work as lost and re-ask.",
       docs: `${DOCS_BASE}#ai-1007`,
       retryable: false,
     },
@@ -210,7 +210,7 @@ registerErrorCodes(
       category: "Adapter",
       message: "Parked agent thread replacement refused",
       suggestion:
-        "A rewrite of a parked run's message thread (compaction is the usual caller) produced a thread the run could not be resumed from: an orphaned tool call or tool result, a duplicate tool-call id, an empty thread, or a thread that dropped the suspended call the approver's answer lands on. The parked record is left exactly as it was. Fix the rewrite so every tool call keeps its result and the suspended call survives, or leave the thread alone and let the run resume uncompacted.",
+        "A rewrite of a parked run's message thread (compaction is the usual caller) produced a thread the run could not be resumed from: an orphaned tool call or tool result, a duplicate tool-call id, an empty thread, or a thread that dropped the deferred call the approver's answer lands on. The parked record is left exactly as it was. Fix the rewrite so every tool call keeps its result and the deferred call survives, or leave the thread alone and let the run resume uncompacted.",
       docs: `${DOCS_BASE}#ai-1008`,
       retryable: false,
     },
@@ -234,7 +234,7 @@ registerErrorCodes(
       category: "Adapter",
       message: "A tool asked to park an agent session turn",
       suggestion:
-        "ctx.suspend() was called by a tool inside an agent dispatched with session. A session turn stores its transcript when it ends and is revived from the session record, not from a parked exchange, so there is no continuation for an approval to resume into. Park from a sessionless agent, or move the approval into a route the agent calls as a tool.",
+        "ctx.defer() was called by a tool inside an agent dispatched with session. A session turn stores its transcript when it ends and is revived from the session record, not from a parked exchange, so there is no continuation for an approval to resume into. Park from a sessionless agent, or move the approval into a route the agent calls as a tool.",
       docs: `${DOCS_BASE}#ai-1011`,
       retryable: false,
     },
@@ -242,7 +242,7 @@ registerErrorCodes(
       category: "Adapter",
       message: "Agent session store failed",
       suggestion:
-        "The store configured by sessions: { store } (the sqlite file at .routecraft/sessions.db by default) could not be opened, migrated, read or written. Check the path and its permissions, that one process at a time holds the file, and under Node that better-sqlite3 is installed; a store that is busy answers this code too, and that call can be retried. Each store also needs its own file: every sqlite store versions itself through one PRAGMA user_version per database, so pointing this one and the suspension store at a single path is refused rather than made to work.",
+        "The store configured by sessions: { store } (the sqlite file at .routecraft/sessions.db by default) could not be opened, migrated, read or written. Check the path and its permissions, that one process at a time holds the file, and under Node that better-sqlite3 is installed; a store that is busy answers this code too, and that call can be retried. Each store also needs its own file: every sqlite store versions itself through one PRAGMA user_version per database, so pointing this one and the deferral store at a single path is refused rather than made to work.",
       docs: `${DOCS_BASE}#ai-1012`,
       retryable: true,
     },

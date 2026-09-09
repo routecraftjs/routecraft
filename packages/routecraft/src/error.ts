@@ -381,7 +381,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Runtime",
     message: "Unsupported step outcome",
     suggestion:
-      "A step returned a StepOutcome the engine cannot schedule. Either the kind is one this build does not know, or a 'suspend' outcome arrived without the request the executor needs to park the exchange (only the framework's own `.suspend()` step produces one). If you wrote a custom step, return a supported outcome (continue, complete, drop, branch, fanOut). Retrying will not help.",
+      "A step returned a StepOutcome the engine cannot schedule. Either the kind is one this build does not know, or a 'defer' outcome arrived without the request the executor needs to park the exchange (only the framework's own `.defer()` step produces one). If you wrote a custom step, return a supported outcome (continue, complete, drop, branch, fanOut). Retrying will not help.",
     docs: `${DOCS_BASE}#rc-5032`,
     retryable: false,
   },
@@ -449,7 +449,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Definition",
     message: "Resume-token signing secret not configured",
     suggestion:
-      "A route in this context can reach a durable .suspend(), so resume tokens must be signable. Set the ROUTECRAFT_SUSPENSION_SECRET environment variable, or pass suspension: { secret } to defineConfig; generate one with `openssl rand -base64 32`. At least 32 bytes are required, because a resume token is a bearer capability and its holder can guess the secret offline without limit. The secret is never generated into the store: a store compromise must not yield forgeable resume tokens. testContext() and NODE_ENV=development or test mint an ephemeral in-memory key, so tests and local iteration need no setup.",
+      "A route in this context can reach a durable .defer(), so resume tokens must be signable. Set the ROUTECRAFT_DEFERRAL_SECRET environment variable, or pass deferral: { secret } to defineConfig; generate one with `openssl rand -base64 32`. At least 32 bytes are required, because a resume token is a bearer capability and its holder can guess the secret offline without limit. The secret is never generated into the store: a store compromise must not yield forgeable resume tokens. testContext() and NODE_ENV=development or test mint an ephemeral in-memory key, so tests and local iteration need no setup.",
     docs: `${DOCS_BASE}#rc-5040`,
     retryable: false,
   },
@@ -457,21 +457,21 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Runtime",
     message: "Resume token rejected",
     suggestion:
-      "The token presented to .resume() was malformed, carried a bad signature, or named a suspension this context cannot verify. Resume with the exact token minted at suspend time. If the token is genuine, check that every node shares one signing secret: a token signed with a different secret is indistinguishable from a forged one.",
+      "The token presented to .resume() was malformed, carried a bad signature, or named a deferral this context cannot verify. Resume with the exact token minted at defer time. If the token is genuine, check that every node shares one signing secret: a token signed with a different secret is indistinguishable from a forged one.",
     docs: `${DOCS_BASE}#rc-5041`,
     retryable: false,
   },
   RC5042: {
     category: "Runtime",
-    message: "Exchange cannot be persisted for suspension",
+    message: "Exchange cannot be persisted for deferral",
     suggestion:
-      "Suspension serializes the exchange to durable storage, so its body and headers must be plain JSON data. A function, symbol, bigint, class instance, circular reference, or secret-bearing value cannot be written. Move the offending value out of the exchange before the suspend point: resolve it to a string, keep it in context.store (which outlives the exchange and is not persisted), or recompute it after resume.",
+      "Deferral serializes the exchange to durable storage, so its body and headers must be plain JSON data. A function, symbol, bigint, class instance, circular reference, or secret-bearing value cannot be written. Move the offending value out of the exchange before the defer point: resolve it to a string, keep it in context.store (which outlives the exchange and is not persisted), or recompute it after resume.",
     docs: `${DOCS_BASE}#rc-5042`,
     retryable: false,
   },
   RC5043: {
     category: "Adapter",
-    message: "Principal restored from a suspension",
+    message: "Principal restored from a deferral",
     suggestion:
       "authorize() rejected a principal that came back from durable storage with a resumed exchange. It is a recorded shape with no live credential behind it: nothing re-checked the signature, the expiry, or revocation. Re-verify the identity after resume with .authenticate() from a checked credential, or put the authorization on the resume ingress route, where the resuming principal is verified live. Distinct from RC5023 (self-asserted) because the fix differs: re-verify, do not mint.",
     docs: `${DOCS_BASE}#rc-5043`,
@@ -479,73 +479,73 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
   },
   RC5044: {
     category: "Runtime",
-    message: "Suspension store operation failed",
+    message: "Deferral store operation failed",
     suggestion:
-      "The suspension store could not complete a read or write. Common causes: a duplicate suspension id (a bug in id derivation, since ids are minted per suspend), a store file that is unwritable or out of disk, a store written by a newer Routecraft build than the one now running, and a path shared with another store. Each store needs its own file: every sqlite store versions itself through one PRAGMA user_version per database, so two pointed at one path are refused rather than made to work. Deliberately not retryable: none of these clear on a second attempt, so a .retry() wrapper must not burn its budget on them.",
+      "The deferral store could not complete a read or write. Common causes: a duplicate deferral id (a bug in id derivation, since ids are minted per defer), a store file that is unwritable or out of disk, a store written by a newer Routecraft build than the one now running, and a path shared with another store. Each store needs its own file: every sqlite store versions itself through one PRAGMA user_version per database, so two pointed at one path are refused rather than made to work. Deliberately not retryable: none of these clear on a second attempt, so a .retry() wrapper must not burn its budget on them.",
     docs: `${DOCS_BASE}#rc-5044`,
     retryable: false,
   },
   RC5045: {
     category: "Runtime",
-    message: "Suspension store busy",
+    message: "Deferral store busy",
     suggestion:
-      "Another writer held the suspension store's write lock for longer than the busy timeout. Unlike RC5044 this is transient: the competing write finishes and the same call succeeds, so it is registered retryable and a .retry() wrapper re-attempts it. Persistent contention means more than one process is writing the same store file; give each its own store, or move to a backend built for concurrent writers.",
+      "Another writer held the deferral store's write lock for longer than the busy timeout. Unlike RC5044 this is transient: the competing write finishes and the same call succeeds, so it is registered retryable and a .retry() wrapper re-attempts it. Persistent contention means more than one process is writing the same store file; give each its own store, or move to a backend built for concurrent writers.",
     docs: `${DOCS_BASE}#rc-5045`,
     retryable: true,
   },
   RC5046: {
     category: "Runtime",
-    message: "Suspension not found",
+    message: "Deferral not found",
     suggestion:
-      "The resume token verified, but the store holds no suspension under that id. The record was purged by retention, the process is pointed at a different store than the one that parked the exchange (an in-memory store after a restart, a different sqlite path), or the id was resumed against the wrong deployment. Check `suspension: { store }` names the same location on every node.",
+      "The resume token verified, but the store holds no deferral under that id. The record was purged by retention, the process is pointed at a different store than the one that parked the exchange (an in-memory store after a restart, a different sqlite path), or the id was resumed against the wrong deployment. Check `deferral: { store }` names the same location on every node.",
     docs: `${DOCS_BASE}#rc-5046`,
     retryable: false,
   },
   RC5047: {
     category: "Runtime",
-    message: "Suspension expired",
+    message: "Deferral expired",
     suggestion:
-      "The resume arrived after the suspension's `ttl` elapsed, so the parked exchange is no longer resumable. This is catchable: the suspended route's own `.error()` handler receives this error and can notify and re-ask. Raise `ttl` on `.suspend()` if the window is genuinely too short for the people it waits on.",
+      "The resume arrived after the deferral's `ttl` elapsed, so the parked exchange is no longer resumable. This is catchable: the deferred route's own `.error()` handler receives this error and can notify and re-ask. Raise `ttl` on `.defer()` if the window is genuinely too short for the people it waits on.",
     docs: `${DOCS_BASE}#rc-5047`,
     retryable: false,
   },
   RC5048: {
     category: "Runtime",
-    message: "Suspension continuation changed",
+    message: "Deferral continuation changed",
     suggestion:
-      "The steps after the suspend point (or the `expect` schema) changed while the exchange was parked, so the stored approval no longer authorizes what would now run. Resuming is refused before any of those steps execute. This is catchable: the suspended route's `.error()` handler receives it and can re-ask with a fresh suspension. Note the hash also moves for edits that change emitted step source without changing behaviour (a formatting pass, different line endings, a build-settings change), so deployments that park approvals for days should pin those.",
+      "The steps after the defer point (or the `expect` schema) changed while the exchange was parked, so the stored approval no longer authorizes what would now run. Resuming is refused before any of those steps execute. This is catchable: the deferred route's `.error()` handler receives it and can re-ask with a fresh deferral. Note the hash also moves for edits that change emitted step source without changing behaviour (a formatting pass, different line endings, a build-settings change), so deployments that park approvals for days should pin those.",
     docs: `${DOCS_BASE}#rc-5048`,
     retryable: false,
   },
   RC5049: {
     category: "Runtime",
-    message: "Suspension result rejected",
+    message: "Deferral result rejected",
     suggestion:
-      "The payload handed to `.resume()` failed the `schema` declared on the suspending `.suspend()`. The suspension is left resumable, so a corrected payload still works. Check the mapping function in `.resume((ex) => ({ token, result }))`: it owns the SHAPE of the payload, while validation happens at revival because only the suspension knows the schema. Unlike an expiry or a changed continuation, this is raised in the RESUME INGRESS route only: a malformed payload is a per-request input error, not a change the suspended route has to re-ask about. Handle it with an `.error()` on the ingress route if the caller deserves a reply.",
+      "The payload handed to `.resume()` failed the `schema` declared on the deferring `.defer()`. The deferral is left resumable, so a corrected payload still works. Check the mapping function in `.resume((ex) => ({ token, result }))`: it owns the SHAPE of the payload, while validation happens at revival because only the deferral knows the schema. Unlike an expiry or a changed continuation, this is raised in the RESUME INGRESS route only: a malformed payload is a per-request input error, not a change the deferred route has to re-ask about. Handle it with an `.error()` on the ingress route if the caller deserves a reply.",
     docs: `${DOCS_BASE}#rc-5049`,
     retryable: false,
   },
   RC5050: {
     category: "Runtime",
-    message: "Suspension denied",
+    message: "Deferral denied",
     suggestion:
-      "The suspension was marked denied before this resume arrived, typically because the run carrying the parked exchange was cancelled. A denied suspension is terminal; the work must be re-submitted as a new exchange rather than resumed.",
+      "The deferral was marked denied before this resume arrived, typically because the run carrying the parked exchange was cancelled. A denied deferral is terminal; the work must be re-submitted as a new exchange rather than resumed.",
     docs: `${DOCS_BASE}#rc-5050`,
     retryable: false,
   },
   RC5051: {
     category: "Definition",
-    message: "Suspend not supported at this position",
+    message: "Defer not supported at this position",
     suggestion:
-      "A `.suspend()` was declared where the framework cannot durably park and revive the exchange: inside a `.split()` fan-out between the split and its `.aggregate()` (a durable aggregator would have to track N outstanding children across restarts), or inside a `.multicast()` path or `.dispatch()` target (those exchanges are isolated side flows rather than the route's primary flow, so a resumed continuation would have nowhere to rejoin). Move the suspend out of the fan-out, or split the work into per-item child capabilities, each its own exchange suspending independently; on the main flow or a `.choice()` branch of it, a suspend is fine. A `.suspend()` under a step-scope wrapper is refused separately, as RC5003.",
+      "A `.defer()` was declared where the framework cannot durably park and revive the exchange: inside a `.split()` fan-out between the split and its `.aggregate()` (a durable aggregator would have to track N outstanding children across restarts), or inside a `.multicast()` path or `.dispatch()` target (those exchanges are isolated side flows rather than the route's primary flow, so a resumed continuation would have nowhere to rejoin). Move the defer out of the fan-out, or split the work into per-item child capabilities, each its own exchange deferring independently; on the main flow or a `.choice()` branch of it, a defer is fine. A `.defer()` under a step-scope wrapper is refused separately, as RC5003.",
     docs: `${DOCS_BASE}#rc-5051`,
     retryable: false,
   },
   RC5052: {
     category: "Definition",
-    message: "Suspension runtime not configured",
+    message: "Deferral runtime not configured",
     suggestion:
-      "A route in this context can reach a durable `.suspend()`, but nothing configured where parked exchanges are stored or how resume tokens are signed. Add `suspension: {}` to `defineConfig` to take the defaults (sqlite plus the `ROUTECRAFT_SUSPENSION_SECRET` environment variable), or `suspension: { store, secret }` to be explicit. It is deliberately not implicit: a durable suspend that silently parks into memory loses everything it promised on the next restart.",
+      "A route in this context can reach a durable `.defer()`, but nothing configured where parked exchanges are stored or how resume tokens are signed. Add `deferral: {}` to `defineConfig` to take the defaults (sqlite plus the `ROUTECRAFT_DEFERRAL_SECRET` environment variable), or `deferral: { store, secret }` to be explicit. It is deliberately not implicit: a durable defer that silently parks into memory loses everything it promised on the next restart.",
     docs: `${DOCS_BASE}#rc-5052`,
     retryable: false,
   },
@@ -559,9 +559,9 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
   },
   RC5054: {
     category: "Runtime",
-    message: "Suspension cancelled by run abort",
+    message: "Deferral cancelled by run abort",
     suggestion:
-      "The run raised a durable suspension while it was being cancelled (a route stop or an elapsed .timeout()). If the abort won the race the exchange was never parked; if the park won, the just-created suspension was immediately denied so its resume link is dead, and a presented token reads RC5050. Either way the caller sees this error instead of a resumable acknowledgment, which keeps the two stories consistent: a run reported as cancelled must not be resumable later. This is about the cancellation race only; a parked exchange whose process merely stops SURVIVES the stop, which is the store's entire purpose.",
+      "The run raised a durable deferral while it was being cancelled (a route stop or an elapsed .timeout()). If the abort won the race the exchange was never parked; if the park won, the just-created deferral was immediately denied so its resume link is dead, and a presented token reads RC5050. Either way the caller sees this error instead of a resumable acknowledgment, which keeps the two stories consistent: a run reported as cancelled must not be resumable later. This is about the cancellation race only; a parked exchange whose process merely stops SURVIVES the stop, which is the store's entire purpose.",
     docs: `${DOCS_BASE}#rc-5054`,
     retryable: false,
   },
@@ -569,7 +569,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Runtime",
     message: "Resume credential not bound to this call",
     suggestion:
-      "The token verifies and names a real suspension, but it was minted for a different call than the one the record is parked on. A batch of parallel tool calls mints one credential per call against a single record, and only the call that actually parked may be resumed; a losing sibling's credential is refused here. Re-ask on the credential minted for the winning call, and do not route two recipients to one park. The refusal is non-destructive: the record is left exactly as it was found, still resumable by the rightful credential.",
+      "The token verifies and names a real deferral, but it was minted for a different call than the one the record is parked on. A batch of parallel tool calls mints one credential per call against a single record, and only the call that actually parked may be resumed; a losing sibling's credential is refused here. Re-ask on the credential minted for the winning call, and do not route two recipients to one park. The refusal is non-destructive: the record is left exactly as it was found, still resumable by the rightful credential.",
     docs: `${DOCS_BASE}#rc-5055`,
     retryable: false,
   },
@@ -577,15 +577,15 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Runtime",
     message: "Resume refused by the route's authorize hook",
     suggestion:
-      "The `.resume({ authorize })` hook on the ingress route refused this principal. Who may resume a parked run is the application's policy, not the framework's: the hook receives the live principal, the parked principal snapshot, the raw submitted payload, and the record's context (including whatever `meta` the suspend site attached), and decides. A hook that returns false, throws, or does not settle before the route's own `.timeout()` produces this one code with the same message, deliberately: a hook whose failures can be told apart from outside is an oracle for what it knows. The cause is in the boundary log, never on the wire, and a thrown cause is never returned. The refusal is non-destructive, so the record stays resumable by whoever does qualify.",
+      "The `.resume({ authorize })` hook on the ingress route refused this principal. Who may resume a parked run is the application's policy, not the framework's: the hook receives the live principal, the parked principal snapshot, the raw submitted payload, and the record's context (including whatever `meta` the defer site attached), and decides. A hook that returns false, throws, or does not settle before the route's own `.timeout()` produces this one code with the same message, deliberately: a hook whose failures can be told apart from outside is an oracle for what it knows. The cause is in the boundary log, never on the wire, and a thrown cause is never returned. The refusal is non-destructive, so the record stays resumable by whoever does qualify.",
     docs: `${DOCS_BASE}#rc-5056`,
     retryable: false,
   },
   RC5057: {
     category: "Runtime",
-    message: "Suspension sequence header unusable",
+    message: "Deferral sequence header unusable",
     suggestion:
-      "The framework-owned `routecraft.suspension.sequence` header carries a value the park counter cannot use, so no suspension id was derived. Headers are a writable bag, and this one is refused rather than reset because a reset counter re-derives an id an earlier park already used, and resume tokens sign the id: an old unspent link would then act on the new park. If the message says the value is malformed, find the step that overwrote or mangled the framework header (spreading headers through an external system is the usual culprit) and stop it. If it says the counter is exhausted, this exchange has parked more times than a counter can count; that is not reachable by suspending in a loop within a ttl, so treat it as the same corruption with a plausible-looking value.",
+      "The framework-owned `routecraft.deferral.sequence` header carries a value the park counter cannot use, so no deferral id was derived. Headers are a writable bag, and this one is refused rather than reset because a reset counter re-derives an id an earlier park already used, and resume tokens sign the id: an old unspent link would then act on the new park. If the message says the value is malformed, find the step that overwrote or mangled the framework header (spreading headers through an external system is the usual culprit) and stop it. If it says the counter is exhausted, this exchange has parked more times than a counter can count; that is not reachable by deferring in a loop within a ttl, so treat it as the same corruption with a plausible-looking value.",
     docs: `${DOCS_BASE}#rc-5057`,
     retryable: false,
   },

@@ -1,10 +1,10 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
 import {
-  MemorySuspensionStore,
+  MemoryDeferralStore,
   craft,
   direct,
-  isSuspended,
+  isDeferred,
   noop,
 } from "@routecraft/routecraft";
 import { spy, testContext, type TestContext } from "@routecraft/testing";
@@ -318,7 +318,7 @@ describe("cooperative cancellation of agent runs", () => {
     const fn = deferred.resolve(t.ctx, "slowTool");
     const baseCtx = {
       logger: t.ctx.logger,
-      suspend: () => {
+      defer: () => {
         throw new Error("not under test");
       },
     };
@@ -349,22 +349,22 @@ describe("cooperative cancellation of agent runs", () => {
   /**
    * @case Parked work SURVIVES context.stop(): cancellation of a live run and shutdown of a process are different things
    * @preconditions An agent run parks; the context is then stopped
-   * @expectedResult The suspension record is still "suspended" in the store after the stop; nothing denied it
+   * @expectedResult The deferral record is still "deferred" in the store after the stop; nothing denied it
    */
   test("context.stop() never denies parked work", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     const sink = spy();
     const ask = {
       description: "Ask",
       input: z.object({}),
       handler: (_i: unknown, ctx: FnHandlerContext) =>
-        ctx.suspend({ schema: Approval }),
+        ctx.defer({ schema: Approval }),
     };
     llm.script.push({ toolCalls: [{ toolName: "ask", input: {} }] });
 
     t = await testContext()
       .with({
-        suspension: {
+        deferral: {
           store,
           secret: "cancel-test-secret-key-0123456789-abcdef",
         },
@@ -384,36 +384,36 @@ describe("cooperative cancellation of agent runs", () => {
     await t.startAndWaitReady();
 
     const parked = await t.client.sendDirect("assistant", "go");
-    expect(isSuspended(parked)).toBe(true);
-    const id = (parked as { suspensionId: string }).suspensionId;
+    expect(isDeferred(parked)).toBe(true);
+    const id = (parked as { deferralId: string }).deferralId;
 
     await t.stop();
     t = undefined;
 
     const record = await store.get(id);
-    expect(record?.status).toBe("suspended");
+    expect(record?.status).toBe("deferred");
   });
 
   /**
    * @case Parked work survives a FORCED shutdown too, not only a graceful one
    * @preconditions One agent run parks, a second run hangs so the deadline is reached, and shutdown.timeout is short
-   * @expectedResult The forced stage abandons the hung run but leaves the parked record suspended: a forced stage two may abandon execution, and must still never settle or deny a park
+   * @expectedResult The forced stage abandons the hung run but leaves the parked record deferred: a forced stage two may abandon execution, and must still never settle or deny a park
    */
   test("a forced shutdown never denies parked work", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     const sink = spy();
     const ask = {
       description: "Ask",
       input: z.object({}),
       handler: (_i: unknown, ctx: FnHandlerContext) =>
-        ctx.suspend({ schema: Approval }),
+        ctx.defer({ schema: Approval }),
     };
     llm.script.push({ toolCalls: [{ toolName: "ask", input: {} }] });
     llm.script.push({ toolCalls: [{ toolName: "hang", input: {} }] });
 
     t = await testContext()
       .with({
-        suspension: {
+        deferral: {
           store,
           secret: "cancel-test-secret-key-0123456789-abcdef",
         },
@@ -440,8 +440,8 @@ describe("cooperative cancellation of agent runs", () => {
     await t.startAndWaitReady();
 
     const parked = await t.client.sendDirect("assistant", "go");
-    expect(isSuspended(parked)).toBe(true);
-    const id = (parked as { suspensionId: string }).suspensionId;
+    expect(isDeferred(parked)).toBe(true);
+    const id = (parked as { deferralId: string }).deferralId;
 
     // A second run that never finishes, so the deadline is what ends the stop.
     void t.client.sendDirect("assistant", "again").catch(() => undefined);
@@ -451,7 +451,7 @@ describe("cooperative cancellation of agent runs", () => {
     expect(outcome.forced).toBe(true);
 
     const record = await store.get(id);
-    expect(record?.status).toBe("suspended");
+    expect(record?.status).toBe("deferred");
     t = undefined;
   });
 

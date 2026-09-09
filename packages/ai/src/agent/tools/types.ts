@@ -3,13 +3,13 @@ import type { FnOptions } from "../../fn/types.ts";
 import { ADAPTER_FN_RESOLVED } from "../../fn/store.ts";
 
 /**
- * Discriminator value for {@link DeferredFn}. Plain symbol so a
+ * Discriminator value for {@link LazyFn}. Plain symbol so a
  * `typeof entry === "object" && BRAND in entry` check is enough for
  * runtime detection without leaking implementation details.
  *
  * @internal
  */
-export const DEFERRED_FN_BRAND = Symbol.for("routecraft.ai.fn.deferred");
+export const LAZY_FN_BRAND = Symbol.for("routecraft.ai.fn.lazy");
 
 /**
  * Marks the `FnOptions` a `directTool(routeId, { background: true })`
@@ -39,7 +39,7 @@ export function isBackgroundFn(fn: FnOptions): boolean {
  * kind is purely informational at runtime (used for error messages
  * and the prefix-auto-resolution path in `tools()`).
  */
-export type DeferredFnKind = "direct";
+export type LazyFnKind = "direct";
 
 /**
  * A fn that cannot be fully constructed at config-write time because it
@@ -51,10 +51,10 @@ export type DeferredFnKind = "direct";
  * entries unmodified, and the agent runtime calls `.resolve(ctx, id)`
  * just before building the LLM tool list, when all registries are live.
  */
-export interface DeferredFn {
-  readonly [DEFERRED_FN_BRAND]: true;
+export interface LazyFn {
+  readonly [LAZY_FN_BRAND]: true;
   /** Underlying source kind. Surfaces in error messages. */
-  readonly kind: DeferredFnKind;
+  readonly kind: LazyFnKind;
   /**
    * The underlying registered id this wrapper targets (route id for
    * `direct`). Surfaced in error messages so authors can find the
@@ -78,21 +78,21 @@ export interface DeferredFn {
  *
  * @internal
  */
-export function isDeferredFn(value: unknown): value is DeferredFn {
+export function isLazyFn(value: unknown): value is LazyFn {
   return (
     typeof value === "object" &&
     value !== null &&
-    DEFERRED_FN_BRAND in value &&
-    (value as { [DEFERRED_FN_BRAND]: unknown })[DEFERRED_FN_BRAND] === true
+    LAZY_FN_BRAND in value &&
+    (value as { [LAZY_FN_BRAND]: unknown })[LAZY_FN_BRAND] === true
   );
 }
 
 /**
  * What the fn registry actually holds. Eagerly authored fns are stored
- * as `FnOptions`; entries from `directTool` are stored as `DeferredFn`
+ * as `FnOptions`; entries from `directTool` are stored as `LazyFn`
  * and resolved on first agent dispatch.
  */
-export type FnEntry = FnOptions | DeferredFn;
+export type FnEntry = FnOptions | LazyFn;
 
 /**
  * The declared shape of a registered tool, whichever way it was authored.
@@ -117,7 +117,7 @@ export function resolveFnOptions(
   fnId: string,
   entry: FnEntry,
 ): FnOptions {
-  if (!isDeferredFn(entry)) return entry;
+  if (!isLazyFn(entry)) return entry;
   const memo = ctx.getStore(ADAPTER_FN_RESOLVED);
   const cached = memo?.get(fnId);
   if (cached) return cached;

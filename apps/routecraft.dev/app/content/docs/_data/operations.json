@@ -223,9 +223,9 @@
     "description": "Release only the last exchange in a burst after a quiet period."
   },
   {
-    "name": "suspend",
+    "name": "defer",
     "category": "Flow Control",
-    "signature": ".suspend({ schema?, ttl?, meta? })",
+    "signature": ".defer({ schema?, ttl?, meta? })",
     "description": "Park the exchange durably and answer now; resume later at the next step."
   },
   {

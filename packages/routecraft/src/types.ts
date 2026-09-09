@@ -4,8 +4,8 @@ import type { CraftContext } from "./context.ts";
 import type { RouteDefinition } from "./route.ts";
 import type { Route } from "./route.ts";
 import type { OnParseError } from "./adapters/shared/parse.ts";
-import type { SuspendRequest } from "./suspension/sites.ts";
-import type { PrincipalRef } from "./suspension/types.ts";
+import type { DeferRequest } from "./deferral/sites.ts";
+import type { PrincipalRef } from "./deferral/types.ts";
 import type { HealthChange } from "./plugins/ops/types.ts";
 
 /**
@@ -185,13 +185,13 @@ export function extractOutcomeMetadata(
  *   (choice routes into the matched branch).
  * - `fanOut`: schedule each child exchange independently through the
  *   remaining steps (split).
- * - `suspend`: park `exchange` durably and exit the pipeline, to be resumed
- *   later at the next step. Produced by `.suspend()`. The executor
- *   serializes the exchange, writes the suspension, emits
- *   `route:exchange:suspended`, and schedules nothing further for it;
+ * - `defer`: park `exchange` durably and exit the pipeline, to be resumed
+ *   later at the next step. Produced by `.defer()`. The executor
+ *   serializes the exchange, writes the deferral, emits
+ *   `route:exchange:deferred`, and schedules nothing further for it;
  *   `request` carries what it needs to do that (the `expect` schema, the
- *   TTL, and where the suspend sits in the route). Only the framework's own
- *   suspend step can produce a coherent `request`, so a custom step
+ *   TTL, and where the defer sits in the route). Only the framework's own
+ *   defer step can produce a coherent `request`, so a custom step
  *   returning this kind without one is rejected with `RC5032` rather than
  *   silently dropping the exchange.
  *
@@ -206,7 +206,7 @@ export type StepOutcome =
   | { kind: "drop"; metadata?: StepOutcomeMetadata }
   | { kind: "branch"; exchange: Exchange; steps: Step<Adapter>[] }
   | { kind: "fanOut"; exchanges: Exchange[] }
-  | { kind: "suspend"; exchange: Exchange; request: SuspendRequest };
+  | { kind: "defer"; exchange: Exchange; request: DeferRequest };
 
 /**
  * The abort surface of a step execution, handed to function-form steps
@@ -581,16 +581,16 @@ export interface EventDetailsMap {
   };
   "route:exchange:restored": ExchangeScoped & { source: string };
   /**
-   * The exchange parked at a `.suspend()` and execution one ended. This is
+   * The exchange parked at a `.defer()` and execution one ended. This is
    * that run's terminal event, in place of `:completed`: the body the
-   * source receives is the `Suspended` acknowledgment, and the route's real
+   * source receives is the `Deferred` acknowledgment, and the route's real
    * output flows on execution two.
    */
-  "route:exchange:suspended": ExchangeScoped & {
-    suspensionId: string;
-    /** Address of the suspending step; the continuation is what follows it. */
+  "route:exchange:deferred": ExchangeScoped & {
+    deferralId: string;
+    /** Address of the deferring step; the continuation is what follows it. */
     position: number;
-    /** When the suspension stops being resumable, when a `ttl` was declared. */
+    /** When the deferral stops being resumable, when a `ttl` was declared. */
     expiresAt?: Date;
   };
   /**
@@ -599,19 +599,19 @@ export interface EventDetailsMap {
    * own `:completed` / `:failed` / `:dropped`.
    */
   "route:exchange:resumed": ExchangeScoped & {
-    suspensionId: string;
+    deferralId: string;
     position: number;
     /** Who resumed it, when the resume ingress had an authenticated principal. */
     resumedBy?: PrincipalRef;
   };
   /**
-   * A suspension stopped being resumable because its `ttl` elapsed. Fires
+   * A deferral stopped being resumable because its `ttl` elapsed. Fires
    * when a late resume discovers it, and (once the sweeper lands) when the
-   * sweeper reaches it first. The suspended route's error channel receives
+   * sweeper reaches it first. The deferred route's error channel receives
    * `RC5047` alongside, which is where a re-ask belongs.
    */
   "route:exchange:expired": ExchangeScoped & {
-    suspensionId: string;
+    deferralId: string;
     expiresAt: Date;
   };
 
@@ -1136,7 +1136,7 @@ export interface EventDetailsMap {
   "route:agent:session:parked": ExchangeScoped & {
     agentName: string;
     session: string;
-    suspensionId: string;
+    deferralId: string;
     /** Messages waiting when the park was stored. */
     inbox: number;
     /** Background calls still running when the park was stored. */
@@ -1150,7 +1150,7 @@ export interface EventDetailsMap {
   "route:agent:session:revived": ExchangeScoped & {
     agentName: string;
     session: string;
-    suspensionId: string;
+    deferralId: string;
   };
   /** A background tool dispatched its route and returned a handle to the model. */
   "route:agent:session:background:started": ExchangeScoped & {

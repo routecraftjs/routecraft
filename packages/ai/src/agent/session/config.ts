@@ -99,7 +99,7 @@ export interface ResolvedSessionStore {
 /**
  * Resolve the session store for a context.
  *
- * Loud in the degraded case, as the suspension store is: an explicitly
+ * Loud in the degraded case, as the deferral store is: an explicitly
  * named path that cannot be opened fails, because silently keeping a
  * deployment's conversations in memory after it asked for a volume loses
  * the feature's whole promise. The unconfigured default probes the driver
@@ -170,7 +170,7 @@ export async function createSessionStore(
   return announce(
     context,
     resolved(
-      new DeferredSqliteSessionStore(DEFAULT_SESSION_DB_PATH, config.loaders),
+      new LazySqliteSessionStore(DEFAULT_SESSION_DB_PATH, config.loaders),
       "sqlite",
       true,
       configured,
@@ -433,7 +433,7 @@ class LazyResolvedSessionStore implements ResolvedSessionStore, SessionStore {
  *
  * @internal
  */
-export class DeferredSqliteSessionStore implements SessionStore {
+export class LazySqliteSessionStore implements SessionStore {
   #opened: Promise<SqliteSessionStore> | undefined;
 
   constructor(

@@ -25,9 +25,9 @@ Authentication is ordinary mount auth: the ops mount's own `auth`, else the name
 
 **No bypass and no synthetic operator principal.** A dispatch runs the full pre-from chain and `.authorize()` sees exactly the principal the validator minted, so an operator dispatch is indistinguishable from any other authenticated caller.
 
-**Collections page for real.** Every collection response is `{ items, nextCursor }`, never a bare array, with keyset cursors matching the suspension store's idiom. A cursor is valid only for the filter that produced it, and a malformed `limit` is refused rather than clamped: a caller silently handed a bounded page cannot tell a truncated answer from a complete one.
+**Collections page for real.** Every collection response is `{ items, nextCursor }`, never a bare array, with keyset cursors matching the deferral store's idiom. A cursor is valid only for the filter that produced it, and a malformed `limit` is refused rather than clamped: a caller silently handed a bounded page cannot tell a truncated answer from a complete one.
 
-**A park is an outcome.** A dispatch against a suspendable route answers 202 with the standard `Suspended` acknowledgment. A drop is reported separately from a failure, because a filter saying no and a step breaking need different answers.
+**A park is an outcome.** A dispatch against a deferrable route answers 202 with the standard `Deferred` acknowledgment. A drop is reported separately from a failure, because a filter saying no and a step breaking need different answers.
 
 ## The clients
 
@@ -45,4 +45,4 @@ The CLI groups by operator task rather than by URL prefix: `craft ops health` re
 
 New error codes: `RC5059` (a refused paging argument) and `RC5060` (a dispatch against a route with no `direct()` door).
 
-`missingCredentialResponse` moved into the shared HTTP response module, and the `~standard.jsonSchema` reader was extracted out of the suspension descriptor so both callers share one implementation. The JSON Schema dialect is passed explicitly at each call site, so a display choice in the management API can never move a stored continuation hash.
+`missingCredentialResponse` moved into the shared HTTP response module, and the `~standard.jsonSchema` reader was extracted out of the deferral descriptor so both callers share one implementation. The JSON Schema dialect is passed explicitly at each call site, so a display choice in the management API can never move a stored continuation hash.

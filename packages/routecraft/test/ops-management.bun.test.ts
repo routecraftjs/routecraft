@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { z } from "zod";
 import { signHs256, testContext, type TestContext } from "@routecraft/testing";
 import {
-  MemorySuspensionStore,
+  MemoryDeferralStore,
   apiKey,
   craft,
   jwt,
@@ -28,7 +28,7 @@ import {
  * credential that should not reach it as well as one that should.
  */
 
-const SUSPENSION_SECRET = "ops-management-suspension-secret-0123456789";
+const DEFERRAL_SECRET = "ops-management-deferral-secret-0123456789";
 
 /**
  * Bearer credentials for the one case that needs a bearer scheme rather than
@@ -104,16 +104,16 @@ describe("the ops management API", () => {
     tiers?: OpsTiers;
     auth?: HttpAuth | false;
     routes?: Routes;
-    suspension?: boolean;
+    deferral?: boolean;
   }): Promise<number> {
     const builder = testContext()
       .with({
         servers: { default: { port: 0, host: "127.0.0.1" } },
-        ...(options.suspension
+        ...(options.deferral
           ? {
-              suspension: {
-                store: new MemorySuspensionStore(),
-                secret: SUSPENSION_SECRET,
+              deferral: {
+                store: new MemoryDeferralStore(),
+                secret: DEFERRAL_SECRET,
               },
             }
           : {}),
@@ -752,33 +752,33 @@ describe("the ops management API", () => {
   });
 
   /**
-   * @case A parked dispatch answers with the standard Suspended acknowledgment
-   * @preconditions A suspendable route, dispatch open
-   * @expectedResult 202 with outcome suspended and the suspension id and token. A park is an outcome and not an error: the operator at the terminal is often exactly who the park is waiting for
+   * @case A parked dispatch answers with the standard Deferred acknowledgment
+   * @preconditions A deferrable route, dispatch open
+   * @expectedResult 202 with outcome deferred and the deferral id and token. A park is an outcome and not an error: the operator at the terminal is often exactly who the park is waiting for
    */
-  test("returns the Suspended acknowledgment for a parked dispatch", async () => {
+  test("returns the Deferred acknowledgment for a parked dispatch", async () => {
     const port = await start({
       tiers: { dispatch: true },
-      suspension: true,
+      deferral: true,
       routes: [
         craft()
           .id("payout")
           .from(direct())
-          .suspend({ schema: z.object({ approved: z.boolean() }) })
+          .defer({ schema: z.object({ approved: z.boolean() }) })
           .to(noop()),
       ],
     });
 
     const { status, body } = await call<{
       outcome: string;
-      suspension: { status: string; suspensionId: string; token: string };
+      deferral: { status: string; deferralId: string; token: string };
     }>(port, "/ops/routes/payout/exchanges", { method: "POST", body: {} });
 
     expect(status).toBe(202);
-    expect(body.outcome).toBe("suspended");
-    expect(body.suspension.status).toBe("suspended");
-    expect(body.suspension.suspensionId).toBeTruthy();
-    expect(body.suspension.token).toBeTruthy();
+    expect(body.outcome).toBe("deferred");
+    expect(body.deferral.status).toBe("deferred");
+    expect(body.deferral.deferralId).toBeTruthy();
+    expect(body.deferral.token).toBeTruthy();
   });
 
   /**

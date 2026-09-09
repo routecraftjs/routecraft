@@ -27,7 +27,7 @@ export const COLLECT_STEPS: unique symbol = Symbol.for(
  * a route's step tree, without widening the public `Step` contract or
  * making those step arrays writable from outside.
  *
- * The one walk today is the suspend-site resolver, which has to know both
+ * The one walk today is the defer-site resolver, which has to know both
  * that a sub-pipeline exists and whether it rejoins the main flow.
  *
  * @internal
@@ -38,14 +38,14 @@ export const NESTED_STEPS: unique symbol = Symbol.for(
 
 /**
  * Symbol a step implements to expose the step instance that hosts a
- * re-entrant suspend site: the `.to()` / `.enrich()` step whose adapter
- * carries the suspend-capable brand. Step-scope wrappers forward it to
- * their inner step (like {@link NESTED_STEPS}), so the suspend-site walk
- * can store the site on the instance whose `execute` converts the suspend
+ * re-entrant defer site: the `.to()` / `.enrich()` step whose adapter
+ * carries the defer-capable brand. Step-scope wrappers forward it to
+ * their inner step (like {@link NESTED_STEPS}), so the defer-site walk
+ * can store the site on the instance whose `execute` converts the defer
  * signal, however deeply the step is wrapped.
  *
  * @internal
  */
-export const SUSPEND_HOST: unique symbol = Symbol.for(
-  "routecraft.step.suspendHost",
+export const DEFER_HOST: unique symbol = Symbol.for(
+  "routecraft.step.deferHost",
 );

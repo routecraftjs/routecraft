@@ -63,7 +63,7 @@ The checklists below apply to **packages that ship code**: anything under `packa
 ## When you load an optional peer dependency
 
 > Not only adapters. Any module that reaches for a third-party package
-> through `loadOptionalPeer` is covered: the suspension store and the
+> through `loadOptionalPeer` is covered: the deferral store and the
 > telemetry SQLite sink are neither adapters nor in an adapter directory,
 > and both load one.
 

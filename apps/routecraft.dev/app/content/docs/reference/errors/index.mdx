@@ -16,8 +16,8 @@ Within a namespace, the leading digit reserves a range for one subsystem, so two
 
 | Range | Owner | Covers |
 | --- | --- | --- |
-| `RC****` | `@routecraft/routecraft` | Core: routes, exchanges, adapters, auth, suspension. The digit after `RC` is the category, not a subsystem range. |
-| `AI1xxx` | `@routecraft/ai` | Agent blocks, configuration, and runtime (run cancellation, suspension surface, the editor surface) |
+| `RC****` | `@routecraft/routecraft` | Core: routes, exchanges, adapters, auth, deferral. The digit after `RC` is the category, not a subsystem range. |
+| `AI1xxx` | `@routecraft/ai` | Agent blocks, configuration, and runtime (run cancellation, deferral surface, the editor surface) |
 | `AI2xxx` | `@routecraft/ai` | MCP boundary: tool results returned to a client |
 | `AI3xxx` | `@routecraft/ai` | Built-in agent tools |
 | `OS1xxx` | `@routecraft/os` | Subprocess execution and isolation tiers |
@@ -70,7 +70,7 @@ Namespaces must match `/^[A-Z][A-Z0-9]{1,7}$/` and every code must be the namesp
 Context already stopped
 
 **Why it happens**  
-`context.start()` was called on a context that has already been stopped. A context is single-use: its route controllers are built once and are gone after a stop, so a restart would report ready over routes that can no longer serve, and background work such as the suspension sweeper would retire records into them.
+`context.start()` was called on a context that has already been stopped. A context is single-use: its route controllers are built once and are gone after a stop, so a restart would report ready over routes that can no longer serve, and background work such as the deferral sweeper would retire records into them.
 
 **Suggestion**  
 Build a fresh context from your config instead of restarting a stopped one. The process is the real restart unit; `craft run` already behaves this way.
@@ -451,25 +451,25 @@ Agent run cancelled
 The dispatch's abort signal fired (a route stop, an elapsed `.timeout()`, or a [forced shutdown](/docs/reference/configuration#shutdown); a graceful shutdown drains the run instead of cancelling it) and the agent loop stopped cooperatively: between turns at the cheap checkpoint, or mid-turn when the signal reached the model call or a tool handler. The error's `cause` is an `AgentCancellationCause` with typed `turnsUsed` and `usage` fields (cache tokens included when the provider reports them), so cost accounting and traces read the spend structurally instead of parsing a message; a partial result never masquerades as a finished `AgentResult`.
 
 **Suggestion**  
-Cancellation is terminal: re-dispatch the work as a new exchange if it should run again. A run that parked at a suspension BEFORE the abort survives independently; a run whose park raced the abort is refused or denied with [RC5054](#rc-5054), so no stale resume link is left behind.
+Cancellation is terminal: re-dispatch the work as a new exchange if it should run again. A run that parked at a deferral BEFORE the abort survives independently; a run whose park raced the abort is refused or denied with [RC5054](#rc-5054), so no stale resume link is left behind.
 
 ## AI1006
-Agent suspension unavailable on this surface
+Agent deferral unavailable on this surface
 
 **Why it happens**  
-`ctx.suspend()` was called where no exchange can be durably parked: a proxied MCP tool guard, a `testFn` dispatch, or an agent invoked over a synthetic exchange with no route binding. The refusal happens at the moment of the call, before anything could be written, so there is never a half-created record.
+`ctx.defer()` was called where no exchange can be durably parked: a proxied MCP tool guard, a `testFn` dispatch, or an agent invoked over a synthetic exchange with no route binding. The refusal happens at the moment of the call, before anything could be written, so there is never a half-created record.
 
 **Suggestion**  
-Dispatch the agent through a route: its exchange is then route-bound, the hosting `.to()` / `.enrich()` step carries a revivable suspend site, and `ctx.suspend()` parks. If this surface genuinely cannot park (an MCP proxy guard), drop the suspension from the handler; a guard's job is admission, not waiting.
+Dispatch the agent through a route: its exchange is then route-bound, the hosting `.to()` / `.enrich()` step carries a revivable defer site, and `ctx.defer()` parks. If this surface genuinely cannot park (an MCP proxy guard), drop the deferral from the handler; a guard's job is admission, not waiting.
 
 ## AI1007
-Agent suspension state invalid at rehydration
+Agent deferral state invalid at rehydration
 
 **Why it happens**  
-A resumed exchange carried `stepState` this agent cannot re-enter. Either the persisted value is not the `{ agentId, messages, suspendedToolCallId, turnsUsed }` record the runtime writes, the thread does not contain the suspended tool call the payload should land on, or the record names a different agent than the one the route now dispatches. That last case exists because a by-name agent's registered options are not covered by the continuation hash (only step definitions are), so the persisted `agentId` is the identity the record can pin.
+A resumed exchange carried `stepState` this agent cannot re-enter. Either the persisted value is not the `{ agentId, messages, deferredToolCallId, turnsUsed }` record the runtime writes, the thread does not contain the deferred tool call the payload should land on, or the record names a different agent than the one the route now dispatches. That last case exists because a by-name agent's registered options are not covered by the continuation hash (only step definitions are), so the persisted `agentId` is the identity the record can pin.
 
 **Suggestion**  
-Restore the agent binding the record names, or treat the parked work as lost and re-ask with a fresh suspension. The suspension was already claimed when this fired, so the failure is recorded as its terminal outcome and the suspended route's `.error()` handler receives it.
+Restore the agent binding the record names, or treat the parked work as lost and re-ask with a fresh deferral. The deferral was already claimed when this fired, so the failure is recorded as its terminal outcome and the deferred route's `.error()` handler receives it.
 
 ## AI1008
 Parked agent thread replacement refused
@@ -477,11 +477,11 @@ Parked agent thread replacement refused
 **Why it happens**  
 A rewrite of a parked run's message thread produced a thread the run could not be resumed from. Compaction is the caller this exists for: an agent parks at an approval, its conversation has outgrown the model's context window, and the only moment to shrink it is while the exchange is still parked.
 
-Refused: an empty thread or an entry that is not a message, a tool call with no result (or a result with no call), a result placed before the call that produced it, a missing or empty `toolCallId`, an id used twice, and a thread that no longer contains the suspended call the approver's answer lands on. All but the last are what a summariser breaks by dropping or reordering a message it judged uninteresting; every provider rejects the thread that comes out. The last is the reason the guard runs before the store is written rather than after: a thread missing the suspended call is only discovered at revival, as [AI1007](#ai-1007), by which point the approval has been spent and the run cannot be recovered. AI1008 is the recoverable half of that pair. It is raised by `assertResumableThread` while the rewrite is still in hand, nothing has been persisted, and the parked run resumes from the thread it already had.
+Refused: an empty thread or an entry that is not a message, a tool call with no result (or a result with no call), a result placed before the call that produced it, a missing or empty `toolCallId`, an id used twice, and a thread that no longer contains the deferred call the approver's answer lands on. All but the last are what a summariser breaks by dropping or reordering a message it judged uninteresting; every provider rejects the thread that comes out. The last is the reason the guard runs before the store is written rather than after: a thread missing the deferred call is only discovered at revival, as [AI1007](#ai-1007), by which point the approval has been spent and the run cannot be recovered. AI1008 is the recoverable half of that pair. It is raised by `assertResumableThread` while the rewrite is still in hand, nothing has been persisted, and the parked run resumes from the thread it already had.
 
 **Suggestion**  
 - Drop a tool call and its result together, never one of the pair.
-- Keep the suspended call in the thread; summarise around it.
+- Keep the deferred call in the thread; summarise around it.
 - Leave the thread alone if it cannot be shortened safely. An uncompacted run that resumes beats a compacted one that cannot.
 
 ## AI1009
@@ -501,7 +501,7 @@ Providers do not agree on how to say it. OpenAI-compatible endpoints carry a mac
 Agent session record could not be read or written
 
 **Why it happens**  
-Every named agent session (`agent(name, { session })`) is one record in the suspension store, holding the transcript and the inbox. Either a stored record is not the shape the runtime writes (it was edited by hand, or two versions of `@routecraft/ai` share one store), or a write lost the compare-and-swap to another writer repeatedly, which takes a store under a load the in-process turn bound does not produce.
+Every named agent session (`agent(name, { session })`) is one record in the deferral store, holding the transcript and the inbox. Either a stored record is not the shape the runtime writes (it was edited by hand, or two versions of `@routecraft/ai` share one store), or a write lost the compare-and-swap to another writer repeatedly, which takes a store under a load the in-process turn bound does not produce.
 
 **Suggestion**  
 - Inspect the record the message names; remove it to start that session over.
@@ -511,11 +511,11 @@ Every named agent session (`agent(name, { session })`) is one record in the susp
 A tool asked to park an agent session turn
 
 **Why it happens**  
-A tool called `ctx.suspend()` inside an agent dispatched with `session`. A session turn stores its transcript when it ends and is revived from the session record rather than from a parked exchange, so there is no continuation an approval could resume into; the refusal lands in the tool, as a typed error the model reads, before anything is written.
+A tool called `ctx.defer()` inside an agent dispatched with `session`. A session turn stores its transcript when it ends and is revived from the session record rather than from a parked exchange, so there is no continuation an approval could resume into; the refusal lands in the tool, as a typed error the model reads, before anything is written.
 
 **Suggestion**  
-- Park from a sessionless agent, where `ctx.suspend()` parks the dispatch itself.
-- Move the approval into a route the agent calls as a tool, and let that route suspend.
+- Park from a sessionless agent, where `ctx.defer()` parks the dispatch itself.
+- Move the approval into a route the agent calls as a tool, and let that route defer.
 
 ## AI1012
 Agent session store failed
@@ -675,10 +675,10 @@ If the caller should receive a value, recover with a body in `.error()` instead 
 Unsupported step outcome
 
 **Why it happens**  
-A step returned a `StepOutcome` the engine cannot schedule. In practice this only happens with a custom step: the built-in steps always return a supported kind. Either the kind is one this build does not know, or a `suspend` outcome arrived without the request the executor parks from, which only the framework's own [`.suspend()`](/docs/reference/operations/suspend) step can produce. This is **not retryable**: the same step returns the same outcome every time.
+A step returned a `StepOutcome` the engine cannot schedule. In practice this only happens with a custom step: the built-in steps always return a supported kind. Either the kind is one this build does not know, or a `defer` outcome arrived without the request the executor parks from, which only the framework's own [`.defer()`](/docs/reference/operations/defer) step can produce. This is **not retryable**: the same step returns the same outcome every time.
 
 **Suggestion**  
-Return one of the supported outcomes from your step: `continue`, `complete`, `drop`, `branch`, or `fanOut`. To park an exchange, use `.suspend()` rather than hand-rolling the outcome: the executor needs the site the builder assigns to work out what would run on resume.
+Return one of the supported outcomes from your step: `continue`, `complete`, `drop`, `branch`, or `fanOut`. To park an exchange, use `.defer()` rather than hand-rolling the outcome: the executor needs the site the builder assigns to work out what would run on resume.
 
 ## RC5033
 Dedupe key derivation failed
@@ -764,12 +764,12 @@ This error is not retryable: the same delivery fails verification the same way e
 Resume-token signing secret not configured
 
 **Why it happens**  
-A context whose routes can reach a durable `.suspend()` was built without a way to sign resume tokens. Resume tokens are the capability a suspended exchange hands its approver, so a context that cannot sign them cannot suspend anything. The check runs while the context is being built, not on the first suspend, so this surfaces at startup rather than on the first large payout.
+A context whose routes can reach a durable `.defer()` was built without a way to sign resume tokens. Resume tokens are the capability a deferred exchange hands its approver, so a context that cannot sign them cannot defer anything. The check runs while the context is being built, not on the first defer, so this surfaces at startup rather than on the first large payout.
 
 **Suggestion**  
-Set the `ROUTECRAFT_SUSPENSION_SECRET` environment variable, or pass `suspension: { secret }` to `defineConfig`. Prefer the environment variable: a secret in a config file is a secret in version control. Generate one with `openssl rand -base64 32`.
+Set the `ROUTECRAFT_DEFERRAL_SECRET` environment variable, or pass `deferral: { secret }` to `defineConfig`. Prefer the environment variable: a secret in a config file is a secret in version control. Generate one with `openssl rand -base64 32`.
 
-At least 32 bytes are required, and a shorter secret raises this same code. A resume token is a bearer capability, so any holder of one token can guess the secret offline with no rate limit and no server involvement; a dictionary-strength value falls in seconds, after which an attacker can mint a token for any suspension.
+At least 32 bytes are required, and a shorter secret raises this same code. A resume token is a bearer capability, so any holder of one token can guess the secret offline with no rate limit and no server involvement; a dictionary-strength value falls in seconds, after which an attacker can mint a token for any deferral.
 
 The secret is deliberately never generated into the store. A store compromise must not also yield the ability to forge resume tokens, and a store-resident key stops working the moment a second node appears. `testContext()`, `NODE_ENV=development` and `NODE_ENV=test` mint an ephemeral in-memory key so tests and local iteration need no setup; that key does not survive a restart, and the framework warns when it is used.
 
@@ -780,116 +780,116 @@ Resume token rejected
 The token presented to `.resume()` was malformed, carried a signature that does not verify, or named a format version this build does not understand. The three are reported as one error on purpose: telling a caller which check failed tells an attacker how far a forgery got.
 
 **Suggestion**  
-Resume with the exact token minted at suspend time. If the token is genuine, check that every node shares one signing secret: a token signed with a different secret is indistinguishable from a forged one, and an ephemeral development key is regenerated on every restart.
+Resume with the exact token minted at defer time. If the token is genuine, check that every node shares one signing secret: a token signed with a different secret is indistinguishable from a forged one, and an ephemeral development key is regenerated on every restart.
 
 ## RC5042
-Exchange cannot be persisted for suspension
+Exchange cannot be persisted for deferral
 
 **Why it happens**  
-Suspension writes the exchange to durable storage, so its `body` and `headers` must be plain JSON data. The error names the exact path that failed. Refused values are functions, symbols, bigints, non-finite numbers, circular references, class instances, and anything carrying the framework's `Secret` brand. A class instance is refused rather than downgraded because what would come back is a plain object wearing the same fields with none of the behaviour, and the failure would surface as a broken method call after resume instead of at the suspend.
+Deferral writes the exchange to durable storage, so its `body` and `headers` must be plain JSON data. The error names the exact path that failed. Refused values are functions, symbols, bigints, non-finite numbers, circular references, class instances, and anything carrying the framework's `Secret` brand. A class instance is refused rather than downgraded because what would come back is a plain object wearing the same fields with none of the behaviour, and the failure would surface as a broken method call after resume instead of at the defer.
 
 `Date` is the exception: it round-trips faithfully through a tagged envelope, so a timestamp in the body is still a `Date` after resume.
 
 **Suggestion**  
-Move the offending value out of the exchange before the suspend point. Resolve it to a string, keep it in `context.store` (which outlives the exchange and is never serialized), or recompute it after resume. Blocks declared `lifetime: "context"` already live in the context store and are unaffected.
+Move the offending value out of the exchange before the defer point. Resolve it to a string, keep it in `context.store` (which outlives the exchange and is never serialized), or recompute it after resume. Blocks declared `lifetime: "context"` already live in the context store and are unaffected.
 
 ## RC5043
-Principal restored from a suspension
+Principal restored from a deferral
 
 **Why it happens**  
 `authorize()` was given a principal that came back from durable storage with a resumed exchange. It is the recorded shape of an identity verified days ago, with nothing behind it now: no signature was re-checked, no expiry, no revocation lookup. The framework marks such principals restored precisely so this case is distinguishable, rather than letting a shape read off disk pass an authorization check.
 
 **Suggestion**  
-Put the authorization on the resume ingress route, where the resuming principal is verified live, and read `ex.suspension.resumedBy` for the receipt. If a step after the suspend point genuinely needs an authorized identity, re-verify it there with `.authenticate()` from a checked credential.
+Put the authorization on the resume ingress route, where the resuming principal is verified live, and read `ex.deferral.resumedBy` for the receipt. If a step after the defer point genuinely needs an authorized identity, re-verify it there with `.authenticate()` from a checked credential.
 
 Distinct from RC5023 (a self-asserted plain object) because the fix differs: re-verify, do not mint.
 
 ## RC5044
-Suspension store operation failed
+Deferral store operation failed
 
 **Why it happens**  
-The suspension store could not complete a read or write. The common causes are a duplicate suspension id (a bug in id derivation, since ids are minted one per suspend), a store file that is unwritable or out of disk, and a store file written by a newer Routecraft build than the one now running.
+The deferral store could not complete a read or write. The common causes are a duplicate deferral id (a bug in id derivation, since ids are minted one per defer), a store file that is unwritable or out of disk, and a store file written by a newer Routecraft build than the one now running.
 
 **Suggestion**  
-Read the message, which names which of those it was. A schema-version mismatch means you have downgraded: run the newer build, or point `suspension.store.path` at a fresh file.
+Read the message, which names which of those it was. A schema-version mismatch means you have downgraded: run the newer build, or point `deferral.store.path` at a fresh file.
 
 This error is deliberately not retryable. None of its causes clear on a second attempt, so a `.retry()` wrapper must not spend its budget on them.
 
 ## RC5045
-Suspension store busy
+Deferral store busy
 
 **Why it happens**  
-Another writer held the suspension store's write lock for longer than the busy timeout (5 seconds). Almost always this means more than one process is writing the same store file: two app instances sharing a volume, or an operator tool running against a live deployment.
+Another writer held the deferral store's write lock for longer than the busy timeout (5 seconds). Almost always this means more than one process is writing the same store file: two app instances sharing a volume, or an operator tool running against a live deployment.
 
 **Suggestion**  
 Unlike [`RC5044`](#rc-5044) this is transient, so it is registered retryable and a `.retry()` wrapper re-attempts it. If it persists, the store file has more than one writer: give each process its own store, or move to a backend built for concurrent writers once one ships.
 
 ## RC5046
-Suspension not found
+Deferral not found
 
 **Why it happens**  
-The resume token verified, but the store holds no suspension under that id. Either the record was purged by retention, or this process is pointed at a different store than the one that parked the exchange (an in-memory store after a restart, a different SQLite path), or the suspended route is not registered in the context doing the resuming.
+The resume token verified, but the store holds no deferral under that id. Either the record was purged by retention, or this process is pointed at a different store than the one that parked the exchange (an in-memory store after a restart, a different SQLite path), or the deferred route is not registered in the context doing the resuming.
 
 **Suggestion**  
-Check that `suspension.store` names the same location on every node, and that the context running `.resume()` also has the suspended route registered: resume re-enters that route's pipeline, so it has to be there.
+Check that `deferral.store` names the same location on every node, and that the context running `.resume()` also has the deferred route registered: resume re-enters that route's pipeline, so it has to be there.
 
 ## RC5047
-Suspension expired
+Deferral expired
 
 **Why it happens**  
-The suspension's `ttl` elapsed, so the parked exchange is no longer resumable. Either a late resume arrived and was refused, or the background sweeper retired the suspension on its own schedule with no resume ever arriving, which is the case a `ttl` mostly exists for.
+The deferral's `ttl` elapsed, so the parked exchange is no longer resumable. Either a late resume arrived and was refused, or the background sweeper retired the deferral on its own schedule with no resume ever arriving, which is the case a `ttl` mostly exists for.
 
 **Suggestion**  
-This is catchable rather than terminal: the suspended route's own `.error()` handler receives it and can notify and re-ask with a fresh suspension. Raise `ttl` on `.suspend()` if the window is genuinely too short for the people it waits on.
+This is catchable rather than terminal: the deferred route's own `.error()` handler receives it and can notify and re-ask with a fresh deferral. Raise `ttl` on `.defer()` if the window is genuinely too short for the people it waits on.
 
 ## RC5048
-Suspension continuation changed
+Deferral continuation changed
 
 **Why it happens**  
-The steps after the suspend point, or the declared `schema`, changed while the exchange was parked. The stored approval no longer authorizes what would now run, so resuming is refused before any of those steps execute.
+The steps after the defer point, or the declared `schema`, changed while the exchange was parked. The stored approval no longer authorizes what would now run, so resuming is refused before any of those steps execute.
 
-Editing a step BEFORE the suspend point does not trigger this: those steps already ran, and changing them cannot affect what happens after the resume.
+Editing a step BEFORE the defer point does not trigger this: those steps already ran, and changing them cannot affect what happens after the resume.
 
 **Suggestion**  
-Catch it in the suspended route's route-scope `.error()` and re-ask. Note the hash also moves for edits that change emitted step source without changing behaviour (a formatting pass, different line endings, a build-settings change), so a deployment that parks approvals for days should pin those; see [Configuration → suspension](/docs/reference/configuration#suspension).
+Catch it in the deferred route's route-scope `.error()` and re-ask. Note the hash also moves for edits that change emitted step source without changing behaviour (a formatting pass, different line endings, a build-settings change), so a deployment that parks approvals for days should pin those; see [Configuration → deferral](/docs/reference/configuration#deferral).
 
 ## RC5049
-Suspension result rejected
+Deferral result rejected
 
 **Why it happens**  
-The payload handed to `.resume()` failed the `schema` declared on the suspending `.suspend()`.
+The payload handed to `.resume()` failed the `schema` declared on the deferring `.defer()`.
 
 **Suggestion**  
-The suspension is left resumable, so a corrected payload still works. Check the mapping function in `.resume((ex) => ({ token, result }))`: it owns the SHAPE of the payload, while validation happens at revival because only the suspension knows the schema.
+The deferral is left resumable, so a corrected payload still works. Check the mapping function in `.resume((ex) => ({ token, result }))`: it owns the SHAPE of the payload, while validation happens at revival because only the deferral knows the schema.
 
 ## RC5050
-Suspension denied
+Deferral denied
 
 **Why it happens**  
-The suspension was marked denied before this resume arrived, typically because the run carrying the parked exchange was cancelled.
+The deferral was marked denied before this resume arrived, typically because the run carrying the parked exchange was cancelled.
 
 **Suggestion**  
-A denied suspension is terminal. Re-submit the work as a new exchange rather than resuming.
+A denied deferral is terminal. Re-submit the work as a new exchange rather than resuming.
 
 ## RC5051
-Suspend not supported at this position
+Defer not supported at this position
 
 **Why it happens**  
-A `.suspend()` was declared where the framework cannot durably park and revive the exchange: inside a `.split()` that no `.aggregate()` balances, or inside a `.multicast()` path or `.dispatch()` target.
+A `.defer()` was declared where the framework cannot durably park and revive the exchange: inside a `.split()` that no `.aggregate()` balances, or inside a `.multicast()` path or `.dispatch()` target.
 
 **Suggestion**  
-Split the work into per-item child capabilities, each its own exchange suspending independently, or move the suspend onto the main flow or a `.choice()` branch of it. Raised at `craft()` build time, so it fails on the deploy that introduced it.
+Split the work into per-item child capabilities, each its own exchange deferring independently, or move the defer onto the main flow or a `.choice()` branch of it. Raised at `craft()` build time, so it fails on the deploy that introduced it.
 
 ## RC5052
-Suspension runtime not configured
+Deferral runtime not configured
 
 **Why it happens**  
-A route in this context can reach a durable `.suspend()`, but nothing configured where parked exchanges are stored or how resume tokens are signed.
+A route in this context can reach a durable `.defer()`, but nothing configured where parked exchanges are stored or how resume tokens are signed.
 
 **Suggestion**  
-Add `suspension: {}` to `defineConfig` to take the defaults, or `suspension: { store, secret }` to be explicit. It is deliberately not implicit: a durable suspend that silently parks into memory loses everything it promised on the next restart.
+Add `deferral: {}` to `defineConfig` to take the defaults, or `deferral: { store, secret }` to be explicit. It is deliberately not implicit: a durable defer that silently parks into memory loses everything it promised on the next restart.
 
-`suspension: {}` applies defaults; it does not supply a signing secret. In production, set `secret` or the `ROUTECRAFT_SUSPENSION_SECRET` environment variable, or startup fails with [`RC5040`](#rc-5040) instead. An ephemeral key is minted only for tests and development, because a key that dies with the process makes every outstanding resume token unverifiable across exactly the restart suspension exists to survive.
+`deferral: {}` applies defaults; it does not supply a signing secret. In production, set `secret` or the `ROUTECRAFT_DEFERRAL_SECRET` environment variable, or startup fails with [`RC5040`](#rc-5040) instead. An ephemeral key is minted only for tests and development, because a key that dies with the process makes every outstanding resume token unverifiable across exactly the restart deferral exists to survive.
 
 ## RC5053
 Ops plugin misconfigured
@@ -907,10 +907,10 @@ For a resource name, pick one that matches `^[a-z][a-z0-9-]*$` and is neither `r
 Pushing through a handle that is merely unregistered is not this error. It is deliberately inert, so health instrumentation can never kill the code it instruments.
 
 ## RC5054
-Suspension cancelled by run abort
+Deferral cancelled by run abort
 
 **Why it happens**  
-The run raised a durable suspension while it was being cancelled: a route stop or an elapsed `.timeout()` aborted the run in the narrow window around the park. If the abort won the race, the exchange was never parked; if the park won, the just-created suspension was immediately denied so its resume link is dead, and a token presented later reads [RC5050](#rc-5050). Either way the caller sees this error instead of a resumable acknowledgment, which keeps the two stories consistent: a run reported as cancelled must not be resumable later.
+The run raised a durable deferral while it was being cancelled: a route stop or an elapsed `.timeout()` aborted the run in the narrow window around the park. If the abort won the race, the exchange was never parked; if the park won, the just-created deferral was immediately denied so its resume link is dead, and a token presented later reads [RC5050](#rc-5050). Either way the caller sees this error instead of a resumable acknowledgment, which keeps the two stories consistent: a run reported as cancelled must not be resumable later.
 
 **Suggestion**  
 Nothing needs repair; the exchange's work simply did not park. Re-dispatch it as a new exchange if it should run again. Note the boundary: this is about the cancellation race only. A parked exchange whose process merely stops or restarts SURVIVES it; `context.stop()` never denies parked work, because surviving the stop is the store's entire purpose.
@@ -919,7 +919,7 @@ Nothing needs repair; the exchange's work simply did not park. Re-dispatch it as
 Resume credential not bound to this call
 
 **Why it happens**  
-The token verifies and names a real suspension, but it was minted for a different call than the one the record is parked on. A parallel batch of agent tool calls produces ONE park, while each handler mints its own credential: only the call that actually won the park may be resumed, so a losing sibling's recipient presenting their link lands here.
+The token verifies and names a real deferral, but it was minted for a different call than the one the record is parked on. A parallel batch of agent tool calls produces ONE park, while each handler mints its own credential: only the call that actually won the park may be resumed, so a losing sibling's recipient presenting their link lands here.
 
 **Suggestion**  
 Nothing is wrong with the record; it is still resumable by the rightful credential. Design so at most one tool per turn can park (one approval tool, or mutually exclusive guards) rather than handing two recipients two links backed by one park. The refusal is deliberately non-destructive: it leaves the record exactly as it found it, so the winning call's recipient can still resume.
@@ -938,15 +938,15 @@ Read the boundary log. It records which of the three happened and carries any th
 A door that declares no hook is bearer by design: any holder of a valid token may resume. If you did not intend that, the fix is a hook, not a config flag.
 
 ## RC5057
-Suspension sequence header unusable
+Deferral sequence header unusable
 
 **Why it happens**  
-The framework-owned `routecraft.suspension.sequence` header carries a value the park counter cannot use: a non-numeric or negative value, or one at the exhaustion bound, refused before the counter can ever store a value whose own increment would leave the safe-integer range. Headers are a writable bag, so a step (or an external system the headers were round-tripped through) can mangle this one like any other.
+The framework-owned `routecraft.deferral.sequence` header carries a value the park counter cannot use: a non-numeric or negative value, or one at the exhaustion bound, refused before the counter can ever store a value whose own increment would leave the safe-integer range. Headers are a writable bag, so a step (or an external system the headers were round-tripped through) can mangle this one like any other.
 
-It is a refusal rather than a reset on purpose. The suspension id derives from this counter, and resume tokens sign the id: a counter silently reset to zero re-derives an id an earlier park of the same exchange already used, and an old unspent resume link would then verify against the new park. The error is raised only on suspension surfaces (`ex.suspension`, or the park itself); routes that never touch suspension are unaffected by a mangled header.
+It is a refusal rather than a reset on purpose. The deferral id derives from this counter, and resume tokens sign the id: a counter silently reset to zero re-derives an id an earlier park of the same exchange already used, and an old unspent resume link would then verify against the new park. The error is raised only on deferral surfaces (`ex.deferral`, or the park itself); routes that never touch deferral are unaffected by a mangled header.
 
 **Suggestion**  
-Find what overwrote the header. The usual culprit is code that rebuilds a headers object by hand or passes headers through an external system that coerces values to strings. If the message reports exhaustion rather than a malformed value, treat it the same way: the bound is not reachable by suspending in a loop, so a plausible-looking huge value is still corruption.
+Find what overwrote the header. The usual culprit is code that rebuilds a headers object by hand or passes headers through an external system that coerces values to strings. If the message reports exhaustion rather than a malformed value, treat it the same way: the bound is not reachable by deferring in a loop, so a plausible-looking huge value is still corruption.
 
 ## RC5058
 Invalid shutdown configuration

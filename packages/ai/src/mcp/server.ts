@@ -4,7 +4,7 @@ import {
   DefaultExchange,
   HeadersKeys,
   isRoutecraftError,
-  isSuspended,
+  isDeferred,
   markAuthentic,
   requireWebIngress,
   type ProtectedResourceMetadata,
@@ -1278,11 +1278,11 @@ export class McpServer {
    * era, and `projectCallToolResult` wraps the matching value the same way.
    * Handing either side a pre-wrapped schema would wrap it twice.
    *
-   * A suspendable tool answers a parked run with the `Suspended`
+   * A deferrable tool answers a parked run with the `Deferred`
    * acknowledgment instead of its declared output, so its contract is the
    * union of both arms and advertising only the first would publish a schema
    * this server violates on every park. The arms are disjoint by construction
-   * (`status: "suspended"` is const in the acknowledgment arm and reserved in
+   * (`status: "deferred"` is const in the acknowledgment arm and reserved in
    * no user schema the framework mints), so `oneOf` is exact.
    */
   private advertisedOutputSchema(
@@ -1451,11 +1451,11 @@ export class McpServer {
       // A parked run is neither finished nor failed: reporting it as
       // `completed` would publish a false receipt to every dashboard, the
       // same honesty rule that gave SerializedOutcome its distinct
-      // "suspended" status and declines their own event (#576).
-      if (isSuspended(publishedBody)) {
-        this.context.emit(`plugin:mcp:tool:suspended`, {
+      // "deferred" status and declines their own event (#576).
+      if (isDeferred(publishedBody)) {
+        this.context.emit(`plugin:mcp:tool:deferred`, {
           tool: toolName,
-          suspensionId: publishedBody.suspensionId,
+          deferralId: publishedBody.deferralId,
         });
       } else {
         this.context.emit(`plugin:mcp:tool:completed`, {

@@ -5,10 +5,10 @@ export {
   type ToolBuilderOverrides,
 } from "./builders.ts";
 export {
-  DEFERRED_FN_BRAND,
-  isDeferredFn,
-  type DeferredFn,
-  type DeferredFnKind,
+  LAZY_FN_BRAND,
+  isLazyFn,
+  type LazyFn,
+  type LazyFnKind,
   type FnEntry,
 } from "./types.ts";
 export {

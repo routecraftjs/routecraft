@@ -8,34 +8,34 @@ import {
   type Principal,
 } from "@routecraft/routecraft";
 import {
-  createSuspendSentinel,
-  type AgentSuspendOptions,
-  type AgentSuspendSentinel,
-} from "../agent/suspend.ts";
+  createDeferSentinel,
+  type AgentDeferOptions,
+  type AgentDeferSentinel,
+} from "../agent/defer.ts";
 import type {
   FnHandlerContext,
   FnSessionView,
-  FnSuspensionView,
+  FnDeferralView,
 } from "./types.ts";
-// Registers AI1006, thrown from the default suspend refusal below.
+// Registers AI1006, thrown from the default defer refusal below.
 import "../errors.ts";
 
 /**
  * What the agent tool bridge wires into a handler context when the
- * dispatch can actually park: the dispatching exchange's suspension
+ * dispatch can actually park: the dispatching exchange's deferral
  * identity. Absent on every other surface, which is what makes
- * `ctx.suspend` a typed refusal there.
+ * `ctx.defer` a typed refusal there.
  *
  * @internal
  */
-export interface FnSuspensionWiring {
+export interface FnDeferralWiring {
   /** Id the dispatching exchange would park as. */
   readonly id: string;
   /**
    * Mint the signed resume token for that id (lazily; may throw RC5052).
    *
    * Bound to THIS tool call. Every handler in a parallel batch reads the
-   * same suspension id (they name the park, not the call) but gets its own
+   * same deferral id (they name the park, not the call) but gets its own
    * credential, so a recipient sent a link by a handler that then lost the
    * park cannot resume the winner's park: their token carries the losing
    * call's binding and takes `RC5055`.
@@ -53,11 +53,11 @@ export interface FnSuspensionWiring {
  * optional `correlationId`, the dispatching exchange's, so a route a tool
  * forwards to runs under the same trace as the turn that called it.
  *
- * `suspension` wires the durable-suspension affordances: with it,
- * `ctx.suspend()` mints the sentinel the bridge converts into a park and
- * `ctx.suspensionId` / `ctx.suspension` carry the dispatching exchange's
- * suspension identity. Without it (proxied MCP tool guards, synthetic
- * dispatches), `ctx.suspend()` refuses with `AI1006` at the moment it is
+ * `deferral` wires the durable-deferral affordances: with it,
+ * `ctx.defer()` mints the sentinel the bridge converts into a park and
+ * `ctx.deferralId` / `ctx.deferral` carry the dispatching exchange's
+ * deferral identity. Without it (proxied MCP tool guards, synthetic
+ * dispatches), `ctx.defer()` refuses with `AI1006` at the moment it is
  * called, before anything could be written.
  *
  * Intentionally does not expose the framework `CraftContext` to tool
@@ -71,7 +71,7 @@ export function makeFnHandlerContext(
   toolName: string,
   abortSignal: AbortSignal,
   principal: Principal | undefined,
-  suspension?: FnSuspensionWiring,
+  deferral?: FnDeferralWiring,
   session?: FnSessionView,
   correlationId?: string,
 ): FnHandlerContext {
@@ -81,21 +81,21 @@ export function makeFnHandlerContext(
     ...(correlationId !== undefined ? { correlationId } : {}),
     ...(principal ? { principal: freezePrincipal(principal) } : {}),
     ...(session ? { session: Object.freeze({ ...session }) } : {}),
-    ...(suspension
+    ...(deferral
       ? {
-          suspensionId: suspension.id,
-          suspension: makeSuspensionView(suspension),
-          suspend: makeSuspend(toolName),
+          deferralId: deferral.id,
+          deferral: makeDeferralView(deferral),
+          defer: makeDefer(toolName),
         }
-      : { suspend: makeSuspendRefusal(toolName, session !== undefined) }),
+      : { defer: makeDeferRefusal(toolName, session !== undefined) }),
   };
 }
 
 /** @internal */
-function makeSuspensionView(wiring: FnSuspensionWiring): FnSuspensionView {
+function makeDeferralView(wiring: FnDeferralWiring): FnDeferralView {
   return {
     id: wiring.id,
-    // A getter, like `ex.suspension.token`: minting reads the context's
+    // A getter, like `ex.deferral.token`: minting reads the context's
     // signer, and a handler that never builds a resume link should not pay
     // for (or fail on) it.
     get token(): string {
@@ -105,14 +105,14 @@ function makeSuspensionView(wiring: FnSuspensionWiring): FnSuspensionView {
 }
 
 /** @internal */
-function makeSuspend(
+function makeDefer(
   toolName: string,
-): (options?: AgentSuspendOptions) => AgentSuspendSentinel {
+): (options?: AgentDeferOptions) => AgentDeferSentinel {
   return (options) => {
     if (options?.schema !== undefined) {
       if (!isStandardSchema(options.schema)) {
         throw rcError("RC5003", undefined, {
-          message: `ctx.suspend in tool "${toolName}": "schema" must be a Standard Schema when given. It renders what a valid resume payload looks like on the Suspended acknowledgment. Omit it entirely to declare no contract.`,
+          message: `ctx.defer in tool "${toolName}": "schema" must be a Standard Schema when given. It renders what a valid resume payload looks like on the Deferred acknowledgment. Omit it entirely to declare no contract.`,
         });
       }
     }
@@ -120,28 +120,28 @@ function makeSuspend(
     // duration throws from the handler's own call frame instead of after
     // the handler has already unwound.
     if (options?.ttl !== undefined) {
-      parseDuration(options.ttl, `ctx.suspend({ ttl }) in tool "${toolName}"`);
+      parseDuration(options.ttl, `ctx.defer({ ttl }) in tool "${toolName}"`);
     }
-    return createSuspendSentinel(options ?? {});
+    return createDeferSentinel(options ?? {});
   };
 }
 
 /** @internal */
-function makeSuspendRefusal(
+function makeDeferRefusal(
   toolName: string,
   inSession: boolean,
-): (options?: AgentSuspendOptions) => AgentSuspendSentinel {
+): (options?: AgentDeferOptions) => AgentDeferSentinel {
   return () => {
     // A session turn is revived from the session record, never from a
     // parked exchange, so the wiring is withheld and the refusal names the
     // combination rather than the unbound dispatch it is not.
     if (inSession) {
       throw rcError("AI1011", undefined, {
-        message: `ctx.suspend in tool "${toolName}": a turn of an agent dispatched with "session" cannot park. The session's continuation is revived from its own record, and an approval has no parked exchange to resume into here. Park from a sessionless agent, or move the approval into a route the agent calls as a tool.`,
+        message: `ctx.defer in tool "${toolName}": a turn of an agent dispatched with "session" cannot park. The session's continuation is revived from its own record, and an approval has no parked exchange to resume into here. Park from a sessionless agent, or move the approval into a route the agent calls as a tool.`,
       });
     }
     throw rcError("AI1006", undefined, {
-      message: `ctx.suspend in tool "${toolName}": durable suspension is only available inside an agent dispatch on a route-bound exchange. This dispatch has no exchange to park (a proxied MCP tool guard, a synthetic test dispatch), so nothing was written.`,
+      message: `ctx.defer in tool "${toolName}": durable deferral is only available inside an agent dispatch on a route-bound exchange. This dispatch has no exchange to park (a proxied MCP tool guard, a synthetic test dispatch), so nothing was written.`,
     });
   };
 }

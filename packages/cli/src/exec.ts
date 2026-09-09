@@ -23,7 +23,7 @@ import { messageOf } from "./util.js";
 /**
  * Exit codes, which are the API for anything scripting this.
  *
- * A suspension shares `ok` with a completion because both mean the
+ * A deferral shares `ok` with a completion because both mean the
  * instance accepted and answered; a park is an outcome, not a fault. A
  * refusal is separate from a failure because they need opposite actions:
  * one is about the credential, the other about the route.

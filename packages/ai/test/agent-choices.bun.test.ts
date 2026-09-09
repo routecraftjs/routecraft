@@ -12,7 +12,7 @@ import { dirname, join } from "node:path";
 import { tmpdir } from "node:os";
 import { z } from "zod";
 import {
-  MemorySuspensionStore,
+  MemoryDeferralStore,
   craft,
   direct,
   type RouteDefinition,
@@ -247,10 +247,10 @@ describe("a conversation's own choices", () => {
   }
 
   async function boot(): Promise<TestContext> {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     return testContext()
       .with({
-        suspension: { store },
+        deferral: { store },
         sessions: { store: recordsFor(store) },
         shutdown: { timeout: 500 },
         plugins: [

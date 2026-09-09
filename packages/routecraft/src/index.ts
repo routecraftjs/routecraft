@@ -99,7 +99,7 @@ import "./adapters/direct/config.ts";
 import "./adapters/mail/config.ts";
 import "./adapters/carddav/config.ts";
 import "./telemetry/config.ts";
-import "./suspension/config.ts";
+import "./deferral/config.ts";
 
 export { httpPlugin } from "./plugins/http/plugin.ts";
 export { serversPlugin } from "./plugins/server/plugin.ts";
@@ -326,7 +326,7 @@ export {
 
 export { type HeaderSetter } from "./operations/header.ts";
 
-export { type SuspendOptions } from "./operations/suspend.ts";
+export { type DeferOptions } from "./operations/defer.ts";
 export { type ResumeMapper, type ResumeOptions } from "./operations/resume.ts";
 
 export { type CallableAuthenticator } from "./operations/authenticate.ts";
@@ -399,7 +399,7 @@ export {
  * machinery. Exposed so that `registerDsl` can augment a single interface
  * (`StepBuilderBase<S extends BuilderState>`) and have both `RouteBuilder`
  * and `PathBuilder` inherit the augmentation via class-interface
- * inheritance; `SetBody`, `SetSuspension` and `Retyped` are the helpers
+ * inheritance; `SetBody`, `SetDeferral` and `Retyped` are the helpers
  * type-changing sugar uses to advance the bag. `ExchangeOf` and `PathState`
  * are published for the same reason: both appear in signatures a user can
  * see (`ExchangeOf` in every callable-taking builder method, `PathState` in
@@ -415,7 +415,7 @@ export type {
   ExchangeOf,
   PathState,
   SetBody,
-  SetSuspension,
+  SetDeferral,
   FetchedBody,
   Retyped,
 } from "./step-builder-base.ts";
@@ -696,60 +696,60 @@ export {
   type SqlitePathConflict,
 } from "./shared/sqlite/claims.ts";
 
-// The suspension engine (hashing, serialization, token minting, runtime
-// resolution) stays behind `./suspension/index.ts`, which is where the
+// The deferral engine (hashing, serialization, token minting, runtime
+// resolution) stays behind `./deferral/index.ts`, which is where the
 // executor imports it from. Only the surface a user touches is published:
 // configuration, the store contract for anyone writing a backend, the two
 // shipped backends, and the environment-variable names.
 export {
-  DEFAULT_SUSPENSION_DB_PATH,
-  MemorySuspensionStore,
-  SUSPENDED_JSON_SCHEMA,
-  SUSPENSION_RUNTIME,
-  SUSPENSION_SECRET_ENV,
-  SUSPENSION_STORE_ENV,
-  SqliteSuspensionStore,
-  SuspendSignal,
-  SuspensionHeaders,
-  isSuspendSignal,
-  isSuspended,
-  markSuspendCapable,
-  // parkAside and reviveSuspension are @internal and re-exported on purpose:
+  DEFAULT_DEFERRAL_DB_PATH,
+  MemoryDeferralStore,
+  DEFERRED_JSON_SCHEMA,
+  DEFERRAL_RUNTIME,
+  DEFERRAL_SECRET_ENV,
+  DEFERRAL_STORE_ENV,
+  SqliteDeferralStore,
+  DeferSignal,
+  DeferralHeaders,
+  isDeferSignal,
+  isDeferred,
+  markDeferCapable,
+  // parkAside and reviveDeferral are @internal and re-exported on purpose:
   // @routecraft/ai stores and revives an agent session's continuation
   // through them, and a package cannot reach a deep import of core.
   parkAside,
-  reviveSuspension,
-  routeCanSuspend,
+  reviveDeferral,
+  routeCanDefer,
   stepStateFingerprint,
-  suspendedSchema,
-  suspensionPlugin,
-} from "./suspension/index.ts";
+  deferredSchema,
+  deferralPlugin,
+} from "./deferral/index.ts";
 export type {
   ExpiredScanCursor,
-  NewSuspension,
-  SuspendSignalRequest,
-  SuspendSite,
-  PendingSuspensionSummary,
+  NewDeferral,
+  DeferSignalRequest,
+  DeferSite,
+  PendingDeferralSummary,
   PrincipalRef,
   ResumeAcknowledgment,
   ResumeAuthorizer,
   ResumeAuthorizerInput,
   ResumeRequest,
-  Suspended,
-  SuspensionRecordView,
-  SuspensionAffordance,
+  Deferred,
+  DeferralRecordView,
+  DeferralAffordance,
   SerializedExchange,
   SerializedOutcome,
-  Suspension,
-  SuspensionCasResult,
-  SuspensionConfig,
-  SuspensionSchema,
-  SuspensionResumption,
-  SuspensionRuntime,
-  SuspensionStatus,
-  SuspensionStore,
-  SuspensionStoreConfig,
-} from "./suspension/index.ts";
+  Deferral,
+  DeferralCasResult,
+  DeferralConfig,
+  DeferralSchema,
+  DeferralResumption,
+  DeferralRuntime,
+  DeferralStatus,
+  DeferralStore,
+  DeferralStoreConfig,
+} from "./deferral/index.ts";
 export {
   type MailAuth,
   type MailReconnectOptions,

@@ -11,7 +11,7 @@ import type { AgentDeltaListener } from "../../src/agent/events.ts";
 
 /**
  * One "model" step of a scripted dispatch: either a batch of tool calls the
- * fake model emits (their handlers really run, which is what the suspension
+ * fake model emits (their handlers really run, which is what the deferral
  * and cancellation tests are exercising), or a final text answer.
  */
 export interface ScriptedTurn {

@@ -13,13 +13,13 @@ import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import {
   type ResumeAcknowledgment,
   type ResumeRequest,
-  reviveSuspension,
-} from "../suspension/revive.ts";
-import { principalRef } from "../suspension/principal-ref.ts";
-import type { ResumeAuthorizer } from "../suspension/authorize.ts";
+  reviveDeferral,
+} from "../deferral/revive.ts";
+import { principalRef } from "../deferral/principal-ref.ts";
+import type { ResumeAuthorizer } from "../deferral/authorize.ts";
 
 /**
- * Maps the ingress exchange to the suspension it resumes.
+ * Maps the ingress exchange to the deferral it resumes.
  *
  * The preferred form of `.resume()`, because the ingress transport decides
  * where the token and the payload actually live: a token in a mail subject
@@ -44,7 +44,7 @@ export interface ResumeAdapter extends Adapter {
 export interface ResumeOptions {
   /**
    * Decides whether the principal presenting this token may resume the
-   * suspension it names.
+   * deferral it names.
    *
    * The framework has no model of what makes a resuming principal
    * legitimate, so it does not ship one. What it guarantees is the part an
@@ -56,7 +56,7 @@ export interface ResumeOptions {
    * Receives the live principal (whatever this route's `.authenticate()`
    * resolved, or undefined when it resolved nobody), the parked principal
    * restored from storage, the raw submitted payload, and the record's
-   * context, including the `meta` the suspend site attached. Never the
+   * context, including the `meta` the defer site attached. Never the
    * parked body.
    *
    * Omitted, the door is bearer: any holder of a valid token may resume.
@@ -114,7 +114,7 @@ export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
       // is what the catch-all code is for.
       throw rcError("RC5001", undefined, {
         message:
-          "Cannot resume: this exchange has no context binding, so there is no suspension store to revive from.",
+          "Cannot resume: this exchange has no context binding, so there is no deferral store to revive from.",
       });
     }
 
@@ -131,7 +131,7 @@ export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
     const hookSignal = anySignal(route?.intakeSignal, signalCtx.signal);
     // Only a principal this ingress verified live may stand as the resuming
     // party. A revived exchange carries its parked principal back marked
-    // restored, so a route that both suspends and resumes would otherwise
+    // restored, so a route that both defers and resumes would otherwise
     // hand the hook storage data under a contract that says verified live.
     const live =
       exchange.principal && !isRestored(exchange.principal)
@@ -141,7 +141,7 @@ export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
       ? await this.mapper(exchange as Exchange<In>, signalCtx)
       : fromBody(exchange);
 
-    const acknowledgment: ResumeAcknowledgment = await reviveSuspension(
+    const acknowledgment: ResumeAcknowledgment = await reviveDeferral(
       context,
       {
         ...request,
@@ -169,7 +169,7 @@ export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
       kind: "continue",
       exchange: DefaultExchange.rewrap(exchange, { body: acknowledgment }),
       metadata: {
-        suspensionId: acknowledgment.suspensionId,
+        deferralId: acknowledgment.deferralId,
         resumedRouteId: acknowledgment.routeId,
         status: acknowledgment.status,
         outcome: acknowledgment.outcome.status,

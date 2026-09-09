@@ -13,7 +13,7 @@
  */
 
 import type { SessionUpdate } from "@agentclientprotocol/sdk";
-import type { ThreadMessage } from "../agent/suspension-state.ts";
+import type { ThreadMessage } from "../agent/deferral-state.ts";
 
 /** Every update a stored transcript replays as, in order. */
 export function replayUpdates(

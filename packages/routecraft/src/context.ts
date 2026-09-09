@@ -18,7 +18,7 @@ import { isRoutecraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
 import { type AdapterOverride, RC_ADAPTER_OVERRIDES } from "./testing-hooks.ts";
 import { getConfigAppliers } from "./config-applier.ts";
-import { SUSPENSION_RUNTIME } from "./suspension/runtime-key.ts";
+import { DEFERRAL_RUNTIME } from "./deferral/runtime-key.ts";
 import { EventBus } from "./event-bus.ts";
 
 import type { EventHandler, EventName, EventPayload } from "./types.ts";
@@ -437,8 +437,8 @@ export class CraftContext {
   /** Cached shutdown promise so concurrent stop() callers all await the same teardown */
   private shutdownPromise: Promise<ShutdownOutcome> | null = null;
 
-  /** Backing deferred for {@link CraftContext.whenStarted}. */
-  private startedDeferred: PromiseWithResolvers<void> | undefined;
+  /** Backing gate for {@link CraftContext.whenStarted}. */
+  private startedGate: PromiseWithResolvers<void> | undefined;
 
   /** The in-flight start, so concurrent `start()` calls join one boot. */
   private startInFlight: Promise<void> | undefined;
@@ -644,7 +644,7 @@ export class CraftContext {
    * harness, a readiness probe) waits here instead.
    *
    * A hook that performs bounded startup work is awaited by this, on
-   * purpose: the suspension sweeper's downtime scan has RUN by the time
+   * purpose: the deferral sweeper's downtime scan has RUN by the time
    * this resolves, so overdue expiries reach their routes before new
    * traffic does. Rejects with the error that refused the start, which is a
    * plugin `start()` hook or the context's own config. A single route that
@@ -656,11 +656,11 @@ export class CraftContext {
    * so this settles exactly once and keeps reporting that outcome.
    */
   whenStarted(): Promise<void> {
-    return this.ensureStartedDeferred().promise;
+    return this.ensureStartedGate().promise;
   }
 
   /**
-   * The deferred behind {@link CraftContext.whenStarted}, created on first
+   * The gate behind {@link CraftContext.whenStarted}, created on first
    * use by either side.
    *
    * Lazy because most contexts never ask, and shared because `start()` has
@@ -668,16 +668,16 @@ export class CraftContext {
    *
    * @internal
    */
-  private ensureStartedDeferred(): PromiseWithResolvers<void> {
-    if (!this.startedDeferred) {
+  private ensureStartedGate(): PromiseWithResolvers<void> {
+    if (!this.startedGate) {
       const deferred = Promise.withResolvers<void>();
       // Nobody is obliged to await this, and a refused start must not
       // surface as an unhandled rejection on top of the error start()
       // already throws.
       deferred.promise.catch(() => {});
-      this.startedDeferred = deferred;
+      this.startedGate = deferred;
     }
-    return this.startedDeferred;
+    return this.startedGate;
   }
 
   /**
@@ -819,7 +819,7 @@ export class CraftContext {
    * Separate from {@link CraftContext.initPlugins} because the two phases
    * answer different questions. `apply()` wires the context and runs at
    * build time; `start()` begins work and needs the routes running. The
-   * suspension sweeper is the first consumer: it re-enters a route's error
+   * deferral sweeper is the first consumer: it re-enters a route's error
    * channel when a parked exchange expires, which is not something that can
    * be done against a route that has not started.
    *
@@ -903,35 +903,35 @@ export class CraftContext {
   }
 
   /**
-   * Refuse to start when a route can reach a `.suspend()` and nothing
+   * Refuse to start when a route can reach a `.defer()` and nothing
    * configured where parked exchanges go.
    *
-   * Deliberately not auto-provisioned. The suspension runtime decides
+   * Deliberately not auto-provisioned. The deferral runtime decides
    * whether this deployment survives a restart and whether resume tokens
    * outlive the process, and defaulting it silently would hand a route that
    * promises durability an in-memory store nobody chose. Failing at startup
    * costs one config line; failing on the first large payout costs the
    * payout.
    *
-   * Routes that never touch suspension carry neither marker, so a context
+   * Routes that never touch deferral carry neither marker, so a context
    * without the feature pays nothing here.
    *
-   * @throws RC5052 when a suspendable route has no suspension runtime
+   * @throws RC5052 when a deferrable route has no deferral runtime
    */
-  private assertSuspensionConfigured(): void {
-    if (this.getStore(SUSPENSION_RUNTIME)) return;
-    const suspending = this.routes.find(
-      (route) => (route.definition.suspendSteps?.length ?? 0) > 0,
+  private assertDeferralConfigured(): void {
+    if (this.getStore(DEFERRAL_RUNTIME)) return;
+    const deferring = this.routes.find(
+      (route) => (route.definition.deferSteps?.length ?? 0) > 0,
     );
     // A resume ingress needs the runtime just as much: it verifies tokens
     // against the signer and reads the store. Left out, a resume-only
     // deployment starts clean and refuses every answer at request time.
     const resuming = this.routes.find((route) => route.definition.usesResume);
-    const offender = suspending ?? resuming;
+    const offender = deferring ?? resuming;
     if (!offender) return;
-    const reached = suspending ? ".suspend()" : ".resume()";
+    const reached = deferring ? ".defer()" : ".resume()";
     const err = rcError("RC5052", undefined, {
-      message: `Route "${offender.definition.id}" can reach a ${reached}, but this context has no suspension runtime. Add suspension: {} to defineConfig (or suspension: { store, secret } to be explicit).`,
+      message: `Route "${offender.definition.id}" can reach a ${reached}, but this context has no deferral runtime. Add deferral: {} to defineConfig (or deferral: { store, secret } to be explicit).`,
     });
     // Emitted as well as thrown, matching the plugin-init failure path: a
     // caller that never awaits `start()` (every long-running source holds
@@ -1244,7 +1244,7 @@ export class CraftContext {
   async start(): Promise<void> {
     // A context is single-use. Route controllers are built once and never
     // rebuilt, so a start after a stop would report ready over dead routes
-    // and the suspension scan would retire records into them. The real
+    // and the deferral scan would retire records into them. The real
     // restart unit is the process; refuse loudly rather than half-run.
     if (this.hasStopped) {
       throw rcError("RC1004", undefined, {
@@ -1260,7 +1260,7 @@ export class CraftContext {
   }
 
   private async run(): Promise<void> {
-    const started = this.ensureStartedDeferred();
+    const started = this.ensureStartedGate();
     try {
       // Idempotent: ContextBuilder.build() may already have run plugins.
       // Guarantees directly-constructed contexts get config-applier wiring
@@ -1268,7 +1268,7 @@ export class CraftContext {
       if (!this.pluginsInitialized) {
         await this.initPlugins();
       }
-      this.assertSuspensionConfigured();
+      this.assertDeferralConfigured();
     } catch (err) {
       // Every exit settles the deferred: a readiness probe waiting on a
       // context that refused its config must see the refusal.
@@ -1510,7 +1510,7 @@ export class CraftContext {
     // Settles readiness for a context stopped before it ever became ready,
     // so a probe observes termination instead of waiting forever. A no-op
     // when the deferred already settled, which is every ordinary shutdown.
-    this.ensureStartedDeferred().reject(
+    this.ensureStartedGate().reject(
       rcError("RC1004", undefined, {
         message: "The context was stopped before it finished starting.",
       }),
@@ -1606,7 +1606,7 @@ export class CraftContext {
 
     // STAGE ONE. Close intake: sources stop producing, no new exchange is
     // admitted. Deliberately not the execution signal, so an exchange
-    // already in the pipeline (an agent mid-tool-call, a suspension
+    // already in the pipeline (an agent mid-tool-call, a deferral
     // continuation) runs to its natural end. Dedicated force signals and the
     // shutdown deadline are what abandon work that does not finish in time.
     for (const route of this.routes) {
@@ -1845,10 +1845,10 @@ export class CraftContext {
    *
    * What this accepts losing: in-flight exchanges are abandoned mid-step and
    * emit no terminal event. What it does NOT do is settle or deny anything on
-   * the way down, so a parked suspension survives a forced shutdown exactly
+   * the way down, so a parked deferral survives a forced shutdown exactly
    * as it survives a graceful one.
    *
-   * It does NOT reach the suspension sweeper. The sweeper stops cooperatively
+   * It does NOT reach the deferral sweeper. The sweeper stops cooperatively
    * from `context:stopping`, which fires at the start of EVERY shutdown, and
    * plugin teardown then awaits its in-flight sweep unbounded, outside this
    * deadline. Records it had claimed heal via their lease either way.
@@ -1863,7 +1863,7 @@ export class CraftContext {
     this.logger.warn(
       { timeoutMs: this.shutdownTimeoutMs, pending },
       pending.length > 0
-        ? "Graceful shutdown did not drain in time; abandoning in-flight work and forcing shutdown. Parked suspensions are left untouched."
+        ? "Graceful shutdown did not drain in time; abandoning in-flight work and forcing shutdown. Parked deferrals are left untouched."
         : "Graceful shutdown did not complete in time; forcing shutdown.",
     );
     for (const route of this.routes) {

@@ -699,21 +699,21 @@ describe(".error() step scope: dual-mode wrapper", () => {
   });
 
   /**
-   * @case A custom step returns a `suspend` outcome without the request the executor parks from
-   * @preconditions Custom wrapper step returns { kind: "suspend", exchange } with no `request`
+   * @case A custom step returns a `defer` outcome without the request the executor parks from
+   * @preconditions Custom wrapper step returns { kind: "defer", exchange } with no `request`
    * @expectedResult Executor rejects it with RC5032 (fails loud) instead of silently dropping the exchange; the sink is never reached
    */
-  test("suspend outcome without a request is rejected with RC5032", async () => {
-    const suspendingStep = (inner: Step<Adapter>): Step<Adapter> => ({
+  test("defer outcome without a request is rejected with RC5032", async () => {
+    const deferringStep = (inner: Step<Adapter>): Step<Adapter> => ({
       operation: inner.operation,
       adapter: inner.adapter,
-      label: "suspending-step",
-      // Only `.suspend()` can produce a coherent request (it needs the
+      label: "deferring-step",
+      // Only `.defer()` can produce a coherent request (it needs the
       // site the build-time walk assigned), so a hand-rolled outcome
       // without one must fail loud rather than park an exchange nothing
       // could revive.
       async execute(exchange: Exchange): Promise<StepOutcome> {
-        return { kind: "suspend", exchange } as unknown as StepOutcome;
+        return { kind: "defer", exchange } as unknown as StepOutcome;
       },
     });
 
@@ -721,10 +721,8 @@ describe(".error() step scope: dual-mode wrapper", () => {
     type WrapBuilder = {
       pendingStepWrappers: Array<(s: Step<Adapter>) => Step<Adapter>>;
     };
-    const builder = craft().id("suspend-rejected").from(simple("hi"));
-    (builder as unknown as WrapBuilder).pendingStepWrappers.push(
-      suspendingStep,
-    );
+    const builder = craft().id("defer-rejected").from(simple("hi"));
+    (builder as unknown as WrapBuilder).pendingStepWrappers.push(deferringStep);
 
     t = await testContext().routes(builder.to(sink)).build();
     await t.test();

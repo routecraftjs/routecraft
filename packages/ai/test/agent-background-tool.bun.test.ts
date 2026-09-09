@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
 import {
-  MemorySuspensionStore,
+  MemoryDeferralStore,
   craft,
   direct,
   noop,
@@ -22,7 +22,7 @@ import {
 import { recordsFor } from "./helpers/session-stores.ts";
 import { AgentSessionRuntime } from "../src/agent/session/index.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
-import { MODEL } from "./helpers/suspend-fixtures.ts";
+import { MODEL } from "./helpers/defer-fixtures.ts";
 
 const llm = scriptedLlm([]);
 mock.module("../src/llm/providers/index.ts", () => ({
@@ -96,13 +96,13 @@ const whoami = {
 };
 
 function contextWith(
-  store: MemorySuspensionStore,
+  store: MemoryDeferralStore,
   sink: ReturnType<typeof spy>,
   chatSink: ReturnType<typeof spy> = spy(),
 ): ReturnType<ReturnType<typeof testContext>["routes"]> {
   return testContext()
     .with({
-      suspension: { store },
+      deferral: { store },
       sessions: { store: recordsFor(store) },
       shutdown: { timeout: 500 },
       plugins: [
@@ -170,7 +170,7 @@ describe("background tools", () => {
    * @expectedResult The tool result the model saw is { handle: "sandbox-run:<dispatchId>", status: "running" } and the dispatched exchange carries the handle on its headers; the reply arrives while the route is still running and the turn's exchange is parked with one background call; once released, background:completed is emitted, the stored continuation is revived and a second model call is made with no new message, whose only user part carries the result text naming the handle; that turn's reply reaches the chat route's downstream step; a later message is a third call carrying only itself. With the revival removed this fails: no second call is made until a message arrives
    */
   test("the turn continues past the call and the completion starts the next turn", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     const sink = spy();
     const chatSink = spy();
     t = await contextWith(store, sink, chatSink).build();
@@ -266,7 +266,7 @@ describe("background tools", () => {
    * @expectedResult B's boot revives the stored continuation with the lost-run message as the turn's user message, the model is called once with it, the reply reaches the chat route's downstream step, and the session reports no background calls. With the boot drive removed this fails: no call is made until a message arrives
    */
   test("a lost run reaches the model at the next boot", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     llm.script.push(
@@ -304,7 +304,7 @@ describe("background tools", () => {
    * @expectedResult background:failed is emitted, the reply reports one queued message, and the turn the boundary starts on its own opens with a user message saying the tool failed, naming the handle and carrying the error message
    */
   test("a failing route posts a failure the model can read", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const failed: unknown[] = [];
@@ -346,7 +346,7 @@ describe("background tools", () => {
    * @expectedResult The boundary turn opens with a user message saying the tool failed, naming the handle and the encoding reason, and no background call remains
    */
   test("a result the store cannot hold is reported, not stuck", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     llm.script.push(
@@ -375,7 +375,7 @@ describe("background tools", () => {
    * @expectedResult The dispatch fails with RC5003 naming the background tool, and no model call is made
    */
   test("a sessionless agent cannot carry a background tool", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     await expect(
@@ -393,7 +393,7 @@ describe("background tools", () => {
    * @expectedResult Inside the session the tool sees { agent: "max", id: "s" }; the handle context is frozen
    */
   test("ctx.session names the calling session", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     llm.script.push({ toolCalls: [{ toolName: "whoami" }] }, { text: "ok" });

@@ -9,7 +9,7 @@ import {
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
 import { COLLECT_STEPS, NESTED_STEPS } from "../dsl-symbol.ts";
-import type { NestedSteps } from "../suspension/sites.ts";
+import type { NestedSteps } from "../deferral/sites.ts";
 import {
   StepBuilderBase,
   type BuilderState,
@@ -360,7 +360,7 @@ export class ChoiceStep<In = unknown> implements Step<ChoiceAdapter> {
   /**
    * Expose the branch pipelines to framework-level walks of the route's
    * step tree. `rejoins: true`: a matched branch is inlined ahead of the
-   * remaining main-pipeline steps, so a `.suspend()` inside a branch has a
+   * remaining main-pipeline steps, so a `.defer()` inside a branch has a
    * continuation that spans the branch tail and the main tail.
    *
    * @internal

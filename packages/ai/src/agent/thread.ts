@@ -1,14 +1,14 @@
 import {
   rcError,
   stepStateFingerprint,
-  type SuspensionCasResult,
-  type SuspensionStore,
+  type DeferralCasResult,
+  type DeferralStore,
 } from "@routecraft/routecraft";
 import {
   contentPartsOf,
   parseStepState,
   type ThreadMessage,
-} from "./suspension-state.ts";
+} from "./deferral-state.ts";
 // Registers AI1008, thrown from the integrity checks below.
 import "../errors.ts";
 
@@ -48,7 +48,7 @@ interface ThreadPairing {
 /**
  * The tool-call ids one role contributes to a thread.
  *
- * Reads through `contentPartsOf`, which `suspension-state.ts` documents as
+ * Reads through `contentPartsOf`, which `deferral-state.ts` documents as
  * the single decoder for the SDK's known-but-external message shape, so an
  * SDK representation change is fixed there rather than here. The id policy
  * stays here, because it is this module's: an unpairable part is AI1008,
@@ -126,17 +126,17 @@ function firstResultBeforeItsCall(
  *   one call. This is the pairing every provider enforces, and the one a
  *   summariser breaks by dropping a message it judged uninteresting.
  * - No tool-call id appears twice.
- * - The suspended call is still there. Its result slot is where the
+ * - The deferred call is still there. Its result slot is where the
  *   approver's answer lands, and a thread without it fails the revival with
  *   `AI1007` AFTER the approval has been spent.
  *
  * @param messages - The rewritten thread
- * @param suspendedToolCallId - The parked call the resume answers
+ * @param deferredToolCallId - The parked call the resume answers
  * @throws AI1008 when the thread cannot be resumed from
  */
 export function assertResumableThread(
   messages: readonly ThreadMessage[],
-  suspendedToolCallId: string,
+  deferredToolCallId: string,
 ): void {
   if (messages.length === 0) {
     throw rcError("AI1008", undefined, {
@@ -192,9 +192,9 @@ export function assertResumableThread(
       message: `The rewritten thread has tool results with no matching call: ${orphaned.join(", ")}. Drop a result and its call together, or keep both.`,
     });
   }
-  if (!callSet.has(suspendedToolCallId)) {
+  if (!callSet.has(deferredToolCallId)) {
     throw rcError("AI1008", undefined, {
-      message: `The rewritten thread no longer contains the suspended tool call "${suspendedToolCallId}", which is where the approver's answer lands on resume.`,
+      message: `The rewritten thread no longer contains the deferred tool call "${deferredToolCallId}", which is where the approver's answer lands on resume.`,
     });
   }
 }
@@ -212,8 +212,8 @@ export function assertResumableThread(
  * Nothing but `messages` changes. `turnsUsed` in particular is left alone:
  * shrinking the conversation does not give the run its budget back.
  *
- * @param store - The suspension store holding the parked run
- * @param suspensionId - The parked run
+ * @param store - The deferral store holding the parked run
+ * @param deferralId - The parked run
  * @param rewrite - Given the stored thread, returns the replacement
  * @returns Whether this caller performed the replacement, and the record as
  *   it stands afterwards
@@ -221,19 +221,19 @@ export function assertResumableThread(
  * @throws AI1008 when the rewrite produced an unresumable thread
  */
 export async function replaceParkedThread(
-  store: SuspensionStore,
-  suspensionId: string,
+  store: DeferralStore,
+  deferralId: string,
   rewrite: (
     messages: readonly ThreadMessage[],
   ) => readonly ThreadMessage[] | Promise<readonly ThreadMessage[]>,
-): Promise<SuspensionCasResult> {
-  const record = await store.get(suspensionId);
-  if (!record) return { won: false, suspension: undefined };
-  if (record.status !== "suspended") {
+): Promise<DeferralCasResult> {
+  const record = await store.get(deferralId);
+  if (!record) return { won: false, deferral: undefined };
+  if (record.status !== "deferred") {
     // Reported without attempting the swap. The store would refuse it too,
     // but calling a rewrite (an LLM call, in the compaction case) on a run
     // that has already resumed is work with no possible outcome.
-    return { won: false, suspension: record };
+    return { won: false, deferral: record };
   }
 
   const state = parseStepState(record.stepState);
@@ -248,7 +248,7 @@ export async function replaceParkedThread(
   // Without this, a rewrite that then fails validation, or loses the swap,
   // would still have corrupted the parked thread.
   const messages = await rewrite(structuredClone(state.messages));
-  assertResumableThread(messages, state.suspendedToolCallId);
+  assertResumableThread(messages, state.deferredToolCallId);
 
-  return store.replaceStepState(suspensionId, expected, { ...state, messages });
+  return store.replaceStepState(deferralId, expected, { ...state, messages });
 }

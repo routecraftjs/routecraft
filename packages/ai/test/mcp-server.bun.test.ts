@@ -1,6 +1,6 @@
 import { describe, test, expect, afterEach } from "bun:test";
 import { McpServer } from "../src/mcp/server.ts";
-import { suspending, testContext, type TestContext } from "@routecraft/testing";
+import { deferring, testContext, type TestContext } from "@routecraft/testing";
 import {
   craft,
   DefaultExchange,
@@ -4096,13 +4096,13 @@ describe("McpServer", () => {
     });
 
     /**
-     * @case A run that parks at a .suspend() answers with its acknowledgment, not a schema violation
-     * @preconditions Route declares .output() and reaches .suspend() before producing that output, with an in-memory suspension store
-     * @expectedResult No error; the Suspended acknowledgment is published. The pipeline deliberately skips output validation for a parked run, so the boundary must not enforce the declared output against an acknowledgment that was never meant to satisfy it
+     * @case A run that parks at a .defer() answers with its acknowledgment, not a schema violation
+     * @preconditions Route declares .output() and reaches .defer() before producing that output, with an in-memory deferral store
+     * @expectedResult No error; the Deferred acknowledgment is published. The pipeline deliberately skips output validation for a parked run, so the boundary must not enforce the declared output against an acknowledgment that was never meant to satisfy it
      */
-    test("publishes the acknowledgment when the route suspends", async () => {
+    test("publishes the acknowledgment when the route defers", async () => {
       t = await testContext()
-        .with(suspending())
+        .with(deferring())
         .store(MCP_STORE_KEY, true)
         .routes([
           craft()
@@ -4110,7 +4110,7 @@ describe("McpServer", () => {
             .description("Parks for approval before paying out")
             .output({ body: z.object({ paid: z.boolean() }) })
             .from<{ amount: number }>(mcp())
-            .suspend({ schema: z.object({ approved: z.boolean() }) })
+            .defer({ schema: z.object({ approved: z.boolean() }) })
             .transform(() => ({ paid: true })),
         ])
         .build();
@@ -4120,7 +4120,7 @@ describe("McpServer", () => {
       const result = await callTool(server, "approve-payout", { amount: 100 });
 
       expect(result.isError).toBeUndefined();
-      expect(result.structuredContent).toMatchObject({ status: "suspended" });
+      expect(result.structuredContent).toMatchObject({ status: "deferred" });
     });
 
     /**

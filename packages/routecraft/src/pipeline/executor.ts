@@ -7,14 +7,14 @@ import {
   EXCHANGE_INTERNALS,
   clearResumeStepState,
   isDropped,
-  isSuspendedRun,
+  isDeferredRun,
   OperationType,
   peekResumeStepState,
   setResumeStepState,
   setStartedAt,
 } from "../exchange.ts";
 import { isRecovery, applyDropDirective } from "../recovery.ts";
-import { parkExchange } from "../suspension/park.ts";
+import { parkExchange } from "../deferral/defer.ts";
 import { SPLIT_PARENT_STORE } from "../operations/split.ts";
 import { rcError, RoutecraftError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
@@ -131,8 +131,8 @@ export async function runPipeline(
   exchange: Exchange;
   failed: boolean;
   dropped: boolean;
-  /** The exchange parked at a `.suspend()`; execution one ends here. */
-  suspended: boolean;
+  /** The exchange parked at a `.defer()`; execution one ends here. */
+  deferred: boolean;
   error?: unknown;
 }> {
   // If the source adapter attached a `parse` function (see #187), prepend
@@ -506,16 +506,16 @@ export async function runPipeline(
           // The step marked the exchange dropped and emitted its drop
           // events; schedule nothing.
           break;
-        case "suspend": {
+        case "defer": {
           // The exchange parks here and this run ends: the executor
-          // serializes it, writes the suspension, and answers with the
-          // `Suspended` acknowledgment. Nothing is scheduled beyond that
+          // serializes it, writes the deferral, and answers with the
+          // `Deferred` acknowledgment. Nothing is scheduled beyond that
           // (`steps: []`), no worker waits, and the route stays live for
           // every other exchange, because the continuation lives in the
           // store rather than in this process.
           if (!outcome.request) {
             throw rcError("RC5032", undefined, {
-              message: `Step "${stepLabel}" returned a "suspend" outcome without a suspend request, so the engine cannot work out what to park or what would resume.`,
+              message: `Step "${stepLabel}" returned a "defer" outcome without a defer request, so the engine cannot work out what to park or what would resume.`,
             });
           }
           // A cancelled run must not leave a live resume link behind: the
@@ -523,12 +523,12 @@ export async function runPipeline(
           // approver clicking days later would continue work its caller
           // already saw cancelled. Before the store write, refusing to park
           // is free; an abort that lands during the write is resolved
-          // inside `parkExchange` (deny, then RC5054) BEFORE the suspended
+          // inside `parkExchange` (deny, then RC5054) BEFORE the deferred
           // event, so one exchange never announces two terminals. The
           // caller's RC5054 is the notification; no re-ask is delivered.
           if (deps.abortSignal?.aborted) {
             throw rcError("RC5054", deps.abortSignal.reason, {
-              message: `Step "${stepLabel}" raised a suspension after its run was cancelled; nothing was parked.`,
+              message: `Step "${stepLabel}" raised a deferral after its run was cancelled; nothing was parked.`,
             });
           }
           const parked = await parkExchange(
@@ -714,7 +714,7 @@ export async function runPipeline(
           exchange: lastProcessedExchange,
           failed,
           dropped,
-          suspended: isSuspendedRun(exchange),
+          deferred: isDeferredRun(exchange),
           error: stepError,
         };
       }
@@ -808,7 +808,7 @@ export async function runPipeline(
     exchange: lastProcessedExchange,
     failed,
     dropped,
-    suspended: isSuspendedRun(exchange),
+    deferred: isDeferredRun(exchange),
     error: stepError,
   };
 }
@@ -842,12 +842,12 @@ function segmentResultToOutcome(result: {
 }): StepOutcome {
   if (result.dropped) return { kind: "drop" } as const;
   // A run that parked inside the segment has already been answered with its
-  // `Suspended` acknowledgment, and the parking is recorded on the
+  // `Deferred` acknowledgment, and the parking is recorded on the
   // exchange's shared internals, so the outer run must schedule nothing
   // further rather than continuing into steps the parked exchange is no
-  // longer at. It is `complete`, not a second `suspend`: the exchange is
+  // longer at. It is `complete`, not a second `defer`: the exchange is
   // parked once, by the run that reached the step.
-  if (isSuspendedRun(result.exchange)) {
+  if (isDeferredRun(result.exchange)) {
     return { kind: "complete", exchange: result.exchange } as const;
   }
   return { kind: "continue", exchange: result.exchange } as const;
@@ -1019,12 +1019,12 @@ export function runDetachedPipeline(
       start,
     );
 
-    // A run that parked at a `.suspend()` ends with the `Suspended`
+    // A run that parked at a `.defer()` ends with the `Deferred`
     // acknowledgment rather than the route's output, and its terminal
-    // event was `route:exchange:suspended`. Completing it here would both
+    // event was `route:exchange:deferred`. Completing it here would both
     // claim an output it does not carry and give the exchange two
     // terminal events.
-    if (!result.failed && !result.dropped && !result.suspended) {
+    if (!result.failed && !result.dropped && !result.deferred) {
       deps.context.emit("route:exchange:completed", {
         routeId: deps.routeId,
         exchangeId: releaseExchange.id,
@@ -1036,7 +1036,7 @@ export function runDetachedPipeline(
     return {
       failed: result.failed,
       dropped: result.dropped,
-      suspended: result.suspended,
+      deferred: result.deferred,
       exchange: result.exchange,
       ...(result.error !== undefined ? { error: result.error } : {}),
     };
@@ -1046,7 +1046,7 @@ export function runDetachedPipeline(
 /**
  * What a detached run reports back. `error` is present exactly when
  * `failed` is true and the failure reached the run's boundary, which is
- * what a resume needs to cache as the suspension's terminal outcome.
+ * what a resume needs to cache as the deferral's terminal outcome.
  *
  * @internal
  */
@@ -1054,13 +1054,13 @@ export interface DetachedResult {
   failed: boolean;
   dropped: boolean;
   /**
-   * The run parked at a `.suspend()`. Distinct from every other outcome:
+   * The run parked at a `.defer()`. Distinct from every other outcome:
    * the exchange is neither finished nor failed, and its terminal body is
-   * the `Suspended` acknowledgment rather than the route's output. A caller
+   * the `Deferred` acknowledgment rather than the route's output. A caller
    * that treats it as a completion publishes both a false receipt and the
-   * next suspension's resume token.
+   * next deferral's resume token.
    */
-  suspended: boolean;
+  deferred: boolean;
   exchange: Exchange;
   error?: unknown;
 }
@@ -1178,7 +1178,7 @@ function buildRetrySegmentStep(
         scope: "route" as const,
       };
       // A resumed continuation may retry: each attempt must re-enter the
-      // suspending step with the same parked state, even though a settled
+      // deferring step with the same parked state, even though a settled
       // step inside a prior attempt already cleared it (a later step's
       // retryable failure would otherwise re-run the agent from scratch).
       const resumeSnapshot = peekResumeStepState(exchange);

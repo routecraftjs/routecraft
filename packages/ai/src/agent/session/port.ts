@@ -38,7 +38,7 @@ export interface SessionCasResult {
  * {@link SqliteSessionStore}, and both run the same contract-test suite.
  *
  * The parked continuation a session stores between turns is not here: it
- * is a parked exchange and lives in the suspension store with every other
+ * is a parked exchange and lives in the deferral store with every other
  * one.
  */
 export interface SessionStore {

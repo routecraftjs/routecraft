@@ -40,7 +40,7 @@ import { BatchConsumer } from "./consumers/batch.ts";
 import { type Source, type SourceLike, toSource } from "./operations/from.ts";
 import type { Adapter, Step, Consumer, ConsumerType } from "./types.ts";
 import { OperationType } from "./exchange.ts";
-import { resolveSuspendSites, usesResume } from "./suspension/sites.ts";
+import { resolveDeferSites, usesResume } from "./deferral/sites.ts";
 import {
   type Splitter,
   type CallableSplitter,
@@ -431,7 +431,7 @@ export type RouteOptions = Partial<Pick<RouteDefinition, "consumer">> & {
  * of the route means at least one `split` was not aggregated, so the
  * route is rejected with `RC5003`.
  *
- * A reachable `.suspend()` is refused for a related reason: the cache
+ * A reachable `.defer()` is refused for a related reason: the cache
  * filters sit OUTSIDE the user pipeline (check before it, store after it),
  * while a park exits the pipeline and a resume re-enters it partway down.
  * Neither filter would run on either execution, so the route would carry a
@@ -446,10 +446,10 @@ function assertRouteScopeCacheCompatibility(route: RouteDefinition): void {
   );
   if (!hasRouteScopeCache) return;
 
-  if ((route.suspendSteps?.length ?? 0) > 0) {
+  if ((route.deferSteps?.length ?? 0) > 0) {
     throw rcError("RC5003", undefined, {
       message:
-        `Route "${route.id}" has route-scope .cache() and a reachable .suspend(). ` +
+        `Route "${route.id}" has route-scope .cache() and a reachable .defer(). ` +
         `The cache filters wrap the user pipeline, but a parked exchange exits it and ` +
         `resumes partway down, so neither the check nor the store would ever run and the ` +
         `cache would silently do nothing. Cache the expensive step with a step-scope ` +
@@ -1837,16 +1837,16 @@ export class RouteBuilder<
     }
     this.assertNoPendingWrappers("build");
     for (const route of this.routes) {
-      // Resolving suspend sites is also where a `.suspend()` in a position
+      // Resolving defer sites is also where a `.defer()` in a position
       // that cannot be revived is refused, so it runs on every build rather
-      // than only when the route turns out to suspend. It runs BEFORE the
+      // than only when the route turns out to defer. It runs BEFORE the
       // cache check, which reads what it resolved.
-      const sites = resolveSuspendSites(route);
-      if (sites.suspendSteps.length > 0) {
-        route.suspendSteps = sites.suspendSteps;
+      const sites = resolveDeferSites(route);
+      if (sites.deferSteps.length > 0) {
+        route.deferSteps = sites.deferSteps;
       }
-      if (sites.reentrantSuspendSteps.length > 0) {
-        route.reentrantSuspendSteps = sites.reentrantSuspendSteps;
+      if (sites.reentrantDeferSteps.length > 0) {
+        route.reentrantDeferSteps = sites.reentrantDeferSteps;
       }
       if (usesResume(route)) route.usesResume = true;
       assertRouteScopeCacheCompatibility(route);

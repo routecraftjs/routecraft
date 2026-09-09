@@ -9,27 +9,27 @@ import { isBlockLoaderTool } from "../block/resolve.ts";
 import { toAiInputSchema } from "../llm/structured-output.ts";
 import { makeFnHandlerContext } from "../fn/handler-context.ts";
 import type { FnHandlerContext } from "../fn/types.ts";
-import { isSuspendError, isSuspendSentinel } from "./suspend.ts";
+import { isDeferError, isDeferSentinel } from "./defer.ts";
 import {
-  SUSPENDED_TOOL_PLACEHOLDER,
-  type AgentSuspendSignalRecord,
-} from "./suspension-state.ts";
+  DEFERRED_TOOL_PLACEHOLDER,
+  type AgentDeferSignalRecord,
+} from "./deferral-state.ts";
 import type { AgentDispatchIdentity, AgentRunSession } from "./run.ts";
 import type { ResolvedTool } from "./tools/selection.ts";
 
 /**
- * The suspension channel between one agent dispatch and its tools: the
- * exchange identity `ctx.suspend` / `ctx.suspension` are wired from, and
+ * The deferral channel between one agent dispatch and its tools: the
+ * exchange identity `ctx.defer` / `ctx.deferral` are wired from, and
  * the collector the bridge records raised signals into. The session reads
  * the collector after each model call; a non-empty batch stops the loop
  * and parks. Absent when the dispatch cannot park (no route-bound
- * exchange), which turns `ctx.suspend` into a typed AI1006 refusal.
+ * exchange), which turns `ctx.defer` into a typed AI1006 refusal.
  *
  * @internal
  */
-export interface AgentSuspensionBridge {
-  readonly wiring: AgentSuspensionWiring;
-  readonly signals: AgentSuspendSignalRecord[];
+export interface AgentDeferralBridge {
+  readonly wiring: AgentDeferralWiring;
+  readonly signals: AgentDeferSignalRecord[];
 }
 
 /**
@@ -41,7 +41,7 @@ export interface AgentSuspensionBridge {
  *
  * @internal
  */
-export interface AgentSuspensionWiring {
+export interface AgentDeferralWiring {
   readonly id: string;
   readonly mintToken: (callBinding: string) => string;
 }
@@ -114,7 +114,7 @@ export async function buildVercelTools(
   abortSignal: AbortSignal,
   dispatchIdentity?: AgentDispatchIdentity,
   principal?: Principal,
-  suspensions?: AgentSuspensionBridge,
+  deferrals?: AgentDeferralBridge,
   inFlight?: Map<string, TrackedToolCall>,
   session?: AgentRunSession,
 ): Promise<Record<string, unknown>> {
@@ -133,7 +133,7 @@ export async function buildVercelTools(
     // Built per CALL below, not here: the resume credential is bound to the
     // tool call that hands it out, and the call id is only known inside
     // `execute`. What is shared per tool is everything else.
-    const wiring = suspensions?.wiring;
+    const wiring = deferrals?.wiring;
     // Block-loader synthetic tools emit `agent:block:loaded` /
     // `agent:block:error` events instead of the user-tool family so
     // observability consumers can wire framework bookkeeping separately
@@ -215,17 +215,17 @@ export async function buildVercelTools(
             }
           }
           let output = await handler(input, callCtx);
-          let suspended = false;
-          if (isSuspendSentinel(output)) {
-            // ctx.suspend already refuses (AI1006) when the bridge has no
-            // suspension channel, so a sentinel arriving without one means
+          let deferred = false;
+          if (isDeferSentinel(output)) {
+            // ctx.defer already refuses (AI1006) when the bridge has no
+            // deferral channel, so a sentinel arriving without one means
             // it was minted outside the handler context. Same refusal.
-            if (!suspensions) {
+            if (!deferrals) {
               throw rcError("AI1006", undefined, {
-                message: `Tool "${r.name}" returned a suspend sentinel, but this dispatch has no exchange to park. Durable suspension is only available inside an agent dispatch on a route-bound exchange.`,
+                message: `Tool "${r.name}" returned a defer sentinel, but this dispatch has no exchange to park. Durable deferral is only available inside an agent dispatch on a route-bound exchange.`,
               });
             }
-            suspensions.signals.push({
+            deferrals.signals.push({
               toolCallId,
               toolName: r.name,
               request: output.request,
@@ -235,14 +235,14 @@ export async function buildVercelTools(
             // to a retryable error before the park. The SDK still requires
             // every tool call to carry a result, which is why the bridge
             // answers instead of throwing.
-            output = SUSPENDED_TOOL_PLACEHOLDER;
-            suspended = true;
+            output = DEFERRED_TOOL_PLACEHOLDER;
+            deferred = true;
           }
-          // A loader that suspends did NOT load its block: emitting
+          // A loader that defers did NOT load its block: emitting
           // `block:loaded` with the placeholder snapshot would be the same
           // false receipt the MCP surface refuses, and it matches the
           // throw-form path below, which already stays silent for loaders.
-          if (ctx && dispatchIdentity && !(suspended && isLoader)) {
+          if (ctx && dispatchIdentity && !(deferred && isLoader)) {
             if (isLoader) {
               ctx.emit("route:agent:block:loaded", {
                 routeId: dispatchIdentity.routeId,
@@ -276,12 +276,12 @@ export async function buildVercelTools(
           });
           return output;
         } catch (err) {
-          // The throw form of the suspend signal, honoured as an escape
+          // The throw form of the defer signal, honoured as an escape
           // hatch for handlers that cannot thread a return value out. Only
           // inside a parkable dispatch: elsewhere it stays an ordinary
           // error, which is the pre-durable behaviour.
-          if (isSuspendError(err) && suspensions) {
-            suspensions.signals.push({
+          if (isDeferError(err) && deferrals) {
+            deferrals.signals.push({
               toolCallId,
               toolName: r.name,
               request: {
@@ -298,16 +298,16 @@ export async function buildVercelTools(
                   toolCallId,
                   r.name,
                 ),
-                _snapshot: { output: SUSPENDED_TOOL_PLACEHOLDER },
+                _snapshot: { output: DEFERRED_TOOL_PLACEHOLDER },
                 duration: Date.now() - start,
               });
             }
             inFlight?.set(toolCallId, {
               toolName: r.name,
               input,
-              settled: { ok: true, output: SUSPENDED_TOOL_PLACEHOLDER },
+              settled: { ok: true, output: DEFERRED_TOOL_PLACEHOLDER },
             });
-            return SUSPENDED_TOOL_PLACEHOLDER;
+            return DEFERRED_TOOL_PLACEHOLDER;
           }
           if (ctx && dispatchIdentity) {
             if (isLoader) {

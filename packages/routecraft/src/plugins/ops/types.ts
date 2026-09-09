@@ -8,7 +8,7 @@
 
 import type { Duration } from "../../shared/duration.ts";
 import type { HttpAuth } from "../../adapters/http/types";
-import type { Suspended } from "../../suspension/suspended";
+import type { Deferred } from "../../deferral/deferred";
 
 /**
  * The four-member health vocabulary.
@@ -523,12 +523,12 @@ export type OpsEventTailItem =
  * What a dispatch produced.
  *
  * A park is an outcome, not an error: a route that reaches a durable
- * `.suspend()` replies with the acknowledgment every other surface returns,
+ * `.defer()` replies with the acknowledgment every other surface returns,
  * and the operator at the terminal is often exactly who the park waits for.
  * A drop is separate from a failure because they need different answers: a
  * drop means a filter said no, a failure means something broke.
  */
 export type OpsDispatchOutcome =
   | { outcome: "completed"; body: unknown }
-  | { outcome: "suspended"; suspension: Suspended }
+  | { outcome: "deferred"; deferral: Deferred }
   | { outcome: "dropped"; message: string };

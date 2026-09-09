@@ -21,7 +21,7 @@ abandoned, and the process exits non-zero: `craft start --once` reports a
 forced shutdown as a failure for the same reason. What a forced stage accepts
 losing is stated in the configuration reference: exchanges abandoned mid-step
 with no terminal event. Nothing is settled or denied on the way down, so a
-parked suspension survives a forced shutdown exactly as it survives a
+parked deferral survives a forced shutdown exactly as it survives a
 graceful one.
 
 **API CHANGE: `context.stop()` resolves with `{ forced, pending }`** instead
@@ -48,7 +48,7 @@ as "no bound" and would behave as "force immediately".
 **`route:started` fires earlier for callable sources (behaviour change).** A
 bare `from(async (sub) => ...)` source signalled readiness only on its first
 message, so a quiet polling route (an empty mail folder, an idle queue)
-delayed plugin start, the suspension sweeper, `whenStarted()` and every
+delayed plugin start, the deferral sweeper, `whenStarted()` and every
 readiness probe by the full 30s backstop on every boot. Readiness now fires
 when the route invokes the callable. A source that throws synchronously while
 wiring never signals ready.
@@ -76,8 +76,8 @@ those that failed and those still waiting when the backstop fired. Info when
 all started, warn otherwise.
 
 **One SQLite driver resolver and one minimal typing** replace three drifted
-copies. The typing now serves suspension, telemetry and the CLI's telemetry
-reader; the resolver serves suspension and telemetry, while the CLI keeps its
+copies. The typing now serves deferral, telemetry and the CLI's telemetry
+reader; the resolver serves deferral and telemetry, while the CLI keeps its
 own Bun-only load because `runtime-gate.ts` refuses to start under Node.
 Telemetry resolves through the resolver, so a
 Node deployment with `better-sqlite3` installed gets the SQLite sink it

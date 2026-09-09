@@ -120,7 +120,7 @@ describe("to() body type preservation", () => {
   /**
    * @case to() with void destination preserves Current body type
    * @preconditions .from(simple("test")).to(sideEffect)
-   * @expectedResult RouteBuilder<{ body: string; suspension?: unknown }> (not RouteBuilder<{ body: void; suspension?: unknown }>)
+   * @expectedResult RouteBuilder<{ body: string; deferral?: unknown }> (not RouteBuilder<{ body: void; deferral?: unknown }>)
    */
   test("to() with void callback preserves body type", () => {
     const route = craft()
@@ -129,21 +129,21 @@ describe("to() body type preservation", () => {
         /* side effect */
       });
     expectTypeOf(route).toEqualTypeOf<
-      RouteBuilder<{ body: string; suspension?: unknown }>
+      RouteBuilder<{ body: string; deferral?: unknown }>
     >();
   });
 
   /**
    * @case to() with non-void destination replaces body type
    * @preconditions .from(simple("test")).to(() => 42)
-   * @expectedResult RouteBuilder<{ body: number; suspension?: unknown }>
+   * @expectedResult RouteBuilder<{ body: number; deferral?: unknown }>
    */
   test("to() with non-void callback replaces body type", () => {
     const route = craft()
       .from(simple("test"))
       .to(() => 42);
     expectTypeOf(route).toEqualTypeOf<
-      RouteBuilder<{ body: number; suspension?: unknown }>
+      RouteBuilder<{ body: number; deferral?: unknown }>
     >();
   });
 

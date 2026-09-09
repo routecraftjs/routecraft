@@ -14,7 +14,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
 import {
-  MemorySuspensionStore,
+  MemoryDeferralStore,
   craft,
   direct,
   type RouteDefinition,
@@ -106,7 +106,7 @@ describe("one conversation, one agent", () => {
   async function boot(store?: SessionStore): Promise<TestContext> {
     return testContext()
       .with({
-        suspension: { store: new MemorySuspensionStore() },
+        deferral: { store: new MemoryDeferralStore() },
         sessions: { store: store ?? new MemorySessionStore() },
         shutdown: { timeout: 500 },
         plugins: [

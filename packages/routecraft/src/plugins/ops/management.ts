@@ -22,7 +22,7 @@ import type { Capability } from "../../capabilities";
 import type { RouteDefinition } from "../../route";
 import { getAdapterLabel } from "../../types";
 import type { Adapter } from "../../types";
-import { isSuspended } from "../../suspension/suspended";
+import { isDeferred } from "../../deferral/deferred";
 import {
   renderJsonSchemaArm,
   standardExtensionOf,
@@ -48,7 +48,7 @@ import type {
  * JSON Schema dialect asked of a schema library's producer.
  *
  * Pinned so two instances of this API describe the same route identically.
- * Unrelated to the suspension descriptor's constant of the same value:
+ * Unrelated to the deferral descriptor's constant of the same value:
  * that one is folded into a stored hash and must not move, this one is
  * descriptive, and sharing a single mutable constant between them would
  * couple a display choice to every parked exchange's digest.
@@ -350,8 +350,8 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
 
       try {
         const result = await client.sendDirect(id, body, headers);
-        if (isSuspended(result)) {
-          return { outcome: "suspended", suspension: result };
+        if (isDeferred(result)) {
+          return { outcome: "deferred", deferral: result };
         }
         return { outcome: "completed", body: result };
       } catch (error: unknown) {

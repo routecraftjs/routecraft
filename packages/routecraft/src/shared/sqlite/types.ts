@@ -26,7 +26,7 @@ export interface SqliteDatabase {
 /**
  * Constructor shape shared by both drivers. The options argument is
  * optional because `bun:sqlite` and `better-sqlite3` accept one and the
- * suspension store passes none; typing it here keeps callers that do pass
+ * deferral store passes none; typing it here keeps callers that do pass
  * options from re-declaring the whole constructor.
  */
 export type SqliteDatabaseConstructor = new (

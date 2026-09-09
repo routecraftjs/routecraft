@@ -2,7 +2,7 @@ import type { Duration } from "./shared/duration.ts";
 import { ENRICH_MERGE_TYPE } from "./brand.ts";
 import type { Adapter, Step } from "./types.ts";
 import type { Exchange, HeaderValue, HeaderLiteral } from "./exchange.ts";
-import type { SuspensionAffordance } from "./suspension/exchange-state.ts";
+import type { DeferralAffordance } from "./deferral/exchange-state.ts";
 import {
   type Destination,
   type SendContext,
@@ -112,9 +112,9 @@ export interface BuilderState {
   /** Body type entering the next pipeline step. */
   body: unknown;
   /**
-   * Type of `ex.suspension.result` for the steps that follow a
-   * `.suspend({ schema })`, threaded in from the declared schema the way
-   * `body` is threaded in from `.input()`. `unknown` before any suspend.
+   * Type of `ex.deferral.result` for the steps that follow a
+   * `.defer({ schema })`, threaded in from the declared schema the way
+   * `body` is threaded in from `.input()`. `unknown` before any defer.
    *
    * Optional, per the extension rule above: an existing augmentation or a
    * hand-written state bag that predates this field still satisfies the
@@ -122,7 +122,7 @@ export interface BuilderState {
    * a bag that OMITS the key is a different shape from one that has it, and
    * the two do not interconvert (the builders are invariant in this bag).
    */
-  suspension?: unknown;
+  deferral?: unknown;
 }
 
 /**
@@ -139,50 +139,50 @@ export type SetBody<S extends BuilderState, B> = {
 };
 
 /**
- * Replace the `suspension` field of a state bag, preserving every other
- * field. The `.suspend()` counterpart of {@link SetBody}: it advances the
- * type of `ex.suspension.result` for the rest of the chain.
+ * Replace the `deferral` field of a state bag, preserving every other
+ * field. The `.defer()` counterpart of {@link SetBody}: it advances the
+ * type of `ex.deferral.result` for the rest of the chain.
  *
  * `Omit` plus an intersection rather than a mapped type, because a mapped
- * type preserves optionality: mapping the OPTIONAL `suspension` key would
+ * type preserves optionality: mapping the OPTIONAL `deferral` key would
  * type the result as `R | undefined` and force a needless narrowing on
- * every read after a suspend. After a `.suspend()` the field is known.
+ * every read after a defer. After a `.defer()` the field is known.
  *
  * @template S - The incoming state bag
- * @template R - The expected-result type declared by `.suspend({ schema })`
+ * @template R - The expected-result type declared by `.defer({ schema })`
  */
-export type SetSuspension<S extends BuilderState, R> = Omit<S, "suspension"> & {
-  suspension: R;
+export type SetDeferral<S extends BuilderState, R> = Omit<S, "deferral"> & {
+  deferral: R;
 };
 
 /**
  * The exchange type a callable sees at this point in the chain: the body
- * type from the bag, plus `ex.suspension.result` narrowed to whatever the
- * last `.suspend({ schema })` declared.
+ * type from the bag, plus `ex.deferral.result` narrowed to whatever the
+ * last `.defer({ schema })` declared.
  *
  * An intersection rather than a rewritten `Exchange`, so the narrowing is
- * additive: `Exchange<T>` already carries `suspension`, and
- * `SuspensionAffordance<unknown> & SuspensionAffordance<R>` reads `result`
- * as `R`. Before any suspend the bag's field is `unknown` and the
+ * additive: `Exchange<T>` already carries `deferral`, and
+ * `DeferralAffordance<unknown> & DeferralAffordance<R>` reads `result`
+ * as `R`. Before any defer the bag's field is `unknown` and the
  * intersection is a no-op.
  *
  * @template S - The state bag at this chain position
  */
 export type ExchangeOf<S extends BuilderState> = Exchange<S["body"]> & {
-  readonly suspension: SuspensionAffordance<S["suspension"]>;
+  readonly deferral: DeferralAffordance<S["deferral"]>;
 };
 
 /**
  * A path's state bag: a fresh chain over body `T`.
  *
  * Spelled out (rather than `{ body: T }`) because the builders are
- * invariant in their bag: a sub-pipeline that ends in a `.suspend()`
- * produces a bag WITH the `suspension` key, and it is only assignable back
+ * invariant in their bag: a sub-pipeline that ends in a `.defer()`
+ * produces a bag WITH the `deferral` key, and it is only assignable back
  * to the declared path type if that type has the key too.
  *
  * @template T - Body type entering the path
  */
-export type PathState<T> = { body: T; suspension: unknown };
+export type PathState<T> = { body: T; deferral: unknown };
 
 /**
  * Body type after a bare pull-in step (`.enrich(x)` with no aggregator, or a

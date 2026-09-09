@@ -11,12 +11,12 @@ import {
 } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { agentPlugin, directTool, tools, type FnEntry } from "../src/index.ts";
-import { isDeferredFn } from "../src/agent/tools/types.ts";
+import { isLazyFn } from "../src/agent/tools/types.ts";
 import { ADAPTER_FN_REGISTRY } from "../src/fn/store.ts";
 
-/** Suspension is not under test in this file; the required slot just refuses. */
-const refuseSuspend = (): never => {
-  throw new Error("suspension not under test");
+/** Deferral is not under test in this file; the required slot just refuses. */
+const refuseDefer = (): never => {
+  throw new Error("deferral not under test");
 };
 
 describe("tool builders - directTool", () => {
@@ -30,11 +30,11 @@ describe("tool builders - directTool", () => {
   /**
    * @case directTool returns a deferred descriptor branded as a fn entry
    * @preconditions directTool("any-route")
-   * @expectedResult isDeferredFn returns true; kind === "direct"
+   * @expectedResult isLazyFn returns true; kind === "direct"
    */
   test("directTool returns a deferred descriptor", () => {
     const desc = directTool("fetch-order");
-    expect(isDeferredFn(desc)).toBe(true);
+    expect(isLazyFn(desc)).toBe(true);
     expect(desc.kind).toBe("direct");
   });
 
@@ -81,9 +81,9 @@ describe("tool builders - directTool", () => {
     const entry = t.ctx.getStore(ADAPTER_FN_REGISTRY)?.get("fetchOrder") as
       FnEntry | undefined;
     expect(entry).toBeDefined();
-    expect(isDeferredFn(entry!)).toBe(true);
+    expect(isLazyFn(entry!)).toBe(true);
 
-    if (!isDeferredFn(entry!)) throw new Error("expected deferred entry");
+    if (!isLazyFn(entry!)) throw new Error("expected deferred entry");
     const resolved = entry.resolve(t.ctx, "fetchOrder");
     expect(resolved.description).toBe(
       "Fetch an order by id from the orders DB.",
@@ -126,7 +126,7 @@ describe("tool builders - directTool", () => {
     await t.startAndWaitReady();
 
     const entry = t.ctx.getStore(ADAPTER_FN_REGISTRY)?.get("custom");
-    if (!entry || !isDeferredFn(entry)) throw new Error("expected deferred");
+    if (!entry || !isLazyFn(entry)) throw new Error("expected deferred");
     const resolved = entry.resolve(t.ctx, "custom");
     expect(resolved.description).toBe("OVERRIDE description.");
     expect(resolved.input).toBe(overrideSchema);
@@ -258,7 +258,7 @@ describe("tool builders - directTool dispatch", () => {
           typeof fn.handler
         >[1]["logger"],
         abortSignal: new AbortController().signal,
-        suspend: refuseSuspend,
+        defer: refuseDefer,
       },
     );
     expect(result).toMatchObject({ orderId: "abc", ok: true });
@@ -306,7 +306,7 @@ describe("tool builders - directTool dispatch", () => {
           typeof fn.handler
         >[1]["logger"],
         abortSignal: new AbortController().signal,
-        suspend: refuseSuspend,
+        defer: refuseDefer,
         principal,
       },
     );
@@ -347,7 +347,7 @@ describe("tool builders - directTool dispatch", () => {
           typeof fn.handler
         >[1]["logger"],
         abortSignal: new AbortController().signal,
-        suspend: refuseSuspend,
+        defer: refuseDefer,
         correlationId: "turn-42",
       },
     );
@@ -384,7 +384,7 @@ describe("tool builders - directTool dispatch", () => {
         typeof fn.handler
       >[1]["logger"],
       abortSignal: new AbortController().signal,
-      suspend: refuseSuspend,
+      defer: refuseDefer,
     };
 
     await fn.handler(
@@ -446,7 +446,7 @@ describe("tool builders - directTool dispatch", () => {
         typeof fn.handler
       >[1]["logger"],
       abortSignal: new AbortController().signal,
-      suspend: refuseSuspend,
+      defer: refuseDefer,
     };
 
     const authResult = await fn.handler(
@@ -666,7 +666,7 @@ describe("tool builders - a deferred tool is not a lesser tool", () => {
       bash!.handler(
         { command: 42 } as never,
         {
-          suspend: refuseSuspend,
+          defer: refuseDefer,
         } as never,
       ),
     ).rejects.toThrow();

@@ -217,11 +217,11 @@ export class CacheWrapperStep<
           if (
             outcome.kind === "fanOut" ||
             outcome.kind === "branch" ||
-            outcome.kind === "suspend"
+            outcome.kind === "defer"
           ) {
             // The wrapper caches and replays a single output. Fan-out
             // would lose all but one child; a branch outcome carries
-            // live steps that cannot be cached; a suspend exchange is
+            // live steps that cannot be cached; a defer exchange is
             // mid-flight and must never be cache-stored. split / aggregate
             // are already blocked at construction by WrapperStep; this
             // guards choice and custom steps explicitly (the

@@ -16,34 +16,34 @@ export const BRAND = {
   Recovery: Symbol.for("routecraft.recovery"),
   /**
    * RESERVED for the adapter-sandbox `Secret` wrapper (#526). Nothing
-   * brands it yet. The suspension serializer already refuses a value
+   * brands it yet. The deferral serializer already refuses a value
    * carrying this brand, so the moment `Secret` starts applying it, "a
-   * secret must never reach the suspension store" becomes enforced without
+   * secret must never reach the deferral store" becomes enforced without
    * touching the serializer.
    */
   Secret: Symbol.for("routecraft.secret"),
   /**
-   * The `Suspended` acknowledgment execution one answers with. Branded so a
+   * The `Deferred` acknowledgment execution one answers with. Branded so a
    * transport recognises a parked exchange without shape-sniffing a body a
    * user route could also carry.
    */
-  Suspended: Symbol.for("routecraft.suspended"),
+  Deferred: Symbol.for("routecraft.deferred"),
   /**
-   * An adapter that may raise a durable suspension from inside its own
+   * An adapter that may raise a durable deferral from inside its own
    * execution (the agent tier's tool loop is the one shipped case). The
-   * suspend-site walk assigns a re-entrant site to `.to()` / `.enrich()`
-   * steps whose adapter carries this brand, so a runtime suspension from
+   * defer-site walk assigns a re-entrant site to `.to()` / `.enrich()`
+   * steps whose adapter carries this brand, so a runtime deferral from
    * such a step parks against a continuation that re-runs the step first.
    * Core owns the symbol; consumer packages mark their adapters with it and
    * never define their own.
    */
-  SuspendCapable: Symbol.for("routecraft.adapter.suspendCapable"),
+  DeferCapable: Symbol.for("routecraft.adapter.deferCapable"),
   /**
-   * The throwable a suspend-capable adapter raises to park the exchange it
-   * is executing. Converted into the ordinary `suspend` StepOutcome at the
+   * The throwable a defer-capable adapter raises to park the exchange it
+   * is executing. Converted into the ordinary `defer` StepOutcome at the
    * step boundary (`.to()` / `.enrich()`), never propagated as a failure.
    */
-  SuspendSignal: Symbol.for("routecraft.suspendSignal"),
+  DeferSignal: Symbol.for("routecraft.deferSignal"),
 } as const;
 
 export const INTERNALS_KEY = Symbol.for("routecraft.exchange.internals");

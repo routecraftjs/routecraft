@@ -501,7 +501,7 @@ export interface HttpRespondContext {
  *
  * Omitting the option entirely keeps the framework's own behaviour, which is
  * to await the pipeline and serialise its result. That path also carries
- * streaming and the suspension acknowledgement; a responder carries neither,
+ * streaming and the deferral acknowledgement; a responder carries neither,
  * so a route that streams does not configure one.
  */
 export type HttpResponder = (
@@ -600,7 +600,7 @@ export interface HttpServerOptions {
    *   every queued exchange pins its parsed body. Under the redelivery burst
    *   this exists for, that is unbounded heap. Bound admission instead, with
    *   `.concurrency({ maxQueue })` or `mode: "reject"`.
-   * - **A responder cannot stream and cannot carry a suspension.** Both live
+   * - **A responder cannot stream and cannot carry a deferral.** Both live
    *   on the framework's own path, so a route that streams omits the option.
    *   An exchange body that turns out to be a stream is cancelled once the
    *   pipeline finishes, since nothing will read it and it may hold a socket

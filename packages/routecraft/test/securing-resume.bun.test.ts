@@ -2,13 +2,13 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { z } from "zod";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
-  MemorySuspensionStore,
+  MemoryDeferralStore,
   craft,
   direct,
   noop,
   type Exchange,
 } from "../src/index.ts";
-import { asSuspended } from "./helpers/suspension.ts";
+import { asDeferred } from "./helpers/deferral.ts";
 
 /**
  * The six patterns from the "Securing resume" docs section, each as running
@@ -58,15 +58,15 @@ describe("securing resume: the documented patterns", () => {
    * @expectedResult Alice is refused and bob succeeds, with both subjects required present so two anonymous parties are never "different people"
    */
   test("four eyes", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await testContext()
-      .with({ suspension: { store, secret: SECRET } })
+      .with({ deferral: { store, secret: SECRET } })
       .routes([
         craft()
           .id("payout")
           .from(direct())
           .authenticate(asWho)
-          .suspend({ schema: Approval })
+          .defer({ schema: Approval })
           .to(noop()),
         craft()
           .id("approvals")
@@ -86,19 +86,19 @@ describe("securing resume: the documented patterns", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asSuspended(
+    const parked = asDeferred(
       await t.client.sendDirect("payout", { who: "alice" }),
     );
     await expect(
       t.client.sendDirect("approvals", { who: "alice", token: parked.token }),
     ).rejects.toThrow(/refused this principal/);
-    expect((await store.get(parked.suspensionId))?.status).toBe("suspended");
+    expect((await store.get(parked.deferralId))?.status).toBe("deferred");
 
     await t.client.sendDirect("approvals", {
       who: "bob",
       token: parked.token,
     });
-    expect((await store.get(parked.suspensionId))?.status).toBe("resumed");
+    expect((await store.get(parked.deferralId))?.status).toBe("resumed");
   });
 
   /**
@@ -107,14 +107,14 @@ describe("securing resume: the documented patterns", () => {
    * @expectedResult The scope requirement is read off the record, so it is the one in force when the question was asked
    */
   test("scope gate", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await testContext()
-      .with({ suspension: { store, secret: SECRET } })
+      .with({ deferral: { store, secret: SECRET } })
       .routes([
         craft()
           .id("payout")
           .from(direct())
-          .suspend({
+          .defer({
             schema: Approval,
             meta: { requires: ["payouts:approve"] },
           })
@@ -140,7 +140,7 @@ describe("securing resume: the documented patterns", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asSuspended(await t.client.sendDirect("payout", {}));
+    const parked = asDeferred(await t.client.sendDirect("payout", {}));
     await expect(
       t.client.sendDirect("approvals", {
         who: "carol",
@@ -154,7 +154,7 @@ describe("securing resume: the documented patterns", () => {
       scopes: ["payouts:approve"],
       token: parked.token,
     });
-    expect((await store.get(parked.suspensionId))?.status).toBe("resumed");
+    expect((await store.get(parked.deferralId))?.status).toBe("resumed");
   });
 
   /**
@@ -163,14 +163,14 @@ describe("securing resume: the documented patterns", () => {
    * @expectedResult Refused, because an absent requirement is a parker bug rather than a grant
    */
   test("scope gate refuses a missing requirement", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await testContext()
-      .with({ suspension: { store, secret: SECRET } })
+      .with({ deferral: { store, secret: SECRET } })
       .routes([
         craft()
           .id("payout")
           .from(direct())
-          .suspend({ schema: Approval })
+          .defer({ schema: Approval })
           .to(noop()),
         craft()
           .id("approvals")
@@ -190,7 +190,7 @@ describe("securing resume: the documented patterns", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asSuspended(await t.client.sendDirect("payout", {}));
+    const parked = asDeferred(await t.client.sendDirect("payout", {}));
     await expect(
       t.client.sendDirect("approvals", {
         who: "carol",
@@ -198,7 +198,7 @@ describe("securing resume: the documented patterns", () => {
         token: parked.token,
       }),
     ).rejects.toThrow(/refused this principal/);
-    expect((await store.get(parked.suspensionId))?.status).toBe("suspended");
+    expect((await store.get(parked.deferralId))?.status).toBe("deferred");
   });
 
   /**
@@ -207,18 +207,18 @@ describe("securing resume: the documented patterns", () => {
    * @expectedResult The ops door refuses without touching the record and the finance door answers it
    */
   test("channel segmentation", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     const servesChannel = (channel: string) => ({
       authorize: ({ record }: { record: { meta?: unknown } }) =>
         (record.meta as { channel?: string } | undefined)?.channel === channel,
     });
     t = await testContext()
-      .with({ suspension: { store, secret: SECRET } })
+      .with({ deferral: { store, secret: SECRET } })
       .routes([
         craft()
           .id("payout")
           .from(direct())
-          .suspend({ schema: Approval, meta: { channel: "finance" } })
+          .defer({ schema: Approval, meta: { channel: "finance" } })
           .to(noop()),
         craft()
           .id("ops-door")
@@ -232,14 +232,14 @@ describe("securing resume: the documented patterns", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asSuspended(await t.client.sendDirect("payout", {}));
+    const parked = asDeferred(await t.client.sendDirect("payout", {}));
     await expect(
       t.client.sendDirect("ops-door", { token: parked.token }),
     ).rejects.toThrow(/refused this principal/);
-    expect((await store.get(parked.suspensionId))?.status).toBe("suspended");
+    expect((await store.get(parked.deferralId))?.status).toBe("deferred");
 
     await t.client.sendDirect("finance-door", { token: parked.token });
-    expect((await store.get(parked.suspensionId))?.status).toBe("resumed");
+    expect((await store.get(parked.deferralId))?.status).toBe("resumed");
   });
 
   /**
@@ -248,7 +248,7 @@ describe("securing resume: the documented patterns", () => {
    * @expectedResult The parked record keeps the policy its approver was promised, because the door reads the record rather than the site
    */
   test("policy travels with the question", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     const door = craft()
       .id("approvals")
       .from(direct())
@@ -256,7 +256,7 @@ describe("securing resume: the documented patterns", () => {
       .resume(payloadFrom, {
         authorize: ({ principal, parked, record }) => {
           // The policy in force is the one the record carries, not the one
-          // the suspend site declares today.
+          // the defer site declares today.
           const policy = record.meta as { fourEyes?: boolean } | undefined;
           if (!policy?.fourEyes) return true;
           const resuming = principal?.subject;
@@ -266,32 +266,32 @@ describe("securing resume: the documented patterns", () => {
       });
 
     t = await testContext()
-      .with({ suspension: { store, secret: SECRET } })
+      .with({ deferral: { store, secret: SECRET } })
       .routes([
         craft()
           .id("payout")
           .from(direct())
           .authenticate(asWho)
-          .suspend({ schema: Approval, meta: { fourEyes: true } })
+          .defer({ schema: Approval, meta: { fourEyes: true } })
           .to(noop()),
         door,
       ])
       .build();
     await t.startAndWaitReady();
-    const parked = asSuspended(
+    const parked = asDeferred(
       await t.client.sendDirect("payout", { who: "alice" }),
     );
     await t.stop();
 
     // The redeploy relaxes the SITE. The parked record is unmoved.
     t = await testContext()
-      .with({ suspension: { store, secret: SECRET } })
+      .with({ deferral: { store, secret: SECRET } })
       .routes([
         craft()
           .id("payout")
           .from(direct())
           .authenticate(asWho)
-          .suspend({ schema: Approval, meta: { fourEyes: false } })
+          .defer({ schema: Approval, meta: { fourEyes: false } })
           .to(noop()),
         craft()
           .id("approvals")
@@ -313,7 +313,7 @@ describe("securing resume: the documented patterns", () => {
     await expect(
       t.client.sendDirect("approvals", { who: "alice", token: parked.token }),
     ).rejects.toThrow(/refused this principal/);
-    expect((await store.get(parked.suspensionId))?.status).toBe("suspended");
+    expect((await store.get(parked.deferralId))?.status).toBe("deferred");
   });
 
   /**
@@ -322,15 +322,15 @@ describe("securing resume: the documented patterns", () => {
    * @expectedResult Bob is refused; an anonymous parker cannot satisfy the pattern at all, which the hook states rather than passing by accident
    */
   test("same-user continuation", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await testContext()
-      .with({ suspension: { store, secret: SECRET } })
+      .with({ deferral: { store, secret: SECRET } })
       .routes([
         craft()
           .id("wizard")
           .from(direct())
           .authenticate(asWho)
-          .suspend({ schema: Approval })
+          .defer({ schema: Approval })
           .to(noop()),
         craft()
           .id("continue")
@@ -351,7 +351,7 @@ describe("securing resume: the documented patterns", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asSuspended(
+    const parked = asDeferred(
       await t.client.sendDirect("wizard", { who: "alice" }),
     );
     await expect(
@@ -362,7 +362,7 @@ describe("securing resume: the documented patterns", () => {
       who: "alice",
       token: parked.token,
     });
-    expect((await store.get(parked.suspensionId))?.status).toBe("resumed");
+    expect((await store.get(parked.deferralId))?.status).toBe("resumed");
   });
 
   /**
@@ -371,14 +371,14 @@ describe("securing resume: the documented patterns", () => {
    * @expectedResult Refused, because two absent subjects are not the same person
    */
   test("an anonymous parker refuses a same-user hook", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await testContext()
-      .with({ suspension: { store, secret: SECRET } })
+      .with({ deferral: { store, secret: SECRET } })
       .routes([
         craft()
           .id("wizard")
           .from(direct())
-          .suspend({ schema: Approval })
+          .defer({ schema: Approval })
           .to(noop()),
         craft()
           .id("continue")
@@ -396,11 +396,11 @@ describe("securing resume: the documented patterns", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asSuspended(await t.client.sendDirect("wizard", {}));
+    const parked = asDeferred(await t.client.sendDirect("wizard", {}));
     await expect(
       t.client.sendDirect("continue", { who: "alice", token: parked.token }),
     ).rejects.toThrow(/refused this principal/);
-    expect((await store.get(parked.suspensionId))?.status).toBe("suspended");
+    expect((await store.get(parked.deferralId))?.status).toBe("deferred");
   });
   /**
    * @case Threshold by scope: the submitted amount decides which scope the hook demands
@@ -408,18 +408,18 @@ describe("securing resume: the documented patterns", () => {
    * @expectedResult The junior scope clears the small payment and is refused the large one, and the refused submission never reaches schema validation or the claim
    */
   test("threshold by scope over a narrowed payload", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     const Settlement = z.object({
       approved: z.boolean(),
       amount: z.number(),
     });
     t = await testContext()
-      .with({ suspension: { store, secret: SECRET } })
+      .with({ deferral: { store, secret: SECRET } })
       .routes([
         craft()
           .id("payout")
           .from(direct())
-          .suspend({
+          .defer({
             schema: Settlement,
             meta: { threshold: 1000, senior: "payouts:approve:large" },
           })
@@ -455,16 +455,16 @@ describe("securing resume: the documented patterns", () => {
       .build();
     await t.startAndWaitReady();
 
-    const small = asSuspended(await t.client.sendDirect("payout", {}));
+    const small = asDeferred(await t.client.sendDirect("payout", {}));
     await t.client.sendDirect("approvals", {
       who: "junior",
       scopes: ["payouts:approve"],
       token: small.token,
       amount: 250,
     });
-    expect((await store.get(small.suspensionId))?.status).toBe("resumed");
+    expect((await store.get(small.deferralId))?.status).toBe("resumed");
 
-    const large = asSuspended(await t.client.sendDirect("payout", {}));
+    const large = asDeferred(await t.client.sendDirect("payout", {}));
     await expect(
       t.client.sendDirect("approvals", {
         who: "junior",
@@ -473,7 +473,7 @@ describe("securing resume: the documented patterns", () => {
         amount: 25_000,
       }),
     ).rejects.toThrow(/refused this principal/);
-    expect((await store.get(large.suspensionId))?.status).toBe("suspended");
+    expect((await store.get(large.deferralId))?.status).toBe("deferred");
 
     await t.client.sendDirect("approvals", {
       who: "senior",
@@ -481,6 +481,6 @@ describe("securing resume: the documented patterns", () => {
       token: large.token,
       amount: 25_000,
     });
-    expect((await store.get(large.suspensionId))?.status).toBe("resumed");
+    expect((await store.get(large.deferralId))?.status).toBe("resumed");
   });
 });

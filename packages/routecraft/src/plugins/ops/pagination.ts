@@ -1,15 +1,15 @@
 /**
  * Paging the management API's collections.
  *
- * Keyset cursors, matching `SuspensionStore.findExpired`'s idiom rather
+ * Keyset cursors, matching `DeferralStore.findExpired`'s idiom rather
  * than inventing a second one. The reason is not consistency for its own
- * sake: the collections this API will grow (parked suspensions, exchange
+ * sake: the collections this API will grow (parked deferrals, exchange
  * history) are live and mutating while an operator reads them, and offset
  * paging over a mutating set silently skips rows and repeats others. That
  * surfaces as "the console lost a parked payout", never as an error.
  *
  * A cursor is valid only for the filter that produced it, exactly as the
- * suspension store's cursor is valid only against the store that produced
+ * deferral store's cursor is valid only against the store that produced
  * it. Replaying one under a different filter would hand back a page from a
  * different result set with no way for the caller to notice, so it is
  * refused instead.
@@ -89,7 +89,7 @@ export function parsePageQuery(query: Readonly<Record<string, string>>): {
  * Reject a `limit` the API would otherwise have to guess at.
  *
  * Refused rather than clamped, as `assertSweepLimit` already does for the
- * suspension store: a caller that asked for 10000 and silently received 200
+ * deferral store: a caller that asked for 10000 and silently received 200
  * cannot tell a bounded page from a complete answer, and will read page one
  * forever believing it has everything.
  */

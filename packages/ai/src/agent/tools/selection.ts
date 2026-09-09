@@ -12,7 +12,7 @@ import type { McpToolRegistry } from "../../mcp/tool-registry.ts";
 import { directTool } from "./builders.ts";
 import {
   isBackgroundFn,
-  isDeferredFn,
+  isLazyFn,
   resolveFnOptions,
   type FnEntry,
 } from "./types.ts";
@@ -763,9 +763,9 @@ function resolveFnEntry(
   entry: FnEntry,
   guard: ToolGuard | undefined,
 ): ResolvedTool {
-  if (isDeferredFn(entry)) {
+  if (isLazyFn(entry)) {
     const fn = resolveFnOptions(ctx, name, entry);
-    // Derived from `entry.kind`, never asserted. `isDeferredFn` is a
+    // Derived from `entry.kind`, never asserted. `isLazyFn` is a
     // brand check only, so hardcoding "direct" here would silently
     // classify a future deferred kind (a sub-agent tool is the named
     // candidate) as a capability, admitting it under any policy that

@@ -1,4 +1,4 @@
-import type { MemorySuspensionStore } from "@routecraft/routecraft";
+import type { MemoryDeferralStore } from "@routecraft/routecraft";
 import { MemorySessionStore } from "../../src/agent/session/index.ts";
 import {
   emptyAgentSession,
@@ -24,13 +24,13 @@ export function updateRecord(
 }
 
 /**
- * The session store paired with a suspension store, so a "restart" built
- * over the same suspension store sees the same sessions, as one deployment
+ * The session store paired with a deferral store, so a "restart" built
+ * over the same deferral store sees the same sessions, as one deployment
  * reopening both files would.
  */
-const recordStores = new WeakMap<MemorySuspensionStore, MemorySessionStore>();
+const recordStores = new WeakMap<MemoryDeferralStore, MemorySessionStore>();
 
-export function recordsFor(store: MemorySuspensionStore): MemorySessionStore {
+export function recordsFor(store: MemoryDeferralStore): MemorySessionStore {
   let records = recordStores.get(store);
   if (!records) {
     records = new MemorySessionStore();

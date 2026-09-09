@@ -5,11 +5,11 @@
 
 Every authored time option now takes `Duration` (`number | "5m"`), and the `Ms` suffix is gone from all of them.
 
-The framework had two conventions and they had drifted into a contradiction: `.cache({ ttl })` took raw milliseconds while `.suspend({ ttl })` took `Duration`, so the same property name meant two different types on two operations. One option used `Duration` and roughly two dozen used raw milliseconds.
+The framework had two conventions and they had drifted into a contradiction: `.cache({ ttl })` took raw milliseconds while `.defer({ ttl })` took `Duration`, so the same property name meant two different types on two operations. One option used `Duration` and roughly two dozen used raw milliseconds.
 
 The rule is now one line: **input options a user writes take `Duration`; values the framework reports stay millisecond numbers.** `Duration` is a superset of `number`, so widening breaks nothing on its own; the break is the rename, because a name ending in `Ms` that accepts `"5m"` lies.
 
-Reported values are deliberately unchanged: `durationMs` on events, `ageMs` on ops responses, `backoffMs` on `route:retry:attempt`, and every other emitted millisecond stays exactly as it was. Those are machine-readable data, not authored configuration. Internal resolved shapes (`ResolvedTimeoutOptions.timeoutMs`, `refillPerMs`, `SuspensionRuntime.defaultTtlMs`) are computed values and stay too.
+Reported values are deliberately unchanged: `durationMs` on events, `ageMs` on ops responses, `backoffMs` on `route:retry:attempt`, and every other emitted millisecond stays exactly as it was. Those are machine-readable data, not authored configuration. Internal resolved shapes (`ResolvedTimeoutOptions.timeoutMs`, `refillPerMs`, `DeferralRuntime.defaultTtlMs`) are computed values and stay too.
 
 ## Migration
 
@@ -65,6 +65,6 @@ Existing numeric values keep working under every new name, so the migration is a
 
 `.throttle({ per })` now also accepts a `Duration`, so a window no unit word names (`per: "90s"`) is expressible. The unit words keep their exact meaning. **A bare number is milliseconds**, as everywhere else a `Duration` is accepted: `per: 60` is a 60ms window, not a minute. Write `per: "60s"` or `per: "minute"`.
 
-Two supporting changes come with it. `assertDurationMs` is folded into `parseDuration`, which grows an optional `min` floor (`0` for waits, `1` for deadlines), so one guard now owns the whole grammar instead of two that could drift. `Duration` and `parseDuration` move from `suspension/` to `shared/` internally; both are still exported from the package root, so nothing changes for consumers.
+Two supporting changes come with it. `assertDurationMs` is folded into `parseDuration`, which grows an optional `min` floor (`0` for waits, `1` for deadlines), so one guard now owns the whole grammar instead of two that could drift. `Duration` and `parseDuration` move from `deferral/` to `shared/` internally; both are still exported from the package root, so nothing changes for consumers.
 
 The `craft start --timeout` flag now also accepts a duration string (`--timeout 30s`); a bare number is still milliseconds.

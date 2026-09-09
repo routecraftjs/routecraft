@@ -3,7 +3,7 @@ import type {
   LlmPromptPart,
   LlmReasoningEffort,
 } from "../../llm/types.ts";
-import type { ThreadMessage } from "../suspension-state.ts";
+import type { ThreadMessage } from "../deferral-state.ts";
 
 /**
  * The shape version {@link AgentSessionRecord} is written at.
@@ -106,7 +106,7 @@ export interface AgentBackgroundCall {
 }
 
 /**
- * What the store holds for one session, in the suspension record's opaque
+ * What the store holds for one session, in the deferral record's opaque
  * `stepState` slot. Plain JSON only: dates are ISO strings and every field
  * survives `encodePersistable`.
  *
@@ -178,7 +178,7 @@ export interface AgentSessionRecord {
 
 /** Where a session's stored continuation is. */
 export interface AgentSessionPark {
-  readonly suspensionId: string;
+  readonly deferralId: string;
   readonly routeId: string;
 }
 
@@ -194,7 +194,7 @@ export interface AgentSessionParkMarker {
   readonly kind: "agent-session-park";
   readonly agent: string;
   readonly session: string;
-  readonly suspensionId: string;
+  readonly deferralId: string;
 }
 
 /** @internal */
@@ -208,7 +208,7 @@ export function isSessionParkMarker(
     marker.kind === "agent-session-park" &&
     typeof marker.agent === "string" &&
     typeof marker.session === "string" &&
-    typeof marker.suspensionId === "string"
+    typeof marker.deferralId === "string"
   );
 }
 

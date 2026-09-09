@@ -3,7 +3,7 @@ import { z } from "zod";
 import {
   DefaultExchange,
   HeadersKeys,
-  MemorySuspensionStore,
+  MemoryDeferralStore,
   craft,
   direct,
   noop,
@@ -25,7 +25,7 @@ import { recordsFor, updateRecord } from "./helpers/session-stores.ts";
 import { AgentSessionStore } from "../src/agent/session/store.ts";
 import { INTERRUPTED_TOOL_MESSAGE } from "../src/agent/run.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
-import { MODEL } from "./helpers/suspend-fixtures.ts";
+import { MODEL } from "./helpers/defer-fixtures.ts";
 
 const llm = scriptedLlm([]);
 mock.module("../src/llm/providers/index.ts", () => ({
@@ -117,7 +117,7 @@ const quickFn = {
 const parkerFn = {
   description: "Asks for an approval",
   input: z.object({}),
-  handler: (_input: unknown, ctx: FnHandlerContext) => ctx.suspend(),
+  handler: (_input: unknown, ctx: FnHandlerContext) => ctx.defer(),
 };
 
 /** Wait until the slow tool is genuinely running, bounded. */
@@ -162,12 +162,12 @@ function routes(sink: ReturnType<typeof spy>): RouteDefinition[] {
 }
 
 function contextWith(
-  store: MemorySuspensionStore,
+  store: MemoryDeferralStore,
   sink: ReturnType<typeof spy>,
 ): ReturnType<ReturnType<typeof testContext>["routes"]> {
   return testContext()
     .with({
-      suspension: { store },
+      deferral: { store },
       sessions: { store: recordsFor(store) },
       shutdown: { timeout: 500 },
       plugins: [
@@ -239,7 +239,7 @@ describe("agent sessions", () => {
    * @expectedResult The second model call's thread contains the first user message and the first assistant reply before the second user message, and each result reports status "replied"
    */
   test("the second turn sees the first turn's reply", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     llm.script.push({ text: "hello alice" });
@@ -276,7 +276,7 @@ describe("agent sessions", () => {
    * @expectedResult Session b's first turn starts from an empty transcript: its model call carries only its own user message
    */
   test("sessions are isolated from each other", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     llm.script.push({ text: "hi a" });
@@ -295,7 +295,7 @@ describe("agent sessions", () => {
    * @expectedResult Each of the three returns status "queued" with an empty text and a growing depth; when turn one ends the runtime starts turn two on its own, whose first user message is one message with exactly three text parts in arrival order. With the one-turn-at-a-time bound removed this fails: the three messages start their own turns and no call carries three parts
    */
   test("messages during a turn queue and arrive together in order", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const queued: unknown[] = [];
@@ -354,7 +354,7 @@ describe("agent sessions", () => {
    * @expectedResult The slow tool sees its abort signal, turn one's caller gets status "interrupted" with empty text, the interrupter gets turn two's reply, and turn two's thread holds the interrupted tool call answered with an error result followed by one user message whose parts are the queued message then the interrupting one
    */
   test("interrupt cancels the running tool and keeps what it was doing", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const interrupted: unknown[] = [];
@@ -420,7 +420,7 @@ describe("agent sessions", () => {
    * @expectedResult B's first turn for the session starts with one user message carrying the two queued parts and then the new message. With the durable inbox write removed this fails: B sees only the new message
    */
   test("an inbox survives a restart and is consumed by the next turn", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     llm.script.push({ text: "ok" });
@@ -471,7 +471,7 @@ describe("agent sessions", () => {
    * @expectedResult The call reports it stopped a turn, the caller's dispatch resolves as interrupted, the transcript keeps what the turn reached, and nothing was added to the inbox
    */
   test("interrupt stops a running turn with no message posted", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     llm.script.push({ toolCalls: [{ toolName: "slow" }] }, { text: "stopped" });
@@ -498,7 +498,7 @@ describe("agent sessions", () => {
    * @expectedResult Both answer false rather than throwing, so a protocol cancel for a turn that already finished is a no-op the caller can report honestly
    */
   test("interrupt reports when there was nothing to stop", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     llm.script.push({ text: "done" });
@@ -515,7 +515,7 @@ describe("agent sessions", () => {
    * @expectedResult The next turn closes the open call with the interrupted marker, clears the marker, emits route:agent:session:restored, and the model call carries the repaired thread
    */
   test("a stale turn marker is restored as an interrupt", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     llm.script.push({ text: "ok" });
@@ -591,7 +591,7 @@ describe("agent sessions", () => {
    * @expectedResult The model call is a fresh string prompt with no session block, the result carries no session field, and nothing is written to the store
    */
   test("without session nothing is remembered or stored", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     llm.script.push({ text: "one" }, { text: "two" });
@@ -605,7 +605,7 @@ describe("agent sessions", () => {
     expect(second.session).toBeUndefined();
     expect(llm.calls[1]!.user).toBe("b");
     expect(llm.calls[1]!.system).not.toContain("## Session");
-    expect(MemorySuspensionStore.unsafeRecords(store).size).toBe(0);
+    expect(MemoryDeferralStore.unsafeRecords(store).size).toBe(0);
     expect(await recordsFor(store).keys()).toEqual([]);
   });
 
@@ -615,7 +615,7 @@ describe("agent sessions", () => {
    * @expectedResult The dispatch fails with RC5003 naming "session" and no model call is made
    */
   test("an empty session id is refused with RC5003", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     await expect(send(t, { session: "", message: "x" })).rejects.toMatchObject({
@@ -630,7 +630,7 @@ describe("agent sessions", () => {
    * @expectedResult Each malformed id is RC5003 naming the shape, no model call is made and no record is stored; the 128-character id runs
    */
   test("a session id outside the allowed shape is refused with RC5003", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     for (const session of [
@@ -666,7 +666,7 @@ describe("agent sessions", () => {
    * @expectedResult A message with interrupt: true cancels the running tool, the interrupter gets the next turn's reply, and turn one's caller gets status "interrupted"
    */
   test("an inline agent can interrupt its session", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     llm.script.push({ toolCalls: [{ toolName: "slow" }] });
@@ -693,7 +693,7 @@ describe("agent sessions", () => {
    * @expectedResult The next message for the session rejects with AI1010 naming the version, and no model call is made for it
    */
   test("a record at another version is AI1010", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     llm.script.push({ text: "one" });
@@ -716,7 +716,7 @@ describe("agent sessions", () => {
    * @expectedResult Both callers reject with the store's error, the executor ran exactly once, and no further turn was started
    */
   test("a failed turn is the waiting caller's answer", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     let writes = 0;
@@ -786,7 +786,7 @@ describe("agent sessions", () => {
    * @expectedResult The waiting caller resolves with status "idle" and empty text once turn one ends, exactly one executor run happened, and no turn is running
    */
   test("a message that vanished from the inbox does not spin the waiting caller", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
@@ -857,7 +857,7 @@ describe("agent sessions", () => {
    * @expectedResult The delivered user message carries a bracketed attribution per part naming "bob" and an anonymous caller, the stored transcript holds the same, and the exchange the boundary turn ran on carries Alice's principal, not Bob's
    */
   test("a queued message names its poster and runs under the parked exchange", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     const sink = spy();
     t = await contextWith(store, sink).build();
     await t.startAndWaitReady();
@@ -896,7 +896,7 @@ describe("agent sessions", () => {
    * @expectedResult The summary reports owner "alice" after both turns, and Bob's own message, having started its turn, is delivered as a plain string under his turn
    */
   test("the session records its starter", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     llm.script.push({ text: "hi alice" }, { text: "hi bob" });
@@ -916,11 +916,11 @@ describe("agent sessions", () => {
   });
 
   /**
-   * @case A context without a suspension block cannot host sessions
-   * @preconditions The same routes built on a context that declares no suspension config
-   * @expectedResult The dispatch fails with RC5052 naming the suspension block
+   * @case A context without a deferral block cannot host sessions
+   * @preconditions The same routes built on a context that declares no deferral config
+   * @expectedResult The dispatch fails with RC5052 naming the deferral block
    */
-  test("a session needs the suspension store", async () => {
+  test("a session needs the deferral store", async () => {
     t = await testContext()
       .with({
         plugins: [
@@ -944,11 +944,11 @@ describe("agent sessions", () => {
 
   /**
    * @case A tool that asks to park a session turn is refused with AI1011 and the turn goes on
-   * @preconditions The parker tool calls ctx.suspend() inside a session turn; the model then answers
+   * @preconditions The parker tool calls ctx.defer() inside a session turn; the model then answers
    * @expectedResult The tool's result is an error naming the session combination, the turn replies normally, and the store holds only the session record and no parked continuation
    */
   test("a tool cannot park a session turn", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     llm.script.push({ toolCalls: [{ toolName: "parker" }] }, { text: "ok" });
@@ -1002,7 +1002,7 @@ describe("agent sessions", () => {
    * @expectedResult The delivered parts read [Message from "anonymous"] and [Message from an anonymous caller], and the inbox entries carried "anonymous" and null
    */
   test("a subject spelt anonymous is still a subject", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     llm.script.push({ toolCalls: [{ toolName: "slow" }] }, { text: "one" });
@@ -1032,7 +1032,7 @@ describe("agent sessions", () => {
    * @expectedResult No replace call is made, and the record's updatedAt is unchanged
    */
   test("an unchanged update is not written", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     let writes = 0;
     const counting = new Proxy(recordsFor(store), {
       get(target, prop) {
@@ -1068,7 +1068,7 @@ describe("agent sessions", () => {
    * @expectedResult The removed one loads as undefined and is gone from the listing, the other is untouched, and removing it again is not an error
    */
   test("a removed session is gone from the store", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
@@ -1087,14 +1087,14 @@ describe("agent sessions", () => {
   /**
    * @case Removing a session settles the continuation it was the only reference to
    * @preconditions A session record naming a stored continuation, then removed
-   * @expectedResult The suspension is denied rather than left suspended. An aside park carries no expiry and the boot walk finds parks by reading session records, so a delete that left it behind would leave a suspension nothing can ever revive or retire
+   * @expectedResult The deferral is denied rather than left deferred. An aside park carries no expiry and the boot walk finds parks by reading session records, so a delete that left it behind would leave a deferral nothing can ever revive or retire
    */
   test("removing a session settles its stored continuation", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const exchange = new DefaultExchange(t.ctx, { body: {} });
-    const { suspensionId } = await parkAside(
+    const { deferralId } = await parkAside(
       t.ctx,
       exchange,
       { position: 0, continuation: [] },
@@ -1103,34 +1103,34 @@ describe("agent sessions", () => {
         kind: "agent-session-park",
         agent: "max",
         session: "finished",
-        suspensionId: id,
+        deferralId: id,
       }),
     );
     const sessions = new AgentSessionStore(recordsFor(store), store);
     await updateRecord(sessions, "finished", "max", (r) => ({
       ...r,
-      park: { suspensionId, routeId: "chat" },
+      park: { deferralId, routeId: "chat" },
     }));
     // The hazard is reachable: the record is the only thing naming it.
-    expect((await store.get(suspensionId))?.status).toBe("suspended");
+    expect((await store.get(deferralId))?.status).toBe("deferred");
 
     await sessions.remove("finished");
 
-    expect((await store.get(suspensionId))?.status).toBe("denied");
+    expect((await store.get(deferralId))?.status).toBe("denied");
     expect(await sessions.load("finished")).toBeUndefined();
   });
 
   /**
    * @case Releasing a stored continuation settles it in the store rather than leaving it live
-   * @preconditions A continuation stored with parkAside, so its record is "suspended"; releasePark is called on it
+   * @preconditions A continuation stored with parkAside, so its record is "deferred"; releasePark is called on it
    * @expectedResult The record's status is "denied" afterwards; a second release is a no-op that does not throw
    */
   test("a released continuation is denied, not orphaned", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const exchange = new DefaultExchange(t.ctx, { body: {} });
-    const { suspensionId } = await parkAside(
+    const { deferralId } = await parkAside(
       t.ctx,
       exchange,
       { position: 0, continuation: [] },
@@ -1139,24 +1139,24 @@ describe("agent sessions", () => {
         kind: "agent-session-park",
         agent: "max",
         session: "s",
-        suspensionId: id,
+        deferralId: id,
       }),
     );
-    expect((await store.get(suspensionId))?.status).toBe("suspended");
+    expect((await store.get(deferralId))?.status).toBe("deferred");
     const sessions = new AgentSessionStore(recordsFor(store), store);
-    await sessions.releasePark(suspensionId, "test");
-    expect((await store.get(suspensionId))?.status).toBe("denied");
-    await sessions.releasePark(suspensionId, "again");
-    expect((await store.get(suspensionId))?.status).toBe("denied");
+    await sessions.releasePark(deferralId, "test");
+    expect((await store.get(deferralId))?.status).toBe("denied");
+    await sessions.releasePark(deferralId, "again");
+    expect((await store.get(deferralId))?.status).toBe("denied");
   });
 
   /**
-   * @case A continuation the suspension store no longer holds falls back to a turn in process, and the record stops naming it
-   * @preconditions One turn ran with a background call outstanding and stored a real aside park through parkAside, announced on the record first; the park's suspension record is then deleted from the store, as a lost or purged file would leave it; a message is posted to the idle session
-   * @expectedResult The revival fails, the follow-up turn runs in process carrying the posted message, and the record no longer names the deleted park: the background call is still outstanding, so that turn stored a fresh continuation, which the suspension store holds
+   * @case A continuation the deferral store no longer holds falls back to a turn in process, and the record stops naming it
+   * @preconditions One turn ran with a background call outstanding and stored a real aside park through parkAside, announced on the record first; the park's deferral record is then deleted from the store, as a lost or purged file would leave it; a message is posted to the idle session
+   * @expectedResult The revival fails, the follow-up turn runs in process carrying the posted message, and the record no longer names the deleted park: the background call is still outstanding, so that turn stored a fresh continuation, which the deferral store holds
    */
   test("a deleted continuation falls back to a turn in process", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
@@ -1187,7 +1187,7 @@ describe("agent sessions", () => {
       interrupt: false,
       executor,
       park: async (announce) => {
-        const { suspensionId } = await parkAside(
+        const { deferralId } = await parkAside(
           t!.ctx,
           exchange,
           { position: 0, continuation: [] },
@@ -1196,22 +1196,22 @@ describe("agent sessions", () => {
             kind: "agent-session-park",
             agent: "max",
             session: key,
-            suspensionId: id,
+            deferralId: id,
           }),
           async (id) => {
             announced.push(id);
-            await announce({ suspensionId: id, routeId: "chat" });
+            await announce({ deferralId: id, routeId: "chat" });
           },
         );
-        return { suspensionId, routeId: "chat" };
+        return { deferralId, routeId: "chat" };
       },
     });
     const parked = await sessions.load(key);
-    expect(parked?.park?.suspensionId).toBe(announced[0]);
+    expect(parked?.park?.deferralId).toBe(announced[0]);
     expect(parked?.parking).toBeUndefined();
-    expect(
-      MemorySuspensionStore.unsafeRecords(store).delete(announced[0]!),
-    ).toBe(true);
+    expect(MemoryDeferralStore.unsafeRecords(store).delete(announced[0]!)).toBe(
+      true,
+    );
     await runtime.post(key, "max", {
       kind: "message",
       content: "the build finished",
@@ -1222,20 +1222,18 @@ describe("agent sessions", () => {
     expect(seen).toHaveLength(2);
     expect(JSON.stringify(seen[1])).toContain("the build finished");
     const after = await sessions.load(key);
-    expect(after?.park?.suspensionId).toBeDefined();
-    expect(after?.park?.suspensionId).not.toBe(announced[0]);
-    expect((await store.get(after!.park!.suspensionId))?.status).toBe(
-      "suspended",
-    );
+    expect(after?.park?.deferralId).toBeDefined();
+    expect(after?.park?.deferralId).not.toBe(announced[0]);
+    expect((await store.get(after!.park!.deferralId))?.status).toBe("deferred");
   });
 
   /**
    * @case A continuation whose write fails after the park was announced is settled, not left live
    * @preconditions A turn with a background call outstanding whose park callback creates a real aside park, announces it on the record, and then fails, as a store that commits and then reports failure would
-   * @expectedResult The park reads denied rather than staying suspended, and the record names neither a park nor a parking
+   * @expectedResult The park reads denied rather than staying deferred, and the record names neither a park nor a parking
    */
   test("a park announced by a failing write is released", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
@@ -1270,11 +1268,11 @@ describe("agent sessions", () => {
             kind: "agent-session-park",
             agent: "max",
             session: key,
-            suspensionId: id,
+            deferralId: id,
           }),
           async (id) => {
             announced.push(id);
-            await announce({ suspensionId: id, routeId: "chat" });
+            await announce({ deferralId: id, routeId: "chat" });
           },
         );
         // The park is written; what follows it is not.
@@ -1294,7 +1292,7 @@ describe("agent sessions", () => {
    * @expectedResult The read is AI1010 naming the continuation, rather than a TypeError inside the boot walk
    */
   test("a record naming a continuation of the wrong shape is AI1010", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const records = recordsFor(store);
@@ -1311,18 +1309,18 @@ describe("agent sessions", () => {
 
   /**
    * @case A park the boot cannot release keeps its reference for the next boot
-   * @preconditions A record whose parking names a real park, and a suspension store whose claim fails
+   * @preconditions A record whose parking names a real park, and a deferral store whose claim fails
    * @expectedResult driveBoot() leaves the parking field in place and the park unsettled
    */
   test("a park the boot cannot release keeps its reference", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     const sink = spy();
     t = await contextWith(store, sink).build();
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
     const exchange = new DefaultExchange(t.ctx, { body: {} });
     const key = "unreleasable";
-    const { suspensionId } = await parkAside(
+    const { deferralId } = await parkAside(
       t.ctx,
       exchange,
       { position: 0, continuation: [] },
@@ -1331,22 +1329,20 @@ describe("agent sessions", () => {
         kind: "agent-session-park",
         agent: "max",
         session: key,
-        suspensionId: id,
+        deferralId: id,
       }),
     );
     await updateRecord(sessions, key, "max", (r) => ({
       ...r,
-      parking: { suspensionId, routeId: "chat" },
+      parking: { deferralId, routeId: "chat" },
     }));
     store.claimExpiry = () => {
-      throw new Error("the suspension store is unreachable");
+      throw new Error("the deferral store is unreachable");
     };
     const runtime = new AgentSessionRuntime(t.ctx, sessions);
     await runtime.driveBoot();
-    expect((await sessions.load(key))?.parking?.suspensionId).toBe(
-      suspensionId,
-    );
-    expect((await store.get(suspensionId))?.status).toBe("suspended");
+    expect((await sessions.load(key))?.parking?.deferralId).toBe(deferralId);
+    expect((await store.get(deferralId))?.status).toBe("deferred");
   });
 
   /**
@@ -1355,13 +1351,13 @@ describe("agent sessions", () => {
    * @expectedResult The boot clears only what it released, so the record still names the newer continuation
    */
   test("the boot leaves a continuation announced under it", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
     const exchange = new DefaultExchange(t.ctx, { body: {} });
     const key = "raced";
-    const { suspensionId } = await parkAside(
+    const { deferralId } = await parkAside(
       t.ctx,
       exchange,
       { position: 0, continuation: [] },
@@ -1370,12 +1366,12 @@ describe("agent sessions", () => {
         kind: "agent-session-park",
         agent: "max",
         session: key,
-        suspensionId: id,
+        deferralId: id,
       }),
     );
     await updateRecord(sessions, key, "max", (r) => ({
       ...r,
-      parking: { suspensionId, routeId: "chat" },
+      parking: { deferralId, routeId: "chat" },
     }));
     const realRelease = sessions.releasePark.bind(sessions);
     sessions.releasePark = async (id, reason) => {
@@ -1383,23 +1379,23 @@ describe("agent sessions", () => {
       // The window: a turn started here announces its own continuation.
       await updateRecord(sessions, key, "max", (r) => ({
         ...r,
-        parking: { suspensionId: "started-under-the-boot", routeId: "chat" },
+        parking: { deferralId: "started-under-the-boot", routeId: "chat" },
       }));
     };
     await new AgentSessionRuntime(t.ctx, sessions).driveBoot();
-    expect((await sessions.load(key))?.parking?.suspensionId).toBe(
+    expect((await sessions.load(key))?.parking?.deferralId).toBe(
       "started-under-the-boot",
     );
-    expect((await store.get(suspensionId))?.status).toBe("denied");
+    expect((await store.get(deferralId))?.status).toBe("denied");
   });
 
   /**
    * @case A park whose release fails keeps its reference on the record, so a later boot still finds it
-   * @preconditions A turn with a background call outstanding whose park callback announces a real park and then fails, over a suspension store whose claim fails
-   * @expectedResult The record still names the announced park, which is still suspended
+   * @preconditions A turn with a background call outstanding whose park callback announces a real park and then fails, over a deferral store whose claim fails
+   * @expectedResult The record still names the announced park, which is still deferred
    */
   test("a park the turn cannot release keeps its reference", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
@@ -1434,38 +1430,36 @@ describe("agent sessions", () => {
             kind: "agent-session-park",
             agent: "max",
             session: key,
-            suspensionId: id,
+            deferralId: id,
           }),
           async (id) => {
             announced.push(id);
-            await announce({ suspensionId: id, routeId: "chat" });
+            await announce({ deferralId: id, routeId: "chat" });
             store.claimExpiry = () => {
-              throw new Error("the suspension store is unreachable");
+              throw new Error("the deferral store is unreachable");
             };
           },
         );
         throw new Error("the store committed and then reported a failure");
       },
     });
-    expect((await sessions.load(key))?.parking?.suspensionId).toBe(
-      announced[0],
-    );
-    expect((await store.get(announced[0]!))?.status).toBe("suspended");
+    expect((await sessions.load(key))?.parking?.deferralId).toBe(announced[0]);
+    expect((await store.get(announced[0]!))?.status).toBe("deferred");
   });
 
   /**
    * @case A park the previous process announced but never named is released at boot
-   * @preconditions A real aside park in the suspension store and a session record whose parking field names it with no park, as a crash between the two writes leaves them; a second record's parking names an id that was never created
+   * @preconditions A real aside park in the deferral store and a session record whose parking field names it with no park, as a crash between the two writes leaves them; a second record's parking names an id that was never created
    * @expectedResult After driveBoot() the first park reads denied and both records have no parking field, and the boot did not fail on the id that never existed
    */
   test("an announced continuation nothing names is released at boot", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
     const exchange = new DefaultExchange(t.ctx, { body: {} });
     const orphan = "orphan";
-    const { suspensionId } = await parkAside(
+    const { deferralId } = await parkAside(
       t.ctx,
       exchange,
       { position: 0, continuation: [] },
@@ -1474,33 +1468,33 @@ describe("agent sessions", () => {
         kind: "agent-session-park",
         agent: "max",
         session: orphan,
-        suspensionId: id,
+        deferralId: id,
       }),
     );
     await updateRecord(sessions, orphan, "max", (r) => ({
       ...r,
-      parking: { suspensionId, routeId: "chat" },
+      parking: { deferralId, routeId: "chat" },
     }));
     const phantom = "phantom";
     await updateRecord(sessions, phantom, "max", (r) => ({
       ...r,
-      parking: { suspensionId: "never-created", routeId: "chat" },
+      parking: { deferralId: "never-created", routeId: "chat" },
     }));
-    expect((await store.get(suspensionId))?.status).toBe("suspended");
+    expect((await store.get(deferralId))?.status).toBe("deferred");
     const runtime = new AgentSessionRuntime(t.ctx, sessions);
     await runtime.driveBoot();
-    expect((await store.get(suspensionId))?.status).toBe("denied");
+    expect((await store.get(deferralId))?.status).toBe("denied");
     expect((await sessions.load(orphan))?.parking).toBeUndefined();
     expect((await sessions.load(phantom))?.parking).toBeUndefined();
   });
 
   /**
    * @case A post that lands between the turn's park and its cleanup still starts the next turn
-   * @preconditions A session with one background call outstanding; the turn parks; the store write that records the park is followed, before the turn sees it, by a post to the inbox; the stored continuation cannot be revived (its id is not a real suspension), so the follow-up runs in process
+   * @preconditions A session with one background call outstanding; the turn parks; the store write that records the park is followed, before the turn sees it, by a post to the inbox; the stored continuation cannot be revived (its id is not a real deferral), so the follow-up runs in process
    * @expectedResult A second executor run starts on its own with the posted message, rather than the session waiting for the next message
    */
   test("a post in the park-to-cleanup gap is delivered", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
@@ -1544,7 +1538,7 @@ describe("agent sessions", () => {
       by: null,
       interrupt: false,
       executor,
-      park: async () => ({ suspensionId: "not-a-record", routeId: "chat" }),
+      park: async () => ({ deferralId: "not-a-record", routeId: "chat" }),
     });
     const deadline = Date.now() + 5_000;
     while (seen.length < 2 && Date.now() < deadline) await sleep(5);
@@ -1558,7 +1552,7 @@ describe("agent sessions", () => {
    * @expectedResult The new message is acknowledged as queued, no second run overlaps the first, and one follow-up run carries both the post and the message
    */
   test("the session stays active through the boundary read", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
@@ -1641,7 +1635,7 @@ describe("agent sessions", () => {
    * @expectedResult A second run starts without any caller sending a message, carrying the posted message
    */
   test("an append on an idle session is delivered without a caller", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const runtime = new AgentSessionRuntime(
@@ -1686,7 +1680,7 @@ describe("agent sessions", () => {
    * @expectedResult No second run starts, and the record's inbox holds the message
    */
   test("an append after stop is kept, not run", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
@@ -1729,7 +1723,7 @@ describe("agent sessions", () => {
    * @expectedResult The caller is answered "queued" with the message counted, no second run starts, and the record's inbox holds the message
    */
   test("a message after stop is queued, not run", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
@@ -1773,7 +1767,7 @@ describe("agent sessions", () => {
    * @expectedResult The waiting caller is answered "queued" with its message still in the record, exactly one executor run happened, and no turn is running
    */
   test("shutdown during the next-turn read starts no turn", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
@@ -1830,11 +1824,11 @@ describe("agent sessions", () => {
 
   /**
    * @case Shutdown wakes a caller waiting for a stored continuation's revival, instead of leaving it to the revival bound
-   * @preconditions Turn one is held and can store a continuation; a second caller interrupts and waits; the turn ends with the message queued and a continuation stored whose revival fails (its id is not a real suspension), with the release of that continuation held at a gate so the record keeps naming it; the caller's record read inside nextTurn is held at a gate, and stop() is called once the caller is inside it
+   * @preconditions Turn one is held and can store a continuation; a second caller interrupts and waits; the turn ends with the message queued and a continuation stored whose revival fails (its id is not a real deferral), with the release of that continuation held at a gate so the record keeps naming it; the caller's record read inside nextTurn is held at a gate, and stop() is called once the caller is inside it
    * @expectedResult The caller is answered "queued" at once rather than after the 30 s bound, exactly one executor run happened, no turn is running, the message is still in the record, and the continuation is released once the gate opens
    */
   test("stop wakes a caller waiting on a revival", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
@@ -1865,7 +1859,7 @@ describe("agent sessions", () => {
       exchange,
       by: null,
       executor,
-      park: async () => ({ suspensionId: "not-a-record", routeId: "chat" }),
+      park: async () => ({ deferralId: "not-a-record", routeId: "chat" }),
     };
     const first = runtime.turn({ ...request, message: "a", interrupt: false });
     await sleep(10);
@@ -1900,11 +1894,11 @@ describe("agent sessions", () => {
 
   /**
    * @case A continuation whose revival fails after shutdown began starts no in-process follow-up
-   * @preconditions A turn is held while a message is posted, so it ends with the message queued and stores a continuation that cannot be revived (its id is not a real suspension); stop() is called before the failed revival is handled
+   * @preconditions A turn is held while a message is posted, so it ends with the message queued and stores a continuation that cannot be revived (its id is not a real deferral); stop() is called before the failed revival is handled
    * @expectedResult No second run starts, the record no longer names the continuation, and the inbox keeps the message
    */
   test("a revival failing after stop starts no follow-up", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
@@ -1929,7 +1923,7 @@ describe("agent sessions", () => {
       by: null,
       interrupt: false,
       executor,
-      park: async () => ({ suspensionId: "not-a-record", routeId: "chat" }),
+      park: async () => ({ deferralId: "not-a-record", routeId: "chat" }),
     });
     await sleep(10);
     await runtime.post(key, "max", {
@@ -1954,7 +1948,7 @@ describe("agent sessions", () => {
    * @expectedResult The next turn's thread carries both calls, quick paired with its json result "fast done" and slow with an error result, so the model neither repeats the finished work nor loses its output
    */
   test("an interrupted batch keeps its finished siblings", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     llm.script.push({
@@ -1998,7 +1992,7 @@ describe("agent sessions", () => {
    * @expectedResult remove() succeeds and the key is gone. Reading it through load() still throws, so the hazard is reachable: a delete that parsed first would refuse the one case it exists to answer
    */
   test("a poisoned record can still be removed", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     const records = recordsFor(store);
     const sessions = new AgentSessionStore(records, store);
     const poisoned = "poisoned";
@@ -2017,11 +2011,11 @@ describe("agent sessions", () => {
 
   /**
    * @case Removing a session settles the continuation it named
-   * @preconditions A record naming a park and an announced-but-unnamed parking, both live in the suspension store
-   * @expectedResult Both are settled before the record is deleted. Nothing else names them once the record is gone, and an aside park carries no expiry, so leaving them would leave a suspension nothing can ever revive or retire
+   * @preconditions A record naming a park and an announced-but-unnamed parking, both live in the deferral store
+   * @expectedResult Both are settled before the record is deleted. Nothing else names them once the record is gone, and an aside park carries no expiry, so leaving them would leave a deferral nothing can ever revive or retire
    */
   test("removing a session releases its stored continuations", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     const records = recordsFor(store);
     const sessions = new AgentSessionStore(records, store);
     const session = "parked";
@@ -2035,8 +2029,8 @@ describe("agent sessions", () => {
 
     await updateRecord(sessions, session, "max", (record) => ({
       ...record,
-      park: { suspensionId: "park-1", routeId: "r" },
-      parking: { suspensionId: "park-2", routeId: "r" },
+      park: { deferralId: "park-1", routeId: "r" },
+      parking: { deferralId: "park-2", routeId: "r" },
     }));
 
     await sessions.remove(session);

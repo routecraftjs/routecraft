@@ -46,7 +46,7 @@ export type RefreshCadence = Duration | CronExpression | typeof MANUAL_REFRESH;
  * Omitting `refresh` means the same thing, so this exists for the case where
  * the cadence is COMPUTED: `refresh: pollCadence ?? "manual"` says what it
  * means, where the alternative is assembling the options object
- * conditionally. It also restores the sentinel precedent `suspension`
+ * conditionally. It also restores the sentinel precedent `deferral`
  * already sets with `defaultTtl: "never"` and `retention: "never"`.
  */
 export const MANUAL_REFRESH = "manual";

@@ -31,34 +31,34 @@ export interface TestFnHandlerContext {
   logger: ReturnType<typeof defaultLogger.child>;
   abortSignal: AbortSignal;
   /**
-   * Structural twin of the production `ctx.suspend`: returns a sentinel
+   * Structural twin of the production `ctx.defer`: returns a sentinel
    * shaped like the one the agent runtime parks on, so a unit test can
-   * assert that a handler asked to suspend (and with what) without
+   * assert that a handler asked to defer (and with what) without
    * standing up an agent loop. Nothing is parked under `testFn`; drive the
    * handler through a route to exercise the durable path.
    */
-  suspend: (options?: TestFnSuspendOptions) => TestFnSuspendSentinel;
+  defer: (options?: TestFnDeferOptions) => TestFnDeferSentinel;
 }
 
 /**
- * Structural twin of the agent tier's suspend options. Kept structural so
+ * Structural twin of the agent tier's defer options. Kept structural so
  * this package carries no dependency on `@routecraft/ai`; a real
- * `AgentSuspendOptions` value satisfies it.
+ * `AgentDeferOptions` value satisfies it.
  */
-export interface TestFnSuspendOptions {
+export interface TestFnDeferOptions {
   schema?: StandardSchemaV1;
   ttl?: Duration;
   meta?: unknown;
 }
 
 /**
- * What {@link TestFnHandlerContext.suspend} returns: the same structural
+ * What {@link TestFnHandlerContext.defer} returns: the same structural
  * shape as the agent runtime's sentinel, carrying the request back to the
  * test for assertion.
  */
-export interface TestFnSuspendSentinel {
-  readonly status: "suspend-requested";
-  readonly request: TestFnSuspendOptions;
+export interface TestFnDeferSentinel {
+  readonly status: "defer-requested";
+  readonly request: TestFnDeferOptions;
 }
 
 /**
@@ -117,24 +117,24 @@ export async function testFn<TIn, TOut>(
   const ctx: TestFnHandlerContext = {
     logger: options.logger ?? defaultLogger.child({ test: "fn" }),
     abortSignal: options.signal ?? new AbortController().signal,
-    suspend: (suspendOptions) => {
-      // Same refusal as the production ctx.suspend (RC5003 from
-      // makeSuspend), so a handler exercised in isolation cannot pass with
-      // a suspension request the agent runtime would reject.
-      if (suspendOptions?.schema !== undefined) {
-        if (!isStandardSchema(suspendOptions.schema)) {
+    defer: (deferOptions) => {
+      // Same refusal as the production ctx.defer (RC5003 from
+      // makeDefer), so a handler exercised in isolation cannot pass with
+      // a deferral request the agent runtime would reject.
+      if (deferOptions?.schema !== undefined) {
+        if (!isStandardSchema(deferOptions.schema)) {
           throw rcError("RC5003", undefined, {
             message:
-              'testFn: ctx.suspend "schema" must be a Standard Schema when given. It renders what a valid resume payload looks like on the Suspended acknowledgment. Omit it entirely to declare no contract.',
+              'testFn: ctx.defer "schema" must be a Standard Schema when given. It renders what a valid resume payload looks like on the Deferred acknowledgment. Omit it entirely to declare no contract.',
           });
         }
       }
-      if (suspendOptions?.ttl !== undefined) {
-        parseDuration(suspendOptions.ttl, "testFn: ctx.suspend({ ttl })");
+      if (deferOptions?.ttl !== undefined) {
+        parseDuration(deferOptions.ttl, "testFn: ctx.defer({ ttl })");
       }
       return {
-        status: "suspend-requested",
-        request: suspendOptions ?? {},
+        status: "defer-requested",
+        request: deferOptions ?? {},
       };
     },
   };

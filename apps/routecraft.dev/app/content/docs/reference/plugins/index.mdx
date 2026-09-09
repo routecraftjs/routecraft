@@ -119,7 +119,7 @@ async start(ctx: CraftContext) {
 
 Ignore both and the hook behaves as it always did, which is correct for any plugin that only closes what `apply()` opened. A plugin that stops what `start()` began reads `started` instead of guarding on its own bookkeeping.
 
-`start` is awaited, so the context is not ready until every hook has resolved. Use it for startup work that finishes: the suspension plugin scans for suspensions that expired while the process was down, so those escalations reach their routes before new traffic does. Work that does not finish (a poll loop, a subscription) is begun in `start` and left to the plugin's own timer, as above, rather than awaited inside the hook.
+`start` is awaited, so the context is not ready until every hook has resolved. Use it for startup work that finishes: the deferral plugin scans for deferrals that expired while the process was down, so those escalations reach their routes before new traffic does. Work that does not finish (a poll loop, a subscription) is begun in `start` and left to the plugin's own timer, as above, rather than awaited inside the hook.
 
 <Callout type="note" title="Waiting for a context to be ready">
 

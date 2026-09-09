@@ -57,7 +57,7 @@ export interface ResolvedSqliteDriver {
  * not to a driver.
  *
  * @param consumer - Names the subsystem asking, so an absent peer names
- *   what wanted it ("suspension store (sqlite)", "telemetry (sqlite)")
+ *   what wanted it ("deferral store (sqlite)", "telemetry (sqlite)")
  *   rather than reporting a generic sqlite failure. Used ONLY to build the
  *   default loaders: a caller that supplies its own `loaders` owns the
  *   naming inside them, and this argument then has no effect.

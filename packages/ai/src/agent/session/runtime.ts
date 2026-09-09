@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import {
-  SUSPENSION_RUNTIME,
+  DEFERRAL_RUNTIME,
   decodeCursor,
   getExchangeRoute,
   rcError,
-  reviveSuspension,
+  reviveDeferral,
   takePage,
   type CraftContext,
   type CursorScope,
@@ -16,7 +16,7 @@ import type { LlmPromptPart } from "../../llm/types.ts";
 import { dispatchIdentityFrom } from "../run.ts";
 import { assertOverridesAdvertised } from "../advertised.ts";
 import { ADAPTER_AGENT_REGISTRY, ADAPTER_AGENT_SESSIONS } from "../store.ts";
-import type { ThreadMessage } from "../suspension-state.ts";
+import type { ThreadMessage } from "../deferral-state.ts";
 import type { AgentResult } from "../types.ts";
 import { closeUnansweredToolCalls, renderUserMessage } from "./render.ts";
 import { BoundedMap, SESSION_MEMORY_BOUND } from "./bounded.ts";
@@ -186,25 +186,25 @@ export class AgentSessionRuntime {
 
   /**
    * The runtime for a context, created on first use over the session store
-   * the context resolved and its suspension store. Records live in the
+   * the context resolved and its deferral store. Records live in the
    * first; the continuation a turn stores between turns is a parked
-   * exchange and lives in the second, so a context with no `suspension`
+   * exchange and lives in the second, so a context with no `deferral`
    * block refuses `session` rather than running conversations whose
    * boundary turns could never be revived.
    */
   static for(context: CraftContext): AgentSessionRuntime {
     const existing = context.getStore(ADAPTER_AGENT_SESSIONS);
     if (existing) return existing;
-    const suspension = context.getStore(SUSPENSION_RUNTIME);
-    if (!suspension) {
+    const deferral = context.getStore(DEFERRAL_RUNTIME);
+    if (!deferral) {
       throw rcError("RC5052", undefined, {
         message:
-          "agent({ session }) stores a turn's continuation in the suspension store, and this context has none. Add a `suspension` block to defineConfig (the sqlite backend is the default) so a turn that ends with work outstanding can be revived.",
+          "agent({ session }) stores a turn's continuation in the deferral store, and this context has none. Add a `deferral` block to defineConfig (the sqlite backend is the default) so a turn that ends with work outstanding can be revived.",
       });
     }
     const runtime = new AgentSessionRuntime(
       context,
-      new AgentSessionStore(sessionStoreOf(context), suspension.store),
+      new AgentSessionStore(sessionStoreOf(context), deferral.store),
     );
     context.setStore(ADAPTER_AGENT_SESSIONS, runtime);
     // Latched as shutdown begins, before the routes drain, so a completion
@@ -588,7 +588,7 @@ export class AgentSessionRuntime {
       let record = await this.store.load(key);
       if (
         record?.parking !== undefined &&
-        record.park?.suspensionId !== record.parking.suspensionId &&
+        record.park?.deferralId !== record.parking.deferralId &&
         // A turn running here right now is between its own two writes,
         // which reads exactly like the crash below; it clears the field
         // itself on both its arms.
@@ -596,7 +596,7 @@ export class AgentSessionRuntime {
       ) {
         // The previous process died between announcing the park and naming
         // it: the park, if it got written, is referenced by nothing else.
-        const orphan = record.parking.suspensionId;
+        const orphan = record.parking.deferralId;
         let released = true;
         try {
           await this.store.releasePark(
@@ -613,7 +613,7 @@ export class AgentSessionRuntime {
               err,
               agent: record.agent,
               session: key,
-              suspensionId: orphan,
+              deferralId: orphan,
             },
             "Agent session continuation left unnamed could not be released; the next boot retries",
           );
@@ -623,12 +623,12 @@ export class AgentSessionRuntime {
           // started during the release above announced its own, and that
           // one is live.
           record = await this.write(key, record.agent, (current) =>
-            current.parking?.suspensionId === orphan
+            current.parking?.deferralId === orphan
               ? withoutParking(current)
               : current,
           );
           this.context.logger.info(
-            { agent: record.agent, session: key, suspensionId: orphan },
+            { agent: record.agent, session: key, deferralId: orphan },
             "Agent session continuation left unnamed by the previous process was released",
           );
         }
@@ -954,7 +954,7 @@ export class AgentSessionRuntime {
         // end if work is still outstanding.
         if (
           req.revived !== undefined &&
-          next.park?.suspensionId === req.revived
+          next.park?.deferralId === req.revived
         ) {
           next = withoutPark(next);
         }
@@ -984,7 +984,7 @@ export class AgentSessionRuntime {
         this.emit(exchange, "route:agent:session:revived", {
           agentName: req.agent,
           session: key,
-          suspensionId: req.revived,
+          deferralId: req.revived,
         });
       }
       if (stale) {
@@ -1148,7 +1148,7 @@ export class AgentSessionRuntime {
       if (announced !== undefined) {
         try {
           await this.store.releasePark(
-            announced.suspensionId,
+            announced.deferralId,
             "agent session park announced but never named",
           );
         } catch {
@@ -1169,14 +1169,14 @@ export class AgentSessionRuntime {
       // Nothing names the continuation now, so nothing will ever revive
       // it; settled before the store failure reaches the caller.
       await this.store
-        .releasePark(park.suspensionId, "agent session record write failed")
+        .releasePark(park.deferralId, "agent session record write failed")
         .catch(() => undefined);
       throw err;
     }
     this.emit(req.exchange, "route:agent:session:parked", {
       agentName: req.agent,
       session: req.key,
-      suspensionId: park.suspensionId,
+      deferralId: park.deferralId,
       inbox: updated.inbox.length,
       background: updated.background.length,
     });
@@ -1189,9 +1189,9 @@ export class AgentSessionRuntime {
     agent: string,
     park: AgentSessionPark,
   ): Promise<void> {
-    await this.store.releasePark(park.suspensionId, "agent session idle");
+    await this.store.releasePark(park.deferralId, "agent session idle");
     await this.write(key, agent, (r) =>
-      r.park?.suspensionId === park.suspensionId ? withoutPark(r) : r,
+      r.park?.deferralId === park.deferralId ? withoutPark(r) : r,
     );
   }
 
@@ -1215,17 +1215,17 @@ export class AgentSessionRuntime {
   ): void {
     const k = key;
     if (this.stopping || this.reviving.has(k) || this.active.has(k)) return;
-    const suspension = this.context.getStore(SUSPENSION_RUNTIME);
-    if (!suspension) return;
+    const deferral = this.context.getStore(DEFERRAL_RUNTIME);
+    if (!deferral) return;
     this.reviving.add(k);
-    const token = suspension.signer.mint(park.suspensionId, new Date());
-    const run = reviveSuspension(this.context, { token, result: undefined })
+    const token = deferral.signer.mint(park.deferralId, new Date());
+    const run = reviveDeferral(this.context, { token, result: undefined })
       .catch(async (err: unknown) => {
         this.context.logger.error(
           {
             err,
             session: key,
-            suspensionId: park.suspensionId,
+            deferralId: park.deferralId,
             routeId: park.routeId,
           },
           "Agent session continuation could not be revived",
@@ -1400,7 +1400,7 @@ function encodeResult(
 > {
   try {
     // A non-finite number serialises as null, which would read as a
-    // result the route never produced; refused here as the suspension
+    // result the route never produced; refused here as the deferral
     // serializer refuses it.
     const text = JSON.stringify(result, (_key, value: unknown) =>
       typeof value === "number" && !Number.isFinite(value)

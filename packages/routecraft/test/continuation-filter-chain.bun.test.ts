@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { z } from "zod";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { craft, direct, noop } from "../src/index.ts";
-import { asSuspended, suspending } from "./helpers/suspension.ts";
+import { asDeferred, deferring } from "./helpers/deferral.ts";
 import { CHAIN_SURVIVAL } from "../src/pipeline/chain-policy.ts";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
@@ -28,7 +28,7 @@ describe("the filter chain on a resumed continuation", () => {
 
   /**
    * @case Route-scope .concurrency() bounds resumed continuations, not only ingress executions
-   * @preconditions A route with route-scope .concurrency({ max: 1 }) and a .suspend() before a slow step; two exchanges parked, then resumed concurrently
+   * @preconditions A route with route-scope .concurrency({ max: 1 }) and a .defer() before a slow step; two exchanges parked, then resumed concurrently
    * @expectedResult The observed peak simultaneity inside the continuation never exceeds the declared max, because ingress executions and resumed continuations compete for the same bulkhead, which is the downstream the limit exists to protect
    */
   test("a resumed continuation competes for the route's bulkhead", async () => {
@@ -36,13 +36,13 @@ describe("the filter chain on a resumed continuation", () => {
     let peak = 0;
 
     t = await testContext()
-      .with(suspending())
+      .with(deferring())
       .routes([
         craft()
           .id("payout")
           .concurrency({ max: 1 })
           .from(direct())
-          .suspend({ schema: Approval })
+          .defer({ schema: Approval })
           .process(async (ex) => {
             inFlight++;
             peak = Math.max(peak, inFlight);
@@ -59,16 +59,16 @@ describe("the filter chain on a resumed continuation", () => {
     const parked = await Promise.all([
       t.client
         .sendDirect("payout", { amountCents: 10_000 })
-        .then((body) => asSuspended(body)),
+        .then((body) => asDeferred(body)),
       t.client
         .sendDirect("payout", { amountCents: 20_000 })
-        .then((body) => asSuspended(body)),
+        .then((body) => asDeferred(body)),
     ]);
 
     await Promise.all(
-      parked.map((suspension) =>
+      parked.map((deferral) =>
         t!.client.sendDirect("answers", {
-          token: suspension.token,
+          token: deferral.token,
           result: { approved: true },
         }),
       ),
@@ -81,7 +81,7 @@ describe("the filter chain on a resumed continuation", () => {
 
   /**
    * @case An ingress execution and a resumed continuation compete for the same bulkhead
-   * @preconditions .concurrency({ max: 1 }) on a route with slow work both before and after the suspend; one exchange parked, then its resume raced against a fresh exchange entering the route
+   * @preconditions .concurrency({ max: 1 }) on a route with slow work both before and after the defer; one exchange parked, then its resume raced against a fresh exchange entering the route
    * @expectedResult Peak simultaneity across both executions stays within the declared max. The two halves of the route's traffic share one limiter rather than each getting their own
    */
   test("an ingress execution and a continuation share one limiter", async () => {
@@ -97,14 +97,14 @@ describe("the filter chain on a resumed continuation", () => {
     };
 
     t = await testContext()
-      .with(suspending())
+      .with(deferring())
       .routes([
         craft()
           .id("payout")
           .concurrency({ max: 1 })
           .from(direct())
           .process(occupy)
-          .suspend({ schema: Approval })
+          .defer({ schema: Approval })
           .process(occupy)
           .to(noop()),
         craft().id("answers").from(direct()).resume(),
@@ -112,7 +112,7 @@ describe("the filter chain on a resumed continuation", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asSuspended(
+    const parked = asDeferred(
       await t.client.sendDirect("payout", { amountCents: 10_000 }),
     );
 
@@ -130,7 +130,7 @@ describe("the filter chain on a resumed continuation", () => {
   });
 
   /**
-   * @case Route-scope .retry() re-attempts a failing continuation, and the suspension's terminal outcome is not recorded until it settles
+   * @case Route-scope .retry() re-attempts a failing continuation, and the deferral's terminal outcome is not recorded until it settles
    * @preconditions A route with route-scope .retry({ maxAttempts: 3 }) and a continuation step that throws twice before succeeding
    * @expectedResult The continuation runs three times and the resume reports a completed outcome, not a failed one: attempts happen before any terminal is recorded, so a retried continuation never spends the approval it was answering
    */
@@ -138,13 +138,13 @@ describe("the filter chain on a resumed continuation", () => {
     let attempts = 0;
 
     t = await testContext()
-      .with(suspending())
+      .with(deferring())
       .routes([
         craft()
           .id("payout")
           .retry({ maxAttempts: 3, backoff: 1 })
           .from(direct())
-          .suspend({ schema: Approval })
+          .defer({ schema: Approval })
           .process((ex) => {
             attempts++;
             if (attempts < 3) throw new Error("downstream refused");
@@ -156,7 +156,7 @@ describe("the filter chain on a resumed continuation", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asSuspended(
+    const parked = asDeferred(
       await t.client.sendDirect("payout", { amountCents: 10_000 }),
     );
     const receipt = (await t.client.sendDirect("answers", {
@@ -173,11 +173,11 @@ describe("the filter chain on a resumed continuation", () => {
   /**
    * @case Route-scope .timeout() bounds execution two
    * @preconditions A route with route-scope .timeout(30) and a continuation step that waits well past it
-   * @expectedResult The continuation is abandoned with RC5011 and the suspension records a failed terminal, rather than running unbounded because the deadline described only the ingress
+   * @expectedResult The continuation is abandoned with RC5011 and the deferral records a failed terminal, rather than running unbounded because the deadline described only the ingress
    */
   test("a resumed continuation is bounded by the route timeout", async () => {
     t = await testContext()
-      .with(suspending())
+      .with(deferring())
       .routes([
         craft()
           .id("payout")
@@ -187,7 +187,7 @@ describe("the filter chain on a resumed continuation", () => {
           // continuation's wait exceeds it several times over.
           .timeout(150)
           .from(direct())
-          .suspend({ schema: Approval })
+          .defer({ schema: Approval })
           .process(async (ex) => {
             await sleep(600);
             return ex;
@@ -198,7 +198,7 @@ describe("the filter chain on a resumed continuation", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asSuspended(
+    const parked = asDeferred(
       await t.client.sendDirect("payout", { amountCents: 10_000 }),
     );
     const receipt = (await t.client.sendDirect("answers", {
@@ -213,19 +213,19 @@ describe("the filter chain on a resumed continuation", () => {
   /**
    * @case A continuation abandoned by the route deadline stops below a bulkhead
    * @preconditions A route with route-scope .timeout() and .concurrency(), a continuation whose first step outlives the deadline and a second step that records whether it ran
-   * @expectedResult The step after the abandoned one never runs. The deadline records a failed terminal against a suspension the resume already claimed, so continuing past it would execute the payout after telling the answerer it failed, and the approval cannot be re-spent
+   * @expectedResult The step after the abandoned one never runs. The deadline records a failed terminal against a deferral the resume already claimed, so continuing past it would execute the payout after telling the answerer it failed, and the approval cannot be re-spent
    */
   test("an abandoned continuation stops rather than running past its deadline", async () => {
     let after = 0;
     t = await testContext()
-      .with(suspending())
+      .with(deferring())
       .routes([
         craft()
           .id("payout")
           .timeout(150)
           .concurrency({ max: 5 })
           .from(direct())
-          .suspend({ schema: Approval })
+          .defer({ schema: Approval })
           .process(async (ex) => {
             await sleep(600);
             return ex;
@@ -240,7 +240,7 @@ describe("the filter chain on a resumed continuation", () => {
       .build();
     await t.startAndWaitReady();
 
-    const parked = asSuspended(
+    const parked = asDeferred(
       await t.client.sendDirect("payout", { amountCents: 10_000 }),
     );
     const receipt = (await t.client.sendDirect("answers", {
@@ -256,8 +256,8 @@ describe("the filter chain on a resumed continuation", () => {
 
   /**
    * @case A saturated bulkhead delays a resumed continuation rather than refusing it
-   * @preconditions .concurrency({ max: 1, mode: "reject" }) on a route with a suspend before a slow step; two exchanges parked, then resumed together so the second finds no free slot
-   * @expectedResult Both continuations run and complete. A refusal here would be RC5026 recorded as the suspension's terminal outcome, destroying an approval for work that never ran, because the resume claims the suspension before the continuation starts. The bound still holds: the second waits for the slot the first is holding
+   * @preconditions .concurrency({ max: 1, mode: "reject" }) on a route with a defer before a slow step; two exchanges parked, then resumed together so the second finds no free slot
+   * @expectedResult Both continuations run and complete. A refusal here would be RC5026 recorded as the deferral's terminal outcome, destroying an approval for work that never ran, because the resume claims the deferral before the continuation starts. The bound still holds: the second waits for the slot the first is holding
    */
   test("a saturated bulkhead delays a continuation, never refuses it", async () => {
     let ran = 0;
@@ -265,13 +265,13 @@ describe("the filter chain on a resumed continuation", () => {
     let peak = 0;
 
     t = await testContext()
-      .with(suspending())
+      .with(deferring())
       .routes([
         craft()
           .id("payout")
           .concurrency({ max: 1, mode: "reject" })
           .from(direct())
-          .suspend({ schema: Approval })
+          .defer({ schema: Approval })
           .process(async (ex) => {
             ran++;
             inFlight++;
@@ -287,13 +287,13 @@ describe("the filter chain on a resumed continuation", () => {
     await t.startAndWaitReady();
 
     const parked = [
-      asSuspended(await t.client.sendDirect("payout", { amountCents: 10_000 })),
-      asSuspended(await t.client.sendDirect("payout", { amountCents: 20_000 })),
+      asDeferred(await t.client.sendDirect("payout", { amountCents: 10_000 })),
+      asDeferred(await t.client.sendDirect("payout", { amountCents: 20_000 })),
     ];
     const receipts = (await Promise.all(
-      parked.map((suspension) =>
+      parked.map((deferral) =>
         t!.client.sendDirect("answers", {
-          token: suspension.token,
+          token: deferral.token,
           result: { approved: true },
         }),
       ),
@@ -309,14 +309,14 @@ describe("the filter chain on a resumed continuation", () => {
 
   /**
    * @case A reject-mode bulkhead still only delays a continuation when retry and timeout wrap it
-   * @preconditions .retry() and .timeout() alongside .concurrency({ max: 1, mode: "reject" }) on a suspending route; two exchanges parked, then resumed together
+   * @preconditions .retry() and .timeout() alongside .concurrency({ max: 1, mode: "reject" }) on a deferring route; two exchanges parked, then resumed together
    * @expectedResult Both continuations complete. The bulkhead segment is built from the deps that carry the waiting form, and the nested definitions retry and timeout run under carry no concurrency position of their own, so no inner segment is built that could refuse
    */
   test("retry and timeout above the bulkhead do not restore refusal", async () => {
     let ran = 0;
 
     t = await testContext()
-      .with(suspending())
+      .with(deferring())
       .routes([
         craft()
           .id("payout")
@@ -324,7 +324,7 @@ describe("the filter chain on a resumed continuation", () => {
           .timeout(2_000)
           .concurrency({ max: 1, mode: "reject" })
           .from(direct())
-          .suspend({ schema: Approval })
+          .defer({ schema: Approval })
           .process(async (ex) => {
             ran++;
             await sleep(40);
@@ -337,13 +337,13 @@ describe("the filter chain on a resumed continuation", () => {
     await t.startAndWaitReady();
 
     const parked = [
-      asSuspended(await t.client.sendDirect("payout", { amountCents: 10_000 })),
-      asSuspended(await t.client.sendDirect("payout", { amountCents: 20_000 })),
+      asDeferred(await t.client.sendDirect("payout", { amountCents: 10_000 })),
+      asDeferred(await t.client.sendDirect("payout", { amountCents: 20_000 })),
     ];
     const receipts = (await Promise.all(
-      parked.map((suspension) =>
+      parked.map((deferral) =>
         t!.client.sendDirect("answers", {
-          token: suspension.token,
+          token: deferral.token,
           result: { approved: true },
         }),
       ),
@@ -365,13 +365,13 @@ describe("the filter chain on a resumed continuation", () => {
   test("a continuation queued at shutdown is admitted, not failed", async () => {
     let ran = 0;
     const context = await testContext()
-      .with(suspending())
+      .with(deferring())
       .routes([
         craft()
           .id("payout")
           .concurrency({ max: 1 })
           .from(direct())
-          .suspend({ schema: Approval })
+          .defer({ schema: Approval })
           .process(async (ex) => {
             ran++;
             await sleep(120);
@@ -384,18 +384,18 @@ describe("the filter chain on a resumed continuation", () => {
     await context.startAndWaitReady();
 
     const parked = [
-      asSuspended(
+      asDeferred(
         await context.client.sendDirect("payout", { amountCents: 10_000 }),
       ),
-      asSuspended(
+      asDeferred(
         await context.client.sendDirect("payout", { amountCents: 20_000 }),
       ),
     ];
 
     const answered = Promise.all(
-      parked.map((suspension) =>
+      parked.map((deferral) =>
         context.client.sendDirect("answers", {
-          token: suspension.token,
+          token: deferral.token,
           result: { approved: true },
         }),
       ),

@@ -42,7 +42,7 @@ export function renderDispatch(
   if (format === "json") return asJson(outcome);
   if (format === "raw") {
     if (outcome.outcome === "completed") return asRaw(outcome.body);
-    if (outcome.outcome === "suspended") return asJson(outcome.suspension);
+    if (outcome.outcome === "deferred") return asJson(outcome.deferral);
     return asRaw(outcome.message);
   }
 
@@ -54,14 +54,14 @@ export function renderDispatch(
     return `Dropped: the route filtered this exchange out before it produced a result.\n${outcome.message}`;
   }
 
-  const { suspension } = outcome;
+  const { deferral } = outcome;
   const lines = [
-    "Suspended: the route parked this exchange and will finish it when it is resumed.",
-    `  suspension  ${suspension.suspensionId}`,
-    `  token       ${suspension.token}`,
+    "Deferred: the route parked this exchange and will finish it when it is resumed.",
+    `  deferral  ${deferral.deferralId}`,
+    `  token       ${deferral.token}`,
   ];
-  if (suspension.expiresAt !== undefined) {
-    lines.push(`  expires     ${suspension.expiresAt}`);
+  if (deferral.expiresAt !== undefined) {
+    lines.push(`  expires     ${deferral.expiresAt}`);
   }
   lines.push(
     "",

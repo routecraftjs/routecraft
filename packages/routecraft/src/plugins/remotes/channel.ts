@@ -6,7 +6,7 @@
  * and a `directTool` all reach it through the code paths they already use.
  * A send becomes `POST /ops/routes/{id}/exchanges` on the remote, and the
  * remote's outcome is mapped onto the in-process one: a completed exchange
- * is the body, a drop is `RC5031`, a park is the standard `Suspended`
+ * is the body, a drop is `RC5031`, a park is the standard `Deferred`
  * acknowledgment, and the door's own refusals and failures become codes a
  * caller can tell apart.
  */
@@ -16,7 +16,7 @@ import { rcError } from "../../error";
 import { DefaultExchange, type Exchange } from "../../exchange";
 import type { DirectChannel } from "../../adapters/direct/types";
 import { InMemoryDirectChannel } from "../../adapters/direct/shared";
-import { createSuspended } from "../../suspension/suspended";
+import { createDeferred } from "../../deferral/deferred";
 import { OpsClientError, type OpsHttpClient } from "../ops/client";
 
 /** What a channel needs to know about the route it fronts. */
@@ -105,16 +105,16 @@ export class RemoteDirectChannel implements DirectChannel<Exchange> {
           body: outcome.body,
           headers: exchange.headers,
         });
-      case "suspended": {
+      case "deferred": {
         // Re-branded so the local transports recognise the park the way they
         // recognise one of their own: the ops door answers 202, an agent
-        // tool reports it, and a route with `.suspend()` downstream is not
+        // tool reports it, and a route with `.defer()` downstream is not
         // fooled by a body that merely looks parked. Resume stays at the
         // remote's door, under the remote's policy.
-        const { suspensionId, token, schema, expiresAt } = outcome.suspension;
+        const { deferralId, token, schema, expiresAt } = outcome.deferral;
         return new DefaultExchange(ctx, {
-          body: createSuspended({
-            suspensionId,
+          body: createDeferred({
+            deferralId,
             token,
             ...(schema !== undefined ? { schema } : {}),
             ...(expiresAt !== undefined ? { expiresAt } : {}),

@@ -21,7 +21,7 @@ import {
 } from "@routecraft/routecraft";
 import {
   spy,
-  suspending,
+  deferring,
   testContext,
   type TestContext,
 } from "@routecraft/testing";
@@ -164,11 +164,11 @@ describe("MCP structured output (#574)", () => {
   });
 
   /**
-   * @case A suspendable tool's acknowledgment reaches the client in the shape its own advertisement promises
-   * @preconditions mcp()-fronted route with .output() and a reachable .suspend(), so tools/list advertises a oneOf root; the real SDK client
+   * @case A deferrable tool's acknowledgment reaches the client in the shape its own advertisement promises
+   * @preconditions mcp()-fronted route with .output() and a reachable .defer(), so tools/list advertises a oneOf root; the real SDK client
    * @expectedResult The park answers rather than failing the call, and the acknowledgment arrives inside the result envelope, matching the wrap the same era applies to the oneOf-rooted advertisement
    */
-  test("a suspension acknowledgment matches the advertised union", async () => {
+  test("a deferral acknowledgment matches the advertised union", async () => {
     const connected = await connect(
       [
         craft()
@@ -176,10 +176,10 @@ describe("MCP structured output (#574)", () => {
           .description("Parks for approval before paying out")
           .output({ body: z.object({ paid: z.boolean() }) })
           .from<{ amount: number }>(mcp())
-          .suspend({ schema: z.object({ approved: z.boolean() }) })
+          .defer({ schema: z.object({ approved: z.boolean() }) })
           .transform(() => ({ paid: true })) as AnyRouteBuilder,
       ],
-      suspending(),
+      deferring(),
     );
 
     const { tools } = await connected.listTools();
@@ -199,7 +199,7 @@ describe("MCP structured output (#574)", () => {
     const envelope = result.structuredContent as {
       result: Record<string, unknown>;
     };
-    expect(envelope.result).toMatchObject({ status: "suspended" });
+    expect(envelope.result).toMatchObject({ status: "deferred" });
     expect(typeof envelope.result["token"]).toBe("string");
   });
 
@@ -230,20 +230,20 @@ describe("MCP structured output (#574)", () => {
 
   /**
    * @case The advertisement travels with the value instead of being looked up again
-   * @preconditions mcp()-fronted suspendable route (oneOf root, so the wrap depends entirely on the schema); handleToolCall driven directly, then the route's entry deleted from the live registry as an unsubscribe would
+   * @preconditions mcp()-fronted deferrable route (oneOf root, so the wrap depends entirely on the schema); handleToolCall driven directly, then the route's entry deleted from the live registry as an unsubscribe would
    * @expectedResult The result carries the advertised schema it was produced under, and still carries it after the entry is gone, so a route that unsubscribes while parked cannot have its acknowledgment published against a schema the server can no longer find
    */
   test("the result carries the schema it was produced under", async () => {
     t = await testContext()
       .store(MCP_STORE_KEY, true)
-      .with(suspending())
+      .with(deferring())
       .routes([
         craft()
           .id("approve-payout")
           .description("Parks for approval before paying out")
           .output({ body: z.object({ paid: z.boolean() }) })
           .from<{ amount: number }>(mcp())
-          .suspend({ schema: z.object({ approved: z.boolean() }) })
+          .defer({ schema: z.object({ approved: z.boolean() }) })
           .transform(() => ({ paid: true })) as AnyRouteBuilder,
       ])
       .build();

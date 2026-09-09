@@ -4,11 +4,11 @@ import type { AddressInfo } from "node:net";
 import { z } from "zod";
 import { signHs256, testContext, type TestContext } from "@routecraft/testing";
 import {
-  MemorySuspensionStore,
+  MemoryDeferralStore,
   OpsClientError,
   craft,
   direct,
-  isSuspended,
+  isDeferred,
   jwt,
   noop,
   opsPlugin,
@@ -35,7 +35,7 @@ import { rcCodeOf } from "../src/brand.ts";
 const JWT_SECRET = "remotes-jwt-secret-please-change-me";
 const JWT_ISSUER = "https://idp.test";
 const JWT_AUDIENCE = "https://api.test";
-const SUSPENSION_SECRET = "remotes-suspension-secret-0123456789";
+const DEFERRAL_SECRET = "remotes-deferral-secret-0123456789";
 
 /**
  * A credential admitted to both tiers, minted per request: the helper's
@@ -94,7 +94,7 @@ function serverRoutes(): Routes {
       .description("Parks until approved")
       .input({ body: z.object({}) })
       .from(direct())
-      .suspend({ schema: z.object({ approved: z.boolean() }) })
+      .defer({ schema: z.object({ approved: z.boolean() }) })
       .to(noop()),
   ];
 }
@@ -108,9 +108,9 @@ async function startServer(options: { port?: number } = {}): Promise<Instance> {
   const t = await testContext()
     .with({
       servers: { default: { port: options.port ?? 0, host: "127.0.0.1" } },
-      suspension: {
-        store: new MemorySuspensionStore(),
-        secret: SUSPENSION_SECRET,
+      deferral: {
+        store: new MemoryDeferralStore(),
+        secret: DEFERRAL_SECRET,
       },
       plugins: [
         opsPlugin({
@@ -703,9 +703,9 @@ describe("remotes", () => {
   /**
    * @case Every dispatch outcome maps onto the in-process one, against the real door
    * @preconditions Routes on the remote that complete, drop, park and fail; one remote named with a credential admitted to the listing but not to dispatch
-   * @expectedResult completed is the body; dropped is `RC5031`; suspended is the branded `Suspended` acknowledgment; a remote failure is `RC5064` carrying the remote's code with the client's error as cause; the refused dispatch is `RC5063` naming the missing scope. A caller can tell a credential problem from a broken route
+   * @expectedResult completed is the body; dropped is `RC5031`; deferred is the branded `Deferred` acknowledgment; a remote failure is `RC5064` carrying the remote's code with the client's error as cause; the refused dispatch is `RC5063` naming the missing scope. A caller can tell a credential problem from a broken route
    */
-  test("maps completed, dropped, suspended, failed and refused onto local outcomes", async () => {
+  test("maps completed, dropped, deferred, failed and refused onto local outcomes", async () => {
     server = await startServer();
     const url = `http://127.0.0.1:${String(server.port)}`;
     local = await startLocal({
@@ -723,8 +723,8 @@ describe("remotes", () => {
     expect(rcCodeOf(dropped)).toBe("RC5031");
 
     const parked = await send("lab:payout", {});
-    expect(isSuspended(parked)).toBe(true);
-    expect((parked as { suspensionId: string }).suspensionId).toBeTruthy();
+    expect(isDeferred(parked)).toBe(true);
+    expect((parked as { deferralId: string }).deferralId).toBeTruthy();
 
     const failed = await rejection(send("lab:boom", {}));
     expect(rcCodeOf(failed)).toBe("RC5064");

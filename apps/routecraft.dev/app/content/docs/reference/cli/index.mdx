@@ -179,7 +179,7 @@ discovery supplies only what it left out. Every discovered capability, plugin an
 logged with the file it came from.
 
 `--once` is for CI smoke checks and cron-style one-shot invocations. A failure, a drop and a
-suspension all count as terminal alongside a completion, so a broken or parked exchange
+deferral all count as terminal alongside a completion, so a broken or parked exchange
 reports instead of hanging until the job is killed; a first exchange that failed exits
 non-zero.
 
@@ -236,7 +236,7 @@ Flags become a flat body: a value may be joined with `=` or follow as its own ar
 
 **Only some routes are dispatchable.** A `direct()` ingress makes a route id into a door; a route sourced from `cron()`, `mail()` or `http()` runs from its own trigger and has none. `craft exec` with no route named lists exactly the routes that will accept a dispatch.
 
-**A parked exchange is a success.** A route that reaches a durable `.suspend()` replies with the standard [`Suspended`](/docs/advanced/durable-agents) acknowledgment instead of its output, and `craft exec` renders it as an outcome at exit `0`, with the suspension id, the resume token and the expiry. It is not an error, and the operator at the terminal is often exactly who the park is waiting for.
+**A parked exchange is a success.** A route that reaches a durable `.defer()` replies with the standard [`Deferred`](/docs/advanced/durable-agents) acknowledgment instead of its output, and `craft exec` renders it as an outcome at exit `0`, with the deferral id, the resume token and the expiry. It is not an error, and the operator at the terminal is often exactly who the park is waiting for.
 
 Exit codes, which are the API for anything scripting this:
 

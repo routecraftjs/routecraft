@@ -2,7 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
   DefaultExchange,
-  MemorySuspensionStore,
+  MemoryDeferralStore,
   craft,
   direct,
   noop,
@@ -25,13 +25,13 @@ describe("parkAside", () => {
 
   /**
    * @case A park after an aside park in the same run takes a fresh id
-   * @preconditions A context with a memory suspension store; one exchange parked aside twice, with ex.suspension.id read between the two
-   * @expectedResult The second park's id differs from the first, both records exist in the store, and ex.suspension.id after the first park is the id the second park takes. With the sequence left on the record alone the second create collides with the first
+   * @preconditions A context with a memory deferral store; one exchange parked aside twice, with ex.deferral.id read between the two
+   * @expectedResult The second park's id differs from the first, both records exist in the store, and ex.deferral.id after the first park is the id the second park takes. With the sequence left on the record alone the second create collides with the first
    */
   test("advances the sequence the live exchange reads", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await testContext()
-      .with({ suspension: { store } })
+      .with({ deferral: { store } })
       .routes([craft().id("r").from(direct()).to(noop())])
       .build();
     await t.startAndWaitReady();
@@ -40,25 +40,25 @@ describe("parkAside", () => {
     const first = await parkAside(t.ctx, exchange, site, "r", (id) => ({
       id,
     }));
-    const next = exchange.suspension.id;
-    expect(next).not.toBe(first.suspensionId);
+    const next = exchange.deferral.id;
+    expect(next).not.toBe(first.deferralId);
     const second = await parkAside(t.ctx, exchange, site, "r", (id) => ({
       id,
     }));
-    expect(second.suspensionId).toBe(next);
-    expect(await store.get(first.suspensionId)).toBeDefined();
-    expect(await store.get(second.suspensionId)).toBeDefined();
+    expect(second.deferralId).toBe(next);
+    expect(await store.get(first.deferralId)).toBeDefined();
+    expect(await store.get(second.deferralId)).toBeDefined();
   });
 
   /**
    * @case The caller learns the id before the record exists, and a failing announcement leaves no record
-   * @preconditions A context with a memory suspension store; one park with an announce hook that records whether the store held the id when it ran; a second park whose announce hook throws
+   * @preconditions A context with a memory deferral store; one park with an announce hook that records whether the store held the id when it ran; a second park whose announce hook throws
    * @expectedResult The first hook saw no record for the id and the park then exists under that id; the second park rejects with the hook's error and the store holds no record for it
    */
   test("announces the id before the record is written", async () => {
-    const store = new MemorySuspensionStore();
+    const store = new MemoryDeferralStore();
     t = await testContext()
-      .with({ suspension: { store } })
+      .with({ deferral: { store } })
       .routes([craft().id("r").from(direct()).to(noop())])
       .build();
     await t.startAndWaitReady();
@@ -77,10 +77,10 @@ describe("parkAside", () => {
         existedWhenAnnounced = (await store.get(id)) !== undefined;
       },
     );
-    expect(announced).toBe(first.suspensionId);
+    expect(announced).toBe(first.deferralId);
     expect(existedWhenAnnounced).toBe(false);
-    expect(await store.get(first.suspensionId)).toBeDefined();
-    const before = MemorySuspensionStore.unsafeRecords(store).size;
+    expect(await store.get(first.deferralId)).toBeDefined();
+    const before = MemoryDeferralStore.unsafeRecords(store).size;
     await expect(
       parkAside(
         t.ctx,
@@ -93,6 +93,6 @@ describe("parkAside", () => {
         },
       ),
     ).rejects.toThrow(/record write refused/);
-    expect(MemorySuspensionStore.unsafeRecords(store).size).toBe(before);
+    expect(MemoryDeferralStore.unsafeRecords(store).size).toBe(before);
   });
 });

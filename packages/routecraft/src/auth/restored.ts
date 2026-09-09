@@ -15,18 +15,18 @@ const restored = new WeakSet<object>();
 /**
  * Mark a principal as restored from durable storage, and freeze it.
  *
- * A suspended exchange is serialized to a store and rehydrated hours or
+ * A deferred exchange is serialized to a store and rehydrated hours or
  * days later, possibly in a different process. What comes back is the
- * SHAPE of the principal that was verified at suspend time, with nothing
+ * SHAPE of the principal that was verified at defer time, with nothing
  * behind it: no live token, no signature check, no revocation lookup. It is
  * therefore deliberately NOT authentic. `authorize()` rejects it with
  * `RC5043`, which is the whole point of this mark: without it, a rehydrated
  * principal would be indistinguishable from a self-asserted plain object
  * and would report the confusing `RC5023` ("not established by a trusted
  * origin") instead of the actionable "this identity came back from a
- * suspension; re-verify it".
+ * deferral; re-verify it".
  *
- * This closes the direct route back to #355's bug class. Suspension is the
+ * This closes the direct route back to #355's bug class. Deferral is the
  * easiest way to reintroduce laundering, because the natural implementation
  * is to re-mark whatever principal was serialized as authentic on the way
  * back in.
@@ -35,7 +35,7 @@ const restored = new WeakSet<object>();
  * running as, and `resumedBy` records who resumed it. What it cannot do is
  * pass an authorization check on its own.
  *
- * @param principal - The principal shape read back from a suspension.
+ * @param principal - The principal shape read back from a deferral.
  * @returns A frozen copy registered as restored. Always use the return
  *   value; the argument is neither mutated nor frozen.
  */

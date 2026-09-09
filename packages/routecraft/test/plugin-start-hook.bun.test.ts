@@ -9,7 +9,7 @@ const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
  *
  * `apply()` wires the context at build time, when no route is running.
  * `start()` begins work, and its whole reason to exist is that the routes
- * are up by the time it runs: the suspension sweeper re-enters a route's
+ * are up by the time it runs: the deferral sweeper re-enters a route's
  * error channel, which a route that has not started cannot serve. These
  * pin that ordering and the failure contract, because a plugin that starts
  * a timer and then throws is how a process ends up alive with no visible
@@ -120,7 +120,7 @@ describe("the plugin start hook", () => {
   /**
    * @case A context is not ready until its start hooks have finished
    * @preconditions A plugin whose start() takes measurably longer than the routes do to come up
-   * @expectedResult startAndWaitReady() does not resolve first. Readiness that meant only routes-up would let a test assert against work a start hook had not yet done, which is precisely how the suspension sweeper's downtime scan would be raced
+   * @expectedResult startAndWaitReady() does not resolve first. Readiness that meant only routes-up would let a test assert against work a start hook had not yet done, which is precisely how the deferral sweeper's downtime scan would be raced
    */
   test("is not ready until the start hooks have finished", async () => {
     let finished = false;
@@ -204,7 +204,7 @@ describe("the plugin start hook", () => {
 
   /**
    * @case A context that refuses its own config before it reaches the plugins
-   * @preconditions A route that can reach .suspend() with no suspension block, so start() throws RC5052 before any hook runs
+   * @preconditions A route that can reach .defer() with no deferral block, so start() throws RC5052 before any hook runs
    * @expectedResult whenStarted() rejects with that error. A readiness signal that only settles once the plugin phase is reached leaves the two most common startup failures pending forever, so a broken process reports "still starting" instead of failing
    */
   test("whenStarted rejects when the context refuses its config", async () => {
@@ -213,7 +213,7 @@ describe("the plugin start hook", () => {
         craft()
           .id("payout")
           .from(direct())
-          .suspend({ schema: { "~standard": undefined } as never })
+          .defer({ schema: { "~standard": undefined } as never })
           .to(noop()),
       ])
       .build());
@@ -254,7 +254,7 @@ describe("the plugin start hook", () => {
   /**
    * @case Two concurrent start() calls collapse into one boot
    * @preconditions A plugin counting its start() invocations, with start() called twice without awaiting
-   * @expectedResult Both calls share one boot and the hook runs once. A double boot would run every start() hook twice, and the suspension plugin's second sweeper would orphan the first against a store that outlives neither
+   * @expectedResult Both calls share one boot and the hook runs once. A double boot would run every start() hook twice, and the deferral plugin's second sweeper would orphan the first against a store that outlives neither
    */
   test("concurrent starts collapse into one boot", async () => {
     let started = 0;

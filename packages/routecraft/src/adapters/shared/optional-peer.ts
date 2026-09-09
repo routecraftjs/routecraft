@@ -9,14 +9,14 @@ import { rcError } from "../../error.ts";
  * misleading "install &lt;pkg&gt;" suggestion.
  *
  * Use this anywhere a driver is declared as an optional peer dependency,
- * not only in adapters: the suspension store and the telemetry SQLite sink
+ * not only in adapters: the deferral store and the telemetry SQLite sink
  * are neither adapters nor in an adapter directory, and both load one. Pass
  * a thunk like `() => import("croner")` so the bundler sees the literal
  * package name and can keep it external.
  *
  * @param loader - Thunk that performs the dynamic `import("...")` call.
  * @param ctx - Names used in the error message: the subsystem that wanted
- *              the package (`cron adapter`, `suspension store (sqlite)`,
+ *              the package (`cron adapter`, `deferral store (sqlite)`,
  *              ...) and the missing package itself. `consumer` is used as
  *              written, so it carries its own noun.
  */
