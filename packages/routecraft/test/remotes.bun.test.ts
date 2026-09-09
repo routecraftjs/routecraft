@@ -521,6 +521,64 @@ describe("remotes", () => {
   });
 
   /**
+   * @case A local route that stopped before the first inventory arrived does not shadow the remote route
+   * @preconditions A local `hello` beside a default remote that is unreachable at boot; the local route is stopped, then the remote comes up and is imported
+   * @expectedResult The inventory finds the stale local capability and a dead channel, and installs the remote route over both: `hello` carries `remote: "default"`, dispatches to the remote, and is listed as imported. A registry entry that outlived its route must never be read as a live shadow
+   */
+  test("does not let a route stopped before the inventory shadow the remote route", async () => {
+    const port = await reservePort();
+    local = await startLocal({
+      remotes: {
+        default: {
+          url: `http://127.0.0.1:${String(port)}`,
+          auth: { token: operator },
+          refresh: "100ms",
+        },
+      },
+      routes: [
+        craft()
+          .id("hello")
+          .description("The local greeter")
+          .input({ body: z.object({ name: z.string() }) })
+          .from(direct())
+          .transform(() => ({ greeting: "local" }))
+          .to(noop()),
+      ],
+    });
+    const capability = () =>
+      local!.t.ctx.capabilities().find((c) => c.endpoint === "hello");
+    expect(capability()?.remote).toBeUndefined();
+
+    const route = local.t.ctx
+      .getRoutes()
+      .find((r) => r.definition.id === "hello");
+    if (route === undefined) throw new Error("the local route is missing");
+    route.stop();
+    expect(rcCodeOf(await rejection(send("hello", { name: "x" })))).toBe(
+      "RC5004",
+    );
+
+    server = await startServer({ port });
+    await until(
+      () => capability()?.remote === "default",
+      "the remote route to take the endpoint",
+    );
+    expect(await send("hello", { name: "late" })).toEqual({
+      greeting: "hello late",
+    });
+    const listing = await call<OpsPage<OpsRouteSummary>>(
+      local.port,
+      "/ops/routes?id=hello",
+    );
+    expect(listing.body.items).toHaveLength(1);
+    expect(listing.body.items[0]).toMatchObject({
+      id: "hello",
+      sources: ["remote"],
+      remote: "default",
+    });
+  });
+
+  /**
    * @case A connection lost after the request was sent is not retryable; one that never opened is
    * @preconditions A stand-in remote that lists one route and, on dispatch, reads the body and drops the socket without answering; then the same remote gone entirely
    * @expectedResult The dropped dispatch is `RC5062` with `retryable: false` and a message saying the remote may have received the request; the dispatch against the closed port is `RC5062` with `retryable: true`. A route that may already have run must not be retried by the framework's default policy
