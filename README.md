@@ -30,24 +30,28 @@ Routecraft is a type-safe framework for AI automation. Build the tools an agent 
 ### Write a capability
 
 ```ts
-import { mcp } from '@routecraft/ai'
 import { craft, mail } from '@routecraft/routecraft'
+import { mcp } from '@routecraft/ai'
 import { z } from 'zod'
 
-// Define a capability AI can call
+const SendTeamEmail = z.object({
+  to: z
+    .string()
+    .email()
+    .refine((email) => email.endsWith('@company.com'), 'Can only send to @company.com addresses'),
+  subject: z.string(),
+  message: z.string(),
+})
+
+// The route id is the tool name; description and input schema live on the
+// route, so every call is validated before any of your code runs.
 export default craft()
-  .from(mcp('send-team-email', {
-    description: 'Send email to team members',
-    schema: z.object({ 
-      to: z.string().email().refine(
-        email => email.endsWith('@company.com'),
-        'Can only send to @company.com addresses'
-      ),
-      subject: z.string(),
-      message: z.string()
-    })
-  }))
-  .to(mail())  // Config loaded from context
+  .id('send-team-email')
+  .description('Send an email to a team member')
+  .input({ body: SendTeamEmail })
+  .from(mcp())
+  .transform(({ to, subject, message }) => ({ to, subject, text: message }))
+  .to(mail()) // the account comes from craft.config.ts
 ```
 
 ### Expose to Claude Desktop
@@ -59,7 +63,7 @@ Add to `~/Library/Application Support/Claude/claude_desktop_config.json`:
   "mcpServers": {
     "my-tools": {
       "command": "bunx",
-      "args": ["@routecraft/cli", "run", "./routes/tools.mjs"]
+      "args": ["@routecraft/cli", "run", "./capabilities/send-team-email.ts"]
     }
   }
 }
@@ -84,13 +88,12 @@ Claude discovers your tool and uses it automatically. ✨
 ## Monorepo Structure
 
 - `packages/routecraft` – Core library (builder, DSL, context, adapters, consumers)
-- `packages/ai` – AI integrations: LLM providers, agents, embeddings, MCP server / client
-- `packages/browser` – Browser automation adapter (headless / headed via agent-browser)
+- `packages/ai` – AI integrations: LLM providers, agents, embeddings, MCP server / client, ACP
 - `packages/cli` – `craft` CLI to run capabilities and start contexts (Bun >= 1.1.0)
 - `packages/create-routecraft` – Project scaffolder (`bunx create-routecraft`)
 - `packages/eslint-plugin-routecraft` – ESLint rules for capability authoring
 - `packages/prettier-plugin-routecraft` – Prettier plugin for compact DSL formatting
-- `packages/os` – System-native adapters (shell, etc.) – placeholder, in development
+- `packages/os` – System-native adapters: isolated subprocess execution via `shell()`, browser automation via `agentBrowser()`
 - `packages/testing` – Test utilities (`testContext`, spy logger, `mockAdapter`, fixtures)
 - `skills/` – Agent Skills for authoring Routecraft (Claude Code, Cursor, Codex, Windsurf, Cline, Continue, Copilot, ...; `bunx skills add routecraftjs/routecraft`). See [skills/README.md](./skills/README.md)
 - `apps/routecraft.dev` – Documentation site (docs, examples, guides)
@@ -98,7 +101,7 @@ Claude discovers your tool and uses it automatically. ✨
 
 ## Examples
 
-Browse runnable examples in [`examples/src/`](./examples/src/): `hello-world.ts`, `mcp-greet.ts`, `agent.ts`, `mail-noreply-notify.ts`, `programmatic-invocation.ts`, `split.ts`. Each demonstrates a different feature combination.
+Browse runnable examples in [`examples/src/`](./examples/src/): `hello-world.ts`, `mcp-greet.ts`, `agent.ts`, `find-product.ts`, `mail-noreply-notify.ts`, `programmatic-invocation.ts`, `split.ts`. Each demonstrates a different feature combination.
 
 Try one:
 
