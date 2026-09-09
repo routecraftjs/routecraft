@@ -513,7 +513,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Runtime",
     message: "Deferral continuation changed",
     suggestion:
-      "The steps after the defer point (or the `expect` schema) changed while the exchange was deferred, so the stored approval no longer authorizes what would now run. Resuming is refused before any of those steps execute. This is catchable: the deferred route's `.error()` handler receives it and can re-ask with a fresh deferral. Note the hash also moves for edits that change emitted step source without changing behaviour (a formatting pass, different line endings, a build-settings change), so deployments that deferral approvals for days should pin those.",
+      "The steps after the defer point (or the `expect` schema) changed while the exchange was deferred, so the stored approval no longer authorizes what would now run. Resuming is refused before any of those steps execute. This is catchable: the deferred route's `.error()` handler receives it and can re-ask with a fresh deferral. Note the hash also moves for edits that change emitted step source without changing behaviour (a formatting pass, different line endings, a build-settings change), so deployments that defer approvals for days should pin those.",
     docs: `${DOCS_BASE}#rc-5048`,
     retryable: false,
   },
@@ -537,7 +537,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Definition",
     message: "Defer not supported at this position",
     suggestion:
-      "A `.defer()` was declared where the framework cannot durably deferral and revive the exchange: inside a `.split()` fan-out between the split and its `.aggregate()` (a durable aggregator would have to track N outstanding children across restarts), or inside a `.multicast()` path or `.dispatch()` target (those exchanges are isolated side flows rather than the route's primary flow, so a resumed continuation would have nowhere to rejoin). Move the defer out of the fan-out, or split the work into per-item child capabilities, each its own exchange deferring independently; on the main flow or a `.choice()` branch of it, a defer is fine. A `.defer()` under a step-scope wrapper is refused separately, as RC5003.",
+      "A `.defer()` was declared where the framework cannot durably defer and revive the exchange: inside a `.split()` fan-out between the split and its `.aggregate()` (a durable aggregator would have to track N outstanding children across restarts), or inside a `.multicast()` path or `.dispatch()` target (those exchanges are isolated side flows rather than the route's primary flow, so a resumed continuation would have nowhere to rejoin). Move the defer out of the fan-out, or split the work into per-item child capabilities, each its own exchange deferring independently; on the main flow or a `.choice()` branch of it, a defer is fine. A `.defer()` under a step-scope wrapper is refused separately, as RC5003.",
     docs: `${DOCS_BASE}#rc-5051`,
     retryable: false,
   },

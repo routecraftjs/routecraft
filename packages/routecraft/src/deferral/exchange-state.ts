@@ -27,7 +27,7 @@ export const DeferralHeaders = {
    * `routecraft.id` by design, so without this a token minted inside a
    * `.tap()` notification would name a deferral that never exists. The
    * canonical "notify before deferring" step is exactly such a tap, so the affordance follows this key back to the exchange that will
-   * actually deferral.
+   * actually defers.
    */
   OWNER: "routecraft.deferral.owner",
   /** The validated resume payload, written by the resume path before the continuation runs. */

@@ -875,7 +875,7 @@ A denied deferral is terminal. Re-submit the work as a new exchange rather than 
 Defer not supported at this position
 
 **Why it happens**  
-A `.defer()` was declared where the framework cannot durably deferral and revive the exchange: inside a `.split()` that no `.aggregate()` balances, or inside a `.multicast()` path or `.dispatch()` target.
+A `.defer()` was declared where the framework cannot durably defer and revive the exchange: inside a `.split()` that no `.aggregate()` balances, or inside a `.multicast()` path or `.dispatch()` target.
 
 **Suggestion**  
 Split the work into per-item child capabilities, each its own exchange deferring independently, or move the defer onto the main flow or a `.choice()` branch of it. Raised at `craft()` build time, so it fails on the deploy that introduced it.

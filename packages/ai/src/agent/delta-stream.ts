@@ -92,7 +92,7 @@ export function streamAgentDeltas(
   return {
     async *[Symbol.asyncIterator](): AsyncGenerator<AgentDelta> {
       // One consumer only. Two iterators share `wakeConsumer`'s single slot,
-      // so the second overwrites the first's resolver and both deferral forever;
+      // so the second overwrites the first's resolver and both hang forever;
       // a named refusal beats a deadlock.
       if (started) {
         throw rcError("RC5003", undefined, {

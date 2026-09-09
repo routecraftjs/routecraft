@@ -78,7 +78,7 @@ import type { SerializedExchange, DeferralSchema } from "./types.ts";
  * build that changes emitted text (a different minifier, new bundler
  * settings, a TypeScript target bump) all move it for steps whose behaviour
  * did not change. Every one of those outcomes is an error-channel re-ask,
- * never a wrong resume. Deployments that deferral approvals for days should pin
+ * never a wrong resume. Deployments that defer approvals for days should pin
  * line endings and build settings; the configuration reference says so for
  * users.
  *

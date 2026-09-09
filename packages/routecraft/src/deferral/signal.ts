@@ -69,7 +69,7 @@ export class DeferSignal extends Error {
   constructor(request: DeferSignalRequest) {
     super(
       "A durable deferral was raised from a step without a revivable defer site. " +
-        "A deferral can only deferral from a .to() / .enrich() step of a built route's " +
+        "A deferral can only be raised from a .to() / .enrich() step of a built route's " +
         "primary flow (or a .choice() branch of it): not from a .tap() snapshot, a " +
         ".multicast() path, a .dispatch() target, inside a .split() fan-out, or a " +
         "dispatch that never entered a route.",

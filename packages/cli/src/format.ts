@@ -57,7 +57,7 @@ export function renderDispatch(
   const { deferral } = outcome;
   const lines = [
     "Deferred: the route deferred this exchange and will finish it when it is resumed.",
-    `  deferral  ${deferral.deferralId}`,
+    `  deferral    ${deferral.deferralId}`,
     `  token       ${deferral.token}`,
   ];
   if (deferral.expiresAt !== undefined) {

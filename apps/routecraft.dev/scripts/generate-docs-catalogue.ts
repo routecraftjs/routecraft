@@ -444,7 +444,7 @@ function documents(
  * Not `DATA_DIR`: the freeze replaces the docs content wholesale, so on a tag
  * that predates _data that directory is gone by the time this runs, and reading
  * it yielded nothing at all. Main's copy survives at the next channel's _data,
- * which generate-docs-next.ts writes before the freeze and the workflow defers
+ * which generate-docs-next.ts writes before the freeze and the workflow stashes
  * across it.
  */
 function repositoryDataDir(): string | undefined {

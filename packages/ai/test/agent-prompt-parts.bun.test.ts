@@ -59,7 +59,7 @@ function deferringRoutes(
 }
 
 /**
- * The deferral wiring both deferral tests share. The store, the secret and the
+ * The deferral wiring both defer tests share. The store, the secret and the
  * plugin list all have to agree for a deferral to be resumable, so they are
  * written once rather than per test.
  */

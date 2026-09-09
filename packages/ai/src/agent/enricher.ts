@@ -377,7 +377,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
       }
       if (resume !== undefined) {
         throw rcError("RC5003", undefined, {
-          message: `Agent: a resumed deferral cannot re-enter an agent dispatched with "session". A session turn is not deferrable; drop "session" on this route or deferral from a sessionless agent.`,
+          message: `Agent: a resumed deferral cannot re-enter an agent dispatched with "session". A session turn is not deferrable; drop "session" on this route or defer from a sessionless agent.`,
         });
       }
       const interrupt = perCall?.interrupt ?? merged.interrupt;

@@ -705,7 +705,7 @@ describe("agent sessions", () => {
       version: 0,
     });
     await expect(send(t, { session: "old", message: "b" })).rejects.toThrow(
-      /version 0.*version 2/,
+      /version 0.*version 3/,
     );
     expect(llm.calls).toHaveLength(1);
   });

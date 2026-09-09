@@ -563,12 +563,12 @@ function migrate(db: SqliteDatabase): void {
     onFailure: (failure) => {
       if (failure.kind === "foreign") {
         return rcError("RC5044", undefined, {
-          message: `This file is not a deferral store; ${describeSqliteFile(failure)}. Point deferral.store.path at its own file: every store keeps one, and they cannot share.`,
+          message: `This file is not a deferral store; ${describeSqliteFile(failure)}. Point deferral.store.path at its own file: every store keeps one, and they cannot share. A deferral file written by a 0.7.0 canary also arrives here, because the store's identity moved with the rename: delete it, since canary records are not carried into the release.`,
         });
       }
       if (failure.kind === "downgrade") {
         return rcError("RC5044", undefined, {
-          message: `Deferral store schema version ${failure.current} is newer than this build understands (${SCHEMA_VERSION}). Run the newer Routecraft build, or point deferral.store.path at a fresh file. A file written by a 0.7.0 canary reports version 4: the schema was reset to 1 for the release and those files are not carried forward, so delete it rather than looking for a newer build.`,
+          message: `Deferral store schema version ${failure.current} is newer than this build understands (${SCHEMA_VERSION}). Run the newer Routecraft build, or point deferral.store.path at a fresh file.`,
         });
       }
       return rcError("RC5044", failure.cause, {

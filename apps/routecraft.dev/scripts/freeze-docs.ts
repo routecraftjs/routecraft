@@ -158,13 +158,13 @@ async function freeze(tag: string): Promise<void> {
   // both channels.
   await $`bun ${join(import.meta.dir, 'generate-docs-next.ts')}`
 
-  const deferred = await mkdtemp(join(tmpdir(), 'routecraft-next-'))
+  const staged = await mkdtemp(join(tmpdir(), 'routecraft-next-'))
   const saved: Array<{ from: string; to: string }> = []
 
   for (const path of PRESERVED) {
     const source = join(REPO_ROOT, path)
     if (!existsSync(source)) continue
-    const target = join(deferred, path.replaceAll('/', '_'))
+    const target = join(staged, path.replaceAll('/', '_'))
     await cp(source, target, { recursive: true })
     saved.push({ from: target, to: source })
   }
@@ -178,7 +178,7 @@ async function freeze(tag: string): Promise<void> {
     await cp(from, to, { recursive: true })
   }
 
-  await rm(deferred, { recursive: true, force: true })
+  await rm(staged, { recursive: true, force: true })
   await writeFile(MARKER, `${tag}\n`)
 
   console.log(`Froze the released docs channel to ${tag}.`)

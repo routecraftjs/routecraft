@@ -9,11 +9,18 @@ import type { ThreadMessage } from "../deferral-state.ts";
  * The shape version {@link AgentSessionRecord} is written at.
  *
  * Version 2 replaced `startedBy` with {@link AgentSessionRecord.owner} and
- * added `cwd`, `title` and `overrides`. There is no migration and no shim:
- * a version 1 record fails its read as `AI1010` naming the store, which is
- * what the version field exists for.
+ * added `cwd`, `title` and `overrides`. Version 3 renamed the two
+ * continuation fields to {@link AgentSessionRecord.deferral} and
+ * {@link AgentSessionRecord.deferring} and the marker kind with them.
+ *
+ * The bump is load-bearing rather than cosmetic. Both fields are optional, so
+ * a version 2 record would pass the shape guard with its continuation read as
+ * absent, and an aside deferral nothing references carries no expiry: it would
+ * never be revived and never released. There is no migration and no shim: an
+ * older record fails its read as `AI1010` naming the store, which is what the
+ * version field exists for.
  */
-export const SESSION_RECORD_VERSION = 2;
+export const SESSION_RECORD_VERSION = 3;
 
 /**
  * Per-session choices a caller made about how the agent runs, applied over

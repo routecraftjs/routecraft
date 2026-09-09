@@ -39,7 +39,7 @@ import {
  *   Wrap the steps DOWNSTREAM of `.debounce()` instead.
  * - `defer`: exits the pipeline and defers the exchange durably. It never
  *   fails per-exchange, so a recovering wrapper could never trigger, while
- *   the ones that CAN act would each act wrongly: `.retry()` would re-deferral
+ *   the ones that CAN act would each act wrongly: `.retry()` would re-defer
  *   an exchange that did not fail, `.timeout()` would bound a wait that is
  *   measured in days and lives in the store rather than in this process,
  *   and `.cache()` would replay a single-use resume token to a second

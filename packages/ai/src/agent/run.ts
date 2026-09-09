@@ -151,7 +151,7 @@ export interface AgentRunInput<T = unknown> {
   readonly dispatchIdentity: AgentDispatchIdentity | undefined;
   /**
    * Durable-deferral wiring for this dispatch, present only when the
-   * exchange is route-bound (so it can actually deferral). Carries the
+   * exchange is route-bound (so it can actually defers). Carries the
    * deferral identity `ctx.defer` / `ctx.deferral` are served from
    * and the agent identity persisted into `stepState`.
    */

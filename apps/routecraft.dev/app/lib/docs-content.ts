@@ -103,7 +103,7 @@ const LAZY: Map<string, ComponentType> = new Map(
  * Loads a page module, for the route loader.
  *
  * Awaiting it there means the import is already resolved by the time the
- * component defers on it, so the server renders the content into the shell
+ * component suspends on it, so the server renders the content into the shell
  * rather than streaming it in after the fact.
  */
 export async function loadDocsPage(
@@ -125,7 +125,7 @@ export async function loadDocsPage(
 /**
  * The page's content component.
  *
- * The resolved module wins when there is one, because deferring is expensive
+ * The resolved module wins when there is one, because suspending is expensive
  * out of proportion to the wait: React throttles the reveal after a fallback
  * has been shown, so a chunk that is already in memory still costs roughly
  * 300ms of blank column. A client-side navigation always has one, since the

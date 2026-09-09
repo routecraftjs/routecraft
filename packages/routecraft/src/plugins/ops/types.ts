@@ -19,7 +19,7 @@ import type { Deferred } from "../../deferral/deferred";
  * - `down`: cannot serve at all. For a route this means its source gave up
  *   producing; nothing it exists to serve is being served.
  * - `inactive`: deliberately out of the picture. A finished one-shot route, a
- *   route stopped cleanly, or an indicator deferred for maintenance. Excluded
+ *   route stopped cleanly, or an indicator muted for maintenance. Excluded
  *   from aggregation entirely.
  *
  * New signals map into these rather than extending them; their richer state
@@ -304,7 +304,7 @@ export interface Indicator {
    * it carries structural facts and never an error message.
    */
   down(details?: HealthDetails): void;
-  /** Deferral the indicator: reports `inactive` and never pages until it reports again. */
+  /** Mark the indicator inactive: it reports `inactive` and never pages until it reports again. */
   inactive(): void;
 }
 
