@@ -825,7 +825,10 @@ describe("the deferral sweeper", () => {
     const sweeper = new DeferralSweeper(t.ctx, store, sweeperOptions);
     expect(await sweeper.sweep()).toBe(0);
 
-    expect((await store.get("def-claimed"))?.claimedAt).toBeDefined();
+    const claimed = await store.get("def-claimed");
+    expect(claimed?.state).toBe("waiting");
+    expect(claimed?.claimedAt).toBeDefined();
+    expect(claimed?.outcome).toBeUndefined();
   });
 
   /**

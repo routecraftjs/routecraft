@@ -170,7 +170,7 @@ export const CHAIN_SURVIVAL: Readonly<
   circuitBreaker: {
     resume: {
       survives: false,
-      why: "It fast-fails, and a continuation runs after the deferral is claimed, so a refusal here would record a failed terminal and spend the approval. Its home is the resume ingress route's chain, which wraps .resume() and so refuses above that transition.",
+      why: "It fast-fails, and a continuation runs after the deferral is claimed, so a refusal here would record a failed continuation result and spend the approval. Its home is the resume ingress route's chain, which wraps .resume() and so refuses above that transition.",
     },
     debounce: {
       survives: false,

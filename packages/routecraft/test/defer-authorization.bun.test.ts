@@ -120,7 +120,7 @@ describe("the resume authorize hook", () => {
     const untouched = await store.get(deferred.deferralId);
     expect(untouched?.state).toBe("waiting");
     expect(untouched?.claimedAt).toBeUndefined();
-    expect(untouched?.outcome?.reason).toBeUndefined();
+    expect(untouched?.outcome).toBeUndefined();
 
     const ack = (await t.client.sendDirect("answers", {
       who: "alice",
@@ -216,7 +216,7 @@ describe("the resume authorize hook", () => {
     ).rejects.toThrow(/refused this principal/);
     const untouched = await store.get(`${record.id}-edited`);
     expect(untouched?.state).toBe("waiting");
-    expect(untouched?.outcome?.reason).toBeUndefined();
+    expect(untouched?.outcome).toBeUndefined();
     expect(untouched?.claimedAt).toBeUndefined();
 
     // Only a caller the hook accepted may settle it.
@@ -371,7 +371,7 @@ describe("the resume authorize hook", () => {
     ).rejects.toMatchObject({ rc: "RC5055" });
     const untouched = await store.get(`${record.id}-bound`);
     expect(untouched?.state).toBe("waiting");
-    expect(untouched?.outcome?.reason).toBeUndefined();
+    expect(untouched?.outcome).toBeUndefined();
     expect(untouched?.claimedAt).toBeUndefined();
 
     await expect(

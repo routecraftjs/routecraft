@@ -111,6 +111,7 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       expect(read?.meta).toEqual(written.meta);
       expect(read?.callBinding).toBe(written.callBinding);
       expect(read?.state).toBe("waiting");
+      expect(read?.waitingFor).toBe(written.waitingFor);
       expect(read?.deferredAt.getTime()).toBe(written.deferredAt.getTime());
       expect(read?.expiresAt?.getTime()).toBe(written.expiresAt!.getTime());
     });
@@ -228,9 +229,18 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
 
       expect([resumed.won, claimed.won].filter(Boolean)).toHaveLength(1);
       const stored = await store.get("def-1");
-      expect(stored?.outcome?.kind ?? "claimed").toBe(
-        resumed.won ? "resumed" : "claimed",
-      );
+      expect(stored).toBeDefined();
+      if (resumed.won) {
+        expect(stored?.state).toBe("settled");
+        expect(stored?.outcome?.kind).toBe("resumed");
+      } else {
+        // A won claim leaves the record waiting, which is the whole point of
+        // the claim not being an outcome. Asserted rather than inferred from
+        // `claimedAt` alone, because a settled record keeps that field.
+        expect(stored?.state).toBe("waiting");
+        expect(stored?.claimedAt).toBeDefined();
+        expect(stored?.outcome).toBeUndefined();
+      }
     });
 
     /**
@@ -265,9 +275,54 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
 
       expect(stored?.state).toBe("waiting");
       expect(stored?.continuation).toBeUndefined();
-      expect(stored?.outcome?.at).toBeUndefined();
-      expect(stored?.outcome?.by).toBeUndefined();
-      expect(stored?.outcome?.reason).toBeUndefined();
+      expect(stored?.claimedAt).toBeUndefined();
+      // The whole field, not its members: a surviving `{ kind: "resumed" }`
+      // with nothing else in it is exactly the shape a member-by-member
+      // assertion would wave through.
+      expect(stored?.outcome).toBeUndefined();
+    });
+
+    /**
+     * @case Settling writes the state and the outcome together, on every
+     *   transition that settles
+     * @preconditions One record resumed, one expired, one denied
+     * @expectedResult Each reads back `settled` WITH an outcome, and no
+     *   waiting record carries one
+     *
+     *   The pairing is an invariant rather than two independent fields, and
+     *   this is the one place it is asserted. Every other test in the tree
+     *   reads `outcome.kind` alone, which is sound only because a backend
+     *   cannot write one half here: that is what makes this the guard for an
+     *   out-of-tree store, where a read-then-write implementation could
+     *   plausibly land one column and not the other.
+     */
+    test("a settling transition writes state and outcome together", async () => {
+      store = await open();
+      await store.create(record({ id: "r" }));
+      await store.create(record({ id: "e" }));
+      await store.create(record({ id: "d" }));
+      await store.create(record({ id: "w" }));
+
+      await store.markResumed("r", { at: new Date() });
+      await store.claimExpiry("e", new Date());
+      await store.markExpired("e");
+      await store.claimExpiry("d", new Date());
+      await store.markDenied("d", "cancelled");
+
+      for (const [id, kind] of [
+        ["r", "resumed"],
+        ["e", "expired"],
+        ["d", "denied"],
+      ] as const) {
+        const settled = await store.get(id);
+        expect(settled?.state).toBe("settled");
+        expect(settled?.outcome?.kind).toBe(kind);
+        expect(settled?.outcome?.at).toBeInstanceOf(Date);
+      }
+
+      const waiting = await store.get("w");
+      expect(waiting?.state).toBe("waiting");
+      expect(waiting?.outcome).toBeUndefined();
     });
 
     /**
@@ -388,7 +443,9 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       const stale = await store.get("stale");
       expect(stale?.state).toBe("waiting");
       expect(stale?.claimedAt).toBeUndefined();
-      expect((await store.get("fresh"))?.claimedAt).toBeDefined();
+      const fresh = await store.get("fresh");
+      expect(fresh?.state).toBe("waiting");
+      expect(fresh?.claimedAt).toBeDefined();
     });
 
     /**
@@ -774,7 +831,9 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       );
 
       expect(purged).toBe(0);
-      expect((await store.get("claimed"))?.claimedAt).toBeDefined();
+      const held = await store.get("claimed");
+      expect(held?.state).toBe("waiting");
+      expect(held?.claimedAt).toBeDefined();
     });
 
     /**
