@@ -636,8 +636,8 @@ describe("remotes", () => {
 
   /**
    * @case A connection lost after the request was sent is not retryable; one that never opened is
-   * @preconditions A stand-in remote that lists one route and, on dispatch, reads the body and drops the socket without answering; then the same remote gone entirely
-   * @expectedResult The dropped dispatch is `RC5062` with `retryable: false` and a message saying the remote may have received the request; the dispatch against the closed port is `RC5062` with `retryable: true`. A route that may already have run must not be retried by the framework's default policy
+   * @preconditions A stand-in remote that serves its inventory over keep-alive and, on dispatch, reads the body and drops the reused socket without answering; then the same remote gone entirely
+   * @expectedResult The dropped dispatch is `RC5062` with `retryable: false` and a message saying the remote may have received the request; the dispatch against the closed port is `RC5062` with `retryable: true`. The execution counter stays at one throughout, which is the half the runtime owns: a runtime that re-sends a non-idempotent POST on a fresh connection runs the route twice and tells the caller once, and no classification here can undo that
    */
   test("marks a connection lost after dispatch as not retryable", async () => {
     let executions = 0;
@@ -668,13 +668,12 @@ describe("remotes", () => {
         res.end();
         return;
       }
-      // Each request on its own connection: a socket dropped mid-reuse reads
-      // as a stale keep-alive to the client, which then retries on a fresh
-      // one, and this case is about a request that provably ran once.
-      res.writeHead(200, {
-        "content-type": "application/json",
-        connection: "close",
-      });
+      // Keep-alive on purpose, so the dispatch below goes out on the socket
+      // this response leaves in the pool. That is the shape that used to
+      // run the route twice: the runtime re-sent the POST on a fresh
+      // connection when the reused one dropped before any response byte,
+      // and closing every response here hid it.
+      res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify(body));
     });
     await new Promise<void>((resolve) => fake.listen(0, "127.0.0.1", resolve));

@@ -92,6 +92,8 @@ A dispatch through an imported endpoint maps the remote's outcome onto the in-pr
 | cannot be reached, loses the connection, or does not answer in time | [`RC5062`](/docs/reference/errors#rc-5062); a connection that never opened is retryable, a lost connection or a timeout is not |
 | answers 404 | the inventory is refreshed, then [`RC5004`](/docs/reference/errors#rc-5004): the route is gone from the remote or its dispatch tier is closed |
 
+A dispatch is sent on a connection of its own, and the inventory and health reads beside it keep the pool. The reason is that a dispatch must never run twice: below Bun 1.3.14 the runtime's `fetch` re-sent a request on a fresh connection when a reused keep-alive socket closed before any response byte arrived, which ran the remote route a second time beneath the layer that classifies the failure, so the caller was told once about work that happened twice. Taking the connection out of the pool leaves nothing to re-send it on. The cost is one handshake per dispatch, and it is paid only on a runtime that behaves that way: Bun 1.3.14 and later, and Node on every version, dispatch through the pool like every other call.
+
 ## In the listing and the tool policy
 
 An imported route shows in the local [`/ops/routes`](/docs/reference/plugins/opsplugin#listing-routes) as dispatchable with `sources: ["remote"]` and a `remote` field naming its origin; `?source=remote` lists exactly the imported ones. The agent tool policy's `direct` rule sees `source.remote` (`'default'`, `'lab'`, or absent for a local route), so a policy can keep an agent local-only:

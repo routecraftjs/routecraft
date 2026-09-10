@@ -52,6 +52,60 @@ const DEFAULT_TIMEOUT_MS = 30_000;
  */
 const DISCOVERY_TIMEOUT_MS = 5_000;
 
+/**
+ * The first Bun that refuses to re-send a non-idempotent request when a
+ * reused keep-alive socket closes before any response byte arrives.
+ *
+ * Below it, `fetch` retried the POST on a fresh connection on its own, so a
+ * dispatch whose connection dropped mid-flight ran the route TWICE on the
+ * instance while this client saw one attempt and one failure. That is the
+ * exact outcome the `interrupted` classification exists to prevent, and it
+ * happened below the layer that classifies. Node's `fetch` never had the
+ * behaviour.
+ *
+ * Measured rather than read off a changelog: a stand-in server that serves
+ * its inventory over keep-alive and drops the reused socket on the dispatch
+ * counts two executions on 1.3.11 and one on 1.3.14 and 1.4.2.
+ */
+const BUN_WITHOUT_DISPATCH_REPLAY = { major: 1, minor: 3, patch: 14 } as const;
+
+/**
+ * Whether this runtime re-sends a dropped non-idempotent request by itself.
+ *
+ * Read once per process. An unparseable version answers true: the cost of
+ * being wrong is a handshake per dispatch, and the cost of the other answer
+ * is running somebody's payout route twice.
+ *
+ * @internal Exported for its own unit test. The connection policy it drives
+ *   is not observable on the wire, so this predicate is where the decision
+ *   can be checked; that the policy works end to end is proven by the
+ *   dropped-socket case in the remotes suite.
+ *
+ * @param bunVersion - `null` means "not running on Bun". Deliberately not
+ *   `undefined`, which JS default-parameter semantics would replace with
+ *   the real version, so a test for the Node path would silently read
+ *   Bun's own while the suite runs under Bun.
+ */
+export function runtimeReplaysDroppedRequests(
+  bunVersion: string | null = process.versions["bun"] ?? null,
+): boolean {
+  if (bunVersion === null) return false;
+  const [major, minor, patch] = (bunVersion.split(/[-+]/)[0] ?? "")
+    .split(".")
+    .map(Number);
+  if (
+    !Number.isFinite(major) ||
+    !Number.isFinite(minor) ||
+    !Number.isFinite(patch)
+  ) {
+    return true;
+  }
+  const floor = BUN_WITHOUT_DISPATCH_REPLAY;
+  if (major! !== floor.major) return major! < floor.major;
+  if (minor! !== floor.minor) return minor! < floor.minor;
+  return patch! < floor.patch;
+}
+
 /** Why a call did not produce an answer. Each needs a different remedy. */
 export type OpsFailureKind =
   /** The instance could not be reached at all; the request never left. */
@@ -121,6 +175,17 @@ export interface OpsHttpClientOptions {
     /** What to do when nothing answered at the address. */
     unreachable?: string;
   };
+  /**
+   * Override the runtime detection behind the per-dispatch connection.
+   *
+   * A test seam rather than a knob: the behaviour is a property of the
+   * runtime, not of a deployment, so nothing in production should set it.
+   * It exists because the alternative is asserting a connection policy by
+   * running the suite twice on two Bun builds.
+   *
+   * @internal
+   */
+  replaysDroppedRequests?: boolean;
 }
 
 export interface OpsHttpClient {
@@ -160,6 +225,8 @@ export function createOpsHttpClient(
       : parseDuration(options.timeout, "timeout");
   const addressBlame = options.describeAddress ?? (() => base);
   const advice = options.advice ?? {};
+  const replaysDroppedRequests =
+    options.replaysDroppedRequests ?? runtimeReplaysDroppedRequests();
 
   async function resolveToken(): Promise<string | undefined> {
     if (typeof token !== "function") return token;
@@ -180,6 +247,13 @@ export function createOpsHttpClient(
        * that is precisely the report an operator is asking for.
        */
       answeredBy?: readonly number[];
+      /**
+       * Set on a call the instance must never run twice. It takes the
+       * connection out of the pool on a runtime that re-sends a dropped
+       * request by itself, so there is no reused socket for it to retry
+       * on. Costs a handshake, which the reads do not pay.
+       */
+      idempotent?: boolean;
     } = {},
   ): Promise<T> {
     const headers: Record<string, string> = {};
@@ -195,6 +269,14 @@ export function createOpsHttpClient(
         method: init.method ?? "GET",
         headers,
         signal: AbortSignal.timeout(timeoutMs),
+        // Only where both halves are true, so the reads keep the pool and a
+        // fixed runtime pays nothing. A `connection: close` request header
+        // does not work here: `fetch` treats it as a forbidden header name,
+        // drops it, and retries anyway, which was measured before this
+        // shape was chosen.
+        ...(init.idempotent === false && replaysDroppedRequests
+          ? { keepalive: false }
+          : {}),
         ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
       });
     } catch (error: unknown) {
@@ -435,7 +517,7 @@ export function createOpsHttpClient(
     dispatch: (id: string, body: unknown) =>
       call<OpsDispatchOutcome>(
         `/ops/routes/${encodeURIComponent(id)}/exchanges`,
-        { method: "POST", body },
+        { method: "POST", body, idempotent: false },
       ),
   };
 }
