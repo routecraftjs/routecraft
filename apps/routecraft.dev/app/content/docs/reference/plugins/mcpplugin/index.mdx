@@ -66,7 +66,8 @@ export const craftConfig: CraftConfig = {
 | `server` | `string` | `'default'` | Named entry under `defineConfig({ servers })` to mount the HTTP transport on (http transport only) |
 | `path` | `string` | `'/mcp'` | HTTP path for the MCP endpoint on the shared listener (http transport only) |
 | `auth` | `McpHttpAuthOptions \| false` | inherits `servers.<name>.auth` | Auth for the HTTP endpoint (http transport only; see below). `false` removes the wall while keeping the inherited validator reachable. |
-| `cors` | `false \| McpCorsOptions` | loopback-only | CORS for the HTTP transport. Default reflects loopback `Origin` headers; set to `false` to disable or `{ origin }` to allowlist production browser clients. See [Securing capabilities -> CORS](/docs/advanced/securing-capabilities#cors). |
+| `cors` | `HttpCorsOptions \| false` | loopback-only | Response-header policy and additional Origin refusal. `false` delegates CORS handling to the proxy; Host and browser-admission checks remain enforced. |
+| `browserOrigins` | `readonly string[]` | `[]` | Exact HTTP(S) origins allowed to send requests, including port. Required for local browser tools too; independent of CORS. Ignored for MCP stdio. |
 | `tools` | `string[] \| (meta) => boolean` | -- | Allowlist of local route tool names to expose, or a filter function. Applies to both `tools/list` and `tools/call`. |
 | `clients` | `Record<string, McpClientHttpConfig \| McpClientStdioConfig>` | -- | Named remote MCP servers (see below) |
 | `proxy` | `Array<string \| McpProxyToolConfig>` | -- | Tools from registered `clients` to re-expose through this server (see below) |

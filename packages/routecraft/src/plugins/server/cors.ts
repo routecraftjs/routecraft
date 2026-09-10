@@ -9,9 +9,9 @@
  * The default is **loopback-only**: a request whose `Origin` is on `localhost`,
  * `127.0.0.1`, or `::1` (any port, http or https) gets reflected; everything
  * else gets no `Access-Control-Allow-Origin` header back and is blocked by the
- * browser. This is intentionally production-safe by construction: local
- * browser tooling works with zero config, while production deployments must
- * opt their real origins in explicitly. See `.standards/security.md` ->
+ * browser. Protocol mounts separately require an explicit `browserOrigins`
+ * opt-in before processing any request carrying Origin, including loopback.
+ * CORS configuration never grants browser admission. See `.standards/security.md` ->
  * "Security defaults policy" for the broader principle.
  *
  * Server-to-server callers (curl, the craft CLI, `mcp-remote`) are unaffected

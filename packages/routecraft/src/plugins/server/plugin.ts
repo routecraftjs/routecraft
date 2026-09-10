@@ -3,6 +3,7 @@ import { rcError } from "../../error.ts";
 import { type Duration, parseDuration } from "../../shared/duration.ts";
 import { startServer, type HttpServerHandle } from "../http/server/index.ts";
 import { HttpMountRegistry, WEB_INGRESSES } from "./registry.ts";
+import { resolveAllowedHostnames } from "./request-validation.ts";
 import type { ServerDefinitions } from "./types.ts";
 
 const DEFAULT_HOST = "127.0.0.1";
@@ -126,6 +127,7 @@ export function serversPlugin(definitions: ServerDefinitions): CraftPlugin {
               name,
               definitions[name]?.maxStreamingRequests,
             ),
+            definitions[name]?.allowedHostnames,
           ),
         );
       }
@@ -278,6 +280,7 @@ function validateDefinitions(definitions: ServerDefinitions): void {
         message: `servers.${name}: invalid port ${String(definition.port)}`,
       });
     }
+    resolveAllowedHostnames(definition.allowedHostnames);
     resolveShutdownGrace(name, definition.shutdownGrace);
     resolveIdleTimeout(name, definition.idleTimeout);
     resolveMaxStreamingRequests(name, definition.maxStreamingRequests);
