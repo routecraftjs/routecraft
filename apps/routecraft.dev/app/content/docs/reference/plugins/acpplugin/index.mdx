@@ -53,7 +53,8 @@ export const craftConfig = defineConfig({
 | `server` | `string` | `'default'` | Named entry under `defineConfig({ servers })` to mount on |
 | `auth` | `HttpAuth \| false` | inherits `servers.<name>.auth` | Auth for the mount, the same union `mcpPlugin` takes. `false` removes the wall while keeping the inherited validator reachable |
 | `agent` | `string` | the only registered agent | The agent a harness serves when it names none |
-| `cors` | `HttpCorsOptions \| false` | loopback-only | CORS for the mount, the same shape and defaults as `mcpPlugin`'s |
+| `cors` | `HttpCorsOptions \| false` | loopback-only | Response-header policy and additional Origin refusal. `false` delegates CORS handling to the proxy; Host and browser-admission checks remain enforced. |
+| `browserOrigins` | `readonly string[]` | `[]` | Exact HTTP(S) origins allowed to send requests, including port. Required for local browser tools too; independent of CORS. |
 | `agentInfo` | `{ name?, title?, version? }` | `{ name: 'routecraft', title: 'Routecraft', version }` | What the editor calls this agent |
 | `toolCallPayloads` | `boolean` | `true` | Whether a tool call's arguments and result reach the editor |
 
@@ -85,15 +86,11 @@ An instance serving people other than its operator should consider setting it. A
 
 ## What the mount does not check yet
 
-The mount checks the request's `Origin` against its CORS policy and refuses one the policy does not allow, before the protocol sees it. It does **not** check `Host`, where the MCP mount does, so a name that resolves to this instance is not something the mount rejects on its own.
+ACP and MCP share a Host and browser-origin gate in core's web ingress. It runs before preflight, authentication and protocol dispatch. Missing, malformed and foreign Host values return 403 even with `cors: false` or no auth. A reverse proxy that preserves a public Host needs that hostname in `servers.<name>.allowedHostnames`; forwarding headers never add trusted names.
 
-Two things follow, and the second is the one worth reading twice.
+Requests carrying `Origin` require an exact entry in `browserOrigins`, including local browser tools. CORS is an additional policy: it can refuse an admitted origin, but never grants admission. With `cors: false`, the proxy owns CORS headers while the Host and explicit browser-origin gates stay active. Editor clients without Origin need no browser configuration. Host and Origin checks do not replace authentication.
 
-**The boundary is the policy, not cross-origin as such.** The default reflects any loopback origin on any port, so a page served from `127.0.0.1:3000` reaching an instance on `127.0.0.1:8080` is cross-origin and allowed. What is refused is an origin the policy does not name.
-
-**`cors: false` removes the check rather than relaxing it.** With no policy there is nothing to compare an `Origin` against, so nothing is refused. That matters more than it sounds: CORS governs whether a page may **read** the reply, not whether the request **runs**. A page on any origin can then cause a prompt to be dispatched, and every side effect that turn has to happen, while the browser withholds the response from the script that asked for it. Silent side effects are the exposure, not a leaked answer.
-
-Put a wall on a mount that turns CORS off, or leave the default policy in place.
+See [Securing capabilities](/docs/advanced/securing-capabilities#cors) for local-browser and reverse-proxy configuration.
 
 ## Branding
 

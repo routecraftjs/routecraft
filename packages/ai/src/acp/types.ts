@@ -35,6 +35,13 @@ export interface AcpPluginOptions {
    */
   cors?: HttpCorsOptions | false;
   /**
+   * Explicit browser-access opt-in: exact HTTP(S) origins, including port.
+   * Unset denies requests carrying Origin, including loopback browsers.
+   * Independent of CORS: also configure `cors` (or the proxy) to let the
+   * browser read responses. Clients without Origin are unaffected.
+   */
+  browserOrigins?: readonly string[];
+  /**
    * What the editor calls this agent.
    *
    * Defaults to `{ name: "routecraft", title: "Routecraft", version }`, so

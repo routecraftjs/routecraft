@@ -488,6 +488,7 @@ describe("McpServer", () => {
         icons?: import("../src/mcp/types.ts").McpIcon[];
         userinfo?: import("../src/mcp/userinfo.ts").UserinfoOption;
         cors?: false | import("../src/mcp/cors.ts").McpCorsOptions;
+        browserOrigins?: readonly string[];
       } = {},
     ) {
       let port = 0;
@@ -505,7 +506,15 @@ describe("McpServer", () => {
         .routes(routes)
         .with({
           servers: { default: { host: "127.0.0.1", port: 0 } },
-          plugins: [mcpPlugin({ transport: "http", ...serverOptions })],
+          // These fixtures exercise browser CORS behavior. Admission is
+          // explicit; protocol-ingress covers the no-browser default.
+          plugins: [
+            mcpPlugin({
+              transport: "http",
+              browserOrigins: ["http://localhost:6274"],
+              ...serverOptions,
+            }),
+          ],
         })
         .build();
       await t.startAndWaitReady();
@@ -2004,6 +2013,7 @@ describe("McpServer", () => {
        */
       test("cors: { origin: '...' } restricts to the configured origin", async () => {
         const { get } = await startHttpServer([], {
+          browserOrigins: ["https://app.example.com"],
           cors: { origin: "https://app.example.com" },
         });
         const matching = await get(
@@ -2032,7 +2042,10 @@ describe("McpServer", () => {
        * @expectedResult Allow-Origin: *; Vary header is NOT set (cache-friendly per CORS spec)
        */
       test("cors: { origin: '*' } reflects wildcard without Vary", async () => {
-        const { get } = await startHttpServer([], { cors: { origin: "*" } });
+        const { get } = await startHttpServer([], {
+          browserOrigins: ["https://anywhere.example"],
+          cors: { origin: "*" },
+        });
         const res = await get("/.well-known/oauth-protected-resource/mcp", {
           Origin: "https://anywhere.example",
         });

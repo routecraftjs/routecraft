@@ -1197,6 +1197,12 @@ export interface EventDetailsMap {
   "server:listening": { server: string; port: number; host: string };
   "server:failed": { server: string; error: unknown };
   "server:closed": { server: string };
+  /** A protocol request was refused before authentication or SDK dispatch. */
+  "server:request:rejected": {
+    server: string;
+    mount: string;
+    reason: "host" | "origin";
+  };
 
   // -- HTTP plugin --
   /**

@@ -402,6 +402,7 @@ Emitted by the named-servers listener (`defineConfig({ servers })`), which owns 
 | `server:listening` | The named listener bound its port (during context `start()`) | `{ server, host, port }` |
 | `server:failed` | The listener could not bind; the context fails to start | `{ server, error }` |
 | `server:closed` | The listener shut down (on context stop) | `{ server }` |
+| `server:request:rejected` | Shared protocol ingress refused Host or browser Origin before auth or dispatch | `{ server, mount, reason: "host" \| "origin" }` |
 
 Before 0.7 the HTTP plugin owned its listener and emitted `plugin:http:server:listening` / `plugin:http:server:closed`. Those events no longer exist; subscribers migrate to `server:listening` / `server:closed` and read the `server` field to tell listeners apart.
 

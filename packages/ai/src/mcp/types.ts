@@ -421,11 +421,8 @@ export interface McpPluginOptions {
    * can read responses from `/mcp`, `/.well-known/oauth-protected-resource`,
    * and the 401 `WWW-Authenticate` hint. Ignored for stdio.
    *
-   * Default (when omitted): **loopback-only**. Browser MCP clients on
-   * `localhost`, `127.0.0.1`, or `[::1]` (any port, http or https) work out of
-   * the box; non-loopback browser origins must be allowlisted explicitly. This
-   * is production-safe by construction; see `.standards/security.md` ->
-   * "Security defaults policy".
+   * Default response-header policy: loopback-only. Browser access itself
+   * requires an explicit `browserOrigins` opt-in, independently of CORS.
    *
    * - `cors: false` -- disable CORS entirely (e.g. fronted by a CDN/proxy that owns CORS).
    * - `cors: { origin: "https://app.example.com" }` -- exact origin allowlist.
@@ -441,6 +438,13 @@ export interface McpPluginOptions {
    * is always exposed so browser clients can read the RFC 9728 hint on a 401.
    */
   cors?: false | McpCorsOptions;
+  /**
+   * Explicit browser-access opt-in: exact HTTP(S) origins, including port.
+   * Unset denies requests carrying Origin, including loopback browsers.
+   * Independent of CORS: also configure `cors` (or the proxy) to let the
+   * browser read responses. Clients without Origin are unaffected.
+   */
+  browserOrigins?: readonly string[];
 
   /**
    * Filter which tools to expose. Default: all mcp() routes.

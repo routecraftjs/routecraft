@@ -1,6 +1,14 @@
+import { request as httpRequest } from "node:http";
 import { afterEach, describe, expect, test } from "vitest";
 import { testContext, type TestContext } from "@routecraft/testing";
-import { mcpPlugin } from "../../../ai/src/index.ts";
+import {
+  acpPlugin,
+  agentPlugin,
+  llmPlugin,
+  mcpPlugin,
+  MemorySessionStore,
+} from "../../../ai/src/index.ts";
+import { MemoryDeferralStore } from "../../src/index.ts";
 
 /** Cross-runtime contract for the MCP mount on named shared ingress. */
 describe("MCP named ingress (cross-runtime contract)", () => {
@@ -67,4 +75,74 @@ describe("MCP named ingress (cross-runtime contract)", () => {
     });
     expect(protectedResponse.status).toBe(401);
   });
+  /**
+   * @case Host and browser admission are enforced through both runtime listeners
+   * @preconditions Each real protocol mount has proxy-owned CORS and an explicit trusted hostname
+   * @expectedResult Native discovery succeeds on trusted hosts; foreign Host and unapproved Origin fail with 403
+   */
+  test.each(["mcp", "acp"])(
+    "gates %s with proxy-owned CORS",
+    async (protocol) => {
+      let port = 0;
+      context = await testContext()
+        .on("server:listening", ({ details }) => {
+          port = details.port;
+        })
+        .with({
+          servers: {
+            default: {
+              host: "127.0.0.1",
+              port: 0,
+              allowedHostnames: ["agents.example"],
+            },
+          },
+          deferral: { store: new MemoryDeferralStore() },
+          sessions: { store: new MemorySessionStore() },
+          plugins:
+            protocol === "mcp"
+              ? [mcpPlugin({ transport: "http", cors: false })]
+              : [
+                  llmPlugin({ providers: { anthropic: { apiKey: "unused" } } }),
+                  agentPlugin({
+                    agents: {
+                      test: {
+                        description: "test",
+                        model: "anthropic:claude-sonnet-4-6",
+                        system: "test",
+                      },
+                    },
+                  }),
+                  acpPlugin({ cors: false }),
+                ],
+        })
+        .build();
+      await context.startAndWaitReady();
+      const url = `http://127.0.0.1:${port}/.well-known/oauth-protected-resource/${protocol}`;
+      for (const [headers, status] of [
+        [{}, 200],
+        [{ Host: "agents.example" }, 200],
+        [
+          { Host: "attacker.example", "X-Forwarded-Host": "agents.example" },
+          403,
+        ],
+        [{ Origin: "http://localhost:6274" }, 403],
+      ] as const) {
+        // Node fetch replaces an explicit Host with the URL authority.
+        // node:http preserves it, so both runtimes receive the attack shape.
+        const actual = await new Promise<number>((resolve, reject) => {
+          const request = httpRequest(
+            url,
+            { headers, agent: false },
+            (response) => {
+              response.resume();
+              response.on("end", () => resolve(response.statusCode!));
+            },
+          );
+          request.on("error", reject);
+          request.end();
+        });
+        expect(actual).toBe(status);
+      }
+    },
+  );
 });
