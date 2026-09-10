@@ -78,6 +78,21 @@ if (!inDevHeading.test(source)) {
   process.exit(0);
 }
 
+// Core did not bump in this run: `ai` and `os` sit outside the fixed train,
+// so a release of one of them alone reaches here with the core version
+// unchanged. Finalising then would date the in-development section to a
+// version that already shipped, giving the changelog two headings for one
+// release, and would move its links to a channel that release does not
+// refreeze. The section belongs to the next CORE release; anything else
+// leaves it alone.
+if (source.includes(`## [v${coreVersion}](`)) {
+  console.log(
+    `Core is still v${coreVersion}, which the changelog already records as ` +
+      `released; leaving the in-development section for the next core release.`,
+  );
+  process.exit(0);
+}
+
 const monthLabel = new Date().toLocaleString("en-GB", {
   month: "long",
   year: "numeric",
