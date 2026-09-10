@@ -1,7 +1,7 @@
 import {
   HeadersKeys,
-  SuspendSignal,
-  isSuspendSignal,
+  DeferSignal,
+  isDeferSignal,
   rcError,
   type CraftContext,
   type Exchange,
@@ -28,17 +28,17 @@ import type { AgentDeltaListener } from "./events.ts";
 import { closeUnansweredToolCalls } from "./session/render.ts";
 import {
   buildVercelTools,
-  type AgentSuspensionBridge,
+  type AgentDeferralBridge,
   type TrackedToolCall,
 } from "./tool-bridge.ts";
 import {
-  SIBLING_SUSPENDED_MESSAGE,
+  SIBLING_DEFERRED_MESSAGE,
   pickWinningSignal,
   replaceToolResultOutput,
   type AgentStepState,
-  type AgentSuspendSignalRecord,
+  type AgentDeferSignalRecord,
   type ThreadMessage,
-} from "./suspension-state.ts";
+} from "./deferral-state.ts";
 import { addUsage } from "../llm/providers/llm-utils.ts";
 import type { ResolvedTool } from "./tools/selection.ts";
 import type {
@@ -145,21 +145,21 @@ export interface AgentRunInput<T = unknown> {
    * on the context bus. Undefined for synthetic exchanges with no
    * route binding: a deliberate arm meaning "synthetic or test
    * dispatch", under which observability events are skipped and any
-   * suspension signal is refused with AI1006 at the moment it is
+   * deferral signal is refused with AI1006 at the moment it is
    * raised (nothing is ever written).
    */
   readonly dispatchIdentity: AgentDispatchIdentity | undefined;
   /**
-   * Durable-suspension wiring for this dispatch, present only when the
-   * exchange is route-bound (so it can actually park). Carries the
-   * suspension identity `ctx.suspend` / `ctx.suspension` are served from
+   * Durable-deferral wiring for this dispatch, present only when the
+   * exchange is route-bound (so it can actually defers). Carries the
+   * deferral identity `ctx.defer` / `ctx.deferral` are served from
    * and the agent identity persisted into `stepState`.
    */
-  readonly suspension?: AgentRunSuspension;
+  readonly deferral?: AgentRunDeferral;
   /**
    * Mid-loop state to re-enter after a resume: the persisted messages
-   * thread (with the suspended call's answer already swapped in) and the
-   * turns the run had spent before it parked. A park is not a fresh
+   * thread (with the deferred call's answer already swapped in) and the
+   * turns the run had spent before it deferred. A deferral is not a fresh
    * dispatch, so the `maxTurns` budget continues rather than resetting.
    */
   readonly resume?: AgentRunResume;
@@ -191,22 +191,22 @@ export interface AgentRunSession {
 }
 
 /**
- * Suspension identity for one dispatch. See
- * {@link AgentRunInput.suspension}.
+ * Deferral identity for one dispatch. See
+ * {@link AgentRunInput.deferral}.
  *
  * @internal
  */
-export interface AgentRunSuspension {
-  /** Id the dispatching exchange would park as (or parked as). */
+export interface AgentRunDeferral {
+  /** Id the dispatching exchange would defer as (or deferred as). */
   readonly id: string;
   /**
    * Mint the signed resume token for that id, bound to one tool call
    * (lazily; may throw RC5052).
    *
-   * Per call, not per park: a parallel batch produces one record and one
-   * park, so a handler that sends a recipient a link and then loses the
-   * park must not have handed out a credential that resumes the winner's
-   * park.
+   * Per call, not per deferral: a parallel batch produces one record and one
+   * deferral, so a handler that sends a recipient a link and then loses the
+   * deferral must not have handed out a credential that resumes the winner's
+   * deferral.
    */
   readonly mintToken: (callBinding: string) => string;
   /**
@@ -226,7 +226,7 @@ export interface AgentRunSuspension {
 export interface AgentRunResume {
   readonly messages: readonly ThreadMessage[];
   readonly turnsUsed: number;
-  /** Token spend accumulated before the park, when any call reported one. */
+  /** Token spend accumulated before the deferral, when any call reported one. */
   readonly usage?: LlmUsage;
 }
 
@@ -278,12 +278,12 @@ export class AgentCancellationCause extends Error {
  *   listener, and returns the same consolidated {@link AgentResult}
  *   once the stream drains.
  *
- * Durable suspension (#268/#269): a tool handler that returns
- * `ctx.suspend(...)`'s sentinel (or throws `SuspendError`) stops the loop
+ * Durable deferral (#268/#269): a tool handler that returns
+ * `ctx.defer(...)`'s sentinel (or throws `DeferError`) stops the loop
  * after its batch settles; the run persists the messages thread and
  * outstanding tool-call id as `stepState` and raises the core
- * `SuspendSignal`, which the hosting `.to()` / `.enrich()` step converts
- * into a park. A resumed dispatch re-enters through
+ * `DeferSignal`, which the hosting `.to()` / `.enrich()` step converts
+ * into a deferral. A resumed dispatch re-enters through
  * {@link AgentRunInput.resume} with the answer already swapped into
  * the thread.
  *
@@ -411,7 +411,7 @@ export class AgentRun<T = unknown> {
     this.emitStarted(maxTurns);
 
     // A resumed dispatch continues its own budget and its own thread: a
-    // park is not a fresh dispatch. A run that resumes with the budget
+    // deferral is not a fresh dispatch. A run that resumes with the budget
     // already exhausted takes the ordinary max-turns path below.
     let turnsUsed = this.input.resume?.turnsUsed ?? 0;
     let currentUser: string | ThreadMessage[] = this.input.resume
@@ -419,13 +419,13 @@ export class AgentRun<T = unknown> {
       : toPromptInput(this.input.user);
     let lastValidatorMsg: string | undefined;
     const accumulatedToolCalls: LlmToolCallSummary[] = [];
-    // Seeded from the park for the same reason turnsUsed is: a cancelled
+    // Seeded from the deferral for the same reason turnsUsed is: a cancelled
     // resumed run reports the whole run's spend, not the post-resume slice.
     let accumulatedUsage: LlmUsage | undefined = this.input.resume?.usage;
-    // Filled by the tool bridge when a handler suspends. Checked after
+    // Filled by the tool bridge when a handler defers. Checked after
     // every model call: a non-empty batch means the loop is over and the
-    // exchange parks.
-    const signals: AgentSuspendSignalRecord[] = [];
+    // exchange defers.
+    const signals: AgentDeferSignalRecord[] = [];
 
     try {
       // Inside the try so a prepare failure (tool resolution, schema
@@ -508,7 +508,7 @@ export class AgentRun<T = unknown> {
           accumulatedToolCalls.push(...result.toolCalls);
         }
         if (signals.length > 0) {
-          throw this.buildParkSignal(
+          throw this.buildDeferSignal(
             signals,
             result,
             currentUser,
@@ -547,42 +547,42 @@ export class AgentRun<T = unknown> {
         currentUser = buildRetryPrompt(currentUser, result, verdict);
       }
     } catch (err) {
-      // A park is not an error: core emits route:exchange:suspended once
+      // A deferral is not an error: core emits route:exchange:deferred once
       // the record is durable, and the agent tier adds no event set of its
       // own. Everything else is a real failure.
-      if (!isSuspendSignal(err)) this.emitError(err);
+      if (!isDeferSignal(err)) this.emitError(err);
       throw err;
     }
   }
 
   /**
-   * Turn a collected batch of suspend signals into the core signal the
-   * hosting step converts into a park.
+   * Turn a collected batch of defer signals into the core signal the
+   * hosting step converts into a deferral.
    *
-   * The winner is the FIRST suspended tool call in the model's own
+   * The winner is the FIRST deferred tool call in the model's own
    * emission order (deterministic under parallel execution, unlike
-   * completion order); every other suspend signal in the batch is
+   * completion order); every other defer signal in the batch is
    * rewritten in the persisted thread to a retryable tool error, so one
-   * exchange parks exactly once per sequence number and the resumed model
+   * exchange defers exactly once per sequence number and the resumed model
    * can re-ask the losers.
    *
    * @internal
    */
-  private buildParkSignal(
-    signals: AgentSuspendSignalRecord[],
+  private buildDeferSignal(
+    signals: AgentDeferSignalRecord[],
     result: LlmResult,
     currentUser: string | ThreadMessage[],
     turnsUsed: number,
     usage: LlmUsage | undefined,
-  ): SuspendSignal {
+  ): DeferSignal {
     // Signals are only ever recorded through a bridge this run created,
-    // and the bridge exists only when the input carries suspension wiring,
+    // and the bridge exists only when the input carries deferral wiring,
     // so this guard is wiring defence rather than a reachable path.
-    const suspension = this.input.suspension;
-    if (!suspension) {
+    const deferral = this.input.deferral;
+    if (!deferral) {
       throw rcError("AI1006", undefined, {
         message:
-          "A tool suspended, but this dispatch carries no suspension wiring. Durable suspension is only available inside an agent dispatch on a route-bound exchange.",
+          "A tool deferred, but this dispatch carries no deferral wiring. Durable deferral is only available inside an agent dispatch on a route-bound exchange.",
       });
     }
     let messages: readonly ThreadMessage[] = historyMessages(
@@ -591,7 +591,7 @@ export class AgentRun<T = unknown> {
     );
     const winner = pickWinningSignal(signals, messages);
     // Prove the answer has somewhere to land BEFORE the record is written:
-    // a park whose thread lacks the winning call would hand out a token
+    // a deferral whose thread lacks the winning call would hand out a token
     // whose first resume throws AI1007 and burns the single-use claim,
     // stranding the work. Failing here keeps the run re-drivable.
     if (
@@ -601,34 +601,34 @@ export class AgentRun<T = unknown> {
       }).found
     ) {
       throw rcError("AI1007", undefined, {
-        message: `Tool "${winner.toolName}" suspended, but its call "${winner.toolCallId}" is not in the thread about to be persisted, so no resume could ever deliver the answer. Nothing was parked.`,
+        message: `Tool "${winner.toolName}" deferred, but its call "${winner.toolCallId}" is not in the thread about to be persisted, so no resume could ever deliver the answer. Nothing was deferred.`,
       });
     }
     for (const signal of signals) {
       if (signal === winner) continue;
       const swapped = replaceToolResultOutput(messages, signal.toolCallId, {
         type: "error-text",
-        value: SIBLING_SUSPENDED_MESSAGE,
+        value: SIBLING_DEFERRED_MESSAGE,
       });
       if (!swapped.found) {
         // Leaving the placeholder in place tells the resumed model the
-        // sibling ALSO parked, the opposite of the retry hint it needs.
+        // sibling ALSO deferred, the opposite of the retry hint it needs.
         this.input.exchange.logger.warn(
           { toolCallId: signal.toolCallId, toolName: signal.toolName },
-          "A losing suspend signal's tool call is not in the persisted thread; the resumed model will see its suspended placeholder instead of a retryable error.",
+          "A losing defer signal's tool call is not in the persisted thread; the resumed model will see its deferred placeholder instead of a retryable error.",
         );
       }
       messages = swapped.messages;
     }
     const stepState: AgentStepState = {
-      agentId: suspension.agentId,
+      agentId: deferral.agentId,
       messages,
-      suspendedToolCallId: winner.toolCallId,
+      deferredToolCallId: winner.toolCallId,
       turnsUsed,
       ...(usage !== undefined ? { usage } : {}),
     };
     const { schema, ttl, meta } = winner.request;
-    return new SuspendSignal({
+    return new DeferSignal({
       ...(schema !== undefined ? { schema } : {}),
       ...(ttl !== undefined ? { ttl } : {}),
       ...(meta !== undefined ? { meta } : {}),
@@ -841,7 +841,7 @@ export class AgentRun<T = unknown> {
    */
   private async prepare(
     abortSignal: AbortSignal,
-    signals: AgentSuspendSignalRecord[],
+    signals: AgentDeferSignalRecord[],
   ): Promise<PreparedSession> {
     const {
       options,
@@ -852,13 +852,13 @@ export class AgentRun<T = unknown> {
       context,
       exchange,
       dispatchIdentity,
-      suspension,
+      deferral,
     } = this.input;
-    const bridge: AgentSuspensionBridge | undefined = suspension
+    const bridge: AgentDeferralBridge | undefined = deferral
       ? {
           wiring: {
-            id: suspension.id,
-            mintToken: suspension.mintToken,
+            id: deferral.id,
+            mintToken: deferral.mintToken,
           },
           signals,
         }
@@ -913,7 +913,7 @@ async function callOnce(
   remainingTurns: number,
   abortSignal: AbortSignal,
   onDelta: AgentDeltaListener | undefined,
-  signals: readonly AgentSuspendSignalRecord[],
+  signals: readonly AgentDeferSignalRecord[],
   onStep: CallLlmParams["onStep"],
 ): Promise<LlmResult> {
   const toolExtras =
@@ -939,13 +939,13 @@ async function callOnce(
 
 async function buildStopWhen(
   maxTurns: number,
-  signals: readonly AgentSuspendSignalRecord[],
+  signals: readonly AgentDeferSignalRecord[],
 ): Promise<unknown> {
   const { stepCountIs } = await import("ai");
   // The second condition is what stops the SDK loop mid-run when a tool
-  // suspends: the bridge records the signal and answers the call with a
+  // defers: the bridge records the signal and answers the call with a
   // placeholder, and the loop must not spend another model call on a run
-  // that is about to park.
+  // that is about to defer.
   return [stepCountIs(maxTurns), () => signals.length > 0];
 }
 
@@ -953,7 +953,7 @@ async function buildStopWhen(
  * The user-side thread as of the last model call: the running message
  * array when one exists (a validate retry or a resumed dispatch), or the
  * initial prompt promoted to a user message, followed by the SDK's
- * response messages. This is what a park persists.
+ * response messages. This is what a deferral persists.
  *
  * @internal
  */
@@ -996,7 +996,7 @@ function historyMessages(
       ? [{ role: "user", content: currentUser }]
       : currentUser;
   // The SDK owns the full ModelMessage shape; ThreadMessage is the
-  // structural slice the park persists. One cast, at the SDK boundary.
+  // structural slice the deferral persists. One cast, at the SDK boundary.
   return [
     ...userMsgs,
     ...((lastResult.responseMessages ?? []) as ThreadMessage[]),

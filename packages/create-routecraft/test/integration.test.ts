@@ -252,7 +252,7 @@ const integrationTest = packagesBuilt ? test : test.skip;
 
 // Rebuild the routecraft package so its dist/ matches the checked-out
 // source. On local runs this catches stale dist after editing source without
-// running `bun run build`. On CI it is a belt-and-suspenders against cache
+// running `bun run build`. On CI it is a belt-and-deferers against cache
 // issues on the `pull_request_target` workflow (see cache key scoping in
 // ci.yml). Cheap: one tsup run on a single package.
 if (packagesBuilt) {

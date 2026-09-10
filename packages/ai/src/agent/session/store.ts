@@ -1,9 +1,9 @@
-import { rcError, type SuspensionStore } from "@routecraft/routecraft";
+import { rcError, type DeferralStore } from "@routecraft/routecraft";
 import type { SessionStore } from "./port.ts";
 import {
   SESSION_RECORD_VERSION,
   type AgentSessionKey,
-  type AgentSessionPark,
+  type AgentSessionDeferral,
   type AgentSessionRecord,
 } from "./types.ts";
 // Registers AI1010, thrown from the record checks below.
@@ -18,13 +18,13 @@ const CAS_ATTEMPTS = 20;
  * through `sessions: { store }`: one slot per session id, written under a
  * compare-and-swap and validated on every read, since the value crossed a
  * process boundary. The continuation a turn stores between turns is a
- * parked exchange, so it lives in the suspension store beside every other
+ * deferred exchange, so it lives in the deferral store beside every other
  * one, and releasing it goes through that store's own transitions.
  */
 export class AgentSessionStore {
   constructor(
     private readonly records: SessionStore,
-    private readonly parks: SuspensionStore,
+    private readonly defers: DeferralStore,
   ) {}
 
   /** The stored record, or `undefined` for a session the store has never seen. */
@@ -35,17 +35,17 @@ export class AgentSessionStore {
   }
 
   /**
-   * Settle a stored continuation nothing will revive: a park whose work
+   * Settle a stored continuation nothing will revive: a deferral whose work
    * another turn consumed. Denied rather than left, so the store does not
    * hold a live continuation for a turn that already happened.
    */
-  async releasePark(suspensionId: string, reason: string): Promise<void> {
-    // Claim first: `markDenied` only leaves `expiring`, and a record nothing
-    // revives is still `suspended`. Losing the claim means another party
-    // settled it already, and that outcome stands.
-    const claim = await this.parks.claimExpiry(suspensionId, new Date());
+  async releaseDeferral(deferralId: string, reason: string): Promise<void> {
+    // Claim first: `markDenied` only settles a claimed record, and a record
+    // nothing revives is still waiting and unclaimed. Losing the claim means
+    // another party settled it already, and that outcome stands.
+    const claim = await this.defers.claimExpiry(deferralId, new Date());
     if (!claim.won) return;
-    await this.parks.markDenied(suspensionId, reason);
+    await this.defers.markDenied(deferralId, reason);
   }
 
   /** Every session the store holds. */
@@ -58,11 +58,11 @@ export class AgentSessionStore {
    * the record holds. What a person archives or deletes from a client
    * ends here.
    *
-   * A stored continuation is settled before the record goes. An aside park
+   * A stored continuation is settled before the record goes. An aside deferral
    * carries no expiry, and the only thing naming it is the record being
-   * deleted, so leaving it would leave a suspension nothing can ever
+   * deleted, so leaving it would leave a deferral nothing can ever
    * revive or retire. Both fields are released: the one the record named,
-   * and the one a park announced but had not yet named, which is the same
+   * and the one a deferral announced but had not yet named, which is the same
    * pair the boot walk settles.
    *
    * The ids are read out of the raw stored value rather than through
@@ -83,8 +83,8 @@ export class AgentSessionStore {
    */
   async remove(key: AgentSessionKey): Promise<void> {
     const stored = await this.records.get(key);
-    for (const suspensionId of parkIdsIn(stored?.value)) {
-      await this.releasePark(suspensionId, "agent session removed");
+    for (const deferralId of deferralIdsIn(stored?.value)) {
+      await this.releaseDeferral(deferralId, "agent session removed");
     }
     await this.records.remove(key);
   }
@@ -185,9 +185,12 @@ export function parseSessionRecord(
       message: `The stored record for agent session "${key}" is not the { kind: "agent-session", messages, inbox, background, turns } shape the runtime writes.`,
     });
   }
-  if (!isParkOrAbsent(record.park) || !isParkOrAbsent(record.parking)) {
+  if (
+    !isDeferralOrAbsent(record.deferral) ||
+    !isDeferralOrAbsent(record.deferring)
+  ) {
     throw rcError("AI1010", undefined, {
-      message: `The stored record for agent session "${key}" names a continuation that is not a { suspensionId, routeId } pair, so the boot that would release it cannot read it.`,
+      message: `The stored record for agent session "${key}" names a continuation that is not a { deferralId, routeId } pair, so the boot that would release it cannot read it.`,
     });
   }
   if (record.version !== SESSION_RECORD_VERSION) {
@@ -203,34 +206,36 @@ export function parseSessionRecord(
  * that crossed a process boundary carrying something else fails here, at
  * the documented boundary, rather than as a TypeError mid-walk.
  */
-function isParkOrAbsent(value: unknown): value is AgentSessionPark | undefined {
+function isDeferralOrAbsent(
+  value: unknown,
+): value is AgentSessionDeferral | undefined {
   if (value === undefined) return true;
-  const park = value as Partial<AgentSessionPark> | null;
+  const deferral = value as Partial<AgentSessionDeferral> | null;
   return (
-    park !== null &&
-    typeof park === "object" &&
-    typeof park.suspensionId === "string" &&
-    typeof park.routeId === "string"
+    deferral !== null &&
+    typeof deferral === "object" &&
+    typeof deferral.deferralId === "string" &&
+    typeof deferral.routeId === "string"
   );
 }
 
 /**
- * The suspension ids a stored value names, read without validating it.
+ * The deferral ids a stored value names, read without validating it.
  *
  * Structural, one field at a time, because the caller is deleting a record
  * whose shape may be exactly what is wrong with it. Anything unreadable
- * yields nothing rather than throwing: an unreleased park is a leak, and a
+ * yields nothing rather than throwing: an unreleased deferral is a leak, and a
  * delete that cannot proceed is a conversation nobody can get rid of.
  */
-function parkIdsIn(value: unknown): string[] {
+function deferralIdsIn(value: unknown): string[] {
   if (value === null || typeof value !== "object") return [];
-  const record = value as { park?: unknown; parking?: unknown };
+  const record = value as { deferral?: unknown; deferring?: unknown };
   const ids = new Set<string>();
-  for (const park of [record.park, record.parking]) {
-    if (park === null || typeof park !== "object") continue;
-    const { suspensionId } = park as { suspensionId?: unknown };
-    if (typeof suspensionId === "string" && suspensionId !== "") {
-      ids.add(suspensionId);
+  for (const deferral of [record.deferral, record.deferring]) {
+    if (deferral === null || typeof deferral !== "object") continue;
+    const { deferralId } = deferral as { deferralId?: unknown };
+    if (typeof deferralId === "string" && deferralId !== "") {
+      ids.add(deferralId);
     }
   }
   return [...ids];

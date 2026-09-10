@@ -1,6 +1,6 @@
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import { NESTED_STEPS } from "../dsl-symbol.ts";
-import type { NestedSteps } from "../suspension/sites.ts";
+import type { NestedSteps } from "../deferral/sites.ts";
 import {
   type Exchange,
   OperationType,
@@ -49,7 +49,7 @@ export class MulticastStep<In = unknown> implements Step<MulticastAdapter> {
    * Expose the fan-out paths to framework-level walks of the route's step
    * tree. `rejoins: false`: a path runs as an isolated nested pipeline on
    * its own clone and never flows back into the main pipeline, so the
-   * suspend-site resolver refuses a `.suspend()` inside one.
+   * defer-site resolver refuses a `.defer()` inside one.
    *
    * @internal
    */

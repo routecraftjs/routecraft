@@ -353,7 +353,7 @@ export interface AgentOptions<T = unknown> extends LlmSamplingOptions {
    *
    * Absent, an agent run is one turn from a fresh prompt and nothing is
    * remembered. Present, every message for one session id continues one
-   * transcript: the run loads it from the context's suspension store,
+   * transcript: the run loads it from the context's deferral store,
    * appends the incoming message, runs the turn with the agent's
    * registered options, and stores the transcript back. A session the
    * store has never seen starts empty, and a transcript survives a
@@ -368,7 +368,7 @@ export interface AgentOptions<T = unknown> extends LlmSamplingOptions {
    * that consumes it. Several queued messages become one user message
    * with the parts in order. `interrupt` cancels the running turn first.
    *
-   * Requires a `suspension` block on the context (`RC5052` otherwise) and
+   * Requires a `deferral` block on the context (`RC5052` otherwise) and
    * does not combine with `stream: true` (`RC5003`). `maxTurns` bounds one
    * turn, not the conversation. Two different sessions never see each
    * other's transcript.

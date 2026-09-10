@@ -369,16 +369,16 @@ async function loadCapabilities(
 }
 
 /** How the first exchange ended, for the `--once` shutdown decision. */
-type ExchangeOutcome = "completed" | "failed" | "dropped" | "suspended";
+type ExchangeOutcome = "completed" | "failed" | "dropped" | "deferred";
 
 /**
  * Resolve on the first exchange that reaches a terminal outcome on any
- * route. `--once` treats a failure, a drop and a suspension as terminal
+ * route. `--once` treats a failure, a drop and a deferral as terminal
  * alongside a completion, so a CI smoke check reports instead of
  * hanging until it is killed.
  *
- * A suspension is terminal for the run that produced it: the exchange
- * parks durably and `route:exchange:suspended` takes the place of
+ * A deferral is terminal for the run that produced it: the exchange
+ * defers durably and `route:exchange:deferred` takes the place of
  * `:completed`, so waiting for a completion that is not coming is the
  * same hang under a different name.
  *
@@ -398,7 +398,7 @@ function watchFirstExchange(context: CraftContext): Promise<ExchangeOutcome> {
       context.on("route:exchange:completed", finish("completed")),
       context.on("route:exchange:failed", finish("failed")),
       context.on("route:exchange:dropped", finish("dropped")),
-      context.on("route:exchange:suspended", finish("suspended")),
+      context.on("route:exchange:deferred", finish("deferred")),
     );
   });
 }

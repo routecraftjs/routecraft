@@ -20,9 +20,9 @@ import {
   resolveAdapterOverride,
   invokeSendOverride,
 } from "../testing-hooks.ts";
-import { SUSPEND_HOST } from "../dsl-symbol.ts";
-import type { SuspendCapableStep, SuspendSite } from "../suspension/sites.ts";
-import { convertSuspendSignal, isSuspendSignal } from "../suspension/signal.ts";
+import { DEFER_HOST } from "../dsl-symbol.ts";
+import type { DeferCapableStep, DeferSite } from "../deferral/sites.ts";
+import { convertDeferSignal, isDeferSignal } from "../deferral/signal.ts";
 
 /**
  * Function form of an enricher: receives the exchange and produces a value
@@ -177,18 +177,18 @@ export type EnrichAggregatorOption<T, R> =
  * function) to merge instead.
  */
 export class EnrichStep<T = unknown, R = unknown>
-  implements Step<Adapter>, SuspendCapableStep
+  implements Step<Adapter>, DeferCapableStep
 {
   operation: OperationType = OperationType.ENRICH;
   adapter: Adapter;
   aggregator: EnrichAggregatorOption<T, R> | undefined;
-  /** Assigned by the suspend-site walk when the adapter is suspend-capable. */
-  suspendSite?: SuspendSite;
+  /** Assigned by the defer-site walk when the adapter is defer-capable. */
+  deferSite?: DeferSite;
   /** Why the walk refused a site (fan-out or sealed side flow), when it did. */
-  suspendRefusal?: string;
+  deferRefusal?: string;
 
-  /** This step hosts its own suspend site; wrappers forward here. @internal */
-  [SUSPEND_HOST](): SuspendCapableStep {
+  /** This step hosts its own defer site; wrappers forward here. @internal */
+  [DEFER_HOST](): DeferCapableStep {
     return this;
   }
 
@@ -237,9 +237,9 @@ export class EnrichStep<T = unknown, R = unknown>
     } catch (err) {
       // Converted here, inside the step, so a step-scope wrapper never
       // observes the raw throw (a retry wrapper would re-run the adapter
-      // and charge the parked work twice).
-      if (isSuspendSignal(err)) {
-        return convertSuspendSignal(this, exchange, err);
+      // and charge the deferred work twice).
+      if (isDeferSignal(err)) {
+        return convertDeferSignal(this, exchange, err);
       }
       throw err;
     }

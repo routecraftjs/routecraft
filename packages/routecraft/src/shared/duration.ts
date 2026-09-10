@@ -1,7 +1,7 @@
 import { rcError } from "../error.ts";
 
 /**
- * How long a suspension stays resumable: milliseconds, or a duration
+ * How long a deferral stays resumable: milliseconds, or a duration
  * string with a unit suffix (`"500ms"`, `"30s"`, `"15m"`, `"72h"`, `"7d"`).
  *
  * The string form exists because the realistic values here are human ones:
@@ -70,7 +70,7 @@ export function parseDuration(
  * Bound a duration to what an `expiresAt` `Date` can actually hold.
  *
  * Both ends matter and both fail late without this. Below a millisecond
- * the deadline rounds to the moment of parking, so the suspension expires
+ * the deadline rounds to the moment of deferring, so the deferral expires
  * on arrival; beyond the Date range the arithmetic yields an Invalid Date
  * that is only discovered once the record is already in the store, where
  * every comparison against it is false.

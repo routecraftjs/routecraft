@@ -303,7 +303,7 @@ describe("Events API", () => {
 
   /**
    * @case A quiet polling callable reaches readiness without producing a message and without waiting out the backstop (#608)
-   * @preconditions A bare callable source that parks until abort and never emits; the readiness backstop is set far above the time the assertion allows
+   * @preconditions A bare callable source that defers until abort and never emits; the readiness backstop is set far above the time the assertion allows
    * @expectedResult route:started fires promptly from the invocation itself, so the boot does not pay the backstop
    */
   test("a quiet callable source signals readiness without emitting", async () => {

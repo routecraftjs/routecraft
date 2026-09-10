@@ -75,7 +75,7 @@ export async function waitFor(
  * wins.
  *
  * A `while (Date.now() < deadline)` loop checks its bound between reads and
- * never during one, so a stream that simply goes quiet parks in `read()` until
+ * never during one, so a stream that simply goes quiet defers in `read()` until
  * the runner's own timeout fires. That reports as the whole file timing out
  * rather than the one assertion that failed.
  */

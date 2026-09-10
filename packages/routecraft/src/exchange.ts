@@ -12,16 +12,16 @@ import type { OnParseError } from "./adapters/shared/parse.ts";
 import type { Principal } from "./auth/types.ts";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
-  type SuspensionAffordance,
-  SuspensionHeaders,
-  suspensionAffordance,
-} from "./suspension/exchange-state.ts";
+  type DeferralAffordance,
+  DeferralHeaders,
+  deferralAffordance,
+} from "./deferral/exchange-state.ts";
 
 /**
  * Local alias so the clone path reads at a glance. See
- * {@link SuspensionHeaders.OWNER}.
+ * {@link DeferralHeaders.OWNER}.
  */
-const SUSPENSION_OWNER_HEADER = SuspensionHeaders.OWNER;
+const DEFERRAL_OWNER_HEADER = DeferralHeaders.OWNER;
 
 /**
  * Types of operations that can be performed on an exchange.
@@ -78,9 +78,9 @@ export enum OperationType {
   DEBOUNCE = "debounce",
   /** Short-circuit the pipeline: drop the exchange without further steps */
   HALT = "halt",
-  /** Park the exchange durably and exit the pipeline, to be resumed later at the next step */
-  SUSPEND = "suspend",
-  /** Revive a parked exchange addressed by a signed resume token */
+  /** Defer the exchange durably and exit the pipeline, to be resumed later at the next step */
+  DEFER = "defer",
+  /** Revive a deferred exchange addressed by a signed resume token */
   RESUME = "resume",
 }
 
@@ -277,18 +277,18 @@ export type Exchange<T = unknown> = {
   readonly logger: ReturnType<typeof logger.child>;
 
   /**
-   * Durable-suspension view of this exchange: the id and signed token it
-   * would park as, and (after a resume) the payload that revived it.
+   * Durable-deferral view of this exchange: the id and signed token it
+   * would defer as, and (after a resume) the payload that revived it.
    *
-   * Sugar over the `routecraft.suspension.*` headers plus the context's
+   * Sugar over the `routecraft.deferral.*` headers plus the context's
    * token signer, in the same shape as `principal` and `logger`. Readable
-   * before the `.suspend()` runs, which is what lets a notification step
+   * before the `.defer()` runs, which is what lets a notification step
    * earlier in the pipeline send a working resume link.
    *
-   * `result` is `unknown` here; `.suspend({ schema })` narrows it to the
-   * schema's output type for every step after the suspend.
+   * `result` is `unknown` here; `.defer({ schema })` narrows it to the
+   * schema's output type for every step after the defer.
    */
-  readonly suspension: SuspensionAffordance;
+  readonly deferral: DeferralAffordance;
 };
 
 /**
@@ -301,16 +301,16 @@ type ExchangeInternals = {
   context: CraftContext;
   route?: Route;
   /**
-   * The sequence the next park in this run must use, set by an aside park
-   * (`parkAside`). The aside stores the successor sequence on the record
-   * it writes, as a `.suspend()` park does, but the live exchange runs
-   * on with its headers unchanged, so a later park in the same run would
+   * The sequence the next deferral in this run must use, set by an aside deferral
+   * (`deferAside`). The aside stores the successor sequence on the record
+   * it writes, as a `.defer()` deferral does, but the live exchange runs
+   * on with its headers unchanged, so a later deferral in the same run would
    * derive the id the aside just took. Shared across rewraps like the
    * flags above.
    *
    * @internal
    */
-  suspensionSequence?: number;
+  deferralSequence?: number;
   /**
    * Optional parser the runtime applies as a synthetic first pipeline step.
    * Set by `DefaultRoute` from the queue `Message.parse` when a source
@@ -402,11 +402,11 @@ type ExchangeInternals = {
    */
   outputValidatedAgainst?: StandardSchemaV1;
   /**
-   * Set when the exchange parked at a `.suspend()`. Read after
+   * Set when the exchange deferred at a `.defer()`. Read after
    * `runPipeline` returns to skip `.output()` validation and
-   * `exchange:completed`: execution one ends with the `Suspended`
+   * `exchange:completed`: execution one ends with the `Deferred`
    * acknowledgment as its body, which is deliberately NOT the route's
-   * declared output, and its terminal event is `route:exchange:suspended`.
+   * declared output, and its terminal event is `route:exchange:deferred`.
    *
    * On internals for the same reason as {@link ExchangeInternals.dropped}:
    * the flag is set on the exchange a step was handed (already rewrapped),
@@ -416,10 +416,10 @@ type ExchangeInternals = {
    *
    * @internal
    */
-  suspended?: boolean;
+  deferred?: boolean;
   /**
-   * Step-owned closure state read back off a suspension record, set by the
-   * resume path just before a re-entrant continuation runs. The suspending
+   * Step-owned closure state read back off a deferral record, set by the
+   * resume path just before a re-entrant continuation runs. The deferring
    * step reads it without consuming ({@link peekResumeStepState}) and the
    * executor clears it when that step settles, so a retried attempt still
    * resumes while a second dispatch of the same step later in the
@@ -427,7 +427,7 @@ type ExchangeInternals = {
    *
    * On internals rather than headers deliberately: it is runtime context
    * for exactly one step execution on this process, not exchange state, and
-   * it must never be re-serialized into the next park (the step builds a
+   * it must never be re-serialized into the next deferral (the step builds a
    * fresh stepState for that).
    *
    * @internal
@@ -463,7 +463,7 @@ export function getExchangeContext(
  *
  * One accessor rather than the lookup written out at each call site. The
  * two-step rule is load-bearing (a `rewrap` shares the internals object by
- * reference, which is what makes the dropped and suspended flags visible
+ * reference, which is what makes the dropped and deferred flags visible
  * from every derivation of one logical exchange), and a site that got it
  * wrong would silently read `undefined` and lose the flag.
  *
@@ -506,7 +506,7 @@ export function setExchangeRoute(exchange: Exchange, route: Route): void {
 }
 
 /**
- * Attach a suspension record's `stepState` for the re-entrant step about to
+ * Attach a deferral record's `stepState` for the re-entrant step about to
  * re-run. Set by the resume path; read by {@link peekResumeStepState} and
  * cleared by the executor once that step settles.
  *
@@ -521,12 +521,12 @@ export function setResumeStepState(exchange: Exchange, state: unknown): void {
  * The step state a resume attached for the re-entrant step about to re-run,
  * or `undefined` when this execution is not resuming that step.
  *
- * A suspend-capable adapter (see {@link markSuspendCapable}) calls this at
+ * A defer-capable adapter (see {@link markDeferCapable}) calls this at
  * the top of its execution to decide between a fresh run and a resumed one.
  * Reading does NOT consume the state: the executor clears it when the step
  * settles, so a step-scope or route-scope `.retry()` re-running a failed
- * resume attempt still sees it, while a later suspend-capable step in the
- * same continuation (or a fresh park by the same step) starts clean.
+ * resume attempt still sees it, while a later defer-capable step in the
+ * same continuation (or a fresh deferral by the same step) starts clean.
  */
 export function peekResumeStepState(exchange: Exchange): unknown {
   return internalsOf(exchange)?.resumeStepState;
@@ -534,7 +534,7 @@ export function peekResumeStepState(exchange: Exchange): unknown {
 
 /**
  * Drop the resume step state once the re-entrant host step has settled
- * (any committed outcome: success, drop, or a fresh suspend). Called by the
+ * (any committed outcome: success, drop, or a fresh defer). Called by the
  * pipeline executor, never by adapters; a thrown failure leaves the state
  * in place so a retry of the attempt can still resume.
  *
@@ -574,11 +574,11 @@ export function cloneExchange<T>(
       ...exchange.headers,
       [HeadersKeys.ID]: randomUUID(),
       // The fresh id above is what makes a clone distinguishable in logs,
-      // but it would also point `ex.suspension` at a suspension that never
-      // parks. Record which exchange this is a snapshot OF so a `.tap()`
+      // but it would also point `ex.deferral` at a deferral that never
+      // defers. Record which exchange this is a snapshot OF so a `.tap()`
       // notification can mint the resume token for the exchange that will.
-      [SUSPENSION_OWNER_HEADER]:
-        exchange.headers[SUSPENSION_OWNER_HEADER] ?? exchange.id,
+      [DEFERRAL_OWNER_HEADER]:
+        exchange.headers[DEFERRAL_OWNER_HEADER] ?? exchange.id,
     },
   });
   if (route) setExchangeRoute(clone, route);
@@ -683,47 +683,47 @@ export function wasOutputValidated(
 }
 
 /**
- * Mark an exchange as parked at a `.suspend()`. Idempotent. Called by the
- * executor once the suspension is durably stored, never before: the flag
- * suppresses the exchange's completion accounting, so setting it for a park
+ * Mark an exchange as deferred at a `.defer()`. Idempotent. Called by the
+ * executor once the deferral is durably stored, never before: the flag
+ * suppresses the exchange's completion accounting, so setting it for a deferral
  * that then failed to write would lose the exchange from every ledger.
  *
  * @internal
  */
-export function markSuspended(exchange: Exchange): void {
+export function markDeferred(exchange: Exchange): void {
   const internals = internalsOf(exchange);
-  if (internals) internals.suspended = true;
+  if (internals) internals.deferred = true;
 }
 
 /**
- * Record the sequence the next park in this run must use, after an aside
- * park took the current one. See `ExchangeInternals.suspensionSequence`.
+ * Record the sequence the next deferral in this run must use, after an aside
+ * deferral took the current one. See `ExchangeInternals.deferralSequence`.
  *
  * @internal
  */
 export function noteAsideSequence(exchange: Exchange, next: number): void {
   const internals = internalsOf(exchange);
-  if (internals) internals.suspensionSequence = next;
+  if (internals) internals.deferralSequence = next;
 }
 
 /**
- * The sequence an aside park in this run advanced to, or `undefined` when
+ * The sequence an aside deferral in this run advanced to, or `undefined` when
  * none did and the header is the whole truth.
  *
  * @internal
  */
 export function asideSequenceOf(exchange: Exchange): number | undefined {
-  return internalsOf(exchange)?.suspensionSequence;
+  return internalsOf(exchange)?.deferralSequence;
 }
 
 /**
  * Returns true if the exchange (or any rewrap of it sharing the same
- * internals) parked at a `.suspend()` during this run.
+ * internals) deferred at a `.defer()` during this run.
  *
  * @internal
  */
-export function isSuspendedRun(exchange: Exchange): boolean {
-  return internalsOf(exchange)?.suspended === true;
+export function isDeferredRun(exchange: Exchange): boolean {
+  return internalsOf(exchange)?.deferred === true;
 }
 
 /**
@@ -1014,15 +1014,15 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
   }
 
   /**
-   * Durable-suspension view of this exchange. See {@link Exchange.suspension}.
+   * Durable-deferral view of this exchange. See {@link Exchange.deferral}.
    *
    * Built per access rather than cached: the view derives from `headers`,
    * which a resume rewrites, so a cached one would go stale exactly when it
    * matters. It is a small object of getters, and the expensive part
    * (minting a token) only runs if the caller reads `token`.
    */
-  get suspension(): SuspensionAffordance {
-    return suspensionAffordance(
+  get deferral(): DeferralAffordance {
+    return deferralAffordance(
       getExchangeContext(this),
       this.headers,
       this.id,

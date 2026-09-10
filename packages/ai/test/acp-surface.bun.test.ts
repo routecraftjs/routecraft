@@ -21,7 +21,7 @@ import {
   SURFACED,
   scriptedSurface,
 } from "./helpers/surface-stub.ts";
-import { MODEL } from "./helpers/suspend-fixtures.ts";
+import { MODEL } from "./helpers/defer-fixtures.ts";
 
 const llm = scriptedLlm([]);
 mock.module("../src/llm/providers/index.ts", () => ({

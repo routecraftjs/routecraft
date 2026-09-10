@@ -29,7 +29,7 @@ describe("route enablement", () => {
   /**
    * @case A disabled direct() route has no dispatch door
    * @preconditions Two direct()-sourced routes in one context, one carrying a false predicate
-   * @expectedResult The enabled endpoint is the only capability, and a dispatch naming the disabled one is refused rather than parked. Enablement is a deployment switch, so being off keeps every caller out; it is not a per-caller check, which is what .authorize() is for
+   * @expectedResult The enabled endpoint is the only capability, and a dispatch naming the disabled one is refused rather than deferred. Enablement is a deployment switch, so being off keeps every caller out; it is not a per-caller check, which is what .authorize() is for
    */
   test("refuses a dispatch to a disabled direct route", async () => {
     t = await testContext()

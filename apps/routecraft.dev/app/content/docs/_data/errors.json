@@ -308,67 +308,67 @@
   {
     "code": "RC5042",
     "category": "Runtime",
-    "message": "Exchange cannot be persisted for suspension",
+    "message": "Exchange cannot be persisted for deferral",
     "retryable": false
   },
   {
     "code": "RC5043",
     "category": "Adapter",
-    "message": "Principal restored from a suspension",
+    "message": "Principal restored from a deferral",
     "retryable": false
   },
   {
     "code": "RC5044",
     "category": "Runtime",
-    "message": "Suspension store operation failed",
+    "message": "Deferral store operation failed",
     "retryable": false
   },
   {
     "code": "RC5045",
     "category": "Runtime",
-    "message": "Suspension store busy",
+    "message": "Deferral store busy",
     "retryable": true
   },
   {
     "code": "RC5046",
     "category": "Runtime",
-    "message": "Suspension not found",
+    "message": "Deferral not found",
     "retryable": false
   },
   {
     "code": "RC5047",
     "category": "Runtime",
-    "message": "Suspension expired",
+    "message": "Deferral expired",
     "retryable": false
   },
   {
     "code": "RC5048",
     "category": "Runtime",
-    "message": "Suspension continuation changed",
+    "message": "Deferral continuation changed",
     "retryable": false
   },
   {
     "code": "RC5049",
     "category": "Runtime",
-    "message": "Suspension result rejected",
+    "message": "Deferral result rejected",
     "retryable": false
   },
   {
     "code": "RC5050",
     "category": "Runtime",
-    "message": "Suspension denied",
+    "message": "Deferral denied",
     "retryable": false
   },
   {
     "code": "RC5051",
     "category": "Definition",
-    "message": "Suspend not supported at this position",
+    "message": "Defer not supported at this position",
     "retryable": false
   },
   {
     "code": "RC5052",
     "category": "Definition",
-    "message": "Suspension runtime not configured",
+    "message": "Deferral runtime not configured",
     "retryable": false
   },
   {
@@ -380,7 +380,7 @@
   {
     "code": "RC5054",
     "category": "Runtime",
-    "message": "Suspension cancelled by run abort",
+    "message": "Deferral cancelled by run abort",
     "retryable": false
   },
   {
@@ -398,7 +398,7 @@
   {
     "code": "RC5057",
     "category": "Runtime",
-    "message": "Suspension sequence header unusable",
+    "message": "Deferral sequence header unusable",
     "retryable": false
   },
   {
@@ -434,19 +434,19 @@
   {
     "code": "AI1006",
     "category": "Adapter",
-    "message": "Agent suspension unavailable on this surface",
+    "message": "Agent deferral unavailable on this surface",
     "retryable": false
   },
   {
     "code": "AI1007",
     "category": "Adapter",
-    "message": "Agent suspension state invalid at rehydration",
+    "message": "Agent deferral state invalid at rehydration",
     "retryable": false
   },
   {
     "code": "AI1008",
     "category": "Adapter",
-    "message": "Parked agent thread replacement refused",
+    "message": "Deferred agent thread replacement refused",
     "retryable": false
   },
   {
@@ -464,7 +464,7 @@
   {
     "code": "AI1011",
     "category": "Adapter",
-    "message": "A tool asked to park an agent session turn",
+    "message": "A tool asked to defer an agent session turn",
     "retryable": false
   },
   {

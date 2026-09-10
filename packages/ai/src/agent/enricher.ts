@@ -1,8 +1,8 @@
 import {
   getExchangeContext,
   getExchangeRoute,
-  markSuspendCapable,
-  parkAside,
+  markDeferCapable,
+  deferAside,
   peekResumeStepState,
   rcError,
   type CraftContext,
@@ -21,10 +21,10 @@ import {
   type AgentDispatchIdentity,
   type AgentRunInput,
   type AgentRunResume,
-  type AgentRunSuspension,
+  type AgentRunDeferral,
 } from "./run.ts";
 import { applyOverrides, type AdvertisingAgent } from "./advertised.ts";
-import { rehydrateSession } from "./suspension-state.ts";
+import { rehydrateSession } from "./deferral-state.ts";
 import {
   ADAPTER_AGENT_DEFAULT_OPTIONS,
   ADAPTER_AGENT_REGISTRY,
@@ -52,15 +52,15 @@ import type {
 } from "./types.ts";
 import {
   AgentSessionRuntime,
-  isSessionParkMarker,
+  isSessionDeferralMarker,
   sessionSystemBlock,
   type AgentSessionKey,
-  type AgentSessionPark,
+  type AgentSessionDeferral,
   type AgentSessionOverrides,
-  type AgentSessionParkMarker,
+  type AgentSessionDeferralMarker,
   type AgentTurnExecutor,
 } from "./session/index.ts";
-import type { ThreadMessage } from "./suspension-state.ts";
+import type { ThreadMessage } from "./deferral-state.ts";
 
 const AGENT_REGISTRY_STORE_DESCRIPTION =
   ADAPTER_AGENT_REGISTRY.description ?? "routecraft.adapter.agent.registry";
@@ -176,10 +176,10 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
   readonly adapterId = "routecraft.adapter.agent";
 
   constructor(public readonly binding: AgentBinding<T>) {
-    // A tool handler may park the run (ctx.suspend / SuspendError), so the
-    // suspend-site walk assigns this adapter's hosting step a re-entrant
-    // site at build time. Routes that never suspend pay nothing for it.
-    markSuspendCapable(this);
+    // A tool handler may defer the run (ctx.defer / DeferError), so the
+    // defer-site walk assigns this adapter's hosting step a re-entrant
+    // site at build time. Routes that never defer pay nothing for it.
+    markDeferCapable(this);
   }
 
   async fetch(
@@ -214,31 +214,31 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
       route?.definition.id,
     );
 
-    // Durable suspension is available exactly when the exchange is
-    // route-bound: without a dispatch identity there is no site to park
-    // against, so no wiring is handed out and ctx.suspend refuses (AI1006).
+    // Durable deferral is available exactly when the exchange is
+    // route-bound: without a dispatch identity there is no site to defer
+    // against, so no wiring is handed out and ctx.defer refuses (AI1006).
     const agentIdentity = agentName ?? dispatchIdentity?.routeId;
     // Withheld under `stream: true`. The dispatch returns its iterable the
     // moment the run starts, so this step has already settled by the time a
-    // tool could park it: the sentinel would reach the stream's consumer as
-    // an ordinary failure and the exchange would never park, stranding a
+    // tool could defer it: the sentinel would reach the stream's consumer as
+    // an ordinary failure and the exchange would never defer, stranding a
     // resume token the handler had already sent. Refusing at the handler
     // instead (AI1006, the same refusal an unbound dispatch gets) puts the
     // error where the author can act on it.
-    const suspension: AgentRunSuspension | undefined =
+    const deferral: AgentRunDeferral | undefined =
       dispatchIdentity && agentIdentity !== undefined && merged.stream !== true
         ? {
-            id: exchange.suspension.id,
+            id: exchange.deferral.id,
             // Lazy: minting reads the context's signer and throws RC5052
-            // without a suspension runtime; a handler that never builds a
+            // without a deferral runtime; a handler that never builds a
             // resume link should not pay for or fail on it.
             mintToken: (callBinding: string) =>
-              exchange.suspension.tokenFor(callBinding),
+              exchange.deferral.tokenFor(callBinding),
             agentId: agentIdentity,
           }
         : undefined;
 
-    // A resumed exchange re-enters this step carrying the parked loop
+    // A resumed exchange re-enters this step carrying the deferred loop
     // state. Read without consuming: the executor clears the slot when
     // this step settles, so a retried attempt (a provider 429 here, or a
     // setup failure below) still resumes instead of silently re-running
@@ -247,10 +247,12 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
     // A revived session continuation re-enters here too, carrying only
     // the session's name: the transcript and the inbox are in the session
     // record, and the turn they make is the runtime's to run.
-    const revivedPark = isSessionParkMarker(resumeRaw) ? resumeRaw : undefined;
+    const revivedDeferral = isSessionDeferralMarker(resumeRaw)
+      ? resumeRaw
+      : undefined;
     const resume: AgentRunResume | undefined =
-      resumeRaw !== undefined && revivedPark === undefined
-        ? rehydrateSession(resumeRaw, agentIdentity, exchange.suspension.result)
+      resumeRaw !== undefined && revivedDeferral === undefined
+        ? rehydrateSession(resumeRaw, agentIdentity, exchange.deferral.result)
         : undefined;
 
     const userTools = resolveAgentTools(
@@ -323,8 +325,8 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
         : (perCall?.onDelta ?? merged.onDelta);
 
     const sessionKey =
-      revivedPark !== undefined
-        ? this.revivedSessionKey(revivedPark, agentIdentity)
+      revivedDeferral !== undefined
+        ? this.revivedSessionKey(revivedDeferral, agentIdentity)
         : this.resolveSessionKey(
             perCall?.session ?? merged.session,
             exchange,
@@ -354,10 +356,9 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
       exchange,
       dispatchIdentity,
       // Withheld on a session turn: its continuation is the session record,
-      // revived by the runtime, and a tool that parks would strand the
-      // caller on a suspension nothing resumes into (AI1011 at the tool).
-      ...(suspension !== undefined &&
-        sessionKey === undefined && { suspension }),
+      // revived by the runtime, and a tool that defers would strand the
+      // caller on a deferral nothing resumes into (AI1011 at the tool).
+      ...(deferral !== undefined && sessionKey === undefined && { deferral }),
     } satisfies Omit<AgentRunInput<T>, "onStep" | "resume" | "session">;
 
     if (sessionKey !== undefined) {
@@ -376,35 +377,35 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
       }
       if (resume !== undefined) {
         throw rcError("RC5003", undefined, {
-          message: `Agent: a resumed suspension cannot re-enter an agent dispatched with "session". A session turn is not parkable; drop "session" on this route or park from a sessionless agent.`,
+          message: `Agent: a resumed deferral cannot re-enter an agent dispatched with "session". A session turn is not deferrable; drop "session" on this route or defer from a sessionless agent.`,
         });
       }
       const interrupt = perCall?.interrupt ?? merged.interrupt;
-      // Where this exchange can be parked for a later turn: the re-entrant
+      // Where this exchange can be deferred for a later turn: the re-entrant
       // site the build assigned this step, when it sits on the primary flow.
-      const site = route?.definition.reentrantSuspendSteps?.find(
+      const site = route?.definition.reentrantDeferSteps?.find(
         (host) => host.adapter === this,
-      )?.suspendSite;
+      )?.deferSite;
       const routeId = route?.definition.id;
-      const park =
+      const defer =
         site !== undefined && routeId !== undefined
           ? async (
-              announce: (park: AgentSessionPark) => Promise<void>,
-            ): Promise<AgentSessionPark> => {
-              const { suspensionId } = await parkAside(
+              announce: (deferral: AgentSessionDeferral) => Promise<void>,
+            ): Promise<AgentSessionDeferral> => {
+              const { deferralId } = await deferAside(
                 context,
                 exchange,
                 site,
                 routeId,
-                (id): AgentSessionParkMarker => ({
-                  kind: "agent-session-park",
+                (id): AgentSessionDeferralMarker => ({
+                  kind: "agent-session-deferral",
                   agent: agentIdentity,
                   session: sessionKey,
-                  suspensionId: id,
+                  deferralId: id,
                 }),
-                (id) => announce({ suspensionId: id, routeId }),
+                (id) => announce({ deferralId: id, routeId }),
               );
-              return { suspensionId, routeId };
+              return { deferralId, routeId };
             }
           : undefined;
       return await AgentSessionRuntime.for(context).turn({
@@ -412,14 +413,14 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
         agent: agentIdentity,
         exchange,
         by: exchange.principal?.subject ?? null,
-        ...(revivedPark === undefined ? { message: user } : {}),
-        ...(park !== undefined ? { park } : {}),
-        ...(revivedPark !== undefined
-          ? { revived: revivedPark.suspensionId }
+        ...(revivedDeferral === undefined ? { message: user } : {}),
+        ...(defer !== undefined ? { defer } : {}),
+        ...(revivedDeferral !== undefined
+          ? { revived: revivedDeferral.deferralId }
           : {}),
         ...(perCall?.hold === true ? { hold: true } : {}),
         interrupt:
-          revivedPark === undefined &&
+          revivedDeferral === undefined &&
           (typeof interrupt === "function"
             ? interrupt(exchange) === true
             : interrupt === true),
@@ -505,11 +506,11 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
   /**
    * The session a revived continuation belongs to, from the marker it
    * stored. The agent it names must be the one this step dispatches: the
-   * marker is read off the store, and a route rebound under a park would
+   * marker is read off the store, and a route rebound under a deferral would
    * otherwise run another agent's conversation.
    */
   private revivedSessionKey(
-    marker: AgentSessionParkMarker,
+    marker: AgentSessionDeferralMarker,
     agentIdentity: string | undefined,
   ): AgentSessionKey {
     if (agentIdentity !== marker.agent) {

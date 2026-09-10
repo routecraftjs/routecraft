@@ -118,11 +118,11 @@ describe("Standard Schema guards after adopting isStandardSchema", () => {
   });
 
   /**
-   * @case ctx.suspend keeps its schema refusal
-   * @preconditions A fn handler context whose suspend is called with a schema carrying no callable validate
+   * @case ctx.defer keeps its schema refusal
+   * @preconditions A fn handler context whose defer is called with a schema carrying no callable validate
    * @expectedResult RC5003 naming the tool and explaining what the schema is for
    */
-  test("ctx.suspend keeps its message", () => {
+  test("ctx.defer keeps its message", () => {
     const ctx = makeFnHandlerContext(
       "probe-tool",
       new AbortController().signal,
@@ -134,8 +134,8 @@ describe("Standard Schema guards after adopting isStandardSchema", () => {
       } as never,
     );
 
-    expect(() => ctx.suspend?.({ schema: noValidator })).toThrow(
-      /ctx\.suspend in tool "probe-tool": "schema" must be a Standard Schema when given/,
+    expect(() => ctx.defer?.({ schema: noValidator })).toThrow(
+      /ctx\.defer in tool "probe-tool": "schema" must be a Standard Schema when given/,
     );
   });
 });

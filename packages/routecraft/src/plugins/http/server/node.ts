@@ -87,7 +87,7 @@ export function startNodeServer(
         port: resolvedPort,
         gracefulClose: () => {
           const done = requestClose();
-          // Parked keep-alive sockets hold close() open forever; reap them so
+          // Deferred keep-alive sockets hold close() open forever; reap them so
           // the grace window only covers genuinely in-flight requests.
           server.closeIdleConnections();
           return done;
@@ -217,7 +217,7 @@ async function writeNodeResponse(
         if (!nRes.write(value)) {
           // "drain" never fires on a destroyed response, so a disconnect
           // mid-backpressure must also settle this wait or the request
-          // promise parks until force-close.
+          // promise defers until force-close.
           const resumed = await new Promise<"drain" | "closed">((resolve) => {
             const onDrain = (): void => {
               cleanup();

@@ -123,15 +123,15 @@ export async function validateAgainst<S extends StandardSchemaV1>(
  *
  * One implementation because there are two callers with identical rules
  * (`DefaultRoute.handler` for a source-driven run, `runDetachedPipeline`
- * for a debounce release or a resumed continuation), and the suspend work
- * proved they drift: both had to grow the same `suspended` exemption in
+ * for a debounce release or a resumed continuation), and the defer work
+ * proved they drift: both had to grow the same `deferred` exemption in
  * the same shape. A third terminal state, or any change to the failure
  * path, now lands once.
  *
- * A failed, dropped, or parked run is exempt. The first two never produced
- * an output; the third produced the `Suspended` acknowledgment, which is
+ * A failed, dropped, or deferred run is exempt. The first two never produced
+ * an output; the third produced the `Deferred` acknowledgment, which is
  * deliberately not the declared output but the other arm of the route's
- * `Output | Suspended` type.
+ * `Output | Deferred` type.
  *
  * @param deps - Route identity plus the route-scope error handler
  * @param schemas - The route's declared output schemas, if any
@@ -146,7 +146,7 @@ export async function applyOutputStage<
     exchange: Exchange;
     failed: boolean;
     dropped: boolean;
-    suspended: boolean;
+    deferred: boolean;
     error?: unknown;
   },
 >(
@@ -155,7 +155,7 @@ export async function applyOutputStage<
   result: R,
   startTime: number,
 ): Promise<R> {
-  if (result.failed || result.dropped || result.suspended) return result;
+  if (result.failed || result.dropped || result.deferred) return result;
   if (!schemas?.body && !schemas?.headers) return result;
   try {
     return {
@@ -165,7 +165,7 @@ export async function applyOutputStage<
   } catch (err) {
     return {
       ...result,
-      // `suspended` is false by construction: this arm only runs for a
+      // `deferred` is false by construction: this arm only runs for a
       // result that reached validation.
       ...(await handleOutputValidationFailure(
         deps,

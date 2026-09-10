@@ -35,7 +35,7 @@ Returning a string disables the route AND is the reason ops reports, so there is
 Omitting `refresh` and passing `"manual"` mean the same thing. The sentinel
 exists for a computed cadence, where it says what it means instead of assembling
 the options object conditionally (`refresh: pollCadence ?? "manual"`), and it
-restores the sentinel precedent `suspension` already sets with
+restores the sentinel precedent `deferral` already sets with
 `defaultTtl: "never"` and `retention: "never"`.
 
 `refresh` takes `Duration` or a cron expression, told apart by shape. A cron cadence loads `croner` lazily, the same optional peer `cron()` uses, so a context that does not ask for one never pays for it. A malformed cadence is refused while the route is built.

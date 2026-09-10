@@ -8,7 +8,7 @@ import {
 } from "../../exchange";
 import { isRoutecraftError } from "../../brand";
 import { rcError } from "../../error";
-import { isSuspended } from "../../suspension/suspended";
+import { isDeferred } from "../../deferral/deferred";
 import { principalExpirySignal } from "../../auth/expiry.ts";
 import type { Principal } from "../../auth/types";
 import type {
@@ -784,14 +784,14 @@ function serialiseResponse(body: unknown, headers: ExchangeHeaders): Response {
   // otherwise duplicates the header rather than replacing it.
   const extraHeaders = lowerCaseKeys(hint.headers);
 
-  // A parked exchange answers 202 with the acknowledgment as its body. HTTP
+  // A deferred exchange answers 202 with the acknowledgment as its body. HTTP
   // is the one transport with an out-of-band status channel, so the status
-  // carries the `Output | Suspended` discrimination and the declared 200
+  // carries the `Output | Deferred` discrimination and the declared 200
   // body type stays the route's own output. `Retry-After` is the TTL, which
-  // is the honest hint: after it, the suspension is no longer resumable. An
+  // is the honest hint: after it, the deferral is no longer resumable. An
   // explicit `.header("routecraft.http.response.status", ...)` still wins,
   // because a route that overrode the status meant it.
-  if (isSuspended(body)) {
+  if (isDeferred(body)) {
     const retryAfter = retryAfterSeconds(body.expiresAt);
     return new Response(JSON.stringify(body), {
       status: hint.status ?? 202,
@@ -823,9 +823,9 @@ function serialiseResponse(body: unknown, headers: ExchangeHeaders): Response {
 /**
  * Whole seconds until `expiresAt`, for `Retry-After`.
  *
- * Absent when the suspension has no TTL (nothing honest to promise) or the
+ * Absent when the deferral has no TTL (nothing honest to promise) or the
  * deadline has already passed (a `Retry-After: 0` would invite an immediate
- * retry against a suspension that can no longer be resumed).
+ * retry against a deferral that can no longer be resumed).
  */
 function retryAfterSeconds(expiresAt: string | undefined): number | undefined {
   if (expiresAt === undefined) return undefined;

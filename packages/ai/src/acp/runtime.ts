@@ -7,7 +7,7 @@
  * a session id and no prompt id, so the editor attributes whatever streams
  * to whichever `session/prompt` it has open. A message that queues behind
  * a running turn is answered by the boundary turn, which runs on the
- * exchange that parked, so its deltas and tool events arrive under an
+ * exchange that deferred, so its deltas and tool events arrive under an
  * earlier prompt's correlation id. Routing by that id alone would drop
  * them. Instead every update is routed to the requests open on its
  * conversation, one per connection, and the request that queued the
@@ -260,7 +260,7 @@ export class AcpRuntime {
    * The delta sink for an exchange on an agent's route.
    *
    * Resolved per delta rather than once: the exchange a boundary turn runs
-   * on is the one that parked, whose own request has long returned, so
+   * on is the one that deferred, whose own request has long returned, so
    * the targets are whichever requests are open on the conversation when
    * the delta arrives. A delta with no request open is dropped, as it was
    * when the table was keyed by correlation id alone.

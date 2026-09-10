@@ -223,16 +223,16 @@
     "description": "Release only the last exchange in a burst after a quiet period."
   },
   {
-    "name": "suspend",
+    "name": "defer",
     "category": "Flow Control",
-    "signature": ".suspend({ schema?, ttl?, meta? })",
-    "description": "Park the exchange durably and answer now; resume later at the next step."
+    "signature": ".defer({ schema?, ttl?, meta? })",
+    "description": "Defer the exchange durably and answer now; resume later at the next step."
   },
   {
     "name": "resume",
     "category": "Flow Control",
     "signature": ".resume(map?, { authorize? })",
-    "description": "Revive a parked exchange addressed by its signed resume token."
+    "description": "Revive a deferred exchange addressed by its signed resume token."
   },
   {
     "name": "tap",

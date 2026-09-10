@@ -327,7 +327,7 @@ request. `plugin:http:request:completed` fires when the stream closes, with
 A client that disconnects cancels the route's iterator, visible as a `return()`
 delivered into a generator's `finally` block or as a `for await` loop exiting.
 
-**That return is delivered late for a producer parked on an inner `await`.**
+**That return is delivered late for a producer deferred on an inner `await`.**
 Async iteration settles a pending step before it delivers a return, so a
 generator sitting on `await nextRowFromTheDatabase()` learns nothing about the
 disconnect until that await resolves on its own. A source that can be quiet for
@@ -669,7 +669,7 @@ Bound admission instead: give `.concurrency()` a `maxQueue`, or `mode: "reject"`
 
 **A refusal only reaches the sender if it happens before the answer.** Every transport gate does: path and method, body size, body parse, signature, and the mount's credential check. The pre-from chain positions that run inside the pipeline do not, `.authorize()` among them, so a scope denial on a route that answers early stops the work while the caller has already been told `202` and cannot tell a denial from acceptance. A route that must be able to refuse its caller does not answer early.
 
-**What a responder gives up.** Response hints (`routecraft.http.response.status` and its siblings) are inert, because the descriptor is the answer and it is built here rather than from the exchange. Streaming and the suspension acknowledgement both live on the framework's own path, so a route that streams omits the option; an exchange body that turns out to be a stream is cancelled once the pipeline finishes, since nothing will read it and it may hold a socket or a file descriptor. And `/openapi.json` advertises no success code for a route with a responder, because the document cannot know what a function returns; the rejection codes stay, since every gate still runs ahead of it. A route that wants documented success codes omits the option.
+**What a responder gives up.** Response hints (`routecraft.http.response.status` and its siblings) are inert, because the descriptor is the answer and it is built here rather than from the exchange. Streaming and the deferral acknowledgement both live on the framework's own path, so a route that streams omits the option; an exchange body that turns out to be a stream is cancelled once the pipeline finishes, since nothing will read it and it may hold a socket or a file descriptor. And `/openapi.json` advertises no success code for a route with a responder, because the document cannot know what a function returns; the rejection codes stay, since every gate still runs ahead of it. A route that wants documented success codes omits the option.
 
 **What this does not do.** A delivery answered for and then lost to a crash is not retried, replayed, or persisted; that is the sender's redelivery to make, which is what deduplicating on `webhook-id` in the route is for.
 

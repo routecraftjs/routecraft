@@ -12,9 +12,9 @@ export {
   ADAPTER_AGENT_DEFAULT_OPTIONS,
   ADAPTER_AGENT_REGISTRY,
 } from "./store.ts";
-export { SuspendError, isSuspendError } from "./suspend.ts";
-export type { AgentSuspendOptions, AgentSuspendSentinel } from "./suspend.ts";
-export type { AgentStepState, ThreadMessage } from "./suspension-state.ts";
+export { DeferError, isDeferError } from "./defer.ts";
+export type { AgentDeferOptions, AgentDeferSentinel } from "./defer.ts";
+export type { AgentStepState, ThreadMessage } from "./deferral-state.ts";
 export type {
   AgentInboxMessage,
   AgentSessionKey,
@@ -35,7 +35,7 @@ export {
   SqliteSessionStore,
   sessionsPlugin,
 } from "./session/index.ts";
-export { assertResumableThread, replaceParkedThread } from "./thread.ts";
+export { assertResumableThread, replaceDeferredThread } from "./thread.ts";
 export { AgentCancellationCause } from "./run.ts";
 export type {
   AgentDefaultOptions,

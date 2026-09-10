@@ -5,15 +5,15 @@
  * is opportunistic: Zod, ArkType and the AI SDK bridge expose the extension,
  * and a library without it yields nothing while nothing else changes.
  *
- * Two callers share it for different reasons. The suspension descriptor
- * (`suspension/hash.ts`) folds the rendering into `continuationHash` so a
- * schema edited under a parked exchange is caught. The ops management API
+ * Two callers share it for different reasons. The deferral descriptor
+ * (`deferral/hash.ts`) folds the rendering into `continuationHash` so a
+ * schema edited under a deferred exchange is caught. The ops management API
  * publishes it so an operator can see what a route accepts without reading
  * the source.
  *
  * The dialect is a required argument rather than a default here, because
  * one of those callers hashes what comes back: a default changed in this
- * module would change every stored digest without a line of suspension code
+ * module would change every stored digest without a line of deferral code
  * moving. Each caller pins its own constant and passes it.
  *
  * The module also holds `isStandardSchema`, which reads the same bag for a

@@ -23,11 +23,11 @@ type NonChainField =
   | "steps"
   | "consumer"
   | "discovery"
-  | "suspendSteps"
-  // Site bookkeeping like suspendSteps: which steps could park, not a
+  | "deferSteps"
+  // Site bookkeeping like deferSteps: which steps could defer, not a
   // chain position. A detached run reaches those steps through its own
   // step array, and each host carries its site on the instance.
-  | "reentrantSuspendSteps"
+  | "reentrantDeferSteps"
   | "usesResume"
   // Metadata mirrored to sources (transport admission), not a chain
   // position: the authorize steps it describes already answer for
@@ -49,7 +49,7 @@ type ChainField = Exclude<keyof RouteDefinition, NonChainField>;
  * answer per position rather than inheriting a shared one.
  *
  * - `resume` is execution two of an exchange that entered the route once,
- *   possibly days earlier, and was admitted then. Its suspension is already
+ *   possibly days earlier, and was admitted then. Its deferral is already
  *   claimed by the time the continuation runs.
  * - `debounce` is work the route deliberately held back. It never entered,
  *   so the chain above has not run for it at all.
@@ -83,8 +83,8 @@ interface KindPolicy {
  *
  * One rule governs the `resume` column. A position that REFUSES work
  * without attempting it must not sit below the store transition, because a
- * resume claims its suspension before the continuation starts, so a refusal
- * becomes that suspension's terminal outcome and spends an approval on work
+ * resume claims its deferral before the continuation starts, so a refusal
+ * becomes that deferral's continuation result and spends an approval on work
  * that never ran. A position that BOUNDS work already underway is safe.
  *
  * `timeout` (#8) satisfies the rule only in the common case. It wraps the
@@ -100,7 +100,7 @@ export const CHAIN_SURVIVAL: Readonly<
   errorHandler: {
     resume: {
       survives: true,
-      why: "The route still owns the exchange, and a revival failure has nowhere else to go: only the suspended route can notify and re-ask.",
+      why: "The route still owns the exchange, and a revival failure has nowhere else to go: only the deferred route can notify and re-ask.",
     },
     debounce: {
       survives: true,
@@ -128,7 +128,7 @@ export const CHAIN_SURVIVAL: Readonly<
   postParseFilters: {
     resume: {
       survives: false,
-      why: "cacheCheck (#9). Refused at build alongside a reachable suspend, because a park exits the pipeline this filter wraps.",
+      why: "cacheCheck (#9). Refused at build alongside a reachable defer, because a deferral exits the pipeline this filter wraps.",
     },
     debounce: {
       survives: false,
@@ -156,7 +156,7 @@ export const CHAIN_SURVIVAL: Readonly<
   throttle: {
     resume: {
       survives: false,
-      why: "It admits new work into the route; a parked exchange was admitted on execution one. Answer arrival is governed by the resume ingress route's own throttle.",
+      why: "It admits new work into the route; a deferred exchange was admitted on execution one. Answer arrival is governed by the resume ingress route's own throttle.",
     },
     debounce: {
       survives: false,
@@ -170,7 +170,7 @@ export const CHAIN_SURVIVAL: Readonly<
   circuitBreaker: {
     resume: {
       survives: false,
-      why: "It fast-fails, and a continuation runs after the suspension is claimed, so a refusal here would record a failed terminal and spend the approval. Its home is the resume ingress route's chain, which wraps .resume() and so refuses above that transition.",
+      why: "It fast-fails, and a continuation runs after the deferral is claimed, so a refusal here would record a failed continuation result and spend the approval. Its home is the resume ingress route's chain, which wraps .resume() and so refuses above that transition.",
     },
     debounce: {
       survives: false,
@@ -184,7 +184,7 @@ export const CHAIN_SURVIVAL: Readonly<
   retry: {
     resume: {
       survives: true,
-      why: "Retrying a continuation is the wanted behaviour and is safe against the transition: attempts run before any terminal outcome is recorded, so a retried continuation never spends an approval.",
+      why: "Retrying a continuation is the wanted behaviour and is safe against the transition: attempts run before any continuation result is recorded, so a retried continuation never spends an approval.",
     },
     debounce: {
       survives: false,
@@ -198,7 +198,7 @@ export const CHAIN_SURVIVAL: Readonly<
   timeout: {
     resume: {
       survives: true,
-      why: "Bounds execution two. Distinct from a suspension's ttl, which is a store-side expiry rather than a per-attempt deadline in this process.",
+      why: "Bounds execution two. Distinct from a deferral's ttl, which is a store-side expiry rather than a per-attempt deadline in this process.",
     },
     debounce: {
       survives: false,

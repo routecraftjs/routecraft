@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
 import {
-  MemorySuspensionStore,
+  MemoryDeferralStore,
   craft,
   direct,
   noop,
@@ -16,7 +16,7 @@ import {
 } from "../src/index.ts";
 import { MemorySessionStore } from "../src/agent/session/index.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
-import { MODEL } from "./helpers/suspend-fixtures.ts";
+import { MODEL } from "./helpers/defer-fixtures.ts";
 
 const llm = scriptedLlm([]);
 mock.module("../src/llm/providers/index.ts", () => ({
@@ -55,7 +55,7 @@ describe("the agent-sessions management resource", () => {
         servers: { default: { port: 0, host: "127.0.0.1" } },
         sessions: { store: new MemorySessionStore() },
         ...(withStore
-          ? { suspension: { store: new MemorySuspensionStore() } }
+          ? { deferral: { store: new MemoryDeferralStore() } }
           : {}),
         plugins: [
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
@@ -162,8 +162,8 @@ describe("the agent-sessions management resource", () => {
   });
 
   /**
-   * @case A context without a suspension store lists no sessions rather than failing the read
-   * @preconditions No suspension block; the resource is registered by agentPlugin regardless
+   * @case A context without a deferral store lists no sessions rather than failing the read
+   * @preconditions No deferral block; the resource is registered by agentPlugin regardless
    * @expectedResult GET /ops/agent-sessions answers 200 with an empty items array
    */
   test("answers an empty collection without a store", async () => {

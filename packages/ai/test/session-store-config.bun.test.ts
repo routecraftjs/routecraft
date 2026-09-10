@@ -4,10 +4,10 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
   claimDatabasePath,
-  MemorySuspensionStore,
+  MemoryDeferralStore,
   resolveSqliteDriver,
   SQLITE_APPLICATION_IDS,
-  SqliteSuspensionStore,
+  SqliteDeferralStore,
   type SqliteDriverLoaders,
 } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
@@ -21,10 +21,10 @@ import {
 } from "../src/agent/session/index.ts";
 import {
   createSessionStore,
-  DeferredSqliteSessionStore,
+  LazySqliteSessionStore,
 } from "../src/agent/session/config.ts";
 import { ADAPTER_AGENT_SESSION_STORE } from "../src/agent/store.ts";
-import { MODEL } from "./helpers/suspend-fixtures.ts";
+import { MODEL } from "./helpers/defer-fixtures.ts";
 
 const scratch = mkdtempSync(join(tmpdir(), "rc-sessions-config-"));
 const key = "s";
@@ -125,7 +125,7 @@ describe("session store resolution", () => {
     process.env[SESSION_STORE_ENV] = "   ";
     const resolved = await createSessionStore(t.ctx, {});
     expect(resolved.backend).toBe("sqlite");
-    expect(resolved.store).toBeInstanceOf(DeferredSqliteSessionStore);
+    expect(resolved.store).toBeInstanceOf(LazySqliteSessionStore);
   });
 
   /**
@@ -152,7 +152,7 @@ describe("session store resolution", () => {
    */
   test("the default store is created by the first write", async () => {
     const path = join(scratch, "deferred", "sessions.db");
-    const store = new DeferredSqliteSessionStore(path);
+    const store = new LazySqliteSessionStore(path);
     expect(await store.get(key)).toBeUndefined();
     expect(await store.keys()).toEqual([]);
     expect(existsSync(path)).toBe(false);
@@ -176,7 +176,7 @@ describe("session store resolution", () => {
     const own = new MemorySessionStore();
     t = await testContext()
       .with({
-        suspension: { store: new MemorySuspensionStore() },
+        deferral: { store: new MemoryDeferralStore() },
         sessions: { store: own },
         plugins: [
           llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
@@ -199,7 +199,7 @@ describe("session store resolution", () => {
    */
   test("a store that is neither a path nor a backend is RC5003", async () => {
     t = await testContext()
-      .with({ suspension: { store: new MemorySuspensionStore() } })
+      .with({ deferral: { store: new MemoryDeferralStore() } })
       .build();
     const halfWritten = {
       get: () => undefined,
@@ -221,12 +221,12 @@ describe("session store resolution", () => {
 
   /**
    * @case The lazy fallback reports no backend until something resolves it
-   * @preconditions A context with a suspension block and no session-owning plugin, read before any session work
+   * @preconditions A context with a deferral block and no session-owning plugin, read before any session work
    * @expectedResult The resolved store reports the unresolved backend rather than guessing sqlite
    */
   test("the inline fallback reports no backend before it resolves", async () => {
     t = await testContext()
-      .with({ suspension: { store: new MemorySuspensionStore() } })
+      .with({ deferral: { store: new MemoryDeferralStore() } })
       .build();
     AgentSessionRuntime.for(t.ctx);
     expect(t.ctx.getStore(ADAPTER_AGENT_SESSION_STORE)?.backend).toBe(
@@ -236,13 +236,13 @@ describe("session store resolution", () => {
 
   /**
    * @case An inline session with no session-owning plugin resolves its store the way the plugins do, environment included
-   * @preconditions A context with a suspension block and neither agentPlugin() nor a sessions key; ROUTECRAFT_SESSION_STORE=memory; the runtime is created for the context and used once
+   * @preconditions A context with a deferral block and neither agentPlugin() nor a sessions key; ROUTECRAFT_SESSION_STORE=memory; the runtime is created for the context and used once
    * @expectedResult The context's resolved store reports the memory backend after that use and is unconfigured
    */
   test("the inline fallback resolves like the plugins", async () => {
     process.env[SESSION_STORE_ENV] = "memory";
     t = await testContext()
-      .with({ suspension: { store: new MemorySuspensionStore() } })
+      .with({ deferral: { store: new MemoryDeferralStore() } })
       .build();
     const runtime = AgentSessionRuntime.for(t.ctx);
     expect(await runtime.store.list()).toEqual([]);
@@ -253,13 +253,13 @@ describe("session store resolution", () => {
 
   /**
    * @case The inline fallback refuses work once the context has stopped, rather than reopening a store it released
-   * @preconditions A context with a suspension block and no session-owning plugin; the runtime is created, the context is stopped, and a session read is attempted afterwards
+   * @preconditions A context with a deferral block and no session-owning plugin; the runtime is created, the context is stopped, and a session read is attempted afterwards
    * @expectedResult The read rejects with AI1012 naming a call after teardown
    */
   test("the inline fallback stays closed after the context stops", async () => {
     process.env[SESSION_STORE_ENV] = "memory";
     const ctx = await testContext()
-      .with({ suspension: { store: new MemorySuspensionStore() } })
+      .with({ deferral: { store: new MemoryDeferralStore() } })
       .build();
     const runtime = AgentSessionRuntime.for(ctx.ctx);
     await ctx.stop();
@@ -288,7 +288,7 @@ describe("session store resolution", () => {
     const resolved = t.ctx.getStore(ADAPTER_AGENT_SESSION_STORE);
     expect(resolved?.configured).toBe(false);
     expect(resolved?.ownsStore).toBe(true);
-    expect(resolved?.store).toBeInstanceOf(DeferredSqliteSessionStore);
+    expect(resolved?.store).toBeInstanceOf(LazySqliteSessionStore);
   });
 
   /**
@@ -354,14 +354,14 @@ describe("session store resolution", () => {
   });
 
   /**
-   * @case The store refuses a suspension database instead of reporting a version
-   * @preconditions A file opened by the suspension store first, which stamps its own identity and schema version 4
+   * @case The store refuses a deferral database instead of reporting a version
+   * @preconditions A file opened by the deferral store first, which stamps its own identity and schema version 4
    * @expectedResult AI1012 says the file is not an agent session store and names what it is. Reported in the field from JetBrains: the old message said the file was "newer than this build understands (2)" and told the reader to run a newer build, which no build could ever satisfy because the file belongs to another store
    */
-  test("a suspension database is refused as foreign, not as a newer version", async () => {
-    const path = join(scratch, "suspensions-as-sessions.db");
-    const suspensions = await SqliteSuspensionStore.open({ path });
-    await suspensions.close();
+  test("a deferral database is refused as foreign, not as a newer version", async () => {
+    const path = join(scratch, "deferrals-as-sessions.db");
+    const deferrals = await SqliteDeferralStore.open({ path });
+    await deferrals.close();
 
     const failure = await SqliteSessionStore.open({ path }).then(
       () => undefined,
@@ -369,7 +369,7 @@ describe("session store resolution", () => {
     );
     expect(failure).toBeDefined();
     expect(failure!.message).toContain("is not an agent session store");
-    expect(failure!.message).toContain("suspension");
+    expect(failure!.message).toContain("deferral");
     expect(failure!.message).not.toContain("newer than this build");
     expect(failure!.message).not.toContain("Run the newer Routecraft build");
   });
@@ -454,13 +454,13 @@ describe("session store resolution", () => {
 
   /**
    * @case Two stores configured onto one file are refused at resolution
-   * @preconditions A context whose suspension store already claimed a path, then sessions: { store } pointed at the same path
+   * @preconditions A context whose deferral store already claimed a path, then sessions: { store } pointed at the same path
    * @expectedResult AI1012 names both settings and the shared path. Reported in the field: both were configured onto .routecraft/sessions.db, nothing objected, and the failure surfaced later inside the ACP auth loop as a schema version the build did not understand
    */
   test("two stores on one path are refused, naming both settings", async () => {
     const path = join(scratch, "shared-by-two.db");
     t = await testContext()
-      .with({ suspension: { store: { path } } })
+      .with({ deferral: { store: { path } } })
       .build();
 
     const failure = await createSessionStore(t.ctx, {
@@ -471,7 +471,7 @@ describe("session store resolution", () => {
     );
     expect(failure).toBeDefined();
     expect(failure!.message).toContain("sessions: { store }");
-    expect(failure!.message).toContain("suspension: { store }");
+    expect(failure!.message).toContain("deferral: { store }");
     expect(failure!.message).toContain(path);
     expect(failure).toMatchObject({ rc: "AI1012" });
   });
@@ -516,7 +516,7 @@ describe("session store resolution", () => {
   /**
    * @case A path a replaced store gave up stops blocking another store
    * @preconditions The unconfigured default resolves and claims the default path, then a sessions block replaces it with a different path
-   * @expectedResult The default path is free for the suspension store to claim. Holding the released path refused a valid configuration, because agentPlugin resolves a default that sessionsPlugin then closes and replaces
+   * @expectedResult The default path is free for the deferral store to claim. Holding the released path refused a valid configuration, because agentPlugin resolves a default that sessionsPlugin then closes and replaces
    */
   test("replacing the session store releases the path it gave up", async () => {
     t = await testContext().build();
@@ -530,7 +530,7 @@ describe("session store resolution", () => {
       claimDatabasePath({
         scope: t!.ctx,
         path: DEFAULT_SESSION_DB_PATH,
-        claimant: "suspension: { store }",
+        claimant: "deferral: { store }",
         onConflict: (conflict) =>
           new Error(`refused, held by ${conflict.held}`),
       }),
@@ -555,7 +555,7 @@ describe("session store resolution", () => {
     claimDatabasePath({
       scope,
       path: taken,
-      claimant: "suspension: { store }",
+      claimant: "deferral: { store }",
       onConflict: () => new Error("unexpected"),
     });
     expect(() =>
@@ -570,7 +570,7 @@ describe("session store resolution", () => {
       claimDatabasePath({
         scope,
         path: first,
-        claimant: "suspension: { store }",
+        claimant: "deferral: { store }",
         onConflict: () => new Error("still held"),
       }),
     ).toThrow("still held");
@@ -590,7 +590,7 @@ describe("session store resolution", () => {
       claimDatabasePath({
         scope: t!.ctx,
         path: DEFAULT_SESSION_DB_PATH,
-        claimant: "suspension: { store }",
+        claimant: "deferral: { store }",
         onConflict: (conflict) =>
           new Error(`refused, held by ${conflict.held}`),
       }),
@@ -611,7 +611,7 @@ describe("session store resolution", () => {
       claimDatabasePath({
         scope: t!.ctx,
         path: DEFAULT_SESSION_DB_PATH,
-        claimant: "suspension: { store }",
+        claimant: "deferral: { store }",
         onConflict: (conflict) =>
           new Error(`refused, held by ${conflict.held}`),
       }),
@@ -643,7 +643,7 @@ describe("session store resolution", () => {
       claimDatabasePath({
         scope,
         path: file,
-        claimant: "suspension: { store }",
+        claimant: "deferral: { store }",
         onConflict: (conflict) =>
           new Error(`refused, held by ${conflict.held}`),
       }),

@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import {
-  SUSPENSION_RUNTIME,
+  DEFERRAL_RUNTIME,
   decodeCursor,
   getExchangeRoute,
   rcError,
-  reviveSuspension,
+  reviveDeferral,
   takePage,
   type CraftContext,
   type CursorScope,
@@ -16,7 +16,7 @@ import type { LlmPromptPart } from "../../llm/types.ts";
 import { dispatchIdentityFrom } from "../run.ts";
 import { assertOverridesAdvertised } from "../advertised.ts";
 import { ADAPTER_AGENT_REGISTRY, ADAPTER_AGENT_SESSIONS } from "../store.ts";
-import type { ThreadMessage } from "../suspension-state.ts";
+import type { ThreadMessage } from "../deferral-state.ts";
 import type { AgentResult } from "../types.ts";
 import { closeUnansweredToolCalls, renderUserMessage } from "./render.ts";
 import { BoundedMap, SESSION_MEMORY_BOUND } from "./bounded.ts";
@@ -27,7 +27,7 @@ import type {
   AgentInboxMessage,
   AgentSessionKey,
   AgentSessionOverrides,
-  AgentSessionPark,
+  AgentSessionDeferral,
   AgentSessionRecord,
   AgentSessionScope,
   AgentSessionSummary,
@@ -84,13 +84,13 @@ export interface AgentTurnRequest<T = unknown> {
   readonly executor: AgentTurnExecutor;
   /**
    * Store this exchange's continuation, for a turn that ends with work
-   * outstanding. Absent when the step sits where a park cannot be revived
+   * outstanding. Absent when the step sits where a deferral cannot be revived
    * from (inside a fan-out), in which case queued messages run in process
    * and a completion waits for the next message.
    */
-  readonly park?: (
-    announce: (park: AgentSessionPark) => Promise<void>,
-  ) => Promise<AgentSessionPark>;
+  readonly defer?: (
+    announce: (deferral: AgentSessionDeferral) => Promise<void>,
+  ) => Promise<AgentSessionDeferral>;
   /** The stored continuation this exchange revives, when it is one. */
   readonly revived?: string;
   /**
@@ -186,25 +186,25 @@ export class AgentSessionRuntime {
 
   /**
    * The runtime for a context, created on first use over the session store
-   * the context resolved and its suspension store. Records live in the
-   * first; the continuation a turn stores between turns is a parked
-   * exchange and lives in the second, so a context with no `suspension`
+   * the context resolved and its deferral store. Records live in the
+   * first; the continuation a turn stores between turns is a deferred
+   * exchange and lives in the second, so a context with no `deferral`
    * block refuses `session` rather than running conversations whose
    * boundary turns could never be revived.
    */
   static for(context: CraftContext): AgentSessionRuntime {
     const existing = context.getStore(ADAPTER_AGENT_SESSIONS);
     if (existing) return existing;
-    const suspension = context.getStore(SUSPENSION_RUNTIME);
-    if (!suspension) {
+    const deferral = context.getStore(DEFERRAL_RUNTIME);
+    if (!deferral) {
       throw rcError("RC5052", undefined, {
         message:
-          "agent({ session }) stores a turn's continuation in the suspension store, and this context has none. Add a `suspension` block to defineConfig (the sqlite backend is the default) so a turn that ends with work outstanding can be revived.",
+          "agent({ session }) stores a turn's continuation in the deferral store, and this context has none. Add a `deferral` block to defineConfig (the sqlite backend is the default) so a turn that ends with work outstanding can be revived.",
       });
     }
     const runtime = new AgentSessionRuntime(
       context,
-      new AgentSessionStore(sessionStoreOf(context), suspension.store),
+      new AgentSessionStore(sessionStoreOf(context), deferral.store),
     );
     context.setStore(ADAPTER_AGENT_SESSIONS, runtime);
     // Latched as shutdown begins, before the routes drain, so a completion
@@ -381,7 +381,7 @@ export class AgentSessionRuntime {
       return already;
     }
     const pending =
-      record?.park !== undefined &&
+      record?.deferral !== undefined &&
       record.inbox.some((entry) => entry.id === messageId);
     if (pending) {
       const started = await wait.started;
@@ -587,25 +587,25 @@ export class AgentSessionRuntime {
       if (this.stopping) break;
       let record = await this.store.load(key);
       if (
-        record?.parking !== undefined &&
-        record.park?.suspensionId !== record.parking.suspensionId &&
+        record?.deferring !== undefined &&
+        record.deferral?.deferralId !== record.deferring.deferralId &&
         // A turn running here right now is between its own two writes,
         // which reads exactly like the crash below; it clears the field
         // itself on both its arms.
         !this.active.has(key)
       ) {
-        // The previous process died between announcing the park and naming
-        // it: the park, if it got written, is referenced by nothing else.
-        const orphan = record.parking.suspensionId;
+        // The previous process died between announcing the deferral and naming
+        // it: the deferral, if it got written, is referenced by nothing else.
+        const orphan = record.deferring.deferralId;
         let released = true;
         try {
-          await this.store.releasePark(
+          await this.store.releaseDeferral(
             orphan,
-            "agent session park announced but never named",
+            "agent session deferral announced but never named",
           );
         } catch (err: unknown) {
-          // The reference is the only way back to this park, so it stays on
-          // the record and the next boot tries again. A park the previous
+          // The reference is the only way back to this deferral, so it stays on
+          // the record and the next boot tries again. A deferral the previous
           // process never got as far as writing settles quietly instead.
           released = false;
           this.context.logger.warn(
@@ -613,7 +613,7 @@ export class AgentSessionRuntime {
               err,
               agent: record.agent,
               session: key,
-              suspensionId: orphan,
+              deferralId: orphan,
             },
             "Agent session continuation left unnamed could not be released; the next boot retries",
           );
@@ -623,17 +623,17 @@ export class AgentSessionRuntime {
           // started during the release above announced its own, and that
           // one is live.
           record = await this.write(key, record.agent, (current) =>
-            current.parking?.suspensionId === orphan
-              ? withoutParking(current)
+            current.deferring?.deferralId === orphan
+              ? withoutDeferring(current)
               : current,
           );
           this.context.logger.info(
-            { agent: record.agent, session: key, suspensionId: orphan },
+            { agent: record.agent, session: key, deferralId: orphan },
             "Agent session continuation left unnamed by the previous process was released",
           );
         }
       }
-      if (record?.park === undefined) continue;
+      if (record?.deferral === undefined) continue;
       let next = record;
       if (record.turn !== undefined || record.background.length > 0) {
         lostBackground += record.background.length;
@@ -651,10 +651,10 @@ export class AgentSessionRuntime {
       // must not have a revival started under it.
       if (this.stopping) break;
       if (next.inbox.length > 0) {
-        this.revive(key, next.agent, next.park!);
+        this.revive(key, next.agent, next.deferral!);
         revived += 1;
       } else if (next.background.length === 0) {
-        await this.releasePark(key, next.agent, next.park!);
+        await this.releaseDeferral(key, next.agent, next.deferral!);
       }
     }
     return { revived, lostBackground };
@@ -766,7 +766,7 @@ export class AgentSessionRuntime {
           : "idle",
       inbox: record.inbox.length,
       background: record.background.length,
-      parked: record.park !== undefined,
+      deferred: record.deferral !== undefined,
       messages: record.messages.length,
       turns: record.turns,
       updatedAt: record.updatedAt,
@@ -954,9 +954,9 @@ export class AgentSessionRuntime {
         // end if work is still outstanding.
         if (
           req.revived !== undefined &&
-          next.park?.suspensionId === req.revived
+          next.deferral?.deferralId === req.revived
         ) {
-          next = withoutPark(next);
+          next = withoutDeferral(next);
         }
         if (incoming === undefined && next.inbox.length === 0) {
           // A revival with nothing left to consume: another turn got to
@@ -984,7 +984,7 @@ export class AgentSessionRuntime {
         this.emit(exchange, "route:agent:session:revived", {
           agentName: req.agent,
           session: key,
-          suspensionId: req.revived,
+          deferralId: req.revived,
         });
       }
       if (stale) {
@@ -995,7 +995,7 @@ export class AgentSessionRuntime {
         });
       }
       if (empty) {
-        after = await this.parkIfOutstanding(req, started);
+        after = await this.deferIfOutstanding(req, started);
         return {
           text: "",
           session: {
@@ -1033,7 +1033,7 @@ export class AgentSessionRuntime {
           after = written;
           throw err;
         }
-        after = await this.parkIfOutstanding(req, written);
+        after = await this.deferIfOutstanding(req, written);
         return {
           text: "",
           session: {
@@ -1046,7 +1046,7 @@ export class AgentSessionRuntime {
         };
       }
       const final = executor.thread() ?? startMessages;
-      after = await this.parkIfOutstanding(
+      after = await this.deferIfOutstanding(
         req,
         await this.write(key, req.agent, (r) => ({
           ...withoutTurn(r),
@@ -1082,7 +1082,7 @@ export class AgentSessionRuntime {
       // held through evictions until the session's next turn starts.
       if (
         boundary !== undefined &&
-        boundary.park === undefined &&
+        boundary.deferral === undefined &&
         (boundary.inbox.length > 0 || boundary.background.length > 0)
       ) {
         this.lastRequests.pin(k);
@@ -1092,9 +1092,9 @@ export class AgentSessionRuntime {
         boundary.inbox.length > 0 &&
         !this.stopping
       ) {
-        if (boundary.park !== undefined) {
+        if (boundary.deferral !== undefined) {
           this.active.delete(k);
-          this.revive(key, req.agent, boundary.park, { k, req });
+          this.revive(key, req.agent, boundary.deferral, { k, req });
         } else {
           this.followUpInProcess(k, req);
         }
@@ -1110,73 +1110,76 @@ export class AgentSessionRuntime {
    * continuation per session: a turn that ends with work outstanding while
    * one is already stored keeps it, whichever exchange it came from.
    */
-  private async parkIfOutstanding<T>(
+  private async deferIfOutstanding<T>(
     req: AgentTurnRequest<T>,
     record: AgentSessionRecord,
   ): Promise<AgentSessionRecord> {
     const outstanding = record.background.length > 0 || record.inbox.length > 0;
     if (!outstanding) {
-      if (record.park === undefined) return record;
-      await this.releasePark(req.key, req.agent, record.park);
-      return withoutPark(record);
+      if (record.deferral === undefined) return record;
+      await this.releaseDeferral(req.key, req.agent, record.deferral);
+      return withoutDeferral(record);
     }
-    if (record.park !== undefined || req.park === undefined) return record;
-    let park: AgentSessionPark;
-    let announced: AgentSessionPark | undefined;
+    if (record.deferral !== undefined || req.defer === undefined) return record;
+    let deferral: AgentSessionDeferral;
+    let announced: AgentSessionDeferral | undefined;
     try {
-      // The record names the park before the park exists, so a crash
+      // The record names the deferral before the deferral exists, so a crash
       // between the two writes leaves a reference the boot releases.
-      park = await req.park(async (pending) => {
+      deferral = await req.defer(async (pending) => {
         announced = pending;
         await this.write(req.key, req.agent, (r) => ({
           ...r,
-          parking: pending,
+          deferring: pending,
         }));
       });
     } catch (err: unknown) {
       // Without a continuation the queued messages run in process and a
       // completion waits for the next message: the shape sessions had
-      // before parks, and the log is what says why this one is on it.
+      // before defers, and the log is what says why this one is on it.
       this.context.logger.error(
         { err, agent: req.agent, session: req.key },
         "Agent session continuation could not be stored; completions wait for the next message",
       );
-      // A failure after the announce may leave a park behind, and the
+      // A failure after the announce may leave a deferral behind, and the
       // record is about to stop naming it. Settled here rather than left
       // for a boot that will no longer find a reference to it; a release
       // that fails keeps the reference, so that boot still finds it.
       if (announced !== undefined) {
         try {
-          await this.store.releasePark(
-            announced.suspensionId,
-            "agent session park announced but never named",
+          await this.store.releaseDeferral(
+            announced.deferralId,
+            "agent session deferral announced but never named",
           );
         } catch {
-          return { ...record, parking: announced };
+          return { ...record, deferring: announced };
         }
       }
-      return await this.write(req.key, req.agent, withoutParking).catch(() =>
-        withoutParking(record),
+      return await this.write(req.key, req.agent, withoutDeferring).catch(() =>
+        withoutDeferring(record),
       );
     }
     let updated: AgentSessionRecord;
     try {
       updated = await this.write(req.key, req.agent, (r) => ({
-        ...withoutParking(r),
-        park,
+        ...withoutDeferring(r),
+        deferral,
       }));
     } catch (err: unknown) {
       // Nothing names the continuation now, so nothing will ever revive
       // it; settled before the store failure reaches the caller.
       await this.store
-        .releasePark(park.suspensionId, "agent session record write failed")
+        .releaseDeferral(
+          deferral.deferralId,
+          "agent session record write failed",
+        )
         .catch(() => undefined);
       throw err;
     }
-    this.emit(req.exchange, "route:agent:session:parked", {
+    this.emit(req.exchange, "route:agent:session:deferred", {
       agentName: req.agent,
       session: req.key,
-      suspensionId: park.suspensionId,
+      deferralId: deferral.deferralId,
       inbox: updated.inbox.length,
       background: updated.background.length,
     });
@@ -1184,55 +1187,55 @@ export class AgentSessionRuntime {
   }
 
   /** Settle a continuation nothing will revive and drop it from the record. */
-  private async releasePark(
+  private async releaseDeferral(
     key: AgentSessionKey,
     agent: string,
-    park: AgentSessionPark,
+    deferral: AgentSessionDeferral,
   ): Promise<void> {
-    await this.store.releasePark(park.suspensionId, "agent session idle");
+    await this.store.releaseDeferral(deferral.deferralId, "agent session idle");
     await this.write(key, agent, (r) =>
-      r.park?.suspensionId === park.suspensionId ? withoutPark(r) : r,
+      r.deferral?.deferralId === deferral.deferralId ? withoutDeferral(r) : r,
     );
   }
 
   /**
    * Revive a session's stored continuation on this process: core resumes
-   * the parked exchange at the agent step, the step runs the next turn
+   * the deferred exchange at the agent step, the step runs the next turn
    * from the inbox, and the route's downstream steps follow. At most one
    * revival per session at a time, and none while a turn is running here,
    * because that turn's boundary does this itself.
    *
    * A revival that fails (the route is gone, its continuation changed, the
-   * store refused) is logged and the record stops naming the park; the
+   * store refused) is logged and the record stops naming the deferral; the
    * queued messages then run in process when a caller is waiting on them,
    * and otherwise wait for the next message.
    */
   private revive<T>(
     key: AgentSessionKey,
     agent: string,
-    park: AgentSessionPark,
+    deferral: AgentSessionDeferral,
     fallback?: { k: string; req: AgentTurnRequest<T> },
   ): void {
     const k = key;
     if (this.stopping || this.reviving.has(k) || this.active.has(k)) return;
-    const suspension = this.context.getStore(SUSPENSION_RUNTIME);
-    if (!suspension) return;
+    const deferralRuntime = this.context.getStore(DEFERRAL_RUNTIME);
+    if (!deferralRuntime) return;
     this.reviving.add(k);
-    const token = suspension.signer.mint(park.suspensionId, new Date());
-    const run = reviveSuspension(this.context, { token, result: undefined })
+    const token = deferralRuntime.signer.mint(deferral.deferralId, new Date());
+    const run = reviveDeferral(this.context, { token, result: undefined })
       .catch(async (err: unknown) => {
         this.context.logger.error(
           {
             err,
             session: key,
-            suspensionId: park.suspensionId,
-            routeId: park.routeId,
+            deferralId: deferral.deferralId,
+            routeId: deferral.routeId,
           },
           "Agent session continuation could not be revived",
         );
         // Settled as well as dropped: a record the session no longer names
         // would otherwise stay live in the store with nothing to revive it.
-        await this.releasePark(key, agent, park).catch(() => undefined);
+        await this.releaseDeferral(key, agent, deferral).catch(() => undefined);
         if (fallback && !this.active.has(k)) {
           this.followUpInProcess(fallback.k, fallback.req);
         }
@@ -1250,7 +1253,7 @@ export class AgentSessionRuntime {
    * An append that landed on an idle session must not wait for another
    * caller: the stored continuation is revived when there is one, and
    * otherwise the turn is started in process on the last request this
-   * process ran for the session, as a boundary without a park would.
+   * process ran for the session, as a boundary without a deferral would.
    */
   private deliverIdle(key: AgentSessionKey, record: AgentSessionRecord): void {
     // Once shutdown began the append stays in the record for the next
@@ -1258,11 +1261,11 @@ export class AgentSessionRuntime {
     if (this.stopping) return;
     const k = key;
     const last = this.lastRequests.get(k);
-    if (record.park !== undefined) {
+    if (record.deferral !== undefined) {
       this.revive(
         key,
         record.agent,
-        record.park,
+        record.deferral,
         last ? { k, req: last } : undefined,
       );
     } else if (record.inbox.length > 0 && last && !this.active.has(k)) {
@@ -1328,7 +1331,7 @@ type SessionEventName =
   | "route:agent:session:queued"
   | "route:agent:session:interrupted"
   | "route:agent:session:restored"
-  | "route:agent:session:parked"
+  | "route:agent:session:deferred"
   | "route:agent:session:revived"
   | "route:agent:session:background:started"
   | "route:agent:session:background:completed"
@@ -1368,16 +1371,16 @@ function withoutTurn(record: AgentSessionRecord): AgentSessionRecord {
   return rest;
 }
 
-function withoutPark(record: AgentSessionRecord): AgentSessionRecord {
+function withoutDeferral(record: AgentSessionRecord): AgentSessionRecord {
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructure to omit
-  const { park: _park, ...rest } = record;
+  const { deferral: _deferral, ...rest } = record;
   return rest;
 }
 
-function withoutParking(record: AgentSessionRecord): AgentSessionRecord {
-  if (record.parking === undefined) return record;
+function withoutDeferring(record: AgentSessionRecord): AgentSessionRecord {
+  if (record.deferring === undefined) return record;
   // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructure to omit
-  const { parking: _parking, ...rest } = record;
+  const { deferring: _deferring, ...rest } = record;
   return rest;
 }
 
@@ -1400,7 +1403,7 @@ function encodeResult(
 > {
   try {
     // A non-finite number serialises as null, which would read as a
-    // result the route never produced; refused here as the suspension
+    // result the route never produced; refused here as the deferral
     // serializer refuses it.
     const text = JSON.stringify(result, (_key, value: unknown) =>
       typeof value === "number" && !Number.isFinite(value)

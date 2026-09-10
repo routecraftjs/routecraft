@@ -11,7 +11,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
 import {
   HeadersKeys,
-  MemorySuspensionStore,
+  MemoryDeferralStore,
   craft,
   direct,
   type Principal,
@@ -31,7 +31,7 @@ import {
 import { AgentSessionRuntime } from "../src/agent/session/index.ts";
 import type { AgentSessionKey } from "../src/agent/session/types.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
-import { MODEL } from "./helpers/suspend-fixtures.ts";
+import { MODEL } from "./helpers/defer-fixtures.ts";
 
 const llm = scriptedLlm([]);
 mock.module("../src/llm/providers/index.ts", () => ({
@@ -106,7 +106,7 @@ describe("a conversation belongs to the person who started it", () => {
   async function boot(): Promise<TestContext> {
     return testContext()
       .with({
-        suspension: { store: new MemorySuspensionStore() },
+        deferral: { store: new MemoryDeferralStore() },
         sessions: { store },
         shutdown: { timeout: 500 },
         plugins: [

@@ -77,7 +77,7 @@ export async function startServer(
         port: opts.port,
         hostname: opts.host,
         // Seconds on Bun's side, and 0 is its "never reap" sentinel, which
-        // would let parked sockets accumulate to the fd limit and hold
+        // would let idle sockets accumulate to the fd limit and hold
         // graceful close open. Hence the floor: a sub-second configured
         // value rounds to 0. Long-lived quiet streams survive via the
         // per-request exemption below, not by widening this.

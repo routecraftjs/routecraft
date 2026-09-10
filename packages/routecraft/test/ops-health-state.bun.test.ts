@@ -379,11 +379,11 @@ describe("the health ledger", () => {
   });
 
   /**
-   * @case A parked indicator never pages and never blocks readiness
-   * @preconditions An indicator reported down, then parked for maintenance
+   * @case A muted indicator never pages and never blocks readiness
+   * @preconditions An indicator reported down, then muted for maintenance
    * @expectedResult It reports inactive and the aggregate returns to up. Maintenance is deliberate, so it must not look like an outage
    */
-  test("excludes a parked indicator from aggregation", () => {
+  test("excludes a muted indicator from aggregation", () => {
     const { state } = ledgerAt();
     state.contextStarted();
     state.registerIndicator("mail");

@@ -6,20 +6,20 @@ title: Migrating from 0.6.x to 0.7.0
 What changed between Routecraft 0.6.0 and 0.7.0, and how to update.
 </Lead>
 
-0.7.0 is the durable release. A capability can park mid-pipeline and continue days later from another transport, an agent can do the same in the middle of a conversation, and a running instance can be driven, watched and reached over HTTP: from a terminal, from an editor, or from another instance. Almost all of that is additive. What follows is every change that can break a 0.6 project, in the order most projects meet them.
+0.7.0 is the durable release. A capability can defer mid-pipeline and continue days later from another transport, an agent can do the same in the middle of a conversation, and a running instance can be driven, watched and reached over HTTP: from a terminal, from an editor, or from another instance. Almost all of that is additive. What follows is every change that can break a 0.6 project, in the order most projects meet them.
 
 1. **Time options lose their `Ms` suffix and take `Duration`.** `intervalMs` is `interval`, `timeoutMs` is `timeout`, and so on; a stale name fails the build with `RC5003` naming the replacement. Numbers keep working, and `'5m'` is now accepted everywhere. [Section 1](#1-time-options).
 2. **Listeners are declared once, under `servers`.** `http.port` / `http.host` and `mcp.port` / `mcp.host` are gone, listener events are renamed, the per-route `http({ auth })` option is removed, and `mcpPlugin` over HTTP needs an explicit `resource.url` in production. [Section 2](#2-servers-and-mounts).
-3. **Suspension.** `.suspend({ expect })` is `.suspend({ schema })`, the acknowledgment drops `question` and `reason`, parks expire by default, and a custom store gains members. [Section 3](#3-suspension).
+3. **Deferral is new.** Nothing to migrate: 0.6 had no way to pause an exchange durably. Everything that moved during the canary is in the canary notes. [Section 3](#3-deferral).
 4. **Lifecycle.** A context is single-use, `plugin:started` moves to the new `start()` phase, `Route.signal` changes meaning, and shutdown drains before it abandons. [Section 4](#4-lifecycle-and-shutdown).
-5. **Agents and tools.** `currentTime()` and `randomUuid()` are removed, `checkpointId` is `suspensionId`, agent files load by frontmatter name, and `craft chat` is gone. [Section 5](#5-agents-and-tools).
+5. **Agents and tools.** `currentTime()` and `randomUuid()` are removed, `checkpointId` is `deferralId`, agent files load by frontmatter name, and `craft chat` is gone. [Section 5](#5-agents-and-tools).
 6. **MCP.** A dropped exchange is an error result, the advertised output schema is enforced, and primitive outputs carry `structuredContent`. [Section 6](#6-mcp).
 7. **The `http()` client.** A 10 MB body cap, a narrower `body` type, and a lower-case `content-type` no longer doubles the header. [Section 7](#7-http-client).
 8. **`forward()` carries the caller's headers**, which a strict target may now reject. [Section 8](#8-forward-carries-headers).
 9. **`html()` text extraction keeps whitespace and escaped markup.** [Section 9](#9-html-text-extraction).
-10. **Smaller breaks.** `timer({ exactTime })` and `timePattern` removed, `ops.auth: false` meaningful, thenable and callable schemas validate, ArkType suspension digests change, `.retry()` reaches continuations. [Section 10](#10-smaller-breaks).
+10. **Smaller breaks.** `timer({ exactTime })` and `timePattern` removed, `ops.auth: false` meaningful, thenable and callable schemas validate, ArkType deferral digests change, `.retry()` reaches continuations. [Section 10](#10-smaller-breaks).
 
-Routes built only from the DSL with framework adapters typically need section 1 (the rename is mechanical, and the build tells you where), section 2 if they serve HTTP or MCP, and section 3 if they suspend. The rest is for adapter authors, store authors and advanced integrations, plus two notes for anyone who ran a 0.7.0 canary ([section 11](#11-canary-only-notes)). [Section 12](#12-what-is-new-in-070) lists what is new, for context.
+Routes built only from the DSL with framework adapters typically need section 1 (the rename is mechanical, and the build tells you where), section 2 if they serve HTTP or MCP, and section 3 if they defer. The rest is for adapter authors, store authors and advanced integrations, plus the notes for anyone who ran a 0.7.0 canary ([section 11](#11-canary-only-notes)). [Section 12](#12-what-is-new-in-070) lists what is new, for context.
 
 ---
 
@@ -134,73 +134,18 @@ Use a separate server name to give any surface a dedicated port. What else chang
 - **Listeners reap idle connections after 255s**, tunable per server with `idleTimeout` (refused above 255s rather than clamped, because Bun caps it there). Mounts that hold quiet long-lived streams exempt their requests, and `maxStreamingRequests` (default 500) caps the streams one listener carries.
 - **A declared server with nothing mounted fails the boot**, naming every mount and where it landed, so a plugin that failed to apply is told apart from a misspelt server name.
 
-## 3. Suspension \{#3-suspension}
+## 3. Deferral, new in 0.7.0 \{#3-deferral}
 
-### 3.1 `expect` is `schema`, and it is optional
+Nothing to migrate here. 0.6 had no way to pause an exchange durably and continue it later, so `.defer()`, `.resume()`, the deferral store and the `deferral` config block are new surface rather than changed surface.
 
-**Before (0.6.x):**
+What they are, in one place:
 
-```ts expect-error="suspend took expect in 0.6; 0.7 takes schema"
-import { craft, direct, noop } from "@routecraft/routecraft";
-import { z } from "zod";
+- [`.defer()`](/docs/reference/operations/defer) defers an exchange into a store and answers the caller at once with a `Deferred` acknowledgment, `{ status, deferralId, token, schema?, expiresAt? }`. [`.resume()`](/docs/reference/operations/resume) revives it by signed token, from any transport, at the step after the deferral. A route with a reachable `.defer()` has output type `Output | Deferred`.
+- Deferrals expire after `deferral.defaultTtl`, which is `72h` unless you set it. An overdue one re-enters the route's error channel with `RC5047`. Settled records are purged after `retention`, `90d` by default. Either takes `"never"`.
+- `.resume({ authorize })` is the one policy point. Without it the door is bearer: any holder of a valid token may resume, which is why securing a resume ingress is something you do rather than something you inherit.
+- Durability starts at a declared `.defer()`. A process that dies at step four of a route that never deferred loses that exchange.
 
-craft()
-  .id("payout")
-  .from(direct())
-  .suspend({ expect: z.object({ approved: z.boolean() }) })
-  .to(noop());
-```
-
-**After (0.7.0):**
-
-```ts
-import { craft, direct, noop } from "@routecraft/routecraft";
-import { z } from "zod";
-
-craft()
-  .id("payout")
-  .from(direct())
-  .suspend({ schema: z.object({ approved: z.boolean() }) })
-  .to(noop());
-```
-
-The rename carries through `ctx.suspend()` in an agent tool, `SuspendError`, `testFn`'s structural suspend, the `Suspended` acknowledgment's wire field, the stored record, and `describeExpect`, which is `describeSchema`. A site that declares no `schema` parks with no contract, validates nothing at the resume ingress, and types `ex.suspension.result` as `unknown`. The SQLite store migrates itself.
-
-### 3.2 The acknowledgment carries the contract and nothing else
-
-`Suspended` no longer carries `question` or `reason`, and neither suspend surface accepts them. The acknowledgment is `{ status, suspensionId, token, schema?, expiresAt? }`: it crosses the wire to whoever called the route, so it carries the contract, while everything policy-shaped lives on the record where only the resume hook and an operator can read it. Put what you carried there into `.suspend({ meta })`, which is persisted verbatim and handed to `.resume({ authorize })`, or send it through the notification step that already runs before the park.
-
-### 3.3 Parks expire by default
-
-Omitting `ttl` used to mean no expiry. It now means the context's `defaultTtl`, which is `72h`; an overdue park is retired by a sweeper that emits `route:exchange:expired` and re-enters the route's error channel with `RC5047`, and scans at startup before the context reports ready. Settled records are purged after `retention` (default `90d`). A deployment relying on parks that live indefinitely sets both explicitly:
-
-```ts
-import { defineConfig } from "@routecraft/routecraft";
-
-export default defineConfig({
-  suspension: { defaultTtl: "never", retention: "never" },
-});
-```
-
-### 3.4 A custom `SuspensionStore` gains members
-
-The two shipped backends (`memory` and `sqlite`) already carry them; a store of your own has to add:
-
-- `findExpired(now, limit, after?)`: a required limit and an optional keyset cursor, ordered by `(expiresAt, id)`.
-- `claimExpiry(id, at)` and `releaseExpiring(before)`: expiry is claim, notify, finalize, so a crash mid-delivery is redelivered. `SuspensionStatus` gains `"expiring"` and records gain `claimedAt`; `markExpired` and `markDenied` now finalize from `expiring`.
-- `resumedWithoutTerminal(limit?)`: diagnostic-only, required.
-- `replaceStepState(id, fingerprint, next)`: a compare-and-swap on the opaque `stepState` slot of a record that is still parked, which is what agent compaction uses.
-- `settledAt` on every terminal transition, which is what retention now measures from.
-
-The SQLite store migrates its schema on open (versions 2 to 4).
-
-### 3.5 Continuations honour the filter chain
-
-A resumed continuation ran under a definition with empty filter arrays, so `.concurrency()`, `.retry()` and `.timeout()` did not apply to execution two. They do now. **A route that declares route-scope `.retry()` alongside `.suspend()` gains at-least-once execution of the steps after the park**, with no opt-in, so make those steps idempotent or move a side effect a downstream cannot absorb twice behind a step-scope wrapper. `authorize`, `parse`, `input`, `throttle`, `circuitBreaker` and `cache` stay off on a resume, each for a reason recorded on the [filter chain page](/docs/advanced/filter-chain).
-
-### 3.6 Securing resume
-
-Not a break, but the thing most suspending routes want next: `.resume({ authorize })` is one hook receiving `{ principal, parked, payload, record }`, refusing before the single-use link is spent and before the record's state is disclosed. With no hook the door stays bearer, exactly as in 0.6. Per-call credentials for a parallel tool batch come from `ex.suspension.tokenFor(call)`. See the [resume reference](/docs/reference/operations/resume).
+If you ran a `0.7.0-canary-*` build, this surface was called something else for most of the canary. See [section 11](#11-canary-only-notes).
 
 ## 4. Lifecycle and shutdown \{#4-lifecycle-and-shutdown}
 
@@ -250,7 +195,7 @@ The `randomUuid()` replacement is the same shape with `handler: () => crypto.ran
 
 ### 5.2 `FnHandlerContext`
 
-`checkpointId` is renamed `suspensionId`, and `suspend` is a required member, so a hand-built handler context must provide one. `makeFnHandlerContext` and `testFn` both do, and `@routecraft/testing`'s `TestFnHandlerContext` includes a structural `suspend` that returns the sentinel shape without parking anything.
+`checkpointId` is renamed `deferralId`, and `defer` is a required member, so a hand-built handler context must provide one. `makeFnHandlerContext` and `testFn` both do, and `@routecraft/testing`'s `TestFnHandlerContext` includes a structural `defer` that returns the sentinel shape without deferring anything.
 
 ### 5.3 Agent files
 
@@ -263,8 +208,8 @@ With no shim, alias or pointer. The interactive interface is an editor speaking 
 ## 6. MCP \{#6-mcp}
 
 - **A route that drops the exchange answers an error result.** A `.filter()` rejecting, a `.choice()` matching no branch or a handler returning `recovery.drop()` used to publish the caller's own request as the tool's result. Such a call is now `isError: true` under `AI2002`, emits `plugin:mcp:tool:declined` and logs at warn; `plugin:mcp:tool:failed` keeps meaning a failure. A route that should return a value on that path needs a branch that produces one, or `.error()` recovering with a body.
-- **The advertised `outputSchema` is enforced.** A body the route's own `.output()` already validated is not re-checked; a result that reached the server without passing through it (a tool registered directly, a suspension) is validated at the surface and refused with `AI2001` if it contradicts the promise. `validateAgainst` and `wasOutputValidated` are exported for any request/reply adapter enforcing a schema at its own boundary.
-- **Primitive and array outputs carry `structuredContent`.** A tool declaring `.output({ body: z.string() })` used to advertise a schema and then omit `structuredContent`, which a spec-compliant client rejects. The value is now published in the envelope the protocol era expects (`{"result": "42.50"}` on the 2025 era, unwrapped on 2026). A client reading only the text block sees no change; an object output is byte-identical. A suspending tool advertises `oneOf: [Output, Suspended]` and its park emits `plugin:mcp:tool:suspended` rather than `completed`.
+- **The advertised `outputSchema` is enforced.** A body the route's own `.output()` already validated is not re-checked; a result that reached the server without passing through it (a tool registered directly, a deferral) is validated at the surface and refused with `AI2001` if it contradicts the promise. `validateAgainst` and `wasOutputValidated` are exported for any request/reply adapter enforcing a schema at its own boundary.
+- **Primitive and array outputs carry `structuredContent`.** A tool declaring `.output({ body: z.string() })` used to advertise a schema and then omit `structuredContent`, which a spec-compliant client rejects. The value is now published in the envelope the protocol era expects (`{"result": "42.50"}` on the 2025 era, unwrapped on 2026). A client reading only the text block sees no change; an object output is byte-identical. A deferring tool advertises `oneOf: [Output, Deferred]` and its deferral emits `plugin:mcp:tool:deferred` rather than `completed`.
 - **`McpIcon.sizes` is `readonly string[]`**, and the default icon set gains a 96x96 PNG per theme, growing from 772 B to 3840 B per inheriting tool; `icons: []` opts out.
 - **`mcpPlugin({ auth: false })`** now attaches a principal when a valid token is presented, per the mount vocabulary in section 2.
 
@@ -311,8 +256,8 @@ craft()
 - **`timer({ exactTime })` and `timer({ timePattern })` are removed.** `timePattern` was never read; `exactTime` anchored only the first fire and then ran on `interval`. Use `cron("0 9 * * *", { timezone: "Europe/Amsterdam" })`, which pulls the `croner` optional peer.
 - **`ops.auth: false` is no longer refused.** It carries the server plugin's meaning: no validator is effective for the ops mount, the `health.details` gate closes, and a scope-gated tier has nothing to check against and fails the boot.
 - **A schema whose `validate()` returns a thenable now validates** instead of passing the caller's input back as accepted. A body such a schema rejects now fails with `RC5002`; a schema that never settles hangs the validation instead of silently passing, and nothing bounds that wait. A `validate()` returning a non-record fails with a message instead of crashing.
-- **Callable schemas (ArkType) are accepted** wherever the framework asks "is this a Standard Schema", and a suspension parked under one now hashes its rendered JSON Schema. **The digest changes for ArkType only**: an ArkType park from before the upgrade resumes into `RC5048` (continuation changed), is denied, and re-asks its approver. Settle or drain those before upgrading if a re-ask is disruptive. Zod digests are byte-identical.
-- **The suspension park counter refuses corruption** with `RC5057` instead of resetting to zero, which could have re-derived an id an earlier park already used.
+- **Callable schemas (ArkType) are accepted** wherever the framework asks "is this a Standard Schema", and a deferral deferred under one now hashes its rendered JSON Schema. **The digest changes for ArkType only**: an ArkType deferral from before the upgrade resumes into `RC5048` (continuation changed), is denied, and re-asks its approver. Settle or drain those before upgrading if a re-ask is disruptive. Zod digests are byte-identical.
+- **The deferral counter refuses corruption** with `RC5057` instead of resetting to zero, which could have re-derived an id an earlier deferral already used.
 - **An event handler returning a bare thenable** is no longer logged as having thrown.
 - **`@routecraft/testing`'s `startAndWaitReady()`** no longer rejects when a startup exchange fails while another source is still coming up, and its readiness gate settles a route that starts or is disabled.
 - **`apiKey()` gains `scopes`** and is refused alongside `verify`; `apiKey({ scheme })` was already removed in 0.6.
@@ -324,14 +269,22 @@ Nothing released is affected by these; they matter only if you ran a `0.7.0-cana
 - The `surface()` params callback no longer takes `sessionId`; remove the `sessionId: ''` placeholder from every callback. The adapter fills in the running turn's session.
 - The SQLite session schema is version 2 and keyed by session id alone. A database written by a canary or a recent `main` checkout loses its stored conversations on first open.
 - `startedBy` on the `agent-sessions` management resource is `owner`.
-- `sessions: { store }` and `suspension: { store }` resolving to the same file are refused at boot, naming both settings, and every SQLite file carries the identity of the store that owns it.
+- `sessions: { store }` and `deferral: { store }` resolving to the same file are refused at boot, naming both settings, and every SQLite file carries the identity of the store that owns it.
+- **`.suspend()` is `.defer()`, and a suspension is a deferral.** The action is named for what it does: nothing is scheduled and no worker waits. `ex.suspension` is `ex.deferral`, the acknowledgment's `status` is `"deferred"` and its `suspensionId` is `deferralId`, `SuspensionStore` is `DeferralStore` (with `MemoryDeferralStore` and `SqliteDeferralStore`), `suspension: { ... }` is `deferral: { ... }`, and `ROUTECRAFT_SUSPENSION_STORE` and `ROUTECRAFT_SUSPENSION_SECRET` are `ROUTECRAFT_DEFERRAL_STORE` and `ROUTECRAFT_DEFERRAL_SECRET`. `.resume()` keeps its name, and so do `schema`, `ttl`, `meta` and every member of the affordance.
+- **`.defer({ expect })` is `.defer({ schema })`, and the option is optional.** The rename carries through `ctx.defer()`, `DeferError`, `testFn`'s structural defer, the acknowledgment's wire field, the stored record, and `describeExpect`, which is `describeSchema`. A site declaring no schema defers with no contract, validates nothing at the resume ingress, and types `ex.deferral.result` as `unknown`.
+- **The acknowledgment dropped `question` and `reason`.** Carry them in `.defer({ meta })`, which is persisted verbatim and handed to `.resume({ authorize })`, or in the notification step that already runs before the deferral.
+- **The deferral store starts again at schema version 1**, as `.routecraft/deferrals.db` with a `deferrals` table and the application id `RCDE`. On defaults that is a different file from the canary's `.routecraft/suspensions.db`, so the old one is abandoned rather than read: nothing fails, and deleting it reclaims the disk. A configured path carried over unchanged IS opened, and refused at boot as not a deferral store; delete that database or name a new path.
+- **The record carries two states, not five.** `status` is `state: "waiting" | "settled"`, plus `waitingFor` (`"resume"` today) for what the work is waiting for and `outcome: { kind, at, reason?, by? }` for how it settled, where `kind` is `"resumed" | "expired" | "denied"`. The old `expiring` status was a delivery claim rather than an outcome and is now `claimedAt` on a record that is still `waiting`: a deferral is resumable while it is waiting and unclaimed, which the exported `resumable(record)` predicate answers. `settledAt`, `resumedAt`, `resumedBy` and `deniedReason` fold into `outcome`.
+- **The cached result of execution two is `continuation`, not `terminal`.** On the record and on the resume acknowledgment alike, where it was also called `outcome`. One word per concept: an outcome is how the deferral ended, a continuation is how the resumed run ended.
+- **A custom store gained members** during the canary: `findExpired(now, limit, after?)`, `claimExpiry(id, at)`, `releaseClaims(before)`, `resumedWithoutContinuation(limit?)`, `recordContinuation(id, result)`, and `replaceStepState(id, fingerprint, next)`. `releaseExpiring` and `resumedWithoutTerminal` are the old names of the middle two.
+- **A resumed continuation honours the route's filter chain.** A route declaring route-scope `.retry()` alongside `.defer()` gains at-least-once execution of the steps after the deferral, with no opt-in, so make those steps idempotent.
 
 ## 12. What is new in 0.7.0 \{#12-what-is-new-in-070}
 
 For context, no migration required:
 
-- **Durable suspend and resume.** [`.suspend()`](/docs/reference/operations/suspend), [`.resume()`](/docs/reference/operations/resume), the suspension store with signed tokens, the sweeper, `.resume({ authorize })`, `meta`, `tokenFor`, and re-entrant suspend sites for adapters that park mid-step.
-- **Durable agents and sessions.** `ctx.suspend()` inside a tool parks the loop; `agent(name, { session })` keeps a transcript with an inbox, one turn at a time, `interrupt: true`, and `directTool(id, { background: true })` for work that outlasts a turn. See [durable agents](/docs/advanced/durable-agents) and the [agent adapter](/docs/reference/adapters/agent).
+- **Durable defer and resume.** [`.defer()`](/docs/reference/operations/defer), [`.resume()`](/docs/reference/operations/resume), the deferral store with signed tokens, the sweeper, `.resume({ authorize })`, `meta`, `tokenFor`, and re-entrant defer sites for adapters that defer mid-step.
+- **Durable agents and sessions.** `ctx.defer()` inside a tool defers the loop; `agent(name, { session })` keeps a transcript with an inbox, one turn at a time, `interrupt: true`, and `directTool(id, { background: true })` for work that outlasts a turn. See [durable agents](/docs/advanced/durable-agents) and the [agent adapter](/docs/reference/adapters/agent).
 - **Talk to an agent from your editor.** `acp:` on `defineConfig`, `craft acp`, profiles, the model and thinking-level pickers, and the [`surface()`](/docs/reference/adapters/surface) adapter for a capability that reaches the editor. See [talk from your editor](/docs/advanced/talk-from-your-editor).
 - **The ops surface.** Health, readiness, indicators, the management API, contributed resources and the event tail, behind scope-gated tiers. See the [ops plugin](/docs/reference/plugins/opsplugin).
 - **Remotes.** Another instance's dispatchable routes as direct endpoints. See the [remotes plugin](/docs/reference/plugins/remotesplugin).
@@ -340,5 +293,5 @@ For context, no migration required:
 - **The `http()` source**: Server-Sent Events and streaming bodies, `respond` for early acknowledgment, the Standard Webhooks signature scheme, `maxStreamingRequests` and `idleTimeout`. **The `http()` client**: `redirect`, `responseBody: "bytes"`.
 - **`shell()`** in `@routecraft/os`, isolated by default, with the `docker` tier; the `require-untrusted-shell-args` lint rule.
 - **Model controls**: `reasoning`, `providerOptions`, the sampling block on `agent()`, content parts in the user prompt, `agent({ stream: true })`, typed prompt callbacks.
-- **MCP**: default icons with a PNG per theme, `plugin:mcp:tool:declined` and `plugin:mcp:tool:suspended`.
+- **MCP**: default icons with a PNG per theme, `plugin:mcp:tool:declined` and `plugin:mcp:tool:deferred`.
 - **New error codes**: `RC1004`, `RC5040` to `RC5064`, `AI1004` to `AI1019`, `AI2001` and `AI2002`, `OS1001` and `OS1004`. See the [errors reference](/docs/reference/errors).

@@ -1,14 +1,14 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { runInNewContext } from "node:vm";
 import {
-  MemorySuspensionStore,
+  MemoryDeferralStore,
   craft,
   direct,
   simple,
   type RouteDefinition,
 } from "@routecraft/routecraft";
 import {
-  asSuspended,
+  asDeferred,
   spy,
   testContext,
   type TestContext,
@@ -16,7 +16,7 @@ import {
 import { agent, agentPlugin, llm, llmPlugin, tools } from "../src/index.ts";
 import type { LlmPromptPart } from "../src/index.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
-import { MODEL, askFn } from "./helpers/suspend-fixtures.ts";
+import { MODEL, askFn } from "./helpers/defer-fixtures.ts";
 
 const scripted = scriptedLlm([]);
 mock.module("../src/llm/providers/index.ts", () => ({
@@ -34,8 +34,8 @@ function firstPrompt(): unknown {
 const providers = (): ReturnType<typeof llmPlugin> =>
   llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } });
 
-/** An agent prompted with `user` that parks on `ask`, plus its resume route. */
-function parkingRoutes(
+/** An agent prompted with `user` that defers on `ask`, plus its resume route. */
+function deferringRoutes(
   id: string,
   sink: ReturnType<typeof spy>,
   user: () => LlmPromptPart[],
@@ -59,17 +59,17 @@ function parkingRoutes(
 }
 
 /**
- * The suspension wiring both park tests share. The store, the secret and the
- * plugin list all have to agree for a park to be resumable, so they are
+ * The deferral wiring both defer tests share. The store, the secret and the
+ * plugin list all have to agree for a deferral to be resumable, so they are
  * written once rather than per test.
  */
-function parkingContext(
-  store: MemorySuspensionStore,
+function deferringContext(
+  store: MemoryDeferralStore,
   routes: RouteDefinition[],
 ): ReturnType<ReturnType<typeof testContext>["routes"]> {
   return testContext()
     .with({
-      suspension: { store, secret: SECRET },
+      deferral: { store, secret: SECRET },
       plugins: [providers(), agentPlugin({ functions: { ask: askFn } })],
     })
     .routes(routes);
@@ -290,32 +290,32 @@ describe("content parts on the user prompt", () => {
   });
 
   /**
-   * @case A parts prompt survives a park and a resume with its parts intact
-   * @preconditions An agent prompted with a base64 file part parks on a suspending tool, then is resumed
+   * @case A parts prompt survives a deferral and a resume with its parts intact
+   * @preconditions An agent prompted with a base64 file part defers on a deferring tool, then is resumed
    * @expectedResult The resumed dispatch replays the persisted thread whose first message still carries the file part
    */
-  test("a parked parts prompt resumes with the parts intact", async () => {
-    const store = new MemorySuspensionStore();
+  test("a deferred parts prompt resumes with the parts intact", async () => {
+    const store = new MemoryDeferralStore();
     const sink = spy();
     scripted.script.push({
       toolCalls: [{ toolName: "ask", input: { question: "send it?" } }],
     });
 
-    t = await parkingContext(
+    t = await deferringContext(
       store,
-      parkingRoutes("parts", sink, () => [
+      deferringRoutes("parts", sink, () => [
         { type: "file", data: "AQID", mediaType: "audio/ogg" },
         { type: "text", text: "Answer the question in the recording." },
       ]),
     ).build();
     await t.startAndWaitReady();
 
-    const parked = asSuspended(
+    const deferred = asDeferred(
       await t.client.sendDirect("parts-assistant", "go"),
     );
     scripted.script.push({ text: "done" });
     const ack = (await t.client.sendDirect("parts-answers", {
-      token: parked.token,
+      token: deferred.token,
       result: { approved: true },
     })) as { status: string };
     expect(ack.status).toBe("resumed");
@@ -334,20 +334,20 @@ describe("content parts on the user prompt", () => {
   });
 
   /**
-   * @case A URL instance in a parts prompt cannot cross the suspension boundary either
-   * @preconditions The same parked agent, prompted with a file part whose data is a `URL` object
-   * @expectedResult The park is refused naming that part, because the store persists JSON data and a `URL` is a class instance. This is why the reference page tells a parking route to pass the URL as a plain string, which the SDK still reads as a URL.
+   * @case A URL instance in a parts prompt cannot cross the deferral boundary either
+   * @preconditions The same deferred agent, prompted with a file part whose data is a `URL` object
+   * @expectedResult The deferral is refused naming that part, because the store persists JSON data and a `URL` is a class instance. This is why the reference page tells a deferring route to pass the URL as a plain string, which the SDK still reads as a URL.
    */
-  test("a URL instance part refuses to park, naming the offending part", async () => {
-    const store = new MemorySuspensionStore();
+  test("a URL instance part refuses to defer, naming the offending part", async () => {
+    const store = new MemoryDeferralStore();
     const sink = spy();
     scripted.script.push({
       toolCalls: [{ toolName: "ask", input: { question: "send it?" } }],
     });
 
-    t = await parkingContext(
+    t = await deferringContext(
       store,
-      parkingRoutes("urlpart", sink, () => [
+      deferringRoutes("urlpart", sink, () => [
         {
           type: "file",
           data: new URL("https://example.com/note.ogg"),
@@ -365,20 +365,20 @@ describe("content parts on the user prompt", () => {
   });
 
   /**
-   * @case Raw bytes in a parts prompt cannot cross the suspension boundary, and say so loudly
-   * @preconditions The same parked agent, prompted with a Uint8Array file part instead of base64
-   * @expectedResult The park is refused, naming the exact part that cannot be persisted, rather than resuming with a corrupted one. The suspension store carries JSON data only (`suspension/serialize.ts`), which refuses a `URL` instance for the same reason, so a part reaching a suspending agent has to carry a base64 string or a URL-shaped string.
+   * @case Raw bytes in a parts prompt cannot cross the deferral boundary, and say so loudly
+   * @preconditions The same deferred agent, prompted with a Uint8Array file part instead of base64
+   * @expectedResult The deferral is refused, naming the exact part that cannot be persisted, rather than resuming with a corrupted one. The deferral store carries JSON data only (`deferral/serialize.ts`), which refuses a `URL` instance for the same reason, so a part reaching a deferring agent has to carry a base64 string or a URL-shaped string.
    */
-  test("a Uint8Array part refuses to park, naming the offending part", async () => {
-    const store = new MemorySuspensionStore();
+  test("a Uint8Array part refuses to defer, naming the offending part", async () => {
+    const store = new MemoryDeferralStore();
     const sink = spy();
     scripted.script.push({
       toolCalls: [{ toolName: "ask", input: { question: "send it?" } }],
     });
 
-    t = await parkingContext(
+    t = await deferringContext(
       store,
-      parkingRoutes("bytes", sink, () => [
+      deferringRoutes("bytes", sink, () => [
         {
           type: "file",
           data: new Uint8Array([1, 2, 3]),

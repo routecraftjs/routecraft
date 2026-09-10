@@ -50,10 +50,7 @@ import {
   type ExecutorDeps,
 } from "./pipeline/executor.ts";
 import { detachedDefinition } from "./pipeline/chain-policy.ts";
-import type {
-  SuspendCapableStep,
-  SuspendableStep,
-} from "./suspension/sites.ts";
+import type { DeferCapableStep, DeferrableStep } from "./deferral/sites.ts";
 import type { RouteEnablement } from "./enablement.ts";
 
 // Re-exported for existing imports (builder.ts and @internal consumers).
@@ -330,40 +327,40 @@ export type RouteDefinition<T = unknown> = {
   readonly concurrency?: ConcurrencyController[];
 
   /**
-   * Every `.suspend()` the route can reach, resolved once at build time and
-   * in pre-order. Each step carries the {@link SuspendSite} naming its
+   * Every `.defer()` the route can reach, resolved once at build time and
+   * in pre-order. Each step carries the {@link DeferSite} naming its
    * address and its continuation, which is what a resume addresses: the
-   * continuation cannot be a closure captured at suspend time, because
+   * continuation cannot be a closure captured at defer time, because
    * execution two happens in a different process.
    *
-   * Absent (rather than empty) on a route that never suspends, so the
-   * common case costs nothing and `context.start()` can tell "no suspends"
-   * from "suspends, needs a runtime" without walking anything.
+   * Absent (rather than empty) on a route that never defers, so the
+   * common case costs nothing and `context.start()` can tell "no defers"
+   * from "defers, needs a runtime" without walking anything.
    *
    * @internal
    */
-  suspendSteps?: SuspendableStep[];
+  deferSteps?: DeferrableStep[];
 
   /**
-   * Every suspend-capable `.to()` / `.enrich()` step the route carries on
-   * its primary flow, each holding the re-entrant {@link SuspendSite} the
-   * walk assigned it. Separate from {@link RouteDefinition.suspendSteps}
-   * deliberately: a capable step only MAY park at runtime, so it does not
-   * make the route require a suspension runtime at startup (`RC5052` stays
-   * keyed to static sites; a runtime park without the runtime fails as an
+   * Every defer-capable `.to()` / `.enrich()` step the route carries on
+   * its primary flow, each holding the re-entrant {@link DeferSite} the
+   * walk assigned it. Separate from {@link RouteDefinition.deferSteps}
+   * deliberately: a capable step only MAY defer at runtime, so it does not
+   * make the route require a deferral runtime at startup (`RC5052` stays
+   * keyed to static sites; a runtime deferral without the runtime fails as an
    * ordinary step error naming the config line), and it does not trip the
    * route-scope cache refusal, whose "silently never caches" reasoning
-   * assumes every run parks.
+   * assumes every run defers.
    *
    * @internal
    */
-  reentrantSuspendSteps?: SuspendCapableStep[];
+  reentrantDeferSteps?: DeferCapableStep[];
 
   /**
    * The route can reach a `.resume()`. Recorded alongside
-   * {@link RouteDefinition.suspendSteps} because a resume ingress needs the
-   * suspension runtime too (it verifies tokens and reads the store), and a
-   * resume-only route carries no suspend sites to infer that from.
+   * {@link RouteDefinition.deferSteps} because a resume ingress needs the
+   * deferral runtime too (it verifies tokens and reads the store), and a
+   * resume-only route carries no defer sites to infer that from.
    *
    * @internal
    */
@@ -485,7 +482,7 @@ export interface Route<T = unknown> {
    * route: its own `exchange:started` / `:completed` pair, the route-scope
    * `.error()` handler, and `.output()` validation before completion.
    *
-   * The entry point for execution two. The steps handed in are the parked
+   * The entry point for execution two. The steps handed in are the deferred
    * exchange's continuation, so the route resumes partway down its pipeline
    * without re-running what already ran, and without re-running the
    * pre-from filter chain (authorize, parse, input, throttle, cache), all
@@ -504,9 +501,9 @@ export interface Route<T = unknown> {
    * Push an error into this route's error channel for an exchange that is
    * not currently running in it.
    *
-   * The resume path uses it so a revival failure (an expired suspension, a
-   * continuation that changed under a parked exchange) reaches the
-   * SUSPENDED route's `.error()` handler rather than only the ingress
+   * The resume path uses it so a revival failure (an expired deferral, a
+   * continuation that changed under a deferred exchange) reaches the
+   * DEFERRED route's `.error()` handler rather than only the ingress
    * route's. That is the difference between a route that can notify the
    * approver and re-ask, and an approver left at a dead link.
    *
@@ -681,7 +678,7 @@ export class DefaultRoute implements Route {
    *
    * - `routecraft.id` is minted fresh. Ingress is always a new exchange,
    *   and an inherited id collides in every store keyed by it (telemetry
-   *   spans and rows, suspension ids). The correlation id is what links a
+   *   spans and rows, deferral ids). The correlation id is what links a
    *   hop, not the exchange id.
    * - `routecraft.split_hierarchy` is dropped. A split group only joins
    *   within the executor run that created it, so an inherited hierarchy is
@@ -1129,11 +1126,11 @@ export class DefaultRoute implements Route {
       // Framework-level output validation runs on successful, non-dropped
       // exchanges before we declare completion. A failure falls through the
       // same path as a thrown step: errorHandler if set, else a failed result.
-      // A parked exchange is exempt from the output stage AND from
-      // completion: its body is the `Suspended` acknowledgment rather than
+      // A deferred exchange is exempt from the output stage AND from
+      // completion: its body is the `Deferred` acknowledgment rather than
       // the route's declared output (the two arms of the route's
-      // `Output | Suspended` type), and its terminal event was
-      // `route:exchange:suspended`. The source still receives the exchange,
+      // `Output | Deferred` type), and its terminal event was
+      // `route:exchange:deferred`. The source still receives the exchange,
       // which is how each transport renders the acknowledgment.
       const finalResult = await applyOutputStage(
         this.validationDeps(),
@@ -1145,7 +1142,7 @@ export class DefaultRoute implements Route {
       if (
         !finalResult.failed &&
         !finalResult.dropped &&
-        !finalResult.suspended
+        !finalResult.deferred
       ) {
         const duration = Date.now() - startTime;
         const correlationId = exchange.headers[
@@ -1237,12 +1234,12 @@ export class DefaultRoute implements Route {
     });
     const deps: ExecutorDeps = {
       // The memoised deps carry the route's own `buildForward`, so the
-      // re-ask handler forwards as the SUSPENDED exchange: its `forward()`
+      // re-ask handler forwards as the DEFERRED exchange: its `forward()`
       // takes the correlation of the work being re-asked about, and its
       // principal, which came back from the store marked restored. A target
       // declaring `.authorize()` refuses it for that reason (RC5043), which
       // is the correct answer: nothing re-verified that identity across the
-      // park.
+      // deferral.
       ...this.executorDeps(),
       definition: detachedDefinition(
         this.definition,

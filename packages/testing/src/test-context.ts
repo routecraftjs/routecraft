@@ -7,7 +7,7 @@ import type {
   RouteDefinition,
   AnyRouteBuilder,
   AdapterOverride,
-  SuspensionConfig,
+  DeferralConfig,
   Duration,
 } from "@routecraft/routecraft";
 import {
@@ -35,8 +35,8 @@ const DEFAULT_ROUTES_READY_TIMEOUT_MS = 200;
  * Substitute test-shaped defaults into config keys whose production
  * defaults would be wrong under a test runner.
  *
- * Only `suspension` needs this today, and it needs it for two reasons: a
- * test must not be made to configure a signing secret before it can suspend
+ * Only `deferral` needs this today, and it needs it for two reasons: a
+ * test must not be made to configure a signing secret before it can defer
  * anything, and a test must not leave a sqlite file behind in the working
  * directory. Both defaults are overridable, so a test that wants the
  * durable backend (the kill-restart proof does) passes an explicit `store`.
@@ -47,7 +47,7 @@ const DEFAULT_ROUTES_READY_TIMEOUT_MS = 200;
  * package's own tests exist to prove. A test that holds a conversation
  * passes `sessions: { store: "memory" }`.
  *
- * `allowEphemeralSecret` is deliberately not on `SuspensionConfig`: it
+ * `allowEphemeralSecret` is deliberately not on `DeferralConfig`: it
  * relaxes a security gate, so it must not be reachable from a user's
  * `defineConfig`. This is the one place that supplies it. The seam is the
  * spread below: a spread carries the extra key without excess-property
@@ -55,14 +55,14 @@ const DEFAULT_ROUTES_READY_TIMEOUT_MS = 200;
  * type a user writes against.
  */
 function applyTestDefaults(config: CraftConfig): CraftConfig {
-  if (!config.suspension) return config;
+  if (!config.deferral) return config;
   const seams = { allowEphemeralSecret: true };
-  const suspension: SuspensionConfig = {
+  const deferral: DeferralConfig = {
     store: "memory",
     ...seams,
-    ...config.suspension,
+    ...config.deferral,
   };
-  return { ...config, suspension };
+  return { ...config, deferral };
 }
 
 function describeOverrideTarget(target: unknown): string {
@@ -158,7 +158,7 @@ export class TestContext {
    *
    * Stated once because it is one definition: waiting on routes alone would
    * call a context ready two thirds of the way through its lifecycle, so a
-   * test asserting on work a start hook does (the suspension sweeper's
+   * test asserting on work a start hook does (the deferral sweeper's
    * downtime scan) would race it. When the lifecycle grows a fourth thing to
    * wait on, this is the only place that has to learn about it.
    *

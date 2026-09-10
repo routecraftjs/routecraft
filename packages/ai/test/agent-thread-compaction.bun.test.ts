@@ -1,17 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import {
-  MemorySuspensionStore,
+  MemoryDeferralStore,
   stepStateFingerprint,
-  type NewSuspension,
+  type NewDeferral,
 } from "@routecraft/routecraft";
 import {
   assertResumableThread,
-  replaceParkedThread,
+  replaceDeferredThread,
 } from "../src/agent/thread.ts";
-import type { ThreadMessage } from "../src/agent/suspension-state.ts";
+import type { ThreadMessage } from "../src/agent/deferral-state.ts";
 
 /**
- * A minimal parked thread: one tool call, its placeholder result, and the
+ * A minimal deferred thread: one tool call, its placeholder result, and the
  * user turn that caused it. Matches the ModelMessage shape the agent tier
  * persists, which is the shape the checks decode.
  */
@@ -30,19 +30,19 @@ function thread(toolCallId = "call-1"): ThreadMessage[] {
         {
           type: "tool-result",
           toolCallId,
-          output: { type: "json", value: { status: "suspended" } },
+          output: { type: "json", value: { status: "deferred" } },
         },
       ],
     },
   ];
 }
 
-function parked(
-  overrides: Partial<NewSuspension> = {},
+function deferred(
+  overrides: Partial<NewDeferral> = {},
   messages: ThreadMessage[] = thread(),
-): NewSuspension {
+): NewDeferral {
   return {
-    id: "sus-1",
+    id: "def-1",
     routeId: "approvals",
     position: 2,
     continuationHash: "c".repeat(64),
@@ -52,21 +52,22 @@ function parked(
     stepState: {
       agentId: "aria",
       messages,
-      suspendedToolCallId: "call-1",
+      deferredToolCallId: "call-1",
       turnsUsed: 3,
     },
-    suspendedAt: new Date("2026-08-27T09:00:00.000Z"),
+    waitingFor: "resume",
+    deferredAt: new Date("2026-08-27T09:00:00.000Z"),
     ...overrides,
   };
 }
 
 describe("assertResumableThread", () => {
   /**
-   * @case A well-formed thread with the suspended call intact passes
-   * @preconditions One tool call, its result, and the suspended id naming that call
+   * @case A well-formed thread with the deferred call intact passes
+   * @preconditions One tool call, its result, and the deferred id naming that call
    * @expectedResult No throw, so an honest compaction is not blocked by the guard
    */
-  test("accepts a paired thread that keeps the suspended call", () => {
+  test("accepts a paired thread that keeps the deferred call", () => {
     expect(() => assertResumableThread(thread(), "call-1")).not.toThrow();
   });
 
@@ -138,11 +139,11 @@ describe("assertResumableThread", () => {
   });
 
   /**
-   * @case A thread that dropped the suspended call is refused
+   * @case A thread that dropped the deferred call is refused
    * @preconditions A well-formed thread for a different call id
    * @expectedResult AI1008 at compaction time, rather than AI1007 on resume after the approval is spent
    */
-  test("refuses a thread that no longer holds the suspended call", () => {
+  test("refuses a thread that no longer holds the deferred call", () => {
     expect(() => assertResumableThread(thread("call-2"), "call-1")).toThrow(
       expect.objectContaining({ rc: "AI1008" }),
     );
@@ -163,21 +164,21 @@ describe("assertResumableThread", () => {
   });
 });
 
-describe("replaceParkedThread", () => {
+describe("replaceDeferredThread", () => {
   /**
-   * @case A compaction of a parked run replaces only the thread
-   * @preconditions A suspended record holding an agent step state
+   * @case A compaction of a deferred run replaces only the thread
+   * @preconditions A deferred record holding an agent step state
    * @expectedResult The swap is won, messages are the rewritten ones, and turnsUsed is untouched so shrinking the conversation does not refund the budget
    */
   test("replaces the thread and leaves the rest of the state alone", async () => {
-    const store = new MemorySuspensionStore();
-    await store.create(parked());
+    const store = new MemoryDeferralStore();
+    await store.create(deferred());
 
     const shorter = thread().slice(1);
-    const result = await replaceParkedThread(store, "sus-1", () => shorter);
+    const result = await replaceDeferredThread(store, "def-1", () => shorter);
 
     expect(result.won).toBe(true);
-    const state = result.suspension?.stepState as {
+    const state = result.deferral?.stepState as {
       messages: ThreadMessage[];
       turnsUsed: number;
       agentId: string;
@@ -189,20 +190,20 @@ describe("replaceParkedThread", () => {
 
   /**
    * @case A rewrite that breaks the thread never reaches the store
-   * @preconditions A parked record and a rewrite that drops the tool result
+   * @preconditions A deferred record and a rewrite that drops the tool result
    * @expectedResult AI1008, and the stored thread is exactly what it was, so a failed compaction costs nothing
    */
   test("refuses a broken rewrite without touching the record", async () => {
-    const store = new MemorySuspensionStore();
-    await store.create(parked());
+    const store = new MemoryDeferralStore();
+    await store.create(deferred());
 
     await expect(
-      replaceParkedThread(store, "sus-1", (messages) =>
+      replaceDeferredThread(store, "def-1", (messages) =>
         messages.filter((message) => message.role !== "tool"),
       ),
     ).rejects.toMatchObject({ rc: "AI1008" });
 
-    const after = (await store.get("sus-1"))?.stepState as {
+    const after = (await store.get("def-1"))?.stepState as {
       messages: ThreadMessage[];
     };
     expect(after.messages).toHaveLength(3);
@@ -214,18 +215,18 @@ describe("replaceParkedThread", () => {
    * @expectedResult won: false with the resumed record, and the rewrite is never invoked, so no model call is spent on work with no possible outcome
    */
   test("does not rewrite a run that already resumed", async () => {
-    const store = new MemorySuspensionStore();
-    await store.create(parked());
-    await store.markResumed("sus-1", { at: new Date() });
+    const store = new MemoryDeferralStore();
+    await store.create(deferred());
+    await store.markResumed("def-1", { at: new Date() });
 
     let invoked = false;
-    const result = await replaceParkedThread(store, "sus-1", (messages) => {
+    const result = await replaceDeferredThread(store, "def-1", (messages) => {
       invoked = true;
       return messages;
     });
 
     expect(result.won).toBe(false);
-    expect(result.suspension?.status).toBe("resumed");
+    expect(result.deferral?.outcome?.kind).toBe("resumed");
     expect(invoked).toBe(false);
   });
 
@@ -235,26 +236,26 @@ describe("replaceParkedThread", () => {
    * @expectedResult The second loses the compare and the first one's thread stands, rather than the second silently discarding it
    *
    *   The second call goes through the store rather than the helper on
-   *   purpose: `replaceParkedThread` takes its own read, so two calls to it
+   *   purpose: `replaceDeferredThread` takes its own read, so two calls to it
    *   are two independent compactions and cannot hold the same read. The
    *   fingerprint is what protects a caller that did, and this is where it
    *   is proven.
    */
   test("refuses a compaction built on a stale read", async () => {
-    const store = new MemorySuspensionStore();
-    await store.create(parked());
-    const before = (await store.get("sus-1"))?.stepState;
+    const store = new MemoryDeferralStore();
+    await store.create(deferred());
+    const before = (await store.get("def-1"))?.stepState;
 
-    const first = await replaceParkedThread(store, "sus-1", (messages) =>
+    const first = await replaceDeferredThread(store, "def-1", (messages) =>
       messages.slice(1),
     );
     const second = await store.replaceStepState(
-      "sus-1",
+      "def-1",
       stepStateFingerprint(before),
       {
         agentId: "aria",
         messages: [],
-        suspendedToolCallId: "call-1",
+        deferredToolCallId: "call-1",
         turnsUsed: 3,
       },
     );
@@ -262,7 +263,7 @@ describe("replaceParkedThread", () => {
     expect(first.won).toBe(true);
     expect(second.won).toBe(false);
     expect(
-      (second.suspension?.stepState as { messages: ThreadMessage[] }).messages,
+      (second.deferral?.stepState as { messages: ThreadMessage[] }).messages,
     ).toHaveLength(2);
   });
 
@@ -272,17 +273,17 @@ describe("replaceParkedThread", () => {
    * @expectedResult The compare is against the state the rewrite was based on, so the swap wins instead of losing to the rewrite's own edit
    */
   test("compares against the pre-rewrite state, not the rewritten one", async () => {
-    const store = new MemorySuspensionStore();
-    await store.create(parked());
+    const store = new MemoryDeferralStore();
+    await store.create(deferred());
 
-    const result = await replaceParkedThread(store, "sus-1", (messages) => {
+    const result = await replaceDeferredThread(store, "def-1", (messages) => {
       (messages as ThreadMessage[]).splice(0, 1);
       return messages;
     });
 
     expect(result.won).toBe(true);
     expect(
-      (result.suspension?.stepState as { messages: ThreadMessage[] }).messages,
+      (result.deferral?.stepState as { messages: ThreadMessage[] }).messages,
     ).toHaveLength(2);
   });
 
@@ -292,44 +293,44 @@ describe("replaceParkedThread", () => {
    * @expectedResult The stored thread is untouched, so a failed compaction costs nothing even against a store that hands back its own record
    */
   test("keeps the stored thread when a mutating rewrite is refused", async () => {
-    const store = new MemorySuspensionStore();
-    await store.create(parked());
+    const store = new MemoryDeferralStore();
+    await store.create(deferred());
 
     await expect(
-      replaceParkedThread(store, "sus-1", (messages) => {
+      replaceDeferredThread(store, "def-1", (messages) => {
         (messages as ThreadMessage[]).length = 0;
         return messages;
       }),
     ).rejects.toMatchObject({ rc: "AI1008" });
 
-    const after = (await store.get("sus-1"))?.stepState as {
+    const after = (await store.get("def-1"))?.stepState as {
       messages: ThreadMessage[];
     };
     expect(after.messages).toHaveLength(3);
   });
 
   /**
-   * @case An unknown suspension reports a loss
+   * @case An unknown deferral reports a loss
    * @preconditions An empty store
    * @expectedResult won: false with no record, matching the store's own contract
    */
-  test("reports a loss for an unknown suspension", async () => {
-    const store = new MemorySuspensionStore();
-    const result = await replaceParkedThread(store, "nope", (m) => m);
-    expect(result).toEqual({ won: false, suspension: undefined });
+  test("reports a loss for an unknown deferral", async () => {
+    const store = new MemoryDeferralStore();
+    const result = await replaceDeferredThread(store, "nope", (m) => m);
+    expect(result).toEqual({ won: false, deferral: undefined });
   });
 
   /**
    * @case Step state that is not an agent record is refused
-   * @preconditions A parked record whose stepState was written by something else
+   * @preconditions A deferred record whose stepState was written by something else
    * @expectedResult AI1007 from the shared rehydration parser, rather than a rewrite over a shape nobody owns
    */
   test("refuses step state that is not an agent record", async () => {
-    const store = new MemorySuspensionStore();
-    await store.create(parked({ stepState: { note: "not an agent" } }));
+    const store = new MemoryDeferralStore();
+    await store.create(deferred({ stepState: { note: "not an agent" } }));
 
     await expect(
-      replaceParkedThread(store, "sus-1", (m) => m),
+      replaceDeferredThread(store, "def-1", (m) => m),
     ).rejects.toMatchObject({ rc: "AI1007" });
   });
 });

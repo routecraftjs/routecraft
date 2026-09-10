@@ -34,7 +34,7 @@ import { validateFnOptions } from "../fn/fn.ts";
 import { ADAPTER_FN_REGISTRY } from "../fn/store.ts";
 import { parseProviderModel } from "../llm/shared.ts";
 import type { AgentDefaultOptions, AgentRegisteredOptions } from "./types.ts";
-import { isDeferredFn, resolveFnOptions, type FnEntry } from "./tools/types.ts";
+import { isLazyFn, resolveFnOptions, type FnEntry } from "./tools/types.ts";
 import { isToolSelection } from "./tools/selection.ts";
 import {
   describeToolNameViolation,
@@ -241,7 +241,7 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
             message: `agentPlugin: fn "${id}" entry must be an object with description, input, and handler.`,
           });
         }
-        if (!isDeferredFn(entry)) {
+        if (!isLazyFn(entry)) {
           validateFnOptions(id, entry);
         }
         if (fnMap.has(id)) {
@@ -307,7 +307,7 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
      * inside a `once()` handler has no such contract.
      */
     start(ctx: CraftContext) {
-      resolveDeferredTools(ctx, functions);
+      resolveLazyTools(ctx, functions);
       emitRegistrations(ctx, agents, functions);
       driveSessionsAtBoot(ctx);
     },
@@ -337,7 +337,7 @@ const boots = new WeakMap<CraftContext, Promise<void>>();
  * `GET /ops/agent-sessions/{session}`. Served under the ops
  * plugin's introspection tier when an ops mount exists; inert otherwise.
  *
- * A context with no suspension store has no sessions, and says so with an
+ * A context with no deferral store has no sessions, and says so with an
  * empty collection rather than the RC5052 a dispatch would get, because a
  * listing is a question and not an attempt to hold a conversation.
  *
@@ -364,7 +364,7 @@ const OPS_SCOPE: AgentSessionScope = "operator";
  * results and the stored continuations they were for are revived, so a
  * lost build reaches the model as a turn rather than waiting for a
  * message. Begun and returned rather than awaited, because it reads every
- * session the store holds; a context with no suspension store has nothing
+ * session the store holds; a context with no deferral store has nothing
  * to drive. Once per context, keyed on the first install like the
  * resource registration.
  */
@@ -444,12 +444,12 @@ function registerSessionsResource(ctx: CraftContext): void {
  *
  * @internal
  */
-function resolveDeferredTools(
+function resolveLazyTools(
   ctx: CraftContext,
   functions: Record<string, FnEntry>,
 ): void {
   for (const [id, entry] of Object.entries(functions)) {
-    if (isDeferredFn(entry)) resolveFnOptions(ctx, id, entry);
+    if (isLazyFn(entry)) resolveFnOptions(ctx, id, entry);
   }
 }
 

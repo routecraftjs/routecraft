@@ -8,13 +8,13 @@ import {
   OperationType,
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
-import { NESTED_STEPS, SUSPEND_HOST } from "../dsl-symbol.ts";
+import { NESTED_STEPS, DEFER_HOST } from "../dsl-symbol.ts";
 import {
   type NestedSteps,
-  type SuspendCapableStep,
+  type DeferCapableStep,
   nestedStepsOf,
-  suspendHostOf,
-} from "../suspension/sites.ts";
+  deferHostOf,
+} from "../deferral/sites.ts";
 
 /**
  * Operation kinds that resilience wrappers cannot safely wrap. Validated
@@ -37,9 +37,9 @@ import {
  *   step-scope `.error()` would falsely suggest it covers failures of
  *   the RELEASED exchange (those run detached, bypassing wrappers).
  *   Wrap the steps DOWNSTREAM of `.debounce()` instead.
- * - `suspend`: exits the pipeline and parks the exchange durably. It never
+ * - `defer`: exits the pipeline and defers the exchange durably. It never
  *   fails per-exchange, so a recovering wrapper could never trigger, while
- *   the ones that CAN act would each act wrongly: `.retry()` would re-park
+ *   the ones that CAN act would each act wrongly: `.retry()` would re-defer
  *   an exchange that did not fail, `.timeout()` would bound a wait that is
  *   measured in days and lives in the store rather than in this process,
  *   and `.cache()` would replay a single-use resume token to a second
@@ -52,7 +52,7 @@ const NON_WRAPPABLE_OPERATIONS: ReadonlySet<OperationType> = new Set([
   OperationType.AGGREGATE,
   OperationType.SPLIT,
   OperationType.DEBOUNCE,
-  OperationType.SUSPEND,
+  OperationType.DEFER,
 ]);
 
 /**
@@ -103,8 +103,8 @@ export abstract class WrapperStep<
    * framework-level walks of the route's step tree.
    *
    * Without this a wrapped nesting step hides everything inside it: a
-   * `.error(h).choice(when(p, (b) => b.suspend(...)))` route resolved zero
-   * suspend sites, which silently disabled the build-time refusals AND the
+   * `.error(h).choice(when(p, (b) => b.defer(...)))` route resolved zero
+   * defer sites, which silently disabled the build-time refusals AND the
    * startup check, and then failed at runtime, after the approver had
    * already been notified, with a diagnostic telling the user to build the
    * route through `craft()` (which they had).
@@ -116,17 +116,17 @@ export abstract class WrapperStep<
   }
 
   /**
-   * Forward the suspend-host protocol to the inner step, for the same
-   * reason nested steps are forwarded: the suspend-site walk sees the
+   * Forward the defer-host protocol to the inner step, for the same
+   * reason nested steps are forwarded: the defer-site walk sees the
    * wrapper (which delegates the inner adapter, so the capability brand is
    * visible), but the site must land on the instance whose `execute`
-   * converts the suspend signal, which is the innermost `.to()` /
+   * converts the defer signal, which is the innermost `.to()` /
    * `.enrich()` step.
    *
    * @internal
    */
-  [SUSPEND_HOST](): SuspendCapableStep | undefined {
-    return suspendHostOf(this.inner);
+  [DEFER_HOST](): DeferCapableStep | undefined {
+    return deferHostOf(this.inner);
   }
 
   constructor(protected readonly inner: Step<T>) {
@@ -135,9 +135,9 @@ export abstract class WrapperStep<
         message:
           `Wrapper operations (.error() / .retry() / .timeout() / .throttle() / .circuitBreaker() / .concurrency() / .cache() / .delay()) cannot wrap "${inner.operation}" steps. ` +
           `Aggregate consumes pending siblings (shared join state), split fans out children, debounce holds exchanges ` +
-          `outside the queue for a later detached release, and suspend parks the exchange durably outside this process; ` +
+          `outside the queue for a later detached release, and defer defers the exchange durably outside this process; ` +
           `all have semantics that conflict with per-execution wrapper recovery. Wrap the steps downstream of ` +
-          `split/debounce/suspend or upstream of aggregate instead, or put .error() at route scope.`,
+          `split/debounce/defer or upstream of aggregate instead, or put .error() at route scope.`,
       });
     }
     this.operation = inner.operation;

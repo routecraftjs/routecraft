@@ -32,7 +32,7 @@
       "failed",
       "dropped",
       "restored",
-      "suspended",
+      "deferred",
       "resumed",
       "expired"
     ],
@@ -113,7 +113,7 @@
       "server:tools:exposed",
       "tool:called",
       "tool:completed",
-      "tool:suspended",
+      "tool:deferred",
       "tool:failed",
       "tool:declined"
     ],

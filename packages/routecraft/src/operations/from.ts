@@ -219,7 +219,7 @@ export function toSource<T>(input: SourceLike<T>): Source<T> {
   return input as Source<T>;
 }
 
-/** Sentinel resolved by the abort race so a parked pull can be abandoned. */
+/** Sentinel resolved by the abort race so a deferred pull can be abandoned. */
 const ABORTED = Symbol("routecraft.iterable.aborted");
 
 /** Shared loop for generator and iterable sources. */
@@ -233,7 +233,7 @@ async function drainIterable<T>(
     Symbol.asyncIterator in iterable
       ? iterable[Symbol.asyncIterator]()
       : (iterable as Iterable<T>)[Symbol.iterator]();
-  // Race each pull against abort: a generator parked on a slow await
+  // Race each pull against abort: a generator deferred on a slow await
   // would otherwise pin shutdown until its next yield.
   let onAbort: (() => void) | undefined;
   const aborted = new Promise<typeof ABORTED>((resolve) => {

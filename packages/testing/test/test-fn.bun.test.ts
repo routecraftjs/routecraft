@@ -31,17 +31,17 @@ describe("testFn with a schema returning a thenable", () => {
   });
 
   /**
-   * @case ctx.suspend keeps its RC5003 refusal for a non-schema
-   * @preconditions Handler calls ctx.suspend with a schema carrying no callable validate
-   * @expectedResult RC5003 explaining the suspend schema contract, matching the production ctx.suspend
+   * @case ctx.defer keeps its RC5003 refusal for a non-schema
+   * @preconditions Handler calls ctx.defer with a schema carrying no callable validate
+   * @expectedResult RC5003 explaining the defer schema contract, matching the production ctx.defer
    */
-  test("ctx.suspend keeps its RC5003 refusal", async () => {
+  test("ctx.defer keeps its RC5003 refusal", async () => {
     const spec = {
       input: thenableSchema({ value: 1 }),
       handler: async (
         _input: number,
-        ctx: { suspend: (o?: unknown) => unknown },
-      ) => ctx.suspend({ schema: { "~standard": {} } }) as never,
+        ctx: { defer: (o?: unknown) => unknown },
+      ) => ctx.defer({ schema: { "~standard": {} } }) as never,
     };
 
     await expect(testFn(spec as never, 1)).rejects.toMatchObject({

@@ -432,7 +432,7 @@ function validateBlocksLevel(
  *
  * Either form takes `session` to make the agent remember: every message
  * for one session id continues one transcript, kept in the context's
- * suspension store. See {@link AgentOptions.session}.
+ * deferral store. See {@link AgentOptions.session}.
  *
  * @example Inline (identity on the route)
  * ```typescript

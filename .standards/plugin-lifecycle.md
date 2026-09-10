@@ -22,10 +22,10 @@ route's error channel does.
 during `apply` the builder's routes do not exist yet. A plugin that reads the
 route list at `apply` time sees an empty one.
 
-The suspension plugin is the worked example. `apply` resolves the store
+The deferral plugin is the worked example. `apply` resolves the store
 and the token signer, so a missing signing secret fails while the context
 is still being built rather than after it has accepted traffic. `start`
-runs the sweeper's downtime scan, which retires suspensions that came due
+runs the sweeper's downtime scan, which retires deferrals that came due
 while the process was down and re-enters each one's route error channel:
 a route that has not started cannot serve that, so doing it in `apply`
 would drop the escalations it exists to deliver.
@@ -154,7 +154,7 @@ hit is exactly the ambiguity the argument exists to remove.
 
 A plugin instance may serve more than one context in a process, so any
 per-run state a hook creates is keyed by the `ctx` it was given, never held
-in a closure slot. `suspensionPlugin` keys its sweeper in a `WeakMap` for
+in a closure slot. `deferralPlugin` keys its sweeper in a `WeakMap` for
 exactly this reason.
 
 ## 4. Readiness
@@ -194,6 +194,6 @@ listener outlives finite routes.
 ## References
 
 - `packages/routecraft/src/context.ts` -- `CraftPlugin`, `startPlugins()`, `whenStarted()`
-- `packages/routecraft/src/suspension/config.ts` -- all three phases on one plugin
+- `packages/routecraft/src/deferral/config.ts` -- all three phases on one plugin
 - `packages/routecraft/test/plugin-start-hook.bun.test.ts` -- ordering and failure contract
 - [type-safety-and-schemas.md](./type-safety-and-schemas.md#plugin-vs-config-vs-store) -- plugin vs config vs store

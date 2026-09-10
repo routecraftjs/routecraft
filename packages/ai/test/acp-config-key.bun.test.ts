@@ -9,7 +9,7 @@
 
 import { afterEach, describe, expect, expectTypeOf, test } from "bun:test";
 import {
-  MemorySuspensionStore,
+  MemoryDeferralStore,
   defineConfig,
   type CraftConfig,
 } from "@routecraft/routecraft";
@@ -17,7 +17,7 @@ import { testContext, type TestContext } from "@routecraft/testing";
 import { acpPlugin, agentPlugin } from "../src/index.ts";
 import type { AcpPluginOptions } from "../src/acp/types.ts";
 import { connectAcp } from "./helpers/acp-harness.ts";
-import { MODEL } from "./helpers/suspend-fixtures.ts";
+import { MODEL } from "./helpers/defer-fixtures.ts";
 
 const AGENTS = {
   max: {
@@ -71,7 +71,7 @@ describe("the acp config key", () => {
     const served = await serve({
       acp: {},
       servers: { default: { host: "127.0.0.1", port: 0 } },
-      suspension: { store: new MemorySuspensionStore() },
+      deferral: { store: new MemoryDeferralStore() },
       sessions: { store: "memory" },
       agent: { agents: AGENTS },
     });
@@ -89,7 +89,7 @@ describe("the acp config key", () => {
       {
         agent: { agents: AGENTS },
         servers: { default: { host: "127.0.0.1", port: 0 } },
-        suspension: { store: new MemorySuspensionStore() },
+        deferral: { store: new MemoryDeferralStore() },
         sessions: { store: "memory" },
         acp: { path: "/editor", agentInfo: { name: "eywa", version: "1" } },
       },
@@ -107,7 +107,7 @@ describe("the acp config key", () => {
   test("plugins: [agentPlugin(), acpPlugin()] still serves", async () => {
     const served = await serve({
       servers: { default: { host: "127.0.0.1", port: 0 } },
-      suspension: { store: new MemorySuspensionStore() },
+      deferral: { store: new MemoryDeferralStore() },
       sessions: { store: "memory" },
       plugins: [agentPlugin({ agents: AGENTS }), acpPlugin()],
     });
@@ -126,7 +126,7 @@ describe("the acp config key", () => {
         .with({
           acp: {},
           servers: { default: { host: "127.0.0.1", port: 0 } },
-          suspension: { store: new MemorySuspensionStore() },
+          deferral: { store: new MemoryDeferralStore() },
           sessions: { store: "memory" },
           plugins: [agentPlugin({ agents: AGENTS })],
         })

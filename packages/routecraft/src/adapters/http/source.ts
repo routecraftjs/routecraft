@@ -163,7 +163,7 @@ export class HttpSourceAdapter implements Source<HttpRequestBody> {
 
     const respond = this.options.respond;
     if (respond !== undefined && meta?.bufferedConsumer === true) {
-      // A buffering consumer parks the message instead of starting the
+      // A buffering consumer defers the message instead of starting the
       // pipeline, so the route never counts it as in flight and a graceful
       // shutdown drains past it: an answer already sent would outlive the
       // delivery, and a sender that received one does not redeliver. Nothing

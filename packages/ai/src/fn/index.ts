@@ -4,7 +4,7 @@ export type {
   FnOptions,
   FnRegistry,
   FnSessionView,
-  FnSuspensionView,
+  FnDeferralView,
   ReadonlyPrincipal,
   RegisteredFnId,
 } from "./types.ts";

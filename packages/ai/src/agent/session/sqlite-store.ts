@@ -20,7 +20,7 @@ import "../../errors.ts";
 
 /**
  * Default location of the session database, relative to the working
- * directory and beside the suspension database. A container deployment
+ * directory and beside the deferral database. A container deployment
  * points it at a mounted volume through `sessions: { store: { path } }` or
  * `ROUTECRAFT_SESSION_STORE`.
  */

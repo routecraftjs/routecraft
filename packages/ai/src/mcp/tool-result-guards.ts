@@ -1,8 +1,8 @@
 import {
   isDropped,
-  isSuspended,
+  isDeferred,
   rcError,
-  suspendedSchema,
+  deferredSchema,
   validateAgainst,
   wasOutputValidated,
   type Exchange,
@@ -20,15 +20,15 @@ import "../errors.ts";
  * {@link enforceAdvertisedOutput} accepts a body matching any of them, so the
  * promise and its enforcement cannot drift apart.
  *
- * A route that can park (a static `.suspend()` site, or a suspend-capable
- * agent step) answers execution one with the framework's `Suspended`
+ * A route that can defer (a static `.defer()` site, or a defer-capable
+ * agent step) answers execution one with the framework's `Deferred`
  * acknowledgment rather than its declared output, so its contract is the
- * union: `tools/list` publishes `oneOf: [Output, Suspended]` and the
+ * union: `tools/list` publishes `oneOf: [Output, Deferred]` and the
  * enforcement accepts either arm. The author still declares only
  * `.output(Output)`; the second arm is derived.
  *
  * Empty when the route declares no `.output({ body })`: nothing is advertised,
- * so nothing is enforced, suspendable or not (advertising a Suspended-only
+ * so nothing is enforced, deferrable or not (advertising a Deferred-only
  * schema would oblige every ordinary run of that tool to carry
  * structuredContent it does not have).
  */
@@ -36,8 +36,8 @@ export function advertisedOutputArms(
   entry: McpLocalToolEntry,
 ): StandardSchemaV1[] {
   if (!entry.output?.body) return [];
-  return entry.suspendable
-    ? [entry.output.body, suspendedSchema]
+  return entry.deferrable
+    ? [entry.output.body, deferredSchema]
     : [entry.output.body];
 }
 
@@ -83,7 +83,7 @@ export function declinedError(
  * work, because validation has already replaced the body with the schema's
  * output and a transforming schema rejects the value it just produced. What
  * reaches the check is therefore a result the pipeline never vouched for: a
- * directly registered tool entry, or a future suspension.
+ * directly registered tool entry, or a future deferral.
  */
 export async function enforceAdvertisedOutput(
   entry: McpLocalToolEntry,
@@ -94,11 +94,11 @@ export async function enforceAdvertisedOutput(
   if (arms.some((arm) => wasOutputValidated(exchange, arm))) {
     return exchange.body;
   }
-  // A run that parked at a `.suspend()` answers with the framework's
+  // A run that deferred at a `.defer()` answers with the framework's
   // acknowledgment, which is deliberately not the route's declared output
   // and which the pipeline therefore does not validate either. Rejecting it
-  // would fail every suspension of a tool that declares one.
-  if (isSuspended(exchange.body)) return exchange.body;
+  // would fail every deferral of a tool that declares one.
+  if (isDeferred(exchange.body)) return exchange.body;
 
   const failures: string[] = [];
   for (const arm of arms) {

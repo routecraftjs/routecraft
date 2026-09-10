@@ -395,7 +395,7 @@ export class ConcurrencyController extends RouteScopedController<ConcurrencyLimi
 
     // Queue mode: take a free slot immediately, else join the bounded wait
     // line. `waiting >= maxQueue` is checked BEFORE queueing so the cap
-    // counts only exchanges actually parked (not the one being admitted).
+    // counts only exchanges actually deferred (not the one being admitted).
     const free = semaphore.tryAcquire();
     if (free) {
       hooks.onAcquired(false, semaphore.inUse, key);
@@ -524,7 +524,7 @@ export class ConcurrencyWrapperStep<
       {
         // Intake: a queued exchange is released as soon as shutdown begins
         // and admitted with a no-op release (see `#joinWaitLine`), so the
-        // drain runs it instead of leaving it parked behind a slot that will
+        // drain runs it instead of leaving it deferred behind a slot that will
         // never free.
         ...(route ? { signal: route.intakeSignal } : {}),
         ...concurrencyEmitHooks(context, scoped, shouldEmit),

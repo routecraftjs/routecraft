@@ -37,8 +37,8 @@ export interface SessionCasResult {
  * shipped backends are {@link MemorySessionStore} and
  * {@link SqliteSessionStore}, and both run the same contract-test suite.
  *
- * The parked continuation a session stores between turns is not here: it
- * is a parked exchange and lives in the suspension store with every other
+ * The deferred continuation a session stores between turns is not here: it
+ * is a deferred exchange and lives in the deferral store with every other
  * one.
  */
 export interface SessionStore {

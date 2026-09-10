@@ -16,7 +16,7 @@ import {
   type AgentResult,
 } from "../src/index.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
-import { MODEL } from "./helpers/suspend-fixtures.ts";
+import { MODEL } from "./helpers/defer-fixtures.ts";
 
 const llm = scriptedLlm([]);
 mock.module("../src/llm/providers/index.ts", () => ({

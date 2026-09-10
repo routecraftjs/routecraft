@@ -81,17 +81,17 @@ Fired per exchange, scoped to the capability that owns it. `routeId` is the capa
 | `route:exchange:failed` | Exchange encountered an unrecoverable error | `{ routeId, exchangeId, correlationId, duration, error }` |
 | `route:exchange:dropped` | Exchange intentionally removed from the pipeline | `{ routeId, exchangeId, correlationId, reason }` |
 | `route:exchange:restored` | Exchange restored from cache, skipping steps | `{ routeId, exchangeId, correlationId, source }` |
-| `route:exchange:suspended` | Exchange parked at a [`.suspend()`](/docs/reference/operations/suspend); execution one ends here | `{ routeId, exchangeId, correlationId, suspensionId, position, expiresAt? }` |
-| `route:exchange:resumed` | A parked exchange was revived and its continuation is about to run | `{ routeId, exchangeId, correlationId, suspensionId, position, resumedBy? }` |
-| `route:exchange:expired` | A suspension stopped being resumable because its `ttl` elapsed | `{ routeId, exchangeId, correlationId, suspensionId, expiresAt }` |
+| `route:exchange:deferred` | Exchange deferred at a [`.defer()`](/docs/reference/operations/defer); execution one ends here | `{ routeId, exchangeId, correlationId, deferralId, position, expiresAt? }` |
+| `route:exchange:resumed` | A deferred exchange was revived and its continuation is about to run | `{ routeId, exchangeId, correlationId, deferralId, position, resumedBy? }` |
+| `route:exchange:expired` | A deferral stopped being resumable because its `ttl` elapsed | `{ routeId, exchangeId, correlationId, deferralId, expiresAt }` |
 
 The `exchangeId` field is the exchange's own ID, not the correlation ID. Use `correlationId` to group related exchanges (e.g. a parent and its split children share the same correlation ID).
 
-**Lifecycle guarantee:** every `exchange:started` is eventually followed by exactly one of `completed`, `failed`, `dropped`, or `suspended`.
+**Lifecycle guarantee:** every `exchange:started` is eventually followed by exactly one of `completed`, `failed`, `dropped`, or `deferred`.
 
 The one exception is a [forced shutdown](/docs/reference/configuration#shutdown): when `shutdown.timeout` elapses, in-flight exchanges are abandoned mid-step and emit no terminal event at all. A consumer reconciling starts against terminals should treat a forced shutdown as an expected gap rather than a defect; the warn line the forced stage writes names the routes that were still working.
 
-A parked exchange runs more than once, and the events say so. Execution one is `started` then `suspended`. When the answer arrives, `resumed` fires, followed by execution two's own `started` and its `completed` / `failed` / `dropped` / `suspended`, the last when the continuation reaches a second `.suspend()`. A revival failure that the suspended route re-asks on (an expiry, a continuation that changed under the parked exchange) is its own `started` plus terminal pair on that route. Every run carries the same `exchangeId` and `correlationId`, which is what lets a consumer stitch them together; `suspensionId` identifies the park itself.
+A deferred exchange runs more than once, and the events say so. Execution one is `started` then `deferred`. When the answer arrives, `resumed` fires, followed by execution two's own `started` and its `completed` / `failed` / `dropped` / `deferred`, the last when the continuation reaches a second `.defer()`. A revival failure that the deferred route re-asks on (an expiry, a continuation that changed under the deferred exchange) is its own `started` plus terminal pair on that route. Every run carries the same `exchangeId` and `correlationId`, which is what lets a consumer stitch them together; `deferralId` identifies the deferral itself.
 
 ## Operation events
 
@@ -297,8 +297,8 @@ Emitted by `agent()` destinations. These are the **coarse decision events**: bro
 | `route:agent:session:queued` | A message arrived for a [session](/docs/reference/adapters/agent#sessions-an-agent-that-remembers) whose turn is running and was queued for the next turn boundary | `{ routeId, exchangeId, correlationId, agentName, session, depth, interrupt }` |
 | `route:agent:session:interrupted` | A running turn was cancelled by a later message with `interrupt: true` | `{ routeId, exchangeId, correlationId, agentName, session }` |
 | `route:agent:session:restored` | A turn started on a session whose previous turn a restart cut short: its partial transcript was kept and each background call it was waiting on was reported lost | `{ routeId, exchangeId, correlationId, agentName, session, lostBackground }` |
-| `route:agent:session:parked` | A turn ended with work outstanding (background calls running, or messages queued), so its exchange's continuation was stored for a completion, the queued messages, or a boot to revive | `{ routeId, exchangeId, correlationId, agentName, session, suspensionId, inbox, background }` |
-| `route:agent:session:revived` | A stored continuation was revived and this turn is the one it runs: the inbox is its user message and the route's downstream steps follow. Emitted on the revived exchange, after core's `route:exchange:resumed` | `{ routeId, exchangeId, correlationId, agentName, session, suspensionId }` |
+| `route:agent:session:deferred` | A turn ended with work outstanding (background calls running, or messages queued), so its exchange's continuation was stored for a completion, the queued messages, or a boot to revive | `{ routeId, exchangeId, correlationId, agentName, session, deferralId, inbox, background }` |
+| `route:agent:session:revived` | A stored continuation was revived and this turn is the one it runs: the inbox is its user message and the route's downstream steps follow. Emitted on the revived exchange, after core's `route:exchange:resumed` | `{ routeId, exchangeId, correlationId, agentName, session, deferralId }` |
 | `route:agent:session:background:started` | A [background tool](/docs/reference/plugins/agentplugin#background-tools) dispatched its route and returned a handle to the model | `{ routeId, exchangeId, correlationId, agentName, session, handle, toolName }` |
 | `route:agent:session:background:completed` | A background tool's route finished and its result was posted to the session inbox | `{ routeId, exchangeId, correlationId, agentName, session, handle, toolName, duration }` |
 | `route:agent:session:background:failed` | A background tool's route failed and the failure was posted to the session inbox | `{ routeId, exchangeId, correlationId, agentName, session, handle, toolName, errorName, duration }` |
@@ -309,7 +309,7 @@ Tool input/output (and block-load output) ride in a `_snapshot` envelope. So doe
 
 `route:agent:tool:denied` fires before any model call, once per tool the policy refused, and carries no `toolCallId` because the tool was never invoked. `reason` is `rule` (a policy decided against it), `rule-error` (a predicate threw, so the tool was denied to fail closed), or `unknown-provenance` (the tool's `source` is missing or names a kind the policy surface does not define, which means a hand-built `ResolvedTool` from outside the type contract; `toolKind` is `unknown`).
 
-Every tool-call event names the conversation the call was made in as `session`, when the agent was dispatched with one. The exchange identity alone cannot: a session's boundary turn runs on the exchange that parked, which may be an earlier caller's, so a consumer attributing tool calls to a conversation (the ACP mount streaming them to an editor) reads `session` rather than `correlationId`.
+Every tool-call event names the conversation the call was made in as `session`, when the agent was dispatched with one. The exchange identity alone cannot: a session's boundary turn runs on the exchange that deferred, which may be an earlier caller's, so a consumer attributing tool calls to a conversation (the ACP mount streaming them to an editor) reads `session` rather than `correlationId`.
 
 `route:agent:tool:refused` is its call-time counterpart: the tool WAS offered, the model called it, and the tool's guard rejected that particular call. Keeping the two apart matters for what you can count. `denied` says an agent may not have a tool; `refused` says an agent asked for something its grant does not cover, which is the signal that an agent is probing the edges of what it was given. The payload is bounded to identity plus `rc`, the error code the guard threw. The refused input is deliberately absent even under snapshot capture: it is the input least worth trusting, and it can carry a token someone passed as an argument. The refusal also surfaces to the model as an ordinary tool error, so it can retry with a permitted form.
 
@@ -407,7 +407,7 @@ Before 0.7 the HTTP plugin owned its listener and emitted `plugin:http:server:li
 
 ## MCP plugin events
 
-Events emitted by the MCP plugin during server and tool lifecycle. Subscribe to the exact names (`plugin:mcp:tool:called` / `completed` / `suspended` / `failed` / `declined`) for broad observability, or use the catch-all `"*"`.
+Events emitted by the MCP plugin during server and tool lifecycle. Subscribe to the exact names (`plugin:mcp:tool:called` / `completed` / `deferred` / `failed` / `declined`) for broad observability, or use the catch-all `"*"`.
 
 ### MCP server events
 
@@ -423,11 +423,11 @@ Listener lifecycle for the MCP HTTP transport is reported by the generic [server
 | --- | --- | --- |
 | `plugin:mcp:tool:called` | Tool invocation started | `{ tool, args, proxied?, serverId?, remoteTool? }` |
 | `plugin:mcp:tool:completed` | Tool invocation succeeded | `{ tool, proxied?, serverId?, remoteTool? }` |
-| `plugin:mcp:tool:suspended` | The route parked at a durable suspension; execution one answered with the `Suspended` acknowledgment | `{ tool, suspensionId }` |
+| `plugin:mcp:tool:deferred` | The route deferred at a durable deferral; execution one answered with the `Deferred` acknowledgment | `{ tool, deferralId }` |
 | `plugin:mcp:tool:failed` | Tool invocation failed | `{ tool, error, proxied?, serverId?, remoteTool? }` |
 | `plugin:mcp:tool:declined` | The route ran and dropped the exchange instead of producing a result | `{ tool, reason }` |
 
-`suspended` is deliberately not `completed`. A parked run is neither finished nor failed: the real result belongs to execution two, which flows to the route's destinations when the answer arrives, so counting the park as a completion would publish a false receipt to every dashboard. The wire result is an ordinary `isError: false` answer whose `structuredContent` is the acknowledgment. Local routes only: a proxied call has no exchange of ours to park.
+`deferred` is deliberately not `completed`. A deferred run is neither finished nor failed: the real result belongs to execution two, which flows to the route's destinations when the answer arrives, so counting the deferral as a completion would publish a false receipt to every dashboard. The wire result is an ordinary `isError: false` answer whose `structuredContent` is the acknowledgment. Local routes only: a proxied call has no exchange of ours to defer.
 
 `declined` is deliberately not `failed`. A tool whose route filters (a guard branch, a "only answer for X" predicate) declines as a matter of course, and counting those as errors would make an error-rate alert fire on ordinary traffic. The caller still receives `isError: true`, because MCP has no other channel to say "no result"; see [AI2002](/docs/reference/errors#ai-2002). It fires for local routes only and carries no provenance fields: a proxied call has no exchange of ours to drop, and a remote error result is reported as `failed`.
 

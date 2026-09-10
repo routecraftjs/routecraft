@@ -27,7 +27,7 @@ export default defineConfig({
 
 **Inventory and schemas are the framework's.** `GET /ops/routes?dispatchable=true` and `GET /ops/routes/{id}` at start, on an interval (`refresh`, default `60s`), and forced by a dispatch that meets a 404 for a route the inventory still lists. A remote unreachable at boot registers nothing, logs, and reports its `remote.<name>` health indicator down; its routes appear on the refresh that first reaches it.
 
-**Outcomes map onto the in-process ones.** Completed is the body; dropped is `RC5031`; suspended is the standard `Suspended` acknowledgment, with resume at the remote's door under its policy; a remote 500 is `RC5064` carrying the remote's code; a 401 or 403 from the door is `RC5063`; an unreachable remote or a timeout is `RC5062`.
+**Outcomes map onto the in-process ones.** Completed is the body; dropped is `RC5031`; deferred is the standard `Deferred` acknowledgment, with resume at the remote's door under its policy; a remote 500 is `RC5064` carrying the remote's code; a 401 or 403 from the door is `RC5063`; an unreachable remote or a timeout is `RC5062`.
 
 **The listing names the origin.** An imported route shows in the local `/ops/routes` as dispatchable with `sources: ["remote"]` and a `remote` field. The agent tool policy's `direct` rule sees `source.remote`, so a policy can keep an agent local-only. Re-exposure through the local door is intentional: a local instance with an open dispatch tier re-exports every imported route under its own door, exactly as a tool fronting an authenticated REST call does.
 

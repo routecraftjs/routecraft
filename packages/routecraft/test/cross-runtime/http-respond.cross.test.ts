@@ -25,7 +25,7 @@ import {
  * per runtime, which the bun-only suite cannot see.
  *
  * The second is that answering early actually releases the caller on both
- * engines: the response must arrive while the pipeline is still parked, rather
+ * engines: the response must arrive while the pipeline is still deferred, rather
  * than the runtime holding the socket until the handler's work finishes.
  */
 
@@ -92,10 +92,10 @@ describe("http source respond (cross-runtime contract)", () => {
 
   /**
    * @case The caller is released before the pipeline finishes on both engines
-   * @preconditions A responder answering 202 without awaiting `finished`, on a route whose step parks on a promise the test resolves only after asserting the response
-   * @expectedResult The response is in hand while the step is still parked, proving neither engine holds the socket open until the handler's work completes
+   * @preconditions A responder answering 202 without awaiting `finished`, on a route whose step defers on a promise the test resolves only after asserting the response
+   * @expectedResult The response is in hand while the step is still deferred, proving neither engine holds the socket open until the handler's work completes
    */
-  test("an early answer reaches the caller while the pipeline is parked", async () => {
+  test("an early answer reaches the caller while the pipeline is deferred", async () => {
     let release!: () => void;
     const gate = new Promise<void>((resolve) => {
       release = resolve;

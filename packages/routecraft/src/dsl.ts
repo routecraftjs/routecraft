@@ -15,20 +15,20 @@ import {
   type ExchangeOf,
   type Retyped,
   type SetBody,
-  type SetSuspension,
+  type SetDeferral,
 } from "./step-builder-base.ts";
 import { PUSH_STEP } from "./dsl-symbol.ts";
 import { TapStep } from "./operations/tap.ts";
 import { TransformStep, mapper } from "./operations/transform.ts";
 import { ValidateStep, schema } from "./operations/validate.ts";
 import { log, debug, type LogOptions } from "./adapters/log/index.ts";
-import { SuspendStep, type SuspendOptions } from "./operations/suspend.ts";
+import { DeferStep, type DeferOptions } from "./operations/defer.ts";
 import {
   ResumeStep,
   type ResumeMapper,
   type ResumeOptions,
 } from "./operations/resume.ts";
-import type { ResumeAcknowledgment } from "./suspension/revive.ts";
+import type { ResumeAcknowledgment } from "./deferral/revive.ts";
 
 // ---------------------------------------------------------------------------
 // registerDsl
@@ -154,14 +154,14 @@ registerDsl("schema", {
     new ValidateStep(schema(standardSchema)),
 });
 
-// `.suspend()` and `.resume()` register here rather than living on
+// `.defer()` and `.resume()` register here rather than living on
 // StepBuilderBase for the same reason `.log()` and `.schema()` do: they are
 // one step each with no builder state of their own. They are also
 // symmetric, and registering them side by side keeps them that way.
-registerDsl("suspend", {
+registerDsl("defer", {
   kind: "process",
-  label: "suspend",
-  factory: (options: SuspendOptions) => new SuspendStep(options),
+  label: "defer",
+  factory: (options: DeferOptions) => new DeferStep(options),
 });
 
 registerDsl("resume", {
@@ -251,23 +251,23 @@ declare module "@routecraft/routecraft" {
     ): Retyped<this, SetBody<S, StandardSchemaV1.InferOutput<Schema>>>;
 
     /**
-     * Park the exchange durably and exit the pipeline, to be resumed later
+     * Defer the exchange durably and exit the pipeline, to be resumed later
      * at the next step.
      *
-     * This run ends here and replies immediately with the `Suspended`
-     * acknowledgment, because a durable suspend cannot hold a caller: the
+     * This run ends here and replies immediately with the `Deferred`
+     * acknowledgment, because a durable defer cannot hold a caller: the
      * resume payload arrives in hours or days and the process will be
      * restarted first. Nothing is scheduled, no worker waits, and the route
      * stays live for every other exchange. The route's real output flows to
      * its destinations on execution two, when `.resume()` revives the
      * exchange with the payload.
      *
-     * The body is unchanged across the park, so a branch that suspends
+     * The body is unchanged across the deferral, so a branch that defers
      * rejoins the main flow with the contract it left on. The payload
-     * arrives beside it, on `ex.suspension.result`, typed by `schema`.
+     * arrives beside it, on `ex.deferral.result`, typed by `schema`.
      *
      * @param options - `schema` (what a valid resume payload looks like), a
-     *   `ttl` after which the suspension stops being resumable, and `meta`:
+     *   `ttl` after which the deferral stops being resumable, and `meta`:
      *   anything the resuming route's `.resume({ authorize })` hook needs to
      *   decide who may resume
      * @example
@@ -280,23 +280,23 @@ declare module "@routecraft/routecraft" {
      *     when((ex) => ex.body.amountCents >= 50_000, (b) =>
      *       b
      *         .tap(direct("notify-approver"))
-     *         .suspend({ schema: Approval, ttl: "72h" })
+     *         .defer({ schema: Approval, ttl: "72h" })
      *         .filter((ex) =>
-     *           ex.suspension.result.approved
+     *           ex.deferral.result.approved
      *             ? true
-     *             : { reason: `rejected by ${ex.suspension.resumedBy?.subject}` },
+     *             : { reason: `rejected by ${ex.deferral.resumedBy?.subject}` },
      *         ),
      *     ),
      *   )
      *   .to(payouts())
      * ```
      */
-    suspend<Schema extends StandardSchemaV1>(
-      options?: SuspendOptions<Schema>,
-    ): Retyped<this, SetSuspension<S, StandardSchemaV1.InferOutput<Schema>>>;
+    defer<Schema extends StandardSchemaV1>(
+      options?: DeferOptions<Schema>,
+    ): Retyped<this, SetDeferral<S, StandardSchemaV1.InferOutput<Schema>>>;
 
     /**
-     * Revive a parked exchange and run its continuation.
+     * Revive a deferred exchange and run its continuation.
      *
      * Addresses an EXCHANGE by signed token, not a route by name: any route
      * ending in `.resume()` is a resume ingress, whether it is fed by an
@@ -305,8 +305,8 @@ declare module "@routecraft/routecraft" {
      * exchange be continued by a chat-born resume.
      *
      * The mapping function owns SHAPE (find the token, build the payload);
-     * validation against the suspending step's `schema` happens at revival,
-     * because only the suspension knows that schema. The bare form expects
+     * validation against the deferring step's `schema` happens at revival,
+     * because only the deferral knows that schema. The bare form expects
      * the body to already be `{ token, result }`.
      *
      * Authorizing the resuming principal belongs on this route, through the
@@ -320,7 +320,7 @@ declare module "@routecraft/routecraft" {
      * The revived route runs to completion before this step continues, so
      * the acknowledgment placed in the body reports how execution two
      * ended, and the ingress route can reply on the caller's own channel.
-     * A duplicate resume returns the first one's cached terminal outcome
+     * A duplicate resume returns the first one's cached continuation result
      * without re-running anything.
      *
      * @param map - Maps the ingress exchange to `{ token, result }`

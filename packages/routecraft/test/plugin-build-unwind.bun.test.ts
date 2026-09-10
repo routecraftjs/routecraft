@@ -6,12 +6,12 @@ import {
   craft,
   direct,
   noop,
-  suspensionPlugin,
+  deferralPlugin,
   type CraftPlugin,
-  type SuspensionConfig,
+  type DeferralConfig,
   type TeardownInfo,
 } from "../src/index.ts";
-import type { SuspensionTestSeams } from "../src/suspension/config.ts";
+import type { DeferralTestSeams } from "../src/deferral/config.ts";
 import type { SqliteDriverLoaders } from "../src/shared/sqlite/driver.ts";
 import type { SqliteDatabaseConstructor } from "../src/shared/sqlite/types.ts";
 import { CraftContext } from "../src/context.ts";
@@ -142,14 +142,14 @@ describe("unwinding a failed build", () => {
   });
 
   /**
-   * @case The suspension plugin's SQLite handle is released when a later plugin fails the build
-   * @preconditions A real file-backed suspension store whose driver is injected so the opened handle can be observed, then a later plugin throwing from apply()
+   * @case The deferral plugin's SQLite handle is released when a later plugin fails the build
+   * @preconditions A real file-backed deferral store whose driver is injected so the opened handle can be observed, then a later plugin throwing from apply()
    * @expectedResult close() ran on the handle the store opened. Reopening the file would prove nothing: bun:sqlite happily opens a second connection while the first is still held, so only the close itself is evidence
    */
-  test("releases the suspension store's sqlite handle", async () => {
+  test("releases the deferral store's sqlite handle", async () => {
     const dir = mkdtempSync(join(tmpdir(), "rc-unwind-"));
     dirs.push(dir);
-    const path = join(dir, "suspensions.db");
+    const path = join(dir, "deferrals.db");
 
     const closed: string[] = [];
     const loaders: SqliteDriverLoaders = {
@@ -170,7 +170,7 @@ describe("unwinding a failed build", () => {
       },
       node: () => Promise.reject(new Error("unused under Bun")),
     };
-    const suspension: SuspensionConfig & SuspensionTestSeams = {
+    const deferral: DeferralConfig & DeferralTestSeams = {
       store: { path },
       secret: "unwind-test-secret-key-0123456789-abcdef",
       loaders,
@@ -180,7 +180,7 @@ describe("unwinding a failed build", () => {
       new ContextBuilder()
         .with({
           plugins: [
-            suspensionPlugin(suspension),
+            deferralPlugin(deferral),
             {
               name: "late-refusal",
               apply() {

@@ -16,14 +16,14 @@ export {
   type SessionStoreConfig,
 } from "./config.ts";
 export { sessionSystemBlock } from "./render.ts";
-export { isSessionParkMarker } from "./types.ts";
+export { isSessionDeferralMarker } from "./types.ts";
 export type {
   AgentBackgroundCall,
   AgentInboxMessage,
   AgentSessionKey,
   AgentSessionOutcome,
-  AgentSessionPark,
-  AgentSessionParkMarker,
+  AgentSessionDeferral,
+  AgentSessionDeferralMarker,
   AgentSessionOverrides,
   AgentSessionRecord,
   AgentSessionScope,

@@ -8,7 +8,7 @@
 
 import type { Duration } from "../../shared/duration.ts";
 import type { HttpAuth } from "../../adapters/http/types";
-import type { Suspended } from "../../suspension/suspended";
+import type { Deferred } from "../../deferral/deferred";
 
 /**
  * The four-member health vocabulary.
@@ -19,7 +19,7 @@ import type { Suspended } from "../../suspension/suspended";
  * - `down`: cannot serve at all. For a route this means its source gave up
  *   producing; nothing it exists to serve is being served.
  * - `inactive`: deliberately out of the picture. A finished one-shot route, a
- *   route stopped cleanly, or an indicator parked for maintenance. Excluded
+ *   route stopped cleanly, or an indicator muted for maintenance. Excluded
  *   from aggregation entirely.
  *
  * New signals map into these rather than extending them; their richer state
@@ -304,7 +304,7 @@ export interface Indicator {
    * it carries structural facts and never an error message.
    */
   down(details?: HealthDetails): void;
-  /** Park the indicator: reports `inactive` and never pages until it reports again. */
+  /** Mark the indicator inactive: it reports `inactive` and never pages until it reports again. */
   inactive(): void;
 }
 
@@ -522,13 +522,13 @@ export type OpsEventTailItem =
 /**
  * What a dispatch produced.
  *
- * A park is an outcome, not an error: a route that reaches a durable
- * `.suspend()` replies with the acknowledgment every other surface returns,
- * and the operator at the terminal is often exactly who the park waits for.
+ * A deferral is an outcome, not an error: a route that reaches a durable
+ * `.defer()` replies with the acknowledgment every other surface returns,
+ * and the operator at the terminal is often exactly who the deferral waits for.
  * A drop is separate from a failure because they need different answers: a
  * drop means a filter said no, a failure means something broke.
  */
 export type OpsDispatchOutcome =
   | { outcome: "completed"; body: unknown }
-  | { outcome: "suspended"; suspension: Suspended }
+  | { outcome: "deferred"; deferral: Deferred }
   | { outcome: "dropped"; message: string };

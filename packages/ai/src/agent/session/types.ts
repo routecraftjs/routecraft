@@ -3,17 +3,24 @@ import type {
   LlmPromptPart,
   LlmReasoningEffort,
 } from "../../llm/types.ts";
-import type { ThreadMessage } from "../suspension-state.ts";
+import type { ThreadMessage } from "../deferral-state.ts";
 
 /**
  * The shape version {@link AgentSessionRecord} is written at.
  *
  * Version 2 replaced `startedBy` with {@link AgentSessionRecord.owner} and
- * added `cwd`, `title` and `overrides`. There is no migration and no shim:
- * a version 1 record fails its read as `AI1010` naming the store, which is
- * what the version field exists for.
+ * added `cwd`, `title` and `overrides`. Version 3 renamed the two
+ * continuation fields to {@link AgentSessionRecord.deferral} and
+ * {@link AgentSessionRecord.deferring} and the marker kind with them.
+ *
+ * The bump is load-bearing rather than cosmetic. Both fields are optional, so
+ * a version 2 record would pass the shape guard with its continuation read as
+ * absent, and an aside deferral nothing references carries no expiry: it would
+ * never be revived and never released. There is no migration and no shim: an
+ * older record fails its read as `AI1010` naming the store, which is what the
+ * version field exists for.
  */
-export const SESSION_RECORD_VERSION = 2;
+export const SESSION_RECORD_VERSION = 3;
 
 /**
  * Per-session choices a caller made about how the agent runs, applied over
@@ -106,7 +113,7 @@ export interface AgentBackgroundCall {
 }
 
 /**
- * What the store holds for one session, in the suspension record's opaque
+ * What the store holds for one session, in the deferral record's opaque
  * `stepState` slot. Plain JSON only: dates are ISO strings and every field
  * survives `encodePersistable`.
  *
@@ -161,15 +168,15 @@ export interface AgentSessionRecord {
    * settles, when messages are queued, or at boot. One per session: a
    * later turn that ends with work outstanding keeps the one that exists.
    */
-  readonly park?: AgentSessionPark;
+  readonly deferral?: AgentSessionDeferral;
   /**
-   * The continuation about to be stored, named before the park exists and
-   * cleared once `park` names it. A crash between those two writes leaves
-   * this set with `park` unset, which is how the next boot finds an aside
-   * park nothing else references and releases it; an aside park carries no
+   * The continuation about to be stored, named before the deferral exists and
+   * cleared once `deferral` names it. A crash between those two writes leaves
+   * this set with `deferral` unset, which is how the next boot finds an aside
+   * deferral nothing else references and releases it; an aside deferral carries no
    * expiry, so nothing else would.
    */
-  readonly parking?: AgentSessionPark;
+  readonly deferring?: AgentSessionDeferral;
   /** Completed turns. */
   readonly turns: number;
   readonly createdAt: string;
@@ -177,38 +184,39 @@ export interface AgentSessionRecord {
 }
 
 /** Where a session's stored continuation is. */
-export interface AgentSessionPark {
-  readonly suspensionId: string;
+export interface AgentSessionDeferral {
+  readonly deferralId: string;
   readonly routeId: string;
 }
 
 /**
- * What a session park stores as its step state, so the revived step knows
- * it re-enters as a turn and not as a parked tool loop. The transcript and
+ * What a session deferral stores as its step state, so the revived step knows
+ * it re-enters as a turn and not as a deferred tool loop. The transcript and
  * the inbox stay in the session record; this names them, it does not
  * carry them.
  *
  * @internal
  */
-export interface AgentSessionParkMarker {
-  readonly kind: "agent-session-park";
+export interface AgentSessionDeferralMarker {
+  readonly kind: "agent-session-deferral";
   readonly agent: string;
   readonly session: string;
-  readonly suspensionId: string;
+  readonly deferralId: string;
 }
 
 /** @internal */
-export function isSessionParkMarker(
+export function isSessionDeferralMarker(
   value: unknown,
-): value is AgentSessionParkMarker {
-  const marker = value as Partial<AgentSessionParkMarker> | null | undefined;
+): value is AgentSessionDeferralMarker {
+  const marker = value as
+    Partial<AgentSessionDeferralMarker> | null | undefined;
   return (
     marker !== null &&
     typeof marker === "object" &&
-    marker.kind === "agent-session-park" &&
+    marker.kind === "agent-session-deferral" &&
     typeof marker.agent === "string" &&
     typeof marker.session === "string" &&
-    typeof marker.suspensionId === "string"
+    typeof marker.deferralId === "string"
   );
 }
 
@@ -262,7 +270,7 @@ export interface AgentSessionSummary {
   /** Background tool calls still running. */
   readonly background: number;
   /** A continuation is stored, waiting for a completion or a boot to revive it. */
-  readonly parked: boolean;
+  readonly deferred: boolean;
   /** Transcript length, in messages. */
   readonly messages: number;
   readonly turns: number;

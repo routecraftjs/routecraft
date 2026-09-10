@@ -22,7 +22,7 @@ import {
   AgentSessionRuntime,
   type BackgroundOutcome,
 } from "../session/runtime.ts";
-import { DEFERRED_FN_BRAND, FN_BACKGROUND, type DeferredFn } from "./types.ts";
+import { LAZY_FN_BRAND, FN_BACKGROUND, type LazyFn } from "./types.ts";
 
 /**
  * Re-hydrate a frozen `ReadonlyPrincipal` (as exposed on
@@ -160,14 +160,14 @@ export const BACKGROUND_DESCRIPTION_SUFFIX =
 export function directTool<TIn = unknown>(
   routeId: string,
   overrides?: ToolBuilderOverrides<TIn>,
-): DeferredFn {
+): LazyFn {
   if (typeof routeId !== "string" || routeId.trim() === "") {
     throw rcError("RC5003", undefined, {
       message: `directTool: routeId must be a non-empty string.`,
     });
   }
   return {
-    [DEFERRED_FN_BRAND]: true,
+    [LAZY_FN_BRAND]: true,
     kind: "direct",
     targetId: routeId,
     resolve(ctx, fnId): FnOptions {

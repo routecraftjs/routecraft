@@ -493,7 +493,7 @@ export class HealthState implements HealthLedger {
     this.settleIndicator(name, record);
   }
 
-  /** Park an indicator (maintenance): reports `inactive` and never pages. */
+  /** Mute an indicator (maintenance): it reports `inactive` and never pages. */
   setIndicatorInactive(name: string, inactive: boolean): void {
     const record = this.indicators.get(name);
     if (!record) return;

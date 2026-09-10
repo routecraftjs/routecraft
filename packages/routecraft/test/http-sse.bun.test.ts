@@ -505,11 +505,11 @@ describe("HTTP streaming responses", () => {
   });
 
   /**
-   * @case The documented periodic-wake pattern lets a disconnect reach a producer parked on a slow source
+   * @case The documented periodic-wake pattern lets a disconnect reach a producer deferred on a slow source
    * @preconditions A source promise that never resolves, wrapped in the `withWake` shape from the http reference page with a 100ms interval; the caller aborts after the first keep-alive
    * @expectedResult The generator's finally runs within a few wake intervals rather than never, since without the wake the pending step never settles and the queued return() is never delivered
    */
-  test("a periodic wake delivers a disconnect to a parked producer", async () => {
+  test("a periodic wake delivers a disconnect to a deferred producer", async () => {
     let closed = false;
     // The source the route is waiting on, standing in for one that can be
     // quiet for minutes. It never settles, so the wake is the only thing

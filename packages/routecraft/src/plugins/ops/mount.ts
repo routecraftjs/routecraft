@@ -360,8 +360,8 @@ async function dispatchExchange(
 
   try {
     const outcome = await api.dispatch(id, body, principal);
-    if (outcome.outcome === "suspended") {
-      // 202 for a park, the same answer the http() source gives: the work
+    if (outcome.outcome === "deferred") {
+      // 202 for a deferral, the same answer the http() source gives: the work
       // was accepted and is not finished, and the acknowledgment carries
       // what is needed to finish it.
       return jsonResponse(outcome, { status: 202 });

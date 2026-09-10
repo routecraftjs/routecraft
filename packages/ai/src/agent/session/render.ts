@@ -1,5 +1,5 @@
 import type { LlmPromptPart } from "../../llm/types.ts";
-import { contentPartsOf, type ThreadMessage } from "../suspension-state.ts";
+import { contentPartsOf, type ThreadMessage } from "../deferral-state.ts";
 
 /**
  * The tool result recorded for a call that was still running when its turn
