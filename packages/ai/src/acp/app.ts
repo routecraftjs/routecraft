@@ -49,11 +49,7 @@ import type {
   AgentSessionOutcome,
   AgentSessionSummary,
 } from "../agent/session/types.ts";
-import {
-  ensureSurfaceLifecycle,
-  registerSurface,
-  SurfaceDisconnected,
-} from "../surface/index.ts";
+import { registerSurface, SurfaceDisconnected } from "../surface/index.ts";
 import type {
   AgentSurfaceConnection,
   AgentSurfaceRef,
@@ -234,11 +230,18 @@ export class AcpConnection implements AgentSurfaceConnection {
 
   async notify(session: string, update: unknown): Promise<void> {
     const client = this.client;
-    if (client === undefined) throw new Error("The connection is not open.");
-    await client.notify("session/update", {
-      sessionId: session,
-      update: update as SessionUpdate,
-    });
+    if (client === undefined) {
+      throw new SurfaceDisconnected(new Error("The connection is not open."));
+    }
+    try {
+      await client.notify("session/update", {
+        sessionId: session,
+        update: update as SessionUpdate,
+      });
+    } catch (cause: unknown) {
+      if (this.client === undefined) throw new SurfaceDisconnected(cause);
+      throw cause;
+    }
   }
 
   // ------------------------------------------------------------- lifecycle
@@ -246,7 +249,6 @@ export class AcpConnection implements AgentSurfaceConnection {
   /** Called once the SDK has opened the connection and given us its context. */
   open(client: AgentContext, closed: Promise<void>): void {
     this.client = client;
-    ensureSurfaceLifecycle(this.runtime.context);
     this.retire = registerSurface(this.runtime.context, this.id, this);
     this.runtime.context.emit("plugin:acp:connection:opened", {
       connectionId: this.id,
@@ -258,10 +260,15 @@ export class AcpConnection implements AgentSurfaceConnection {
     // Retire on close however the transport ended, including a fault that
     // rejects rather than resolves: an unhandled rejection here would take
     // down an instance because one editor's socket broke.
-    closed.then(
-      () => this.close(),
-      (fault: unknown) => this.close(fault),
-    );
+    closed
+      .then(
+        () => this.close(),
+        (fault: unknown) => this.close(fault),
+      )
+      // `close()` calls the mount's own `onClosed` handler, which is not
+      // ours; a throw from it would reach the process as an unhandled
+      // rejection on a promise nobody awaits.
+      .catch(() => undefined);
   }
 
   /**

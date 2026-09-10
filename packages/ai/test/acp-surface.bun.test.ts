@@ -28,9 +28,16 @@ import {
   registerTurn,
   type SurfaceRequestParams,
 } from "../src/surface/index.ts";
+import {
+  CLEANUP_TIMEOUT_MS,
+  cancelSurfaceTurn,
+  registerCleanup,
+} from "../src/surface/cancellation.ts";
+import { ADAPTER_AGENT_SESSIONS } from "../src/agent/store.ts";
 import { acpHarness, type AcpHarness } from "./helpers/acp-harness.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
 import { slowTool } from "./helpers/slow-tool.ts";
+import { sleep, until } from "./helpers/until.ts";
 import {
   SURFACE_CONNECTION,
   SURFACED,
@@ -106,16 +113,6 @@ const AGENT = {
     tools: tools(["Direct(read-file)"]),
   },
 };
-
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
-
-/** Wait for a condition, bounded, so a failure reports as an assertion. */
-async function until(condition: () => boolean, ms = 5_000): Promise<void> {
-  const deadline = Date.now() + ms;
-  while (!condition() && Date.now() < deadline) await sleep(1);
-  expect(condition()).toBe(true);
-}
 
 /**
  * An editor with a terminal, recording every call in the order it arrived.
@@ -661,6 +658,147 @@ describe("surface(), reaching the editor from a route", () => {
         hasSurface(new DefaultExchange(t.ctx, { body: {}, headers: SURFACED })),
       ).toBe(true);
       expect(hasSurface(new DefaultExchange(t.ctx, { body: {} }))).toBe(false);
+    } finally {
+      await t.stop();
+    }
+  });
+});
+
+/**
+ * The bookkeeping a cancel runs on, driven directly.
+ *
+ * The routes a turn dispatches outlive it, so which registrations a cancel
+ * may send and which it must leave alone is decided by the turn each was
+ * made under. Driving the module rather than a whole harness is what lets
+ * two overlapping turns exist at once, which is the case that matters and
+ * the one an editor cannot easily be scripted into.
+ */
+describe("cleanup after a cancelled turn", () => {
+  /** A session runtime that only answers which turn is running. */
+  const runningTurn = (turn: () => string | undefined): unknown => ({
+    turnIdOf: () => turn(),
+  });
+
+  /**
+   * @case A cancel sends its own turn's registered cleanup and leaves an earlier turn's alone
+   * @preconditions Two exchanges on one conversation, each registering a release under a different running turn, with the second turn cancelled
+   * @expectedResult Only the second turn's release reaches the editor. A route the previous turn dispatched can still be running, and killing its terminal would take away work the person never stopped
+   */
+  test("a cancel sends only the cancelled turn's cleanup", async () => {
+    const t = await testContext().routes([]).build();
+    await t.startAndWaitReady();
+    try {
+      const sent: string[] = [];
+      let turn: string | undefined = "turn-a";
+      t.ctx.setStore(ADAPTER_AGENT_SESSIONS, runningTurn(() => turn) as never);
+      const connection = scriptedSurface({
+        request: async (method) => {
+          sent.push(method);
+          return {};
+        },
+      });
+      registerSurface(t.ctx, SURFACE_CONNECTION, connection);
+      const ref = {
+        kind: "acp" as const,
+        session: "s",
+        connection: SURFACE_CONNECTION,
+      };
+
+      const first = new DefaultExchange(t.ctx, { body: {}, headers: SURFACED });
+      registerCleanup(first, ref, connection, [
+        { method: "terminal/release", params: { terminalId: "from-turn-a" } },
+      ]);
+
+      turn = "turn-b";
+      const second = new DefaultExchange(t.ctx, {
+        body: {},
+        headers: SURFACED,
+      });
+      registerCleanup(second, ref, connection, [
+        { method: "terminal/release", params: { terminalId: "from-turn-b" } },
+      ]);
+
+      cancelSurfaceTurn(t.ctx, "s");
+      await until(() => sent.length >= 1);
+      await sleep(50);
+      expect(sent).toEqual(["terminal/release"]);
+      expect(JSON.stringify(await Promise.resolve(sent))).not.toContain(
+        "from-turn-a",
+      );
+    } finally {
+      await t.stop();
+    }
+  });
+
+  /**
+   * @case A cleanup the editor never answers is abandoned at its deadline, and the next one is still sent
+   * @preconditions Two registered calls where the first never settles, the editor treating the abort as advisory the way the ACP backend does
+   * @expectedResult The second call arrives. The signal handed to a backend is a request to cancel rather than a deadline, so without a local one a wedged editor holds the sequential loop forever and the release that follows a kill is never sent
+   */
+  test("a cleanup that is never answered does not strand the ones after it", async () => {
+    const t = await testContext().routes([]).build();
+    await t.startAndWaitReady();
+    try {
+      const sent: string[] = [];
+      const connection = scriptedSurface({
+        request: async (method) => {
+          sent.push(method);
+          if (method === "terminal/kill") return new Promise(() => undefined);
+          return {};
+        },
+      });
+      registerSurface(t.ctx, SURFACE_CONNECTION, connection);
+      const ref = {
+        kind: "acp" as const,
+        session: "s",
+        connection: SURFACE_CONNECTION,
+      };
+      const exchange = new DefaultExchange(t.ctx, {
+        body: {},
+        headers: SURFACED,
+      });
+      registerCleanup(exchange, ref, connection, [
+        { method: "terminal/kill", params: { terminalId: "t-1" } },
+        { method: "terminal/release", params: { terminalId: "t-1" } },
+      ]);
+
+      cancelSurfaceTurn(t.ctx, "s");
+      await until(
+        () => sent.includes("terminal/release"),
+        CLEANUP_TIMEOUT_MS * 2,
+      );
+      expect(sent).toEqual(["terminal/kill", "terminal/release"]);
+    } finally {
+      await t.stop();
+    }
+  }, 20_000);
+
+  /**
+   * @case A registration naming a method the client never advertised is refused where the route can still act on it
+   * @preconditions A surface reporting the method unsupported, and a route registering it as cleanup
+   * @expectedResult AI1015 at the registration rather than a silent failure at cancel time, which is the same answer a call gets and for the same reason
+   */
+  test("a registration is checked against the client's capabilities", async () => {
+    const t = await testContext().routes([]).build();
+    await t.startAndWaitReady();
+    try {
+      registerSurface(
+        t.ctx,
+        SURFACE_CONNECTION,
+        scriptedSurface({
+          supports: () => false,
+          request: async () => ({}),
+        }),
+      );
+      const exchange = new DefaultExchange(t.ctx, {
+        body: {},
+        headers: SURFACED,
+      });
+      expect(() =>
+        surface.onCancel(exchange, [
+          { method: "terminal/release", params: { terminalId: "t-1" } },
+        ]),
+      ).toThrow(/did not advertise/);
     } finally {
       await t.stop();
     }

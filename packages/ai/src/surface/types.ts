@@ -12,7 +12,7 @@ import type {
   ClientRequestResponsesByMethod,
   SessionUpdate,
 } from "@agentclientprotocol/sdk";
-import type { AgentSurfaceKind } from "./header.ts";
+import type { AgentSurfaceKind, AgentSurfaceRef } from "./header.ts";
 
 /**
  * The client-side methods a surface may be asked for, keyed by name, with
@@ -71,22 +71,16 @@ export type SurfaceRequest = {
 export type SurfaceUpdate = SessionUpdate;
 
 /**
- * What a backend's `request` rejects with when the connection went away
- * while the call was outstanding.
+ * The params as sent: the turn's session, never the route's to choose.
  *
- * The adapter reports that as the surface disconnecting (`AI1014`) rather
- * than as the person refusing (`AI1016`), because the two have different
- * fixes and only the backend can tell them apart: it knows whether the
- * peer answered or the transport died. A backend that rejects with
- * anything else is read as a refusal.
+ * A route that could name another session could address another person's
+ * surface, so the framework fills the field in on every path that reaches
+ * a backend rather than trusting each of them to remember.
+ *
+ * @internal
  */
-export class SurfaceDisconnected extends Error {
-  constructor(cause: unknown) {
-    super("The surface disconnected while the call was outstanding.", {
-      cause,
-    });
-    this.name = "SurfaceDisconnected";
-  }
+export function withSession(params: unknown, ref: AgentSurfaceRef): object {
+  return { ...(params as object), sessionId: ref.session };
 }
 
 /**

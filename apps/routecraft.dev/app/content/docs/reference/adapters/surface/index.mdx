@@ -131,7 +131,8 @@ Three things about the registration:
 
 - **It is checked when made.** Every method is checked against what the client advertised, as a call would be, so a route learns of a mismatch while it can still act on it.
 - **It dies with the exchange.** A route that finished its own cleanup withdraws the registration, and one that finished without saying so has it dropped when the exchange completes. A cancel later in the conversation cannot replay a release the route already did.
-- **It runs on cancel, not on every ending.** `session/cancel` and an interrupting message trigger it. A turn that ends any other way leaves the route to its own `finally`, which still works, because the surface is only refused after a cancel.
+- **It runs on cancel, not on every ending.** `session/cancel` and an interrupting message trigger it. A turn that ends any other way leaves the route to its own `finally`, which still works, because the surface is only refused after a cancel. That includes a graceful stop: the drain lets in-flight exchanges finish and a route releases what it holds the ordinary way. What a [forced shutdown](/docs/reference/configuration#shutdown) abandons it abandons here too, on the terms core already states: an exchange cut at the deadline emits no terminal event, and its registered cleanup is not sent.
+- **It is the framework making calls rather than carrying them**, which is the one place the seam does more than transport. It is bounded to that: a fixed list, declared in advance by the route, of methods the client already advertised, sent once, in order, under one deadline. Nothing is added to the seam to make it convenient, and a typed wrapper over a terminal or a file still belongs above it, in a route somebody owns.
 
 ## How far it reaches
 
@@ -140,3 +141,5 @@ A capability the turn calls is not the same exchange as the turn. `surface` reso
 ## Backends
 
 `acp` is the only surface kind today, registered by [`acpPlugin`](/docs/reference/plugins/acpplugin) while an editor is connected. Nothing in the adapter knows how the connection is transported, which is what lets a second backend arrive without the routes changing.
+
+One thing a backend must do explicitly: reject with `SurfaceDisconnected` when the transport went away while a call was outstanding, so the adapter reports [`AI1014`](/docs/reference/errors#ai-1014) rather than [`AI1016`](/docs/reference/errors#ai-1016). Anything else it rejects with is read as the person refusing. The two have different fixes and only the backend can tell them apart, because only it knows whether the peer answered or the socket died.

@@ -344,23 +344,10 @@ export function resolveSettings(
         source: "environment",
       };
     }
-    for (const layer of fileLayers(
-      profile,
-      project,
-      projectPath,
-      global,
-      globalPath,
-    )) {
-      const value = layer.values?.[key];
-      if (value !== undefined) {
-        return {
-          value: value as NonNullable<CraftSettingValues[K]>,
-          source: layer.source,
-          path: layer.path,
-        };
-      }
-    }
-    return undefined;
+    return fromFiles(
+      key,
+      fileLayers(profile, project, projectPath, global, globalPath),
+    );
   };
 
   const url = pick("url", overrides.url, env[ENV_URL]) ?? {
@@ -528,26 +515,44 @@ function pickEnv(
   global: CraftSettings | undefined,
   globalPath: string,
 ): Resolved<ProfileEnv> | undefined {
-  for (const layer of fileLayers(
-    profile,
-    project,
-    projectPath,
-    global,
-    globalPath,
-  )) {
-    const value = layer.values?.env;
-    if (value === undefined) continue;
-    const resolved = { value, source: layer.source, path: layer.path };
-    // An empty string is not a path. Left alone it resolves to the project
-    // directory and the command runs on without the environment the person
-    // selected, which is the silence this file exists to refuse.
-    const empty = typeof value === "string" && value.trim() === "";
-    if ((typeof value !== "string" && !isPlainStringMap(value)) || empty) {
-      throw new SettingsError(
-        `The "env" from the ${describeSource(resolved)} must be a path to an env file or a map of names to string values.`,
-      );
+  const resolved = fromFiles(
+    "env",
+    fileLayers(profile, project, projectPath, global, globalPath),
+  );
+  if (resolved === undefined) return undefined;
+  const { value } = resolved;
+  // An empty string is not a path. Left alone it resolves to the project
+  // directory and the command runs on without the environment the person
+  // selected, which is the silence this file exists to refuse.
+  const empty = typeof value === "string" && value.trim() === "";
+  if ((typeof value !== "string" && !isPlainStringMap(value)) || empty) {
+    throw new SettingsError(
+      `The "env" from the ${describeSource(resolved)} must be a path to an env file or a map of names to string values.`,
+    );
+  }
+  return resolved as Resolved<ProfileEnv>;
+}
+
+/**
+ * The first layer that carries `key`, with where it came from.
+ *
+ * The list and the walk over it are one rule: resolving what counts as
+ * present, and which of `source` and `path` rides on the answer, in two
+ * places is two rules the moment one of them is edited.
+ */
+function fromFiles<K extends keyof CraftSettingValues>(
+  key: K,
+  layers: ReturnType<typeof fileLayers>,
+): Resolved<NonNullable<CraftSettingValues[K]>> | undefined {
+  for (const layer of layers) {
+    const value = layer.values?.[key];
+    if (value !== undefined) {
+      return {
+        value: value as NonNullable<CraftSettingValues[K]>,
+        source: layer.source,
+        path: layer.path,
+      };
     }
-    return resolved as Resolved<ProfileEnv>;
   }
   return undefined;
 }

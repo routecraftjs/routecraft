@@ -7,6 +7,7 @@
  */
 
 import type { CraftContext } from "@routecraft/routecraft";
+import { ensureSurfaceLifecycle } from "./cancellation.ts";
 import type { AgentSurfaceRef } from "./header.ts";
 import type { AgentSurfaceConnection } from "./types.ts";
 
@@ -54,6 +55,11 @@ declare module "@routecraft/routecraft" {
  * removes an entry: a turn that outlives its connection reads the absence
  * and answers `AI1014`, which is the honest report.
  *
+ * Publishing a surface is also what installs the cancellation lifecycle,
+ * so a backend cannot have one without the other. Left to each backend to
+ * call, the failure of forgetting it is silent: ordinary calls keep
+ * working and only cancellation, cleanup and eviction never happen.
+ *
  * @internal
  */
 export function registerSurface(
@@ -61,6 +67,7 @@ export function registerSurface(
   connection: string,
   surface: AgentSurfaceConnection,
 ): () => void {
+  ensureSurfaceLifecycle(context);
   const surfaces =
     context.getStore(AGENT_SURFACES) ??
     new Map<string, AgentSurfaceConnection>();

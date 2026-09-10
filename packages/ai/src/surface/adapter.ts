@@ -47,8 +47,9 @@ import {
   type ProtocolIssue,
 } from "./protocol.ts";
 import { surfaceFor, turnSurfaceOf } from "./registry.ts";
+import { SurfaceDisconnected } from "./errors.ts";
 import {
-  SurfaceDisconnected,
+  withSession,
   type AgentSurfaceConnection,
   type SurfaceMethod,
   type SurfaceRequest,
@@ -138,13 +139,7 @@ export function surface<M extends SurfaceMethod, T = unknown>(
             message: `The turn running this route was cancelled, so "${method}" was not sent. Anything that must reach the ${ref.kind} client after a cancel is registered beforehand with surface.onCancel().`,
           });
         }
-        // The session is the turn's, never the route's to choose: a route
-        // that could name another session could address another person's
-        // surface.
-        const sent = {
-          ...(resolve(params, exchange) as object),
-          sessionId: ref.session,
-        };
+        const sent = withSession(resolve(params, exchange), ref);
         // The check is loaded before the call goes out, so a schema that
         // cannot be built fails here rather than after the person answered.
         const check = await responseCheck(method);
@@ -223,10 +218,15 @@ surface.notify = function notify<T = unknown>(
       adapterId: "routecraft.adapter.surface",
       getMetadata: () => ({ method: "session/update" }),
       send: async (exchange: Exchange<T>): Promise<void> => {
-        const { connection, ref } = resolveSurface(
+        const { context, connection, ref } = resolveSurface(
           exchange,
           "surface.notify()",
         );
+        // Dropped rather than refused: a notification has no answer, so a
+        // route that keeps running after a stop has nothing to handle, and
+        // the rule is the one `surface()` enforces. Nothing new reaches a
+        // person who said stop.
+        if (turnSignalOf(context, ref.session).aborted) return;
         const built = resolve(update, exchange);
         const issues = await (await updateCheck())(built);
         if (issues !== undefined) {

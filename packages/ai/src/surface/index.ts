@@ -1,10 +1,5 @@
 export { hasSurface, surface } from "./adapter.ts";
-export {
-  CLEANUP_TIMEOUT_MS,
-  cancelSurfaceTurn,
-  ensureSurfaceLifecycle,
-  turnSignalOf,
-} from "./cancellation.ts";
+export { SurfaceDisconnected } from "./errors.ts";
 export {
   AGENT_SURFACE_HEADER,
   surfaceRefOf,
@@ -19,12 +14,11 @@ export {
   surfaceFor,
   turnSurfaceOf,
 } from "./registry.ts";
-export {
-  SurfaceDisconnected,
-  type AgentSurfaceConnection,
-  type SurfaceMethod,
-  type SurfaceRequest,
-  type SurfaceRequestParams,
-  type SurfaceRequestResponses,
-  type SurfaceUpdate,
+export type {
+  AgentSurfaceConnection,
+  SurfaceMethod,
+  SurfaceRequest,
+  SurfaceRequestParams,
+  SurfaceRequestResponses,
+  SurfaceUpdate,
 } from "./types.ts";

@@ -488,17 +488,30 @@ function failureReason(
   const code = rc === undefined ? "" : ` (${rc})`;
   const floor = `${toolName} failed: ${errorName}${code}`;
   if (!payloads) return floor;
-  const message = messageOf(error);
-  if (message === "") return floor;
-  const cause = error instanceof Error ? messageOf(error.cause) : "";
+  const message = thrownMessage(error);
+  if (message === undefined) return floor;
+  const cause = error instanceof Error ? thrownMessage(error.cause) : undefined;
   const detail =
-    cause === "" || message.includes(cause) ? message : `${message}: ${cause}`;
+    cause === undefined || message.includes(cause)
+      ? message
+      : `${message}: ${cause}`;
   return `${toolName} failed${code}: ${detail}`;
 }
 
-function messageOf(error: unknown): string {
-  if (error instanceof Error) return error.message;
-  return typeof error === "string" ? error : "";
+/**
+ * The message a thrown value carries, or nothing when it carries none.
+ *
+ * A non-Error throw still routinely carries a usable `message` (a provider
+ * SDK's own error shape, Bun's `ResolveMessage`), and reading it is what
+ * keeps a hand's failure legible rather than falling back to its class.
+ */
+function thrownMessage(value: unknown): string | undefined {
+  if (value instanceof Error) return value.message || undefined;
+  if (typeof value === "string") return value || undefined;
+  if (typeof value === "object" && value !== null && "message" in value) {
+    return String((value as { message: unknown }).message) || undefined;
+  }
+  return undefined;
 }
 
 type ToolEventName =

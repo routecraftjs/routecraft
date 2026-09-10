@@ -11,6 +11,7 @@ import { agentPlugin, tools } from "../src/index.ts";
 import { acpHarness, type AcpHarness } from "./helpers/acp-harness.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
 import { slowTool } from "./helpers/slow-tool.ts";
+import { until } from "./helpers/until.ts";
 import { MODEL } from "./helpers/defer-fixtures.ts";
 
 const llm = scriptedLlm([]);
@@ -31,16 +32,6 @@ const AGENT = {
     tools: tools(["slow"]),
   },
 };
-
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
-
-/** Wait for a condition, bounded, so a failure reports as an assertion. */
-async function until(condition: () => boolean, ms = 5_000): Promise<void> {
-  const deadline = Date.now() + ms;
-  while (!condition() && Date.now() < deadline) await sleep(1);
-  expect(condition()).toBe(true);
-}
 
 describe("ACP session lifecycle", () => {
   let h: AcpHarness | undefined;
