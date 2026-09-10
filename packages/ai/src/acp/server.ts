@@ -126,6 +126,11 @@ export class AcpServer {
 
     this.unmount = ingress.mountHttp({
       id: "acp",
+      requestValidation: {
+        ...(this.options.browserOrigins !== undefined
+          ? { browserOrigins: this.options.browserOrigins }
+          : {}),
+      },
       // The GET channel is held open and legitimately quiet between
       // turns; without the exemption the listener's idle reaper cuts it.
       longLived: true,
@@ -136,19 +141,13 @@ export class AcpServer {
         const origin = request.headers.get("origin") ?? undefined;
         const corsHeaders = buildCorsHeaders(cors, origin, false);
 
-        if (request.method === "OPTIONS" && cors !== null) {
-          return new Response(null, {
-            status: 204,
-            headers: buildCorsHeaders(cors, origin, true),
-          });
-        }
         // A browser whose origin the policy does not allow is refused here
         // rather than served and left to discard the answer. The preflight
         // already stops the shapes that get preflighted; this closes the
         // ones that do not, so a cross-origin page cannot drive a turn on
         // somebody's loopback instance and simply ignore the reply. A
-        // caller with no Origin at all is not a browser and is unaffected,
-        // which is every editor.
+        // caller with no Origin is unaffected. The shared ingress already
+        // checked Host and explicit browser admission, independently of CORS.
         if (
           origin !== undefined &&
           cors !== null &&
@@ -162,6 +161,12 @@ export class AcpServer {
             { error: "Forbidden" },
             { status: 403, headers: corsHeaders },
           );
+        }
+        if (request.method === "OPTIONS" && cors !== null) {
+          return new Response(null, {
+            status: 204,
+            headers: buildCorsHeaders(cors, origin, true),
+          });
         }
         if (url.pathname !== path && url.pathname !== `${path}/`) {
           return Response.json(

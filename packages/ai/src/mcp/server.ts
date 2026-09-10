@@ -170,6 +170,7 @@ type McpServerResolvedOptions = Required<
     | "title"
     | "resource"
     | "cors"
+    | "browserOrigins"
     | "userinfo"
     | "description"
     | "websiteUrl"
@@ -219,13 +220,6 @@ export class McpServer {
   private options: McpServerResolvedOptions;
   private mcpHandler: McpHttpHandler | null = null;
   private unmountHttp: (() => void) | null = null;
-  /** SDK request validators, loaded with the handler in prepareHttpMount. */
-  private hostHeaderValidationResponse:
-    ((request: Request, allowed: string[]) => Response | undefined) | null =
-    null;
-  private originValidationResponse:
-    ((request: Request, allowed: string[]) => Response | undefined) | null =
-    null;
   /** Handle for the stdio transport, used to await shutdown. `null` on HTTP. */
   private stdioHandle: StdioServerHandle | null = null;
   /**
@@ -462,13 +456,7 @@ export class McpServer {
   private async prepareHttpMount(): Promise<void> {
     const verifier = this.buildValidatorVerifier();
     await this.prepareServerFactory();
-    const {
-      createMcpHandler,
-      hostHeaderValidationResponse,
-      originValidationResponse,
-    } = await loadMcpServerSdk("mcp (http)");
-    this.hostHeaderValidationResponse = hostHeaderValidationResponse;
-    this.originValidationResponse = originValidationResponse;
+    const { createMcpHandler } = await loadMcpServerSdk("mcp (http)");
     const cors = resolveCorsOptions(this.options.cors);
     // Shared contract with mcpPlugin() option validation: McpServer is also
     // constructed directly, and an unvalidated path would mount claims the
@@ -498,6 +486,14 @@ export class McpServer {
     ];
     this.unmountHttp = ingress.mountHttp({
       id: "mcp",
+      requestValidation: {
+        ...(this.options.resource?.url !== undefined
+          ? { allowedHostnames: [new URL(this.options.resource.url).hostname] }
+          : {}),
+        ...(this.options.browserOrigins !== undefined
+          ? { browserOrigins: this.options.browserOrigins }
+          : {}),
+      },
       // Streamable HTTP holds the GET channel open and legitimately quiet;
       // without the exemption Bun's idle reaper would cut it at 255s.
       longLived: true,
@@ -515,14 +511,18 @@ export class McpServer {
         const origin = request.headers.get("origin") ?? undefined;
         const corsHeaders = buildCorsHeaders(cors, origin, false);
 
-        const originGate = this.checkRequestOrigin(
-          request,
-          ingress,
-          cors,
-          origin,
-          corsHeaders,
-        );
-        if (originGate) return originGate;
+        // Host and explicit browser admission are enforced by the shared
+        // ingress. CORS refusal remains an additional, independent policy.
+        if (
+          origin !== undefined &&
+          cors !== null &&
+          corsHeaders["Access-Control-Allow-Origin"] === undefined
+        ) {
+          return Response.json(
+            { error: "Forbidden" },
+            { status: 403, headers: corsHeaders },
+          );
+        }
 
         const owned =
           pathname === path ||
@@ -586,45 +586,6 @@ export class McpServer {
         });
       },
     });
-  }
-
-  /**
-   * DNS-rebinding and browser-origin gate, run before anything else. The SDK
-   * entry is deliberately validation-free, so the mount fronts it with the
-   * SDK's own validators: Host against the addresses this server may be
-   * reached as, Origin against the resolved CORS policy.
-   */
-  private checkRequestOrigin(
-    request: Request,
-    ingress: WebIngress,
-    cors: ReturnType<typeof resolveCorsOptions>,
-    origin: string | undefined,
-    corsHeaders: Record<string, string>,
-  ): Response | null {
-    const hostRejection = this.hostHeaderValidationResponse!(
-      request,
-      this.allowedHostnames(ingress),
-    );
-    if (hostRejection) return hostRejection;
-    if (origin !== undefined && cors !== null) {
-      let hostname = "";
-      try {
-        hostname = new URL(origin).hostname;
-      } catch {
-        // The SDK validator below returns the canonical 403 response.
-      }
-      const originRejection = this.originValidationResponse!(
-        request,
-        hostname.length > 0 ? [hostname] : [],
-      );
-      if (
-        originRejection ||
-        corsHeaders["Access-Control-Allow-Origin"] === undefined
-      ) {
-        return originRejection ?? this.originValidationResponse!(request, [])!;
-      }
-    }
-    return null;
   }
 
   /** Serve the RFC 9728 document; identical for every credential state. */
@@ -769,28 +730,6 @@ export class McpServer {
         },
       },
     );
-  }
-
-  private allowedHostnames(ingress: WebIngress): string[] {
-    const names = new Set<string>();
-    const explicit = this.options.resource?.url;
-    if (explicit !== undefined) names.add(new URL(explicit).hostname);
-    const bound = ingress.boundAddress;
-    if (bound !== undefined) names.add(bound.host);
-    if (
-      bound?.host === "127.0.0.1" ||
-      bound?.host === "::1" ||
-      bound?.host === "[::1]" ||
-      bound?.host === "localhost" ||
-      bound?.host === "0.0.0.0" ||
-      bound?.host === "::" ||
-      bound?.host === "[::]"
-    ) {
-      names.add("localhost");
-      names.add("127.0.0.1");
-      names.add("[::1]");
-    }
-    return [...names];
   }
 
   private resourceUrlFor(ingress: WebIngress, path: string): string {

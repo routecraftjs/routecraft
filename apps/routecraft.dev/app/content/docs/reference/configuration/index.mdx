@@ -184,7 +184,7 @@ export const craftConfig = defineConfig({
 })
 ```
 
-Each server accepts `port` (required), `host` (default `127.0.0.1`), `kind` (currently only `http`), an optional validator `auth`, `shutdownGrace` (default `30000`) bounding the graceful drain on stop, `idleTimeout` (default `"255s"`, Bun's ceiling and so refused above it rather than clamped) setting the reap window for ordinary connections, and `maxStreamingRequests` (default `500`) capping the streaming responses one listener admits per request before it answers `503`, which does not count surfaces that declare themselves long-lived for every request (today, the MCP mount). A surface inherits server auth unless it supplies its own `auth`; `auth: false` removes the wall while keeping the inherited validator reachable for routes that pull identity. Every named server must receive at least one mount, and two names cannot claim the same non-ephemeral `host:port`. Full listener behaviour lives on the [serversPlugin reference](/docs/reference/plugins/serversplugin).
+Each server accepts `port` (required), `host` (default `127.0.0.1`), `kind` (currently only `http`), an optional validator `auth`, `allowedHostnames` (`readonly string[]`, default `[]`) naming additional trusted public hostnames for MCP and ACP, `shutdownGrace` (default `30000`) bounding the graceful drain on stop, `idleTimeout` (default `"255s"`, Bun's ceiling and so refused above it rather than clamped) setting the reap window for ordinary connections, and `maxStreamingRequests` (default `500`) capping the streaming responses one listener admits per request before it answers `503`, which does not count surfaces that declare themselves long-lived for every request (today, the MCP mount). A surface inherits server auth unless it supplies its own `auth`; `auth: false` removes the wall while keeping the inherited validator reachable for routes that pull identity. Every named server must receive at least one mount, and two names cannot claim the same non-ephemeral `host:port`. Full listener behaviour lives on the [serversPlugin reference](/docs/reference/plugins/serversplugin).
 
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
@@ -364,6 +364,7 @@ export const craftConfig = defineConfig({
 | `auth` | `HttpAuth \| false` | inherits `servers.<name>.auth` | Auth for the mount; `false` removes the wall |
 | `agent` | `string` | the only registered agent | The agent a harness serves when it names none |
 | `cors` | `HttpCorsOptions \| false` | loopback-only | CORS for the mount |
+| `browserOrigins` | `readonly string[]` | `[]` | Exact HTTP(S) origins allowed to send browser requests, independently of CORS. Clients without Origin are unaffected. |
 | `agentInfo` | `{ name?, title?, version? }` | `{ name: 'routecraft', title: 'Routecraft', version }` | What the editor calls this agent |
 | `toolCallPayloads` | `boolean` | `true` | Whether a tool call's arguments and result reach the editor |
 

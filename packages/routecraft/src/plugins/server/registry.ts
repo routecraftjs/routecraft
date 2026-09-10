@@ -1,3 +1,9 @@
+import {
+  requestValidationFailure,
+  resolveAllowedHostnames,
+  resolveRequestValidation,
+  type ResolvedRequestValidation,
+} from "./request-validation.ts";
 import type { CraftContext } from "../../context.ts";
 import { rcError } from "../../error.ts";
 import type { HttpServerRuntime } from "../http/server/index.ts";
@@ -167,6 +173,11 @@ export class HttpMountRegistry implements WebIngress {
   readonly serverName: string;
   boundAddress: { readonly host: string; readonly port: number } | undefined;
   private readonly mounts = new Map<string, HttpMount>();
+  private readonly requestPolicies = new Map<
+    string,
+    ResolvedRequestValidation
+  >();
+  private readonly allowedHostnames: ReadonlySet<string>;
   private readonly serverAuth: ValidatorAuthOptions | undefined;
   private readonly context: CraftContext;
   private readonly authByMount = new Map<
@@ -193,7 +204,9 @@ export class HttpMountRegistry implements WebIngress {
     context: CraftContext,
     serverAuth?: ValidatorAuthOptions,
     maxStreamingRequests = DEFAULT_MAX_STREAMING_REQUESTS,
+    allowedHostnames?: readonly string[],
   ) {
+    this.allowedHostnames = resolveAllowedHostnames(allowedHostnames);
     this.serverName = serverName;
     this.context = context;
     this.serverAuth = serverAuth;
@@ -245,11 +258,18 @@ export class HttpMountRegistry implements WebIngress {
         message: `servers.${this.serverName}: duplicate mount id "${mount.id}"`,
       });
     }
+    if (mount.requestValidation !== undefined) {
+      this.requestPolicies.set(
+        mount.id,
+        resolveRequestValidation(mount.requestValidation),
+      );
+    }
     this.mounts.set(mount.id, mount);
     this.authFactsByMount.set(mount.id, this.resolveMountAuth(mount.auth));
     return () => {
       if (this.mounts.get(mount.id) !== mount) return;
       this.mounts.delete(mount.id);
+      this.requestPolicies.delete(mount.id);
       // Prune every derived structure, not only the source map: dispatch
       // routes off the evaluated snapshot, so an unmount that left it in
       // place would keep serving a surface that believes it is gone.
@@ -418,6 +438,10 @@ export class HttpMountRegistry implements WebIngress {
     const resourcePath = suffix === "" ? "/" : suffix;
     const mount = this.resolveOwningMount(resourcePath);
     if (mount === undefined && suffix !== "") return undefined;
+    if (mount !== undefined) {
+      const refusal = this.validateRequest(request, mount);
+      if (refusal) return refusal;
+    }
     const issuer =
       mount !== undefined
         ? this.authPolicyByMount.get(mount.id)?.issuer
@@ -439,6 +463,32 @@ export class HttpMountRegistry implements WebIngress {
         "cache-control": "no-cache",
       },
     });
+  }
+
+  /** Reject before preflight, auth, SDK work or stream allocation. */
+  private validateRequest(
+    request: Request,
+    mount: HttpMount,
+  ): Response | undefined {
+    const policy = this.requestPolicies.get(mount.id);
+    if (policy === undefined) return undefined;
+    const reason = requestValidationFailure(
+      request,
+      this.boundAddress?.host,
+      this.allowedHostnames,
+      policy,
+    );
+    if (reason === undefined) return undefined;
+    const detail = { server: this.serverName, mount: mount.id, reason };
+    this.context.logger.debug(detail, "Protocol ingress request refused");
+    this.context.emit("server:request:rejected", detail);
+    return Response.json(
+      { error: "Forbidden" },
+      {
+        status: 403,
+        headers: { "cache-control": "no-store" },
+      },
+    );
   }
 
   async dispatch(
@@ -475,6 +525,8 @@ export class HttpMountRegistry implements WebIngress {
       return Response.json({ error: "not found", path }, { status: 404 });
     }
     const mount = best.mount;
+    const refusal = this.validateRequest(request, mount);
+    if (refusal) return refusal;
     if (mount.longLived) runtime?.exemptFromIdleTimeout(request);
     const authMiddleware = this.authByMount.get(mount.id);
 

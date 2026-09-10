@@ -391,51 +391,62 @@ This is how MCP clients auto-discover your IdP. Protocol revision 2026-07-28 dep
 
 Browser-based MCP clients (MCP Inspector UI, Claude.ai custom connectors, web-hosted Claude Desktop) need CORS headers on the MCP HTTP transport. The framework handles this on three surfaces: the MCP path, the path-suffixed metadata document (`/.well-known/oauth-protected-resource/mcp` for the default path), and the 401 `WWW-Authenticate` response.
 
-The default policy is **loopback-only**: a browser request whose `Origin` is on `localhost`, `127.0.0.1`, or `[::1]` (any port, http or https) gets reflected; everything else gets no `Access-Control-Allow-Origin` and is blocked by the browser. This is production-safe by construction: local browser tooling like MCP Inspector at `http://localhost:6274` works with zero config, while production browser origins must be allowlisted explicitly.
+MCP and ACP first validate Host in shared ingress, independently of CORS and auth. The bound hostname is trusted. Loopback and wildcard binds also accept `localhost`, `127.0.0.1` and `[::1]`. For a reverse proxy's public hostname, configure `servers.<name>.allowedHostnames`. MCP additionally trusts its own `resource.url` hostname. Missing, malformed or foreign Host values return 403; `Forwarded` and `X-Forwarded-Host` never establish trust. Wildcard binds do not grant wildcard hostname trust.
 
-Server-to-server callers (`curl`, `mcp-remote`, the MCP CLI) do not send an `Origin` header and are unaffected by this policy regardless of configuration.
+Requests carrying `Origin` are denied by default, including local browser tools. Opt a browser in with the mount's `browserOrigins`: an array of exact HTTP(S) origins, with scheme and port, without trailing slash, path or wildcard. This is independent of `cors`. A permissive CORS setting never grants browser admission, and `cors: false` disables only CORS handling. Requests without Origin, such as ordinary editor and server clients, remain unaffected by browser admission. These checks do not authenticate clients: a non-browser client can choose its own headers, so remote access still needs auth.
 
-The option surface is intentionally minimal: only `origin` is configurable. The framework controls allowed methods (`GET, POST, OPTIONS`), allowed headers (`*`), and exposed headers (`WWW-Authenticate`) so browser clients can read the RFC 9728 `resource_metadata` hint on a 401 and follow discovery. Protocol revision 2026-07-28 removed both sessions and SSE resumability, so `Mcp-Session-Id` and `Last-Event-ID` are never emitted and are not exposed. Preflight responses also carry `Access-Control-Allow-Private-Network: true` so Chrome PNA crossings (e.g. a hosted browser client tunnelled to a local MCP server) are not blocked.
+The default **CORS response-header policy** remains loopback-only. Once explicitly admitted, local tooling can read responses without another CORS setting:
 
 ```ts
-// Default: no config needed for local browser MCP tooling
 mcpPlugin({
   transport: 'http',
   auth: jwks({ jwksUrl: '...', issuer: '...', audience: '...' }),
-})
-
-// Production: allowlist your browser MCP client's origin
-mcpPlugin({
-  transport: 'http',
-  auth: jwks({ jwksUrl: '...', issuer: '...', audience: '...' }),
-  cors: { origin: 'https://claude.ai' },
-})
-
-// Multi-origin allowlist
-mcpPlugin({
-  cors: { origin: ['https://claude.ai', 'https://inspector.example.com'] },
-})
-
-// Custom resolver
-mcpPlugin({
-  cors: {
-    origin: (requestOrigin) =>
-      requestOrigin?.endsWith('.tenants.example.com') ? requestOrigin : false,
-  },
-})
-
-// Last-resort permissive
-mcpPlugin({
-  cors: { origin: '*' },
-})
-
-// Disable entirely (e.g. when fronted by a CDN/proxy that owns CORS)
-mcpPlugin({
-  cors: false,
+  browserOrigins: ['http://localhost:6274'],
 })
 ```
 
-The `cors` slot governs the routes the framework owns: `/mcp` and the protected-resource metadata. Routecraft mounts no OAuth endpoints of its own, so there is nothing else on the origin to police.
+For a remote browser, configure admission and response access separately:
+
+```ts
+mcpPlugin({
+  transport: 'http',
+  resource: { url: 'https://agents.example.com/mcp' },
+  auth: jwks({ jwksUrl: '...', issuer: '...', audience: '...' }),
+  browserOrigins: ['https://editor.example.com'],
+  cors: { origin: 'https://editor.example.com' },
+})
+```
+
+ACP uses the same settings. This configuration supports a proxy that preserves `Host: agents.example.com` and supplies CORS headers itself:
+
+```ts
+import { defineConfig, jwt } from '@routecraft/routecraft'
+import '@routecraft/ai'
+
+export const proxiedAgentConfig = defineConfig({
+  servers: {
+    default: {
+      host: '127.0.0.1',
+      port: 8080,
+      allowedHostnames: ['agents.example.com'],
+      auth: jwt({ secret: process.env.JWT_SECRET!, issuer: 'https://idp.example.com', audience: 'https://agents.example.com' }),
+    },
+  },
+  agent: {
+    agents: {
+      assistant: { description: 'Assistant', model: 'anthropic:claude-sonnet-4-6', system: 'Be useful.' },
+    },
+  },
+  acp: {
+    browserOrigins: ['https://editor.example.com'],
+    cors: false,
+  },
+})
+```
+
+`cors.origin` retains its exact string, string-array, wildcard and resolver forms. When CORS handling is enabled, an Origin refused by that policy is still rejected, even if listed in `browserOrigins`. The framework controls allowed methods (`GET, POST, OPTIONS`), allowed headers (`*`), and exposed headers (`WWW-Authenticate`). The Host and browser-origin gate also covers preflight and the protocol's path-suffixed discovery document.
+
+**Migration for 0.7.0:** browser clients previously admitted by CORS must add `browserOrigins`, including loopback tools. Proxy-facing ACP mounts must configure their public Host in `allowedHostnames` when the proxy preserves it. Native editor clients using a bound hostname need no changes. Gate rejections return 403 without CORS headers and emit `server:request:rejected` with the server, mount and `host` or `origin` reason.
 
 ## Agents acting on behalf of users
 

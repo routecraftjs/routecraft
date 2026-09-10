@@ -9,6 +9,13 @@ export interface HttpServerDefinition {
   host?: string;
   port: number;
   /**
+   * Additional trusted public hostnames for protocol mounts on this server.
+   * Exact hostnames only, without scheme, path, port or wildcard. Bound
+   * addresses and supported loopback aliases remain accepted. Never inferred
+   * from Host, Forwarded or X-Forwarded-Host request headers.
+   */
+  allowedHostnames?: readonly string[];
+  /**
    * Server-level credential validator inherited by every mount that does not
    * set its own `auth`. Verification config only: each mount still owns its
    * admission policy and refusal wire format.
@@ -69,6 +76,17 @@ export type PathClaim =
 
 export interface HttpMount {
   readonly id: string;
+  /**
+   * Enforce the shared protocol Host and browser-origin gate before dispatch.
+   * MCP and ACP always register this policy. Other HTTP surfaces retain their
+   * own admission contract unless they register it too.
+   */
+  readonly requestValidation?: {
+    /** Mount-specific trusted hostnames, in addition to the server's. */
+    readonly allowedHostnames?: readonly string[];
+    /** Exact HTTP(S) browser origins. Unset denies requests carrying Origin. */
+    readonly browserOrigins?: readonly string[];
+  };
   /**
    * Every path this mount answers, evaluated once during the server's
    * `start()` validation. The thunk exists so claims registered after mount
