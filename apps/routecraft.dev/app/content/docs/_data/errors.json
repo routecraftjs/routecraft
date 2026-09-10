@@ -550,5 +550,11 @@
     "category": "Adapter",
     "message": "Isolation cannot satisfy the request",
     "retryable": false
+  },
+  {
+    "code": "RC5065",
+    "category": "Runtime",
+    "message": "Request validation failed",
+    "retryable": false
   }
 ]

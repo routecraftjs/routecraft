@@ -469,7 +469,7 @@ describe("JSONL Adapter", () => {
     /**
      * @case Input validation failure on a parsed body emits exchange:failed once (no duplicate started/dropped)
      * @preconditions Chunked JSONL with parsed body that violates schema
-     * @expectedResult Exactly one exchange:started, one exchange:failed (RC5002), zero exchange:dropped per bad item
+     * @expectedResult Exactly one exchange:started, one exchange:failed (RC5065), zero exchange:dropped per bad item
      */
     test("input validation failure inside parse step emits clean lifecycle (no duplicate started/dropped)", async () => {
       const filePath = path.join(tmpDir, "schema-fail.jsonl");
@@ -521,9 +521,9 @@ describe("JSONL Adapter", () => {
       // Two lines processed: one bad (validation fails), one good.
       // Each line gets exactly one exchange:started.
       expect(started).toHaveLength(2);
-      // The bad line fails with RC5002; no spurious exchange:dropped fired.
+      // The bad line fails with RC5065; no spurious exchange:dropped fired.
       expect(failed).toHaveLength(1);
-      expect(failed[0].error.rc).toBe("RC5002");
+      expect(failed[0].error.rc).toBe("RC5065");
       expect(dropped).toHaveLength(0);
       // The good line still reaches the destination.
       expect(s.received).toHaveLength(1);

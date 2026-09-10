@@ -384,6 +384,21 @@ async function dispatchExchange(
         { status: 409 },
       );
     }
+    if (code === "RC5065") {
+      // The caller's own payload, rejected before any step ran. 400 rather
+      // than 500 because nothing here is the instance's fault, and a 500
+      // tells a client to retry a request that can never succeed.
+      //
+      // The message crosses the wire, unlike the route failure below. It is
+      // bounded by construction: `.input()` validation runs at chain
+      // position #4, before the pipeline, so the only thing it can describe
+      // is the payload the caller just sent and the schema it did not
+      // satisfy. There is nothing of the instance's in it to disclose.
+      return jsonResponse(
+        { error: "bad request", code, message: (error as Error).message },
+        { status: 400 },
+      );
+    }
     // The code crosses the wire and the message does not. A route failure is
     // whatever its steps threw, and `rcError` messages routinely interpolate
     // the cause: adapter failures carry hostnames, file paths and upstream
@@ -395,6 +410,11 @@ async function dispatchExchange(
     // because a failure event without one is not diagnostic. The code
     // is enough to tell an authorize refusal from a broken step; the message
     // is in the logs, where the error policy already routes it.
+    //
+    // `RC5002` stays here on purpose. It is not only the caller's input: the
+    // same code covers `.output()` validation, a mid-pipeline `.validate()`
+    // and an empty aggregation, which are the instance's faults and would be
+    // misattributed by a 400.
     return jsonResponse({ error: "dispatch failed", code }, { status: 500 });
   }
 }

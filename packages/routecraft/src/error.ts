@@ -108,6 +108,7 @@ export interface ErrorCodeRegistry {
   RC5062: RCMeta;
   RC5063: RCMeta;
   RC5064: RCMeta;
+  RC5065: RCMeta;
   RC9901: RCMeta;
 }
 
@@ -643,6 +644,14 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     suggestion:
       "The remote instance answered a dispatch on an imported route with an error. Its own error code rides in the message and on `cause`, and is what to read first: the ops door sends the code and never the message, so the remote's logs hold the detail. A `RC5060` from the remote means the route stopped being dispatchable there (it declared `direct({ internal: true })`, or lost its direct source); anything else is the route's own failure, exactly as it would have surfaced to a caller on the remote.",
     docs: `${DOCS_BASE}#rc-5064`,
+    retryable: false,
+  },
+  RC5065: {
+    category: "Runtime",
+    message: "Request validation failed",
+    suggestion:
+      "The payload a caller supplied did not satisfy the route's `.input()` schema. Read the message: it names the field and the rule. This is the caller's fault rather than the instance's, which is what separates it from `RC5002`; a transport answering a request maps it to a client error, and the ops dispatch mount returns 400 with the message.",
+    docs: `${DOCS_BASE}#rc-5065`,
     retryable: false,
   },
   RC9901: {

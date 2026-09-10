@@ -180,7 +180,7 @@ export async function applyOutputStage<
 
 /**
  * Validate an exchange against the route's `input` schemas, throwing
- * `RC5002` on failure without emitting any lifecycle events: the caller
+ * `RC5065` on failure without emitting any lifecycle events: the caller
  * is a chain step inside `runPipeline`, so the failure becomes a normal
  * step failure (`step:failed` -> the error-handler-or-failed path).
  *
@@ -191,7 +191,7 @@ export async function applyOutputStage<
  *
  * Used by the synthetic parse step (input validates the parsed body) and
  * by the standalone synthetic input step for parser-less sources; both
- * paths sit at chain position #4, so `.error()` can recover an RC5002 for
+ * paths sit at chain position #4, so `.error()` can recover an RC5065 for
  * every source shape (see #187, #447).
  */
 export async function validateInputOrThrow(
@@ -203,8 +203,8 @@ export async function validateInputOrThrow(
   if (schemas.body) {
     const res = await validateAgainst(schemas.body, current.body);
     if (!res.ok) {
-      throw rcError("RC5002", new Error(res.message), {
-        message: `Body validation failed for route "${deps.routeId}"`,
+      throw rcError("RC5065", new Error(res.message), {
+        message: `Body validation failed for route "${deps.routeId}": ${res.message}`,
       });
     }
     current = DefaultExchange.rewrap(current, { body: res.value });
@@ -212,8 +212,8 @@ export async function validateInputOrThrow(
   if (schemas.headers) {
     const res = await validateAgainst(schemas.headers, current.headers);
     if (!res.ok) {
-      throw rcError("RC5002", new Error(res.message), {
-        message: `Header validation failed for route "${deps.routeId}"`,
+      throw rcError("RC5065", new Error(res.message), {
+        message: `Header validation failed for route "${deps.routeId}": ${res.message}`,
       });
     }
     const headerValue = res.value as ExchangeHeaders | undefined;

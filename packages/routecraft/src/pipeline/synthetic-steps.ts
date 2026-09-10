@@ -172,7 +172,7 @@ const INPUT_STEP_ADAPTER: Adapter = { adapterId: "routecraft.input" };
  * source did NOT attach a parser; with a parser the validator runs inside
  * the parse step instead (position #3 and #4 collapse into one step, since
  * input must validate the parsed body). Either way the validation failure
- * throws `RC5002` into the step loop's catch path, so it is routable
+ * throws `RC5065` into the step loop's catch path, so it is routable
  * through the route-scope `.error()` handler (chain position #1) exactly
  * like `RC5012` / `RC5015` / `RC5016` from the other deterministic gates.
  * See #447 for the fold that replaced the old eager consumer-handler path.
