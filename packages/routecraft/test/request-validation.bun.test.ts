@@ -10,6 +10,7 @@ import { serversPlugin } from "../src/plugins/server/plugin.ts";
 
 const policy = resolveRequestValidation({});
 const trusted = resolveAllowedHostnames(["public.example"]);
+/** Check an authority against a fixed policy without browser admission. */
 function check(host: string | undefined, bound = "127.0.0.1") {
   return requestValidationFailure(
     new Request("http://public.example/mcp", {
@@ -81,7 +82,7 @@ describe("protocol request validation", () => {
   /**
    * @case Trusted hostnames cannot be configured as URLs, wildcards or authorities with ports
    * @preconditions Invalid values in the server configuration
-   * @expectedResult Construction fails before a listener can start
+   * @expectedResult Construction fails with RC5003 naming the server configuration path before a listener can start
    */
   test("rejects malformed hostname configuration eagerly", () => {
     for (const host of [
@@ -94,9 +95,16 @@ describe("protocol request validation", () => {
       "[::1]:8080",
       "user@public.example",
     ]) {
-      expect(() =>
-        serversPlugin({ default: { port: 0, allowedHostnames: [host] } }),
-      ).toThrow(/allowedHostnames/);
+      let failure: unknown;
+      try {
+        serversPlugin({ public: { port: 0, allowedHostnames: [host] } });
+      } catch (error) {
+        failure = error;
+      }
+      expect(failure).toMatchObject({
+        rc: "RC5003",
+        message: expect.stringContaining("servers.public.allowedHostnames"),
+      });
     }
     expect([
       ...resolveAllowedHostnames(["PUBLIC.EXAMPLE", "::1", "[::1]"]),

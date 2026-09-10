@@ -280,7 +280,13 @@ function validateDefinitions(definitions: ServerDefinitions): void {
         message: `servers.${name}: invalid port ${String(definition.port)}`,
       });
     }
-    resolveAllowedHostnames(definition.allowedHostnames);
+    try {
+      resolveAllowedHostnames(definition.allowedHostnames);
+    } catch (error) {
+      throw rcError("RC5003", error, {
+        message: `servers.${name}.allowedHostnames: ${error instanceof Error ? error.message : String(error)}`,
+      });
+    }
     resolveShutdownGrace(name, definition.shutdownGrace);
     resolveIdleTimeout(name, definition.idleTimeout);
     resolveMaxStreamingRequests(name, definition.maxStreamingRequests);

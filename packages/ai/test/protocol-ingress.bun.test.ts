@@ -4,6 +4,7 @@ import { testContext, type TestContext } from "@routecraft/testing";
 import {
   MemoryDeferralStore,
   type HttpServerDefinition,
+  type EventDetailsMap,
 } from "@routecraft/routecraft";
 import {
   acpPlugin,
@@ -22,11 +23,13 @@ for (const protocol of ["mcp", "acp"] as const) {
   describe(`${protocol} shared ingress`, () => {
     let t: TestContext | undefined;
     let port = 0;
+    const rejections: EventDetailsMap["server:request:rejected"][] = [];
     afterEach(async () => {
       await t?.stop();
       t = undefined;
     });
 
+    /** Start the selected real protocol and record its ingress rejections. */
     async function boot(
       options: Pick<
         McpPluginOptions,
@@ -34,7 +37,11 @@ for (const protocol of ["mcp", "acp"] as const) {
       > = {},
       server: Partial<HttpServerDefinition> = {},
     ) {
+      rejections.length = 0;
       t = await testContext()
+        .on("server:request:rejected", ({ details }) => {
+          rejections.push(details);
+        })
         .on("server:listening", ({ details }) => {
           port = details.port;
         })
@@ -63,6 +70,7 @@ for (const protocol of ["mcp", "acp"] as const) {
       await t.startAndWaitReady();
     }
 
+    /** Send a wire request while preserving explicit Host headers. */
     function send(
       headers: Record<string, string> = {},
       method = "POST",
@@ -135,7 +143,7 @@ for (const protocol of ["mcp", "acp"] as const) {
         /**
          * @case Rebinding-shaped requests cannot initialize an unwalled protocol
          * @preconditions Loopback listener, no auth and each CORS mode
-         * @expectedResult Correct Host without Origin initializes; foreign Host fails with and without Origin
+         * @expectedResult Correct Host initializes; foreign Host returns an uncacheable 403 without CORS headers and emits one host rejection event
          */
         test("rejects foreign Host while editor initialization works", async () => {
           await boot(options);
@@ -149,6 +157,15 @@ for (const protocol of ["mcp", "acp"] as const) {
             const bad = await send(headers);
             expect(bad.status).toBe(403);
             expect(JSON.parse(bad.body)).toEqual({ error: "Forbidden" });
+            expect(bad.headers["cache-control"]).toBe("no-store");
+            expect(
+              Object.keys(bad.headers).filter((name) =>
+                name.startsWith("access-control-"),
+              ),
+            ).toEqual([]);
+            expect(rejections.splice(0)).toEqual([
+              { server: "default", mount: protocol, reason: "host" },
+            ]);
           }
         });
 
@@ -183,12 +200,23 @@ for (const protocol of ["mcp", "acp"] as const) {
         /**
          * @case CORS configuration does not implicitly authorize browser access
          * @preconditions Correct Host, no browserOrigins opt-in, each CORS mode
-         * @expectedResult Foreign and loopback Origin requests fail before SDK dispatch
+         * @expectedResult Origin requests return an uncacheable 403 without CORS headers and emit one origin rejection event before SDK dispatch
          */
         test("requires a separate browser opt-in", async () => {
           await boot(options);
           for (const Origin of [BROWSER, "http://localhost:6274", "null", ""]) {
-            expect((await send({ Origin })).status).toBe(403);
+            const bad = await send({ Origin });
+            expect(bad.status).toBe(403);
+            expect(JSON.parse(bad.body)).toEqual({ error: "Forbidden" });
+            expect(bad.headers["cache-control"]).toBe("no-store");
+            expect(
+              Object.keys(bad.headers).filter((name) =>
+                name.startsWith("access-control-"),
+              ),
+            ).toEqual([]);
+            expect(rejections.splice(0)).toEqual([
+              { server: "default", mount: protocol, reason: "origin" },
+            ]);
           }
         });
 
