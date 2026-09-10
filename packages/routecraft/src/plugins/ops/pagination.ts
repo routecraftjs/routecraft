@@ -19,8 +19,15 @@ import { rcError } from "../../error";
 import { compareCodeUnits } from "../../shared/compare";
 import type { OpsRouteFilter } from "./types";
 
-/** Page size when the caller names none. */
-const DEFAULT_PAGE_SIZE = 50;
+/**
+ * Page size when the caller names none.
+ *
+ * Exported so a contributed resource defaults to the same number rather
+ * than picking its own: two independent defaults that happen to agree
+ * drift the moment one is changed, and the collections would then page
+ * differently for no reason a reader could see.
+ */
+export const DEFAULT_PAGE_SIZE = 50;
 
 /**
  * Largest page a caller may ask for. A bound rather than a preference: an
@@ -46,6 +53,42 @@ export interface CursorScope {
 
 /** What binds a cursor: the route filter, or a contributor's own scope. */
 export type PageFilter = OpsRouteFilter | CursorScope;
+
+/**
+ * The one refusal for a cursor this API cannot use.
+ *
+ * Named once because it is thrown from three places: both arms of
+ * {@link decodeCursor} and any contributed resource decoding a keyset of
+ * its own. Three copies of the sentence meant the same failure answered
+ * differently depending on which half rejected it.
+ *
+ * @throws RC5059 always
+ */
+export function malformedCursor(): never {
+  throw rcError("RC5059", undefined, {
+    message:
+      "The cursor is malformed. Pass back the `nextCursor` from the previous page unchanged, or omit it to start from the first page.",
+  });
+}
+
+/**
+ * Build a cursor scope for a contributed collection: the resource name,
+ * then its filter fields in a fixed order.
+ *
+ * A function rather than a paragraph a contributor re-reads and re-types.
+ * The recipe fails silently when it is got wrong: leave a filter field
+ * out of the fingerprint and the cursors it mints are honoured across
+ * that filter, handing back a page of a different result set with no
+ * error, which is the one thing the fingerprint exists to prevent.
+ */
+export function cursorScope(
+  resource: string,
+  ...fields: ReadonlyArray<string | number | boolean | null | undefined>
+): CursorScope {
+  return {
+    fingerprint: JSON.stringify([resource, ...fields.map((f) => f ?? null)]),
+  };
+}
 
 /**
  * Canonical rendering of a filter, used to bind a cursor to it.
@@ -142,10 +185,7 @@ export function decodeCursor(cursor: string, filter: PageFilter): string {
   try {
     decoded = JSON.parse(Buffer.from(cursor, "base64url").toString("utf8"));
   } catch {
-    throw rcError("RC5059", undefined, {
-      message:
-        "The cursor is malformed. Pass back the `nextCursor` from the previous page unchanged, or omit it to start from the first page.",
-    });
+    malformedCursor();
   }
   const value = decoded as Partial<DecodedCursor> | null;
   if (
@@ -154,10 +194,7 @@ export function decodeCursor(cursor: string, filter: PageFilter): string {
     typeof value.after !== "string" ||
     typeof value.filter !== "string"
   ) {
-    throw rcError("RC5059", undefined, {
-      message:
-        "The cursor is malformed. Pass back the `nextCursor` from the previous page unchanged, or omit it to start from the first page.",
-    });
+    malformedCursor();
   }
   if (value.filter !== fingerprintFilter(filter)) {
     throw rcError("RC5059", undefined, {

@@ -264,23 +264,30 @@ export class MemoryDeferralStore implements DeferralStore {
     assertSweepLimit(query.limit);
     assertListCursor(query.after);
     const after = query.after;
-    return [...this.#records.values()]
-      .filter(
-        (record) =>
-          (query.state === undefined || record.state === query.state) &&
-          (query.routeId === undefined || record.routeId === query.routeId) &&
-          (after === undefined ||
-            record.deferredAt.getTime() > after.deferredAt.getTime() ||
-            (record.deferredAt.getTime() === after.deferredAt.getTime() &&
-              compareCodeUnits(record.id, after.id) > 0)),
-      )
-      .sort(
-        (a, b) =>
-          a.deferredAt.getTime() - b.deferredAt.getTime() ||
-          compareCodeUnits(a.id, b.id),
-      )
-      .slice(0, query.limit)
-      .map(summariseDeferral);
+    return (
+      [...this.#records.values()]
+        .filter(
+          (record) =>
+            (query.state === undefined || record.state === query.state) &&
+            (query.routeId === undefined || record.routeId === query.routeId) &&
+            (after === undefined ||
+              record.deferredAt.getTime() > after.deferredAt.getTime() ||
+              (record.deferredAt.getTime() === after.deferredAt.getTime() &&
+                compareCodeUnits(record.id, after.id) > 0)),
+        )
+        .sort(
+          (a, b) =>
+            a.deferredAt.getTime() - b.deferredAt.getTime() ||
+            compareCodeUnits(a.id, b.id),
+        )
+        .slice(0, query.limit)
+        // Cloned like every other read on this backend: `summariseDeferral`
+        // copies field references, so an uncloned summary would alias the
+        // stored record's `Date`s and its outcome object, and a caller
+        // normalising a listing in place would rewrite what the sweeper and
+        // the retention purge then read.
+        .map((record) => summariseDeferral(clone(record)))
+    );
   }
 
   async purgeSettled(before: Date): Promise<number> {

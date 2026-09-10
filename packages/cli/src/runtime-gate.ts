@@ -6,9 +6,19 @@
  *
  * Exposed as a pure function so unit tests can pass arbitrary version strings
  * without spawning real bun processes.
+ *
+ * The version itself is read by `parseRuntimeVersion` from core, shared
+ * with the ops client's own Bun check: written twice, the two parsers
+ * disagreed on the same string within one release.
  */
 
-const MIN_BUN_VERSION = { major: 1, minor: 1, patch: 0 } as const;
+import {
+  compareRuntimeVersion,
+  parseRuntimeVersion,
+  type RuntimeVersion,
+} from "@routecraft/routecraft";
+
+const MIN_BUN_VERSION: RuntimeVersion = { major: 1, minor: 1, patch: 0 };
 
 const INSTALL_URL = "https://bun.com/docs/installation";
 const EMBEDDING_DOC_URL =
@@ -35,18 +45,9 @@ export function checkBunRuntime(
     };
   }
 
-  // Strip both prerelease (`-`) and build metadata (`+`) per SemVer.
-  const stripped = version.split(/[-+]/)[0] ?? "";
-  const [majorStr, minorStr, patchStr] = stripped.split(".");
-  const major = Number(majorStr);
-  const minor = Number(minorStr);
-  const patch = Number(patchStr ?? "0");
+  const parsed = parseRuntimeVersion(version);
 
-  if (
-    !Number.isFinite(major) ||
-    !Number.isFinite(minor) ||
-    !Number.isFinite(patch)
-  ) {
+  if (parsed === undefined) {
     return {
       ok: false,
       message:
@@ -56,13 +57,7 @@ export function checkBunRuntime(
     };
   }
 
-  const meetsFloor =
-    major > MIN_BUN_VERSION.major ||
-    (major === MIN_BUN_VERSION.major &&
-      (minor > MIN_BUN_VERSION.minor ||
-        (minor === MIN_BUN_VERSION.minor && patch >= MIN_BUN_VERSION.patch)));
-
-  if (!meetsFloor) {
+  if (compareRuntimeVersion(parsed, MIN_BUN_VERSION) < 0) {
     return {
       ok: false,
       message:
@@ -75,6 +70,6 @@ export function checkBunRuntime(
   return { ok: true };
 }
 
-function formatVersion(v: typeof MIN_BUN_VERSION): string {
+function formatVersion(v: RuntimeVersion): string {
   return `${v.major}.${v.minor}.${v.patch}`;
 }

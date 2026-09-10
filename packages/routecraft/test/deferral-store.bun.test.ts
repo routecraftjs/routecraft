@@ -821,6 +821,35 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
     });
 
     /**
+     * @case A summary cannot be mutated back into the store
+     * @preconditions A record read through the listing, then its
+     *   timestamps and outcome mutated in place by the caller
+     * @expectedResult The stored record is unmoved. Both backends must
+     *   behave as if the summary round-tripped through storage: the
+     *   in-memory one holds the same `Date` objects the sweeper's expiry
+     *   ordering and the retention purge read, so handing a caller a live
+     *   reference is a corruption path rather than an aliasing detail
+     */
+    test("list returns a summary detached from the record", async () => {
+      store = await open();
+      await store.create(
+        record({ id: "d-1", expiresAt: new Date("2026-09-01T09:00:00.000Z") }),
+      );
+      await store.claimExpiry("d-1", new Date());
+      await store.markDenied("d-1", "cancelled");
+
+      const [summary] = await store.list({ limit: 1 });
+      summary!.deferredAt.setUTCFullYear(1999);
+      summary!.expiresAt!.setUTCFullYear(1999);
+      summary!.outcome!.at.setUTCFullYear(1999);
+
+      const [again] = await store.list({ limit: 1 });
+      expect(again!.deferredAt.getUTCFullYear()).toBe(2026);
+      expect(again!.expiresAt!.getUTCFullYear()).toBe(2026);
+      expect(again!.outcome!.at.getUTCFullYear()).not.toBe(1999);
+    });
+
+    /**
      * @case The listing refuses a limit the two backends would read differently
      * @preconditions A fresh store; zero, a negative value and a fraction
      * @expectedResult Each rejects with RC5044, the same rule the sweep scan applies

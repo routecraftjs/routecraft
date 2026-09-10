@@ -11,6 +11,7 @@
  * differ.
  */
 
+import type { OpsDeferralFilter } from "@routecraft/routecraft";
 import { OpsClientError, type OpsClient } from "./ops-client.js";
 import { prepare } from "./prepare.js";
 import {
@@ -152,13 +153,16 @@ export function deferralsCommand(
   return read(options, async (client, format) =>
     renderDeferrals(
       await client.listDeferrals({
+        // Cast rather than narrowed, with the vocabulary read off the
+        // filter so there is one definition of it: the instance owns the
+        // rule and refuses an unknown state naming the accepted values.
         ...(options.state !== undefined
-          ? { state: options.state as "waiting" | "settled" | "all" }
+          ? { state: options.state as NonNullable<OpsDeferralFilter["state"]> }
           : {}),
         ...(options.route !== undefined ? { route: options.route } : {}),
-        // Passed through as the string the flag carried, so a value that
-        // is not a number is refused by the instance with the rule it
-        // applies rather than by a second parse here that could disagree.
+        // Converted because the filter is typed `number`, and left
+        // unvalidated for the same reason as the state: a second rule
+        // here could disagree with the one the instance applies.
         ...(options.limit !== undefined
           ? { limit: Number(options.limit) }
           : {}),

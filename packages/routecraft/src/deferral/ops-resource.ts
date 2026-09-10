@@ -1,8 +1,11 @@
 import type { CraftContext } from "../context.ts";
 import { rcError } from "../error.ts";
 import {
+  DEFAULT_PAGE_SIZE,
+  cursorScope,
   decodeCursor,
   encodeCursor,
+  malformedCursor,
   parsePageQuery,
 } from "../plugins/ops/pagination.ts";
 import { registerOpsResource } from "../plugins/ops/store.ts";
@@ -43,9 +46,6 @@ const DEFERRALS_RESOURCE = "deferrals";
  * asks for the history, and `?state=all` for both.
  */
 const DEFAULT_STATE: DeferralState = "waiting";
-
-/** Page size the store is asked for when the caller names none. */
-const DEFAULT_LIMIT = 50;
 
 /**
  * The keyset the ops cursor carries for this collection, rendered into
@@ -118,26 +118,28 @@ function decodeKey(key: string): DeferralListCursor {
   const at = key.indexOf(KEY_SEPARATOR);
   const millis = at <= 0 ? Number.NaN : Number(key.slice(0, at));
   const id = at <= 0 ? "" : key.slice(at + 1);
-  if (!Number.isFinite(millis) || id.length === 0) {
-    throw rcError("RC5059", undefined, {
-      message:
-        "The cursor is malformed. Pass back the `nextCursor` from the previous page unchanged, or omit it to start from the first page.",
-    });
+  // Range-checked, not merely finite: JavaScript's time range stops at
+  // 8.64e15 ms, so a finite value past it builds an Invalid Date that
+  // sails through here and is caught one layer down by the store, whose
+  // RC5044 the mount renders as a 500. A cursor a caller mangled is a
+  // 400, and this is the layer that owns saying so.
+  const deferredAt = new Date(millis);
+  if (
+    !Number.isFinite(millis) ||
+    Number.isNaN(deferredAt.getTime()) ||
+    id.length === 0
+  ) {
+    malformedCursor();
   }
-  return { deferredAt: new Date(millis), id };
+  return { deferredAt, id };
 }
 
 /**
- * Bind a cursor to the filter that produced it.
- *
- * The route listing's fingerprint is built from its own filter fields, and
- * a contributed resource renders its own the same way: a fixed field order
- * with an absent field as `null`, so the same filter written two ways
- * produces one fingerprint and a cursor survives a client that reorders
- * its query string.
+ * Bind a cursor to the filter that produced it, so a cursor minted under
+ * one state or route filter is refused under another.
  */
 function scopeOf(state: DeferralState | "all", routeId?: string): CursorScope {
-  return { fingerprint: JSON.stringify(["deferrals", state, routeId ?? null]) };
+  return cursorScope(DEFERRALS_RESOURCE, state, routeId);
 }
 
 /**
@@ -157,10 +159,12 @@ function stateOf(raw: string | undefined): DeferralState | "all" {
 /**
  * The store's listing, or a refusal naming what is missing.
  *
- * A store supplied through `deferral: { store }` is the caller's own and
- * may have been written against an earlier contract. Answering an empty
- * page would be indistinguishable from an instance with nothing deferred,
- * which is the one answer this surface must never give wrongly.
+ * The member is required on the interface, so this branch is unreachable
+ * from typed code and exists for the consumers who do not reach it that
+ * way: a JavaScript store, or an upgrade that skipped a typecheck.
+ * Answering an empty page would be indistinguishable from an instance
+ * with nothing deferred, which is the one answer this surface must never
+ * give wrongly.
  *
  * @throws RC5065 when the configured store does not implement `list`
  */
@@ -190,13 +194,23 @@ export function registerDeferralsResource(ctx: CraftContext): void {
     name: DEFERRALS_RESOURCE,
     async list(query): Promise<OpsPage<OpsDeferralSummary>> {
       const runtime = ctx.getStore(DEFERRAL_RUNTIME);
-      if (runtime === undefined) return { items: [] };
+      // Not an empty page. This resource is registered by the deferral
+      // plugin's own `apply()`, immediately after it sets the runtime, so
+      // there is no state in which it is served without one; and an empty
+      // listing is exactly the lie RC5065 exists to refuse, whatever the
+      // reason the store cannot answer.
+      if (runtime === undefined) {
+        throw rcError("RC5065", undefined, {
+          message:
+            "The deferrals resource is registered but this context holds no deferral runtime, so there is no store to list.",
+        });
+      }
       const list = listingOf(runtime.store);
       const state = stateOf(query["state"]);
       const routeId = query["route"];
       const scope = scopeOf(state, routeId);
       const page = parsePageQuery(query);
-      const limit = page.limit ?? DEFAULT_LIMIT;
+      const limit = page.limit ?? DEFAULT_PAGE_SIZE;
       const after =
         page.after === undefined
           ? undefined
@@ -225,6 +239,9 @@ export function registerDeferralsResource(ctx: CraftContext): void {
       // a `#`, which the mount has already decoded out of the path.
       if (segments.length !== 1) return undefined;
       const runtime = ctx.getStore(DEFERRAL_RUNTIME);
+      // Undefined here is a 404, which is the right answer for an id
+      // lookup and is why this arm diverges from the collection's throw:
+      // "no such deferral" is what a reader asked about, and it is true.
       if (runtime === undefined) return undefined;
       // Through `get` rather than the listing, because addressing one
       // record by id is what `get` is, and the summary projection is the

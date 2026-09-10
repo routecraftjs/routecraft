@@ -88,9 +88,13 @@ const CLAIMED = "state = 'waiting' AND claimed_at IS NOT NULL";
  *
  * `deferrals_pending` carries `id` as its last column so it serves the
  * management listing's `(deferred_at, id)` keyset as well as `pending()`,
- * rather than leaving the tiebreak to a sort. Folded into version 1 rather
- * than added as version 2 for the same reason the canary chain is not
- * carried: no released build has written this file yet.
+ * and `deferrals_listing` serves the same ordering with `state` unbound,
+ * which is what `?state=all` and a route-only filter ask for: without it
+ * that path is a full scan plus a temp sort of every surviving row, per
+ * page, on a table that holds every deferral until retention takes it.
+ * Both folded into version 1 rather than added as version 2 for the same
+ * reason the canary chain is not carried: no released build has written
+ * this file yet.
  *
  * Version 1 is the first shape a release ever wrote. The chain that built it
  * across the 0.7.0 canary is deliberately not carried: no released build
@@ -128,6 +132,7 @@ const MIGRATIONS: ReadonlyArray<string> = [
    );
    CREATE INDEX deferrals_sweep ON deferrals (state, claimed_at, expires_at, id);
    CREATE INDEX deferrals_pending ON deferrals (state, deferred_at, id);
+   CREATE INDEX deferrals_listing ON deferrals (deferred_at, id);
    CREATE INDEX deferrals_retention ON deferrals (state, outcome_at);
    CREATE INDEX deferrals_stranded ON deferrals (outcome_kind, deferred_at);`,
 ];
@@ -711,32 +716,57 @@ interface DeferralRow {
 }
 
 /**
- * The columns the management listing selects. A narrower row than
- * {@link DeferralRow} on purpose: the query names these so the exchange,
- * the step state and the schema are never read at all.
+ * The columns the management listing selects. Derived from
+ * {@link DeferralRow} rather than re-typed, so the column-to-type mapping
+ * for this table lives once: the query names these so the exchange, the
+ * step state and the schema are never read at all.
  */
-interface DeferralSummaryRow {
-  id: string;
-  route_id: string;
-  state: string;
-  waiting_for: string;
-  deferred_at: number;
-  expires_at: number | null;
-  claimed_at: number | null;
-  outcome_kind: string | null;
-  outcome_at: number | null;
-  outcome_reason: string | null;
-  outcome_by: string | null;
+type DeferralSummaryRow = Pick<
+  DeferralRow,
+  | "id"
+  | "route_id"
+  | "state"
+  | "waiting_for"
+  | "deferred_at"
+  | "expires_at"
+  | "claimed_at"
+  | "outcome_kind"
+  | "outcome_at"
+  | "outcome_reason"
+  | "outcome_by"
+>;
+
+/**
+ * Hydrate the outcome half of a row, for the record and the summary alike.
+ *
+ * Both columns or neither. A row carrying one of them is only reachable by
+ * raw SQL, and reading it back as a partial outcome would mean inventing
+ * the missing half: a kind for a row that never settled, or a date the
+ * retention sweep would then act on. Absent is what it is, and it is what
+ * the memory backend produces for the same injection.
+ *
+ * @internal
+ */
+function toOutcome(row: DeferralSummaryRow): { outcome?: DeferralOutcome } {
+  if (row.outcome_kind === null || row.outcome_at === null) return {};
+  return {
+    outcome: {
+      kind: row.outcome_kind as DeferralOutcome["kind"],
+      at: new Date(row.outcome_at),
+      ...(row.outcome_reason !== null ? { reason: row.outcome_reason } : {}),
+      ...(row.outcome_by !== null
+        ? { by: JSON.parse(row.outcome_by) as PrincipalRef }
+        : {}),
+    },
+  };
 }
 
 /**
  * Read a summary row.
  *
- * Not `summariseDeferral(toDeferral(row))`, because there is no full
- * record here to summarise. The outcome pairing rule is the one
- * {@link toDeferral} applies and is repeated for the same reason it gives:
- * a row carrying one half of an outcome is only reachable by raw SQL, and
- * reading it back as a partial outcome would mean inventing the other.
+ * Not `summariseDeferral(toDeferral(row))`: the query deliberately does not
+ * select the exchange, the schema or the step state, so there is no full
+ * record here to summarise.
  *
  * @internal
  */
@@ -749,20 +779,7 @@ function toSummary(row: DeferralSummaryRow): DeferralSummary {
     claimed: row.claimed_at != null,
     deferredAt: new Date(row.deferred_at),
     ...(row.expires_at !== null ? { expiresAt: new Date(row.expires_at) } : {}),
-    ...(row.outcome_kind !== null && row.outcome_at !== null
-      ? {
-          outcome: {
-            kind: row.outcome_kind as DeferralOutcome["kind"],
-            at: new Date(row.outcome_at),
-            ...(row.outcome_reason !== null
-              ? { reason: row.outcome_reason }
-              : {}),
-            ...(row.outcome_by !== null
-              ? { by: JSON.parse(row.outcome_by) as PrincipalRef }
-              : {}),
-          },
-        }
-      : {}),
+    ...toOutcome(row),
   };
 }
 
@@ -789,25 +806,7 @@ function toDeferral(row: DeferralRow): Deferral {
     deferredAt: new Date(row.deferred_at),
     ...(row.expires_at !== null ? { expiresAt: new Date(row.expires_at) } : {}),
     ...(row.claimed_at != null ? { claimedAt: new Date(row.claimed_at) } : {}),
-    // Both columns or neither. A row carrying one of them is only reachable
-    // by raw SQL, and reading it back as a partial outcome would mean
-    // inventing the missing half: a kind for a row that never settled, or a
-    // date the retention sweep would then act on. Absent is what it is, and
-    // it is what the memory backend produces for the same injection.
-    ...(row.outcome_kind !== null && row.outcome_at !== null
-      ? {
-          outcome: {
-            kind: row.outcome_kind as DeferralOutcome["kind"],
-            at: new Date(row.outcome_at),
-            ...(row.outcome_reason !== null
-              ? { reason: row.outcome_reason }
-              : {}),
-            ...(row.outcome_by !== null
-              ? { by: JSON.parse(row.outcome_by) as PrincipalRef }
-              : {}),
-          },
-        }
-      : {}),
+    ...toOutcome(row),
     ...(continuation
       ? { continuation: { ...continuation, at: new Date(continuation.at) } }
       : {}),

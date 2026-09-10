@@ -203,6 +203,11 @@ export {
   type OpsHttpClient,
   type OpsHttpClientOptions,
 } from "./plugins/ops/client.ts";
+export {
+  compareRuntimeVersion,
+  parseRuntimeVersion,
+  type RuntimeVersion,
+} from "./shared/runtime-version.ts";
 export { remotesPlugin } from "./plugins/remotes/plugin.ts";
 export type {
   RemoteDefinition,

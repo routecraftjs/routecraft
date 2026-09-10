@@ -22,6 +22,11 @@
  */
 
 import type { DeferralState } from "../../deferral/types.ts";
+import {
+  compareRuntimeVersion,
+  parseRuntimeVersion,
+  type RuntimeVersion,
+} from "../../shared/runtime-version.ts";
 import type { Duration } from "../../shared/duration.ts";
 import { parseDuration } from "../../shared/duration.ts";
 import type {
@@ -69,7 +74,11 @@ const DISCOVERY_TIMEOUT_MS = 5_000;
  * its inventory over keep-alive and drops the reused socket on the dispatch
  * counts two executions on 1.3.11 and one on 1.3.14 and 1.4.2.
  */
-const BUN_WITHOUT_DISPATCH_REPLAY = { major: 1, minor: 3, patch: 14 } as const;
+const BUN_WITHOUT_DISPATCH_REPLAY: RuntimeVersion = {
+  major: 1,
+  minor: 3,
+  patch: 14,
+};
 
 /**
  * Whether this runtime re-sends a dropped non-idempotent request by itself.
@@ -92,20 +101,26 @@ export function runtimeReplaysDroppedRequests(
   bunVersion: string | null = process.versions["bun"] ?? null,
 ): boolean {
   if (bunVersion === null) return false;
-  const [major, minor, patch] = (bunVersion.split(/[-+]/)[0] ?? "")
-    .split(".")
-    .map(Number);
-  if (
-    !Number.isFinite(major) ||
-    !Number.isFinite(minor) ||
-    !Number.isFinite(patch)
-  ) {
-    return true;
-  }
-  const floor = BUN_WITHOUT_DISPATCH_REPLAY;
-  if (major! !== floor.major) return major! < floor.major;
-  if (minor! !== floor.minor) return minor! < floor.minor;
-  return patch! < floor.patch;
+  const version = parseRuntimeVersion(bunVersion);
+  return (
+    version === undefined ||
+    compareRuntimeVersion(version, BUN_WITHOUT_DISPATCH_REPLAY) < 0
+  );
+}
+
+/**
+ * Methods a runtime may safely re-send, per RFC 9110 section 9.2.2.
+ *
+ * The set is deliberately the safe methods rather than the full idempotent
+ * ones: this decides whether a call may travel on a pooled socket, and
+ * being wrong about a `PUT` or `DELETE` this API might grow later costs a
+ * duplicate side effect, while being wrong the other way costs a
+ * handshake.
+ */
+const IDEMPOTENT_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+function isIdempotentMethod(method: string): boolean {
+  return IDEMPOTENT_METHODS.has(method.toUpperCase());
 }
 
 /** Why a call did not produce an answer. Each needs a different remedy. */
@@ -274,13 +289,6 @@ export function createOpsHttpClient(
        * that is precisely the report an operator is asking for.
        */
       answeredBy?: readonly number[];
-      /**
-       * Set on a call the instance must never run twice. It takes the
-       * connection out of the pool on a runtime that re-sends a dropped
-       * request by itself, so there is no reused socket for it to retry
-       * on. Costs a handshake, which the reads do not pay.
-       */
-      idempotent?: boolean;
     } = {},
   ): Promise<T> {
     const headers: Record<string, string> = {};
@@ -290,18 +298,19 @@ export function createOpsHttpClient(
       headers["content-type"] = "application/json";
     }
 
+    const method = init.method ?? "GET";
     let response: Response;
     try {
       response = await fetch(`${base}${path}`, {
-        method: init.method ?? "GET",
+        method,
         headers,
         signal: AbortSignal.timeout(timeoutMs),
-        // Only where both halves are true, so the reads keep the pool and a
-        // fixed runtime pays nothing. A `connection: close` request header
-        // does not work here: `fetch` treats it as a forbidden header name,
-        // drops it, and retries anyway, which was measured before this
-        // shape was chosen.
-        ...(init.idempotent === false && replaysDroppedRequests
+        // Derived from the method rather than declared per call, so the
+        // next non-idempotent call added here is protected on arrival
+        // instead of inheriting the hazard by forgetting a flag.
+        // `connection: close` does not work here: fetch treats it as a
+        // forbidden header name, drops it silently, and retries anyway.
+        ...(replaysDroppedRequests && !isIdempotentMethod(method)
           ? { keepalive: false }
           : {}),
         ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
@@ -560,7 +569,7 @@ export function createOpsHttpClient(
     dispatch: (id: string, body: unknown) =>
       call<OpsDispatchOutcome>(
         `/ops/routes/${encodeURIComponent(id)}/exchanges`,
-        { method: "POST", body, idempotent: false },
+        { method: "POST", body },
       ),
   };
 }

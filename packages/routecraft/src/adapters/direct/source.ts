@@ -26,6 +26,17 @@ export class DirectSourceAdapter<T = unknown> implements Source<T> {
     this.options = options;
   }
 
+  /**
+   * Subscribe the route's endpoint, and keep the registry honest about it.
+   *
+   * One rule, stated here rather than at each of the sites that keep it:
+   * the registry entry (a capability, or an internal marker) is written
+   * only once the subscription can actually answer, and is disposed on
+   * every path that leaves nothing to answer it. A stopped route that
+   * stayed listed was offered to agents and reported dispatchable by the
+   * ops listing, and the dispatch that followed reached a channel with no
+   * handler and failed RC5004.
+   */
   async subscribe(sub: Subscription<T>): Promise<void> {
     const { context, meta } = sub;
     if (!meta?.routeId) {
@@ -39,10 +50,8 @@ export class DirectSourceAdapter<T = unknown> implements Source<T> {
 
     const endpoint = sanitizeEndpoint(meta.routeId);
 
-    // Ahead of registration, not after it. A subscription that is already
-    // aborted returns without a channel subscriber, so registering first
-    // would advertise an endpoint that never had a handler and leave no
-    // unsubscribe to clean it up.
+    // Before registering: an aborted subscription returns below without a
+    // handler, and would leave no unsubscribe to undo the entry.
     if (sub.signal.aborted) {
       context.logger.debug(
         { endpoint, adapter: "direct" },
@@ -84,10 +93,7 @@ export class DirectSourceAdapter<T = unknown> implements Source<T> {
       return result as Exchange<T>;
     };
 
-    // Set up cleanup on abort before subscribing. The registry entry goes
-    // with the handler: a stopped route that stayed listed was offered to
-    // agents and reported dispatchable by the ops listing, and a dispatch
-    // then reached a channel with nothing behind it and failed RC5004.
+    // Wired before subscribing, so an abort landing mid-setup is caught.
     sub.signal.addEventListener(
       "abort",
       () => {
@@ -102,9 +108,7 @@ export class DirectSourceAdapter<T = unknown> implements Source<T> {
       { once: true },
     );
 
-    // Set up the subscription. A channel that refuses to take the handler
-    // leaves nothing answering the endpoint, so the registration it was
-    // made for goes with it rather than outliving the failure.
+    // Roll the registration back if the channel refuses the handler.
     try {
       await channel.subscribe(context, endpoint, wrappedHandler);
     } catch (error: unknown) {

@@ -9,6 +9,11 @@
 import type { Duration } from "../../shared/duration.ts";
 import type { HttpAuth } from "../../adapters/http/types";
 import type { Deferred } from "../../deferral/deferred";
+import type {
+  DeferralOutcome,
+  DeferralState,
+  DeferralWaitingFor,
+} from "../../deferral/types.ts";
 
 /**
  * The four-member health vocabulary.
@@ -422,7 +427,9 @@ export interface OpsPage<T> {
  * timestamps: a store answers in `Date`, and the wire has no such thing.
  * Left as `Date` on this type, `JSON.stringify` would still send strings
  * and every consumer of the client would be typed for a value it never
- * receives.
+ * receives. Every closed vocabulary keeps its union, so a consumer can
+ * switch exhaustively and a renamed state fails their build rather than
+ * silently taking the other branch.
  *
  * What is absent is as deliberate as what is here. Never the resume
  * token, which is the credential; never the stored exchange, which is the
@@ -435,10 +442,9 @@ export interface OpsDeferralSummary {
   id: string;
   /** The route the deferred exchange belongs to, and re-enters on resume. */
   routeId: string;
-  /** `waiting` or `settled`. */
-  state: string;
+  state: DeferralState;
   /** What the work is waiting for, or was waiting for when it settled. */
-  waitingFor: string;
+  waitingFor: DeferralWaitingFor;
   /**
    * Whether a delivery claim is outstanding. A claimed deferral is still
    * waiting, and is not resumable while the claim holds: whoever took it
@@ -451,7 +457,7 @@ export interface OpsDeferralSummary {
   expiresAt?: string;
   /** How it settled. Absent while it is waiting. */
   outcome?: {
-    kind: string;
+    kind: DeferralOutcome["kind"];
     /** ISO 8601. When it stopped waiting, which is what retention measures from. */
     at: string;
     reason?: string;
