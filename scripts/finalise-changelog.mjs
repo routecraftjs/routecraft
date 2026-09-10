@@ -25,6 +25,14 @@
  * the heading itself, so a hand-typed guess in the heading cannot leak into
  * the release. Idempotent: no in-development heading means no-op, so local
  * dry runs and repeated regenerations are safe.
+ *
+ * The section's documentation links move channel at the same moment. While a
+ * section is in development it links to `/docs/next`, because `/docs` serves
+ * the frozen released tag and the pages it describes are not in it yet; the
+ * release is what puts them there, so the links become `/docs` here. Only the
+ * section being released is touched, so older sections keep pointing at the
+ * released channel and a later `/docs/next` link in an unreleased section
+ * below is left for its own release to move.
  */
 
 import { readFileSync, writeFileSync } from "node:fs";
@@ -80,6 +88,29 @@ const releasedHeading =
   `## [v${coreVersion}](https://github.com/routecraftjs/routecraft/releases/tag/v${coreVersion})` +
   ` <Badge color="yellow">Pre-release</Badge>\n\n*${monthLabel}*`;
 
-writeFileSync(changelogPath, source.replace(inDevHeading, releasedHeading));
+const withHeading = source.replace(inDevHeading, releasedHeading);
 
-console.log(`Changelog heading finalised as v${coreVersion} (${monthLabel})`);
+// Bounded to the released section: from its heading to the next one, or to
+// the end when it is the only section. A repository-wide replace would drag
+// links in sections that are still unreleased onto a channel that does not
+// document them.
+const headingIndex = withHeading.search(
+  /^## \[v\d+\.\d+\.\d+(?:-\S+)?\]\(https:\/\/github\.com/m,
+);
+const afterHeading = withHeading.indexOf("\n", headingIndex);
+const nextHeading = withHeading.indexOf("\n## ", afterHeading);
+const sectionEnd = nextHeading === -1 ? withHeading.length : nextHeading;
+
+const section = withHeading.slice(headingIndex, sectionEnd);
+const released = section.replaceAll("](/docs/next/", "](/docs/");
+const movedLinks = section.split("](/docs/next/").length - 1;
+
+writeFileSync(
+  changelogPath,
+  withHeading.slice(0, headingIndex) + released + withHeading.slice(sectionEnd),
+);
+
+console.log(
+  `Changelog heading finalised as v${coreVersion} (${monthLabel}); ` +
+    `${movedLinks} documentation link(s) moved to the released channel`,
+);
