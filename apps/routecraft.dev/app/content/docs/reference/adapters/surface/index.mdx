@@ -77,16 +77,65 @@ Five ways, each with a different fix, which is why each has its own code:
 | Code | What happened | What to do |
 | --- | --- | --- |
 | [`AI1013`](/docs/reference/errors#ai-1013) | The route ran outside a surfaced turn | Guard with `hasSurface`, or take another path |
-| [`AI1014`](/docs/reference/errors#ai-1014) | The surface disconnected mid-turn | Nothing to retry against on this exchange |
+| [`AI1014`](/docs/reference/errors#ai-1014) | The surface disconnected, before the call or while it was outstanding | Nothing to retry against on this exchange |
 | [`AI1015`](/docs/reference/errors#ai-1015) | The client never advertised the capability | Configuration, on the editor's side |
-| [`AI1016`](/docs/reference/errors#ai-1016) | The client refused or failed the call | Handle it: a person saying no arrives this way, and is a normal outcome |
+| [`AI1016`](/docs/reference/errors#ai-1016) | The client refused or failed the call, or the turn was cancelled | Handle it: a person saying no arrives this way, and is a normal outcome |
 | [`AI1018`](/docs/reference/errors#ai-1018) | The client answered with something that is not the protocol's shape | Handle it: the editor cannot answer this call correctly. A permission answer becomes `cancelled` instead |
 
 `AI1015` is checked before the call rather than discovered from its failure. A client that never offered a method may answer anything at all, or nothing, and a route deserves to be told it is a configuration mismatch rather than left waiting.
 
+## When the editor goes away
+
+A call waits for a person, and the connection carrying it can die while it waits. What happens then is a contract rather than whatever the code did:
+
+- **The connection drops while a call is outstanding.** The call settles at once with `AI1014`, and the exchange fails through the route's own error path. Nothing waits for the editor to come back: a reconnected editor is a new surface, the old call is never re-sent, and any answer the person gave on the dead connection is lost with it. A route that wants the answer asks again on a new turn.
+- **The instance restarts while a call is outstanding.** The call dies with the process, and the turn is closed as interrupted the next time the conversation is touched. A turn revived from its stored continuation carries the surface reference it had, naming a connection that no longer exists, so a call from it is `AI1014` too; `hasSurface` answers false for it. Nothing outstanding at the restart is re-sent, because the person may already have answered it.
+- **In both cases the exchange settles.** Nothing is left waiting on an editor that cannot answer, and a stored continuation is either revived and failed or released, never left referenced by nothing.
+
+`AI1014` in both cases rather than a refusal, because the fixes differ: a person saying no is an outcome the route handles, and a socket going away is not.
+
+## When the turn is cancelled
+
+A route the turn called keeps running after the person presses stop. The agent unwinds at once; the route finishes under its own lifecycle, because a route abandoned mid-step is worse than one that completes. What changes is the surface: the call the route has outstanding is cancelled at the editor and settles with `AI1016`, and a call the route makes after that is refused with `AI1016` without being sent. Nothing new reaches a person who said stop.
+
+That leaves the cleanup a route owes. A terminal it created is still running in the person's editor, and a `terminal/release` in a `finally` is exactly the call that is now refused. So the cleanup is declared before the cancel, and the framework sends it after:
+
+```ts
+import { craft, direct } from '@routecraft/routecraft'
+import { surface } from '@routecraft/ai'
+
+craft()
+  .id('run-command')
+  .from<{ command: string }>(direct())
+  .transform(async (body, ex) => {
+    const created = await surface('terminal/create', {
+      command: body.command,
+    }).fetch(ex)
+    const terminalId = created.terminalId
+    const release = surface.onCancel(ex, [
+      { method: 'terminal/kill', params: { terminalId } },
+      { method: 'terminal/release', params: { terminalId } },
+    ])
+    try {
+      return await surface('terminal/wait_for_exit', { terminalId }).fetch(ex)
+    } finally {
+      release()
+      await surface('terminal/release', { terminalId }).fetch(ex)
+    }
+  })
+```
+
+`surface.onCancel(exchange, requests)` registers calls to make if the turn is cancelled while this exchange is still running, and returns the call that withdraws them. The framework sends them in the order given, each under a short deadline, after `session/prompt` has answered `cancelled`, and logs rather than throws when one fails. Only what was registered runs: there is no grace period in which a route gets a fresh surface after the person said stop, which is the whole reason this is a registration.
+
+Three things about the registration:
+
+- **It is checked when made.** Every method is checked against what the client advertised, as a call would be, so a route learns of a mismatch while it can still act on it.
+- **It dies with the exchange.** A route that finished its own cleanup withdraws the registration, and one that finished without saying so has it dropped when the exchange completes. A cancel later in the conversation cannot replay a release the route already did.
+- **It runs on cancel, not on every ending.** `session/cancel` and an interrupting message trigger it. A turn that ends any other way leaves the route to its own `finally`, which still works, because the surface is only refused after a cancel.
+
 ## How far it reaches
 
-A capability the turn calls is not the same exchange as the turn. `surface` resolves the connection two ways so both work: the surface travels on the turn's own headers, and a route the turn dispatches to carries the correlation id instead of the whole header bag. That is what lets a capability three hops from the prompt still reach the person who typed it.
+A capability the turn calls is not the same exchange as the turn. `surface` resolves the connection three ways so all of them work: the surface travels on the turn's own headers, a route the turn dispatches to carries the correlation id instead of the whole header bag, and an exchange that has resolved its surface once keeps it for as long as it runs. That is what lets a capability three hops from the prompt still reach the person who typed it, and what lets a route still running when the turn ends see the surface it had rather than none.
 
 ## Backends
 

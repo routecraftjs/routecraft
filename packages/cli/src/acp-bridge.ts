@@ -84,6 +84,17 @@ const ATTEMPTS_PER_LOG = 12;
  */
 const CONNECTION_LOST = -32000;
 
+/**
+ * The protocol's resource-not-found code, which the instance answers a
+ * `session/resume` with when it no longer holds the conversation.
+ *
+ * The one refusal the relay drops a conversation on. Any other means the
+ * conversation may still exist on the instance and dropping it would lose
+ * the person's work on a false premise, so it is kept and tried again on
+ * the next reconnection.
+ */
+const RESOURCE_NOT_FOUND = -32002;
+
 /** The prefix on ids of requests the relay makes for itself. */
 const OWN_ID_PREFIX = "craft-acp:";
 
@@ -557,7 +568,8 @@ class Bridge {
         cwd,
         mcpServers: [],
       });
-      if (resumed.error !== undefined) {
+      if (resumed.error === undefined) continue;
+      if (resumed.error.code === RESOURCE_NOT_FOUND) {
         // The instance came back without it: a store that does not
         // outlive the process. Nothing to attach; the editor's next
         // message about it is refused by the instance, by name.
@@ -565,7 +577,11 @@ class Bridge {
         this.options.log(
           `Conversation ${sessionId} is not on ${this.options.target} any more (${resumed.error.message}). Start a new one from the editor.`,
         );
+        continue;
       }
+      this.options.log(
+        `Conversation ${sessionId} could not be resumed on ${this.options.target} (${resumed.error.message}). It is kept, and the next reconnection tries again.`,
+      );
     }
   }
 

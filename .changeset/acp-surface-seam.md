@@ -1,0 +1,19 @@
+---
+"@routecraft/ai": minor
+---
+
+What the editor seam does when the person presses stop, when the editor goes away, and when a hand fails (#747, #756, #757, #758, #761, #748).
+
+**A cancelled turn reaches the routes it called.** A route the turn dispatched keeps running after `session/cancel`, but its surface stops taking calls: the call it has outstanding at the editor is cancelled there and settles with `AI1016`, and a call it makes afterwards is refused with `AI1016` without being sent, so nothing new reaches a person who said stop. The cleanup a route owes is declared beforehand with the new **`surface.onCancel(exchange, requests)`**, which registers calls for the framework to make if the turn is cancelled while the exchange is still running, and returns the call that withdraws them. They are sent in order after the prompt has answered `cancelled`, each under a short deadline, logged rather than thrown when one fails, checked against the client's advertised capabilities when registered, and dropped when the exchange completes, so a cancel later in the conversation cannot replay a release the route already did. A terminal a route created is killed and released after a stop instead of running on in the person's editor with nothing to close it.
+
+**A surface, once resolved, stays the exchange's for its life.** The mount forgets a turn's surface when the turn ends, before the routes it called have finished; a route that had a surface is no longer told it never did.
+
+**A dropped connection settles the call, as a disconnect.** A call outstanding when the editor's connection dies settles at once with `AI1014` rather than being reported as the person refusing (`AI1016`), and the exchange fails through the route's error path. Nothing waits for the editor to come back: a reconnected editor is a new surface, the call is never re-sent, and an answer given on the dead connection is lost with it. A turn revived from a stored continuation after a restart carries a surface reference to a connection that no longer exists, so a call from it is `AI1014` too; nothing outstanding at the restart is re-sent. Backends signal the distinction by rejecting with the new `SurfaceDisconnected`.
+
+**A failed hand tells the person why, under the payload policy.** The editor's failed tool call carried only the error's class name. It now carries the error's message, with its cause beneath it, when payloads are shown, and the class and code alone when `toolCallPayloads: false` withholds them, because a handler's message routinely echoes the argument it rejected.
+
+**A conversation the instance does not hold is answered with the protocol's own not-found code** (`-32002`), one code and one message for a session that is missing, somebody else's, or another agent's, where every refusal used to share invalid params. A client drops a conversation from its tracking on that code and on no other; the taxonomy the mount and `craft acp` are written against is recorded in the error and logging policy.
+
+**Union-shaped requests keep their arms.** `SurfaceRequestParams` removed `sessionId` with a non-distributive `Omit`, so a method whose params are a union (`elicitation/create` is `form | url`) collapsed to the keys the arms share and a literal for either arm was an excess-property error without a cast. The removal now distributes.
+
+**Seam cleanups.** The bearer refusal is one mapper for the MCP and ACP mounts, so the two cannot drift on what an unauthenticated caller is told; the ACP mount's log lines gain the MCP mount's finer vocabulary for an expired token and an unsupported scheme. `plugin:acp:connection:closed` carries `fault` when the connection broke rather than closed, which is the decision on a failure event: one event for the same lifecycle moment, told apart by the field.

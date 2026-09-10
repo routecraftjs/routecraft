@@ -40,8 +40,13 @@ interface Served {
 interface ServeOptions {
   /** Listen here rather than on a free port: an instance coming back. */
   readonly port?: number;
-  /** Whether `session/resume` finds the conversation. */
-  readonly resume?: "found" | "gone";
+  /**
+   * How `session/resume` answers: the conversation is there, the instance
+   * no longer holds it (the protocol's not-found code), or the resume is
+   * refused for another reason (an internal error, as a failing store
+   * would answer).
+   */
+  readonly resume?: "found" | "gone" | "refused";
   /** A method whose handler waits for `release()` before answering. */
   readonly hold?: "session/prompt" | "session/new";
 }
@@ -79,7 +84,10 @@ function serve(options: ServeOptions = {}): Served {
       methods.push("session/resume");
       resumed.push(params.sessionId);
       if (options.resume === "gone") {
-        throw RequestError.invalidParams("No such session.");
+        throw RequestError.resourceNotFound();
+      }
+      if (options.resume === "refused") {
+        throw RequestError.internalError(undefined, "the store is busy");
       }
       return {};
     })
@@ -550,6 +558,38 @@ profiles:
     editor.finish();
     expect(await settledWithin(running, 5_000)).toEqual({ code: 0 });
   }, 20_000);
+
+  /**
+   * @case A resume refused for a reason other than not-found keeps the conversation
+   * @preconditions A bridge with a session open, whose instance comes back once refusing `session/resume` with an internal error, and once more finding the conversation
+   * @expectedResult The first outage names the conversation as kept rather than telling the person to start a new one, and the second reconnection asks to resume it again: a conversation that still exists on the instance is never dropped on a refusal that does not say it is gone
+   */
+  test("a resume refused for another reason keeps the conversation", async () => {
+    const first = up();
+    const editor = editorSide([INITIALIZE, NEW_SESSION]);
+    const lines: string[] = [];
+
+    const running = bridge(first, editor, (line) => lines.push(line));
+    await waitFor(() => editor.read().length >= 2);
+
+    first.stop();
+    await waitFor(() => lines.some((line) => line.startsWith("Lost the")));
+    const second = up({ port: first.port, resume: "refused" });
+    await waitFor(() => second.resumed.length >= 1, 10_000);
+    await waitFor(() => lines.some((line) => line.includes("It is kept")));
+    expect(lines.some((line) => line.includes("Start a new one"))).toBe(false);
+
+    second.stop();
+    await waitFor(
+      () => lines.filter((line) => line.startsWith("Lost the")).length >= 2,
+    );
+    const third = up({ port: first.port, resume: "found" });
+    await waitFor(() => third.resumed.length >= 1, 10_000);
+    expect(third.resumed).toEqual(["session-1"]);
+
+    editor.finish();
+    expect(await settledWithin(running, 5_000)).toEqual({ code: 0 });
+  }, 30_000);
 
   /**
    * @case The editor closing ends the bridge cleanly

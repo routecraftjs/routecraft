@@ -36,6 +36,7 @@ import type {
   McpRawToolResult,
   McpTool,
 } from "./types.ts";
+import { refuseBearer } from "../mount/bearer.ts";
 import { dispatchMcpCallRaw } from "./dispatch.ts";
 import { normalizeMcpPath } from "./validate-options.ts";
 import { makeFnHandlerContext } from "../fn/handler-context.ts";
@@ -612,11 +613,9 @@ export class McpServer {
   /**
    * Map a resolved auth outcome to the MCP wire format, or admit with null.
    *
-   * The shared middleware already classified the failure (the bounded
-   * `reason` drives status, challenge, event vocabulary, and log level), and
-   * the ingress emitted `auth:rejected` for the reject arm at resolution.
-   * `absent` emits here because it is a refusal only on this surface: MCP
-   * has no anonymous mode, while an http route may admit the same request.
+   * The bearer refusal itself is the one both protocol mounts share; what
+   * is MCP's own is the scope check on an admitted principal, which the ACP
+   * mount does not have.
    */
   private refuseAuth(
     auth: Awaited<ReturnType<HttpMountContext["authenticate"]>>,
@@ -625,62 +624,15 @@ export class McpServer {
     path: string,
     corsHeaders: Record<string, string>,
   ): Response | null {
-    if (auth === undefined) return null;
-    // No wall: a rejected credential is served anonymously, never worse than
-    // presenting none. Infrastructure failures still fall through to 500,
-    // since a broken JWKS fetch is a server-side outage either way.
-    if (mountAuth.optedOut) {
-      if (auth.kind === "absent") return null;
-      if (auth.kind === "reject" && auth.reason !== "infrastructure") {
-        this.context.logger.debug(
-          { reason: auth.reason, scheme: "bearer", source: "mcp" },
-          "Auth rejected on an unwalled mount; serving anonymously",
-        );
-        return null;
-      }
-    }
-    if (auth.kind === "reject") {
-      const reason = auth.reason;
-      if (reason === "unsupported_scheme") {
-        this.context.logger.debug(
-          { reason, scheme: "bearer", source: "mcp" },
-          "Auth rejected: unsupported authorization scheme",
-        );
-      } else if (reason === "expired") {
-        this.context.logger.debug(
-          { reason, scheme: "bearer", source: "mcp" },
-          "Auth rejected: token expired",
-        );
-      } else {
-        this.context.logger.warn(
-          { reason, scheme: "bearer", source: "mcp" },
-          "Auth rejected: token validation failed",
-        );
-      }
-      if (reason === "infrastructure") {
-        return Response.json(
-          { error: "Authentication unavailable" },
-          { status: 500, headers: corsHeaders },
-        );
-      }
-      return this.unauthorized(ingress, path, corsHeaders, {
-        error: "invalid_token",
-      });
-    }
-    if (auth.kind === "absent") {
-      const detail = {
-        reason: "missing_header",
-        scheme: "bearer",
-        source: "mcp",
-      };
-      this.context.logger.debug(
-        detail,
-        "Auth rejected: missing or malformed Authorization header",
-      );
-      this.context.emit("auth:rejected", detail);
-      // RFC 6750 section 3: a request that carried no credential gets a
-      // bare challenge, not `invalid_token`.
-      return this.unauthorized(ingress, path, corsHeaders);
+    const refusal = refuseBearer(auth, mountAuth, {
+      source: "mcp",
+      context: this.context,
+      corsHeaders,
+      challenge: (params) =>
+        this.buildWebWwwAuthenticateHeader(ingress, path, params),
+    });
+    if (refusal !== null || auth === undefined || auth.kind !== "admit") {
+      return refusal;
     }
     const missing = this.missingScopes(auth.principal);
     if (missing.length > 0) {
@@ -707,29 +659,6 @@ export class McpServer {
       );
     }
     return null;
-  }
-
-  /** RFC 6750 401 with the challenge params for this specific refusal. */
-  private unauthorized(
-    ingress: WebIngress,
-    path: string,
-    corsHeaders: Record<string, string>,
-    params: Record<string, string> = {},
-  ): Response {
-    return Response.json(
-      { error: "Unauthorized" },
-      {
-        status: 401,
-        headers: {
-          ...corsHeaders,
-          "WWW-Authenticate": this.buildWebWwwAuthenticateHeader(
-            ingress,
-            path,
-            params,
-          ),
-        },
-      },
-    );
   }
 
   private resourceUrlFor(ingress: WebIngress, path: string): string {

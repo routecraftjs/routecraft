@@ -84,8 +84,14 @@ declare module "@routecraft/routecraft" {
       subject?: string;
       clientName?: string;
     };
-    /** An ACP connection closed. Every conversation it held outlives it. */
-    "plugin:acp:connection:closed": { connectionId: string };
+    /**
+     * An ACP connection closed. Every conversation it held outlives it.
+     *
+     * `fault` is the transport's reason when the connection broke rather
+     * than closed, and absent on a clean close. One event for both, because
+     * they are the same lifecycle moment; the field is what tells them apart.
+     */
+    "plugin:acp:connection:closed": { connectionId: string; fault?: string };
     /**
      * A conversation was opened, loaded or resumed on an ACP connection.
      *
@@ -258,7 +264,7 @@ registerErrorCodes(
       category: "Adapter",
       message: "The editor surface disconnected mid-turn",
       suggestion:
-        "The turn started with an editor attached and the connection was gone by the time the route called it. There is nothing to retry against on this exchange: either finish the work without asking, or fail and let the person start it again once their editor is back.",
+        "The turn started with an editor attached and the connection was gone by the time the route called it, or went while the call was outstanding, in which case any answer the person gave is lost with it. There is nothing to retry against on this exchange: an editor that reconnects is a new surface, and the request is never re-sent. Either finish the work without asking, or fail and let the person start it again once their editor is back.",
       docs: `${DOCS_BASE}#ai-1014`,
       retryable: false,
     },
@@ -274,7 +280,7 @@ registerErrorCodes(
       category: "Adapter",
       message: "The editor refused or failed the call",
       suggestion:
-        "The editor answered the call with a JSON-RPC error, or the call did not settle before the turn ended. The editor's own error is on this error's cause. A person declining a request is a normal outcome and reaches the route this way; handle it with .error() rather than treating it as a fault.",
+        "The editor answered the call with a JSON-RPC error, or the turn was cancelled: a call outstanding at the cancel is cancelled at the editor, and one made after it is refused here without being sent. The editor's own error is on this error's cause. A person declining a request is a normal outcome and reaches the route this way; handle it with .error() rather than treating it as a fault. Cleanup that must reach the editor after a cancel is registered beforehand with surface.onCancel().",
       docs: `${DOCS_BASE}#ai-1016`,
       retryable: false,
     },

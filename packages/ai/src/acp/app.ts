@@ -49,7 +49,11 @@ import type {
   AgentSessionOutcome,
   AgentSessionSummary,
 } from "../agent/session/types.ts";
-import { registerSurface } from "../surface/index.ts";
+import {
+  ensureSurfaceLifecycle,
+  registerSurface,
+  SurfaceDisconnected,
+} from "../surface/index.ts";
 import type {
   AgentSurfaceConnection,
   AgentSurfaceRef,
@@ -67,6 +71,19 @@ import type { AcpPluginOptions } from "./types.ts";
 const INVALID_PARAMS = -32602;
 
 /**
+ * The protocol's resource-not-found code, which is how this mount answers
+ * a session the caller cannot see.
+ *
+ * Its own code rather than invalid params, because a client acts on the
+ * difference: `craft acp` drops a conversation from its tracking on this
+ * answer and on no other, so a refusal of any other kind keeps the
+ * conversation rather than losing it on a false premise. The SDK defines
+ * the code; the message stays this mount's, so the answer cannot become
+ * an oracle for which ids exist.
+ */
+const RESOURCE_NOT_FOUND = -32002;
+
+/**
  * The slice of the SDK a connection needs at runtime.
  *
  * Injected rather than imported, because the SDK is an optional peer: the
@@ -78,11 +95,12 @@ export interface AcpRuntimeSdk {
 }
 
 /**
- * What a client is told when a session is missing, or is not theirs.
+ * What a client is told when a session is missing, is not theirs, or
+ * belongs to an agent this harness does not serve.
  *
- * One message for both, deliberately. Two different answers would make
- * `session/load` an oracle for which session ids exist, and ids are cheap
- * to guess.
+ * One message and one code for all three, deliberately. Different answers
+ * would make `session/load` an oracle for which session ids exist, and ids
+ * are cheap to guess.
  */
 const NO_SUCH_SESSION = "No such session.";
 
@@ -130,6 +148,11 @@ export class AcpConnection implements AgentSurfaceConnection {
   /** A refusal the connection layer turns into a JSON-RPC error. */
   private refuse(message: string): Error {
     return new this.sdk.RequestError(INVALID_PARAMS, message);
+  }
+
+  /** The one answer for a session this connection cannot see. */
+  private noSuchSession(): Error {
+    return new this.sdk.RequestError(RESOURCE_NOT_FOUND, NO_SUCH_SESSION);
   }
 
   /** Whose sessions this connection may see. */
@@ -183,14 +206,30 @@ export class AcpConnection implements AgentSurfaceConnection {
     signal: AbortSignal | undefined,
   ): Promise<unknown> {
     const client = this.client;
-    if (client === undefined) throw new Error("The connection is not open.");
-    // Cooperative: aborting sends `$/cancel_request` and the promise is
-    // still settled by whatever the client eventually answers.
-    return client.request<unknown, unknown>(
-      method,
-      params,
-      signal === undefined ? undefined : { cancellationSignal: signal },
-    );
+    if (client === undefined) {
+      throw new SurfaceDisconnected(new Error("The connection is not open."));
+    }
+    try {
+      // Cooperative: aborting sends `$/cancel_request` and the promise is
+      // still settled by whatever the client eventually answers.
+      return await client.request<unknown, unknown>(
+        method,
+        params,
+        signal === undefined ? undefined : { cancellationSignal: signal },
+      );
+    } catch (cause: unknown) {
+      // The SDK answers a refusal as a RequestError carrying the peer's
+      // code, and rejects every outstanding request with a plain close
+      // reason when the transport goes. The class is what tells the two
+      // apart, whichever lands first.
+      if (
+        this.client === undefined ||
+        !(cause instanceof this.sdk.RequestError)
+      ) {
+        throw new SurfaceDisconnected(cause);
+      }
+      throw cause;
+    }
   }
 
   async notify(session: string, update: unknown): Promise<void> {
@@ -207,6 +246,7 @@ export class AcpConnection implements AgentSurfaceConnection {
   /** Called once the SDK has opened the connection and given us its context. */
   open(client: AgentContext, closed: Promise<void>): void {
     this.client = client;
+    ensureSurfaceLifecycle(this.runtime.context);
     this.retire = registerSurface(this.runtime.context, this.id, this);
     this.runtime.context.emit("plugin:acp:connection:opened", {
       connectionId: this.id,
@@ -218,17 +258,28 @@ export class AcpConnection implements AgentSurfaceConnection {
     // Retire on close however the transport ended, including a fault that
     // rejects rather than resolves: an unhandled rejection here would take
     // down an instance because one editor's socket broke.
-    closed.finally(() => this.close()).catch(() => undefined);
+    closed.then(
+      () => this.close(),
+      (fault: unknown) => this.close(fault),
+    );
   }
 
-  /** Retire the surface. A turn still running finds it gone and says so. */
-  close(): void {
+  /**
+   * Retire the surface. A turn still running finds it gone and says so.
+   *
+   * One event for a clean close and a transport fault, carrying the fault
+   * when there was one: an operator reading the stream tells the two
+   * apart by that field, and nothing downstream has to handle a second
+   * event for what is the same lifecycle moment.
+   */
+  close(fault?: unknown): void {
     if (this.retire === undefined) return;
     this.retire();
     this.retire = undefined;
     this.client = undefined;
     this.runtime.context.emit("plugin:acp:connection:closed", {
       connectionId: this.id,
+      ...(fault !== undefined ? { fault: faultMessage(fault) } : {}),
     });
     const closed = this.closedHandler;
     this.closedHandler = undefined;
@@ -503,7 +554,7 @@ export class AcpConnection implements AgentSurfaceConnection {
    */
   private async resolveAgent(sessionId: string): Promise<string> {
     const agent = await this.runtime.sessions().find(sessionId, this.scope);
-    if (agent === undefined) throw this.refuse(NO_SUCH_SESSION);
+    if (agent === undefined) throw this.noSuchSession();
     // A session belonging to another agent is not this harness's to
     // answer. It reports as absent rather than as a refusal because it IS
     // absent from this view, not to withhold an identifier: both harnesses
@@ -518,7 +569,7 @@ export class AcpConnection implements AgentSurfaceConnection {
         { agent, harnessAgent: mine, session: sessionId },
         "ACP session belongs to another agent than this harness serves",
       );
-      throw this.refuse(NO_SUCH_SESSION);
+      throw this.noSuchSession();
     }
     return agent;
   }
@@ -531,7 +582,7 @@ export class AcpConnection implements AgentSurfaceConnection {
     const summary = await this.runtime
       .sessions()
       .summary(sessionId, this.scope);
-    if (summary === undefined) throw this.refuse(NO_SUCH_SESSION);
+    if (summary === undefined) throw this.noSuchSession();
     const record = await this.runtime.sessions().store.load(sessionId);
     return {
       agent,
@@ -639,6 +690,11 @@ function promptText(
   const text = parts.join("\n\n").trim();
   if (text === "") throw refuse("The prompt carried no text.");
   return text;
+}
+
+/** A transport fault as one line for the closed event. */
+function faultMessage(fault: unknown): string {
+  return fault instanceof Error ? fault.message : String(fault);
 }
 
 /** A short human-readable name for a conversation, from its first message. */

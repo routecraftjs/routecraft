@@ -15,11 +15,10 @@ import {
   requireWebIngress,
   resolveCorsOptions,
   type CraftContext,
-  type HttpMountAuth,
-  type HttpMountContext,
   type PathClaim,
   type WebIngress,
 } from "@routecraft/routecraft";
+import { refuseBearer } from "../mount/bearer.ts";
 import { AcpConnection, buildAcpApp } from "./app.ts";
 import { AcpRuntime } from "./runtime.ts";
 import { loadAcpSdk, loadAcpServerSdk } from "./sdk.ts";
@@ -176,12 +175,16 @@ export class AcpServer {
         }
 
         const auth = await mountContext.authenticate();
-        const refusal = this.refuse(
-          auth,
-          mountContext.auth,
-          request.url,
+        const refusal = refuseBearer(auth, mountContext.auth, {
+          source: "acp",
+          context: this.context,
           corsHeaders,
-        );
+          // `bearerChallenge` is what appends the RFC 9728 `resource_metadata`
+          // URL the CLI follows to name the issuer and the scope a caller is
+          // missing; a hand-rolled challenge still parses and simply says less.
+          challenge: (params) =>
+            bearerChallenge({ requestUrl: request.url, params }),
+        });
         if (refusal) return refusal;
         const principal = auth?.kind === "admit" ? auth.principal : undefined;
 
@@ -268,79 +271,6 @@ export class AcpServer {
     this.unmount?.();
     this.unmount = undefined;
   }
-
-  /**
-   * Map a resolved auth outcome to a refusal, or admit.
-   *
-   * The shared middleware already classified the failure and the ingress
-   * emitted its event; this decides what the protocol surface does about
-   * it. ACP has no anonymous mode on a walled mount, so an absent
-   * credential is a refusal here even though an http route would admit it.
-   */
-  private refuse(
-    auth: Awaited<ReturnType<HttpMountContext["authenticate"]>>,
-    mountAuth: HttpMountAuth,
-    requestUrl: string,
-    corsHeaders: Record<string, string>,
-  ): Response | null {
-    if (auth === undefined) return null;
-    if (mountAuth.optedOut) {
-      // No wall: a rejected credential is served anonymously, never worse
-      // than presenting none. An infrastructure failure is still a 500,
-      // because a broken validator is a server-side outage either way.
-      if (auth.kind === "absent") return null;
-      if (auth.kind === "reject" && auth.reason !== "infrastructure") {
-        this.context.logger.debug(
-          { reason: auth.reason, scheme: "bearer", source: "acp" },
-          "Auth rejected on an unwalled mount; serving anonymously",
-        );
-        return null;
-      }
-    }
-    if (auth.kind === "reject") {
-      if (auth.reason === "infrastructure") {
-        this.context.logger.warn(
-          { reason: auth.reason, scheme: "bearer", source: "acp" },
-          "Auth unavailable: validator failed",
-        );
-        return Response.json(
-          { error: "Authentication unavailable" },
-          { status: 500, headers: corsHeaders },
-        );
-      }
-      // Routine handshake noise stays at debug so `warn` keeps meaning a
-      // token that failed for a reason worth looking at: clients present a
-      // stale cached token and refresh, and a non-bearer scheme is a probe.
-      const routine =
-        auth.reason === "unsupported_scheme" || auth.reason === "expired";
-      const detail = { reason: auth.reason, scheme: "bearer", source: "acp" };
-      if (routine) {
-        this.context.logger.debug(detail, "Auth rejected: token not usable");
-      } else {
-        this.context.logger.warn(
-          detail,
-          "Auth rejected: token validation failed",
-        );
-      }
-      return unauthorized(requestUrl, corsHeaders, { error: "invalid_token" });
-    }
-    if (auth.kind === "absent") {
-      const detail = {
-        reason: "missing_header",
-        scheme: "bearer",
-        source: "acp",
-      };
-      this.context.logger.debug(
-        detail,
-        "Auth rejected: missing or malformed Authorization header",
-      );
-      this.context.emit("auth:rejected", detail);
-      // RFC 6750 section 3: a request that carried no credential gets a
-      // bare challenge, not `invalid_token`.
-      return unauthorized(requestUrl, corsHeaders);
-    }
-    return null;
-  }
 }
 
 /**
@@ -387,32 +317,6 @@ function openedEagerly(response: Response): ReadableStream<Uint8Array> | null {
 
 /** The SDK's own keep-alive comment, which is the smallest legal SSE frame. */
 const SSE_COMMENT = new TextEncoder().encode(":\n\n");
-
-/**
- * RFC 6750 401, hinting through the one builder every routecraft surface
- * refuses with.
- *
- * `bearerChallenge` is what appends the RFC 9728 `resource_metadata` URL the
- * CLI follows to name the issuer and the scope a caller is missing. A
- * hand-rolled challenge still parses and simply says less, which is the
- * failure the shared builder exists to prevent.
- */
-function unauthorized(
-  requestUrl: string,
-  corsHeaders: Record<string, string>,
-  params: Record<string, string> = {},
-): Response {
-  return Response.json(
-    { error: "Unauthorized" },
-    {
-      status: 401,
-      headers: {
-        ...corsHeaders,
-        "WWW-Authenticate": bearerChallenge({ requestUrl, params }),
-      },
-    },
-  );
-}
 
 /** Refuse a mount whose ingress is missing, with the servers that exist. */
 export function assertIngress(

@@ -107,6 +107,66 @@ describe("ACP session lifecycle", () => {
   });
 
   /**
+   * @case A conversation the instance does not hold is refused with the protocol's own not-found code, and no other refusal shares it
+   * @preconditions A resume, a load and a prompt against an id nobody issued, and a configuration change naming an option the mount does not offer on a conversation that exists
+   * @expectedResult The three missing-session doors answer -32002 with one message, which is what a bridge drops a conversation on; the bad option answers -32602, so a client can tell a conversation that is gone from a request that was wrong
+   */
+  test("a missing conversation is not found, and a bad request is not", async () => {
+    h = await boot();
+    llm.script.push({ text: "hi" });
+    const missing = "11111111-2222-3333-4444-555555555555";
+    const refusal = (request: Promise<unknown>): Promise<unknown> =>
+      request.then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+    const codes = await h.connect(async (agent) => {
+      const session = await agent.buildSession("/work").start();
+      await session.prompt("hello");
+      const answers = {
+        resume: await refusal(
+          agent.request("session/resume", {
+            sessionId: missing,
+            cwd: "/work",
+            mcpServers: [],
+          }),
+        ),
+        load: await refusal(
+          agent.request("session/load", {
+            sessionId: missing,
+            cwd: "/work",
+            mcpServers: [],
+          }),
+        ),
+        prompt: await refusal(
+          agent.request("session/prompt", {
+            sessionId: missing,
+            prompt: [{ type: "text", text: "anyone there?" }],
+          }),
+        ),
+        badOption: await refusal(
+          agent.request("session/set_config_option", {
+            sessionId: session.sessionId,
+            configId: "no-such-option",
+            value: "x",
+          }),
+        ),
+      };
+      session.dispose();
+      return answers;
+    });
+
+    for (const door of ["resume", "load", "prompt"] as const) {
+      expect(codes[door]).toMatchObject({
+        code: -32002,
+        message: "No such session.",
+      });
+    }
+    expect(codes.badOption).toMatchObject({ code: -32602 });
+  });
+
+  /**
    * @case A loaded conversation continues rather than starting over
    * @preconditions A conversation with one turn, loaded on a second connection and prompted again
    * @expectedResult The second turn's thread carries the first exchange, so the model sees the conversation and not a fresh one

@@ -344,25 +344,13 @@ export function resolveSettings(
         source: "environment",
       };
     }
-    const layers: Array<{
-      values: CraftSettingValues | undefined;
-      source: SettingSource;
-      path: string;
-    }> = [
-      {
-        values: profileIn(project, profile?.value),
-        source: "project profile",
-        path: projectPath,
-      },
-      { values: project, source: "project file", path: projectPath },
-      {
-        values: profileIn(global, profile?.value),
-        source: "global profile",
-        path: globalPath,
-      },
-      { values: global, source: "global file", path: globalPath },
-    ];
-    for (const layer of layers) {
+    for (const layer of fileLayers(
+      profile,
+      project,
+      projectPath,
+      global,
+      globalPath,
+    )) {
       const value = layer.values?.[key];
       if (value !== undefined) {
         return {
@@ -540,11 +528,48 @@ function pickEnv(
   global: CraftSettings | undefined,
   globalPath: string,
 ): Resolved<ProfileEnv> | undefined {
-  const layers: Array<{
-    values: CraftSettingValues | undefined;
-    source: SettingSource;
-    path: string;
-  }> = [
+  for (const layer of fileLayers(
+    profile,
+    project,
+    projectPath,
+    global,
+    globalPath,
+  )) {
+    const value = layer.values?.env;
+    if (value === undefined) continue;
+    const resolved = { value, source: layer.source, path: layer.path };
+    // An empty string is not a path. Left alone it resolves to the project
+    // directory and the command runs on without the environment the person
+    // selected, which is the silence this file exists to refuse.
+    const empty = typeof value === "string" && value.trim() === "";
+    if ((typeof value !== "string" && !isPlainStringMap(value)) || empty) {
+      throw new SettingsError(
+        `The "env" from the ${describeSource(resolved)} must be a path to an env file or a map of names to string values.`,
+      );
+    }
+    return resolved as Resolved<ProfileEnv>;
+  }
+  return undefined;
+}
+
+/**
+ * The file-backed layers, most specific first: the selected profile in a
+ * file before that file's own top level, and the project's file before the
+ * home directory's. Built once, because a precedence list that exists in
+ * two places is two lists the moment one of them is edited.
+ */
+function fileLayers(
+  profile: Resolved<string> | undefined,
+  project: CraftSettings | undefined,
+  projectPath: string,
+  global: CraftSettings | undefined,
+  globalPath: string,
+): ReadonlyArray<{
+  values: CraftSettingValues | undefined;
+  source: SettingSource;
+  path: string;
+}> {
+  return [
     {
       values: profileIn(project, profile?.value),
       source: "project profile",
@@ -558,21 +583,6 @@ function pickEnv(
     },
     { values: global, source: "global file", path: globalPath },
   ];
-  for (const layer of layers) {
-    const value = layer.values?.env;
-    if (value === undefined) continue;
-    // An empty string is not a path. Left alone it resolves to the project
-    // directory and the command runs on without the environment the person
-    // selected, which is the silence this file exists to refuse.
-    const empty = typeof value === "string" && value.trim() === "";
-    if ((typeof value !== "string" && !isPlainStringMap(value)) || empty) {
-      throw new SettingsError(
-        `The "env" in ${layer.path} must be a path to an env file or a map of names to string values.`,
-      );
-    }
-    return { value, source: layer.source, path: layer.path };
-  }
-  return undefined;
 }
 
 /** Whether a value is a flat map of strings, which is what an inline env is. */

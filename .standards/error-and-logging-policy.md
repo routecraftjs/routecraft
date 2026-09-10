@@ -67,6 +67,7 @@ Each boundary handles the error (does not re-throw it to another boundary). Do n
 | **Agent session boot drive** | The walk over stored sessions at startup: the whole drive failed (each session is restored by its next message instead), or one continuation a previous process announced and never named could not be released (its reference stays on the record for the next boot to retry) | error for the drive, warn for the release | `{ err }`, `{ err, agent, session, deferralId }` |
 | **Agent delta listener** | An `onDelta` listener threw, on a streamed delta (`stream-llm.ts`) or on the final text a run hands it when the accepted attempt streamed none (`run.ts`). The listener is the consumer's; its failure does not fail the turn, and the delta is dropped | warn | `{ err }` |
 | **Background tool settlement** | A background tool's route settled but its result could not be written to the session inbox (store failure, lost compare-and-swap). The model is waiting on a result that is now lost, and this log is the only record | error | `{ agent, session, handle, tool, err }` |
+| **Surface cleanup after a cancel** | A call a route registered with `surface.onCancel()` failed or timed out when the framework sent it after the turn was cancelled. Nothing awaits these, so this log is the only record; the next registered call is still sent. An editor that has since gone is skipped at debug, since it took the resource with it | warn | `{ session, exchangeId, method, err }` |
 
 The auth surface adds four more boundaries (source credential verification, route `.authorize()`, userinfo enrichment, HTTP transport), specified in [security.md](./security.md) § Boundaries; they follow the same handle-once rule and their log levels follow security.md's rejection-level policy.
 
@@ -88,6 +89,19 @@ hand every caller a log-volume lever.
 - **Codes represent failure patterns**, not step types. Community adapters use framework codes with specific message/suggestion overrides (e.g., `rcError("RC5010", cause, { message: "Redis connection refused on port 6379" })`).
 - **Generic RC codes are ecosystem-throwable.** Adapters and ecosystem packages may throw these core codes directly (with message/suggestion/retryable overrides) instead of minting their own: `RC5001` (step failed, catch-all), `RC5003` (adapter misconfigured), `RC5004` (no handler available), `RC5010` (connection failed), `RC5011` (timeout), `RC5012` (authentication failed), `RC5013` (rate limited), `RC5014` (resource not found), `RC5015` (permission denied), `RC5016` (source payload parse failed), `RC5017` (optional peer missing). The remaining RC codes are engine-internal; do not throw them from ecosystem code.
 - **A code earns its place** when its docs page can provide specific, actionable troubleshooting steps. Otherwise, use the catch-all (RC5001) and put specifics in the message override; register a namespaced code only when the failure pattern is genuinely package-specific.
+
+### JSON-RPC refusals on the ACP mount
+
+The ACP mount answers a refused request with a JSON-RPC error, and a client branches on the code rather than the message. The taxonomy is decided once for the mount, not per method, and it is the contract `craft acp` is written against:
+
+| Code | Name | The mount uses it for | What a client may infer |
+|------|------|-----------------------|-------------------------|
+| `-32002` | Resource not found | A session the caller cannot see: missing, owned by somebody else, or belonging to an agent this harness does not serve. One code and one message for all three, so the answer is not an oracle for which ids exist | The conversation is gone from this view. A bridge drops it from its tracking and tells the person to start a new one |
+| `-32602` | Invalid params | Input the mount cannot act on: a content block it does not accept, a prompt with no text, a configuration option it does not offer, an agent name the instance does not hold | The request was wrong, not the conversation. Nothing is dropped; the same request will be refused again until it changes |
+| `-32603` | Internal error | The SDK's own answer when a handler throws anything that is not a `RequestError`: a store outage, a fault in the mount | The instance is unwell. The conversation may well still exist; keep it and retry later |
+| `-32000` | Connection lost | Minted by `craft acp`, never by the mount: the relay's own answer to an editor request the dead transport never answered | The instance is being reconnected to; the request was not delivered |
+
+A refusal of one kind must never be reported under another code: the bridge's drop-on-not-found rule is only safe while not-found means exactly that. A new refusal the mount grows picks its code from this table, or adds a row and says what a client may infer from it.
 
 ### Progressive quality ladder for adapter authors
 
