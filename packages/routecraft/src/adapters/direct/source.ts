@@ -39,24 +39,10 @@ export class DirectSourceAdapter<T = unknown> implements Source<T> {
 
     const endpoint = sanitizeEndpoint(meta.routeId);
 
-    // Discovery speaks raw route ids; the sanitised key is only for the
-    // channel map. An internal route registers its internal-ness INSTEAD
-    // of a capability: the in-process endpoint below works unchanged,
-    // while ops dispatch and directTool resolution find no capability and
-    // can refuse by name.
-    if (this.options.internal === true) {
-      registerInternalEndpoint(context, meta.routeId);
-    } else {
-      registerRoute(context, meta.routeId, meta.discovery);
-    }
-
-    context.logger.debug(
-      { endpoint, adapter: "direct" },
-      "Setting up subscription for direct endpoint",
-    );
-
-    const channel = getDirectChannel<T>(context, endpoint, this.options);
-
+    // Ahead of registration, not after it. A subscription that is already
+    // aborted returns without a channel subscriber, so registering first
+    // would advertise an endpoint that never had a handler and leave no
+    // unsubscribe to clean it up.
     if (sub.signal.aborted) {
       context.logger.debug(
         { endpoint, adapter: "direct" },
@@ -64,6 +50,23 @@ export class DirectSourceAdapter<T = unknown> implements Source<T> {
       );
       return;
     }
+
+    // Discovery speaks raw route ids; the sanitised key is only for the
+    // channel map. An internal route registers its internal-ness INSTEAD
+    // of a capability: the in-process endpoint below works unchanged,
+    // while ops dispatch and directTool resolution find no capability and
+    // can refuse by name.
+    const unregister =
+      this.options.internal === true
+        ? registerInternalEndpoint(context, meta.routeId)
+        : registerRoute(context, meta.routeId, meta.discovery);
+
+    context.logger.debug(
+      { endpoint, adapter: "direct" },
+      "Setting up subscription for direct endpoint",
+    );
+
+    const channel = getDirectChannel<T>(context, endpoint, this.options);
 
     // Unwrap the channel's Exchange payload and hand body / headers to the
     // framework-provided handler. The caller's principal rides through on
@@ -81,10 +84,14 @@ export class DirectSourceAdapter<T = unknown> implements Source<T> {
       return result as Exchange<T>;
     };
 
-    // Set up cleanup on abort before subscribing
+    // Set up cleanup on abort before subscribing. The registry entry goes
+    // with the handler: a stopped route that stayed listed was offered to
+    // agents and reported dispatchable by the ops listing, and a dispatch
+    // then reached a channel with nothing behind it and failed RC5004.
     sub.signal.addEventListener(
       "abort",
       () => {
+        unregister();
         channel.unsubscribe(context, endpoint).catch((err) => {
           context.logger.error(
             { err, adapter: "direct", endpoint, operation: "unsubscribe" },
@@ -95,8 +102,15 @@ export class DirectSourceAdapter<T = unknown> implements Source<T> {
       { once: true },
     );
 
-    // Set up the subscription
-    await channel.subscribe(context, endpoint, wrappedHandler);
+    // Set up the subscription. A channel that refuses to take the handler
+    // leaves nothing answering the endpoint, so the registration it was
+    // made for goes with it rather than outliving the failure.
+    try {
+      await channel.subscribe(context, endpoint, wrappedHandler);
+    } catch (error: unknown) {
+      unregister();
+      throw error;
+    }
 
     sub.ready();
 

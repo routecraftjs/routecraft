@@ -331,9 +331,22 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
             message: `Route "${id}" is declared internal (direct({ internal: true })) and not dispatchable. It is only composable from another route; dispatch to a boundary route that fronts it instead.`,
           });
         }
+        const kinds = sourceKinds(route.definition);
+        // A third refusal, for a route that HAS the door and is not
+        // standing behind it. The capability lives exactly as long as the
+        // subscription, so a stopped or disabled route leaves none, and
+        // the advice below would tell its caller to add a source the route
+        // already declares.
+        if (kinds.includes("direct")) {
+          throw rcError("RC5060", undefined, {
+            message: ctx.isRouteEnabled(id)
+              ? `Route "${id}" has a direct() door but is not running, so nothing answers it. Start the route on that instance before dispatching to it.`
+              : `Route "${id}" has a direct() door and is disabled by its .enabled() predicate, so nothing answers it. Enable it before dispatching to it.`,
+          });
+        }
         throw rcError("RC5060", undefined, {
           message: `Route "${id}" has no dispatch door: its sources are ${
-            sourceKinds(route.definition).join(", ") || "(none)"
+            kinds.join(", ") || "(none)"
           }, and only a direct() ingress makes a route id dispatchable. Add .from(direct()) to the route, or dispatch to one that has it.`,
         });
       }
