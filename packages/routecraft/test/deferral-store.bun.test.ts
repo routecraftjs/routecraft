@@ -658,6 +658,203 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
     });
 
     /**
+     * @case The listing is oldest first and pages strictly forward
+     * @preconditions Four records deferred at distinct times, read a page
+     *   at a time
+     * @expectedResult Oldest first, and each page resumes strictly past
+     *   the last row of the one before, so no record is seen twice or
+     *   skipped. Ordered by time rather than by id because a deferral id
+     *   is `{uuid}#{sequence}` and says nothing about when it was made
+     */
+    test("list pages oldest first", async () => {
+      store = await open();
+      const ids = ["d-a", "d-b", "d-c", "d-d"];
+      for (const [index, id] of ids.entries()) {
+        await store.create(
+          record({
+            id,
+            deferredAt: new Date(Date.UTC(2026, 7, index + 1, 9)),
+          }),
+        );
+      }
+
+      const first = await store.list({ limit: 2 });
+      const second = await store.list({
+        limit: 2,
+        after: { deferredAt: first[1]!.deferredAt, id: first[1]!.id },
+      });
+      const third = await store.list({
+        limit: 2,
+        after: { deferredAt: second[1]!.deferredAt, id: second[1]!.id },
+      });
+
+      expect(first.map((row) => row.id)).toEqual(["d-a", "d-b"]);
+      expect(second.map((row) => row.id)).toEqual(["d-c", "d-d"]);
+      expect(third).toEqual([]);
+    });
+
+    /**
+     * @case Two records deferred in the same millisecond still page
+     * @preconditions Three records sharing one deferredAt, read one at a time
+     * @expectedResult Each page advances by the id tiebreak, so a cursor
+     *   over a tied timestamp cannot loop on the same row or skip its
+     *   neighbour. A millisecond is coarse enough that a batch of parallel
+     *   defers lands inside one
+     */
+    test("list breaks a tied deferredAt by id", async () => {
+      store = await open();
+      const tied = new Date("2026-08-04T09:00:00.000Z");
+      for (const id of ["t-1", "t-2", "t-3"]) {
+        await store.create(record({ id, deferredAt: tied }));
+      }
+
+      const seen: string[] = [];
+      let after: { deferredAt: Date; id: string } | undefined;
+      for (let page = 0; page < 4; page++) {
+        const rows = await store.list({
+          limit: 1,
+          ...(after !== undefined ? { after } : {}),
+        });
+        if (rows.length === 0) break;
+        seen.push(rows[0]!.id);
+        after = { deferredAt: rows[0]!.deferredAt, id: rows[0]!.id };
+      }
+
+      expect(seen).toEqual(["t-1", "t-2", "t-3"]);
+    });
+
+    /**
+     * @case The listing filters by state and by route
+     * @preconditions One waiting record on one route, one settled on another
+     * @expectedResult Each filter narrows to its own record and both
+     *   together narrow to none, so a management surface can ask "what is
+     *   still waiting on this route" in one read
+     */
+    test("list filters by state and route", async () => {
+      store = await open();
+      await store.create(record({ id: "waiting-1", routeId: "payout" }));
+      await store.create(
+        record({
+          id: "settled-1",
+          routeId: "refund",
+          deferredAt: new Date("2026-08-11T09:00:00.000Z"),
+        }),
+      );
+      await store.markResumed("settled-1", { at: new Date() });
+
+      expect(
+        (await store.list({ limit: 10, state: "waiting" })).map((r) => r.id),
+      ).toEqual(["waiting-1"]);
+      expect(
+        (await store.list({ limit: 10, state: "settled" })).map((r) => r.id),
+      ).toEqual(["settled-1"]);
+      expect(
+        (await store.list({ limit: 10, routeId: "refund" })).map((r) => r.id),
+      ).toEqual(["settled-1"]);
+      expect(
+        await store.list({ limit: 10, state: "waiting", routeId: "refund" }),
+      ).toEqual([]);
+      expect((await store.list({ limit: 10 })).map((r) => r.id)).toEqual([
+        "waiting-1",
+        "settled-1",
+      ]);
+    });
+
+    /**
+     * @case A summary carries the reason and never the payload
+     * @preconditions A record with meta, a stored exchange, a schema, a
+     *   step state and a TTL, then a second one denied with a reason
+     * @expectedResult The summary carries what a reader needs and nothing
+     *   the listing may not show: no exchange, no schema, no step state,
+     *   no meta. The claim is a boolean rather than its timestamp, because
+     *   the question is whether anything already owns telling the route
+     */
+    test("list summarises without the stored exchange", async () => {
+      store = await open();
+      await store.create(
+        record({
+          id: "waiting-1",
+          expiresAt: new Date("2026-09-01T09:00:00.000Z"),
+          stepState: { thread: ["hello"] },
+        }),
+      );
+      await store.create(
+        record({
+          id: "denied-1",
+          deferredAt: new Date("2026-08-12T09:00:00.000Z"),
+        }),
+      );
+      await store.claimExpiry("denied-1", new Date());
+      await store.markDenied("denied-1", "cancelled by the operator");
+
+      const [waiting, denied] = await store.list({ limit: 10 });
+
+      expect(waiting).toEqual({
+        id: "waiting-1",
+        routeId: "payout",
+        state: "waiting",
+        waitingFor: "resume",
+        claimed: false,
+        deferredAt: new Date("2026-08-10T09:00:00.000Z"),
+        expiresAt: new Date("2026-09-01T09:00:00.000Z"),
+      });
+      expect(denied?.state).toBe("settled");
+      expect(denied?.outcome?.kind).toBe("denied");
+      expect(denied?.outcome?.reason).toBe("cancelled by the operator");
+    });
+
+    /**
+     * @case A claimed record says so without saying when
+     * @preconditions One waiting record with an expiry-delivery claim taken
+     * @expectedResult Still waiting, and `claimed` is true. A claimed
+     *   record is not resumable, so a reader that saw only the state would
+     *   read it as available
+     */
+    test("list reports an outstanding delivery claim", async () => {
+      store = await open();
+      await store.create(record({ id: "claimed-1" }));
+      await store.claimExpiry("claimed-1", new Date());
+
+      const [row] = await store.list({ limit: 10 });
+
+      expect(row).toMatchObject({ state: "waiting", claimed: true });
+    });
+
+    /**
+     * @case The listing refuses a limit the two backends would read differently
+     * @preconditions A fresh store; zero, a negative value and a fraction
+     * @expectedResult Each rejects with RC5044, the same rule the sweep scan applies
+     */
+    test("list refuses a non-positive or non-integer limit", async () => {
+      store = await open();
+      for (const limit of [0, -1, 1.5]) {
+        await expect(store.list({ limit })).rejects.toThrow(
+          expect.objectContaining({ rc: "RC5044" }),
+        );
+      }
+    });
+
+    /**
+     * @case The listing refuses a cursor it would have to guess at
+     * @preconditions Cursors carrying an invalid date and an empty id
+     * @expectedResult Each rejects with RC5044 rather than being
+     *   interpreted, so a malformed cursor cannot silently restart the
+     *   listing from the beginning
+     */
+    test("list refuses a malformed cursor", async () => {
+      store = await open();
+      const bad = [
+        { deferredAt: new Date("nonsense"), id: "d-1" },
+        { deferredAt: new Date(), id: "" },
+      ];
+      for (const after of bad) {
+        await expect(store.list({ limit: 10, after })).rejects.toThrow(
+          expect.objectContaining({ rc: "RC5044" }),
+        );
+      }
+    });
+
+    /**
      * @case A limit the two backends would read differently is refused
      * @preconditions A fresh store; zero, a negative value and a fraction
      * @expectedResult Each rejects, so a sweep cannot silently become

@@ -108,6 +108,7 @@ export interface ErrorCodeRegistry {
   RC5062: RCMeta;
   RC5063: RCMeta;
   RC5064: RCMeta;
+  RC5065: RCMeta;
   RC9901: RCMeta;
 }
 
@@ -643,6 +644,14 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     suggestion:
       "The remote instance answered a dispatch on an imported route with an error. Its own error code rides in the message and on `cause`, and is what to read first: the ops door sends the code and never the message, so the remote's logs hold the detail. A `RC5060` from the remote means the route stopped being dispatchable there (it declared `direct({ internal: true })`, or lost its direct source); anything else is the route's own failure, exactly as it would have surfaced to a caller on the remote.",
     docs: `${DOCS_BASE}#rc-5064`,
+    retryable: false,
+  },
+  RC5065: {
+    category: "Definition",
+    message: "Deferral store is missing a contract member",
+    suggestion:
+      "A surface asked the deferral store for something the store this context was given does not implement. The two shipped backends (sqlite and memory) implement the whole `DeferralStore` contract; a store supplied through `deferral: { store }` is the caller's own, and one written against an earlier version of the contract can be missing a member added since. The message names the member. Implement it, or drop back to a shipped backend. The surface refuses rather than answering empty, because an empty listing and a listing the store cannot produce look identical to whoever is reading it.",
+    docs: `${DOCS_BASE}#rc-5065`,
     retryable: false,
   },
   RC9901: {

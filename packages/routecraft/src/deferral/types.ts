@@ -47,6 +47,88 @@ export interface ExpiredScanCursor {
 }
 
 /**
+ * Keyset cursor for {@link DeferralStore.list}.
+ *
+ * A deferral id is `{exchangeId}#{sequence}` and an exchange id is a uuid,
+ * so id order says nothing about time. The listing is ordered by
+ * `(deferredAt, id)` instead, which is the order an operator reads it in:
+ * what has been waiting longest is what they are looking for.
+ */
+export interface DeferralListCursor {
+  readonly deferredAt: Date;
+  readonly id: string;
+}
+
+/**
+ * What {@link DeferralStore.list} is being asked for.
+ *
+ * `state` defaults to `waiting` at the caller rather than here, because a
+ * store implementation must not have to know which half of the collection
+ * a management surface considers interesting.
+ */
+export interface DeferralListQuery {
+  /** Only deferrals in this state. Both states when absent. */
+  readonly state?: DeferralState;
+  /** Only deferrals belonging to this route. */
+  readonly routeId?: string;
+  /** Bound on one page. A non-positive or non-integer value throws. */
+  readonly limit: number;
+  /** Resume strictly past this position in `(deferredAt, id)` order. */
+  readonly after?: DeferralListCursor;
+}
+
+/**
+ * One deferral as a management surface presents it.
+ *
+ * A projection rather than the record, and deliberately so: the record
+ * carries the serialized exchange, the step state and the resume-payload
+ * schema, none of which a listing may show and none of which it should
+ * pull into memory a page at a time to then drop. What a reader needs is
+ * what it is waiting for, how long it has waited, and whether anything
+ * already holds it.
+ */
+export interface DeferralSummary {
+  readonly id: string;
+  readonly routeId: string;
+  readonly state: DeferralState;
+  /** What the work is waiting for, or was waiting for when it settled. */
+  readonly waitingFor: DeferralWaitingFor;
+  /**
+   * Whether a delivery claim is outstanding, rather than when it was
+   * taken. A reader asks whether anything already owns telling the route,
+   * and the timestamp is an implementation detail of the lease.
+   */
+  readonly claimed: boolean;
+  readonly deferredAt: Date;
+  /** When the sweeper will expire it. Absent means no deadline. */
+  readonly expiresAt?: Date;
+  /** How it settled. Absent while it is waiting. */
+  readonly outcome?: DeferralOutcome;
+}
+
+/**
+ * Project a stored record onto what a management surface may see.
+ *
+ * Named once and shared by both backends so a field can never reach the
+ * listing from one store and not the other, and so the exchange has one
+ * place it is dropped rather than one per backend.
+ */
+export function summariseDeferral(deferral: Deferral): DeferralSummary {
+  return {
+    id: deferral.id,
+    routeId: deferral.routeId,
+    state: deferral.state,
+    waitingFor: deferral.waitingFor,
+    claimed: deferral.claimedAt !== undefined,
+    deferredAt: deferral.deferredAt,
+    ...(deferral.expiresAt !== undefined
+      ? { expiresAt: deferral.expiresAt }
+      : {}),
+    ...(deferral.outcome !== undefined ? { outcome: deferral.outcome } : {}),
+  };
+}
+
+/**
  * The persisted form of a deferred exchange: exactly the two stored slots of
  * `Exchange` (`body` and `headers`), per
  * `.standards/exchange-state-model.md`. Derivations (`id`, `principal`,
@@ -514,6 +596,32 @@ export interface DeferralStore {
 
   /** Count and oldest `deferredAt` across deferrals still waiting. */
   pending(): Promise<PendingDeferralSummary>;
+
+  /**
+   * One page of deferrals as a management surface presents them, ordered
+   * `(deferredAt ASC, id ASC)` and starting strictly after
+   * {@link DeferralListQuery.after} when one is given.
+   *
+   * Ordered by time rather than by id because a deferral id is
+   * `{exchangeId}#{sequence}` over a uuid, so id order is arbitrary and a
+   * listing in it answers no question anyone asks. Oldest first is the
+   * question: what has been waiting longest.
+   *
+   * A projection rather than the records, so the serialized exchange, the
+   * step state and the resume-payload schema never enter the read path at
+   * all. The listing must not show them, and a store that returned whole
+   * records would page a hundred thousand exchange bodies through memory
+   * on the way to dropping them.
+   *
+   * The ordering is a strict total order within a backend, and as with
+   * {@link DeferralStore.findExpired} it is not guaranteed byte-identical
+   * across backends for non-ASCII ids, so a cursor is only ever replayed
+   * against the store that produced it.
+   *
+   * A non-positive or non-integer `limit` is a caller error and throws
+   * rather than being interpreted.
+   */
+  list(query: DeferralListQuery): Promise<DeferralSummary[]>;
 
   /**
    * Records settled as `resumed` whose continuation never landed, oldest

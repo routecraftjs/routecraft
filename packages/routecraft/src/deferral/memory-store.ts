@@ -2,7 +2,7 @@ import { rcError } from "../error.ts";
 import { compareCodeUnits } from "../shared/compare.ts";
 import { stepStateFingerprint } from "./hash.ts";
 import { encodePersistable } from "./serialize.ts";
-import { claimed, resumable } from "./types.ts";
+import { claimed, resumable, summariseDeferral } from "./types.ts";
 import type {
   ExpiredScanCursor,
   NewDeferral,
@@ -10,8 +10,11 @@ import type {
   SerializedOutcome,
   Deferral,
   DeferralCasResult,
+  DeferralListCursor,
+  DeferralListQuery,
   DeferralResumption,
   DeferralStore,
+  DeferralSummary,
 } from "./types.ts";
 
 /**
@@ -257,6 +260,29 @@ export class MemoryDeferralStore implements DeferralStore {
     return { count, ...(oldest ? { oldest: new Date(oldest.getTime()) } : {}) };
   }
 
+  async list(query: DeferralListQuery): Promise<DeferralSummary[]> {
+    assertSweepLimit(query.limit);
+    assertListCursor(query.after);
+    const after = query.after;
+    return [...this.#records.values()]
+      .filter(
+        (record) =>
+          (query.state === undefined || record.state === query.state) &&
+          (query.routeId === undefined || record.routeId === query.routeId) &&
+          (after === undefined ||
+            record.deferredAt.getTime() > after.deferredAt.getTime() ||
+            (record.deferredAt.getTime() === after.deferredAt.getTime() &&
+              compareCodeUnits(record.id, after.id) > 0)),
+      )
+      .sort(
+        (a, b) =>
+          a.deferredAt.getTime() - b.deferredAt.getTime() ||
+          compareCodeUnits(a.id, b.id),
+      )
+      .slice(0, query.limit)
+      .map(summariseDeferral);
+  }
+
   async purgeSettled(before: Date): Promise<number> {
     let purged = 0;
     for (const [id, record] of this.#records) {
@@ -356,6 +382,29 @@ export function assertScanCursor(after: ExpiredScanCursor | undefined): void {
     throw rcError("RC5044", undefined, {
       message:
         "findExpired() cursor must carry a valid expiresAt Date and a non-empty id.",
+    });
+  }
+}
+
+/**
+ * Reject a listing cursor a backend would have to guess at. The mirror of
+ * {@link assertScanCursor} over the other keyset, kept separate because
+ * the two order by different fields and a shared check would have to be
+ * told which.
+ *
+ * @internal
+ */
+export function assertListCursor(after: DeferralListCursor | undefined): void {
+  if (after === undefined) return;
+  if (
+    !(after.deferredAt instanceof Date) ||
+    Number.isNaN(after.deferredAt.getTime()) ||
+    typeof after.id !== "string" ||
+    after.id.length === 0
+  ) {
+    throw rcError("RC5044", undefined, {
+      message:
+        "list() cursor must carry a valid deferredAt Date and a non-empty id.",
     });
   }
 }

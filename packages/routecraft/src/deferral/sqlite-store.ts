@@ -4,7 +4,11 @@ import { rcError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
 import { stepStateFingerprint } from "./hash.ts";
 import { encodePersistable } from "./serialize.ts";
-import { assertScanCursor, assertSweepLimit } from "./memory-store.ts";
+import {
+  assertListCursor,
+  assertScanCursor,
+  assertSweepLimit,
+} from "./memory-store.ts";
 import {
   type ResolvedSqliteDriver,
   type SqliteDatabase,
@@ -27,11 +31,13 @@ import type {
   SerializedOutcome,
   Deferral,
   DeferralCasResult,
+  DeferralListQuery,
   DeferralOutcome,
   DeferralSchema,
   DeferralResumption,
   DeferralState,
   DeferralStore,
+  DeferralSummary,
   DeferralWaitingFor,
 } from "./types.ts";
 
@@ -80,6 +86,12 @@ const CLAIMED = "state = 'waiting' AND claimed_at IS NOT NULL";
  * the store creates its own schema, there is no separate migrate step to
  * forget.
  *
+ * `deferrals_pending` carries `id` as its last column so it serves the
+ * management listing's `(deferred_at, id)` keyset as well as `pending()`,
+ * rather than leaving the tiebreak to a sort. Folded into version 1 rather
+ * than added as version 2 for the same reason the canary chain is not
+ * carried: no released build has written this file yet.
+ *
  * Version 1 is the first shape a release ever wrote. The chain that built it
  * across the 0.7.0 canary is deliberately not carried: no released build
  * produced those files, and keeping the steps would preserve the retired
@@ -115,7 +127,7 @@ const MIGRATIONS: ReadonlyArray<string> = [
      meta               TEXT
    );
    CREATE INDEX deferrals_sweep ON deferrals (state, claimed_at, expires_at, id);
-   CREATE INDEX deferrals_pending ON deferrals (state, deferred_at);
+   CREATE INDEX deferrals_pending ON deferrals (state, deferred_at, id);
    CREATE INDEX deferrals_retention ON deferrals (state, outcome_at);
    CREATE INDEX deferrals_stranded ON deferrals (outcome_kind, deferred_at);`,
 ];
@@ -445,6 +457,46 @@ export class SqliteDeferralStore implements DeferralStore {
     });
   }
 
+  async list(query: DeferralListQuery): Promise<DeferralSummary[]> {
+    assertSweepLimit(query.limit);
+    assertListCursor(query.after);
+    return guard("list deferrals", () => {
+      // Only the summary's own columns, so a page never reads a serialized
+      // exchange out of the database to then drop it.
+      const where: string[] = [];
+      const params: Array<string | number> = [];
+      if (query.state !== undefined) {
+        where.push("state = ?");
+        params.push(query.state);
+      }
+      if (query.routeId !== undefined) {
+        where.push("route_id = ?");
+        params.push(query.routeId);
+      }
+      if (query.after !== undefined) {
+        // Expanded rather than row-value syntax, matching findExpired: the
+        // latter puts a floor on the SQLite version.
+        where.push("(deferred_at > ? OR (deferred_at = ? AND id > ?))");
+        params.push(
+          query.after.deferredAt.getTime(),
+          query.after.deferredAt.getTime(),
+          query.after.id,
+        );
+      }
+      const rows = this.#db
+        .prepare(
+          `SELECT id, route_id, state, waiting_for, deferred_at, expires_at,
+                  claimed_at, outcome_kind, outcome_at, outcome_reason, outcome_by
+             FROM deferrals
+             ${where.length > 0 ? `WHERE ${where.join(" AND ")}` : ""}
+             ORDER BY deferred_at ASC, id ASC
+             LIMIT ?`,
+        )
+        .all(...params, query.limit);
+      return rows.map((row) => toSummary(row as DeferralSummaryRow));
+    });
+  }
+
   async resumedWithoutContinuation(limit?: number): Promise<Deferral[]> {
     assertSweepLimit(limit);
     return guard("scan for stranded resumes", () => {
@@ -656,6 +708,62 @@ interface DeferralRow {
   outcome_reason: string | null;
   outcome_by: string | null;
   continuation: string | null;
+}
+
+/**
+ * The columns the management listing selects. A narrower row than
+ * {@link DeferralRow} on purpose: the query names these so the exchange,
+ * the step state and the schema are never read at all.
+ */
+interface DeferralSummaryRow {
+  id: string;
+  route_id: string;
+  state: string;
+  waiting_for: string;
+  deferred_at: number;
+  expires_at: number | null;
+  claimed_at: number | null;
+  outcome_kind: string | null;
+  outcome_at: number | null;
+  outcome_reason: string | null;
+  outcome_by: string | null;
+}
+
+/**
+ * Read a summary row.
+ *
+ * Not `summariseDeferral(toDeferral(row))`, because there is no full
+ * record here to summarise. The outcome pairing rule is the one
+ * {@link toDeferral} applies and is repeated for the same reason it gives:
+ * a row carrying one half of an outcome is only reachable by raw SQL, and
+ * reading it back as a partial outcome would mean inventing the other.
+ *
+ * @internal
+ */
+function toSummary(row: DeferralSummaryRow): DeferralSummary {
+  return {
+    id: row.id,
+    routeId: row.route_id,
+    state: row.state as DeferralState,
+    waitingFor: row.waiting_for as DeferralWaitingFor,
+    claimed: row.claimed_at != null,
+    deferredAt: new Date(row.deferred_at),
+    ...(row.expires_at !== null ? { expiresAt: new Date(row.expires_at) } : {}),
+    ...(row.outcome_kind !== null && row.outcome_at !== null
+      ? {
+          outcome: {
+            kind: row.outcome_kind as DeferralOutcome["kind"],
+            at: new Date(row.outcome_at),
+            ...(row.outcome_reason !== null
+              ? { reason: row.outcome_reason }
+              : {}),
+            ...(row.outcome_by !== null
+              ? { by: JSON.parse(row.outcome_by) as PrincipalRef }
+              : {}),
+          },
+        }
+      : {}),
+  };
 }
 
 /** @internal */

@@ -258,6 +258,12 @@
     "retryable": false
   },
   {
+    "code": "RC5065",
+    "category": "Definition",
+    "message": "Deferral store is missing a contract member",
+    "retryable": false
+  },
+  {
     "code": "RC9901",
     "category": "Runtime",
     "message": "Unknown error",

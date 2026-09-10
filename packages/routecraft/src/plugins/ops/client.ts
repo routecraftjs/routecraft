@@ -21,11 +21,13 @@
  * (where the address came from, and what to do when refused).
  */
 
+import type { DeferralState } from "../../deferral/types.ts";
 import type { Duration } from "../../shared/duration.ts";
 import { parseDuration } from "../../shared/duration.ts";
 import type {
   HealthComponent,
   HealthReport,
+  OpsDeferralSummary,
   OpsDispatchOutcome,
   OpsPage,
   OpsRouteDetail,
@@ -198,6 +200,31 @@ export interface OpsHttpClient {
   listRoutes(filter?: OpsRouteFilter): Promise<OpsRouteSummary[]>;
   describeRoute(id: string): Promise<OpsRouteDetail>;
   dispatch(id: string, body: unknown): Promise<OpsDispatchOutcome>;
+  /**
+   * One page of deferrals, and the cursor for the next when there is one.
+   *
+   * The page rather than the whole collection, which is the opposite of
+   * {@link OpsHttpClient.listRoutes}. A route inventory is bounded by what
+   * an author wrote; an instance can hold every exchange it has ever
+   * deferred, so walking it would be a request to load an unbounded set
+   * into memory to print the first screen of it.
+   */
+  listDeferrals(
+    filter?: OpsDeferralFilter,
+  ): Promise<OpsPage<OpsDeferralSummary>>;
+  describeDeferral(id: string): Promise<OpsDeferralSummary>;
+}
+
+/** What `GET /ops/deferrals` accepts. */
+export interface OpsDeferralFilter {
+  /** Waiting by default on the server; `all` asks for both states. */
+  state?: DeferralState | "all";
+  /** Only deferrals belonging to this route. */
+  route?: string;
+  /** Rows in one page. The server bounds it and refuses a larger ask. */
+  limit?: number;
+  /** The previous page's `nextCursor`, passed back unchanged. */
+  after?: string;
 }
 
 /**
@@ -513,6 +540,22 @@ export function createOpsHttpClient(
 
     describeRoute: (id: string) =>
       call<OpsRouteDetail>(`/ops/routes/${encodeURIComponent(id)}`),
+
+    listDeferrals(filter: OpsDeferralFilter = {}) {
+      const params = new URLSearchParams({
+        ...(filter.state !== undefined ? { state: filter.state } : {}),
+        ...(filter.route !== undefined ? { route: filter.route } : {}),
+        ...(filter.limit !== undefined ? { limit: String(filter.limit) } : {}),
+        ...(filter.after !== undefined ? { after: filter.after } : {}),
+      });
+      const suffix = params.toString();
+      return call<OpsPage<OpsDeferralSummary>>(
+        `/ops/deferrals${suffix.length > 0 ? `?${suffix}` : ""}`,
+      );
+    },
+
+    describeDeferral: (id: string) =>
+      call<OpsDeferralSummary>(`/ops/deferrals/${encodeURIComponent(id)}`),
 
     dispatch: (id: string, body: unknown) =>
       call<OpsDispatchOutcome>(

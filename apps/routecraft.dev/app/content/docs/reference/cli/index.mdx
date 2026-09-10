@@ -297,6 +297,7 @@ Inspect a running instance: health, readiness, routes, indicators.
 craft ops health
 craft ops ready
 craft ops routes [id] [--dispatchable] [--source <kind>]
+craft ops deferrals [id] [--state <state>] [--route <id>] [--limit <n>] [--after <cursor>]
 craft ops indicators [name]
 ```
 
@@ -308,6 +309,8 @@ Every subcommand takes the same `--profile`, `--url`, `--token` and `--format` o
 | `craft ops ready` | Readiness: whether this replica should receive traffic. A different question, for a different consumer |
 | `craft ops routes` | The route inventory, following the cursor across every page |
 | `craft ops routes <id>` | One route: its definition and its health component, together |
+| `craft ops deferrals` | One page of what the instance is waiting on, oldest first. Waiting by default; `--state settled` or `--state all` for the rest. A page rather than the whole collection, so the rendering names the cursor for the next |
+| `craft ops deferrals <id>` | One deferral: what it waits for, since when, and how it settled |
 | `craft ops indicators` | The indicator map from the health report |
 | `craft ops indicators <name>` | One indicator's component |
 

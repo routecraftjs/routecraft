@@ -170,6 +170,7 @@ export type {
   IndicatorDefinition,
   LivenessReport,
   OpsConfig,
+  OpsDeferralSummary,
   OpsDispatchOutcome,
   OpsHealthOptions,
   OpsPage,
@@ -197,6 +198,7 @@ export {
   isLoopbackHostname,
   OpsClientError,
   type OpsBearerToken,
+  type OpsDeferralFilter,
   type OpsFailureKind,
   type OpsHttpClient,
   type OpsHttpClientOptions,
@@ -743,6 +745,9 @@ export type {
   Deferral,
   DeferralCasResult,
   DeferralConfig,
+  DeferralListCursor,
+  DeferralListQuery,
+  DeferralSummary,
   DeferralSchema,
   DeferralResumption,
   DeferralRuntime,
@@ -752,7 +757,7 @@ export type {
   DeferralStore,
   DeferralStoreConfig,
 } from "./deferral/index.ts";
-export { claimed, resumable } from "./deferral/index.ts";
+export { claimed, resumable, summariseDeferral } from "./deferral/index.ts";
 export {
   type MailAuth,
   type MailReconnectOptions,

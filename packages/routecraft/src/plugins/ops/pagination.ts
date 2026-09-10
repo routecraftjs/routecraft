@@ -108,16 +108,22 @@ function assertPageLimit(limit: number | undefined): void {
 }
 
 /**
- * Mint a cursor pointing just past `lastId`, bound to the filter that
+ * Mint a cursor pointing just past `key`, bound to the filter that
  * produced the page.
  *
  * Opaque to the caller by construction: base64url of a shape this module
  * owns. A client that decodes it and constructs its own is outside the
  * contract, which is the point of publishing a string rather than a key.
+ *
+ * The key is whatever orders the contributor's own result set strictly:
+ * {@link takePage} passes a row's `id`, and a collection ordered by
+ * something else renders its keyset into one string and reads it back
+ * itself. The deferral listing does that, ordering by `(deferredAt, id)`
+ * because a deferral id says nothing about time.
  */
-export function encodeCursor(lastId: string, filter: PageFilter): string {
+export function encodeCursor(key: string, filter: PageFilter): string {
   const payload: DecodedCursor = {
-    after: lastId,
+    after: key,
     filter: fingerprintFilter(filter),
   };
   return Buffer.from(JSON.stringify(payload), "utf8").toString("base64url");

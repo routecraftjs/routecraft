@@ -423,7 +423,7 @@ program
 const ops = program
   .command("ops")
   .description(
-    "Inspect a running instance: health, readiness, routes, indicators",
+    "Inspect a running instance: health, readiness, routes, deferrals, indicators",
   );
 
 function opsOption<T extends import("commander").Command>(command: T): T {
@@ -479,6 +479,39 @@ opsOption(
       id === undefined
         ? await routesCommand(options)
         : await routeCommand(id, options),
+    );
+  },
+);
+
+opsOption(
+  ops
+    .command("deferrals")
+    .description("List what is waiting, or describe one deferral")
+    .argument("[id]", "Deferral id; omit to list")
+    .option("--state <state>", "waiting (default), settled, or all")
+    .option("--route <id>", "Only deferrals belonging to this route")
+    .option("--limit <n>", "Rows in one page")
+    .option("--after <cursor>", "Continue from a previous page's cursor"),
+).action(
+  async (
+    id: string | undefined,
+    options: {
+      state?: string;
+      route?: string;
+      limit?: string;
+      after?: string;
+      profile?: string;
+      url?: string;
+      token?: string;
+      format?: string;
+    },
+  ) => {
+    applyGlobalLogOptions();
+    const { deferralsCommand, deferralCommand } = await import("./ops.js");
+    settle(
+      id === undefined
+        ? await deferralsCommand(options)
+        : await deferralCommand(id, options),
     );
   },
 );

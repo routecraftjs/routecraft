@@ -15,6 +15,8 @@ import { OpsClientError, type OpsClient } from "./ops-client.js";
 import { prepare } from "./prepare.js";
 import {
   renderComponent,
+  renderDeferral,
+  renderDeferrals,
   renderIndicators,
   renderReport,
   renderRouteDetail,
@@ -28,6 +30,14 @@ import type { OutputFormat, SettingsOverrides } from "./settings.js";
 export interface OpsRoutesOptions extends SettingsOverrides {
   dispatchable?: boolean;
   source?: string;
+}
+
+/** Filters accepted by `craft ops deferrals`. */
+export interface OpsDeferralsOptions extends SettingsOverrides {
+  state?: string;
+  route?: string;
+  limit?: string;
+  after?: string;
 }
 
 /** Run one read and render it, turning client failures into exit codes. */
@@ -122,6 +132,51 @@ export function routeCommand(
     }
     return renderRouteDetail(definition, health, format, view);
   });
+}
+
+/**
+ * `craft ops deferrals`: what this instance is waiting on.
+ *
+ * One page, not the whole collection. An instance holds every exchange it
+ * has ever deferred until retention takes it, so a command that walked
+ * the listing would load an unbounded set to print the first screen of
+ * it; the rendering names the cursor for the next page instead.
+ *
+ * Waiting by default, because the question this is opened with is what is
+ * still owed an answer. `--state settled` asks for the history and
+ * `--state all` for both.
+ */
+export function deferralsCommand(
+  options: OpsDeferralsOptions = {},
+): Promise<ExecResult> {
+  return read(options, async (client, format) =>
+    renderDeferrals(
+      await client.listDeferrals({
+        ...(options.state !== undefined
+          ? { state: options.state as "waiting" | "settled" | "all" }
+          : {}),
+        ...(options.route !== undefined ? { route: options.route } : {}),
+        // Passed through as the string the flag carried, so a value that
+        // is not a number is refused by the instance with the rule it
+        // applies rather than by a second parse here that could disagree.
+        ...(options.limit !== undefined
+          ? { limit: Number(options.limit) }
+          : {}),
+        ...(options.after !== undefined ? { after: options.after } : {}),
+      }),
+      format,
+    ),
+  );
+}
+
+/** `craft ops deferrals <id>`: one deferral. */
+export function deferralCommand(
+  id: string,
+  options: SettingsOverrides = {},
+): Promise<ExecResult> {
+  return read(options, async (client, format) =>
+    renderDeferral(await client.describeDeferral(id), format),
+  );
 }
 
 /**
