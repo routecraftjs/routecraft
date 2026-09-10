@@ -31,6 +31,7 @@ import { decodeCursor, takePage } from "./pagination";
 import { safeStringify } from "../../shared/safe-json.ts";
 import { compareCodeUnits } from "../../shared/compare";
 import { OPS_RESOURCES } from "./store";
+import { REMOTE_ROUTES, type RemoteRoute } from "../remotes/store";
 import type {
   OpsDispatchOutcome,
   OpsEventTailItem,
@@ -138,12 +139,38 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
   const capabilityIndex = (): Map<string, Capability> =>
     new Map(ctx.capabilities().map((entry) => [entry.endpoint, entry]));
 
+  /**
+   * Routes imported from other instances, keyed by local endpoint.
+   *
+   * Listed beside the local routes as dispatchable, with `remote` naming
+   * the origin. A local route with the same id wins while it shadows the
+   * remote route, and the capability registry is what says so: `direct()`
+   * writes a local capability when the route subscribes, and the remotes
+   * plugin writes the remote's back when that route stops. A stopped
+   * route stays in `getRoutes()`, so the id alone cannot decide.
+   */
+  const remoteIndex = (): Map<string, RemoteRoute> =>
+    ctx.getStore(REMOTE_ROUTES) ?? new Map<string, RemoteRoute>();
+
+  const remoteAnswers = (
+    id: string,
+    capabilities: Map<string, Capability>,
+  ): boolean =>
+    remoteIndex().has(id) && capabilities.get(id)?.remote !== undefined;
+
   const summaries = (): OpsRouteSummary[] => {
     const capabilities = capabilityIndex();
-    return ctx
+    const local = ctx
       .getRoutes()
-      .map((route) => summarise(ctx, route.definition, capabilities))
-      .sort((left, right) => compareCodeUnits(left.id, right.id));
+      .filter((route) => !remoteAnswers(route.definition.id, capabilities))
+      .map((route) => summarise(ctx, route.definition, capabilities));
+    const localIds = new Set(local.map((route) => route.id));
+    const imported = [...remoteIndex().values()]
+      .filter((route) => !localIds.has(route.endpoint))
+      .map(summariseRemote);
+    return [...local, ...imported].sort((left, right) =>
+      compareCodeUnits(left.id, right.id),
+    );
   };
 
   return {
@@ -267,11 +294,12 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
 
     describeRoute(id: string): OpsRouteDetail | undefined {
       const capabilities = capabilityIndex();
-      const route = ctx
-        .getRoutes()
-        .find((candidate) => candidate.definition.id === id);
-      if (!route) return undefined;
-      return detail(ctx, route.definition, capabilities);
+      const route = remoteAnswers(id, capabilities)
+        ? undefined
+        : ctx.getRoutes().find((candidate) => candidate.definition.id === id);
+      if (route) return detail(ctx, route.definition, capabilities);
+      const imported = remoteIndex().get(id);
+      return imported === undefined ? undefined : detailRemote(imported);
     },
 
     async dispatch(
@@ -280,15 +308,20 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
       principal: Principal | undefined,
     ): Promise<OpsDispatchOutcome> {
       const capabilities = capabilityIndex();
-      const route = ctx
-        .getRoutes()
-        .find((candidate) => candidate.definition.id === id);
-      if (!route) {
+      const route = remoteAnswers(id, capabilities)
+        ? undefined
+        : ctx.getRoutes().find((candidate) => candidate.definition.id === id);
+      // An imported route has no definition here and needs none: its
+      // capability is its door, and the channel behind it carries the
+      // exchange to the instance that defines it. Re-exposing it through
+      // this door is intentional, exactly as a tool fronting an
+      // authenticated REST call re-exposes that call.
+      if (!route && !remoteIndex().has(id)) {
         throw rcError("RC5004", undefined, {
           message: `No route "${id}" is registered in this instance.`,
         });
       }
-      if (!capabilities.has(id)) {
+      if (route && !capabilities.has(id)) {
         // Two different refusals behind one absence: a route that declared
         // `direct({ internal: true })` HAS a direct source, so telling its
         // caller to add one would be wrong advice. The internal registry is
@@ -334,6 +367,40 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
         throw error;
       }
     },
+  };
+}
+
+/**
+ * An imported route as the listing presents it: what the remote said about
+ * its route, under the local endpoint, with the origin named. Always
+ * dispatchable and enabled, because the remote only lists routes that are,
+ * and the JSON Schema renderings pass through as the remote rendered them.
+ */
+function summariseRemote(route: RemoteRoute): OpsRouteSummary {
+  const { detail } = route;
+  return {
+    id: route.endpoint,
+    dispatchable: true,
+    enabled: true,
+    sources: ["remote"],
+    requiresPrincipal: detail.requiresPrincipal,
+    ...(detail.title !== undefined ? { title: detail.title } : {}),
+    ...(detail.description !== undefined
+      ? { description: detail.description }
+      : {}),
+    ...(detail.tags !== undefined && detail.tags.length > 0
+      ? { tags: [...detail.tags] }
+      : {}),
+    remote: route.remote,
+  };
+}
+
+function detailRemote(route: RemoteRoute): OpsRouteDetail {
+  const { detail } = route;
+  return {
+    ...summariseRemote(route),
+    ...(detail.input !== undefined ? { input: detail.input } : {}),
+    ...(detail.output !== undefined ? { output: detail.output } : {}),
   };
 }
 

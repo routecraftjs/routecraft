@@ -48,6 +48,17 @@ export const DIRECT_TOOL_PREFIX = `direct${TOOL_NAME_SEPARATOR}`;
 export const MCP_TOOL_PREFIX = `mcp${TOOL_NAME_SEPARATOR}`;
 
 /**
+ * Wire-form prefix for a capability imported from another instance and
+ * referenced under its qualified endpoint: `Direct(lab:hello)` and every
+ * expansion of `Remote(lab)` become `remote__lab__hello`. The default
+ * remote's routes referenced bare keep the `direct__` form, because to
+ * the agent they are local.
+ *
+ * @internal
+ */
+export const REMOTE_TOOL_PREFIX = `remote${TOOL_NAME_SEPARATOR}`;
+
+/**
  * Reject a `Direct(<routeId>)` reference whose route id cannot survive
  * as a provider-facing tool name.
  *
@@ -96,7 +107,10 @@ export type { ToolGuard } from "../../fn/types.ts";
  * One entry in the agent's `tools([...])` list.
  *
  * - bare string: name lookup. Plain ids resolve against the fn registry;
- *   `Direct(<routeId>)` wraps a direct route via `directTool`;
+ *   `Direct(<routeId>)` wraps a direct route via `directTool`, a route
+ *   imported from another instance included (`Direct(hello)` for the
+ *   default remote, `Direct(lab:hello)` qualified); `Remote(<name>)`
+ *   expands to every route imported from that remote;
  *   `MCP(server:tool)` / `MCP(server)` and the raw `mcp__server__tool`
  *   / `mcp__server` / `mcp__server__*` forms resolve against
  *   `MCP_TOOL_REGISTRY` (populated by `defineConfig.mcp` /
@@ -140,12 +154,15 @@ export interface ToolsCatalog {
   }>;
   /**
    * Discoverable direct routes (see `CraftContext.capabilities()`).
-   * Reference them in a `ToolsItem` as `"Direct(<id>)"`.
+   * Reference them in a `ToolsItem` as `"Direct(<id>)"`. A route imported
+   * from another instance carries `remote`, and its id is the local
+   * endpoint (`lab:hello`, or bare for the default remote).
    */
   readonly routes: ReadonlyArray<{
     readonly id: string;
     readonly description?: string;
     readonly tags?: readonly Tag[];
+    readonly remote?: string;
   }>;
   /**
    * MCP tools populated by `mcpPlugin({ clients })`. Reference them in
@@ -327,6 +344,12 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
             }
             continue;
           }
+          if (isRemoteRefName(item) && !fnRegistryHas(ctx, item)) {
+            for (const tool of resolveRemoteRefs(ctx, item, undefined)) {
+              record(out, tool);
+            }
+            continue;
+          }
           record(out, resolveByName(ctx, item, undefined));
           continue;
         }
@@ -350,6 +373,19 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
             });
           }
           for (const tool of resolveMcpRefs(ctx, item.name, item.guard)) {
+            record(out, tool);
+          }
+          continue;
+        }
+        // A whole-remote ref expands to many tools, so one description
+        // cannot apply; name the route with Direct(<name>:<id>) instead.
+        if (isRemoteRefName(item.name) && !fnRegistryHas(ctx, item.name)) {
+          if (item.description !== undefined) {
+            throw rcError("RC5003", undefined, {
+              message: `tools(): { name: "${item.name}", description } is not supported for a whole-remote reference; it expands to every route of the remote. Reference one route with { name: "Direct(<name>:<id>)", description }.`,
+            });
+          }
+          for (const tool of resolveRemoteRefs(ctx, item.name, item.guard)) {
             record(out, tool);
           }
           continue;
@@ -429,6 +465,7 @@ function buildCatalog(ctx: CraftContext): ToolsCatalog {
         id: meta.endpoint,
         ...(meta.description ? { description: meta.description } : {}),
         ...(tags !== undefined ? { tags } : {}),
+        ...(meta.remote !== undefined ? { remote: meta.remote } : {}),
       }),
     );
   }
@@ -525,11 +562,7 @@ function resolveByName(
         message: `tools(): "${name}" has an empty route id; use "Direct(<routeId>)".`,
       });
     }
-    const toolName = `${DIRECT_TOOL_PREFIX}${routeId}`;
-    assertValidDirectToolName(name, routeId, toolName);
-    const wrapper = directTool(routeId);
-    const fn = wrapper.resolve(ctx, toolName);
-    return toResolvedTool(toolName, fn, guard, { kind: "direct", routeId });
+    return resolveDirect(ctx, name, routeId, guard);
   }
 
   const known = listKnownNames(ctx);
@@ -570,6 +603,144 @@ function combineGuards(
  *
  * @internal
  */
+/**
+ * Wrap one capability as a tool, under the wire name its origin decides.
+ *
+ * A local route, and the default remote's routes advertised bare, keep
+ * the `direct__<routeId>` form. A route referenced under a remote's
+ * qualified endpoint (`lab:hello`) cannot: the colon is outside the
+ * provider charset, so the wire name is `remote__<name>__<id>`, one
+ * separator per part, mirroring `mcp__<server>__<tool>`. The remote's
+ * name is constrained at configuration the way an MCP client's is, which
+ * is what leaves the id half free.
+ *
+ * @internal
+ */
+function resolveDirect(
+  ctx: CraftContext,
+  ref: string,
+  routeId: string,
+  guard: ToolGuard | undefined,
+): ResolvedTool {
+  const remote = remoteOf(ctx, routeId);
+  const qualifiedBy = `${remote ?? ""}:`;
+  const toolName =
+    remote !== undefined && routeId.startsWith(qualifiedBy)
+      ? `${REMOTE_TOOL_PREFIX}${remote}${TOOL_NAME_SEPARATOR}${routeId.slice(qualifiedBy.length)}`
+      : `${DIRECT_TOOL_PREFIX}${routeId}`;
+  assertValidDirectToolName(ref, routeId, toolName);
+  const wrapper = directTool(routeId);
+  const fn = wrapper.resolve(ctx, toolName);
+  return toResolvedTool(toolName, fn, guard, directSource(routeId, remote));
+}
+
+/** The remote a capability was imported from, or `undefined` for a local one. */
+function remoteOf(ctx: CraftContext, routeId: string): string | undefined {
+  return ctx.capabilities().find((c) => c.endpoint === routeId)?.remote;
+}
+
+function directSource(
+  routeId: string,
+  remote: string | undefined,
+): AgentToolSource {
+  return {
+    kind: "direct",
+    routeId,
+    ...(remote !== undefined ? { remote } : {}),
+  };
+}
+
+/**
+ * Recognise a `Remote(<name>)` reference: every route imported from one
+ * remote, the way `MCP(server)` is every tool on one client.
+ *
+ * @internal
+ */
+function isRemoteRefName(name: string): boolean {
+  return name.startsWith("Remote(") && name.endsWith(")");
+}
+
+/**
+ * Expand `Remote(<name>)` (also `Remote(<name>:*)`) to every capability
+ * the named remote imported, under their qualified endpoints. The
+ * default remote's bare aliases are skipped so its routes are not offered
+ * twice; `Direct(<id>)` is how the bare form is named.
+ *
+ * A route whose id cannot survive as a tool name is dropped with a
+ * warning rather than thrown, for the reason the MCP expansion gives:
+ * the name comes from the remote, `resolve` runs per dispatch, and a
+ * throw would let one route renamed on the remote fail every dispatch of
+ * every agent bound to it. Reported once per context and name.
+ *
+ * @internal
+ */
+function resolveRemoteRefs(
+  ctx: CraftContext,
+  ref: string,
+  guard: ToolGuard | undefined,
+): ResolvedTool[] {
+  const inner = ref.slice("Remote(".length, -1).trim();
+  const colon = inner.indexOf(":");
+  const remote = colon === -1 ? inner : inner.slice(0, colon).trim();
+  const selector = colon === -1 ? "*" : inner.slice(colon + 1).trim();
+  if (remote === "" || selector !== "*") {
+    throw rcError("RC5003", undefined, {
+      message: `tools(): remote reference "${ref}" must use "Remote(<name>)" for every route of a remote; name one route with "Direct(<name>:<id>)".`,
+    });
+  }
+  const prefix = `${remote}:`;
+  const imported = ctx
+    .capabilities()
+    .filter((c) => c.remote === remote && c.endpoint.startsWith(prefix));
+  if (imported.length === 0) {
+    const known = [
+      ...new Set(
+        ctx
+          .capabilities()
+          .map((c) => c.remote)
+          .filter((name): name is string => name !== undefined),
+      ),
+    ].sort();
+    throw rcError("RC5003", undefined, {
+      message:
+        `tools(): remote reference "${ref}" but remote "${remote}" has no imported routes. ` +
+        (known.length > 0
+          ? `Remotes with routes: ${known.map((k) => `"${k}"`).join(", ")}.`
+          : `No remote has imported routes in this context; configure defineConfig({ remotes }) and check the remote is reachable.`),
+    });
+  }
+  const out: ResolvedTool[] = [];
+  for (const capability of imported) {
+    const toolName = `${REMOTE_TOOL_PREFIX}${remote}${TOOL_NAME_SEPARATOR}${capability.endpoint.slice(prefix.length)}`;
+    const violation = describeToolNameViolation(toolName);
+    if (violation !== undefined) {
+      const reported = reportedRemoteNames.get(ctx) ?? new Set<string>();
+      reportedRemoteNames.set(ctx, reported);
+      if (!reported.has(toolName)) {
+        reported.add(toolName);
+        ctx.logger.warn(
+          { remote, routeId: capability.endpoint, toolName },
+          `Remote route id is not usable as a provider tool name (${violation}); dropping it from the agent's tool list. Expose it through a capability under a tool-safe name if the agent needs it.`,
+        );
+      }
+      continue;
+    }
+    const fn = directTool(capability.endpoint).resolve(ctx, toolName);
+    out.push(
+      toResolvedTool(
+        toolName,
+        fn,
+        guard,
+        directSource(capability.endpoint, remote),
+      ),
+    );
+  }
+  return out;
+}
+
+/** Unusable remote route names already warned about, per context. */
+const reportedRemoteNames = new WeakMap<CraftContext, Set<string>>();
+
 function record(out: Map<string, ResolvedTool>, tool: ResolvedTool): void {
   const existing = out.get(tool.name);
   if (!existing) {
@@ -607,10 +778,12 @@ function resolveFnEntry(
         // capability: it reaches the same route, only under a different
         // name. Reporting it as `fn` would let an alias slip past a
         // policy that denies `direct`.
-        return toResolvedTool(name, fn, guard, {
-          kind: "direct",
-          routeId: entry.targetId,
-        });
+        return toResolvedTool(
+          name,
+          fn,
+          guard,
+          directSource(entry.targetId, remoteOf(ctx, entry.targetId)),
+        );
       default: {
         const exhaustive: never = entry.kind;
         throw rcError("RC5003", undefined, {
@@ -924,6 +1097,14 @@ function listKnownNames(ctx: CraftContext): string[] {
   const fnNames = [
     ...(ctx.getStore(ADAPTER_FN_REGISTRY) ?? new Map<string, FnEntry>()).keys(),
   ];
-  const routeNames = ctx.capabilities().map((c) => `Direct(${c.endpoint})`);
-  return [...fnNames, ...routeNames].sort();
+  const capabilities = ctx.capabilities();
+  const routeNames = capabilities.map((c) => `Direct(${c.endpoint})`);
+  const remoteNames = [
+    ...new Set(
+      capabilities
+        .map((c) => c.remote)
+        .filter((name): name is string => name !== undefined),
+    ),
+  ].map((name) => `Remote(${name})`);
+  return [...fnNames, ...routeNames, ...remoteNames].sort();
 }

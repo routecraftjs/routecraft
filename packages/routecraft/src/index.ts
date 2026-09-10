@@ -93,6 +93,7 @@ export { type HttpConfig } from "./adapters/http/types.ts";
 import "./plugins/server/config.ts";
 import "./plugins/http/config.ts";
 import "./plugins/ops/config.ts";
+import "./plugins/remotes/config.ts";
 import "./adapters/cron/config.ts";
 import "./adapters/direct/config.ts";
 import "./adapters/mail/config.ts";
@@ -189,6 +190,23 @@ export {
   OPS_SCOPE_EVENTS,
   OPS_SCOPE_INTROSPECTION,
 } from "./plugins/ops/types.ts";
+// The client of that API, shared with the CLI and the remotes plugin so the
+// wire is spoken in one place.
+export {
+  createOpsHttpClient,
+  isLoopbackHostname,
+  OpsClientError,
+  type OpsBearerToken,
+  type OpsFailureKind,
+  type OpsHttpClient,
+  type OpsHttpClientOptions,
+} from "./plugins/ops/client.ts";
+export { remotesPlugin } from "./plugins/remotes/plugin.ts";
+export type {
+  RemoteDefinition,
+  RemotesConfig,
+  RemotesPluginOptions,
+} from "./plugins/remotes/types.ts";
 /** @deprecated Use `CraftConfig.direct` instead. Will be removed in next major version. */
 export { type DirectConfig } from "./adapters/direct/types.ts";
 

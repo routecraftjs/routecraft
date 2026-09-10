@@ -26,9 +26,13 @@ import { createManagementApi } from "./management";
 import { createManagementHandler } from "./mount";
 import { createHealthHandler } from "./report";
 import { HealthState } from "./state";
-import { OPS_HEALTH_STATE } from "./store";
+import {
+  OPS_CONTRIBUTED_INDICATORS,
+  OPS_HEALTH_STATE,
+  type ContributedIndicator,
+} from "./store";
 import { enforcesWall } from "./tier";
-import type { Indicator, OpsPluginOptions, OpsTiers } from "./types";
+import type { Health, Indicator, OpsPluginOptions, OpsTiers } from "./types";
 
 /**
  * Everything the mount answers. Claimed exhaustively so the server's
@@ -50,6 +54,13 @@ interface Runtime {
   unsubscribes: (() => void)[];
   /** The mount's effective validator exists (its own auth, or the server's). */
   authConfigured: boolean;
+  /** Every indicator name registered on the ledger, from options and contributions. */
+  indicatorNames: Set<string>;
+  /** Contributed indicators bound at start, with this ledger's sink, released at teardown. */
+  contributed: Array<{
+    entry: ContributedIndicator;
+    sink: (health: Health, reportedAt: number) => void;
+  }>;
   unmount?: () => void;
 }
 
@@ -142,15 +153,17 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
           ctx.emit("plugin:ops:health:changed", change);
         },
       });
+      const names = new Set<string>();
       const runtime: Runtime = {
         state,
         unsubscribes: [],
         authConfigured: mountAuth.configured,
+        indicatorNames: names,
+        contributed: [],
       };
       runtimes.set(ctx, runtime);
       ctx.setStore(OPS_HEALTH_STATE, state);
 
-      const names = new Set<string>();
       for (const indicator of indicators) {
         if (!isIndicator(indicator)) {
           throw rcError("RC5053", undefined, {
@@ -356,6 +369,39 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
         );
       }
 
+      // Indicators other plugins contributed from their apply(), bound here
+      // because a contributor may have applied after this plugin did. Names
+      // share one report with ops.indicators, so a clash is refused rather
+      // than letting whichever registered last own the key.
+      for (const entry of ctx.getStore(OPS_CONTRIBUTED_INDICATORS)?.values() ??
+        []) {
+        if (runtime.indicatorNames.has(entry.name)) {
+          throw rcError("RC5053", undefined, {
+            message: `Indicator "${entry.name}" is both listed in ops.indicators and contributed by a plugin. Indicator names are the keys of the health report, so they must be unique.`,
+          });
+        }
+        runtime.indicatorNames.add(entry.name);
+        const maxAgeMs =
+          entry.maxAge === undefined
+            ? undefined
+            : parseDuration(entry.maxAge, "maxAge");
+        runtime.state.registerIndicator(entry.name, {
+          ...(maxAgeMs !== undefined ? { maxAgeMs } : {}),
+          ...(entry.domain !== undefined ? { domain: entry.domain } : {}),
+        });
+        const { state } = runtime;
+        const sink = (health: Health, reportedAt: number): void => {
+          state.reportIndicator(entry.name, health, reportedAt);
+        };
+        entry.sinks.add(sink);
+        // A contributor whose start() already ran reported into nothing; its
+        // last verdict is what the ledger should open with, at the time it
+        // was made, so a maxAge window is measured from the report and not
+        // from this binding.
+        if (entry.last !== undefined) sink(entry.last.health, entry.last.at);
+        runtime.contributed.push({ entry, sink });
+      }
+
       const unbound = unboundIndicators();
       if (unbound.length > 0) {
         ctx.logger.warn(
@@ -387,6 +433,9 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
         runtime.state.contextStopped();
         for (const unsubscribe of runtime.unsubscribes) unsubscribe();
         for (const indicator of indicators) unbindIndicator(indicator, ctx);
+        for (const { entry, sink } of runtime.contributed) {
+          entry.sinks.delete(sink);
+        }
         runtimes.delete(ctx);
       }
     },

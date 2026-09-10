@@ -187,6 +187,22 @@ craft()
 
 The framework provides the seam and ships none of the capabilities that use it. Reading a file through the editor is an ordinary route somebody owns, with its own `.authorize()` written where a reader of that route can see it. That is the same line the framework draws for tool calls. The [`surface` reference](/docs/reference/adapters/surface) has the roles, the failure codes and the guard that keeps one route working from an editor and from a schedule alike.
 
+### What you still have to build
+
+Connecting an editor gives you a conversation. It does not give you an agent that can work in the project, and the distance between the two is a handful of routes somebody writes: reading a file, writing one, replacing part of one, listing and searching the project, running a command in the editor's terminal, opening a link, showing a plan, and the permission prompt the writing ones ask through.
+
+The routes are small. The decisions inside them are not. A command run this way runs in the editor, as the person, on their own machine, with none of the isolation a sandboxed shell gives you. Which commands may run without asking, which paths are refused before a call is made, how much of a file may reach one turn, and what the permission prompt actually says are all yours to decide, and together they are the whole of what stands between a command and the machine. The wall on the mount and a route's `.authorize()` decide who may start a turn and dispatch a route; neither constrains what a command does once it runs.
+
+### Starting from the harness
+
+[`craft-harness`](https://github.com/routecraftjs/craft-harness) ships that whole set, working, with a starting answer to each of those decisions:
+
+```bash
+bunx create-routecraft my-agent --example https://github.com/routecraftjs/craft-harness
+```
+
+What arrives is not a permission model compiled into somebody else's tool. It is eight capabilities and the permission prompt they ask through, one folder each under `capabilities/editor/`, with the guardrail that governs a route written in that route beside the code it governs. Narrow the command allowlist, add an `.authorize()` only your on-call rota passes, refuse a path your own rules refuse, or delete a capability you would rather the agent did not have. The posture it starts with is a default in your own source tree, which is the kind a reviewer can read and a diff can change.
+
 ## What this is not
 
 **It is not a second security model.** A prompt runs an ordinary route under the principal of the person who typed it, and every tool authorizes that principal on every call. Every agent the context holds is offered to every credential holder: agents are not what carries the security here, hands are.
