@@ -1,5 +1,27 @@
 # create-routecraft
 
+## 0.7.0
+
+### Minor Changes
+
+- [#699](https://github.com/routecraftjs/routecraft/pull/699) [`3f64e8c`](https://github.com/routecraftjs/routecraft/commit/3f64e8c71452b0b4357a920ab2f4073d15e1f9f0) Thanks [@ex0b1t](https://github.com/ex0b1t)! - Scaffolding from a repository keeps the files it copies, and deferred agent threads can be rewritten in place.
+
+  **The scaffolder no longer loses files ([#653](https://github.com/routecraftjs/routecraft/issues/653)).** A built-in example copied with `force: false` and no `errorOnExist`, so an example file landing where the base template already wrote one vanished with nothing in the output to say so. The collisions are now walked before the copy and named afterwards.
+
+  **A URL example's `package.json` is merged, not overwritten.** It used to replace the base manifest outright, which threw away the project name the user had just typed and the package manager they picked, and meant `mergeExampleDeps` never ran on that path at all. The template still wins on everything it declares; `name` and `packageManager` stay with the scaffold, and the three dependency maps plus `scripts` merge key by key.
+
+  **A `/tree/<branch>` URL no longer needs a subpath.** The pattern demanded one, so a whole repository at a named branch was unexpressible and a template repository could not scaffold from the branch under test in its own CI. The parser is now `parseGitHubExampleUrl`, exported and tested on its own. A branch is still one path segment: `feature/my-branch` parses as branch `feature` with subpath `my-branch`, because nothing in the URL says which slash is the boundary, and the JSDoc now says so instead of claiming multi-segment support the pattern never had.
+
+  **The copy filter matches path segments.** It matched substrings, so `.gitignore` and every file under `.github/` were dropped along with the `.git` directory they were never aimed at, and a capability folder named `pnpm-lock.yaml-parser` went with the lockfile. `bun.lock` and `bun.lockb` join the lockfiles that are deliberately excluded.
+
+  **Breaking (0.x, so `minor`): `DeferralStore` gains a required `replaceStepState` member.** A custom store implementation has to add it; the two shipped backends already have it, so a deployment that uses `memory` or `sqlite` is unaffected.
+
+  **`DeferralStore.replaceStepState`** compare-and-swaps the opaque `stepState` slot of a record that is still `deferred`, leaving every other field alone. It is the one write that edits a deferred record in place rather than settling it, and it exists for compaction: a thread that has outgrown the model's context window can only be shrunk while the exchange stays deferred. The compare is a `stepStateFingerprint` of the state the caller read, so two rewrites of the same read produce one winner, and the swap only matches a still-deferred row, so a resume that got there first wins outright. Both shipped backends implement it, and the cross-runtime suite proves they agree.
+
+  **`replaceDeferredThread` and `assertResumableThread`** (`@routecraft/ai`) put an agent's thread through that swap safely. A rewrite that breaks tool-call / tool-result pairing, duplicates a call id, empties the thread, or drops the deferred call the approver's answer lands on is refused with **`AI1008`** before the store is touched, so a failed compaction costs nothing and the run resumes uncompacted.
+
+  **`AI1009`** separates "the prompt does not fit the model's context window" from every other dispatch failure. The two need opposite reactions and no shared status code distinguishes them; the classifier reads OpenAI's `context_length_exceeded` where there is one and matches the phrasings Anthropic, Google and the local runtimes actually emit otherwise. Every other failure is rethrown untouched, with its retryability intact.
+
 ## 0.6.0
 
 ### Patch Changes
