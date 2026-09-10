@@ -1599,8 +1599,8 @@ export class CraftContext {
     // STAGE ONE. Close intake: sources stop producing, no new exchange is
     // admitted. Deliberately not the execution signal, so an exchange
     // already in the pipeline (an agent mid-tool-call, a suspension
-    // continuation) runs to its natural end. That distinction is the whole
-    // difference between the first Ctrl-C and the second.
+    // continuation) runs to its natural end. Dedicated force signals and the
+    // shutdown deadline are what abandon work that does not finish in time.
     for (const route of this.routes) {
       this.logger.info({ route: route.definition.id }, "Stopping route");
       const controller = this.controllers.get(route.definition.id);

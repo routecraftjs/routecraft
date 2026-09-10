@@ -24,7 +24,7 @@ const entered = (): { signal: Promise<void>; enter: () => void } => {
  *
  * Stage one closes intake and drains: sources stop producing, and an
  * exchange already in the pipeline runs to its natural end. Stage two is
- * forced, either by a second signal or by `shutdown.timeout` elapsing, and
+ * forced by a dedicated force signal or by `shutdown.timeout` elapsing, and
  * abandons in-flight execution.
  *
  * The bound exists because an unbounded stage one hands the outcome to the

@@ -1,4 +1,4 @@
-import { afterEach, expect, test } from "bun:test";
+import { expect, test } from "bun:test";
 import { spawnSync } from "node:child_process";
 import { shutdownHandler } from "../src/shutdown.ts";
 import type { CraftContext } from "../src/context.ts";
@@ -32,8 +32,10 @@ const invoke = (
 test("repeated graceful signals remain idempotent", async () => {
   const exits: number[] = [];
   const originalExit = process.exit;
+  const exit = Promise.withResolvers<void>();
   process.exit = ((code: number) => {
     exits.push(code);
+    exit.resolve();
   }) as typeof process.exit;
   const deferred = Promise.withResolvers<{
     forced: boolean;
@@ -47,8 +49,7 @@ test("repeated graceful signals remain idempotent", async () => {
     invoke("SIGTERM");
     invoke("SIGTERM");
     deferred.resolve({ forced: false, pending: [] });
-    await Promise.resolve();
-    await Promise.resolve();
+    await exit.promise;
 
     expect(exits).not.toContain(1);
     expect(exits).toContain(0);
@@ -92,19 +93,30 @@ test("SIGQUIT forces immediate exit before graceful shutdown", () => {
  * @expectedResult SIGBREAK invokes exit code 1 without waiting for context.stop
  */
 test("SIGBREAK forces immediate exit during graceful shutdown", () => {
-  const source = new URL("../src/shutdown.ts", import.meta.url).pathname;
+  const source = new URL("../src/shutdown.ts", import.meta.url).href;
   const script = `
     const { shutdownHandler } = await import(${JSON.stringify(source)});
-    const context = { logger: { info() {}, warn() {} }, stop: () => new Promise(() => {}) };
-    shutdownHandler(context);
+    const result = { stopStarted: false, forceHandled: false, exitCode: undefined };
+    process.exit = (code) => { result.forceHandled = true; result.exitCode = code; };
+    const context = { logger: { info() {}, warn() {} }, stop: () => { result.stopStarted = true; return new Promise(() => {}); } };
+    const cleanup = shutdownHandler(context);
     const graceful = process.listeners("SIGINT").find((listener) => listener.name === "sigintHandler");
     const force = process.listeners("SIGBREAK").find((listener) => listener.name === "sigbreakHandler");
     graceful();
     force();
+    cleanup();
+    console.log(JSON.stringify(result));
   `;
-  const result = spawnSync(process.execPath, ["-e", script]);
+  const result = spawnSync(process.execPath, ["-e", script], {
+    encoding: "utf8",
+  });
 
-  expect(result.status).toBe(1);
+  expect(result.status).toBe(0);
+  expect(JSON.parse(result.stdout)).toEqual({
+    stopStarted: true,
+    forceHandled: true,
+    exitCode: 1,
+  });
 });
 
 /**
@@ -127,11 +139,5 @@ test("cleanup removes all shutdown signal handlers", () => {
 
   for (const signal of before.keys()) {
     expect(process.listenerCount(signal)).toBe(before.get(signal)!);
-  }
-});
-
-afterEach(() => {
-  for (const signal of ["SIGINT", "SIGTERM", "SIGQUIT", "SIGBREAK"] as const) {
-    process.removeAllListeners(signal);
   }
 });

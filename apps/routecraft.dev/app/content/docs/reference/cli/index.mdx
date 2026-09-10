@@ -442,6 +442,8 @@ await context.start();
 
 **Dedicated force signals** (Ctrl+Backslash/SIGQUIT or Ctrl+Break/SIGBREAK): force an immediate exit for when graceful shutdown is stuck or taking too long, including before graceful shutdown begins.
 
+Signal meanings vary across ecosystems: nginx uses SIGQUIT for a graceful shutdown, while current Gunicorn uses SIGTERM for graceful shutdown and SIGQUIT for an immediate shutdown. If a container uses `STOPSIGNAL SIGQUIT` expecting a drain, this handler treats that signal as a force exit instead. Under `bun --filter`, the force-path log can be lost by the supervising command, so do not use that log as the sole evidence of a forced shutdown; also check the exit status or the result from `context.stop()`.
+
 Stage one is also bounded by [`shutdown.timeout`](/docs/reference/configuration#shutdown), which matters under an orchestrator: it sends one SIGTERM and then SIGKILLs, so no dedicated force signal is coming. On that deadline in-flight execution is abandoned and the process exits 1, so a forced shutdown is distinguishable from a clean one.
 
 `context.stop()` resolves with `{ forced, pending }` if you drive shutdown yourself: `forced` says the deadline was reached, and `pending` names the routes that still had work in flight.
