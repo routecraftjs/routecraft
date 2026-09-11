@@ -72,4 +72,22 @@ describe("the craft command surface", () => {
     expect(await help("exec", "--help")).toContain("--profile");
     expect(await help("ops", "routes", "--help")).toContain("--profile");
   }, 30_000);
+
+  /**
+   * @case The commands that boot a context take the logging flags directly
+   * @preconditions `craft start --help` and `craft run --help`
+   * @expectedResult Both offer `--log-level` and `--log-file`. They were
+   *   global-only, which `enablePositionalOptions` confines to the space
+   *   before the subcommand: `craft start --log-level info` died on "unknown
+   *   option" and `craft run app.ts --log-level info` was swallowed by the
+   *   pass-through and handed to the route
+   */
+  test("the commands that boot a context take the logging flags", async () => {
+    const startHelp = await help("start", "--help");
+    expect(startHelp).toContain("--log-level");
+    expect(startHelp).toContain("--log-file");
+    const runHelp = await help("run", "--help");
+    expect(runHelp).toContain("--log-level");
+    expect(runHelp).toContain("--log-file");
+  }, 30_000);
 });

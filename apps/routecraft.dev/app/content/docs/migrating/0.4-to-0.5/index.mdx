@@ -72,15 +72,17 @@ The destination form is unchanged: `direct("fetch-order")` and `direct((exchange
 Framework logs now write to stdout, matching pino's default and 12-factor conventions. To send logs to a file, use the `--log-file` flag:
 
 ```bash
-craft run server.js --log-file ./logs.txt
+craft run --log-file ./logs.txt server.js
 ```
+
+The flag belongs before the file. Anything after `run <file>` is pass-through and is handed to the route's own CLI adapter, so a `--log-file` written there never reaches the logger.
 
 **Critical for stdio MCP servers:** routecraft logs will now corrupt the stdio MCP protocol stream unless you redirect them out of stdout. Use one of:
 
 ```bash
-craft run mcp-server.js --log-file ./mcp.log
+craft run --log-file ./mcp.log mcp-server.js
 # or
-craft run mcp-server.js --log-level silent
+craft run --log-level silent mcp-server.js
 ```
 
 ### 1.4 Define your config with `defineConfig`
