@@ -27,10 +27,12 @@ Global options (must appear **before** the subcommand):
 | --log-level \<level\> | Log level (info, warn, error, silent). Applied before the logger initializes. |
 | --log-file \<path\> | Write logs to a file instead of stdout |
 
-Because `run` uses pass-through options, anything after `run <file>` is forwarded to the route file's CLI adapter. Put `--log-level` and `--log-file` before `run`:
+`start` and `run` also take `--log-level` and `--log-file` as their own options, and the command's own flag wins over the global one. On `run` they belong before the file, because anything after `run <file>` is pass-through: it is forwarded to the route file's CLI adapter, which is what lets a route own a flag the CLI also defines.
 
 ```bash
-craft --log-level info --log-file craft.log run ./capabilities/orders.ts
+craft start ./my-project --log-level info
+craft run --log-level info --log-file craft.log ./capabilities/orders.ts
+craft --log-level info run ./capabilities/orders.ts
 ```
 
 <Callout type="note" title="More commands coming">

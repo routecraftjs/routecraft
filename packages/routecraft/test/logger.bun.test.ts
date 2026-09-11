@@ -1,7 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import { testContext } from "@routecraft/testing";
 import { logger, DefaultExchange, craft, simple } from "@routecraft/routecraft";
-import { childBindings } from "../src/logger.ts";
+import { childBindings, serializeError } from "../src/logger.ts";
 
 describe("logger", () => {
   /**
@@ -109,5 +109,64 @@ describe("logger", () => {
 
     const exchange = new DefaultExchange(ctx, { body: "test" });
     expect(childBindings(exchange)).toHaveProperty(["service.name"], "eywa");
+  });
+});
+
+/**
+ * What a reader sees in the log when an error carries a cause.
+ *
+ * `processError` wraps an arbitrary throw as `RC5001` and adopts the thrown
+ * message as its own, keeping the original as the cause for its stack. pino
+ * then appends the cause's message to a message that already is the cause,
+ * so every adapter failure printed the same sentence twice.
+ */
+describe("serializeError", () => {
+  /**
+   * @case An error whose cause repeats its own message
+   * @preconditions An Error whose message equals its cause's message, the
+   *   shape `processError` produces when it wraps an arbitrary throw
+   * @expectedResult The message is the sentence once, not twice
+   */
+  test("collapses a cause that only repeats the message", () => {
+    const cause = new Error("upstream said no");
+    const wrapped = new Error("upstream said no", { cause });
+    const serialized = serializeError(wrapped) as { message: string };
+    expect(serialized.message).toBe("upstream said no");
+  });
+
+  /**
+   * @case An error whose cause says something the error does not
+   * @preconditions An Error with a different message from its cause
+   * @expectedResult Both halves survive, because together they say more
+   */
+  test("keeps a cause that adds something", () => {
+    const cause = new Error("port 8080 in use");
+    const wrapped = new Error("server bind failed", { cause });
+    const serialized = serializeError(wrapped) as { message: string };
+    expect(serialized.message).toBe("server bind failed: port 8080 in use");
+  });
+
+  /**
+   * @case An error with no cause at all
+   * @preconditions A plain Error
+   * @expectedResult Its message is untouched
+   */
+  test("leaves an uncaused error alone", () => {
+    const serialized = serializeError(new Error("plain")) as {
+      message: string;
+    };
+    expect(serialized.message).toBe("plain");
+  });
+
+  /**
+   * @case A cause that is not an Error
+   * @preconditions An Error whose cause is a string
+   * @expectedResult The serializer returns without touching the message,
+   *   since there is no cause message to compare against
+   */
+  test("leaves a non-Error cause alone", () => {
+    const wrapped = new Error("thrown", { cause: "a string" });
+    const serialized = serializeError(wrapped) as { message: string };
+    expect(serialized.message).toBe("thrown");
   });
 });

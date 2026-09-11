@@ -23,6 +23,7 @@
 
 import type { Duration } from "../../shared/duration.ts";
 import { parseDuration } from "../../shared/duration.ts";
+import { DOCS_BASE, findErrorMeta } from "../../error.ts";
 import type {
   HealthComponent,
   HealthReport,
@@ -575,7 +576,23 @@ function describeWireError(wire: WireError, status: number): string {
   const parts = [wire.error, wire.code].filter(
     (part): part is string => part !== undefined,
   );
-  return `${answered}: ${parts.join(" ")}. See https://routecraft.dev/docs/reference/errors for what the code means.`;
+  return `${answered}: ${parts.join(" ")}. See ${docsFor(wire.code)} for what the code means.`;
+}
+
+/**
+ * The documentation the code's own metadata points at, which is anchored at
+ * the code rather than the top of a long page. The reader was handed a code,
+ * so they have already done the part a search box would help with.
+ *
+ * A code this process has never registered falls back to the index. That is
+ * the normal case for an ecosystem code, because the client runs wherever
+ * the reader is and the instance is what imported the package that defines
+ * it. Deriving the anchor from the string instead would produce a confident
+ * link into the core page for a code documented somewhere else entirely.
+ */
+function docsFor(code: string | undefined): string {
+  if (code === undefined) return DOCS_BASE;
+  return findErrorMeta(code)?.docs ?? DOCS_BASE;
 }
 
 /** A non-JSON error body, carried as the reason so it still reaches the reader. */

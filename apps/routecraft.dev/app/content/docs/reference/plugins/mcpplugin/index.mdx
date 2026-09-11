@@ -99,6 +99,8 @@ The stdio transport uses stdout as the protocol channel. Routecraft's logger def
 - `--log-file <path>` -- write logs to a file
 - `--log-level silent` -- disable logging entirely
 
+On `run`, both belong before the file (`craft run --log-level silent ./mcp-server.ts`). Anything after `run <file>` is pass-through and reaches the route rather than the logger, which leaves the protocol stream exactly as corrupted as passing nothing.
+
 **HTTP server auth (`McpHttpAuthOptions`):**
 
 When `auth` is set and `transport` is `'http'`, every request to `/mcp` must include a valid `Authorization: Bearer <token>` header. The `auth` object requires a `validator` function that receives the raw bearer token and returns an `AuthPrincipal` on success or `null` to reject. The principal is made available on exchange headers so routes can read the caller's identity.
