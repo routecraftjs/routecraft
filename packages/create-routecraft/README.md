@@ -18,21 +18,32 @@ pnpm create routecraft@latest
 yarn create routecraft
 ```
 
-## What's Included
+## What you get
 
-The scaffolded project includes:
+One template, laid out for the folder convention `craft start` discovers:
 
-- Pre-configured TypeScript setup
-- Example capabilities demonstrating key features
-- Ready-to-use project structure
-- Development dependencies configured
-- ESLint and testing setup
+```
+capabilities/hello-world/   route.ts, its test, and a README explaining it
+craft.config.ts             what discovery cannot work out on its own
+README.md                   the project's own, naming what was scaffolded
+package.json  tsconfig.json  eslint.config.mjs  .prettierrc  .gitignore
+```
+
+There is no entry file. `craft start` reads `capabilities/` from disk, so nothing is
+registered by hand and nothing has to be kept in step with the folder.
+
+`bun run start` boots the project and runs the sample capability, which fetches a user over
+HTTP and logs a greeting, so the first command after scaffolding produces output rather
+than a silent exit. `bun run test` runs the capability's own tests, which mock `fetch`.
+Delete `capabilities/hello-world` when you no longer need it.
 
 ## Starting from a repository
 
-`--example` also takes a public GitHub URL. `craft-harness` is the reference starting point:
-a working agent harness laid out in the project convention, where every capability is an
-ordinary route you own.
+`--example` takes a public GitHub URL, and replaces the starter template rather than adding
+to it: the repository is a whole project, so the sample capability and the project README
+are not written at all. `craft-harness` is the reference starting point: a working agent
+harness laid out in the project convention, where every capability is an ordinary route you
+own.
 
 ```bash
 bunx create-routecraft my-agent --example https://github.com/routecraftjs/craft-harness
@@ -53,8 +64,8 @@ into the base manifest rather than replacing it. `node_modules`, `.git` and the 
 The CLI will guide you through:
 
 1. **Project name**: Choose a name for your project
-2. **Package manager**: Select bun, npm, pnpm, or yarn
-3. **Template**: Pick from available starter templates
+2. **Start from**: The starter template, or a GitHub repository you name
+3. **Package manager**: Select bun, npm, pnpm, or yarn
 
 ## Next Steps
 

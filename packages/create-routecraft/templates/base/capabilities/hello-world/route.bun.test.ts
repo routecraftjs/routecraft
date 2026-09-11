@@ -38,7 +38,7 @@ describe("Hello World Routes", () => {
       url: "https://jsonplaceholder.typicode.com/users/1",
     });
 
-    t = await testContext().routes(capabilities).build();
+    t = await testContext({ fn: mock }).routes(capabilities).build();
     await t.test();
 
     expect(fetchMock).toHaveBeenCalledTimes(1);
