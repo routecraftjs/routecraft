@@ -49,15 +49,24 @@ own.
 bunx create-routecraft my-agent --example https://github.com/routecraftjs/craft-harness
 ```
 
-A plain repository URL always takes `main`; add `/tree/<branch>` or
-`/tree/<branch>/<subpath>` for a specific branch or a subdirectory. A branch is read as one
-path segment, so a name containing `/` (`feature/login`) cannot be expressed this way:
-nothing in the URL says which slash divides the branch from the path. The template's files
-win over the base scaffold, except for the project name you passed and the package manager
-you chose, and its `dependencies`, `devDependencies`, `peerDependencies` and `scripts` merge
-into the base manifest rather than replacing it. `node_modules`, `.git` and the lockfiles
-(`package-lock.json`, `npm-shrinkwrap.json`, `yarn.lock`, `pnpm-lock.yaml`, `bun.lock`,
-`bun.lockb`) are never copied.
+A plain repository URL takes the repository's default branch; add `/tree/<ref>` or
+`/tree/<ref>/<subpath>` for a specific branch or tag, or a subdirectory inside one. A ref
+whose name contains `/` works: `--example https://github.com/you/repo/tree/feature/login`
+resolves against the repository's own ref list, so the boundary between the ref and the
+path inside it is read rather than guessed.
+
+The template's files win over the base scaffold, except for the project name you passed and
+the package manager you chose, and its `dependencies`, `devDependencies`,
+`peerDependencies` and `scripts` merge into the base manifest rather than replacing it.
+**Every `@routecraft/*` version is the one this scaffolder belongs to**, whatever the
+template pins: a template describes a project's shape, not which version of the framework
+you get, and honouring its pins meant asking for `@canary` and being handed whatever that
+repository last committed.
+
+`node_modules`, `.git`, `.github/workflows` and the lockfiles (`package-lock.json`,
+`npm-shrinkwrap.json`, `yarn.lock`, `pnpm-lock.yaml`, `bun.lock`, `bun.lockb`) are never
+copied. The workflows are excluded because a template's CI tests that template against its
+own branches and secrets, which is not true in your project.
 
 ## Interactive Prompts
 
