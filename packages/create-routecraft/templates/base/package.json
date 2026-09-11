@@ -5,16 +5,18 @@
   "type": "module",
   "packageManager": "PACKAGE_MANAGER",
   "scripts": {
-    "start": "craft --log-level info run index.ts",
+    "start": "craft start",
     "lint": "eslint .",
     "format": "prettier . --check --ignore-unknown",
     "format:write": "prettier . --write --ignore-unknown",
     "typecheck": "tsc --noEmit",
     "test": "bun test",
-    "test:coverage": "bun test --coverage"
+    "test:coverage": "bun test --coverage",
+    "all": "bun run format:write && bun run typecheck && bun run lint && bun run test"
   },
   "dependencies": {
-    "@routecraft/routecraft": "ROUTECRAFT_VERSION"
+    "@routecraft/routecraft": "ROUTECRAFT_VERSION",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",

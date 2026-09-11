@@ -20,7 +20,6 @@ import { join } from "node:path";
 import { existsSync } from "node:fs";
 import {
   assertInsideRepository,
-  collidingExamplePaths,
   isSymbolicLink,
   generateProjectStructure,
   isExcludedExamplePath,
@@ -48,7 +47,7 @@ function makeOptions(
 ): Required<InitOptions> {
   return {
     projectName: "test-app",
-    example: "none",
+    example: "",
     packageManager: "bun",
     skipInstall: true,
     git: false,
@@ -73,6 +72,19 @@ describe("processTemplate", () => {
   test("replaces a single placeholder", () => {
     const result = processTemplate("Hello, NAME!", { NAME: "World" });
     expect(result).toBe("Hello, World!");
+  });
+
+  /**
+   * @case A placeholder that is a prefix of another does not consume it
+   * @preconditions Two placeholders where one name is a prefix of the other, declared shortest first so object key order would get it wrong
+   * @expectedResult Both resolve fully. The failure this guards is silent: the shorter key leaves "bun@1.3.9_RUN" in the output, which throws nowhere and is only ever noticed by a reader
+   */
+  test("replaces the longer placeholder when one is a prefix of another", () => {
+    const result = processTemplate("PM and PM_RUN start", {
+      PM: "bun@1.3.9",
+      PM_RUN: "bun run",
+    });
+    expect(result).toBe("bun@1.3.9 and bun run start");
   });
 
   /**
@@ -164,112 +176,64 @@ describe("generateProjectStructure", () => {
     await rm(projectDir, { recursive: true, force: true });
   });
 
-  // ── Empty project ────────────────────────────────────────────────────────
+  // ── Layout ───────────────────────────────────────────────────────────────
 
   /**
-   * @case Empty project creates correct directory structure
-   * @preconditions No example selected
-   * @expectedResult capabilities/, adapters/, plugins/ dirs exist at project root
+   * @case The scaffold is laid out for the folder convention
+   * @preconditions Default options
+   * @expectedResult capabilities/hello-world carries the route, its test and its README, and there is no src/
    */
-  test("empty project creates correct directory structure", async () => {
+  test("places the sample capability under capabilities/", async () => {
     await generateProjectStructure(projectDir, makeOptions());
 
-    expect(existsSync(join(projectDir, "capabilities"))).toBe(true);
-    expect(existsSync(join(projectDir, "adapters"))).toBe(true);
-    expect(existsSync(join(projectDir, "plugins"))).toBe(true);
-  });
-
-  /**
-   * @case Empty project index.ts has empty route export and craft config re-export
-   * @preconditions No example selected
-   * @expectedResult index.ts exports empty array and re-exports craftConfig from ./craft.config.js
-   */
-  test("empty project index.ts has empty route export and craft config re-export", async () => {
-    await generateProjectStructure(projectDir, makeOptions());
-
-    const content = await readFile(join(projectDir, "index.ts"), "utf-8");
-    expect(content).toContain("export default [];");
-    expect(content).toContain('from "./craft.config.js"');
-    expect(content).not.toContain("hello-world");
-  });
-
-  /**
-   * @case Empty project does not have a src/ directory
-   * @preconditions No example selected
-   * @expectedResult No src/ directory exists
-   */
-  test("empty project does not create a src directory", async () => {
-    await generateProjectStructure(projectDir, makeOptions());
-
+    const capability = join(projectDir, "capabilities", "hello-world");
+    expect(existsSync(join(capability, "route.ts"))).toBe(true);
+    expect(existsSync(join(capability, "route.bun.test.ts"))).toBe(true);
+    expect(existsSync(join(capability, "README.md"))).toBe(true);
     expect(existsSync(join(projectDir, "src"))).toBe(false);
   });
 
-  // ── Hello-world example ──────────────────────────────────────────────────
-
   /**
-   * @case Hello-world example places the capability at capabilities/hello-world/route.ts
-   * @preconditions example = "hello-world"
-   * @expectedResult capabilities/hello-world/route.ts exists with route definition
+   * @case No entry file is written
+   * @preconditions Default options
+   * @expectedResult index.ts is absent. `craft start` discovers capabilities from disk, so a file re-exporting them is one the author maintains for nothing
    */
-  test("hello-world example places capability file correctly", async () => {
-    await generateProjectStructure(
-      projectDir,
-      makeOptions({ example: "hello-world" }),
-    );
+  test("writes no index.ts", async () => {
+    await generateProjectStructure(projectDir, makeOptions());
 
-    const capPath = join(projectDir, "capabilities", "hello-world", "route.ts");
-    expect(existsSync(capPath)).toBe(true);
-
-    const content = await readFile(capPath, "utf-8");
-    expect(content).toContain("hello-world");
+    expect(existsSync(join(projectDir, "index.ts"))).toBe(false);
   });
 
   /**
-   * @case Hello-world example places the test alongside the capability route
-   * @preconditions example = "hello-world"
-   * @expectedResult capabilities/hello-world/route.bun.test.ts exists
+   * @case Empty convention directories are not created
+   * @preconditions Default options
+   * @expectedResult adapters/ and plugins/ are absent. Git cannot carry an empty directory, so scaffolding them produced folders that vanished on the author's first commit
    */
-  test("hello-world example includes test file", async () => {
-    await generateProjectStructure(
-      projectDir,
-      makeOptions({ example: "hello-world" }),
-    );
+  test("does not create empty convention directories", async () => {
+    await generateProjectStructure(projectDir, makeOptions());
 
-    expect(
-      existsSync(
-        join(projectDir, "capabilities", "hello-world", "route.bun.test.ts"),
-      ),
-    ).toBe(true);
+    expect(existsSync(join(projectDir, "adapters"))).toBe(false);
+    expect(existsSync(join(projectDir, "plugins"))).toBe(false);
   });
 
-  /**
-   * @case Hello-world index.ts imports from ./capabilities/hello-world/route.js
-   * @preconditions example = "hello-world"
-   * @expectedResult index.ts contains correct relative import path
-   */
-  test("hello-world index.ts imports from ./capabilities/hello-world/route.js", async () => {
-    await generateProjectStructure(
-      projectDir,
-      makeOptions({ example: "hello-world" }),
-    );
-
-    const content = await readFile(join(projectDir, "index.ts"), "utf-8");
-    expect(content).toContain('from "./capabilities/hello-world/route.js"');
-  });
+  // ── README ───────────────────────────────────────────────────────────────
 
   /**
-   * @case Hello-world index.ts re-exports craftConfig from ./craft.config.js
-   * @preconditions example = "hello-world"
-   * @expectedResult index.ts contains craftConfig re-export
+   * @case The project README resolves its placeholders
+   * @preconditions projectName = "my-cool-app", packageManager = "pnpm"
+   * @expectedResult The README names the project and the package manager the caller chose, with no placeholder left behind
    */
-  test("hello-world index.ts re-exports craftConfig", async () => {
+  test("README names the project and the chosen package manager", async () => {
     await generateProjectStructure(
       projectDir,
-      makeOptions({ example: "hello-world" }),
+      makeOptions({ projectName: "my-cool-app", packageManager: "pnpm" }),
     );
 
-    const content = await readFile(join(projectDir, "index.ts"), "utf-8");
-    expect(content).toContain('from "./craft.config.js"');
+    const readme = await readFile(join(projectDir, "README.md"), "utf-8");
+    expect(readme).toContain("# my-cool-app");
+    expect(readme).toContain("pnpm run start");
+    expect(readme).not.toContain("PROJECT_NAME");
+    expect(readme).not.toContain("PACKAGE_MANAGER_RUN");
   });
 
   // ── package.json ─────────────────────────────────────────────────────────
@@ -290,16 +254,15 @@ describe("generateProjectStructure", () => {
   });
 
   /**
-   * @case package.json start script points to index.ts at root with log level applied globally
+   * @case package.json boots through the folder convention
    * @preconditions Default options
-   * @expectedResult start script is "craft --log-level info run index.ts"
+   * @expectedResult start script is "craft start". The scaffolder prints this command as the first thing to run, so it must not name a file the layout no longer has
    */
-  test("package.json start script points to root index.ts", async () => {
+  test("package.json start script is craft start", async () => {
     await generateProjectStructure(projectDir, makeOptions());
 
     const pkg = await readJson(join(projectDir, "package.json"));
-    const scripts = pkg.scripts;
-    expect(scripts.start).toBe("craft --log-level info run index.ts");
+    expect(pkg.scripts.start).toBe("craft start");
   });
 
   /**
@@ -311,8 +274,7 @@ describe("generateProjectStructure", () => {
     await generateProjectStructure(projectDir, makeOptions());
 
     const pkg = await readJson(join(projectDir, "package.json"));
-    const scripts = pkg.scripts;
-    expect(scripts.build).toBeUndefined();
+    expect(pkg.scripts.build).toBeUndefined();
   });
 
   /**
@@ -339,12 +301,28 @@ describe("generateProjectStructure", () => {
     await generateProjectStructure(projectDir, makeOptions());
 
     const pkg = await readJson(join(projectDir, "package.json"));
-    const deps = pkg.dependencies;
-    const devDeps = pkg.devDependencies;
 
-    expect(deps["@routecraft/routecraft"]).not.toBe("ROUTECRAFT_VERSION");
-    expect(devDeps["@routecraft/cli"]).not.toBe("ROUTECRAFT_VERSION");
-    expect(devDeps["@routecraft/testing"]).not.toBe("ROUTECRAFT_VERSION");
+    expect(pkg.dependencies["@routecraft/routecraft"]).not.toBe(
+      "ROUTECRAFT_VERSION",
+    );
+    expect(pkg.devDependencies["@routecraft/cli"]).not.toBe(
+      "ROUTECRAFT_VERSION",
+    );
+    expect(pkg.devDependencies["@routecraft/testing"]).not.toBe(
+      "ROUTECRAFT_VERSION",
+    );
+  });
+
+  /**
+   * @case The sample capability's dependency ships in the manifest
+   * @preconditions Default options
+   * @expectedResult zod is a dependency. The capability imports it, so a scaffold without it does not type-check, which is what the per-example deps.json used to carry
+   */
+  test("package.json carries the sample capability's dependency", async () => {
+    await generateProjectStructure(projectDir, makeOptions());
+
+    const pkg = await readJson(join(projectDir, "package.json"));
+    expect(pkg.dependencies).toHaveProperty("zod");
   });
 
   /**
@@ -369,7 +347,7 @@ describe("generateProjectStructure", () => {
   /**
    * @case All expected config files are present at project root
    * @preconditions Default options
-   * @expectedResult .gitignore, .prettierrc, craft.config.ts, eslint.config.mjs, tsconfig.json exist (vitest.config.ts not present; template uses bun:test)
+   * @expectedResult .gitignore, .prettierrc, craft.config.ts, eslint.config.mjs, tsconfig.json, package.json and README.md exist (no vitest.config.ts; the template uses bun:test)
    */
   test("all config files are present at project root", async () => {
     await generateProjectStructure(projectDir, makeOptions());
@@ -381,7 +359,7 @@ describe("generateProjectStructure", () => {
       "eslint.config.mjs",
       "tsconfig.json",
       "package.json",
-      "index.ts",
+      "README.md",
     ];
 
     for (const file of expectedFiles) {
@@ -401,63 +379,22 @@ describe("generateProjectStructure", () => {
     expect(tsconfig.compilerOptions.outDir).toBeUndefined();
   });
 
-  // ── Per-example deps ─────────────────────────────────────────────────────
+  // ── URL examples ─────────────────────────────────────────────────────────
 
   /**
-   * @case Hello-world example adds zod to package.json dependencies
-   * @preconditions example = "hello-world"
-   * @expectedResult package.json.dependencies contains zod
+   * @case A URL example does not inherit the sample capability or the README
+   * @preconditions example is a URL that cannot be cloned, so the run fails after the base files are written
+   * @expectedResult capabilities/ and README.md are absent while package.json is present. A URL example is a whole project, and hello-world left standing inside somebody else's harness is a route their CI never saw
    */
-  test("hello-world example merges its deps.json into package.json", async () => {
-    await generateProjectStructure(
-      projectDir,
-      makeOptions({ example: "hello-world" }),
-    );
+  test("a URL example is not given the sample capability", async () => {
+    await generateProjectStructure(projectDir, {
+      ...makeOptions(),
+      example: "https://github.com/routecraftjs/does-not-exist-ever",
+    }).catch(() => undefined);
 
-    const pkg = await readJson(join(projectDir, "package.json"));
-    expect(pkg.dependencies).toHaveProperty("zod");
-  });
-
-  /**
-   * @case Per-example deps.json is not copied into the scaffolded project
-   * @preconditions example = "hello-world"
-   * @expectedResult deps.json is absent from the project root
-   */
-  test("hello-world example does not copy deps.json into project", async () => {
-    await generateProjectStructure(
-      projectDir,
-      makeOptions({ example: "hello-world" }),
-    );
-
-    expect(existsSync(join(projectDir, "deps.json"))).toBe(false);
-  });
-
-  /**
-   * @case Empty project does not gain example-only deps
-   * @preconditions example = "none"
-   * @expectedResult package.json.dependencies does not contain zod
-   */
-  test("empty project does not include example-only deps", async () => {
-    await generateProjectStructure(projectDir, makeOptions());
-
-    const pkg = await readJson(join(projectDir, "package.json"));
-    expect(pkg.dependencies).not.toHaveProperty("zod");
-  });
-
-  // ── Unknown example ──────────────────────────────────────────────────────
-
-  /**
-   * @case Unknown built-in example throws an error
-   * @preconditions example = "does-not-exist"
-   * @expectedResult Error thrown with "Unknown example" message
-   */
-  test("unknown built-in example throws an error", async () => {
-    await expect(
-      generateProjectStructure(
-        projectDir,
-        makeOptions({ example: "does-not-exist" }),
-      ),
-    ).rejects.toThrow("Unknown example: does-not-exist");
+    expect(existsSync(join(projectDir, "capabilities"))).toBe(false);
+    expect(existsSync(join(projectDir, "README.md"))).toBe(false);
+    expect(existsSync(join(projectDir, "package.json"))).toBe(true);
   });
 });
 
@@ -521,81 +458,6 @@ describe("isExcludedExamplePath", () => {
    */
   test("keeps the example root", () => {
     expect(isExcludedExamplePath("")).toBe(false);
-  });
-});
-
-describe("collidingExamplePaths", () => {
-  let source: string;
-  let target: string;
-
-  beforeEach(async () => {
-    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    source = join(tmpdir(), `rc-src-${stamp}`);
-    target = join(tmpdir(), `rc-dst-${stamp}`);
-    await mkdir(join(source, "capabilities", "greet"), { recursive: true });
-    await mkdir(join(target, "capabilities", "greet"), { recursive: true });
-  });
-
-  afterEach(async () => {
-    await rm(source, { recursive: true, force: true });
-    await rm(target, { recursive: true, force: true });
-  });
-
-  /**
-   * @case Files the target already holds are reported, nested ones included
-   * @preconditions An example and a project that share index.ts and a nested route.ts
-   * @expectedResult Both reported by their example-relative path, sorted, so the
-   *   copy can name what it dropped instead of losing it silently
-   */
-  test("reports files the project already has", async () => {
-    await writeFile(join(source, "index.ts"), "example");
-    await writeFile(join(target, "index.ts"), "base");
-    await writeFile(join(source, "capabilities", "greet", "route.ts"), "a");
-    await writeFile(join(target, "capabilities", "greet", "route.ts"), "b");
-    await writeFile(join(source, "README.md"), "only in the example");
-
-    expect(await collidingExamplePaths(source, target)).toEqual([
-      join("capabilities", "greet", "route.ts"),
-      "index.ts",
-    ]);
-  });
-
-  /**
-   * @case A symlinked directory is not walked into
-   * @preconditions The example holds a link to a directory outside it, carrying a name the target also has
-   * @expectedResult Not reported, because the walk uses lstat and never follows the link, so it cannot leave the example or spin on a loop
-   */
-  test("does not walk into a symlinked directory", async () => {
-    // The link's target has to sit outside the example for the test to mean
-    // what it says, so it cannot live under `source` where afterEach would
-    // reach it. try/finally is what guarantees it goes even when the
-    // assertion fails.
-    const outside = await mkdtemp(join(tmpdir(), "rc-outside-"));
-    try {
-      await writeFile(join(outside, "index.ts"), "export default [];");
-      await symlink(outside, join(source, "linked"));
-      await mkdir(join(target, "linked"), { recursive: true });
-      await writeFile(join(target, "linked", "index.ts"), "existing");
-
-      const dropped = await collidingExamplePaths(source, target);
-
-      expect(dropped).not.toContain(join("linked", "index.ts"));
-    } finally {
-      await rm(outside, { recursive: true, force: true });
-    }
-  });
-
-  /**
-   * @case Excluded paths are never reported
-   * @preconditions A lockfile present on both sides
-   * @expectedResult Not reported, because the copy skips it deliberately rather
-   *   than dropping it by collision
-   */
-  test("never reports a path the copy skips anyway", async () => {
-    await writeFile(join(source, "bun.lock"), "x");
-    await writeFile(join(target, "bun.lock"), "y");
-
-    expect(await collidingExamplePaths(source, target)).toEqual([]);
   });
 });
 
