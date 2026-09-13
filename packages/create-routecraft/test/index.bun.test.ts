@@ -20,12 +20,13 @@ import { join } from "node:path";
 import { existsSync } from "node:fs";
 import {
   assertInsideRepository,
-  collidingExamplePaths,
   isSymbolicLink,
   generateProjectStructure,
   isExcludedExamplePath,
   mergeExamplePackageJson,
+  getRoutecraftVersion,
   parseGitHubExampleUrl,
+  resolveExampleRef,
   processTemplate,
   isUrl,
   type InitOptions,
@@ -48,7 +49,7 @@ function makeOptions(
 ): Required<InitOptions> {
   return {
     projectName: "test-app",
-    example: "none",
+    example: "",
     packageManager: "bun",
     skipInstall: true,
     git: false,
@@ -73,6 +74,19 @@ describe("processTemplate", () => {
   test("replaces a single placeholder", () => {
     const result = processTemplate("Hello, NAME!", { NAME: "World" });
     expect(result).toBe("Hello, World!");
+  });
+
+  /**
+   * @case A placeholder that is a prefix of another does not consume it
+   * @preconditions Two placeholders where one name is a prefix of the other, declared shortest first so object key order would get it wrong
+   * @expectedResult Both resolve fully. The failure this guards is silent: the shorter key leaves "bun@1.3.9_RUN" in the output, which throws nowhere and is only ever noticed by a reader
+   */
+  test("replaces the longer placeholder when one is a prefix of another", () => {
+    const result = processTemplate("PM and PM_RUN start", {
+      PM: "bun@1.3.9",
+      PM_RUN: "bun run",
+    });
+    expect(result).toBe("bun@1.3.9 and bun run start");
   });
 
   /**
@@ -164,112 +178,64 @@ describe("generateProjectStructure", () => {
     await rm(projectDir, { recursive: true, force: true });
   });
 
-  // ── Empty project ────────────────────────────────────────────────────────
+  // ── Layout ───────────────────────────────────────────────────────────────
 
   /**
-   * @case Empty project creates correct directory structure
-   * @preconditions No example selected
-   * @expectedResult capabilities/, adapters/, plugins/ dirs exist at project root
+   * @case The scaffold is laid out for the folder convention
+   * @preconditions Default options
+   * @expectedResult capabilities/hello-world carries the route, its test and its README, and there is no src/
    */
-  test("empty project creates correct directory structure", async () => {
+  test("places the sample capability under capabilities/", async () => {
     await generateProjectStructure(projectDir, makeOptions());
 
-    expect(existsSync(join(projectDir, "capabilities"))).toBe(true);
-    expect(existsSync(join(projectDir, "adapters"))).toBe(true);
-    expect(existsSync(join(projectDir, "plugins"))).toBe(true);
-  });
-
-  /**
-   * @case Empty project index.ts has empty route export and craft config re-export
-   * @preconditions No example selected
-   * @expectedResult index.ts exports empty array and re-exports craftConfig from ./craft.config.js
-   */
-  test("empty project index.ts has empty route export and craft config re-export", async () => {
-    await generateProjectStructure(projectDir, makeOptions());
-
-    const content = await readFile(join(projectDir, "index.ts"), "utf-8");
-    expect(content).toContain("export default [];");
-    expect(content).toContain('from "./craft.config.js"');
-    expect(content).not.toContain("hello-world");
-  });
-
-  /**
-   * @case Empty project does not have a src/ directory
-   * @preconditions No example selected
-   * @expectedResult No src/ directory exists
-   */
-  test("empty project does not create a src directory", async () => {
-    await generateProjectStructure(projectDir, makeOptions());
-
+    const capability = join(projectDir, "capabilities", "hello-world");
+    expect(existsSync(join(capability, "route.ts"))).toBe(true);
+    expect(existsSync(join(capability, "route.bun.test.ts"))).toBe(true);
+    expect(existsSync(join(capability, "README.md"))).toBe(true);
     expect(existsSync(join(projectDir, "src"))).toBe(false);
   });
 
-  // ── Hello-world example ──────────────────────────────────────────────────
-
   /**
-   * @case Hello-world example places the capability at capabilities/hello-world/route.ts
-   * @preconditions example = "hello-world"
-   * @expectedResult capabilities/hello-world/route.ts exists with route definition
+   * @case No entry file is written
+   * @preconditions Default options
+   * @expectedResult index.ts is absent. `craft start` discovers capabilities from disk, so a file re-exporting them is one the author maintains for nothing
    */
-  test("hello-world example places capability file correctly", async () => {
-    await generateProjectStructure(
-      projectDir,
-      makeOptions({ example: "hello-world" }),
-    );
+  test("writes no index.ts", async () => {
+    await generateProjectStructure(projectDir, makeOptions());
 
-    const capPath = join(projectDir, "capabilities", "hello-world", "route.ts");
-    expect(existsSync(capPath)).toBe(true);
-
-    const content = await readFile(capPath, "utf-8");
-    expect(content).toContain("hello-world");
+    expect(existsSync(join(projectDir, "index.ts"))).toBe(false);
   });
 
   /**
-   * @case Hello-world example places the test alongside the capability route
-   * @preconditions example = "hello-world"
-   * @expectedResult capabilities/hello-world/route.bun.test.ts exists
+   * @case Empty convention directories are not created
+   * @preconditions Default options
+   * @expectedResult adapters/ and plugins/ are absent. Git cannot carry an empty directory, so scaffolding them produced folders that vanished on the author's first commit
    */
-  test("hello-world example includes test file", async () => {
-    await generateProjectStructure(
-      projectDir,
-      makeOptions({ example: "hello-world" }),
-    );
+  test("does not create empty convention directories", async () => {
+    await generateProjectStructure(projectDir, makeOptions());
 
-    expect(
-      existsSync(
-        join(projectDir, "capabilities", "hello-world", "route.bun.test.ts"),
-      ),
-    ).toBe(true);
+    expect(existsSync(join(projectDir, "adapters"))).toBe(false);
+    expect(existsSync(join(projectDir, "plugins"))).toBe(false);
   });
 
-  /**
-   * @case Hello-world index.ts imports from ./capabilities/hello-world/route.js
-   * @preconditions example = "hello-world"
-   * @expectedResult index.ts contains correct relative import path
-   */
-  test("hello-world index.ts imports from ./capabilities/hello-world/route.js", async () => {
-    await generateProjectStructure(
-      projectDir,
-      makeOptions({ example: "hello-world" }),
-    );
-
-    const content = await readFile(join(projectDir, "index.ts"), "utf-8");
-    expect(content).toContain('from "./capabilities/hello-world/route.js"');
-  });
+  // ── README ───────────────────────────────────────────────────────────────
 
   /**
-   * @case Hello-world index.ts re-exports craftConfig from ./craft.config.js
-   * @preconditions example = "hello-world"
-   * @expectedResult index.ts contains craftConfig re-export
+   * @case The project README resolves its placeholders
+   * @preconditions projectName = "my-cool-app", packageManager = "pnpm"
+   * @expectedResult The README names the project and the package manager the caller chose, with no placeholder left behind
    */
-  test("hello-world index.ts re-exports craftConfig", async () => {
+  test("README names the project and the chosen package manager", async () => {
     await generateProjectStructure(
       projectDir,
-      makeOptions({ example: "hello-world" }),
+      makeOptions({ projectName: "my-cool-app", packageManager: "pnpm" }),
     );
 
-    const content = await readFile(join(projectDir, "index.ts"), "utf-8");
-    expect(content).toContain('from "./craft.config.js"');
+    const readme = await readFile(join(projectDir, "README.md"), "utf-8");
+    expect(readme).toContain("# my-cool-app");
+    expect(readme).toContain("pnpm run start");
+    expect(readme).not.toContain("PROJECT_NAME");
+    expect(readme).not.toContain("PACKAGE_MANAGER_RUN");
   });
 
   // ── package.json ─────────────────────────────────────────────────────────
@@ -290,16 +256,15 @@ describe("generateProjectStructure", () => {
   });
 
   /**
-   * @case package.json start script points to index.ts at root with log level applied globally
+   * @case package.json boots through the folder convention
    * @preconditions Default options
-   * @expectedResult start script is "craft --log-level info run index.ts"
+   * @expectedResult start script is "craft start". The scaffolder prints this command as the first thing to run, so it must not name a file the layout no longer has
    */
-  test("package.json start script points to root index.ts", async () => {
+  test("package.json start script is craft start", async () => {
     await generateProjectStructure(projectDir, makeOptions());
 
     const pkg = await readJson(join(projectDir, "package.json"));
-    const scripts = pkg.scripts;
-    expect(scripts.start).toBe("craft --log-level info run index.ts");
+    expect(pkg.scripts.start).toBe("craft start");
   });
 
   /**
@@ -311,8 +276,7 @@ describe("generateProjectStructure", () => {
     await generateProjectStructure(projectDir, makeOptions());
 
     const pkg = await readJson(join(projectDir, "package.json"));
-    const scripts = pkg.scripts;
-    expect(scripts.build).toBeUndefined();
+    expect(pkg.scripts.build).toBeUndefined();
   });
 
   /**
@@ -339,12 +303,28 @@ describe("generateProjectStructure", () => {
     await generateProjectStructure(projectDir, makeOptions());
 
     const pkg = await readJson(join(projectDir, "package.json"));
-    const deps = pkg.dependencies;
-    const devDeps = pkg.devDependencies;
 
-    expect(deps["@routecraft/routecraft"]).not.toBe("ROUTECRAFT_VERSION");
-    expect(devDeps["@routecraft/cli"]).not.toBe("ROUTECRAFT_VERSION");
-    expect(devDeps["@routecraft/testing"]).not.toBe("ROUTECRAFT_VERSION");
+    expect(pkg.dependencies["@routecraft/routecraft"]).not.toBe(
+      "ROUTECRAFT_VERSION",
+    );
+    expect(pkg.devDependencies["@routecraft/cli"]).not.toBe(
+      "ROUTECRAFT_VERSION",
+    );
+    expect(pkg.devDependencies["@routecraft/testing"]).not.toBe(
+      "ROUTECRAFT_VERSION",
+    );
+  });
+
+  /**
+   * @case The sample capability's dependency ships in the manifest
+   * @preconditions Default options
+   * @expectedResult zod is a dependency. The capability imports it, so a scaffold without it does not type-check, which is what the per-example deps.json used to carry
+   */
+  test("package.json carries the sample capability's dependency", async () => {
+    await generateProjectStructure(projectDir, makeOptions());
+
+    const pkg = await readJson(join(projectDir, "package.json"));
+    expect(pkg.dependencies).toHaveProperty("zod");
   });
 
   /**
@@ -369,7 +349,7 @@ describe("generateProjectStructure", () => {
   /**
    * @case All expected config files are present at project root
    * @preconditions Default options
-   * @expectedResult .gitignore, .prettierrc, craft.config.ts, eslint.config.mjs, tsconfig.json exist (vitest.config.ts not present; template uses bun:test)
+   * @expectedResult .gitignore, .prettierrc, craft.config.ts, eslint.config.mjs, tsconfig.json, package.json and README.md exist (no vitest.config.ts; the template uses bun:test)
    */
   test("all config files are present at project root", async () => {
     await generateProjectStructure(projectDir, makeOptions());
@@ -381,7 +361,7 @@ describe("generateProjectStructure", () => {
       "eslint.config.mjs",
       "tsconfig.json",
       "package.json",
-      "index.ts",
+      "README.md",
     ];
 
     for (const file of expectedFiles) {
@@ -401,63 +381,22 @@ describe("generateProjectStructure", () => {
     expect(tsconfig.compilerOptions.outDir).toBeUndefined();
   });
 
-  // ── Per-example deps ─────────────────────────────────────────────────────
+  // ── URL examples ─────────────────────────────────────────────────────────
 
   /**
-   * @case Hello-world example adds zod to package.json dependencies
-   * @preconditions example = "hello-world"
-   * @expectedResult package.json.dependencies contains zod
+   * @case A URL example does not inherit the sample capability or the README
+   * @preconditions example is a URL that cannot be cloned, so the run fails after the base files are written
+   * @expectedResult capabilities/ and README.md are absent while package.json is present. A URL example is a whole project, and hello-world left standing inside somebody else's harness is a route their CI never saw
    */
-  test("hello-world example merges its deps.json into package.json", async () => {
-    await generateProjectStructure(
-      projectDir,
-      makeOptions({ example: "hello-world" }),
-    );
+  test("a URL example is not given the sample capability", async () => {
+    await generateProjectStructure(projectDir, {
+      ...makeOptions(),
+      example: "https://github.com/routecraftjs/does-not-exist-ever",
+    }).catch(() => undefined);
 
-    const pkg = await readJson(join(projectDir, "package.json"));
-    expect(pkg.dependencies).toHaveProperty("zod");
-  });
-
-  /**
-   * @case Per-example deps.json is not copied into the scaffolded project
-   * @preconditions example = "hello-world"
-   * @expectedResult deps.json is absent from the project root
-   */
-  test("hello-world example does not copy deps.json into project", async () => {
-    await generateProjectStructure(
-      projectDir,
-      makeOptions({ example: "hello-world" }),
-    );
-
-    expect(existsSync(join(projectDir, "deps.json"))).toBe(false);
-  });
-
-  /**
-   * @case Empty project does not gain example-only deps
-   * @preconditions example = "none"
-   * @expectedResult package.json.dependencies does not contain zod
-   */
-  test("empty project does not include example-only deps", async () => {
-    await generateProjectStructure(projectDir, makeOptions());
-
-    const pkg = await readJson(join(projectDir, "package.json"));
-    expect(pkg.dependencies).not.toHaveProperty("zod");
-  });
-
-  // ── Unknown example ──────────────────────────────────────────────────────
-
-  /**
-   * @case Unknown built-in example throws an error
-   * @preconditions example = "does-not-exist"
-   * @expectedResult Error thrown with "Unknown example" message
-   */
-  test("unknown built-in example throws an error", async () => {
-    await expect(
-      generateProjectStructure(
-        projectDir,
-        makeOptions({ example: "does-not-exist" }),
-      ),
-    ).rejects.toThrow("Unknown example: does-not-exist");
+    expect(existsSync(join(projectDir, "capabilities"))).toBe(false);
+    expect(existsSync(join(projectDir, "README.md"))).toBe(false);
+    expect(existsSync(join(projectDir, "package.json"))).toBe(true);
   });
 });
 
@@ -477,13 +416,38 @@ describe("isExcludedExamplePath", () => {
 
   /**
    * @case Files whose names merely start with .git are kept
-   * @preconditions .gitignore and .github/workflows/ci.yml
+   * @preconditions .gitignore and a .github file outside workflows/
    * @expectedResult Both kept, because a substring test used to drop a template's
-   *   gitignore and its whole CI folder along with the repository directory
+   *   gitignore and its whole .github folder along with the repository directory
    */
   test("keeps .gitignore and .github", () => {
     expect(isExcludedExamplePath(".gitignore")).toBe(false);
-    expect(isExcludedExamplePath(".github/workflows/ci.yml")).toBe(false);
+    expect(isExcludedExamplePath(".github/CODEOWNERS")).toBe(false);
+    expect(isExcludedExamplePath(".github/ISSUE_TEMPLATE/bug.md")).toBe(false);
+  });
+
+  /**
+   * @case The template's CI is not copied into the scaffolded project
+   * @preconditions A workflow file under .github/workflows/
+   * @expectedResult Excluded. The template's CI is about the template's repository, tested against its branches and its secrets, so it either fails on the new project's first push or is guarded into never running and sits there as config nobody wrote
+   */
+  test("excludes the example's workflows", () => {
+    expect(isExcludedExamplePath(".github/workflows/ci.yml")).toBe(true);
+    expect(isExcludedExamplePath(".github/workflows/nested/deploy.yml")).toBe(
+      true,
+    );
+  });
+
+  /**
+   * @case A capability folder called workflows/ survives
+   * @preconditions A path whose segment is "workflows" but which is not under .github/
+   * @expectedResult Kept. This is why the exclusion is a path prefix rather than a segment name: the thing being excluded is a location, not a word
+   */
+  test("keeps a capability folder named workflows", () => {
+    expect(isExcludedExamplePath("capabilities/workflows/route.ts")).toBe(
+      false,
+    );
+    expect(isExcludedExamplePath("workflows/route.ts")).toBe(false);
   });
 
   /**
@@ -524,81 +488,6 @@ describe("isExcludedExamplePath", () => {
   });
 });
 
-describe("collidingExamplePaths", () => {
-  let source: string;
-  let target: string;
-
-  beforeEach(async () => {
-    const stamp = `${Date.now()}-${Math.random().toString(36).slice(2)}`;
-    source = join(tmpdir(), `rc-src-${stamp}`);
-    target = join(tmpdir(), `rc-dst-${stamp}`);
-    await mkdir(join(source, "capabilities", "greet"), { recursive: true });
-    await mkdir(join(target, "capabilities", "greet"), { recursive: true });
-  });
-
-  afterEach(async () => {
-    await rm(source, { recursive: true, force: true });
-    await rm(target, { recursive: true, force: true });
-  });
-
-  /**
-   * @case Files the target already holds are reported, nested ones included
-   * @preconditions An example and a project that share index.ts and a nested route.ts
-   * @expectedResult Both reported by their example-relative path, sorted, so the
-   *   copy can name what it dropped instead of losing it silently
-   */
-  test("reports files the project already has", async () => {
-    await writeFile(join(source, "index.ts"), "example");
-    await writeFile(join(target, "index.ts"), "base");
-    await writeFile(join(source, "capabilities", "greet", "route.ts"), "a");
-    await writeFile(join(target, "capabilities", "greet", "route.ts"), "b");
-    await writeFile(join(source, "README.md"), "only in the example");
-
-    expect(await collidingExamplePaths(source, target)).toEqual([
-      join("capabilities", "greet", "route.ts"),
-      "index.ts",
-    ]);
-  });
-
-  /**
-   * @case A symlinked directory is not walked into
-   * @preconditions The example holds a link to a directory outside it, carrying a name the target also has
-   * @expectedResult Not reported, because the walk uses lstat and never follows the link, so it cannot leave the example or spin on a loop
-   */
-  test("does not walk into a symlinked directory", async () => {
-    // The link's target has to sit outside the example for the test to mean
-    // what it says, so it cannot live under `source` where afterEach would
-    // reach it. try/finally is what guarantees it goes even when the
-    // assertion fails.
-    const outside = await mkdtemp(join(tmpdir(), "rc-outside-"));
-    try {
-      await writeFile(join(outside, "index.ts"), "export default [];");
-      await symlink(outside, join(source, "linked"));
-      await mkdir(join(target, "linked"), { recursive: true });
-      await writeFile(join(target, "linked", "index.ts"), "existing");
-
-      const dropped = await collidingExamplePaths(source, target);
-
-      expect(dropped).not.toContain(join("linked", "index.ts"));
-    } finally {
-      await rm(outside, { recursive: true, force: true });
-    }
-  });
-
-  /**
-   * @case Excluded paths are never reported
-   * @preconditions A lockfile present on both sides
-   * @expectedResult Not reported, because the copy skips it deliberately rather
-   *   than dropping it by collision
-   */
-  test("never reports a path the copy skips anyway", async () => {
-    await writeFile(join(source, "bun.lock"), "x");
-    await writeFile(join(target, "bun.lock"), "y");
-
-    expect(await collidingExamplePaths(source, target)).toEqual([]);
-  });
-});
-
 describe("mergeExamplePackageJson", () => {
   let source: string;
   let target: string;
@@ -624,6 +513,58 @@ describe("mergeExamplePackageJson", () => {
   afterEach(async () => {
     await rm(source, { recursive: true, force: true });
     await rm(target, { recursive: true, force: true });
+  });
+
+  /**
+   * @case An example's routecraft pins are replaced by the scaffolder's own
+   * @preconditions An example pinning three @routecraft/* packages, two of them at versions the scaffolder did not choose and one it does not itself declare
+   * @expectedResult Every @routecraft/* entry carries the scaffolder's version. Asking for @canary and being handed whatever the example last committed is the defect, and a mixed train across a lockstep-versioned group is the symptom: @routecraft/os sat eight days behind the rest
+   */
+  test("replaces an example's routecraft pins with the scaffolder's", async () => {
+    await writeFile(
+      join(source, "package.json"),
+      JSON.stringify({
+        dependencies: {
+          "@routecraft/routecraft": "0.7.0-canary-20260907165225",
+          "@routecraft/os": "0.7.0-canary-20260830203136",
+          zod: "^4.3.6",
+        },
+        devDependencies: { "@routecraft/cli": "0.7.0-canary-20260907165225" },
+      }),
+    );
+
+    await mergeExamplePackageJson(source, target);
+
+    const pkg = await readJson(join(target, "package.json"));
+    const scaffolderVersion = getRoutecraftVersion();
+
+    expect(pkg.dependencies["@routecraft/routecraft"]).toBe(scaffolderVersion);
+    expect(pkg.dependencies["@routecraft/os"]).toBe(scaffolderVersion);
+    expect(pkg.devDependencies["@routecraft/cli"]).toBe(scaffolderVersion);
+    // The example's own choices are its own. Only the framework train is
+    // taken out of its hands.
+    expect(pkg.dependencies["zod"]).toBe("^4.3.6");
+  });
+
+  /**
+   * @case An example's scripts are not treated as versions
+   * @preconditions An example declaring a script whose name would be meaningless to pin
+   * @expectedResult Scripts merge untouched, because the pinning walks dependency maps and scripts is not one
+   */
+  test("leaves an example's scripts alone", async () => {
+    await writeFile(
+      join(source, "package.json"),
+      JSON.stringify({
+        scripts: { start: "craft start", boot: "craft start --once" },
+      }),
+    );
+
+    await mergeExamplePackageJson(source, target);
+
+    const pkg = await readJson(join(target, "package.json"));
+    expect(pkg.scripts.start).toBe("craft start");
+    expect(pkg.scripts.boot).toBe("craft start --once");
+    expect(pkg.scripts.lint).toBe("eslint .");
   });
 
   /**
@@ -782,27 +723,24 @@ describe("mergeExamplePackageJson", () => {
 
 describe("parseGitHubExampleUrl", () => {
   /**
-   * @case A plain repository URL takes the default branch and the whole tree
+   * @case A plain repository URL names no ref and no path
    * @preconditions No /tree/ segment
-   * @expectedResult branch "main" and an empty subpath, because templates are
-   *   untagged and always scaffolded from main
+   * @expectedResult An empty remainder, which resolves to the repository's default branch. The parser no longer assumes "main": a repository whose default is `master` or `trunk` was previously cloned at a branch that may not exist
    */
-  test("defaults to main and the repository root", () => {
+  test("reads a plain repository URL", () => {
     expect(parseGitHubExampleUrl("https://github.com/owner/repo")).toEqual({
       owner: "owner",
       repo: "repo",
-      branch: "main",
-      subPath: "",
+      remainder: "",
     });
   });
 
   /**
-   * @case A branch with no subpath names the whole repository at that branch
-   * @preconditions /tree/<branch> with and without a trailing slash
-   * @expectedResult The branch, and an empty subpath. Without this a template
-   *   repository cannot scaffold from the branch under test in its own CI.
+   * @case The remainder is kept unsplit
+   * @preconditions /tree/<something> with and without a trailing slash
+   * @expectedResult The whole remainder, because a ref name may contain "/" and only the remote can say where it ends
    */
-  test("accepts a branch with no subpath", () => {
+  test("keeps the remainder unsplit", () => {
     for (const url of [
       "https://github.com/owner/repo/tree/feature-x",
       "https://github.com/owner/repo/tree/feature-x/",
@@ -810,18 +748,17 @@ describe("parseGitHubExampleUrl", () => {
       expect(parseGitHubExampleUrl(url)).toEqual({
         owner: "owner",
         repo: "repo",
-        branch: "feature-x",
-        subPath: "",
+        remainder: "feature-x",
       });
     }
   });
 
   /**
-   * @case A branch and a subpath are both read
-   * @preconditions /tree/<branch>/<nested/path>
-   * @expectedResult Both, with the subpath keeping its own separators
+   * @case A multi-segment remainder is not split by the parser
+   * @preconditions /tree/<ref>/<path>, where the boundary is unknowable from the URL
+   * @expectedResult The remainder whole. This is the defect: `claude/my-branch` used to parse as branch `claude` with `my-branch` as a path inside it, which no clone could satisfy
    */
-  test("reads a branch and a nested subpath", () => {
+  test("does not guess where a multi-segment remainder divides", () => {
     expect(
       parseGitHubExampleUrl(
         "https://github.com/owner/repo/tree/main/examples/api",
@@ -829,8 +766,7 @@ describe("parseGitHubExampleUrl", () => {
     ).toEqual({
       owner: "owner",
       repo: "repo",
-      branch: "main",
-      subPath: "examples/api",
+      remainder: "main/examples/api",
     });
   });
 
@@ -843,8 +779,7 @@ describe("parseGitHubExampleUrl", () => {
     expect(parseGitHubExampleUrl("https://github.com/owner/repo.git")).toEqual({
       owner: "owner",
       repo: "repo",
-      branch: "main",
-      subPath: "",
+      remainder: "",
     });
   });
 
@@ -862,10 +797,10 @@ describe("parseGitHubExampleUrl", () => {
 
   /**
    * @case A backslash-separated climb is refused too
-   * @preconditions A subpath using Windows separators, which a "/"-only split would miss
+   * @preconditions A remainder using Windows separators, which a "/"-only split would miss
    * @expectedResult Throws, because join() on Windows treats both separators alike
    */
-  test("refuses a subpath that escapes using backslashes", () => {
+  test("refuses a remainder that escapes using backslashes", () => {
     expect(() =>
       parseGitHubExampleUrl(
         "https://github.com/owner/repo/tree/main/..\\..\\outside",
@@ -876,16 +811,193 @@ describe("parseGitHubExampleUrl", () => {
   /**
    * @case A query string or fragment is not part of the path
    * @preconditions A URL copied from the GitHub file view, carrying ?plain=1 and an anchor
-   * @expectedResult The subpath is the path alone, so the clone finds it
+   * @expectedResult The remainder is the path alone, so the clone finds it
    */
   test("ignores a query string and a fragment", () => {
     expect(
       parseGitHubExampleUrl(
         "https://github.com/owner/repo/tree/main/examples/app?plain=1#L20",
       ),
-    ).toMatchObject({ branch: "main", subPath: "examples/app" });
+    ).toMatchObject({ remainder: "main/examples/app" });
   });
 
+  /**
+   * @case A remainder that climbs out of the repository is refused
+   * @preconditions A /tree/ URL containing a ".." segment
+   * @expectedResult Throws, so nothing outside the clone is ever copied into the new project
+   */
+  test("refuses a remainder that escapes the repository", () => {
+    expect(() =>
+      parseGitHubExampleUrl(
+        "https://github.com/owner/repo/tree/main/../../../etc",
+      ),
+    ).toThrow(/cannot contain/);
+    expect(() =>
+      parseGitHubExampleUrl(
+        "https://github.com/owner/repo/tree/main/a/../../b",
+      ),
+    ).toThrow(/cannot contain/);
+  });
+
+  /**
+   * @case A path that merely contains two dots is kept
+   * @preconditions A remainder whose segments contain dots but are not ".."
+   * @expectedResult Parses, because the guard is per segment
+   */
+  test("keeps a remainder whose segments merely contain dots", () => {
+    expect(
+      parseGitHubExampleUrl("https://github.com/owner/repo/tree/main/v1..2/x"),
+    ).toMatchObject({ remainder: "main/v1..2/x" });
+  });
+});
+
+// ─── Unit: resolveExampleRef ─────────────────────────────────────────────────
+
+describe("resolveExampleRef", () => {
+  const refs = {
+    heads: ["main", "claude/my-branch", "feat/acp", "release"],
+    tags: ["v1.2.0", "v2.0.0-rc.1"],
+  };
+
+  /**
+   * @case An empty remainder means the repository's default branch
+   * @preconditions A plain repository URL
+   * @expectedResult No ref, so the clone takes whatever the remote's HEAD is. Naming "main" here would break a repository whose default is called something else
+   */
+  test("an empty remainder takes the default branch", () => {
+    expect(resolveExampleRef("", refs)).toEqual({
+      ref: undefined,
+      subPath: "",
+    });
+  });
+
+  /**
+   * @case A single-segment branch resolves to itself
+   * @preconditions The remainder is exactly a branch name
+   * @expectedResult That branch, and no subpath
+   */
+  test("resolves a single-segment branch", () => {
+    expect(resolveExampleRef("main", refs)).toEqual({
+      ref: "main",
+      subPath: "",
+    });
+  });
+
+  /**
+   * @case A branch whose name contains a slash resolves whole
+   * @preconditions The remainder is exactly a multi-segment branch name
+   * @expectedResult The whole name as the ref. This is the case that was broken: it used to clone branch `claude` and look for `my-branch/` inside it
+   */
+  test("resolves a branch whose name contains a slash", () => {
+    expect(resolveExampleRef("claude/my-branch", refs)).toEqual({
+      ref: "claude/my-branch",
+      subPath: "",
+    });
+  });
+
+  /**
+   * @case A multi-segment branch with a subpath under it
+   * @preconditions The remainder is a slashed branch name followed by a path
+   * @expectedResult The branch and the path, divided where the ref list says rather than at the first slash
+   */
+  test("resolves a slashed branch carrying a subpath", () => {
+    expect(resolveExampleRef("feat/acp/examples/api", refs)).toEqual({
+      ref: "feat/acp",
+      subPath: "examples/api",
+    });
+  });
+
+  /**
+   * @case A single-segment branch with a subpath under it
+   * @preconditions The remainder is a branch followed by a nested path
+   * @expectedResult Branch and path, the case that already worked and must keep working
+   */
+  test("resolves a branch carrying a subpath", () => {
+    expect(resolveExampleRef("main/examples/api", refs)).toEqual({
+      ref: "main",
+      subPath: "examples/api",
+    });
+  });
+
+  /**
+   * @case A tag resolves like a branch
+   * @preconditions The remainder names a tag rather than a branch
+   * @expectedResult The tag. `git clone --branch` takes either, so a /tree/v1.2.0 URL worked before this change and must not stop working
+   */
+  test("resolves a tag", () => {
+    expect(resolveExampleRef("v1.2.0", refs)).toEqual({
+      ref: "v1.2.0",
+      subPath: "",
+    });
+    expect(resolveExampleRef("v1.2.0/examples", refs)).toEqual({
+      ref: "v1.2.0",
+      subPath: "examples",
+    });
+  });
+
+  /**
+   * @case The longest matching ref wins
+   * @preconditions A remainder that a shorter ref also prefixes, which git itself cannot actually produce but the resolver must not depend on that
+   * @expectedResult The longer ref, so a path is never mistaken for part of a branch name
+   */
+  test("prefers the longest matching ref", () => {
+    const nested = {
+      heads: ["release", "release/2024"],
+      tags: [],
+    };
+    expect(resolveExampleRef("release/2024/examples", nested)).toEqual({
+      ref: "release/2024",
+      subPath: "examples",
+    });
+  });
+
+  /**
+   * @case A branch is preferred over a tag of the same name
+   * @preconditions The two namespaces are separate, so one name can be both
+   * @expectedResult The branch, which is what a /tree/ URL means when a browser produces one
+   */
+  test("prefers a branch over a tag of the same name", () => {
+    const both = { heads: ["v1.2.0"], tags: ["v1.2.0"] };
+    expect(resolveExampleRef("v1.2.0", both)).toEqual({
+      ref: "v1.2.0",
+      subPath: "",
+    });
+  });
+
+  /**
+   * @case A miss names the refs that do exist
+   * @preconditions A remainder matching no branch and no tag
+   * @expectedResult Throws naming the branches and tags available, because "make sure the repository is public" is not the problem when the repository just answered with its ref list
+   */
+  test("a miss names the refs that exist", () => {
+    expect(() => resolveExampleRef("no-such-branch/x", refs)).toThrow(
+      /No branch or tag matches "no-such-branch\/x"/,
+    );
+    expect(() => resolveExampleRef("no-such-branch/x", refs)).toThrow(
+      /claude\/my-branch/,
+    );
+    expect(() => resolveExampleRef("no-such-branch/x", refs)).toThrow(
+      /v1\.2\.0/,
+    );
+  });
+
+  /**
+   * @case A miss against a repository with many refs stays readable
+   * @preconditions More refs than the message will name
+   * @expectedResult The first few and a count, rather than six hundred lines answering a typo
+   */
+  test("a miss bounds how many refs it names", () => {
+    const many = {
+      heads: Array.from({ length: 25 }, (_, i) => `branch-${i}`),
+      tags: [],
+    };
+    expect(() => resolveExampleRef("nope", many)).toThrow(/and 5 more/);
+  });
+});
+
+// ─── Unit: clone containment ─────────────────────────────────────────────────
+
+describe("clone containment", () => {
   /**
    * @case A symlinked example directory is refused
    * @preconditions A clone carrying a symlink that points outside it, which git stores and clones faithfully
@@ -939,35 +1051,5 @@ describe("parseGitHubExampleUrl", () => {
     ).not.toThrow();
 
     await rm(root, { recursive: true, force: true });
-  });
-
-  /**
-   * @case A subpath that climbs out of the repository is refused
-   * @preconditions A /tree/ URL whose path contains a ".." segment
-   * @expectedResult Throws, so nothing outside the clone is ever copied into
-   *   the new project
-   */
-  test("refuses a subpath that escapes the repository", () => {
-    expect(() =>
-      parseGitHubExampleUrl(
-        "https://github.com/owner/repo/tree/main/../../../etc",
-      ),
-    ).toThrow(/cannot contain/);
-    expect(() =>
-      parseGitHubExampleUrl(
-        "https://github.com/owner/repo/tree/main/a/../../b",
-      ),
-    ).toThrow(/cannot contain/);
-  });
-
-  /**
-   * @case A path that merely contains two dots is kept
-   * @preconditions A subpath whose segments contain dots but are not ".."
-   * @expectedResult Parses, because the guard is per segment
-   */
-  test("keeps a subpath whose segments merely contain dots", () => {
-    expect(
-      parseGitHubExampleUrl("https://github.com/owner/repo/tree/main/v1..2/x"),
-    ).toMatchObject({ subPath: "v1..2/x" });
   });
 });
