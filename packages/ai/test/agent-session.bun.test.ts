@@ -26,6 +26,7 @@ import { AgentSessionStore } from "../src/agent/session/store.ts";
 import { INTERRUPTED_TOOL_MESSAGE } from "../src/agent/run.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
 import { MODEL } from "./helpers/defer-fixtures.ts";
+import { sleep, until } from "./helpers/until.ts";
 
 const llm = scriptedLlm([]);
 mock.module("../src/llm/providers/index.ts", () => ({
@@ -40,9 +41,6 @@ const ChatMessage = z.object({
   interrupt: z.boolean().optional(),
 });
 type ChatMessage = z.infer<typeof ChatMessage>;
-
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
 
 /** A hold the test opens, so a patched store call waits for a point in the sequence rather than a clock. */
 function gate(): { wait: Promise<void>; open: () => void } {
@@ -71,15 +69,6 @@ function gateLoads(sessions: AgentSessionStore): {
     return realLoad(key);
   };
   return { realLoad, gates, entered: () => entered };
-}
-
-async function until(
-  condition: () => boolean | Promise<boolean>,
-  ms = 5_000,
-): Promise<void> {
-  const deadline = Date.now() + ms;
-  while (!(await condition()) && Date.now() < deadline) await sleep(1);
-  expect(await condition()).toBe(true);
 }
 
 /**
@@ -357,9 +346,15 @@ describe("agent sessions", () => {
     const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
-    const interrupted: unknown[] = [];
+    const interrupted: Array<{ exchangeId: string }> = [];
     t.ctx.on("route:agent:session:interrupted", ({ details }) => {
       interrupted.push(details);
+    });
+    // The interrupting message's own exchange, for the comparison below:
+    // "queued" is scoped to the message, "interrupted" to the turn it stops.
+    const queuedEvents: Array<{ exchangeId: string }> = [];
+    t.ctx.on("route:agent:session:queued", ({ details }) => {
+      queuedEvents.push(details);
     });
 
     llm.script.push({ toolCalls: [{ toolName: "slow" }] });
@@ -378,6 +373,13 @@ describe("agent sessions", () => {
     expect(reply.session?.status).toBe("replied");
     expect(llm.sawAbort()).toBe(true);
     expect(interrupted).toHaveLength(1);
+    // The event names the turn that was stopped, not the message that
+    // stopped it. A listener that acts on this event (the surface cancels
+    // the turn's calls and sends its registered cleanup) would otherwise
+    // act on the incoming turn and leave the stopped one running.
+    expect(interrupted[0]!.exchangeId).not.toBe(
+      queuedEvents.at(-1)!.exchangeId,
+    );
 
     const cancelled = await first;
     expect(cancelled.text).toBe("");

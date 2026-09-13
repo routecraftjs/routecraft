@@ -12,7 +12,7 @@ import type {
   ClientRequestResponsesByMethod,
   SessionUpdate,
 } from "@agentclientprotocol/sdk";
-import type { AgentSurfaceKind } from "./header.ts";
+import type { AgentSurfaceKind, AgentSurfaceRef } from "./header.ts";
 
 /**
  * The client-side methods a surface may be asked for, keyed by name, with
@@ -29,14 +29,26 @@ import type { AgentSurfaceKind } from "./header.ts";
  * mean, and a field the route must not choose is not asked of it.
  */
 export type SurfaceRequestParams = {
-  [M in keyof ClientRequestParamsByMethod]: Omit<
-    ClientRequestParamsByMethod[M],
-    "sessionId"
-  > & {
-    /** Never supplied: the running turn's session is filled in. */
-    readonly sessionId?: never;
-  };
+  [M in keyof ClientRequestParamsByMethod]: WithoutSession<
+    ClientRequestParamsByMethod[M]
+  >;
 };
+
+/**
+ * `sessionId` removed from each arm of a union, not from their
+ * intersection.
+ *
+ * `Omit` is not distributive: over a union it keeps only the keys every
+ * arm shares, so a method whose params are a union (`elicitation/create`
+ * is `form | url`) would lose every arm-specific field and no callback
+ * for it could typecheck without a cast. The conditional distributes.
+ */
+type WithoutSession<T> = T extends unknown
+  ? Omit<T, "sessionId"> & {
+      /** Never supplied: the running turn's session is filled in. */
+      readonly sessionId?: never;
+    }
+  : never;
 
 /** The response each surface method answers with. See {@link SurfaceRequestParams}. */
 export type SurfaceRequestResponses = ClientRequestResponsesByMethod;
@@ -44,8 +56,32 @@ export type SurfaceRequestResponses = ClientRequestResponsesByMethod;
 /** A method name a route may call on the person's surface. */
 export type SurfaceMethod = keyof SurfaceRequestParams & string;
 
+/**
+ * One call a route asks the framework to make for it, with the params the
+ * method takes. The shape {@link surface.onCancel} registers.
+ */
+export type SurfaceRequest = {
+  [M in SurfaceMethod]: {
+    readonly method: M;
+    readonly params: SurfaceRequestParams[M];
+  };
+}[SurfaceMethod];
+
 /** One update pushed at a surface rather than asked of it. */
 export type SurfaceUpdate = SessionUpdate;
+
+/**
+ * The params as sent: the turn's session, never the route's to choose.
+ *
+ * A route that could name another session could address another person's
+ * surface, so the framework fills the field in on every path that reaches
+ * a backend rather than trusting each of them to remember.
+ *
+ * @internal
+ */
+export function withSession(params: unknown, ref: AgentSurfaceRef): object {
+  return { ...(params as object), sessionId: ref.session };
+}
 
 /**
  * A live connection to one person's surface, registered by the backend

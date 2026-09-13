@@ -109,6 +109,7 @@ export interface ErrorCodeRegistry {
   RC5063: RCMeta;
   RC5064: RCMeta;
   RC5065: RCMeta;
+  RC5066: RCMeta;
   RC9901: RCMeta;
 }
 
@@ -647,11 +648,19 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     retryable: false,
   },
   RC5065: {
+    category: "Runtime",
+    message: "Request validation failed",
+    suggestion:
+      "The payload a caller supplied did not satisfy the route's `.input()` schema. Read the message: it names the field and the rule. This is the caller's fault rather than the instance's, which is what separates it from `RC5002`; a transport answering a request maps it to a client error, and the ops dispatch mount returns 400 with the message.",
+    docs: `${DOCS_BASE}#rc-5065`,
+    retryable: false,
+  },
+  RC5066: {
     category: "Definition",
     message: "Deferral store is missing a contract member",
     suggestion:
       "A surface asked the deferral store for something the store this context was given does not implement. The two shipped backends (sqlite and memory) implement the whole `DeferralStore` contract; a store supplied through `deferral: { store }` is the caller's own, and one written against an earlier version of the contract can be missing a member added since. The message names the member. Implement it, or drop back to a shipped backend. The surface refuses rather than answering empty, because an empty listing and a listing the store cannot produce look identical to whoever is reading it.",
-    docs: `${DOCS_BASE}#rc-5065`,
+    docs: `${DOCS_BASE}#rc-5066`,
     retryable: false,
   },
   RC9901: {
@@ -920,6 +929,22 @@ export function registerErrorCodes(
 }
 
 /**
+ * Look up the metadata for a code, or `undefined` when this process has
+ * never registered it.
+ *
+ * A miss is a normal outcome rather than a fault: an ecosystem code is
+ * registered by the package that defines it, and a reader's process is
+ * often not the one that imported it. Callers that can degrade (a docs
+ * link, a rendered hint) take this; callers for which a miss is a bug take
+ * {@link getErrorMeta}.
+ *
+ * @internal
+ */
+export function findErrorMeta(rc: string): RCMeta | undefined {
+  return getErrorRegistry().codes.get(rc);
+}
+
+/**
  * Look up the metadata for a code in the runtime registry (core +
  * registered ecosystem codes). Throws RC9901 for unknown codes, which in
  * practice means the package that registers the code was never imported.
@@ -927,7 +952,7 @@ export function registerErrorCodes(
  * @internal Exposed for docs tooling and conformance tests.
  */
 export function getErrorMeta(rc: string): RCMeta {
-  const meta = getErrorRegistry().codes.get(rc);
+  const meta = findErrorMeta(rc);
   if (!meta) {
     throw new RoutecraftError(
       "RC9901" as RCCode,

@@ -25,12 +25,18 @@ export {
   CONFIG_REASONING,
 } from "./acp/index.ts";
 export type { AcpPluginOptions } from "./acp/index.ts";
-export { AGENT_SURFACE_HEADER, hasSurface, surface } from "./surface/index.ts";
+export {
+  AGENT_SURFACE_HEADER,
+  hasSurface,
+  surface,
+  SurfaceDisconnected,
+} from "./surface/index.ts";
 export type {
   AgentSurfaceConnection,
   AgentSurfaceKind,
   AgentSurfaceRef,
   SurfaceMethod,
+  SurfaceRequest,
   SurfaceRequestParams,
   SurfaceRequestResponses,
   SurfaceUpdate,

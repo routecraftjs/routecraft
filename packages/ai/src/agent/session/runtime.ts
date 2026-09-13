@@ -307,7 +307,11 @@ export class AgentSessionRuntime {
     if (!running) return this.queued(req.key, req.agent, record.inbox.length);
     if (req.interrupt) {
       running.controller.abort(INTERRUPT_REASON);
-      this.emit(req.exchange, "route:agent:session:interrupted", {
+      // Scoped to the turn that was interrupted, not to the message that
+      // interrupted it. A listener acting on this event acts on the turn
+      // being stopped, and the interrupter's own exchange is the one that
+      // carries on.
+      this.emit(running.exchange, "route:agent:session:interrupted", {
         agentName: req.agent,
         session: req.key,
       });

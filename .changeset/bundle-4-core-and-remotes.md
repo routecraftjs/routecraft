@@ -9,4 +9,4 @@ A dispatch to another instance can no longer be re-sent by the runtime underneat
 
 `GET /ops/deferrals` reports what an instance is waiting on, with `craft ops deferrals` reading the same thing from a terminal. One row per deferral: the route, the state, what it waits for, whether a delivery claim is outstanding, when it was deferred and when it comes due, and the outcome of a settled one. Never the resume token and never the stored exchange. Waiting by default, filterable by `state` and `route`, and paged oldest first.
 
-**Breaking:** `DeferralStore` gains a required `list()` member. Both shipped backends implement it and satisfy one contract suite; a store of your own stops compiling until it does, and a store that reaches a running instance without it is refused with `RC5065` naming the member rather than answering an empty page.
+**Breaking:** `DeferralStore` gains a required `list()` member. Both shipped backends implement it and satisfy one contract suite; a store of your own stops compiling until it does, and a store that reaches a running instance without it is refused with `RC5066` naming the member rather than answering an empty page.

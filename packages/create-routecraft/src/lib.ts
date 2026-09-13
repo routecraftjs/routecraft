@@ -77,15 +77,22 @@ function getPackageManagerVersion(packageManager: PackageManager): string {
 }
 
 /**
- * Process template content with replacements
+ * Substitute a template's placeholders.
+ *
+ * Longest key first, because one placeholder can be a prefix of another:
+ * replacing `PACKAGE_MANAGER` before `PACKAGE_MANAGER_RUN` leaves
+ * `bun@1.3.9_RUN` in the file, which is not an error anywhere, just wrong
+ * output in a README nobody re-reads. Object key order would otherwise
+ * decide the result.
  */
 export function processTemplate(
   content: string,
   replacements: Record<string, string>,
 ): string {
   let processed = content;
-  for (const [key, value] of Object.entries(replacements)) {
-    processed = processed.replaceAll(key, value);
+  const keys = Object.keys(replacements).sort((a, b) => b.length - a.length);
+  for (const key of keys) {
+    processed = processed.replaceAll(key, replacements[key]!);
   }
   return processed;
 }
@@ -191,47 +198,37 @@ export function isExcludedExamplePath(relativePath: string): boolean {
   if (segments.some((segment) => EXAMPLE_EXCLUDED_DIRECTORIES.has(segment))) {
     return true;
   }
+  if (isExcludedPrefix(segments)) return true;
   return EXAMPLE_EXCLUDED_FILES.has(segments[segments.length - 1]!);
 }
 
 /**
- * Files an example would place where the base template already wrote one.
+ * Path prefixes never copied out of an example.
  *
- * The built-in example copy lets the base file win, which is silent data
- * loss unless someone says which files went. Walking for the answer up
- * front is what lets the copy name them afterwards.
- *
- * @param sourceDir Example root
- * @param targetDir Project root, already carrying the base template
- * @param exclude Paths the copy will skip anyway, so they are not reported
- * @returns Example-relative paths that already exist in the project
+ * A prefix rather than a bare segment name, because the thing being excluded
+ * is a specific location and not a word: an example may legitimately carry a
+ * capability folder called `workflows/`, and a bare segment test would drop
+ * that too.
  */
-export async function collidingExamplePaths(
-  sourceDir: string,
-  targetDir: string,
-  exclude: (relativePath: string) => boolean = isExcludedExamplePath,
-): Promise<string[]> {
-  const collisions: string[] = [];
-  const walk = async (dir: string): Promise<void> => {
-    for (const entry of await readdir(dir)) {
-      const absolute = join(dir, entry);
-      const relativePath = relative(sourceDir, absolute);
-      if (exclude(relativePath)) continue;
-      // lstat, not stat: stat follows a link, so a symlinked directory would
-      // be recursed into and this walk would leave the example entirely, or
-      // spin on a link that points at one of its own parents. The copy skips
-      // links, so the scan agrees with it by not counting them at all.
-      const entryStat = await lstat(absolute);
-      if (entryStat.isSymbolicLink()) continue;
-      if (entryStat.isDirectory()) {
-        await walk(absolute);
-      } else if (existsSync(join(targetDir, relativePath))) {
-        collisions.push(relativePath);
-      }
-    }
-  };
-  await walk(sourceDir);
-  return collisions.sort();
+const EXAMPLE_EXCLUDED_PREFIXES: readonly (readonly string[])[] = [
+  [".github", "workflows"],
+];
+
+/**
+ * Whether a path sits under one of {@link EXAMPLE_EXCLUDED_PREFIXES}.
+ *
+ * The template's CI is about the template's repository: it tests the
+ * example against its own branches and its own secrets, and none of that is
+ * true in the project being scaffolded. A workflow copied there either fails
+ * on the first push or, worse, is guarded into never running and sits in
+ * somebody's repository forever as config they did not write.
+ */
+function isExcludedPrefix(segments: readonly string[]): boolean {
+  return EXAMPLE_EXCLUDED_PREFIXES.some(
+    (prefix) =>
+      segments.length >= prefix.length &&
+      prefix.every((segment, index) => segments[index] === segment),
+  );
 }
 
 /**
@@ -240,10 +237,28 @@ export async function collidingExamplePaths(
 export interface GitHubExampleRef {
   owner: string;
   repo: string;
-  /** Branch to clone. `main` when the URL names none: templates are untagged. */
-  branch: string;
+  /**
+   * Everything after `/tree/`, unsplit, and `""` when the URL names nothing.
+   *
+   * Unsplit on purpose. A ref name may contain `/`, so nothing in the URL
+   * says which slash divides the ref from the path inside it. The remote
+   * does, and {@link resolveExampleRef} asks it.
+   */
+  remainder: string;
+}
+
+/** Where a `/tree/...` remainder actually points, once the remote has said. */
+export interface ResolvedExampleRef {
+  /** The ref to clone, or `undefined` for the repository's default branch. */
+  ref: string | undefined;
   /** Subdirectory inside the repository, or `""` for the whole thing. */
   subPath: string;
+}
+
+/** A remote's ref names, without their `refs/heads/` or `refs/tags/` prefix. */
+export interface RemoteRefs {
+  heads: readonly string[];
+  tags: readonly string[];
 }
 
 /**
@@ -273,18 +288,116 @@ export function parseGitHubExampleUrl(url: string): GitHubExampleRef {
   const match = url
     .replace(/[?#].*$/, "")
     .match(
-      /^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?(?:\/tree\/([^/]+?)(?:\/(.+?))?)?\/?$/,
+      /^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?(?:\/tree\/(.+?))?\/?$/,
     );
   if (!match) {
     throw new Error(`Invalid GitHub URL format: ${url}`);
   }
-  const [, owner, repo, branch = "main", subPath = ""] = match;
-  if (subPath.split(/[\\/]/).some((segment) => segment === "..")) {
+  const [, owner, repo, remainder = ""] = match;
+  // Checked here rather than after the split, so it catches a climb whichever
+  // side of the boundary it lands on. A ref named `..` is invalid in git
+  // anyway, so nothing legitimate is refused by testing the whole remainder.
+  if (remainder.split(/[\\/]/).some((segment) => segment === "..")) {
     throw new Error(
-      `Invalid example path "${subPath}": a path inside the repository cannot contain "..".`,
+      `Invalid example path "${remainder}": a path inside the repository cannot contain "..".`,
     );
   }
-  return { owner: owner!, repo: repo!, branch, subPath };
+  return { owner: owner!, repo: repo!, remainder };
+}
+
+/**
+ * Split a `/tree/...` remainder into the ref it names and the path inside it.
+ *
+ * Exact rather than a heuristic, and the reason is how git stores refs. They
+ * are a directory tree, so `refs/heads/claude` and `refs/heads/claude/foo`
+ * cannot both exist: git refuses the second with "cannot lock ref". At most
+ * one ref can therefore be a prefix of any given remainder, so taking the
+ * longest match resolves the URL rather than guessing at it, and there is no
+ * ambiguity left for a flag to settle.
+ *
+ * This is what GitHub itself does when it renders a `/tree/` URL, and it is
+ * why a branch named `feature/login` is expressible here at all. It used to
+ * be read as branch `feature` with `login` as a path inside it, which broke
+ * every `feat/*`, `fix/*` and `claude/*` branch.
+ *
+ * Branches are searched before tags at the same length. The two namespaces
+ * are separate, so a name can be both, and a branch is what a `/tree/` URL
+ * means when a browser produces one.
+ *
+ * @throws Error naming the refs that do exist, which is the question a miss
+ *   actually raises
+ */
+export function resolveExampleRef(
+  remainder: string,
+  refs: RemoteRefs,
+): ResolvedExampleRef {
+  if (remainder === "") return { ref: undefined, subPath: "" };
+
+  const segments = remainder.split("/").filter(Boolean);
+  const heads = new Set(refs.heads);
+  const tags = new Set(refs.tags);
+  for (let take = segments.length; take > 0; take--) {
+    const candidate = segments.slice(0, take).join("/");
+    if (heads.has(candidate) || tags.has(candidate)) {
+      return { ref: candidate, subPath: segments.slice(take).join("/") };
+    }
+  }
+
+  throw new Error(
+    `No branch or tag matches "${remainder}".\n` +
+      `${describeRefs("Branches", refs.heads)}\n` +
+      `${describeRefs("Tags", refs.tags)}`,
+  );
+}
+
+/** How many ref names a miss lists before it starts counting instead. */
+const REFS_NAMED_ON_A_MISS = 20;
+
+/**
+ * Name the refs a miss could have meant, bounded. A repository with six
+ * hundred branches would otherwise answer a typo with six hundred lines.
+ */
+function describeRefs(label: string, names: readonly string[]): string {
+  if (names.length === 0) return `${label}: none`;
+  const shown = names.slice(0, REFS_NAMED_ON_A_MISS).join(", ");
+  const rest = names.length - REFS_NAMED_ON_A_MISS;
+  return rest > 0
+    ? `${label}: ${shown}, and ${rest} more`
+    : `${label}: ${shown}`;
+}
+
+/**
+ * Ask the remote which refs it has.
+ *
+ * Unauthenticated, no API token and no rate limit, over the same transport
+ * as the clone on the next line. It adds one round trip to a path that
+ * already makes one, so an offline or firewalled run fails a step earlier
+ * and with a clearer message than a clone would give.
+ */
+async function listRemoteRefs(repoUrl: string): Promise<RemoteRefs> {
+  const output = execFileSync(
+    "git",
+    ["ls-remote", "--heads", "--tags", repoUrl],
+    {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  const heads: string[] = [];
+  const tags: string[] = [];
+  for (const line of output.split("\n")) {
+    const ref = line.split("\t")[1];
+    if (ref === undefined) continue;
+    // `refs/tags/v1^{}` is the peeled object of an annotated tag, the same
+    // name a second time. Cloning by name works either way, so the marker is
+    // dropped rather than offered as a separate ref.
+    if (ref.endsWith("^{}")) continue;
+    if (ref.startsWith("refs/heads/"))
+      heads.push(ref.slice("refs/heads/".length));
+    else if (ref.startsWith("refs/tags/"))
+      tags.push(ref.slice("refs/tags/".length));
+  }
+  return { heads, tags };
 }
 
 /**
@@ -347,26 +460,26 @@ async function downloadGitHubExample(url: string): Promise<string> {
   try {
     console.log(`📥 Downloading example from ${url}...`);
 
-    const { owner, repo, branch, subPath } = parseGitHubExampleUrl(url);
+    const { owner, repo, remainder } = parseGitHubExampleUrl(url);
     const repoUrl = `https://github.com/${owner}/${repo}.git`;
+
+    // The remote is asked which refs exist before the clone, because the URL
+    // alone cannot say where the ref ends and the path begins.
+    const { ref, subPath } = resolveExampleRef(
+      remainder,
+      await listRemoteRefs(repoUrl),
+    );
 
     try {
       const args = ["clone", "--depth", "1"];
-      if (branch) {
-        args.push("--branch", branch);
+      if (ref !== undefined) {
+        args.push("--branch", ref);
       }
       args.push(repoUrl, tempDir);
       execFileSync("git", args, { stdio: "inherit" });
     } catch {
-      // A multi-segment branch reaches here rather than the not-found branch
-      // below, because the clone is what rejects the guessed branch name.
-      // Without this the user is told to check the repository's visibility,
-      // which is not the problem.
-      const ambiguity = subPath
-        ? ` The branch was read as "${branch}" and "${subPath}" as a path inside it; if "${branch}/${subPath}" is one branch name, scaffold from the repository root instead and copy the folder yourself.`
-        : "";
       throw new Error(
-        `Failed to clone ${repoUrl} at branch "${branch}". Make sure the repository is public and the branch exists.${ambiguity}`,
+        `Failed to clone ${repoUrl}${ref === undefined ? "" : ` at "${ref}"`}. Make sure the repository is public.`,
       );
     }
 
@@ -505,22 +618,25 @@ export async function getUserInput(
               value.length > 0 || "Project name cannot be empty",
           })),
 
+    // "" is the built-in template. There is one, so the only question left
+    // is whether to start from it or from somebody's repository, and the
+    // default answer is the template.
     example:
       (options["example"] as ExampleType) ||
       (skipPrompts
-        ? "none"
+        ? ""
         : await select<string>({
-            message: "Choose an example:",
+            message: "Start from:",
             choices: [
-              { name: "None - empty project", value: "none" },
-              { name: "Hello World - basic example", value: "hello-world" },
-              { name: "Custom URL (GitHub)", value: "custom-url" },
+              { name: "The starter template", value: "" },
+              { name: "A GitHub repository", value: "custom-url" },
             ],
-            default: "none",
+            default: "",
           }).then(async (choice) => {
             if (choice === "custom-url") {
               return await input({
-                message: "Enter GitHub URL:",
+                message:
+                  "GitHub URL (e.g. https://github.com/routecraftjs/craft-harness):",
                 validate: (value: string) => {
                   if (isUrl(value)) return true;
                   return "Must be a valid GitHub URL";
@@ -594,127 +710,104 @@ async function createProjectDirectory(
 }
 
 /**
- * Generate project structure from template
+ * Files copied out of the template verbatim, mapped to the name they take in
+ * a project. `gitignore` is stored without its dot because npm refuses to
+ * publish a `.gitignore` inside a package.
+ */
+const TEMPLATE_FILES: Record<string, string> = {
+  gitignore: ".gitignore",
+  ".prettierrc": ".prettierrc",
+  "craft.config.ts": "craft.config.ts",
+  "eslint.config.mjs": "eslint.config.mjs",
+  "tsconfig.json": "tsconfig.json",
+};
+
+/**
+ * Write the template into the project directory.
+ *
+ * One template, laid out for the folder convention: `craft start` discovers
+ * `capabilities/` from disk, so a project has no entry file listing its
+ * routes and nothing to register by hand.
+ *
+ * `adapters/` and `plugins/` are not created. An empty directory is not a
+ * thing git can carry, so scaffolding them produced folders that vanished on
+ * the author's first commit; the README names the convention instead, which
+ * survives.
  */
 export async function generateProjectStructure(
   projectDir: string,
   options: Required<InitOptions>,
 ) {
-  const hasExample = options.example !== "none";
-
-  // Create base directories
-  await mkdir(join(projectDir, "capabilities"), { recursive: true });
-  await mkdir(join(projectDir, "adapters"), { recursive: true });
-  await mkdir(join(projectDir, "plugins"), { recursive: true });
-
-  // Template files mapping (source -> destination)
-  const templateFiles: Record<string, string> = {
-    gitignore: ".gitignore",
-    ".prettierrc": ".prettierrc",
-    "craft.config.ts": "craft.config.ts",
-    "eslint.config.mjs": "eslint.config.mjs",
-    "tsconfig.json": "tsconfig.json",
+  const fromUrlExample = isUrl(options.example);
+  const replacements = {
+    PROJECT_NAME: options.projectName,
+    ROUTECRAFT_VERSION: getRoutecraftVersion(),
+    PACKAGE_MANAGER: getPackageManagerVersion(options.packageManager),
+    PACKAGE_MANAGER_RUN: `${getPackageManagerCommand(options.packageManager)} run`,
   };
 
-  const routecraftVersion = getRoutecraftVersion();
-
-  // Copy base template files
-  for (const [sourceFile, destFile] of Object.entries(templateFiles)) {
-    const sourcePath = join(TEMPLATES_DIR, "base", sourceFile);
-    const destPath = join(projectDir, destFile);
-
-    const content = await readFile(sourcePath, "utf-8");
-    await writeFile(destPath, content);
+  for (const [sourceFile, destFile] of Object.entries(TEMPLATE_FILES)) {
+    const content = await readFile(
+      join(TEMPLATES_DIR, "base", sourceFile),
+      "utf-8",
+    );
+    await writeFile(join(projectDir, destFile), content);
     console.log(`Created file: ${destFile}`);
   }
 
-  // Handle package.json with replacements
-  const packageJsonSource = join(TEMPLATES_DIR, "base", "package.json");
-  let packageJsonContent = await readFile(packageJsonSource, "utf-8");
-  packageJsonContent = processTemplate(packageJsonContent, {
-    PROJECT_NAME: options.projectName,
-    ROUTECRAFT_VERSION: routecraftVersion,
-    PACKAGE_MANAGER: getPackageManagerVersion(options.packageManager),
-  });
-  await writeFile(join(projectDir, "package.json"), packageJsonContent);
-  console.log(`Created file: package.json`);
+  // package.json and README.md carry placeholders the caller's answers
+  // resolve: the project name, the package manager, and the version of the
+  // routecraft train this scaffolder belongs to.
+  const packageJson = processTemplate(
+    await readFile(join(TEMPLATES_DIR, "base", "package.json"), "utf-8"),
+    replacements,
+  );
+  await writeFile(join(projectDir, "package.json"), packageJson);
+  console.log("Created file: package.json");
 
-  // Handle index.ts based on whether a built-in example is included.
-  // URL examples supply their own index.ts via cp(), so use the empty template as a fallback.
-  const hasBuiltInExample = hasExample && !isUrl(options.example);
-  const indexTemplate = hasBuiltInExample
-    ? "index-with-example.ts"
-    : "index-empty.ts";
-  const indexSource = join(TEMPLATES_DIR, "base", indexTemplate);
-  const indexContent = await readFile(indexSource, "utf-8");
+  // A URL example is a whole project rather than an addition to one, so the
+  // sample capability must not be left standing inside it and a README
+  // describing `hello-world` must not sit at its root.
+  if (!fromUrlExample) {
+    const readme = processTemplate(
+      await readFile(join(TEMPLATES_DIR, "base", "README.md"), "utf-8"),
+      replacements,
+    );
+    await writeFile(join(projectDir, "README.md"), readme);
+    console.log("Created file: README.md");
 
-  await writeFile(join(projectDir, "index.ts"), indexContent);
-  console.log(`Created file: index.ts`);
+    await cp(
+      join(TEMPLATES_DIR, "base", "capabilities"),
+      join(projectDir, "capabilities"),
+      { recursive: true },
+    );
+    console.log("Created directory: capabilities/hello-world");
+  }
 
-  // Add example routes if requested
-  if (options.example !== "none") {
-    if (isUrl(options.example)) {
-      // Handle GitHub URL examples
-      const tempExampleDir = await downloadGitHubExample(options.example);
+  if (fromUrlExample) {
+    const tempExampleDir = await downloadGitHubExample(options.example);
+    try {
+      await cp(tempExampleDir, projectDir, {
+        recursive: true,
+        // The example wins on collision: a URL example is a whole project
+        // template, and a base file left standing in the middle of it is a
+        // file the template's own CI never saw.
+        force: true,
+        filter: (src) =>
+          !isSymbolicLink(src) &&
+          !skipFromUrlExample(relative(tempExampleDir, src)),
+      });
+      // package.json is held back from the copy above and merged instead,
+      // because a straight overwrite drops the project name the user just
+      // chose and the package manager they picked.
+      await mergeExamplePackageJson(tempExampleDir, projectDir);
+      await mergeExampleDeps(tempExampleDir, projectDir);
+      console.log(`✅ Added example from ${options.example}`);
+    } finally {
       try {
-        await cp(tempExampleDir, projectDir, {
-          recursive: true,
-          // The example wins on collision: a URL example is a whole project
-          // template, and a base file left standing in the middle of it is a
-          // file the template's own CI never saw.
-          force: true,
-          filter: (src) =>
-            !isSymbolicLink(src) &&
-            !skipFromUrlExample(relative(tempExampleDir, src)),
-        });
-        // package.json is held back from the copy above and merged instead,
-        // because a straight overwrite drops the project name the user just
-        // chose and the package manager they picked.
-        await mergeExamplePackageJson(tempExampleDir, projectDir);
-        await mergeExampleDeps(tempExampleDir, projectDir);
-        console.log(`✅ Added example from ${options.example}`);
-      } finally {
-        try {
-          await rm(tempExampleDir, { recursive: true, force: true });
-        } catch {
-          // Ignore cleanup errors
-        }
-      }
-    } else {
-      // Handle built-in examples - copy from templates/examples/
-      const exampleDir = join(TEMPLATES_DIR, "examples", options.example);
-      if (existsSync(exampleDir)) {
-        // deps.json is metadata for dependency injection, not project content.
-        const skip = (relativePath: string): boolean =>
-          relativePath === "deps.json" || isExcludedExamplePath(relativePath);
-        const dropped = await collidingExamplePaths(
-          exampleDir,
-          projectDir,
-          skip,
-        );
-        await cp(exampleDir, projectDir, {
-          recursive: true,
-          // The base template wins on collision here: its package.json and
-          // index.ts carry the placeholders this function already resolved.
-          force: false,
-          filter: (src) =>
-            !isSymbolicLink(src) && !skip(relative(exampleDir, src)),
-        });
-
-        await mergeExampleDeps(exampleDir, projectDir);
-
-        console.log(`✅ Added ${options.example} example`);
-        if (dropped.length > 0) {
-          // Named rather than swallowed. `force: false` is silent, so an
-          // example file colliding with a base file used to vanish with no
-          // trace in a scaffold that looked like it had succeeded.
-          console.warn(
-            `⚠️  ${dropped.length} file(s) from the ${options.example} example were NOT copied because the base template already wrote them:\n` +
-              dropped.map((file) => `   - ${file}`).join("\n"),
-          );
-        }
-      } else {
-        throw new Error(`Unknown example: ${options.example}`);
+        await rm(tempExampleDir, { recursive: true, force: true });
+      } catch {
+        // Ignore cleanup errors
       }
     }
   }
@@ -822,15 +915,46 @@ export async function mergeExamplePackageJson(
     "dependencies",
     "devDependencies",
     "peerDependencies",
-    "scripts",
   ] as const) {
     const base = mapFieldOrThrow(pkg[field], field, "scaffold");
     const overlay = mapFieldOrThrow(example[field], field, "example");
     if (base === undefined && overlay === undefined) continue;
-    merged[field] = { ...base, ...overlay };
+    merged[field] = pinRoutecraftVersions({ ...base, ...overlay });
+  }
+  {
+    const base = mapFieldOrThrow(pkg["scripts"], "scripts", "scaffold");
+    const overlay = mapFieldOrThrow(example["scripts"], "scripts", "example");
+    if (base !== undefined || overlay !== undefined) {
+      merged["scripts"] = { ...base, ...overlay };
+    }
   }
 
   await writeFile(pkgPath, JSON.stringify(merged, null, 2) + "\n");
+}
+
+/**
+ * Give every `@routecraft/*` entry the version this scaffolder belongs to.
+ *
+ * An example repository describes a project's shape. It does not decide
+ * which version of the framework the person scaffolding is entitled to, and
+ * letting it pin one produced two failures at once: asking for `@canary` and
+ * getting whatever the example last committed, and a tree whose packages
+ * came from different builds of a train the changeset config versions in
+ * lockstep. `@routecraft/os` sat eight days behind the rest that way.
+ *
+ * The pinned value is replaced rather than warned about, because a warning
+ * nobody reads still leaves the wrong tree installed. Everything that is not
+ * `@routecraft/*` is the example's to choose and is left alone.
+ */
+function pinRoutecraftVersions(
+  deps: Record<string, string>,
+): Record<string, string> {
+  const version = getRoutecraftVersion();
+  const pinned: Record<string, string> = {};
+  for (const [name, range] of Object.entries(deps)) {
+    pinned[name] = name.startsWith("@routecraft/") ? version : range;
+  }
+  return pinned;
 }
 
 /**
@@ -855,13 +979,16 @@ async function mergeExampleDeps(
   const pkg = JSON.parse(await readFile(pkgPath, "utf-8"));
 
   if (exampleDeps.dependencies) {
-    pkg.dependencies = { ...pkg.dependencies, ...exampleDeps.dependencies };
+    pkg.dependencies = pinRoutecraftVersions({
+      ...pkg.dependencies,
+      ...exampleDeps.dependencies,
+    });
   }
   if (exampleDeps.devDependencies) {
-    pkg.devDependencies = {
+    pkg.devDependencies = pinRoutecraftVersions({
       ...pkg.devDependencies,
       ...exampleDeps.devDependencies,
-    };
+    });
   }
 
   await writeFile(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
@@ -930,7 +1057,8 @@ Usage:
   npx create-routecraft <project-name> [options]
 
 Options:
-  -e, --example <name|url>  Example to include (none, hello-world) or GitHub URL
+  -e, --example <url>       Start from a GitHub repository instead of the
+                            starter template
   --use-bun                 Use bun as package manager (default)
   --use-npm                 Use npm as package manager
   --use-pnpm                Use pnpm as package manager
@@ -943,10 +1071,9 @@ Options:
 
 Examples:
   bunx create-routecraft my-app
-  bunx create-routecraft my-app --example hello-world
-  bunx create-routecraft my-app --yes --example hello-world
+  bunx create-routecraft my-app --yes --use-bun
   bunx create-routecraft my-app --force
-  bunx create-routecraft my-app --example https://github.com/user/repo
+  bunx create-routecraft my-agent --example https://github.com/routecraftjs/craft-harness
   bunx create-routecraft my-app --example https://github.com/user/repo/tree/main/examples/api
 `);
 }

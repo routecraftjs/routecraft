@@ -166,11 +166,11 @@ function stateOf(raw: string | undefined): DeferralState | "all" {
  * with nothing deferred, which is the one answer this surface must never
  * give wrongly.
  *
- * @throws RC5065 when the configured store does not implement `list`
+ * @throws RC5066 when the configured store does not implement `list`
  */
 function listingOf(store: DeferralStore): DeferralStore["list"] {
   if (typeof store.list !== "function") {
-    throw rcError("RC5065", undefined, {
+    throw rcError("RC5066", undefined, {
       message:
         'The deferral store configured on this context does not implement "list", which GET /ops/deferrals reads. Implement DeferralStore.list, or use one of the shipped backends (sqlite or memory).',
     });
@@ -197,10 +197,10 @@ export function registerDeferralsResource(ctx: CraftContext): void {
       // Not an empty page. This resource is registered by the deferral
       // plugin's own `apply()`, immediately after it sets the runtime, so
       // there is no state in which it is served without one; and an empty
-      // listing is exactly the lie RC5065 exists to refuse, whatever the
+      // listing is exactly the lie RC5066 exists to refuse, whatever the
       // reason the store cannot answer.
       if (runtime === undefined) {
-        throw rcError("RC5065", undefined, {
+        throw rcError("RC5066", undefined, {
           message:
             "The deferrals resource is registered but this context holds no deferral runtime, so there is no store to list.",
         });

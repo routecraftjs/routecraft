@@ -14,7 +14,7 @@ import { craft, simple, direct } from "@routecraft/routecraft";
  * recover it) whose rejection then also fails the producer's `.to(direct())`
  * step, exactly like any other consumer-route failure. `t.errors` therefore
  * collects TWO `context:error` events for one bad message: index 0 is the
- * consumer route's RC5002, index 1 is the producer's propagated failure.
+ * consumer route's RC5065, index 1 is the producer's propagated failure.
  */
 
 describe("Direct adapter validation", () => {
@@ -64,11 +64,11 @@ describe("Direct adapter validation", () => {
     });
 
     /**
-     * @case Invalid body throws RC5002
+     * @case Invalid body throws RC5065
      * @preconditions Body has wrong type for field
-     * @expectedResult RC5002 error emitted
+     * @expectedResult RC5065 error emitted
      */
-    test("invalid body throws RC5002", async () => {
+    test("invalid body throws RC5065", async () => {
       const schema = z.object({
         userId: z.string(),
         action: z.string(),
@@ -92,16 +92,16 @@ describe("Direct adapter validation", () => {
 
       await t.test();
       expect(t.errors).toHaveLength(2);
-      expect(t.errors[0].rc).toBe("RC5002");
+      expect(t.errors[0].rc).toBe("RC5065");
       expect(consumer).not.toHaveBeenCalled();
     });
 
     /**
-     * @case Missing required field throws RC5002
+     * @case Missing required field throws RC5065
      * @preconditions Body missing required field
-     * @expectedResult RC5002 error emitted
+     * @expectedResult RC5065 error emitted
      */
-    test("missing required field throws RC5002", async () => {
+    test("missing required field throws RC5065", async () => {
       const schema = z.object({
         userId: z.string(),
         action: z.string(),
@@ -123,15 +123,15 @@ describe("Direct adapter validation", () => {
 
       await t.test();
       expect(t.errors).toHaveLength(2);
-      expect(t.errors[0].rc).toBe("RC5002");
+      expect(t.errors[0].rc).toBe("RC5065");
     });
 
     /**
-     * @case Wrong type throws RC5002
+     * @case Wrong type throws RC5065
      * @preconditions Body field has wrong type
-     * @expectedResult RC5002 error emitted
+     * @expectedResult RC5065 error emitted
      */
-    test("wrong type throws RC5002", async () => {
+    test("wrong type throws RC5065", async () => {
       const schema = z.object({
         count: z.number(),
       });
@@ -152,7 +152,7 @@ describe("Direct adapter validation", () => {
 
       await t.test();
       expect(t.errors).toHaveLength(2);
-      expect(t.errors[0].rc).toBe("RC5002");
+      expect(t.errors[0].rc).toBe("RC5065");
     });
 
     /**
@@ -336,7 +336,7 @@ describe("Direct adapter validation", () => {
 
       await t.test();
       expect(t.errors).toHaveLength(2);
-      expect(t.errors[0].rc).toBe("RC5002");
+      expect(t.errors[0].rc).toBe("RC5065");
       expect(t.errors[0].cause).toBeDefined();
     });
 
@@ -437,9 +437,9 @@ describe("Direct adapter validation", () => {
   // ============================================================
   describe("Zod 4 object behaviors", () => {
     /**
-     * @case z.strictObject() rejects extra fields with RC5002
+     * @case z.strictObject() rejects extra fields with RC5065
      * @preconditions Schema uses z.strictObject() and body has extra fields
-     * @expectedResult RC5002 error thrown
+     * @expectedResult RC5065 error thrown
      */
     test("strictObject rejects extra fields", async () => {
       const schema = z.strictObject({
@@ -462,7 +462,7 @@ describe("Direct adapter validation", () => {
 
       await t.test();
       expect(t.errors).toHaveLength(2);
-      expect(t.errors[0].rc).toBe("RC5002");
+      expect(t.errors[0].rc).toBe("RC5065");
     });
 
     /**
@@ -760,7 +760,7 @@ describe("Direct adapter validation", () => {
     /**
      * @case strictObject rejects extra headers (Zod 4)
      * @preconditions Headers contain extra fields + z.strictObject()
-     * @expectedResult RC5002 error thrown
+     * @expectedResult RC5065 error thrown
      */
     test("strictObject rejects extra headers", async () => {
       t = await testContext()
@@ -785,15 +785,15 @@ describe("Direct adapter validation", () => {
 
       await t.test();
       expect(t.errors).toHaveLength(2);
-      expect(t.errors[0].rc).toBe("RC5002");
+      expect(t.errors[0].rc).toBe("RC5065");
     });
 
     /**
-     * @case Invalid header throws RC5002
+     * @case Invalid header throws RC5065
      * @preconditions Header doesn't match schema
-     * @expectedResult RC5002 error emitted
+     * @expectedResult RC5065 error emitted
      */
-    test("invalid header throws RC5002", async () => {
+    test("invalid header throws RC5065", async () => {
       t = await testContext()
         .routes([
           craft()
@@ -815,15 +815,15 @@ describe("Direct adapter validation", () => {
 
       await t.test();
       expect(t.errors).toHaveLength(2);
-      expect(t.errors[0].rc).toBe("RC5002");
+      expect(t.errors[0].rc).toBe("RC5065");
     });
 
     /**
-     * @case Missing required header throws RC5002
+     * @case Missing required header throws RC5065
      * @preconditions Required header not present
-     * @expectedResult RC5002 error emitted
+     * @expectedResult RC5065 error emitted
      */
-    test("missing required header throws RC5002", async () => {
+    test("missing required header throws RC5065", async () => {
       t = await testContext()
         .routes([
           craft().id("producer").from(simple("test")).to(direct("endpoint")),
@@ -841,7 +841,7 @@ describe("Direct adapter validation", () => {
 
       await t.test();
       expect(t.errors).toHaveLength(2);
-      expect(t.errors[0].rc).toBe("RC5002");
+      expect(t.errors[0].rc).toBe("RC5065");
     });
 
     /**
@@ -898,7 +898,7 @@ describe("Direct adapter validation", () => {
 
       await t.test();
       expect(t.errors).toHaveLength(2);
-      expect(t.errors[0].rc).toBe("RC5002");
+      expect(t.errors[0].rc).toBe("RC5065");
     });
 
     /**
@@ -1046,11 +1046,11 @@ describe("Direct adapter validation", () => {
     });
 
     /**
-     * @case Body passes but header fails throws RC5002
+     * @case Body passes but header fails throws RC5065
      * @preconditions Valid body, invalid header
-     * @expectedResult RC5002 error for header
+     * @expectedResult RC5065 error for header
      */
-    test("body passes but header fails throws RC5002", async () => {
+    test("body passes but header fails throws RC5065", async () => {
       t = await testContext()
         .routes([
           craft()
@@ -1071,15 +1071,15 @@ describe("Direct adapter validation", () => {
 
       await t.test();
       expect(t.errors).toHaveLength(2);
-      expect(t.errors[0].rc).toBe("RC5002");
+      expect(t.errors[0].rc).toBe("RC5065");
     });
 
     /**
-     * @case Header passes but body fails throws RC5002
+     * @case Header passes but body fails throws RC5065
      * @preconditions Valid header, invalid body
-     * @expectedResult RC5002 error for body
+     * @expectedResult RC5065 error for body
      */
-    test("header passes but body fails throws RC5002", async () => {
+    test("header passes but body fails throws RC5065", async () => {
       t = await testContext()
         .routes([
           craft()
@@ -1100,7 +1100,7 @@ describe("Direct adapter validation", () => {
 
       await t.test();
       expect(t.errors).toHaveLength(2);
-      expect(t.errors[0].rc).toBe("RC5002");
+      expect(t.errors[0].rc).toBe("RC5065");
       expect(t.errors[0].meta.message).toContain("Body validation failed");
     });
 
@@ -1144,7 +1144,7 @@ describe("Direct adapter validation", () => {
     /**
      * @case Validation only on consumer side, not producer
      * @preconditions Producer sends invalid data, only consumer has schema
-     * @expectedResult The producer's own pipeline runs unvalidated (its tap fires); the consumer rejects with RC5002 and the failure surfaces on both routes
+     * @expectedResult The producer's own pipeline runs unvalidated (its tap fires); the consumer rejects with RC5065 and the failure surfaces on both routes
      */
     test("validation only on consumer side", async () => {
       const producerTap = mock();
@@ -1240,7 +1240,7 @@ describe("Direct adapter validation", () => {
     /**
      * @case Producer observes the consumer's validation failure
      * @preconditions Producer sends, consumer fails validation
-     * @expectedResult The consumer's RC5002 rejects the producer's send too, so both routes fail (same contract as any other consumer-route failure)
+     * @expectedResult The consumer's RC5065 rejects the producer's send too, so both routes fail (same contract as any other consumer-route failure)
      */
     test("producer observes the consumer's validation failure", async () => {
       t = await testContext()
@@ -1283,7 +1283,7 @@ describe("Direct adapter validation", () => {
 
       await t.test();
       expect(t.errors).toHaveLength(2);
-      expect(t.errors[0].rc).toBe("RC5002");
+      expect(t.errors[0].rc).toBe("RC5065");
     });
 
     /**

@@ -1,4 +1,5 @@
 export { hasSurface, surface } from "./adapter.ts";
+export { SurfaceDisconnected } from "./errors.ts";
 export {
   AGENT_SURFACE_HEADER,
   surfaceRefOf,
@@ -16,6 +17,7 @@ export {
 export type {
   AgentSurfaceConnection,
   SurfaceMethod,
+  SurfaceRequest,
   SurfaceRequestParams,
   SurfaceRequestResponses,
   SurfaceUpdate,

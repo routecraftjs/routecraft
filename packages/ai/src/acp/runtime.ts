@@ -19,6 +19,7 @@ import { randomUUID } from "node:crypto";
 import {
   CraftClient,
   HeadersKeys,
+  rcCodeOf,
   rcError,
   type CraftContext,
   type EventPayload,
@@ -213,10 +214,15 @@ export class AcpRuntime {
         turn.payloads,
       ),
     );
-    on("route:agent:tool:error", (_turn, details) =>
+    on("route:agent:tool:error", (turn, details) =>
       toolFailedUpdate(
         details.toolCallId,
-        `${details.toolName} failed: ${details.errorName}`,
+        failureReason(
+          details.toolName,
+          details.errorName,
+          details._snapshot?.error,
+          turn.payloads,
+        ),
       ),
     );
     on("route:agent:tool:refused", (_turn, details) =>
@@ -460,6 +466,58 @@ export class AcpRuntime {
 /** Whether the connection is still registered as a surface, which it is until it closes. */
 function isSurfaceLive(context: CraftContext, connection: string): boolean {
   return context.getStore(AGENT_SURFACES)?.has(connection) === true;
+}
+
+/**
+ * What a person reads when a hand fails.
+ *
+ * The message is under the same policy as the arguments and the result. A
+ * handler's error routinely echoes the input it rejected, so an instance
+ * that withholds payloads is told the error's class and code, which are
+ * static text, and one that shows them is told the message, with the cause
+ * beneath it when there is one, because the reason a route failed is
+ * usually one level down from the error it threw.
+ */
+function failureReason(
+  toolName: string,
+  errorName: string,
+  error: unknown,
+  payloads: boolean,
+): string {
+  const rc = rcCodeOf(error);
+  const code = rc === undefined ? "" : ` (${rc})`;
+  const floor = `${toolName} failed: ${errorName}${code}`;
+  if (!payloads) return floor;
+  const message = thrownMessage(error);
+  if (message === undefined) return floor;
+  const cause = error instanceof Error ? thrownMessage(error.cause) : undefined;
+  const detail =
+    cause === undefined || message.includes(cause)
+      ? message
+      : `${message}: ${cause}`;
+  return `${toolName} failed${code}: ${detail}`;
+}
+
+/**
+ * The message a thrown value carries, or nothing when it carries none.
+ *
+ * A non-Error throw still routinely carries a usable `message` (a provider
+ * SDK's own error shape, Bun's `ResolveMessage`), and reading it is what
+ * keeps a hand's failure legible rather than falling back to its class.
+ */
+function thrownMessage(value: unknown): string | undefined {
+  if (value instanceof Error) return value.message || undefined;
+  if (typeof value === "string") return value || undefined;
+  if (typeof value === "object" && value !== null && "message" in value) {
+    return String((value as { message: unknown }).message) || undefined;
+  }
+  // A thrown primitive says something; a thrown object with no message does
+  // not, and "[object Object]" is worse than the class name the caller
+  // falls back to.
+  if (value !== null && typeof value !== "object" && value !== undefined) {
+    return String(value) || undefined;
+  }
+  return undefined;
 }
 
 type ToolEventName =

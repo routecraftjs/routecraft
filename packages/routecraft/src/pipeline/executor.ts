@@ -145,7 +145,7 @@ export async function runPipeline(
   // slot: with a parser it runs inside the parse step (input validates
   // the parsed body, so #3 and #4 collapse into one step); without one it
   // becomes a standalone synthetic input step in the same position. Both
-  // paths throw `RC5002` into this run's catch boundary, so a validation
+  // paths throw `RC5065` into this run's catch boundary, so a validation
   // failure is routable through `.error()` regardless of the source
   // shape (#447).
   const internals = EXCHANGE_INTERNALS.get(exchange);

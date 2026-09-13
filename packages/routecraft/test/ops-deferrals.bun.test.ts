@@ -248,7 +248,7 @@ describe("the deferrals management resource", () => {
   /**
    * @case A store that cannot list says so rather than answering empty
    * @preconditions A custom DeferralStore written against a contract without `list`
-   * @expectedResult The mount answers 500 carrying RC5065, which names the missing member. An empty page and a page the store cannot produce look identical to whoever is reading it, and one of them is a lie
+   * @expectedResult The mount answers 500 carrying RC5066, which names the missing member. An empty page and a page the store cannot produce look identical to whoever is reading it, and one of them is a lie
    */
   test("refuses when the configured store cannot list", async () => {
     const { base } = await boot(new StoreWithoutList());
@@ -256,7 +256,7 @@ describe("the deferrals management resource", () => {
     const response = await fetch(`${base}/ops/deferrals`);
 
     expect(response.status).toBe(500);
-    expect(await response.json()).toMatchObject({ code: "RC5065" });
+    expect(await response.json()).toMatchObject({ code: "RC5066" });
   });
 
   /**

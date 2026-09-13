@@ -11,6 +11,7 @@ import { agentPlugin, tools } from "../src/index.ts";
 import { acpHarness, type AcpHarness } from "./helpers/acp-harness.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
 import { slowTool } from "./helpers/slow-tool.ts";
+import { until } from "./helpers/until.ts";
 import { MODEL } from "./helpers/defer-fixtures.ts";
 
 const llm = scriptedLlm([]);
@@ -31,16 +32,6 @@ const AGENT = {
     tools: tools(["slow"]),
   },
 };
-
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
-
-/** Wait for a condition, bounded, so a failure reports as an assertion. */
-async function until(condition: () => boolean, ms = 5_000): Promise<void> {
-  const deadline = Date.now() + ms;
-  while (!condition() && Date.now() < deadline) await sleep(1);
-  expect(condition()).toBe(true);
-}
 
 describe("ACP session lifecycle", () => {
   let h: AcpHarness | undefined;
@@ -104,6 +95,66 @@ describe("ACP session lifecycle", () => {
       "user_message_chunk:the question",
       "agent_message_chunk:the answer",
     ]);
+  });
+
+  /**
+   * @case A conversation the instance does not hold is refused with the protocol's own not-found code, and no other refusal shares it
+   * @preconditions A resume, a load and a prompt against an id nobody issued, and a configuration change naming an option the mount does not offer on a conversation that exists
+   * @expectedResult The three missing-session doors answer -32002 with one message, which is what a bridge drops a conversation on; the bad option answers -32602, so a client can tell a conversation that is gone from a request that was wrong
+   */
+  test("a missing conversation is not found, and a bad request is not", async () => {
+    h = await boot();
+    llm.script.push({ text: "hi" });
+    const missing = "11111111-2222-3333-4444-555555555555";
+    const refusal = (request: Promise<unknown>): Promise<unknown> =>
+      request.then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+
+    const codes = await h.connect(async (agent) => {
+      const session = await agent.buildSession("/work").start();
+      await session.prompt("hello");
+      const answers = {
+        resume: await refusal(
+          agent.request("session/resume", {
+            sessionId: missing,
+            cwd: "/work",
+            mcpServers: [],
+          }),
+        ),
+        load: await refusal(
+          agent.request("session/load", {
+            sessionId: missing,
+            cwd: "/work",
+            mcpServers: [],
+          }),
+        ),
+        prompt: await refusal(
+          agent.request("session/prompt", {
+            sessionId: missing,
+            prompt: [{ type: "text", text: "anyone there?" }],
+          }),
+        ),
+        badOption: await refusal(
+          agent.request("session/set_config_option", {
+            sessionId: session.sessionId,
+            configId: "no-such-option",
+            value: "x",
+          }),
+        ),
+      };
+      session.dispose();
+      return answers;
+    });
+
+    for (const door of ["resume", "load", "prompt"] as const) {
+      expect(codes[door]).toMatchObject({
+        code: -32002,
+        message: "No such session.",
+      });
+    }
+    expect(codes.badOption).toMatchObject({ code: -32602 });
   });
 
   /**
