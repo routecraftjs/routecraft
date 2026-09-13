@@ -70,8 +70,12 @@ interface RemoteRuntime {
   channels: Map<string, RemoteDirectChannel>;
   /** The last inventory's detail per local endpoint, shadowed ones included. */
   details: Map<string, OpsRouteDetail>;
-  /** Ids of local routes that have stopped, shared by every remote on the context. */
-  stopped: Set<string>;
+  /**
+   * How this remote removes each capability it registered, by local
+   * endpoint. Held rather than discarded so removal goes through the same
+   * identity-checked disposer every writer on that registry uses.
+   */
+  disposers: Map<string, () => void>;
   timer?: ReturnType<typeof setInterval>;
   inflight?: Promise<void>;
   /** Whether the last refresh failed, so a repeat is logged quietly. */
@@ -189,7 +193,6 @@ export function remotesPlugin(options: RemotesPluginOptions): CraftPlugin {
     name: "remotes",
 
     apply(ctx: CraftContext) {
-      const stopped = new Set<string>();
       const remotes: RemoteRuntime[] = Object.entries(options).map(
         ([name, definition]) => {
           const client = createOpsHttpClient({
@@ -226,25 +229,20 @@ export function remotesPlugin(options: RemotesPluginOptions): CraftPlugin {
             refreshMs,
             channels: new Map(),
             details: new Map(),
-            stopped,
+            disposers: new Map(),
             down: false,
             seen: false,
           };
         },
       );
       // A local route that stops hands its endpoint to the remote route it
-      // shadowed. The direct source registers the capability at subscribe
-      // and nothing removes it at stop, so this plugin keeps the lifecycle
-      // itself: a stop rewrites the provenance and the channel at once, and
-      // an inventory that arrives after the stop must not read the stale
-      // capability as a live shadow. Listening from apply, not start, so no
-      // route can stop unseen.
+      // shadowed, and this is where that transition happens. Whether the
+      // local route is still there at all is the capability registry's
+      // answer now that the direct source unregisters at stop, so this
+      // plugin no longer tracks the lifecycle itself. Listening from
+      // apply, not start, so no route can stop unseen.
       const off = [
-        ctx.on("route:started", ({ details }) => {
-          stopped.delete(details.routeId);
-        }),
         ctx.on("route:stopped", ({ details }) => {
-          stopped.add(details.routeId);
           for (const remote of remotes) lift(ctx, remote, details.routeId);
         }),
       ];
@@ -364,9 +362,9 @@ async function reconcile(
  * shadows the remote route. The remote's channel is still installed
  * around the local one so every call through the shadow says so, and the
  * route stays reachable under its qualified name, which this function is
- * also called for. A local capability whose route has already stopped is
- * not a shadow: its registry entry outlived the route, and the remote
- * route takes the endpoint as if the entry were not there.
+ * also called for. A stopped local route leaves no capability behind, so
+ * an inventory arriving after the stop finds nothing to shadow and the
+ * remote route simply takes the endpoint.
  */
 function install(
   ctx: CraftContext,
@@ -382,9 +380,7 @@ function install(
 
   if (
     isInternalEndpoint(ctx, endpoint) ||
-    (existing !== undefined &&
-      existing.remote === undefined &&
-      !remote.stopped.has(endpoint))
+    (existing !== undefined && existing.remote === undefined)
   ) {
     ctx.logger.warn(
       { endpoint, remote: name, remoteRouteId: detail.id },
@@ -469,7 +465,12 @@ function advertise(
       body: standardSchemaFromJsonSchema(detail.output.body),
     };
   }
-  registerCapability(ctx, capability);
+  // The disposer is kept rather than discarded so this plugin removes its
+  // own entries the way every other writer does: by identity, through the
+  // function that wrote them. Comparing `remote` on the way out is weaker,
+  // because two successive installs by one remote compare equal, so a
+  // stale release could take an entry a later refresh had installed.
+  remote.disposers.set(endpoint, registerCapability(ctx, capability));
   const routes = ctx.getStore(REMOTE_ROUTES)!;
   routes.set(endpoint, { remote: name, id: detail.id, endpoint, detail });
 }
@@ -520,10 +521,8 @@ function release(
   const channel = remote.channels.get(endpoint);
   remote.channels.delete(endpoint);
   remote.details.delete(endpoint);
-  const registry = ctx.getStore(CAPABILITY_REGISTRY);
-  if (registry?.get(endpoint)?.remote === remote.name) {
-    registry.delete(endpoint);
-  }
+  remote.disposers.get(endpoint)?.();
+  remote.disposers.delete(endpoint);
   const routes = ctx.getStore(REMOTE_ROUTES);
   if (routes?.get(endpoint)?.remote === remote.name) routes.delete(endpoint);
   const store = ctx.getStore(ADAPTER_DIRECT_STORE);

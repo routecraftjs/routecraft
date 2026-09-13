@@ -9,6 +9,11 @@
 import type { Duration } from "../../shared/duration.ts";
 import type { HttpAuth } from "../../adapters/http/types";
 import type { Deferred } from "../../deferral/deferred";
+import type {
+  DeferralOutcome,
+  DeferralState,
+  DeferralWaitingFor,
+} from "../../deferral/types.ts";
 
 /**
  * The four-member health vocabulary.
@@ -413,6 +418,52 @@ export interface OpsPage<T> {
   items: T[];
   /** Opaque keyset cursor. Absent on the last page. */
   nextCursor?: string;
+}
+
+/**
+ * One deferral as `GET /ops/deferrals` renders it.
+ *
+ * Distinct from the store's own `DeferralSummary`, and only in its
+ * timestamps: a store answers in `Date`, and the wire has no such thing.
+ * Left as `Date` on this type, `JSON.stringify` would still send strings
+ * and every consumer of the client would be typed for a value it never
+ * receives. Every closed vocabulary keeps its union, so a consumer can
+ * switch exhaustively and a renamed state fails their build rather than
+ * silently taking the other branch.
+ *
+ * What is absent is as deliberate as what is here. Never the resume
+ * token, which is the credential; never the stored exchange, which is the
+ * caller's data and can be anything; never the step state or the
+ * resume-payload schema. A listing answers what is waiting, on what, and
+ * for how long.
+ */
+export interface OpsDeferralSummary {
+  /** Deferral id, distinct from the deferred exchange's own id. */
+  id: string;
+  /** The route the deferred exchange belongs to, and re-enters on resume. */
+  routeId: string;
+  state: DeferralState;
+  /** What the work is waiting for, or was waiting for when it settled. */
+  waitingFor: DeferralWaitingFor;
+  /**
+   * Whether a delivery claim is outstanding. A claimed deferral is still
+   * waiting, and is not resumable while the claim holds: whoever took it
+   * owns telling the route.
+   */
+  claimed: boolean;
+  /** ISO 8601. */
+  deferredAt: string;
+  /** ISO 8601. Absent means no deadline. */
+  expiresAt?: string;
+  /** How it settled. Absent while it is waiting. */
+  outcome?: {
+    kind: DeferralOutcome["kind"];
+    /** ISO 8601. When it stopped waiting, which is what retention measures from. */
+    at: string;
+    reason?: string;
+    /** Who resumed it. Only ever set on a `resumed` outcome. */
+    by?: { subject: string; issuer?: string; clientId?: string };
+  };
 }
 
 /**

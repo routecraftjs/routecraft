@@ -211,4 +211,64 @@ describe("deferral store (cross-runtime)", () => {
 
     expect(due.map((entry) => entry.id)).toEqual(["due"]);
   });
+
+  /**
+   * @case The management listing pages the same way on both drivers
+   * @preconditions Three records deferred at distinct times, read a page at a time, then filtered by state
+   * @expectedResult Oldest first, the cursor advances strictly past the last row, and the state filter narrows. The listing is served by SQL rather than by the shared TypeScript path, so its ordering, its keyset predicate and its state filter are the driver's to get right and are proven on both
+   */
+  test("list pages and filters identically on either driver", async () => {
+    store = await SqliteDeferralStore.open({ path: ":memory:" });
+    for (const [index, id] of ["l-a", "l-b", "l-c"].entries()) {
+      await store.create(
+        record({ id, deferredAt: new Date(Date.UTC(2026, 7, index + 1, 9)) }),
+      );
+    }
+    await store.markResumed("l-a", { at: new Date() });
+
+    const first = await store.list({ limit: 2 });
+    const second = await store.list({
+      limit: 2,
+      after: { deferredAt: first[1]!.deferredAt, id: first[1]!.id },
+    });
+    const waiting = await store.list({ limit: 10, state: "waiting" });
+
+    expect(first.map((row) => row.id)).toEqual(["l-a", "l-b"]);
+    expect(second.map((row) => row.id)).toEqual(["l-c"]);
+    expect(waiting.map((row) => row.id)).toEqual(["l-b", "l-c"]);
+  });
+
+  /**
+   * @case A summary carries no payload on either driver
+   * @preconditions A record whose exchange, meta and step state all carry values a listing may not show
+   * @expectedResult None of them appear in the summary. The SQL names the summary's own columns, so this also proves the query was not widened to `SELECT *` on one driver
+   */
+  test("list never returns the stored exchange on either driver", async () => {
+    store = await SqliteDeferralStore.open({ path: ":memory:" });
+    await store.create(
+      record({
+        exchange: {
+          body: { amountCents: 4242 },
+          headers: { "routecraft.id": "ex-1" },
+        },
+        meta: { reviewers: ["alice"] },
+        stepState: { thread: ["private"] },
+      }),
+    );
+
+    const [summary] = await store.list({ limit: 1 });
+
+    const rendered = JSON.stringify(summary);
+    expect(rendered).not.toContain("4242");
+    expect(rendered).not.toContain("alice");
+    expect(rendered).not.toContain("private");
+    expect(Object.keys(summary!).sort()).toEqual([
+      "claimed",
+      "deferredAt",
+      "id",
+      "routeId",
+      "state",
+      "waitingFor",
+    ]);
+  });
 });

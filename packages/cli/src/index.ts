@@ -123,7 +123,7 @@ async function selectEnvironment(
   try {
     // Resolved under the project root, not the shell's directory: the file
     // that declares a profile and the env files that profile selects have
-    // to be the same project's, or `craft start ./apps/eywa` reads one
+    // to be the same project's, or `craft start ./apps/acme` reads one
     // project's profile and another's environment.
     const settings = resolveSettings({
       cwd: projectRoot,
@@ -196,7 +196,7 @@ withLogOptions(
  *
  * Example:
  * craft start
- * craft start ./apps/eywa --once
+ * craft start ./apps/acme --once
  */
 withLogOptions(
   program
@@ -417,7 +417,7 @@ program
  * Example:
  * craft acp
  * craft acp --profile company
- * craft acp --url https://eywa.devoptix.nl --token "$TOKEN" --agent zoe
+ * craft acp --url https://acme.example --token "$TOKEN" --agent aria
  */
 program
   .command("acp")
@@ -461,7 +461,7 @@ program
 const ops = program
   .command("ops")
   .description(
-    "Inspect a running instance: health, readiness, routes, indicators",
+    "Inspect a running instance: health, readiness, routes, deferrals, indicators",
   );
 
 function opsOption<T extends import("commander").Command>(command: T): T {
@@ -517,6 +517,39 @@ opsOption(
       id === undefined
         ? await routesCommand(options)
         : await routeCommand(id, options),
+    );
+  },
+);
+
+opsOption(
+  ops
+    .command("deferrals")
+    .description("List what is waiting, or describe one deferral")
+    .argument("[id]", "Deferral id; omit to list")
+    .option("--state <state>", "waiting (default), settled, or all")
+    .option("--route <id>", "Only deferrals belonging to this route")
+    .option("--limit <n>", "Rows in one page")
+    .option("--after <cursor>", "Continue from a previous page's cursor"),
+).action(
+  async (
+    id: string | undefined,
+    options: {
+      state?: string;
+      route?: string;
+      limit?: string;
+      after?: string;
+      profile?: string;
+      url?: string;
+      token?: string;
+      format?: string;
+    },
+  ) => {
+    applyGlobalLogOptions();
+    const { deferralsCommand, deferralCommand } = await import("./ops.js");
+    settle(
+      id === undefined
+        ? await deferralsCommand(options)
+        : await deferralCommand(id, options),
     );
   },
 );

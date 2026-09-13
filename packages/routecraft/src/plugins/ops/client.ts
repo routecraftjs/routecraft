@@ -21,12 +21,19 @@
  * (where the address came from, and what to do when refused).
  */
 
+import type { DeferralState } from "../../deferral/types.ts";
+import {
+  compareRuntimeVersion,
+  parseRuntimeVersion,
+  type RuntimeVersion,
+} from "../../shared/runtime-version.ts";
 import type { Duration } from "../../shared/duration.ts";
 import { parseDuration } from "../../shared/duration.ts";
 import { DOCS_BASE, findErrorMeta } from "../../error.ts";
 import type {
   HealthComponent,
   HealthReport,
+  OpsDeferralSummary,
   OpsDispatchOutcome,
   OpsPage,
   OpsRouteDetail,
@@ -52,6 +59,70 @@ const DEFAULT_TIMEOUT_MS = 30_000;
  * longer to be told no than they would have waited to be told yes.
  */
 const DISCOVERY_TIMEOUT_MS = 5_000;
+
+/**
+ * The first Bun that refuses to re-send a non-idempotent request when a
+ * reused keep-alive socket closes before any response byte arrives.
+ *
+ * Below it, `fetch` retried the POST on a fresh connection on its own, so a
+ * dispatch whose connection dropped mid-flight ran the route TWICE on the
+ * instance while this client saw one attempt and one failure. That is the
+ * exact outcome the `interrupted` classification exists to prevent, and it
+ * happened below the layer that classifies. Node's `fetch` never had the
+ * behaviour.
+ *
+ * Measured rather than read off a changelog: a stand-in server that serves
+ * its inventory over keep-alive and drops the reused socket on the dispatch
+ * counts two executions on 1.3.11 and one on 1.3.14 and 1.4.2.
+ */
+const BUN_WITHOUT_DISPATCH_REPLAY: RuntimeVersion = {
+  major: 1,
+  minor: 3,
+  patch: 14,
+};
+
+/**
+ * Whether this runtime re-sends a dropped non-idempotent request by itself.
+ *
+ * Read once per process. An unparseable version answers true: the cost of
+ * being wrong is a handshake per dispatch, and the cost of the other answer
+ * is running somebody's payout route twice.
+ *
+ * @internal Exported for its own unit test. The connection policy it drives
+ *   is not observable on the wire, so this predicate is where the decision
+ *   can be checked; that the policy works end to end is proven by the
+ *   dropped-socket case in the remotes suite.
+ *
+ * @param bunVersion - `null` means "not running on Bun". Deliberately not
+ *   `undefined`, which JS default-parameter semantics would replace with
+ *   the real version, so a test for the Node path would silently read
+ *   Bun's own while the suite runs under Bun.
+ */
+export function runtimeReplaysDroppedRequests(
+  bunVersion: string | null = process.versions["bun"] ?? null,
+): boolean {
+  if (bunVersion === null) return false;
+  const version = parseRuntimeVersion(bunVersion);
+  return (
+    version === undefined ||
+    compareRuntimeVersion(version, BUN_WITHOUT_DISPATCH_REPLAY) < 0
+  );
+}
+
+/**
+ * Methods a runtime may safely re-send, per RFC 9110 section 9.2.2.
+ *
+ * The set is deliberately the safe methods rather than the full idempotent
+ * ones: this decides whether a call may travel on a pooled socket, and
+ * being wrong about a `PUT` or `DELETE` this API might grow later costs a
+ * duplicate side effect, while being wrong the other way costs a
+ * handshake.
+ */
+const IDEMPOTENT_METHODS = new Set(["GET", "HEAD", "OPTIONS"]);
+
+function isIdempotentMethod(method: string): boolean {
+  return IDEMPOTENT_METHODS.has(method.toUpperCase());
+}
 
 /** Why a call did not produce an answer. Each needs a different remedy. */
 export type OpsFailureKind =
@@ -122,6 +193,17 @@ export interface OpsHttpClientOptions {
     /** What to do when nothing answered at the address. */
     unreachable?: string;
   };
+  /**
+   * Override the runtime detection behind the per-dispatch connection.
+   *
+   * A test seam rather than a knob: the behaviour is a property of the
+   * runtime, not of a deployment, so nothing in production should set it.
+   * It exists because the alternative is asserting a connection policy by
+   * running the suite twice on two Bun builds.
+   *
+   * @internal
+   */
+  replaysDroppedRequests?: boolean;
 }
 
 export interface OpsHttpClient {
@@ -134,6 +216,31 @@ export interface OpsHttpClient {
   listRoutes(filter?: OpsRouteFilter): Promise<OpsRouteSummary[]>;
   describeRoute(id: string): Promise<OpsRouteDetail>;
   dispatch(id: string, body: unknown): Promise<OpsDispatchOutcome>;
+  /**
+   * One page of deferrals, and the cursor for the next when there is one.
+   *
+   * The page rather than the whole collection, which is the opposite of
+   * {@link OpsHttpClient.listRoutes}. A route inventory is bounded by what
+   * an author wrote; an instance can hold every exchange it has ever
+   * deferred, so walking it would be a request to load an unbounded set
+   * into memory to print the first screen of it.
+   */
+  listDeferrals(
+    filter?: OpsDeferralFilter,
+  ): Promise<OpsPage<OpsDeferralSummary>>;
+  describeDeferral(id: string): Promise<OpsDeferralSummary>;
+}
+
+/** What `GET /ops/deferrals` accepts. */
+export interface OpsDeferralFilter {
+  /** Waiting by default on the server; `all` asks for both states. */
+  state?: DeferralState | "all";
+  /** Only deferrals belonging to this route. */
+  route?: string;
+  /** Rows in one page. The server bounds it and refuses a larger ask. */
+  limit?: number;
+  /** The previous page's `nextCursor`, passed back unchanged. */
+  after?: string;
 }
 
 /**
@@ -161,6 +268,8 @@ export function createOpsHttpClient(
       : parseDuration(options.timeout, "timeout");
   const addressBlame = options.describeAddress ?? (() => base);
   const advice = options.advice ?? {};
+  const replaysDroppedRequests =
+    options.replaysDroppedRequests ?? runtimeReplaysDroppedRequests();
 
   async function resolveToken(): Promise<string | undefined> {
     if (typeof token !== "function") return token;
@@ -190,12 +299,21 @@ export function createOpsHttpClient(
       headers["content-type"] = "application/json";
     }
 
+    const method = init.method ?? "GET";
     let response: Response;
     try {
       response = await fetch(`${base}${path}`, {
-        method: init.method ?? "GET",
+        method,
         headers,
         signal: AbortSignal.timeout(timeoutMs),
+        // Derived from the method rather than declared per call, so the
+        // next non-idempotent call added here is protected on arrival
+        // instead of inheriting the hazard by forgetting a flag.
+        // `connection: close` does not work here: fetch treats it as a
+        // forbidden header name, drops it silently, and retries anyway.
+        ...(replaysDroppedRequests && !isIdempotentMethod(method)
+          ? { keepalive: false }
+          : {}),
         ...(init.body === undefined ? {} : { body: JSON.stringify(init.body) }),
       });
     } catch (error: unknown) {
@@ -432,6 +550,22 @@ export function createOpsHttpClient(
 
     describeRoute: (id: string) =>
       call<OpsRouteDetail>(`/ops/routes/${encodeURIComponent(id)}`),
+
+    listDeferrals(filter: OpsDeferralFilter = {}) {
+      const params = new URLSearchParams({
+        ...(filter.state !== undefined ? { state: filter.state } : {}),
+        ...(filter.route !== undefined ? { route: filter.route } : {}),
+        ...(filter.limit !== undefined ? { limit: String(filter.limit) } : {}),
+        ...(filter.after !== undefined ? { after: filter.after } : {}),
+      });
+      const suffix = params.toString();
+      return call<OpsPage<OpsDeferralSummary>>(
+        `/ops/deferrals${suffix.length > 0 ? `?${suffix}` : ""}`,
+      );
+    },
+
+    describeDeferral: (id: string) =>
+      call<OpsDeferralSummary>(`/ops/deferrals/${encodeURIComponent(id)}`),
 
     dispatch: (id: string, body: unknown) =>
       call<OpsDispatchOutcome>(

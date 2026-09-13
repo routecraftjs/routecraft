@@ -143,7 +143,11 @@ export {
 // Paging for contributed resources, so a contributor's collection carries the
 // same cursor contract as the route listing rather than a second one.
 export {
+  DEFAULT_PAGE_SIZE,
+  cursorScope,
   decodeCursor,
+  encodeCursor,
+  malformedCursor,
   parsePageQuery,
   takePage,
   type CursorScope,
@@ -170,6 +174,7 @@ export type {
   IndicatorDefinition,
   LivenessReport,
   OpsConfig,
+  OpsDeferralSummary,
   OpsDispatchOutcome,
   OpsHealthOptions,
   OpsPage,
@@ -197,10 +202,16 @@ export {
   isLoopbackHostname,
   OpsClientError,
   type OpsBearerToken,
+  type OpsDeferralFilter,
   type OpsFailureKind,
   type OpsHttpClient,
   type OpsHttpClientOptions,
 } from "./plugins/ops/client.ts";
+export {
+  compareRuntimeVersion,
+  parseRuntimeVersion,
+  type RuntimeVersion,
+} from "./shared/runtime-version.ts";
 export { remotesPlugin } from "./plugins/remotes/plugin.ts";
 export type {
   RemoteDefinition,
@@ -743,6 +754,9 @@ export type {
   Deferral,
   DeferralCasResult,
   DeferralConfig,
+  DeferralListCursor,
+  DeferralListQuery,
+  DeferralSummary,
   DeferralSchema,
   DeferralResumption,
   DeferralRuntime,
@@ -752,7 +766,7 @@ export type {
   DeferralStore,
   DeferralStoreConfig,
 } from "./deferral/index.ts";
-export { claimed, resumable } from "./deferral/index.ts";
+export { claimed, resumable, summariseDeferral } from "./deferral/index.ts";
 export {
   type MailAuth,
   type MailReconnectOptions,

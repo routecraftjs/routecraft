@@ -1,6 +1,7 @@
 import type { CraftContext, CraftPlugin } from "../context.ts";
 import { registerConfigApplier } from "../config-applier.ts";
 import { DEFERRAL_RUNTIME } from "./runtime-key.ts";
+import { registerDeferralsResource } from "./ops-resource.ts";
 import { MemoryDeferralStore } from "./memory-store.ts";
 import {
   DEFAULT_DEFERRAL_DB_PATH,
@@ -333,6 +334,10 @@ export function deferralPlugin(config: DeferralConfig = {}): CraftPlugin {
   return {
     name: "deferral",
     async apply(ctx: CraftContext) {
+      // Registration first: it throws on a name collision, and a failed
+      // `apply()` is not yet recorded for teardown, so a store opened
+      // before it would leak its handle for the life of the process.
+      registerDeferralsResource(ctx);
       ctx.setStore(DEFERRAL_RUNTIME, await createDeferralRuntime(ctx, config));
     },
     async start(ctx: CraftContext) {

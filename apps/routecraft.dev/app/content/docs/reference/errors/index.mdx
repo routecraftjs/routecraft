@@ -1041,6 +1041,15 @@ This is the caller's fault rather than the instance's, which is the whole reason
 **Suggestion**  
 Read the message: it names the route, the field and the rule that rejected it. `craft ops routes <id>` prints the route's full input schema on a running instance. Retrying an unchanged payload cannot succeed, which is why this code is not retryable.
 
+## RC5066
+Deferral store is missing a contract member
+
+**Why it happens**  
+A surface asked the deferral store for something the store this context was given does not implement. `GET /ops/deferrals` reads `DeferralStore.list`, which the two shipped backends provide; a store supplied through `deferral: { store }` is your own, and one written against an earlier version of the contract can be missing a member added since. The message names it.
+
+**Suggestion**  
+Implement the member the message names, or drop back to a shipped backend (`sqlite`, or `memory` for tests). The surface refuses rather than answering an empty listing, because an empty listing and a listing the store cannot produce look identical to whoever is reading them, and one of them is a lie about what the instance is holding.
+
 ## RC9901
 Unknown error
 

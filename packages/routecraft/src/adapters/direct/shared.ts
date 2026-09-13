@@ -96,12 +96,16 @@ export function getDirectChannel<T>(
  * itself carries no discovery fields on its own options. Writes into the
  * core-owned capability registry keyed by the RAW endpoint id; the
  * sanitised channel key stays a transport detail of this adapter.
+ *
+ * @returns The disposer {@link registerCapability} minted, which the
+ *   source calls when the route stops so the registry stops advertising
+ *   an endpoint nothing answers on.
  */
 export function registerRoute(
   context: CraftContext,
   endpoint: string,
   discovery?: RouteDiscovery,
-): void {
+): () => void {
   const capability: Capability = { endpoint };
   if (discovery?.title !== undefined) capability.title = discovery.title;
   if (discovery?.description !== undefined) {
@@ -112,12 +116,14 @@ export function registerRoute(
   if (discovery?.tags !== undefined && discovery.tags.length > 0) {
     capability.tags = [...discovery.tags];
   }
-  registerCapability(context, capability);
+  const dispose = registerCapability(context, capability);
 
   context.logger.debug(
     { endpoint, adapter: "direct" },
     "Registered direct route as a discoverable capability",
   );
+
+  return dispose;
 }
 
 /**
