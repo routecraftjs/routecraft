@@ -869,6 +869,53 @@ describe("cleanup after a cancelled turn", () => {
   });
 
   /**
+   * @case A stop during the answer's own validation is still a refusal
+   * @preconditions An answer that arrives before the cancel, with the turn cancelled while the protocol check on that answer is still running
+   * @expectedResult AI1016 rather than the answer. Checking an answer is asynchronous, so it is a second gap on the same path as the send, and an answer validated after a stop would otherwise reach the route
+   */
+  test("a cancel during validation refuses the answer", async () => {
+    const t = await testContext().routes([]).build();
+    await t.startAndWaitReady();
+    try {
+      const exchange = new DefaultExchange(t.ctx, {
+        body: {},
+        headers: { ...SURFACED, [HeadersKeys.CORRELATION_ID]: "turn-a" },
+      });
+      registerSurface(
+        t.ctx,
+        SURFACE_CONNECTION,
+        scriptedSurface({
+          request: async () => {
+            // Answered while the turn was still live; the stop lands while
+            // this answer is being checked against the protocol's schema.
+            //
+            // Two microtasks deep, and that is the point rather than an
+            // accident: one lands before the check the answer already has,
+            // which the send path catches, and this case is about the gap
+            // after it. Flatten it and the test stops proving anything.
+            queueMicrotask(() =>
+              queueMicrotask(() => cancelSurfaceTurn(t.ctx, "s", "turn-a")),
+            );
+            return { content: "checked after the stop" };
+          },
+        }),
+      );
+
+      let caught: unknown;
+      try {
+        await Promise.resolve(
+          surface("fs/read_text_file", { path: "/x" }).fetch(exchange),
+        );
+      } catch (err: unknown) {
+        caught = err;
+      }
+      expect(rcCodeOf(caught)).toBe("AI1016");
+    } finally {
+      await t.stop();
+    }
+  });
+
+  /**
    * @case A cleanup the editor never answers is abandoned at its deadline, and the next one is still sent
    * @preconditions Two registered calls where the first never settles, the editor treating the abort as advisory the way the ACP backend does
    * @expectedResult The second call arrives. The signal handed to a backend is a request to cancel rather than a deadline, so without a local one a wedged editor holds the sequential loop forever and the release that follows a kill is never sent

@@ -120,6 +120,12 @@ function resolve<T, V>(source: Resolvable<T, V>, exchange: Exchange<T>): V {
  * params are built, and again after the response schema has loaded, since
  * that load is asynchronous and a person can press stop during it.
  */
+function cancelledWhileOutstanding(method: string): Error {
+  return rcError("AI1016", undefined, {
+    message: `The turn running this route was cancelled while "${method}" was outstanding, so the answer that arrived after it was not used.`,
+  });
+}
+
 function cancelledBefore(method: string, kind: string): Error {
   return rcError("AI1016", undefined, {
     message: `The turn running this route was cancelled, so "${method}" was not sent. Anything that must reach the ${kind} client after a cancel is registered beforehand with surface.onCancel().`,
@@ -187,16 +193,17 @@ export function surface<M extends SurfaceMethod, T = unknown>(
         // whatever the client answers. An answer that arrives after the
         // person said stop is theirs to have withheld, so it is refused
         // rather than handed to the route.
-        if (turn.aborted) {
-          throw rcError("AI1016", undefined, {
-            message: `The turn running this route was cancelled while "${method}" was outstanding, so the answer that arrived after it was not used.`,
-          });
-        }
+        if (turn.aborted) throw cancelledWhileOutstanding(method);
         const issues =
           (await check(answer)) ??
           (method === "session/request_permission"
             ? optional(permissionSelectionIssue(sent, answer))
             : undefined);
+        // Checking the answer is asynchronous too, so the person can press
+        // stop between it arriving and it being validated. Every gap on
+        // this path is closed, or an answer reaches a route whose person
+        // has already stopped it.
+        if (turn.aborted) throw cancelledWhileOutstanding(method);
         if (issues === undefined) return answer as SurfaceRequestResponses[M];
         const rendered = formatSchemaIssues(issues);
         if (method === "session/request_permission") {
