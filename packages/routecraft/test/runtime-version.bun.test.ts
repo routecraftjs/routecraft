@@ -69,6 +69,17 @@ describe("parseRuntimeVersion", () => {
       expect(parseRuntimeVersion(raw)).toBeUndefined();
     }
   });
+
+  /**
+   * @case A version carrying a fourth segment
+   * @preconditions Strings whose every segment is numeric, so nothing but the segment count can reject them, with and without a prerelease suffix
+   * @expectedResult Refused rather than truncated to the first three. Truncating would answer confidently about a string nobody understands, and the two callers gate a dispatch and a CLI start on that answer
+   */
+  test("refuses a version with more than three segments", () => {
+    for (const raw of ["1.4.0.0", "1.4.0.1-rc", "0.0.0.0"]) {
+      expect(parseRuntimeVersion(raw)).toBeUndefined();
+    }
+  });
 });
 
 describe("compareRuntimeVersion", () => {
