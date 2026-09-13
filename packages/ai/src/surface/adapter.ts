@@ -70,6 +70,33 @@ function resolve<T, V>(source: Resolvable<T, V>, exchange: Exchange<T>): V {
 }
 
 /**
+ * The refusal a call gets when the turn was cancelled before it was sent.
+ *
+ * One definition because the check runs twice on the way out: before the
+ * params are built, and again after the response schema has loaded, since
+ * that load is asynchronous and a person can press stop during it.
+ */
+function cancelledBefore(method: string, kind: string): Error {
+  return rcError("AI1016", undefined, {
+    message: `The turn running this route was cancelled, so "${method}" was not sent. Anything that must reach the ${kind} client after a cancel is registered beforehand with surface.onCancel().`,
+  });
+}
+
+/**
+ * The refusal a call gets when the turn was cancelled while it was outstanding.
+ *
+ * One definition because the check runs twice on the way back: once the
+ * client has answered, and again once that answer has been validated, since
+ * validating it is asynchronous too. The answer arrived either way, and is
+ * refused rather than handed to a route whose person has already stopped it.
+ */
+function cancelledWhileOutstanding(method: string): Error {
+  return rcError("AI1016", undefined, {
+    message: `The turn running this route was cancelled before the answer to "${method}" could be used.`,
+  });
+}
+
+/**
  * Ask the person's surface something, inside the turn.
  *
  * ```ts
@@ -113,25 +140,6 @@ function resolve<T, V>(source: Resolvable<T, V>, exchange: Exchange<T>): V {
  * @template M - The method being called, which fixes the params and the response
  * @template T - Body type available to the params callback
  */
-/**
- * The refusal a call gets when the turn was already cancelled.
- *
- * One definition because the check runs at more than one point: before the
- * params are built, and again after the response schema has loaded, since
- * that load is asynchronous and a person can press stop during it.
- */
-function cancelledWhileOutstanding(method: string): Error {
-  return rcError("AI1016", undefined, {
-    message: `The turn running this route was cancelled before the answer to "${method}" could be used.`,
-  });
-}
-
-function cancelledBefore(method: string, kind: string): Error {
-  return rcError("AI1016", undefined, {
-    message: `The turn running this route was cancelled, so "${method}" was not sent. Anything that must reach the ${kind} client after a cancel is registered beforehand with surface.onCancel().`,
-  });
-}
-
 export function surface<M extends SurfaceMethod, T = unknown>(
   method: M,
   params: Resolvable<T, SurfaceRequestParams[M]>,
