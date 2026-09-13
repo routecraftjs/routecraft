@@ -77,15 +77,22 @@ function getPackageManagerVersion(packageManager: PackageManager): string {
 }
 
 /**
- * Process template content with replacements
+ * Substitute a template's placeholders.
+ *
+ * Longest key first, because one placeholder can be a prefix of another:
+ * replacing `PACKAGE_MANAGER` before `PACKAGE_MANAGER_RUN` leaves
+ * `bun@1.3.9_RUN` in the file, which is not an error anywhere, just wrong
+ * output in a README nobody re-reads. Object key order would otherwise
+ * decide the result.
  */
 export function processTemplate(
   content: string,
   replacements: Record<string, string>,
 ): string {
   let processed = content;
-  for (const [key, value] of Object.entries(replacements)) {
-    processed = processed.replaceAll(key, value);
+  const keys = Object.keys(replacements).sort((a, b) => b.length - a.length);
+  for (const key of keys) {
+    processed = processed.replaceAll(key, replacements[key]!);
   }
   return processed;
 }
@@ -192,46 +199,6 @@ export function isExcludedExamplePath(relativePath: string): boolean {
     return true;
   }
   return EXAMPLE_EXCLUDED_FILES.has(segments[segments.length - 1]!);
-}
-
-/**
- * Files an example would place where the base template already wrote one.
- *
- * The built-in example copy lets the base file win, which is silent data
- * loss unless someone says which files went. Walking for the answer up
- * front is what lets the copy name them afterwards.
- *
- * @param sourceDir Example root
- * @param targetDir Project root, already carrying the base template
- * @param exclude Paths the copy will skip anyway, so they are not reported
- * @returns Example-relative paths that already exist in the project
- */
-export async function collidingExamplePaths(
-  sourceDir: string,
-  targetDir: string,
-  exclude: (relativePath: string) => boolean = isExcludedExamplePath,
-): Promise<string[]> {
-  const collisions: string[] = [];
-  const walk = async (dir: string): Promise<void> => {
-    for (const entry of await readdir(dir)) {
-      const absolute = join(dir, entry);
-      const relativePath = relative(sourceDir, absolute);
-      if (exclude(relativePath)) continue;
-      // lstat, not stat: stat follows a link, so a symlinked directory would
-      // be recursed into and this walk would leave the example entirely, or
-      // spin on a link that points at one of its own parents. The copy skips
-      // links, so the scan agrees with it by not counting them at all.
-      const entryStat = await lstat(absolute);
-      if (entryStat.isSymbolicLink()) continue;
-      if (entryStat.isDirectory()) {
-        await walk(absolute);
-      } else if (existsSync(join(targetDir, relativePath))) {
-        collisions.push(relativePath);
-      }
-    }
-  };
-  await walk(sourceDir);
-  return collisions.sort();
 }
 
 /**
@@ -505,22 +472,25 @@ export async function getUserInput(
               value.length > 0 || "Project name cannot be empty",
           })),
 
+    // "" is the built-in template. There is one, so the only question left
+    // is whether to start from it or from somebody's repository, and the
+    // default answer is the template.
     example:
       (options["example"] as ExampleType) ||
       (skipPrompts
-        ? "none"
+        ? ""
         : await select<string>({
-            message: "Choose an example:",
+            message: "Start from:",
             choices: [
-              { name: "None - empty project", value: "none" },
-              { name: "Hello World - basic example", value: "hello-world" },
-              { name: "Custom URL (GitHub)", value: "custom-url" },
+              { name: "The starter template", value: "" },
+              { name: "A GitHub repository", value: "custom-url" },
             ],
-            default: "none",
+            default: "",
           }).then(async (choice) => {
             if (choice === "custom-url") {
               return await input({
-                message: "Enter GitHub URL:",
+                message:
+                  "GitHub URL (e.g. https://github.com/routecraftjs/craft-harness):",
                 validate: (value: string) => {
                   if (isUrl(value)) return true;
                   return "Must be a valid GitHub URL";
@@ -594,127 +564,104 @@ async function createProjectDirectory(
 }
 
 /**
- * Generate project structure from template
+ * Files copied out of the template verbatim, mapped to the name they take in
+ * a project. `gitignore` is stored without its dot because npm refuses to
+ * publish a `.gitignore` inside a package.
+ */
+const TEMPLATE_FILES: Record<string, string> = {
+  gitignore: ".gitignore",
+  ".prettierrc": ".prettierrc",
+  "craft.config.ts": "craft.config.ts",
+  "eslint.config.mjs": "eslint.config.mjs",
+  "tsconfig.json": "tsconfig.json",
+};
+
+/**
+ * Write the template into the project directory.
+ *
+ * One template, laid out for the folder convention: `craft start` discovers
+ * `capabilities/` from disk, so a project has no entry file listing its
+ * routes and nothing to register by hand.
+ *
+ * `adapters/` and `plugins/` are not created. An empty directory is not a
+ * thing git can carry, so scaffolding them produced folders that vanished on
+ * the author's first commit; the README names the convention instead, which
+ * survives.
  */
 export async function generateProjectStructure(
   projectDir: string,
   options: Required<InitOptions>,
 ) {
-  const hasExample = options.example !== "none";
-
-  // Create base directories
-  await mkdir(join(projectDir, "capabilities"), { recursive: true });
-  await mkdir(join(projectDir, "adapters"), { recursive: true });
-  await mkdir(join(projectDir, "plugins"), { recursive: true });
-
-  // Template files mapping (source -> destination)
-  const templateFiles: Record<string, string> = {
-    gitignore: ".gitignore",
-    ".prettierrc": ".prettierrc",
-    "craft.config.ts": "craft.config.ts",
-    "eslint.config.mjs": "eslint.config.mjs",
-    "tsconfig.json": "tsconfig.json",
+  const fromUrlExample = isUrl(options.example);
+  const replacements = {
+    PROJECT_NAME: options.projectName,
+    ROUTECRAFT_VERSION: getRoutecraftVersion(),
+    PACKAGE_MANAGER: getPackageManagerVersion(options.packageManager),
+    PACKAGE_MANAGER_RUN: `${getPackageManagerCommand(options.packageManager)} run`,
   };
 
-  const routecraftVersion = getRoutecraftVersion();
-
-  // Copy base template files
-  for (const [sourceFile, destFile] of Object.entries(templateFiles)) {
-    const sourcePath = join(TEMPLATES_DIR, "base", sourceFile);
-    const destPath = join(projectDir, destFile);
-
-    const content = await readFile(sourcePath, "utf-8");
-    await writeFile(destPath, content);
+  for (const [sourceFile, destFile] of Object.entries(TEMPLATE_FILES)) {
+    const content = await readFile(
+      join(TEMPLATES_DIR, "base", sourceFile),
+      "utf-8",
+    );
+    await writeFile(join(projectDir, destFile), content);
     console.log(`Created file: ${destFile}`);
   }
 
-  // Handle package.json with replacements
-  const packageJsonSource = join(TEMPLATES_DIR, "base", "package.json");
-  let packageJsonContent = await readFile(packageJsonSource, "utf-8");
-  packageJsonContent = processTemplate(packageJsonContent, {
-    PROJECT_NAME: options.projectName,
-    ROUTECRAFT_VERSION: routecraftVersion,
-    PACKAGE_MANAGER: getPackageManagerVersion(options.packageManager),
-  });
-  await writeFile(join(projectDir, "package.json"), packageJsonContent);
-  console.log(`Created file: package.json`);
+  // package.json and README.md carry placeholders the caller's answers
+  // resolve: the project name, the package manager, and the version of the
+  // routecraft train this scaffolder belongs to.
+  const packageJson = processTemplate(
+    await readFile(join(TEMPLATES_DIR, "base", "package.json"), "utf-8"),
+    replacements,
+  );
+  await writeFile(join(projectDir, "package.json"), packageJson);
+  console.log("Created file: package.json");
 
-  // Handle index.ts based on whether a built-in example is included.
-  // URL examples supply their own index.ts via cp(), so use the empty template as a fallback.
-  const hasBuiltInExample = hasExample && !isUrl(options.example);
-  const indexTemplate = hasBuiltInExample
-    ? "index-with-example.ts"
-    : "index-empty.ts";
-  const indexSource = join(TEMPLATES_DIR, "base", indexTemplate);
-  const indexContent = await readFile(indexSource, "utf-8");
+  // A URL example is a whole project rather than an addition to one, so the
+  // sample capability must not be left standing inside it and a README
+  // describing `hello-world` must not sit at its root.
+  if (!fromUrlExample) {
+    const readme = processTemplate(
+      await readFile(join(TEMPLATES_DIR, "base", "README.md"), "utf-8"),
+      replacements,
+    );
+    await writeFile(join(projectDir, "README.md"), readme);
+    console.log("Created file: README.md");
 
-  await writeFile(join(projectDir, "index.ts"), indexContent);
-  console.log(`Created file: index.ts`);
+    await cp(
+      join(TEMPLATES_DIR, "base", "capabilities"),
+      join(projectDir, "capabilities"),
+      { recursive: true },
+    );
+    console.log("Created directory: capabilities/hello-world");
+  }
 
-  // Add example routes if requested
-  if (options.example !== "none") {
-    if (isUrl(options.example)) {
-      // Handle GitHub URL examples
-      const tempExampleDir = await downloadGitHubExample(options.example);
+  if (fromUrlExample) {
+    const tempExampleDir = await downloadGitHubExample(options.example);
+    try {
+      await cp(tempExampleDir, projectDir, {
+        recursive: true,
+        // The example wins on collision: a URL example is a whole project
+        // template, and a base file left standing in the middle of it is a
+        // file the template's own CI never saw.
+        force: true,
+        filter: (src) =>
+          !isSymbolicLink(src) &&
+          !skipFromUrlExample(relative(tempExampleDir, src)),
+      });
+      // package.json is held back from the copy above and merged instead,
+      // because a straight overwrite drops the project name the user just
+      // chose and the package manager they picked.
+      await mergeExamplePackageJson(tempExampleDir, projectDir);
+      await mergeExampleDeps(tempExampleDir, projectDir);
+      console.log(`✅ Added example from ${options.example}`);
+    } finally {
       try {
-        await cp(tempExampleDir, projectDir, {
-          recursive: true,
-          // The example wins on collision: a URL example is a whole project
-          // template, and a base file left standing in the middle of it is a
-          // file the template's own CI never saw.
-          force: true,
-          filter: (src) =>
-            !isSymbolicLink(src) &&
-            !skipFromUrlExample(relative(tempExampleDir, src)),
-        });
-        // package.json is held back from the copy above and merged instead,
-        // because a straight overwrite drops the project name the user just
-        // chose and the package manager they picked.
-        await mergeExamplePackageJson(tempExampleDir, projectDir);
-        await mergeExampleDeps(tempExampleDir, projectDir);
-        console.log(`✅ Added example from ${options.example}`);
-      } finally {
-        try {
-          await rm(tempExampleDir, { recursive: true, force: true });
-        } catch {
-          // Ignore cleanup errors
-        }
-      }
-    } else {
-      // Handle built-in examples - copy from templates/examples/
-      const exampleDir = join(TEMPLATES_DIR, "examples", options.example);
-      if (existsSync(exampleDir)) {
-        // deps.json is metadata for dependency injection, not project content.
-        const skip = (relativePath: string): boolean =>
-          relativePath === "deps.json" || isExcludedExamplePath(relativePath);
-        const dropped = await collidingExamplePaths(
-          exampleDir,
-          projectDir,
-          skip,
-        );
-        await cp(exampleDir, projectDir, {
-          recursive: true,
-          // The base template wins on collision here: its package.json and
-          // index.ts carry the placeholders this function already resolved.
-          force: false,
-          filter: (src) =>
-            !isSymbolicLink(src) && !skip(relative(exampleDir, src)),
-        });
-
-        await mergeExampleDeps(exampleDir, projectDir);
-
-        console.log(`✅ Added ${options.example} example`);
-        if (dropped.length > 0) {
-          // Named rather than swallowed. `force: false` is silent, so an
-          // example file colliding with a base file used to vanish with no
-          // trace in a scaffold that looked like it had succeeded.
-          console.warn(
-            `⚠️  ${dropped.length} file(s) from the ${options.example} example were NOT copied because the base template already wrote them:\n` +
-              dropped.map((file) => `   - ${file}`).join("\n"),
-          );
-        }
-      } else {
-        throw new Error(`Unknown example: ${options.example}`);
+        await rm(tempExampleDir, { recursive: true, force: true });
+      } catch {
+        // Ignore cleanup errors
       }
     }
   }
@@ -930,7 +877,8 @@ Usage:
   npx create-routecraft <project-name> [options]
 
 Options:
-  -e, --example <name|url>  Example to include (none, hello-world) or GitHub URL
+  -e, --example <url>       Start from a GitHub repository instead of the
+                            starter template
   --use-bun                 Use bun as package manager (default)
   --use-npm                 Use npm as package manager
   --use-pnpm                Use pnpm as package manager
@@ -943,10 +891,9 @@ Options:
 
 Examples:
   bunx create-routecraft my-app
-  bunx create-routecraft my-app --example hello-world
-  bunx create-routecraft my-app --yes --example hello-world
+  bunx create-routecraft my-app --yes --use-bun
   bunx create-routecraft my-app --force
-  bunx create-routecraft my-app --example https://github.com/user/repo
+  bunx create-routecraft my-agent --example https://github.com/routecraftjs/craft-harness
   bunx create-routecraft my-app --example https://github.com/user/repo/tree/main/examples/api
 `);
 }
