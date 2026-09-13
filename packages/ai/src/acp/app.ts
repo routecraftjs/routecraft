@@ -239,7 +239,16 @@ export class AcpConnection implements AgentSurfaceConnection {
         update: update as SessionUpdate,
       });
     } catch (cause: unknown) {
-      if (this.client === undefined) throw new SurfaceDisconnected(cause);
+      // The same class test `request` makes, and for the same reason: the
+      // transport can reject an outstanding notification before the close
+      // handler has cleared the client, and a raw transport error read as
+      // a refusal reports AI1016 for what is a disconnect.
+      if (
+        this.client === undefined ||
+        !(cause instanceof this.sdk.RequestError)
+      ) {
+        throw new SurfaceDisconnected(cause);
+      }
       throw cause;
     }
   }
@@ -699,9 +708,24 @@ function promptText(
   return text;
 }
 
-/** A transport fault as one line for the closed event. */
+/**
+ * A transport fault as one line for the closed event.
+ *
+ * A rejection that is not an `Error` but carries a string `message` is
+ * read for it, because `String()` on such an object is `[object Object]`
+ * and the reason the connection broke is the whole point of the field.
+ */
 function faultMessage(fault: unknown): string {
-  return fault instanceof Error ? fault.message : String(fault);
+  if (fault instanceof Error) return fault.message;
+  if (
+    typeof fault === "object" &&
+    fault !== null &&
+    "message" in fault &&
+    typeof fault.message === "string"
+  ) {
+    return fault.message;
+  }
+  return String(fault);
 }
 
 /** A short human-readable name for a conversation, from its first message. */

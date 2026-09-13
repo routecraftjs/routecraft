@@ -511,6 +511,12 @@ function thrownMessage(value: unknown): string | undefined {
   if (typeof value === "object" && value !== null && "message" in value) {
     return String((value as { message: unknown }).message) || undefined;
   }
+  // A thrown primitive says something; a thrown object with no message does
+  // not, and "[object Object]" is worse than the class name the caller
+  // falls back to.
+  if (value !== null && typeof value !== "object" && value !== undefined) {
+    return String(value) || undefined;
+  }
   return undefined;
 }
 

@@ -116,12 +116,15 @@ craft()
       { method: 'terminal/kill', params: { terminalId } },
       { method: 'terminal/release', params: { terminalId } },
     ])
-    try {
-      return await surface('terminal/wait_for_exit', { terminalId }).fetch(ex)
-    } finally {
-      release()
-      await surface('terminal/release', { terminalId }).fetch(ex)
-    }
+    const exit = await surface('terminal/wait_for_exit', {
+      terminalId,
+    }).fetch(ex)
+    // Only the path that got here withdraws and releases. A cancel leaves
+    // both to the framework, and reaching for the surface on that path is
+    // the refusal this whole section is about.
+    release()
+    await surface('terminal/release', { terminalId }).fetch(ex)
+    return exit
   })
 ```
 

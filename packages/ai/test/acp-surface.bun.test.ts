@@ -32,8 +32,8 @@ import {
   CLEANUP_TIMEOUT_MS,
   cancelSurfaceTurn,
   registerCleanup,
+  turnIdOf,
 } from "../src/surface/cancellation.ts";
-import { ADAPTER_AGENT_SESSIONS } from "../src/agent/store.ts";
 import { acpHarness, type AcpHarness } from "./helpers/acp-harness.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
 import { slowTool } from "./helpers/slow-tool.ts";
@@ -674,11 +674,6 @@ describe("surface(), reaching the editor from a route", () => {
  * the one an editor cannot easily be scripted into.
  */
 describe("cleanup after a cancelled turn", () => {
-  /** A session runtime that only answers which turn is running. */
-  const runningTurn = (turn: () => string | undefined): unknown => ({
-    turnIdOf: () => turn(),
-  });
-
   /**
    * @case A cancel sends its own turn's registered cleanup and leaves an earlier turn's alone
    * @preconditions Two exchanges on one conversation, each registering a release under a different running turn, with the second turn cancelled
@@ -689,8 +684,6 @@ describe("cleanup after a cancelled turn", () => {
     await t.startAndWaitReady();
     try {
       const sent: Array<{ method: string; params: unknown }> = [];
-      let turn: string | undefined = "turn-a";
-      t.ctx.setStore(ADAPTER_AGENT_SESSIONS, runningTurn(() => turn) as never);
       const connection = scriptedSurface({
         request: async (method, params) => {
           sent.push({ method, params });
@@ -704,21 +697,25 @@ describe("cleanup after a cancelled turn", () => {
         connection: SURFACE_CONNECTION,
       };
 
-      const first = new DefaultExchange(t.ctx, { body: {}, headers: SURFACED });
+      // Two turns, named the way a dispatched route names its own: the
+      // correlation id every exchange a turn started carries.
+      const first = new DefaultExchange(t.ctx, {
+        body: {},
+        headers: { ...SURFACED, [HeadersKeys.CORRELATION_ID]: "turn-a" },
+      });
       registerCleanup(first, ref, connection, [
         { method: "terminal/release", params: { terminalId: "from-turn-a" } },
       ]);
 
-      turn = "turn-b";
       const second = new DefaultExchange(t.ctx, {
         body: {},
-        headers: SURFACED,
+        headers: { ...SURFACED, [HeadersKeys.CORRELATION_ID]: "turn-b" },
       });
       registerCleanup(second, ref, connection, [
         { method: "terminal/release", params: { terminalId: "from-turn-b" } },
       ]);
 
-      cancelSurfaceTurn(t.ctx, "s");
+      cancelSurfaceTurn(t.ctx, "s", "turn-b");
       await until(() => sent.length >= 1);
       await sleep(50);
       // Both turns registered "terminal/release", so the method alone
@@ -761,7 +758,7 @@ describe("cleanup after a cancelled turn", () => {
         { method: "terminal/release", params: { terminalId: "t-1" } },
       ]);
 
-      cancelSurfaceTurn(t.ctx, "s", "turn-exchange");
+      cancelSurfaceTurn(t.ctx, "s", turnIdOf(exchange, "s"), "turn-exchange");
       await sleep(50);
       expect(sent).toEqual([]);
 
@@ -795,7 +792,7 @@ describe("cleanup after a cancelled turn", () => {
         scriptedSurface({
           request: async () => {
             // The editor answers, but the person stopped while it thought.
-            cancelSurfaceTurn(t.ctx, "s");
+            cancelSurfaceTurn(t.ctx, "s", turnIdOf(exchange, "s"));
             return { content: "answered anyway" };
           },
         }),
@@ -815,6 +812,57 @@ describe("cleanup after a cancelled turn", () => {
         caught = err;
       }
       expect(rcCodeOf(caught)).toBe("AI1016");
+    } finally {
+      await t.stop();
+    }
+  });
+
+  /**
+   * @case A route of a cancelled turn stays refused once the next turn has started
+   * @preconditions One conversation, a cancelled turn, and a route of that turn reaching for the surface after a later turn is under way
+   * @expectedResult AI1016. The signal belongs to the turn rather than to the conversation, so a route that outlives its turn cannot be handed the live signal of the turn that replaced it and go on reaching a person who pressed stop
+   */
+  test("a cancelled turn's route is refused after the next turn starts", async () => {
+    const t = await testContext().routes([]).build();
+    await t.startAndWaitReady();
+    try {
+      const sent: string[] = [];
+      registerSurface(
+        t.ctx,
+        SURFACE_CONNECTION,
+        scriptedSurface({
+          request: async (method) => {
+            sent.push(method);
+            return { content: "read" };
+          },
+        }),
+      );
+      const cancelled = new DefaultExchange(t.ctx, {
+        body: {},
+        headers: { ...SURFACED, [HeadersKeys.CORRELATION_ID]: "turn-a" },
+      });
+      const followUp = new DefaultExchange(t.ctx, {
+        body: {},
+        headers: { ...SURFACED, [HeadersKeys.CORRELATION_ID]: "turn-b" },
+      });
+
+      cancelSurfaceTurn(t.ctx, "s", "turn-a");
+      // The next turn is live and its own calls still go through.
+      await Promise.resolve(
+        surface("fs/read_text_file", { path: "/b" }).fetch(followUp),
+      );
+      expect(sent).toEqual(["fs/read_text_file"]);
+
+      let caught: unknown;
+      try {
+        await Promise.resolve(
+          surface("fs/read_text_file", { path: "/a" }).fetch(cancelled),
+        );
+      } catch (err: unknown) {
+        caught = err;
+      }
+      expect(rcCodeOf(caught)).toBe("AI1016");
+      expect(sent).toEqual(["fs/read_text_file"]);
     } finally {
       await t.stop();
     }
@@ -852,7 +900,7 @@ describe("cleanup after a cancelled turn", () => {
         { method: "terminal/release", params: { terminalId: "t-1" } },
       ]);
 
-      cancelSurfaceTurn(t.ctx, "s");
+      cancelSurfaceTurn(t.ctx, "s", turnIdOf(exchange, "s"));
       await until(
         () => sent.includes("terminal/release"),
         CLEANUP_TIMEOUT_MS * 2,

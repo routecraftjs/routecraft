@@ -26,6 +26,7 @@ import { AgentSessionStore } from "../src/agent/session/store.ts";
 import { INTERRUPTED_TOOL_MESSAGE } from "../src/agent/run.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
 import { MODEL } from "./helpers/defer-fixtures.ts";
+import { sleep, until } from "./helpers/until.ts";
 
 const llm = scriptedLlm([]);
 mock.module("../src/llm/providers/index.ts", () => ({
@@ -40,9 +41,6 @@ const ChatMessage = z.object({
   interrupt: z.boolean().optional(),
 });
 type ChatMessage = z.infer<typeof ChatMessage>;
-
-const sleep = (ms: number): Promise<void> =>
-  new Promise((resolve) => setTimeout(resolve, ms));
 
 /** A hold the test opens, so a patched store call waits for a point in the sequence rather than a clock. */
 function gate(): { wait: Promise<void>; open: () => void } {
@@ -71,15 +69,6 @@ function gateLoads(sessions: AgentSessionStore): {
     return realLoad(key);
   };
   return { realLoad, gates, entered: () => entered };
-}
-
-async function until(
-  condition: () => boolean | Promise<boolean>,
-  ms = 5_000,
-): Promise<void> {
-  const deadline = Date.now() + ms;
-  while (!(await condition()) && Date.now() < deadline) await sleep(1);
-  expect(await condition()).toBe(true);
 }
 
 /**

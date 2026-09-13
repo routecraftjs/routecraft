@@ -17,6 +17,13 @@ export async function until(
   ms = 5_000,
 ): Promise<void> {
   const deadline = Date.now() + ms;
-  while (!(await condition()) && Date.now() < deadline) await sleep(1);
-  expect(await condition()).toBe(true);
+  // The sampled value is what the assertion reads. Evaluating again would
+  // ask a condition that may be true only transiently, or that consumes
+  // what it inspects, a second question and fail on the second answer.
+  let met = await condition();
+  while (!met && Date.now() < deadline) {
+    await sleep(1);
+    met = await condition();
+  }
+  expect(met).toBe(true);
 }

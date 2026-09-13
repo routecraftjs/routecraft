@@ -35,7 +35,9 @@ import "../errors.ts";
 import {
   pinSurface,
   pinnedSurfaceOf,
+  pinnedTurnOf,
   registerCleanup,
+  turnIdOf,
   turnSignalOf,
 } from "./cancellation.ts";
 import { surfaceRefOf, type AgentSurfaceRef } from "./header.ts";
@@ -139,14 +141,16 @@ export function surface<M extends SurfaceMethod, T = unknown>(
         exchange: Exchange<T>,
         ctx?: StepSignalContext,
       ): Promise<SurfaceRequestResponses[M]> => {
-        const { context, connection, ref } = resolveSurface(
-          exchange,
-          `surface("${method}")`,
-        );
+        const {
+          context,
+          connection,
+          ref,
+          turn: turnId,
+        } = resolveSurface(exchange, `surface("${method}")`);
         assertSupported(connection, ref, method);
         // Nothing new goes to the editor once the person has said stop.
         // What must reach them after that is registered beforehand.
-        const turn = turnSignalOf(context, ref.session);
+        const turn = turnSignalOf(context, ref.session, turnId);
         if (turn.aborted) throw cancelledBefore(method, ref.kind);
         const sent = withSession(resolve(params, exchange), ref);
         // The check is loaded before the call goes out, so a schema that
@@ -240,20 +244,22 @@ surface.notify = function notify<T = unknown>(
       adapterId: "routecraft.adapter.surface",
       getMetadata: () => ({ method: "session/update" }),
       send: async (exchange: Exchange<T>): Promise<void> => {
-        const { context, connection, ref } = resolveSurface(
-          exchange,
-          "surface.notify()",
-        );
+        const {
+          context,
+          connection,
+          ref,
+          turn: turnId,
+        } = resolveSurface(exchange, "surface.notify()");
         // Dropped rather than refused: a notification has no answer, so a
         // route that keeps running after a stop has nothing to handle, and
         // the rule is the one `surface()` enforces. Nothing new reaches a
         // person who said stop.
-        if (turnSignalOf(context, ref.session).aborted) return;
+        if (turnSignalOf(context, ref.session, turnId).aborted) return;
         const built = resolve(update, exchange);
         const issues = await (await updateCheck())(built);
         // Checked again because building the check is asynchronous, and a
         // person can press stop while it builds.
-        if (turnSignalOf(context, ref.session).aborted) return;
+        if (turnSignalOf(context, ref.session, turnId).aborted) return;
         if (issues !== undefined) {
           const rendered = formatSchemaIssues(issues);
           throw rcError("AI1019", new Error(rendered), {
@@ -408,6 +414,8 @@ function resolveSurface(
   context: CraftContext;
   connection: AgentSurfaceConnection;
   ref: AgentSurfaceRef;
+  /** The turn this exchange belongs to, fixed at its first resolution. */
+  turn: string;
 } {
   const context = getExchangeContext(exchange);
   const ref = context === undefined ? undefined : refFor(context, exchange);
@@ -422,6 +430,8 @@ function resolveSurface(
       message: `The ${ref.kind} client running this turn disconnected before ${call} could reach it. There is nothing to retry against on this exchange.`,
     });
   }
-  pinSurface(context, exchange.id, ref);
-  return { context, connection, ref };
+  const turn =
+    pinnedTurnOf(context, exchange.id) ?? turnIdOf(exchange, ref.session);
+  pinSurface(context, exchange.id, ref, turn);
+  return { context, connection, ref, turn };
 }

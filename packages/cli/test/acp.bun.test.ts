@@ -586,6 +586,18 @@ profiles:
     const third = up({ port: first.port, resume: "found" });
     await waitFor(() => third.resumed.length >= 1, 10_000);
     expect(third.resumed).toEqual(["session-1"]);
+    // Resumed is not the same as usable: a bridge that re-attached the
+    // conversation but left the editor's next message on the dead transport
+    // would satisfy every assertion above.
+    editor.send(prompt(3, "after the kept conversation"));
+    await waitFor(
+      () => editor.read().some((message) => message.id === 3),
+      10_000,
+    );
+    expect(
+      editor.read().find((message) => message.id === 3)?.result?.stopReason,
+    ).toBe("end_turn");
+    expect(third.prompts).toEqual(["after the kept conversation"]);
 
     editor.finish();
     expect(await settledWithin(running, 5_000)).toEqual({ code: 0 });
