@@ -752,6 +752,73 @@ describe("the ops management API", () => {
   });
 
   /**
+   * @case A body that fails the route's input schema is refused as a client error
+   * @preconditions An open dispatch tier and a route whose `.input()` rejects the posted body
+   * @expectedResult 400 with RC5065 and the validation message. A 500 would call the caller's own malformed payload an instance fault, and RC5065 is not retryable, so a client honouring the status would retry a request that can never succeed
+   */
+  test("answers 400 with the reason when the posted body fails input validation", async () => {
+    const port = await start({
+      tiers: { dispatch: true },
+      routes: [
+        craft()
+          .id("strict")
+          .input({ body: z.object({ userId: z.string() }) })
+          .from(direct())
+          .to(noop()),
+      ],
+    });
+    const { status, body } = await call<{
+      error: string;
+      code: string;
+      message: string;
+    }>(port, "/ops/routes/strict/exchanges", {
+      method: "POST",
+      body: { userId: 42 },
+    });
+
+    expect(status).toBe(400);
+    expect(body.error).toBe("bad request");
+    expect(body.code).toBe("RC5065");
+    // The caller cannot act on "validation failed"; the field and the rule are
+    // the whole value of sending a message at all.
+    expect(body.message).toContain("strict");
+    expect(body.message).toContain("userId");
+  });
+
+  /**
+   * @case A route whose own output violates its schema stays a server fault
+   * @preconditions An open dispatch tier and a route whose `.output()` rejects what its pipeline produced, dispatched with a body its `.input()` accepts
+   * @expectedResult 500 with RC5002 and no message. The caller sent nothing wrong, so blaming them with a 400 would send them to fix a payload that was correct
+   */
+  test("keeps an output-validation failure a 500, not a client error", async () => {
+    const port = await start({
+      tiers: { dispatch: true },
+      routes: [
+        craft()
+          .id("liar")
+          .input({ body: z.object({ userId: z.string() }) })
+          .output({ body: z.object({ total: z.number() }) })
+          .from(direct())
+          .transform(() => ({ total: "not a number" }))
+          .to(noop()),
+      ],
+    });
+    const { status, body } = await call<{
+      error: string;
+      code: string;
+      message?: string;
+    }>(port, "/ops/routes/liar/exchanges", {
+      method: "POST",
+      body: { userId: "u1" },
+    });
+
+    expect(status).toBe(500);
+    expect(body.error).toBe("dispatch failed");
+    expect(body.code).toBe("RC5002");
+    expect(body.message).toBeUndefined();
+  });
+
+  /**
    * @case A deferred dispatch answers with the standard Deferred acknowledgment
    * @preconditions A deferrable route, dispatch open
    * @expectedResult 202 with outcome deferred and the deferral id and token. A deferral is an outcome and not an error: the operator at the terminal is often exactly who the deferral is waiting for

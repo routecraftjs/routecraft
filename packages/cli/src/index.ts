@@ -55,16 +55,51 @@ if (process.argv.length <= 2) {
  * this has to happen inside a command action but ahead of the lazy
  * `run` / `start` imports.
  */
-function applyGlobalLogOptions(): void {
+function applyGlobalLogOptions(local: LogOptions = {}): void {
   const globalOpts = program.opts();
-  if (globalOpts["logLevel"] !== undefined) {
-    process.env["LOG_LEVEL"] = globalOpts["logLevel"];
-    process.env["CRAFT_LOG_LEVEL"] = globalOpts["logLevel"];
+  // The command's own flag wins, so `craft --log-level warn start --log-level
+  // debug` reads the way a reader expects: the nearer one.
+  const level = local.logLevel ?? globalOpts["logLevel"];
+  const file = local.logFile ?? globalOpts["logFile"];
+  if (level !== undefined) {
+    process.env["LOG_LEVEL"] = level;
+    process.env["CRAFT_LOG_LEVEL"] = level;
   }
-  if (globalOpts["logFile"] !== undefined) {
-    process.env["LOG_FILE"] = globalOpts["logFile"];
-    process.env["CRAFT_LOG_FILE"] = globalOpts["logFile"];
+  if (file !== undefined) {
+    process.env["LOG_FILE"] = file;
+    process.env["CRAFT_LOG_FILE"] = file;
   }
+}
+
+/**
+ * The logging flags a command may carry as well as the program.
+ *
+ * `enablePositionalOptions()` confines a global option to the space before
+ * the subcommand, so `craft start --log-level info` died on "unknown
+ * option" and `craft run app.ts --log-level info` was swallowed whole by the
+ * pass-through and handed to the route. That is the spelling everyone
+ * reaches for, and the rule bought nothing here but a lesson every user had
+ * to learn once.
+ *
+ * `run` keeps its pass-through contract: a flag written after the file still
+ * belongs to the route, because that is the only way a CLI-adapter route can
+ * own a flag the CLI also defines.
+ */
+interface LogOptions {
+  logLevel?: string;
+  logFile?: string;
+}
+
+type CommanderCommand = InstanceType<typeof Command>;
+
+/** Attach the logging flags to a command that boots a context. */
+function withLogOptions(command: CommanderCommand): CommanderCommand {
+  return command
+    .option(
+      "--log-level <level>",
+      "Log level (e.g. info, warn, error, silent to disable)",
+    )
+    .option("--log-file <path>", "Write logs to a file instead of stdout");
 }
 
 /**
@@ -114,22 +149,24 @@ async function selectEnvironment(
  * craft run ./my-routes.ts
  * craft run ./my-cli.ts greet --name World
  */
-program
-  .command("run")
-  .description("Run routes from a single TypeScript/JavaScript file")
-  .argument("<file>", "Path to a file containing routes")
-  .argument(
-    "[args...]",
-    "CLI command and flags to pass through to CLI adapter routes",
-  )
-  .option(
-    "--env <path>",
-    "Load environment variables from a .env file (default: .env)",
-  )
-  .option("--profile <name>", "Settings profile to select")
+withLogOptions(
+  program
+    .command("run")
+    .description("Run routes from a single TypeScript/JavaScript file")
+    .argument("<file>", "Path to a file containing routes")
+    .argument(
+      "[args...]",
+      "CLI command and flags to pass through to CLI adapter routes",
+    )
+    .option(
+      "--env <path>",
+      "Load environment variables from a .env file (default: .env)",
+    )
+    .option("--profile <name>", "Settings profile to select"),
+)
   .passThroughOptions()
   .action(async (filePath, args: string[], options) => {
-    applyGlobalLogOptions();
+    applyGlobalLogOptions(options as LogOptions);
 
     const selected = await selectEnvironment(options, process.cwd());
     if (selected.error !== undefined) {
@@ -161,97 +198,98 @@ program
  * craft start
  * craft start ./apps/eywa --once
  */
-program
-  .command("start")
-  .description(
-    "Start a project from its folder convention (capabilities, plugins, agents, skills)",
-  )
-  .argument("[dir]", "Project root (default: current directory)")
-  .option(
-    "--env <path>",
-    "Load environment variables from a .env file (default: .env)",
-  )
-  .option(
-    "--once",
-    "Shut down after the first exchange reaches a terminal outcome",
-  )
-  .option(
-    "--timeout <duration>",
-    'With --once, give up and exit non-zero after this long (milliseconds, or a duration string like "30s")',
-  )
-  .option("--profile <name>", "Settings profile to select")
-  .action(
-    async (
-      dir: string | undefined,
-      options: {
-        env?: string;
-        once?: boolean;
-        timeout?: string;
-        profile?: string;
-      },
-    ) => {
-      applyGlobalLogOptions();
+withLogOptions(
+  program
+    .command("start")
+    .description(
+      "Start a project from its folder convention (capabilities, plugins, agents, skills)",
+    )
+    .argument("[dir]", "Project root (default: current directory)")
+    .option(
+      "--env <path>",
+      "Load environment variables from a .env file (default: .env)",
+    )
+    .option(
+      "--once",
+      "Shut down after the first exchange reaches a terminal outcome",
+    )
+    .option(
+      "--timeout <duration>",
+      'With --once, give up and exit non-zero after this long (milliseconds, or a duration string like "30s")',
+    )
+    .option("--profile <name>", "Settings profile to select"),
+).action(
+  async (
+    dir: string | undefined,
+    options: {
+      env?: string;
+      once?: boolean;
+      timeout?: string;
+      profile?: string;
+    } & LogOptions,
+  ) => {
+    applyGlobalLogOptions(options);
 
-      const { resolve: resolvePath } = await import("node:path");
-      const projectRoot = resolvePath(process.cwd(), dir ?? ".");
+    const { resolve: resolvePath } = await import("node:path");
+    const projectRoot = resolvePath(process.cwd(), dir ?? ".");
 
-      // The conventional files belong to the project being started, not to
-      // whatever directory the shell happens to sit in. Resolved and
-      // loaded before `craft.config.ts` is imported, because config files
-      // read `process.env` at module scope.
-      const selected = await selectEnvironment(options, projectRoot);
-      if (selected.error !== undefined) {
-        settle({ code: 2, error: selected.error });
-        return;
-      }
+    // The conventional files belong to the project being started, not to
+    // whatever directory the shell happens to sit in. Resolved and
+    // loaded before `craft.config.ts` is imported, because config files
+    // read `process.env` at module scope.
+    const selected = await selectEnvironment(options, projectRoot);
+    if (selected.error !== undefined) {
+      settle({ code: 2, error: selected.error });
+      return;
+    }
 
-      const { startCommand } = await import("./start.js");
-      // A bare number stays milliseconds, so every existing invocation keeps
-      // working; anything else goes through the framework's duration grammar
-      // so `--timeout 30s` means what it reads as.
-      let timeoutMs: number | undefined;
-      if (options.timeout !== undefined) {
-        const { parseDuration } = await import("@routecraft/routecraft");
-        const raw = /^\d+(\.\d+)?$/.test(options.timeout.trim())
-          ? Number(options.timeout)
-          : (options.timeout as `${number}s`);
-        try {
-          timeoutMs = parseDuration(raw, "--timeout");
-        } catch {
-          // eslint-disable-next-line no-console
-          console.error(
-            `--timeout must be a number of milliseconds (at least 1) or a duration string like "30s". Received "${String(options.timeout)}".`,
-          );
-          setImmediate(() => process.exit(1));
-          return;
-        }
-      }
-      if (timeoutMs !== undefined && options.once !== true) {
+    const { startCommand } = await import("./start.js");
+    // A bare number stays milliseconds, so every existing invocation keeps
+    // working; anything else goes through the framework's duration grammar
+    // so `--timeout 30s` means what it reads as.
+    let timeoutMs: number | undefined;
+    if (options.timeout !== undefined) {
+      const { parseDuration } = await import("@routecraft/routecraft");
+      const raw = /^\d+(\.\d+)?$/.test(options.timeout.trim())
+        ? Number(options.timeout)
+        : (options.timeout as `${number}s`);
+      try {
+        timeoutMs = parseDuration(raw, "--timeout");
+      } catch {
         // eslint-disable-next-line no-console
         console.error(
-          `--timeout bounds the wait for the first exchange, which only --once waits for. Add --once, or drop --timeout.`,
+          `--timeout must be a number of milliseconds (at least 1) or a duration string like "30s". Received "${String(options.timeout)}".`,
         );
         setImmediate(() => process.exit(1));
         return;
       }
-      const result = await startCommand(dir, {
-        once: options.once === true,
-        ...(timeoutMs === undefined ? {} : { timeoutMs }),
-      });
-      if (!result.success) {
-        if (result.message) {
-          // eslint-disable-next-line no-console
-          console.error(result.message);
-        }
-        // Defer exit so pino/sonic-boom can finish initializing and avoid
-        // "sonic boom is not ready yet"
-        const code = result.code ?? 1;
-        setImmediate(() => process.exit(code));
-        return;
+    }
+    if (timeoutMs !== undefined && options.once !== true) {
+      // eslint-disable-next-line no-console
+      console.error(
+        `--timeout bounds the wait for the first exchange, which only --once waits for. Add --once, or drop --timeout.`,
+      );
+      setImmediate(() => process.exit(1));
+      return;
+    }
+    const result = await startCommand(dir, {
+      once: options.once === true,
+      ...(timeoutMs === undefined ? {} : { timeoutMs }),
+    });
+    if (!result.success) {
+      if (result.message) {
+        // eslint-disable-next-line no-console
+        console.error(result.message);
       }
-      // Don't call process.exit(); let the event loop drain naturally.
-    },
-  );
+      // Defer exit so pino/sonic-boom can finish initializing and avoid
+      // "sonic boom is not ready yet"
+      const code = result.code ?? 1;
+      setImmediate(() => process.exit(code));
+      return;
+    }
+    // Don't call process.exit(); let the event loop drain naturally.
+  },
+);
 
 /**
  * Print a command's result and exit with its code.

@@ -1023,7 +1023,7 @@ export class DefaultRoute implements Route {
         // synthetic parse step runs it once parse succeeds (input
         // validates the parsed body, not the raw bytes); without one
         // `runPipeline` inserts a standalone input step in the same
-        // chain position. The non-emitting variant throws RC5002
+        // chain position. The non-emitting variant throws RC5065
         // cleanly into the step loop's catch path (which emits
         // `step:failed` and then the error path), without firing
         // duplicate `exchange:started` / stray `exchange:dropped`

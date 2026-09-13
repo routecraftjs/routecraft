@@ -99,6 +99,13 @@ async function start(tiers: Record<string, boolean | string>): Promise<void> {
         .transform((body) => `hello ${String((body as { name: string }).name)}`)
         .to(noop()),
       craft().id("nightly").from(cron("0 0 * * *")).to(noop()),
+      craft()
+        .id("explodes")
+        .from(direct())
+        .transform(() => {
+          throw new Error("upstream said no");
+        })
+        .to(noop()),
     ]);
 
   context = await builder.build();
@@ -310,6 +317,90 @@ describe("craft exec", () => {
     expect(result.code).toBe(EXEC_EXIT.refused);
     expect(result.output).toMatch(/Usage: craft exec/);
     expect(result.error).toMatch(/introspection was refused/);
+  });
+
+  /**
+   * @case A route that threw names where the message is
+   * @preconditions Dispatch open, a route whose transform throws
+   * @expectedResult Exit 1 and, beyond the code, the instance's url and the
+   *   errors page anchored at that code. The wire withholds the message on
+   *   purpose; what was missing is any sign that the sentence exists at all
+   */
+  test("names the instance log and the anchored docs on a route failure", async () => {
+    await start({ dispatch: true });
+    const result = await execCommand("explodes", [], { url, ...isolated() });
+    expect(result.code).toBe(EXEC_EXIT.failed);
+    expect(result.error).toContain(url);
+    expect(result.error).toMatch(/#rc-5001/);
+    expect(result.error).toMatch(/its own log/);
+  });
+
+  /**
+   * @case A payload the route's own schema refused
+   * @preconditions An instance answering 400 with RC5065, the shape the ops
+   *   dispatch surface returns when `.input()` rejects the caller's body
+   * @expectedResult The next step is the local command that prints the
+   *   schema, not "read the instance's log": the answer is one command away
+   *   and nothing on the instance says so
+   */
+  test("names the schema command when the payload was refused", async () => {
+    const refusing = createServer((_req, res) => {
+      res.writeHead(400, { "content-type": "application/json" });
+      res.end(
+        JSON.stringify({
+          error: "bad request",
+          code: "RC5065",
+          message: 'Body validation failed for route "greet"',
+        }),
+      );
+    });
+    await new Promise<void>((resolve) =>
+      refusing.listen(0, "127.0.0.1", resolve),
+    );
+    const port = (refusing.address() as { port: number }).port;
+    try {
+      const result = await execCommand("greet", ["--name=world"], {
+        url: `http://127.0.0.1:${String(port)}`,
+        ...isolated(),
+      });
+      expect(result.code).toBe(EXEC_EXIT.failed);
+      expect(result.error).toContain("craft ops routes greet");
+      expect(result.error).not.toMatch(/its own log/);
+    } finally {
+      await new Promise<void>((resolve) => refusing.close(() => resolve()));
+    }
+  });
+
+  /**
+   * @case A code this process never registered
+   * @preconditions An instance answering with an ecosystem code whose package
+   *   the CLI has not imported, which is the normal case: the client runs
+   *   where the reader is and the instance is what loaded the package
+   * @expectedResult The errors index, not an anchor derived from the string.
+   *   A derived anchor would be a confident link into the core page for a
+   *   code documented somewhere else entirely
+   */
+  test("falls back to the errors index for an unregistered code", async () => {
+    const refusing = createServer((_req, res) => {
+      res.writeHead(500, { "content-type": "application/json" });
+      res.end(JSON.stringify({ error: "dispatch failed", code: "XX9999" }));
+    });
+    await new Promise<void>((resolve) =>
+      refusing.listen(0, "127.0.0.1", resolve),
+    );
+    const port = (refusing.address() as { port: number }).port;
+    try {
+      const result = await execCommand("greet", [], {
+        url: `http://127.0.0.1:${String(port)}`,
+        ...isolated(),
+      });
+      expect(result.error).toContain(
+        "https://routecraft.dev/docs/reference/errors for",
+      );
+      expect(result.error).not.toMatch(/#xx-9999/);
+    } finally {
+      await new Promise<void>((resolve) => refusing.close(() => resolve()));
+    }
   });
 });
 
