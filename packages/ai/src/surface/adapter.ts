@@ -122,7 +122,7 @@ function resolve<T, V>(source: Resolvable<T, V>, exchange: Exchange<T>): V {
  */
 function cancelledWhileOutstanding(method: string): Error {
   return rcError("AI1016", undefined, {
-    message: `The turn running this route was cancelled while "${method}" was outstanding, so the answer that arrived after it was not used.`,
+    message: `The turn running this route was cancelled before the answer to "${method}" could be used.`,
   });
 }
 
