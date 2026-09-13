@@ -90,6 +90,25 @@ export const AGENT_SURFACE_LIFECYCLE: unique symbol = Symbol.for(
   "routecraft.agent.surface-lifecycle",
 );
 
+/** @internal */
+export const AGENT_SURFACE_PENDING_CANCELS: unique symbol = Symbol.for(
+  "routecraft.agent.surface-pending-cancels",
+);
+
+/**
+ * How long a cancelled turn's own exchange may take to settle before the
+ * cleanup is sent anyway.
+ *
+ * The cleanup waits for that exchange so the editor learns the turn is over
+ * before it is asked to close what the turn left open. The wait is bounded
+ * because a turn whose exchange never reports a terminal event, a forced
+ * shutdown among them, must not strand a terminal in somebody's editor
+ * forever.
+ *
+ * @internal
+ */
+export const SETTLE_TIMEOUT_MS = 10_000;
+
 /** One call the framework makes for a route whose turn was cancelled. */
 interface Cleanup {
   readonly ref: AgentSurfaceRef;
@@ -117,12 +136,26 @@ interface TurnSignal {
   readonly controller: AbortController;
 }
 
+/**
+ * A cancel whose cleanup is waiting for the cancelled turn to finish.
+ *
+ * Keyed by the turn's own exchange id, which is what the interrupt event
+ * carries and what the exchange's terminal event will name.
+ */
+interface PendingCancel {
+  readonly session: string;
+  /** The turn that was cancelled, so only its registrations are sent. */
+  readonly turn: string | undefined;
+  readonly fallback: ReturnType<typeof setTimeout>;
+}
+
 declare module "@routecraft/routecraft" {
   interface StoreRegistry {
     [AGENT_SURFACE_TURN_SIGNALS]: Map<string, TurnSignal>;
     [AGENT_SURFACE_PINS]: Map<string, AgentSurfaceRef>;
     [AGENT_SURFACE_CLEANUPS]: Map<string, Registration>;
     [AGENT_SURFACE_LIFECYCLE]: true;
+    [AGENT_SURFACE_PENDING_CANCELS]: Map<string, PendingCancel>;
   }
 }
 
@@ -139,6 +172,14 @@ function registrations(context: CraftContext): Map<string, Registration> {
     context.getStore(AGENT_SURFACE_CLEANUPS) ?? new Map<string, Registration>();
   context.setStore(AGENT_SURFACE_CLEANUPS, registered);
   return registered;
+}
+
+function pendingCancels(context: CraftContext): Map<string, PendingCancel> {
+  const pending =
+    context.getStore(AGENT_SURFACE_PENDING_CANCELS) ??
+    new Map<string, PendingCancel>();
+  context.setStore(AGENT_SURFACE_PENDING_CANCELS, pending);
+  return pending;
 }
 
 function pins(context: CraftContext): Map<string, AgentSurfaceRef> {
@@ -209,21 +250,62 @@ export function turnSignalOf(
 }
 
 /**
- * Cancel what the conversation's turn has outstanding, and send the
+ * Cancel what the conversation's turn has outstanding, and arrange the
  * cleanup that turn's routes registered.
  *
- * The cleanup is not awaited: `session/prompt` answers `cancelled` on its
+ * The signal aborts here, so nothing new reaches the editor from this
+ * moment. The cleanup does not go out here: it waits for the cancelled
+ * turn's own exchange to settle, so the editor is told the turn ended
+ * before it is asked to close what the turn left open. An interrupt is
+ * raised while that turn is still unwinding, and dispatching from it put
+ * a `terminal/kill` on the wire ahead of the `cancelled` the prompt had
+ * yet to answer.
+ *
+ * Nothing awaits the cleanup either way: `session/prompt` answers on its
  * own clock, and a slow editor must not hold that answer.
  *
+ * @param turnExchangeId - The cancelled turn's own exchange, whose terminal
+ *   event releases the cleanup. Absent, the cleanup goes at once, which is
+ *   what a caller with no turn to wait for wants.
  * @internal
  */
 export function cancelSurfaceTurn(
   context: CraftContext,
   session: string,
+  turnExchangeId?: string,
 ): void {
   const cancelled = runningTurnOf(context, session);
   controllerFor(context, session).abort();
-  void runCleanups(context, session, cancelled);
+  if (turnExchangeId === undefined) {
+    void runCleanups(context, session, cancelled);
+    return;
+  }
+  const pending = pendingCancels(context);
+  const already = pending.get(turnExchangeId);
+  if (already !== undefined) clearTimeout(already.fallback);
+  const fallback = setTimeout(() => {
+    if (pending.delete(turnExchangeId)) {
+      void runCleanups(context, session, cancelled);
+    }
+  }, SETTLE_TIMEOUT_MS);
+  // Nothing here should keep a process alive: the cleanup is owed to an
+  // editor that is still connected, and one that is not has nothing to
+  // close.
+  fallback.unref?.();
+  pending.set(turnExchangeId, { session, turn: cancelled, fallback });
+}
+
+/**
+ * Release the cleanup a cancel parked on this exchange, if it is the
+ * cancelled turn's own exchange settling.
+ */
+function releaseCancel(context: CraftContext, exchangeId: string): void {
+  const pending = context.getStore(AGENT_SURFACE_PENDING_CANCELS);
+  const waiting = pending?.get(exchangeId);
+  if (waiting === undefined) return;
+  pending?.delete(exchangeId);
+  clearTimeout(waiting.fallback);
+  void runCleanups(context, waiting.session, waiting.turn);
 }
 
 /**
@@ -422,7 +504,7 @@ export function ensureSurfaceLifecycle(context: CraftContext): void {
   if (context.getStore(AGENT_SURFACE_LIFECYCLE) === true) return;
   context.setStore(AGENT_SURFACE_LIFECYCLE, true);
   context.on("route:agent:session:interrupted", ({ details }) => {
-    cancelSurfaceTurn(context, details.session);
+    cancelSurfaceTurn(context, details.session, details.exchangeId);
   });
   for (const ended of [
     "route:exchange:completed",
@@ -430,6 +512,10 @@ export function ensureSurfaceLifecycle(context: CraftContext): void {
     "route:exchange:dropped",
   ] as const) {
     context.on(ended, ({ details }) => {
+      // The cleanup first: a cancelled turn's own exchange settling is what
+      // releases it, and it must claim its registrations before the same
+      // exchange ending drops anything.
+      releaseCancel(context, details.exchangeId);
       releaseExchange(context, details.exchangeId);
     });
   }

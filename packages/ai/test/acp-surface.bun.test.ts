@@ -688,12 +688,12 @@ describe("cleanup after a cancelled turn", () => {
     const t = await testContext().routes([]).build();
     await t.startAndWaitReady();
     try {
-      const sent: string[] = [];
+      const sent: Array<{ method: string; params: unknown }> = [];
       let turn: string | undefined = "turn-a";
       t.ctx.setStore(ADAPTER_AGENT_SESSIONS, runningTurn(() => turn) as never);
       const connection = scriptedSurface({
-        request: async (method) => {
-          sent.push(method);
+        request: async (method, params) => {
+          sent.push({ method, params });
           return {};
         },
       });
@@ -721,10 +721,100 @@ describe("cleanup after a cancelled turn", () => {
       cancelSurfaceTurn(t.ctx, "s");
       await until(() => sent.length >= 1);
       await sleep(50);
-      expect(sent).toEqual(["terminal/release"]);
-      expect(JSON.stringify(await Promise.resolve(sent))).not.toContain(
-        "from-turn-a",
+      // Both turns registered "terminal/release", so the method alone
+      // cannot say which one went out: the terminal id is the assertion.
+      expect(sent).toHaveLength(1);
+      expect(sent[0]?.method).toBe("terminal/release");
+      expect(sent[0]?.params).toMatchObject({ terminalId: "from-turn-b" });
+    } finally {
+      await t.stop();
+    }
+  });
+
+  /**
+   * @case Cleanup waits for the cancelled turn's own exchange to settle
+   * @preconditions A registered release, a cancel naming the turn's exchange, and that exchange reporting its terminal event only afterwards
+   * @expectedResult Nothing reaches the editor until the turn's exchange settles, then the release does. An interrupt is raised while the turn is still unwinding, so dispatching from it put a cleanup call on the wire ahead of the "cancelled" the prompt had yet to answer, which is the ordering the reference page states
+   */
+  test("cleanup waits for the cancelled turn to settle", async () => {
+    const t = await testContext().routes([]).build();
+    await t.startAndWaitReady();
+    try {
+      const sent: string[] = [];
+      const connection = scriptedSurface({
+        request: async (method) => {
+          sent.push(method);
+          return {};
+        },
+      });
+      registerSurface(t.ctx, SURFACE_CONNECTION, connection);
+      const ref = {
+        kind: "acp" as const,
+        session: "s",
+        connection: SURFACE_CONNECTION,
+      };
+      const exchange = new DefaultExchange(t.ctx, {
+        body: {},
+        headers: SURFACED,
+      });
+      registerCleanup(exchange, ref, connection, [
+        { method: "terminal/release", params: { terminalId: "t-1" } },
+      ]);
+
+      cancelSurfaceTurn(t.ctx, "s", "turn-exchange");
+      await sleep(50);
+      expect(sent).toEqual([]);
+
+      t.ctx.emit(
+        "route:exchange:completed" as never,
+        {
+          routeId: "r",
+          exchangeId: "turn-exchange",
+          correlationId: "c",
+        } as never,
       );
+      await until(() => sent.length >= 1);
+      expect(sent).toEqual(["terminal/release"]);
+    } finally {
+      await t.stop();
+    }
+  });
+
+  /**
+   * @case An answer that arrives after the person pressed stop is not handed to the route
+   * @preconditions A call outstanding when the turn is cancelled, with the editor answering it anyway
+   * @expectedResult AI1016 rather than the answer. The signal handed to a backend is a request to cancel rather than a deadline, so a client that answers regardless would otherwise reach a route whose person already said stop
+   */
+  test("an answer arriving after a cancel is refused, not used", async () => {
+    const t = await testContext().routes([]).build();
+    await t.startAndWaitReady();
+    try {
+      registerSurface(
+        t.ctx,
+        SURFACE_CONNECTION,
+        scriptedSurface({
+          request: async () => {
+            // The editor answers, but the person stopped while it thought.
+            cancelSurfaceTurn(t.ctx, "s");
+            return { content: "answered anyway" };
+          },
+        }),
+      );
+      const exchange = new DefaultExchange(t.ctx, {
+        body: {},
+        headers: SURFACED,
+      });
+      let caught: unknown;
+      try {
+        // .fetch() is typed as the value or a promise of it, so the await
+        // goes through Promise.resolve rather than off the result.
+        await Promise.resolve(
+          surface("fs/read_text_file", { path: "/tmp/x" }).fetch(exchange),
+        );
+      } catch (err: unknown) {
+        caught = err;
+      }
+      expect(rcCodeOf(caught)).toBe("AI1016");
     } finally {
       await t.stop();
     }

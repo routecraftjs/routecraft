@@ -111,6 +111,19 @@ function resolve<T, V>(source: Resolvable<T, V>, exchange: Exchange<T>): V {
  * @template M - The method being called, which fixes the params and the response
  * @template T - Body type available to the params callback
  */
+/**
+ * The refusal a call gets when the turn was already cancelled.
+ *
+ * One definition because the check runs at more than one point: before the
+ * params are built, and again after the response schema has loaded, since
+ * that load is asynchronous and a person can press stop during it.
+ */
+function cancelledBefore(method: string, kind: string): Error {
+  return rcError("AI1016", undefined, {
+    message: `The turn running this route was cancelled, so "${method}" was not sent. Anything that must reach the ${kind} client after a cancel is registered beforehand with surface.onCancel().`,
+  });
+}
+
 export function surface<M extends SurfaceMethod, T = unknown>(
   method: M,
   params: Resolvable<T, SurfaceRequestParams[M]>,
@@ -134,15 +147,14 @@ export function surface<M extends SurfaceMethod, T = unknown>(
         // Nothing new goes to the editor once the person has said stop.
         // What must reach them after that is registered beforehand.
         const turn = turnSignalOf(context, ref.session);
-        if (turn.aborted) {
-          throw rcError("AI1016", undefined, {
-            message: `The turn running this route was cancelled, so "${method}" was not sent. Anything that must reach the ${ref.kind} client after a cancel is registered beforehand with surface.onCancel().`,
-          });
-        }
+        if (turn.aborted) throw cancelledBefore(method, ref.kind);
         const sent = withSession(resolve(params, exchange), ref);
         // The check is loaded before the call goes out, so a schema that
         // cannot be built fails here rather than after the person answered.
         const check = await responseCheck(method);
+        // Checked again because loading the schema is asynchronous, and a
+        // person can press stop while it loads.
+        if (turn.aborted) throw cancelledBefore(method, ref.kind);
         let answer: unknown;
         try {
           answer = await connection.request(
@@ -164,6 +176,16 @@ export function surface<M extends SurfaceMethod, T = unknown>(
           }
           throw rcError("AI1016", cause, {
             message: `The ${ref.kind} client serving this turn refused or failed "${method}".`,
+          });
+        }
+        // The signal handed to a backend is a request to cancel, not a
+        // deadline: the ACP backend forwards it and still waits for
+        // whatever the client answers. An answer that arrives after the
+        // person said stop is theirs to have withheld, so it is refused
+        // rather than handed to the route.
+        if (turn.aborted) {
+          throw rcError("AI1016", undefined, {
+            message: `The turn running this route was cancelled while "${method}" was outstanding, so the answer that arrived after it was not used.`,
           });
         }
         const issues =
@@ -229,6 +251,9 @@ surface.notify = function notify<T = unknown>(
         if (turnSignalOf(context, ref.session).aborted) return;
         const built = resolve(update, exchange);
         const issues = await (await updateCheck())(built);
+        // Checked again because building the check is asynchronous, and a
+        // person can press stop while it builds.
+        if (turnSignalOf(context, ref.session).aborted) return;
         if (issues !== undefined) {
           const rendered = formatSchemaIssues(issues);
           throw rcError("AI1019", new Error(rendered), {
