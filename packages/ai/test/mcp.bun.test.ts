@@ -130,11 +130,11 @@ describe("mcp() DSL function", () => {
   });
 
   /**
-   * @case mcp() with schema rejects invalid body as RC5002
+   * @case mcp() with schema rejects invalid body as RC5065
    * @preconditions Consumer has schema; invoked with invalid body
-   * @expectedResult RC5002 error is thrown
+   * @expectedResult RC5065 error is thrown
    */
-  test("mcp() with invalid input throws RC5002", async () => {
+  test("mcp() with invalid input throws RC5065", async () => {
     const schema = z.object({
       url: z.string().url(),
     });
@@ -155,7 +155,7 @@ describe("mcp() DSL function", () => {
 
     await expect(
       invokeTool(t, "fetch-tool", { url: "not-a-valid-url" }),
-    ).rejects.toMatchObject({ rc: "RC5002" });
+    ).rejects.toMatchObject({ rc: "RC5065" });
   });
 
   /**

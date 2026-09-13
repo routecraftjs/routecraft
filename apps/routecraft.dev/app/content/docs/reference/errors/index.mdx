@@ -154,7 +154,9 @@ Read the error message and suggestion in the log; check adapter documentation. U
 Validation failed
 
 **Why it happens**  
-Framework-enforced schema validation failed. The engine validates the route's `.input()` schema at filter chain position #4 (a failure is routable through `.error()` and otherwise takes the normal error path) and the route's `.output()` schema before the primary destination fires (routes to the error handler on failure). RC5002 also covers `validate()` steps, aggregators that received an empty array, and any validator that threw.
+Framework-enforced schema validation failed on something the instance itself produced: the route's `.output()` schema before the primary destination fires (routes to the error handler on failure), a `validate()` step, an aggregator that received an empty array, or any validator that threw.
+
+The route's `.input()` schema is [RC5065](#rc-5065) instead, because a caller's bad payload is the caller's fault and this code's cases are the instance's. A transport that answers a request maps the two to different statuses.
 
 **Suggestion**  
 Adjust the schema or coerce input; check data shapes. For Zod: use `z.object()`, `z.looseObject()`, or `z.strictObject()` as appropriate.
@@ -1024,6 +1026,17 @@ The remote instance answered a dispatch on an imported route with an error. Its 
 
 **Suggestion**  
 A `RC5060` from the remote means the route stopped being dispatchable there (it declared `direct({ internal: true })`, or lost its direct source); anything else is the route's own failure, exactly as it would have surfaced to a caller on the remote. Read the remote's logs for the exchange, and fix the route where it lives.
+
+## RC5065
+Request validation failed
+
+**Why it happens**  
+A payload a caller supplied did not satisfy the route's `.input()` schema, on the body or on the headers. Validation runs at filter chain position #4, before any step of the pipeline, so nothing of the route has executed when this is raised and a route-scope `.error()` can recover it like any other chain failure.
+
+This is the caller's fault rather than the instance's, which is the whole reason it is not [RC5002](#rc-5002). RC5002 also covers `.output()` validation, a mid-pipeline `validate()` step and an empty aggregation, none of which the caller can do anything about. Splitting them lets a transport answer the two differently: the [ops dispatch mount](/docs/reference/plugins/opsplugin) returns 400 with the message for this code, where a route failure is a 500 carrying only the code.
+
+**Suggestion**  
+Read the message: it names the route, the field and the rule that rejected it. `craft ops routes <id>` prints the route's full input schema on a running instance. Retrying an unchanged payload cannot succeed, which is why this code is not retryable.
 
 ## RC9901
 Unknown error
