@@ -43,7 +43,10 @@ describe("the deferrals management resource", () => {
    */
   async function boot(store?: Omit<DeferralStore, "list">): Promise<{
     base: string;
-    defer: (amountCents: number) => Promise<void>;
+    defer: (
+      amountCents: number,
+      routeId?: "payout" | "refund",
+    ) => Promise<void>;
   }> {
     const booted = await bootServer((builder) =>
       builder
@@ -78,8 +81,8 @@ describe("the deferrals management resource", () => {
     t = booted.ctx;
     return {
       base: `http://127.0.0.1:${String(booted.port)}`,
-      defer: async (amountCents) => {
-        await t!.client.sendDirect("payout", { amountCents });
+      defer: async (amountCents, routeId = "payout") => {
+        await t!.client.sendDirect(routeId, { amountCents });
       },
     };
   }
@@ -183,28 +186,32 @@ describe("the deferrals management resource", () => {
 
   /**
    * @case Waiting is the default and the other states are asked for
-   * @preconditions One waiting deferral and one settled by a resume, on two different routes
-   * @expectedResult The bare listing shows the waiting one, `state=settled` the settled one with its outcome, `state=all` both, and `route=` narrows to one route. The question this surface is opened with is what is still owed an answer
+   * @preconditions Three deferrals: one on payout settled by a resume, one waiting on payout, one waiting on refund
+   * @expectedResult The bare listing shows the two waiting, `state=settled` the settled one with its outcome, `state=all` all three, and `route=` narrows to that route in both directions: the refund row is returned and the payout rows are not. Asserting only an empty page for a route with no rows would pass against a filter that drops everything
    */
   test("filters by state and by route", async () => {
     const store = new MemoryDeferralStore();
     const { base, defer } = await boot(store);
     await defer(1);
-    const waiting = (await store.list({ limit: 10 }))[0]!;
-    await store.markResumed(waiting.id, { at: new Date() });
+    const resumed = (await store.list({ limit: 10 }))[0]!;
+    await store.markResumed(resumed.id, { at: new Date() });
     await defer(2);
+    await defer(3, "refund");
 
     const bare = await page(base);
     const settled = await page(base, "?state=settled");
     const all = await page(base, "?state=all");
     const byRoute = await page(base, "?state=all&route=refund");
+    const unknownRoute = await page(base, "?state=all&route=nobody");
 
-    expect(bare.items).toHaveLength(1);
-    expect(bare.items[0]!.state).toBe("waiting");
+    expect(bare.items).toHaveLength(2);
+    expect(bare.items.every((row) => row.state === "waiting")).toBe(true);
     expect(settled.items).toHaveLength(1);
     expect(settled.items[0]!.outcome).toMatchObject({ kind: "resumed" });
-    expect(all.items).toHaveLength(2);
-    expect(byRoute.items).toEqual([]);
+    expect(all.items).toHaveLength(3);
+    expect(byRoute.items).toHaveLength(1);
+    expect(byRoute.items[0]!.routeId).toBe("refund");
+    expect(unknownRoute.items).toEqual([]);
   });
 
   /**

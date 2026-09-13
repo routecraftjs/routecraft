@@ -22,6 +22,7 @@ import {
   resolveDatabasePath,
   SQLITE_APPLICATION_IDS,
 } from "../shared/sqlite/database.ts";
+import { claimIsOutstanding } from "./types.ts";
 import type {
   ExpiredScanCursor,
   NewDeferral,
@@ -133,6 +134,7 @@ const MIGRATIONS: ReadonlyArray<string> = [
    CREATE INDEX deferrals_sweep ON deferrals (state, claimed_at, expires_at, id);
    CREATE INDEX deferrals_pending ON deferrals (state, deferred_at, id);
    CREATE INDEX deferrals_listing ON deferrals (deferred_at, id);
+   CREATE INDEX deferrals_by_route ON deferrals (route_id, deferred_at, id);
    CREATE INDEX deferrals_retention ON deferrals (state, outcome_at);
    CREATE INDEX deferrals_stranded ON deferrals (outcome_kind, deferred_at);`,
 ];
@@ -776,7 +778,10 @@ function toSummary(row: DeferralSummaryRow): DeferralSummary {
     routeId: row.route_id,
     state: row.state as DeferralState,
     waitingFor: row.waiting_for as DeferralWaitingFor,
-    claimed: row.claimed_at != null,
+    claimed: claimIsOutstanding(
+      row.state as DeferralState,
+      row.claimed_at === null ? null : new Date(row.claimed_at),
+    ),
     deferredAt: new Date(row.deferred_at),
     ...(row.expires_at !== null ? { expiresAt: new Date(row.expires_at) } : {}),
     ...toOutcome(row),

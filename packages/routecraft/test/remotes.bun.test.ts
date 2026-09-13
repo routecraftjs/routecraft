@@ -668,11 +668,13 @@ describe("remotes", () => {
         res.end();
         return;
       }
-      // Keep-alive on purpose, so the dispatch below goes out on the socket
-      // this response leaves in the pool. That is the shape that used to
-      // run the route twice: the runtime re-sent the POST on a fresh
-      // connection when the reused one dropped before any response byte,
-      // and closing every response here hid it.
+      // Keep-alive on purpose, so a pooled socket is there for the dispatch
+      // below to reuse. Reusing it is what used to run the route twice: the
+      // runtime re-sent the POST on a fresh connection when the reused one
+      // dropped before any response byte. On an affected runtime the fix
+      // takes the dispatch out of the pool, so the reuse never happens and
+      // the counter stays at one. Closing every response here would remove
+      // the pooled socket and the test would pass with or without the fix.
       res.writeHead(200, { "content-type": "application/json" });
       res.end(JSON.stringify(body));
     });

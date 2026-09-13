@@ -28,9 +28,14 @@ export interface RuntimeVersion {
 export function parseRuntimeVersion(
   version: string,
 ): RuntimeVersion | undefined {
-  const [major, minor, patch] = (version.split(/[-+]/)[0] ?? "")
-    .split(".")
-    .map((segment) => (segment === "" ? Number.NaN : Number(segment)));
+  const segments = (version.split(/[-+]/)[0] ?? "").split(".");
+  // Four or more segments is not a version this can read. Truncating to the
+  // first three would accept it and answer confidently about a string
+  // nobody understands, and both callers would rather refuse.
+  if (segments.length > 3) return undefined;
+  const [major, minor, patch] = segments.map((segment) =>
+    segment === "" ? Number.NaN : Number(segment),
+  );
   if (major === undefined || !Number.isInteger(major)) return undefined;
   if (minor !== undefined && !Number.isInteger(minor)) return undefined;
   if (patch !== undefined && !Number.isInteger(patch)) return undefined;

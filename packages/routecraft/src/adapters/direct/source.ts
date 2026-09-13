@@ -65,6 +65,11 @@ export class DirectSourceAdapter<T = unknown> implements Source<T> {
     // of a capability: the in-process endpoint below works unchanged,
     // while ops dispatch and directTool resolution find no capability and
     // can refuse by name.
+    // The channel first: a configured `channelType` constructor can throw,
+    // and a registry entry written before it would outlive a route that
+    // never subscribed, which is the defect this whole path exists to stop.
+    const channel = getDirectChannel<T>(context, endpoint, this.options);
+
     const unregister =
       this.options.internal === true
         ? registerInternalEndpoint(context, meta.routeId)
@@ -74,8 +79,6 @@ export class DirectSourceAdapter<T = unknown> implements Source<T> {
       { endpoint, adapter: "direct" },
       "Setting up subscription for direct endpoint",
     );
-
-    const channel = getDirectChannel<T>(context, endpoint, this.options);
 
     // Unwrap the channel's Exchange payload and hand body / headers to the
     // framework-provided handler. The caller's principal rides through on

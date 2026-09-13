@@ -29,14 +29,14 @@ function waiting(
 
 describe("renderDeferrals", () => {
   /**
-   * @case An instance with nothing deferred
+   * @case A query that matches nothing
    * @preconditions An empty page
-   * @expectedResult A sentence rather than an empty table, so the answer reads as "nothing is waiting" instead of a rendering that failed
+   * @expectedResult A sentence rather than an empty table, so the answer reads as an answer instead of a rendering that failed. It speaks about the query and not the instance, because this page is already narrowed by `--state` and `--route`, and an empty settled history is not an idle instance
    */
-  test("says so when nothing is deferred", () => {
+  test("says so when the query matches nothing", () => {
     const page: OpsPage<OpsDeferralSummary> = { items: [] };
 
-    expect(renderDeferrals(page, "pretty")).toBe("Nothing is deferred.");
+    expect(renderDeferrals(page, "pretty")).toBe("No deferrals match.");
   });
 
   /**
@@ -118,7 +118,7 @@ describe("renderDeferral", () => {
           kind: "resumed",
           at: "2026-09-02T09:00:00.000Z",
           reason: "approved in the console",
-          by: { subject: "jaco" },
+          by: { subject: "operator" },
         },
       }),
       "pretty",
@@ -127,7 +127,7 @@ describe("renderDeferral", () => {
     expect(out).toContain("state       settled");
     expect(out).toContain("outcome     resumed at 2026-09-02T09:00:00.000Z");
     expect(out).toContain("reason      approved in the console");
-    expect(out).toContain("resumed by  jaco");
+    expect(out).toContain("resumed by  operator");
   });
 
   /**
@@ -140,5 +140,18 @@ describe("renderDeferral", () => {
 
     expect(out).toContain("claimed     no");
     expect(out).not.toContain("outcome");
+  });
+
+  /**
+   * @case raw on a single deferral
+   * @preconditions A waiting record, asked for by an id the caller already holds
+   * @expectedResult The whole record, not the id. Describing one deferral is asked with its id in hand, so echoing the id back answers nothing, and a script piping this needs the fields
+   */
+  test("raw carries the record rather than the id it was asked with", () => {
+    const deferral = waiting();
+
+    const out = renderDeferral(deferral, "raw");
+
+    expect(JSON.parse(out)).toEqual(deferral);
   });
 });

@@ -143,7 +143,11 @@ export {
 // Paging for contributed resources, so a contributor's collection carries the
 // same cursor contract as the route listing rather than a second one.
 export {
+  DEFAULT_PAGE_SIZE,
+  cursorScope,
   decodeCursor,
+  encodeCursor,
+  malformedCursor,
   parsePageQuery,
   takePage,
   type CursorScope,

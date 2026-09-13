@@ -120,7 +120,10 @@ export function renderDeferrals(
   if (format === "raw") {
     return page.items.map((deferral) => deferral.id).join("\n");
   }
-  if (page.items.length === 0) return "Nothing is deferred.";
+  // Phrased against the query rather than the instance: this page is
+  // already narrowed by `--state` and `--route`, and "nothing is deferred"
+  // would report an empty settled history as an idle instance.
+  if (page.items.length === 0) return "No deferrals match.";
 
   const rows = page.items.map((deferral) => [
     deferral.id,
@@ -152,7 +155,10 @@ export function renderDeferral(
   format: OutputFormat,
 ): string {
   if (format === "json") return asJson(deferral);
-  if (format === "raw") return deferral.id;
+  // The whole record, not the id: describing one deferral is asked with the
+  // id in hand, so answering with it back says nothing the caller did not
+  // already type.
+  if (format === "raw") return asRaw(deferral);
   const lines = [
     `  deferral    ${deferral.id}`,
     `  route       ${deferral.routeId}`,

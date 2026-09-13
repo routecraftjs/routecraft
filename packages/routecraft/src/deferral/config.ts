@@ -334,8 +334,11 @@ export function deferralPlugin(config: DeferralConfig = {}): CraftPlugin {
   return {
     name: "deferral",
     async apply(ctx: CraftContext) {
-      ctx.setStore(DEFERRAL_RUNTIME, await createDeferralRuntime(ctx, config));
+      // Registration first: it throws on a name collision, and a failed
+      // `apply()` is not yet recorded for teardown, so a store opened
+      // before it would leak its handle for the life of the process.
       registerDeferralsResource(ctx);
+      ctx.setStore(DEFERRAL_RUNTIME, await createDeferralRuntime(ctx, config));
     },
     async start(ctx: CraftContext) {
       const runtime = ctx.getStore(DEFERRAL_RUNTIME);

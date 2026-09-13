@@ -801,6 +801,9 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       expect(denied?.state).toBe("settled");
       expect(denied?.outcome?.kind).toBe("denied");
       expect(denied?.outcome?.reason).toBe("cancelled by the operator");
+      // Denying goes through a claim, and settling does not clear
+      // `claimedAt`, so the raw field is still set on this record.
+      expect(denied?.claimed).toBe(false);
     });
 
     /**
@@ -818,6 +821,30 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
       const [row] = await store.list({ limit: 10 });
 
       expect(row).toMatchObject({ state: "waiting", claimed: true });
+    });
+
+    /**
+     * @case A settled record is never reported as claimed
+     * @preconditions One record claimed and then expired, and one claimed
+     *   and then denied. Both keep `claimedAt` as history
+     * @expectedResult `claimed` is false on both. The field answers whether
+     *   a delivery claim is outstanding, and nothing is outstanding on a
+     *   record that has already settled; reading the raw timestamp instead
+     *   reported every expired and denied row as claimed
+     */
+    test("list does not report a settled record as claimed", async () => {
+      store = await open();
+      await store.create(record({ id: "expired-1" }));
+      await store.claimExpiry("expired-1", new Date());
+      await store.markExpired("expired-1");
+      await store.create(record({ id: "denied-2" }));
+      await store.claimExpiry("denied-2", new Date());
+      await store.markDenied("denied-2");
+
+      const rows = await store.list({ limit: 10, state: "settled" });
+
+      expect(rows).toHaveLength(2);
+      expect(rows.every((row) => row.claimed === false)).toBe(true);
     });
 
     /**

@@ -59,8 +59,17 @@ describe("runtimeReplaysDroppedRequests", () => {
    * @expectedResult True. Being wrong here costs a handshake per dispatch; being wrong the other way runs somebody's payout route twice
    */
   test("treats an unreadable version as affected", () => {
-    for (const version of ["", "not-a-version", "1", "1.x.0"]) {
+    for (const version of ["", "not-a-version", "1.x.0", "1.2.3.4"]) {
       expect(runtimeReplaysDroppedRequests(version)).toBe(true);
     }
+  });
+
+  /**
+   * @case A version with segments missing, which the parse can still read
+   * @preconditions "1", which reads as 1.0.0 rather than failing
+   * @expectedResult True, but for the ordinary reason: 1.0.0 is below the boundary. Kept apart from the unreadable case above so neither test claims the other's reason
+   */
+  test("fills a missing minor and patch with zero", () => {
+    expect(runtimeReplaysDroppedRequests("1")).toBe(true);
   });
 });

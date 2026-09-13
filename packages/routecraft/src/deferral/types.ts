@@ -107,6 +107,22 @@ export interface DeferralSummary {
 }
 
 /**
+ * Whether a delivery claim is outstanding right now.
+ *
+ * Only while waiting. `markExpired` and `markDenied` both settle a record
+ * through a claim and neither clears `claimedAt`, so the stored timestamp
+ * says a claim once existed, never that one is still held. Exported
+ * because the sqlite store summarises from columns rather than from a
+ * `Deferral`, and the two readings have to agree.
+ */
+export function claimIsOutstanding(
+  state: DeferralState,
+  claimedAt: Date | null | undefined,
+): boolean {
+  return state === "waiting" && claimedAt != null;
+}
+
+/**
  * Project a stored record onto what a management surface may see.
  *
  * Named once and shared by both backends so a field can never reach the
@@ -119,7 +135,7 @@ export function summariseDeferral(deferral: Deferral): DeferralSummary {
     routeId: deferral.routeId,
     state: deferral.state,
     waitingFor: deferral.waitingFor,
-    claimed: deferral.claimedAt !== undefined,
+    claimed: claimIsOutstanding(deferral.state, deferral.claimedAt),
     deferredAt: deferral.deferredAt,
     ...(deferral.expiresAt !== undefined
       ? { expiresAt: deferral.expiresAt }
