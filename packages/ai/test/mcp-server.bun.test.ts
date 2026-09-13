@@ -3149,7 +3149,7 @@ describe("McpServer", () => {
           expect(res.headers["www-authenticate"]).toBeUndefined();
           expect(
             t.contextLogger.warn.mock.calls.some(
-              (c) => c[1] === "Auth rejected: token validation failed",
+              (c) => c[1] === "Auth unavailable: validator failed",
             ),
           ).toBe(true);
           expect(rejections.length).toBeGreaterThanOrEqual(1);

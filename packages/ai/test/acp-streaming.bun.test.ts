@@ -200,6 +200,58 @@ describe("the ACP transport", () => {
   });
 
   /**
+   * @case A failed hand tells the person why, under the same policy as its payloads
+   * @preconditions A hand that throws a message echoing its input, run once at the default and once with toolCallPayloads false
+   * @expectedResult The default failed update carries the message, so the person reads the reason the model reads; the withholding one carries the error's class and nothing that echoes the argument, because a message can carry what the payload policy exists to keep out of the editor
+   */
+  test("a failed hand's reason follows the payload policy", async () => {
+    const failing = {
+      description: "Refuses whatever it is given",
+      input: z.object({ what: z.string() }),
+      handler: (input: unknown): Promise<never> =>
+        Promise.reject(
+          new Error(`no such file: ${(input as { what: string }).what}`),
+        ),
+    };
+    const reasonOf = async (
+      toolCallPayloads: boolean | undefined,
+    ): Promise<string> => {
+      h = await acpHarness({
+        agents: { max: { ...AGENT.max, tools: tools(["failing"]) } },
+        plugins: [agentPlugin({ functions: { failing } })],
+        ...(toolCallPayloads === undefined
+          ? {}
+          : { acp: { toolCallPayloads } }),
+      });
+      llm.reset();
+      llm.script.push(
+        { toolCalls: [{ toolName: "failing", input: { what: "secret.env" } }] },
+        { text: "it failed" },
+      );
+      await h.connect((agent) =>
+        agent
+          .buildSession("/work")
+          .withSession((session) => session.prompt("go")),
+      );
+      const failed = h.seen
+        .map((entry) => entry.update as Record<string, unknown>)
+        .find((update) => update["status"] === "failed") as {
+        content: Array<{ content: { text: string } }>;
+      };
+      await h.t.stop();
+      h = undefined;
+      return failed.content[0]!.content.text;
+    };
+
+    expect(await reasonOf(undefined)).toBe(
+      "failing failed: no such file: secret.env",
+    );
+    const withheld = await reasonOf(false);
+    expect(withheld).toBe("failing failed: Error");
+    expect(withheld).not.toContain("secret.env");
+  });
+
+  /**
    * @case Reasoning deltas reach the editor on the thinking channel
    * @preconditions One turn emitting a reasoning delta and a text delta
    * @expectedResult The reasoning arrives as agent_thought_chunk and the text as agent_message_chunk, so an editor can render the two differently

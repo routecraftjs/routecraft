@@ -78,9 +78,13 @@ A `session/prompt` that arrives while the conversation's turn is running is queu
 
 A conversation belongs to the person who started it. The mount lists, loads and resumes only the conversations whose owner matches the caller's subject; somebody else's session id is answered as if it did not exist, so probing for one tells the prober nothing. A mount with no wall has no subjects to tell apart, and every conversation on it belongs to the same unnamed person.
 
+That answer is the protocol's own resource-not-found code (`-32002`), one code and one message for a conversation that is missing, somebody else's, or another agent's. A client may drop a conversation from its tracking on that code and on no other: a refusal of any other kind (invalid params for a request that was wrong, an internal error for an instance that is unwell) means the conversation may well still exist, and [`craft acp`](/docs/reference/cli#acp) keeps it and tries again on its next reconnection. The whole taxonomy is recorded in the error policy beside the code, so the bridge and the mount cannot drift on it.
+
 ## Withholding tool payloads
 
 `toolCallPayloads: false` keeps the arguments and the result of every tool call out of the editor. The call itself stays visible whatever this says: a person watching a turn still sees which hands ran and how each one ended. This is the expandable detail underneath.
+
+A hand that fails is under the same policy. With payloads shown, the failed call carries the error's message, so the person reads the same reason the model reads; with payloads withheld it carries the error's class and code and nothing else, because a handler's message routinely echoes the argument it rejected, which is what the policy exists to keep out of the editor.
 
 An instance serving people other than its operator should consider setting it. A hand's arguments routinely carry a credential, a customer's address or a mail body, and an editor is a third program that renders and logs whatever it is handed.
 
@@ -100,11 +104,11 @@ The protocol carries no icon, logo or image field anywhere in version 1, so thos
 
 ## What it emits
 
-Connections and conversations announce themselves on the event bus: `plugin:acp:connection:opened`, `plugin:acp:connection:closed` and `plugin:acp:session:attached`. See the [events reference](/docs/reference/events#acp-plugin-events).
+Connections and conversations announce themselves on the event bus: `plugin:acp:connection:opened`, `plugin:acp:connection:closed` and `plugin:acp:session:attached`. A connection that broke rather than closed is the same `closed` event carrying `fault`. See the [events reference](/docs/reference/events#acp-plugin-events).
 
 ## Reaching the person back
 
-A capability running inside a turn can ask the editor a question or push a notice to it with the [`surface`](/docs/reference/adapters/surface) adapter. It works only for an exchange that started at an editor, and it says so rather than guessing when it did not.
+A capability running inside a turn can ask the editor a question or push a notice to it with the [`surface`](/docs/reference/adapters/surface) adapter. It works only for an exchange that started at an editor, and it says so rather than guessing when it did not. What a cancel does to a call in flight, and how a route cleans up after one, is on that page under [when the turn is cancelled](/docs/reference/adapters/surface#when-the-turn-is-cancelled).
 
 ## The SDK is an optional peer
 
