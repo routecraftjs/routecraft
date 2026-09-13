@@ -346,9 +346,15 @@ describe("agent sessions", () => {
     const store = new MemoryDeferralStore();
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
-    const interrupted: unknown[] = [];
+    const interrupted: Array<{ exchangeId: string }> = [];
     t.ctx.on("route:agent:session:interrupted", ({ details }) => {
       interrupted.push(details);
+    });
+    // The interrupting message's own exchange, for the comparison below:
+    // "queued" is scoped to the message, "interrupted" to the turn it stops.
+    const queuedEvents: Array<{ exchangeId: string }> = [];
+    t.ctx.on("route:agent:session:queued", ({ details }) => {
+      queuedEvents.push(details);
     });
 
     llm.script.push({ toolCalls: [{ toolName: "slow" }] });
@@ -367,6 +373,13 @@ describe("agent sessions", () => {
     expect(reply.session?.status).toBe("replied");
     expect(llm.sawAbort()).toBe(true);
     expect(interrupted).toHaveLength(1);
+    // The event names the turn that was stopped, not the message that
+    // stopped it. A listener that acts on this event (the surface cancels
+    // the turn's calls and sends its registered cleanup) would otherwise
+    // act on the incoming turn and leave the stopped one running.
+    expect(interrupted[0]!.exchangeId).not.toBe(
+      queuedEvents.at(-1)!.exchangeId,
+    );
 
     const cancelled = await first;
     expect(cancelled.text).toBe("");

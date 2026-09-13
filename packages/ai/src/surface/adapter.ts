@@ -254,12 +254,13 @@ surface.notify = function notify<T = unknown>(
         // route that keeps running after a stop has nothing to handle, and
         // the rule is the one `surface()` enforces. Nothing new reaches a
         // person who said stop.
-        if (turnSignalOf(context, ref.session, turnId).aborted) return;
+        const turn = turnSignalOf(context, ref.session, turnId);
+        if (turn.aborted) return;
         const built = resolve(update, exchange);
         const issues = await (await updateCheck())(built);
-        // Checked again because building the check is asynchronous, and a
-        // person can press stop while it builds.
-        if (turnSignalOf(context, ref.session, turnId).aborted) return;
+        // The same signal, checked again: building the check is
+        // asynchronous and a person can press stop while it builds.
+        if (turn.aborted) return;
         if (issues !== undefined) {
           const rendered = formatSchemaIssues(issues);
           throw rcError("AI1019", new Error(rendered), {
