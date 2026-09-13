@@ -197,7 +197,7 @@ describe("schema returning a thenable", () => {
   /**
    * @case Route .input() rejects a body a thenable schema refused
    * @preconditions Route declares .input({ body }) with a rejecting thenable schema
-   * @expectedResult RC5002 fails the exchange and the destination never runs, so the boundary control the caller asked for actually ran
+   * @expectedResult RC5065 fails the exchange and the destination never runs, so the boundary control the caller asked for actually ran
    */
   test("route .input() rejects it", async () => {
     const downstream = spy();
@@ -214,14 +214,14 @@ describe("schema returning a thenable", () => {
 
     await t.test();
 
-    expect(t.errors.map((e) => e.rc)).toContain("RC5002");
+    expect(t.errors.map((e) => e.rc)).toContain("RC5065");
     expect(downstream.received).toHaveLength(0);
   });
 
   /**
    * @case Route .input() rejects headers a thenable schema refused
    * @preconditions Route declares .input({ headers }) with a rejecting thenable schema
-   * @expectedResult RC5002 fails the exchange and the destination never runs, so the headers arm of the bundle is enforced too, not only the body
+   * @expectedResult RC5065 fails the exchange and the destination never runs, so the headers arm of the bundle is enforced too, not only the body
    */
   test("route .input() rejects it on the headers schema too", async () => {
     const downstream = spy();
@@ -238,7 +238,7 @@ describe("schema returning a thenable", () => {
 
     await t.test();
 
-    expect(t.errors.map((e) => e.rc)).toContain("RC5002");
+    expect(t.errors.map((e) => e.rc)).toContain("RC5065");
     expect(downstream.received).toHaveLength(0);
   });
 

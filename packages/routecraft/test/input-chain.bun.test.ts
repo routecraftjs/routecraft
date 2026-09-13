@@ -9,7 +9,7 @@ import { craft, simple, direct } from "@routecraft/routecraft";
  * Validation runs at pre-from chain position #4 for EVERY source shape:
  * inside the synthetic parse step when the source attaches a parser, and
  * as a standalone synthetic input step when it does not. Both paths throw
- * `RC5002` through the chain's catch boundary, so the route-scope
+ * `RC5065` through the chain's catch boundary, so the route-scope
  * `.error()` handler (position #1) can observe and recover it, exactly
  * like `RC5012` / `RC5015` from `authorize` and `RC5016` from `parse`.
  * Before the fold, a parser-less source validated eagerly in the consumer
@@ -23,11 +23,11 @@ describe("Input validation in the filter chain (#447)", () => {
   });
 
   /**
-   * @case .error() recovers RC5002 from a parser-less source
+   * @case .error() recovers RC5065 from a parser-less source
    * @preconditions Route with .input() schema and a route-scope .error() handler returning a fallback; the simple() source attaches no parser and emits an invalid body
-   * @expectedResult The handler observes RC5002 and the exchange completes with the fallback body (route-scope recovery resolves the exchange; remaining steps do not run), with no error escaping
+   * @expectedResult The handler observes RC5065 and the exchange completes with the fallback body (route-scope recovery resolves the exchange; remaining steps do not run), with no error escaping
    */
-  test("no-parser source: .error() observes and recovers RC5002", async () => {
+  test("no-parser source: .error() observes and recovers RC5065", async () => {
     let seenRc: string | undefined;
     const completed: unknown[] = [];
 
@@ -52,17 +52,17 @@ describe("Input validation in the filter chain (#447)", () => {
 
     await t.test();
 
-    expect(seenRc).toBe("RC5002");
+    expect(seenRc).toBe("RC5065");
     expect(t.errors).toHaveLength(0);
     expect(completed).toEqual([{ id: "fallback" }]);
   });
 
   /**
-   * @case .error() recovers RC5002 identically when the source attaches a parser
+   * @case .error() recovers RC5065 identically when the source attaches a parser
    * @preconditions Route with .input() schema and .error() fallback; a callable source emits a JSON string with a parse function, and the parsed body fails the schema
-   * @expectedResult Same behaviour as the no-parser source: the handler observes RC5002 and the exchange completes with the fallback body
+   * @expectedResult Same behaviour as the no-parser source: the handler observes RC5065 and the exchange completes with the fallback body
    */
-  test("parser source: .error() observes and recovers RC5002", async () => {
+  test("parser source: .error() observes and recovers RC5065", async () => {
     let seenRc: string | undefined;
     const completed: unknown[] = [];
 
@@ -99,7 +99,7 @@ describe("Input validation in the filter chain (#447)", () => {
 
     await t.test();
 
-    expect(seenRc).toBe("RC5002");
+    expect(seenRc).toBe("RC5065");
     expect(t.errors).toHaveLength(0);
     expect(completed).toEqual([{ id: "fallback" }]);
   });
@@ -136,7 +136,7 @@ describe("Input validation in the filter chain (#447)", () => {
     await t.test();
 
     expect(t.errors).toHaveLength(1);
-    expect(t.errors[0].rc).toBe("RC5002");
+    expect(t.errors[0].rc).toBe("RC5065");
     expect(events).toContain("step:failed:input");
     expect(events).toContain("exchange:failed");
     expect(events).not.toContain("exchange:dropped");
@@ -161,7 +161,7 @@ describe("Input validation in the filter chain (#447)", () => {
           .id("endpoint")
           .input({ body: z.object({ id: z.string() }) })
           .error((err) => {
-            if ((err as { rc?: string }).rc === "RC5002") {
+            if ((err as { rc?: string }).rc === "RC5065") {
               return { id: "recovered" };
             }
             throw err;

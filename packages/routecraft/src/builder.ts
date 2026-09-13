@@ -1366,7 +1366,7 @@ export class RouteBuilder<
     //                       stashes the validator on exchange internals and
     //                       runPipeline runs it inside the parse step, or as
     //                       a standalone synthetic input step for
-    //                       parser-less sources. RC5002 is routable through
+    //                       parser-less sources. RC5065 is routable through
     //                       `.error()` either way; see #447.)
     //   postParseFilters  -> .cache() check (#9); reserved slot for future
     //                        .circuitBreaker() (#6). Route-scope .throttle()
