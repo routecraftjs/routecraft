@@ -15,4 +15,10 @@ flowchart LR
 ```
 
 `route.ts` is the public surface: it default-exports the routes and is the only file other
-capabilities may import. Run the project with `craft run`, and the tests with `bun test`.
+capabilities may import. `craft start` discovers this folder on its own, so nothing
+registers it by hand.
+
+`greet` calls `https://jsonplaceholder.typicode.com`, so the first run needs a network. The
+tests do not: they replace `fetch`, which is also the shape to copy when you write your own.
+
+Run the project with `bun run start`, and the tests with `bun run test`.

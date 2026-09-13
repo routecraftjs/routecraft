@@ -22,6 +22,8 @@ interface PackageManagerDef {
    * bin requires Bun on the host); the dispatch test is skipped in that case.
    */
   start: string | null;
+  /** Command running the scaffolded project's own test suite, or null when the host cannot. */
+  unitTests: string | null;
 }
 
 // The craft CLI is Bun-only. The bun arm exercises the full scaffold +
@@ -41,7 +43,8 @@ const PACKAGE_MANAGER_DEFS: Record<PackageManagerId, PackageManagerDef> = {
     pmOption: "bun",
     install: "bun install --ignore-scripts",
     typecheck: "bunx tsc --noEmit",
-    start: "bunx craft run index.ts",
+    start: "bunx craft start",
+    unitTests: "bun test",
   },
   npm: {
     id: "npm",
@@ -49,6 +52,7 @@ const PACKAGE_MANAGER_DEFS: Record<PackageManagerId, PackageManagerDef> = {
     install: "npm install --no-audit --no-fund --ignore-scripts",
     typecheck: "npx tsc --noEmit",
     start: null,
+    unitTests: null,
   },
 };
 
@@ -223,7 +227,7 @@ function makeOptions(
 ): Required<InitOptions> {
   return {
     projectName: "test-app",
-    example: "none",
+    example: "",
     packageManager: pm.pmOption,
     skipInstall: true,
     git: false,
@@ -314,12 +318,12 @@ async function withProjectDir(
 
 describe(`integration (${pm.id}): scaffolded project compiles`, () => {
   /**
-   * @case Scaffolded empty project passes TypeScript type checking
-   * @preconditions Empty project scaffolded, dependencies installed via the selected package manager
+   * @case A scaffolded project passes TypeScript type checking
+   * @preconditions Project scaffolded from the template, dependencies installed via the selected package manager
    * @expectedResult tsc --noEmit exits without errors
    */
   integrationTest.concurrent(
-    "empty project passes tsc --noEmit",
+    "scaffolded project passes tsc --noEmit",
     { timeout: 180_000 },
     async () => {
       await withProjectDir(async (projectDir) => {
@@ -329,6 +333,31 @@ describe(`integration (${pm.id}): scaffolded project compiles`, () => {
         await runInstall(projectDir);
 
         await run(pm.typecheck, { cwd: projectDir });
+      });
+    },
+  );
+
+  /**
+   * @case A scaffolded project passes its own test suite
+   * @preconditions Project scaffolded from the template, dependencies installed, the host can run the scaffold's test runner
+   * @expectedResult The template's own tests pass. This is the gate that was missing: the template shipped a failing test for a whole release because CI only ever installed and type-checked a scaffold, and a test asserting against a spy the template did not build is invisible to tsc
+   */
+  integrationTest.concurrent(
+    "scaffolded project passes its own tests",
+    { timeout: 180_000 },
+    async (ctx) => {
+      if (pm.unitTests === null) {
+        ctx.skip();
+        return;
+      }
+      const unitTests = pm.unitTests;
+      await withProjectDir(async (projectDir) => {
+        await generateProjectStructure(projectDir, makeOptions());
+        await patchDepsToLocal(projectDir);
+
+        await runInstall(projectDir);
+
+        await run(unitTests, { cwd: projectDir });
       });
     },
   );
@@ -353,10 +382,7 @@ describe(`integration (${pm.id}): scaffolded project compiles`, () => {
       }
       const startCmd = pm.start;
       await withProjectDir(async (projectDir) => {
-        await generateProjectStructure(
-          projectDir,
-          makeOptions({ example: "hello-world" }),
-        );
+        await generateProjectStructure(projectDir, makeOptions());
         await patchDepsToLocal(projectDir);
 
         await runInstall(projectDir);
@@ -379,34 +405,74 @@ describe(`integration (${pm.id}): scaffolded project compiles`, () => {
   );
 
   /**
-   * @case Scaffolded project file listing matches expected flat structure
-   * @preconditions Hello-world project scaffolded
-   * @expectedResult All files at root level, no src/ directory
+   * @case A scaffolded project is laid out for the folder convention
+   * @preconditions Project scaffolded from the template
+   * @expectedResult `capabilities/` carries the sample capability and there is no entry file. `craft start` discovers routes from disk, so an `index.ts` re-exporting them is a file the author has to maintain for nothing, and it taught the pre-0.7 single-file model besides
    */
   test.concurrent(
-    "hello-world project has correct flat file structure",
+    "scaffolded project follows the folder convention",
     async () => {
       await withProjectDir(async (projectDir) => {
-        await generateProjectStructure(
-          projectDir,
-          makeOptions({ example: "hello-world" }),
-        );
+        await generateProjectStructure(projectDir, makeOptions());
 
         const entries = await readdir(projectDir, { withFileTypes: true });
         const dirs = entries.filter((e) => e.isDirectory()).map((e) => e.name);
         const files = entries.filter((e) => e.isFile()).map((e) => e.name);
 
-        // Expected directories
         expect(dirs).toContain("capabilities");
-        expect(dirs).toContain("adapters");
-        expect(dirs).toContain("plugins");
         expect(dirs).not.toContain("src");
+        expect(await readdir(join(projectDir, "capabilities"))).toEqual([
+          "hello-world",
+        ]);
 
-        // Expected files
-        expect(files).toContain("index.ts");
         expect(files).toContain("package.json");
         expect(files).toContain("craft.config.ts");
         expect(files).toContain("tsconfig.json");
+        expect(files).toContain("README.md");
+        expect(files).not.toContain("index.ts");
+      });
+    },
+  );
+
+  /**
+   * @case The scaffolded package.json boots through the folder convention
+   * @preconditions Project scaffolded from the template
+   * @expectedResult `start` is `craft start`. `craft run index.ts` would name a file this layout no longer has, so the first command the scaffolder prints must not be the one that fails
+   */
+  test.concurrent("scaffolded start script uses craft start", async () => {
+    await withProjectDir(async (projectDir) => {
+      await generateProjectStructure(projectDir, makeOptions());
+
+      const manifest = JSON.parse(
+        await readFile(join(projectDir, "package.json"), "utf-8"),
+      ) as { scripts: Record<string, string>; name: string };
+
+      expect(manifest.scripts["start"]).toBe("craft start");
+      expect(manifest.name).toBe("test-app");
+    });
+  });
+
+  /**
+   * @case A URL example replaces the sample capability rather than landing beside it
+   * @preconditions generateProjectStructure called with a URL example, without reaching the network
+   * @expectedResult Neither the sample capability nor the template README is written. A URL example is a whole project, and `capabilities/hello-world` left standing inside somebody else's harness is a route their CI never saw
+   */
+  test.concurrent(
+    "a URL example is not given the sample capability",
+    async () => {
+      await withProjectDir(async (projectDir) => {
+        // The download is expected to fail: no network is needed to prove
+        // what the scaffolder writes before it reaches out.
+        await generateProjectStructure(projectDir, {
+          ...makeOptions(),
+          example: "https://github.com/routecraftjs/does-not-exist-ever",
+        }).catch(() => undefined);
+
+        expect(existsSync(join(projectDir, "capabilities"))).toBe(false);
+        expect(existsSync(join(projectDir, "README.md"))).toBe(false);
+        // The base files are still written, so the failure is about the
+        // example and not about the scaffold having done nothing.
+        expect(existsSync(join(projectDir, "package.json"))).toBe(true);
       });
     },
   );
