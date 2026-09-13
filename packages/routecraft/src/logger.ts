@@ -3,13 +3,45 @@ import { mkdirSync, openSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, resolve, isAbsolute, basename } from "node:path";
 import { homedir } from "node:os";
-import { pino } from "pino";
+import { pino, stdSerializers } from "pino";
 import type { Route } from "./route.ts";
 import { type Exchange, getExchangeContext, HeadersKeys } from "./exchange.ts";
 import { isCraftContext, isRoute, isExchange } from "./brand.ts";
 import type { CraftContext } from "./context.ts";
 
 const require = createRequire(import.meta.url);
+
+/**
+ * Serialize a logged error, collapsing a cause that only repeats the message.
+ *
+ * pino appends a cause's message to the error's own, which is what you want
+ * when they differ: "Adapter operation failed: the socket closed" says more
+ * than either half. The framework routinely makes them identical, because
+ * `processError` wraps an arbitrary throw as `RC5001` and takes the thrown
+ * message as its own while keeping the original as the cause for its stack.
+ * The reader then gets the same sentence twice, joined by a colon, on every
+ * adapter failure and on the longest messages worst:
+ *
+ *     "The socket connection was closed unexpectedly...: The socket
+ *      connection was closed unexpectedly..."
+ *
+ * Only the exact duplicate is collapsed. A cause that says something the
+ * error does not is still appended, and nothing here changes any error's own
+ * `message`, which is what the rest of the framework reads.
+ *
+ * @internal Exported for tests.
+ */
+export function serializeError(error: unknown): unknown {
+  const serialized = stdSerializers.err(
+    error as Parameters<typeof stdSerializers.err>[0],
+  );
+  const cause: unknown = (error as { cause?: unknown }).cause;
+  if (!(cause instanceof Error)) return serialized;
+  if (serialized.message === `${cause.message}: ${cause.message}`) {
+    serialized.message = cause.message;
+  }
+  return serialized;
+}
 
 /** Pino options shape we support from config files; env overrides applied on top. */
 type PinoOptionsLike = {
@@ -133,6 +165,7 @@ function resolveConfig(): {
         return { level: label };
       },
     },
+    serializers: { err: serializeError },
     ...(redact && redact.length > 0 ? { redact } : {}),
     ...(usePretty
       ? {

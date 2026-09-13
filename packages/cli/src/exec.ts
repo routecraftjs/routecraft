@@ -243,10 +243,14 @@ function dispatchBlame(
   route: string,
   settings: ResolvedSettings,
 ): string {
-  if (error.kind !== "absent") return error.message;
   const detail = error.detail as
     { code?: string; message?: string } | undefined;
-  if (detail?.code !== undefined) return error.message;
+  if (error.kind !== "absent") {
+    return withNextStep(error.message, detail?.code, route, settings);
+  }
+  if (detail?.code !== undefined) {
+    return withNextStep(error.message, detail.code, route, settings);
+  }
   return [
     `The instance at ${settings.url.value} (from the ${describeSource(settings.url)}) did not accept a dispatch to "${route}".`,
     "",
@@ -256,5 +260,42 @@ function dispatchBlame(
     `  - no route named "${route}" is registered here`,
     "",
     "`craft ops routes` lists what this instance exposes, if introspection is enabled.",
+  ].join("\n");
+}
+
+/**
+ * Add the one line that turns a code into something to do next.
+ *
+ * The dispatch surface sends a framework error code and withholds the
+ * message, deliberately: a route failure is whatever its steps threw, and
+ * those messages carry hostnames, file paths and upstream response text.
+ * That rule is sound and this does not touch it. What was missing is the
+ * other half, because a reader handed `RC5031` and nothing else has no way
+ * to know the sentence exists at all, let alone that it is in the
+ * instance's log.
+ *
+ * `RC5065` gets a better answer than "read the log", because the answer is
+ * local: the payload failed the route's own `.input()` schema, and
+ * `craft ops routes <id>` prints that schema.
+ */
+function withNextStep(
+  message: string,
+  code: string | undefined,
+  route: string,
+  settings: ResolvedSettings,
+): string {
+  if (code === undefined) return message;
+  if (code === "RC5065") {
+    return [
+      message,
+      "",
+      `The payload did not match what "${route}" accepts. Its input schema:`,
+      `  craft ops routes ${route}`,
+    ].join("\n");
+  }
+  return [
+    message,
+    "",
+    `The instance keeps the message in its own log: ${settings.url.value} (from the ${describeSource(settings.url)}).`,
   ].join("\n");
 }
