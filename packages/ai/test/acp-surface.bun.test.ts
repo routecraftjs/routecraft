@@ -878,6 +878,10 @@ describe("cleanup after a cancelled turn", () => {
     await t.startAndWaitReady();
     try {
       const sent: string[] = [];
+      const exchange = new DefaultExchange(t.ctx, {
+        body: {},
+        headers: SURFACED,
+      });
       const connection = scriptedSurface({
         request: async (method) => {
           sent.push(method);
@@ -891,10 +895,6 @@ describe("cleanup after a cancelled turn", () => {
         session: "s",
         connection: SURFACE_CONNECTION,
       };
-      const exchange = new DefaultExchange(t.ctx, {
-        body: {},
-        headers: SURFACED,
-      });
       registerCleanup(exchange, ref, connection, [
         { method: "terminal/kill", params: { terminalId: "t-1" } },
         { method: "terminal/release", params: { terminalId: "t-1" } },
@@ -910,6 +910,69 @@ describe("cleanup after a cancelled turn", () => {
       await t.stop();
     }
   }, 20_000);
+
+  /**
+   * @case A route that reaches the surface for the first time after its turn was cancelled is still refused
+   * @preconditions A cancelled turn whose own exchange has settled, so nothing surfaced holds its signal any more, and a route it dispatched making its first call afterwards
+   * @expectedResult AI1016. A route that had not yet touched the surface holds no pin for the eviction to see, so the turn is remembered by id and a signal minted for it is born aborted rather than live
+   */
+  test("a late first call on a cancelled turn is refused after eviction", async () => {
+    const t = await testContext().routes([]).build();
+    await t.startAndWaitReady();
+    try {
+      const sent: string[] = [];
+      registerSurface(
+        t.ctx,
+        SURFACE_CONNECTION,
+        scriptedSurface({
+          request: async (method) => {
+            sent.push(method);
+            return { content: "read" };
+          },
+        }),
+      );
+
+      // The turn's own exchange reaches the surface, so it pins and is what
+      // the eviction can see.
+      const turnExchange = new DefaultExchange(t.ctx, {
+        body: {},
+        headers: { ...SURFACED, [HeadersKeys.CORRELATION_ID]: "turn-a" },
+      });
+      await Promise.resolve(
+        surface("fs/read_text_file", { path: "/first" }).fetch(turnExchange),
+      );
+
+      cancelSurfaceTurn(t.ctx, "s", "turn-a");
+      // It settles, and with nothing else holding the turn its signal goes.
+      t.ctx.emit(
+        "route:exchange:completed" as never,
+        {
+          routeId: "r",
+          exchangeId: turnExchange.id,
+          correlationId: "turn-a",
+        } as never,
+      );
+      await sleep(20);
+      sent.length = 0;
+
+      const late = new DefaultExchange(t.ctx, {
+        body: {},
+        headers: { ...SURFACED, [HeadersKeys.CORRELATION_ID]: "turn-a" },
+      });
+      let caught: unknown;
+      try {
+        await Promise.resolve(
+          surface("fs/read_text_file", { path: "/late" }).fetch(late),
+        );
+      } catch (err: unknown) {
+        caught = err;
+      }
+      expect(rcCodeOf(caught)).toBe("AI1016");
+      expect(sent).toEqual([]);
+    } finally {
+      await t.stop();
+    }
+  });
 
   /**
    * @case A registration naming a method the client never advertised is refused where the route can still act on it

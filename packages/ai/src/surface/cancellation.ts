@@ -95,6 +95,30 @@ export const AGENT_SURFACE_PENDING_CANCELS: unique symbol = Symbol.for(
   "routecraft.agent.surface-pending-cancels",
 );
 
+/** @internal */
+export const AGENT_SURFACE_CANCELLED_TURNS: unique symbol = Symbol.for(
+  "routecraft.agent.surface-cancelled-turns",
+);
+
+/**
+ * How many cancelled turns are remembered after their signal is evicted.
+ *
+ * A turn's signal goes once nothing surfaced still holds it, but a route
+ * the turn dispatched may not have reached the surface even once, so it
+ * holds nothing and is invisible to that eviction. Minting a fresh signal
+ * for it would hand a stopped turn a live one. The turn is therefore
+ * remembered by id, and a signal minted for a remembered turn is born
+ * aborted.
+ *
+ * A bound rather than a lifetime, because the framework cannot enumerate
+ * the routes a turn dispatched: the oldest is forgotten past this many,
+ * which is far more cancelled turns than can plausibly have work still
+ * winding down.
+ *
+ * @internal
+ */
+export const CANCELLED_TURNS_REMEMBERED = 1024;
+
 /**
  * How long a cancelled turn's own exchange may take to settle before the
  * cleanup is sent anyway.
@@ -170,6 +194,7 @@ declare module "@routecraft/routecraft" {
     [AGENT_SURFACE_CLEANUPS]: Map<string, Registration>;
     [AGENT_SURFACE_LIFECYCLE]: true;
     [AGENT_SURFACE_PENDING_CANCELS]: Map<string, PendingCancel>;
+    [AGENT_SURFACE_CANCELLED_TURNS]: Set<string>;
   }
 }
 
@@ -202,6 +227,13 @@ function registrations(context: CraftContext): Map<string, Registration> {
 export function turnIdOf(exchange: Exchange<unknown>, session: string): string {
   const correlation = exchange.headers[HeadersKeys.CORRELATION_ID];
   return typeof correlation === "string" ? correlation : `session:${session}`;
+}
+
+function cancelledTurns(context: CraftContext): Set<string> {
+  const cancelled =
+    context.getStore(AGENT_SURFACE_CANCELLED_TURNS) ?? new Set<string>();
+  context.setStore(AGENT_SURFACE_CANCELLED_TURNS, cancelled);
+  return cancelled;
 }
 
 function pendingCancels(context: CraftContext): Map<string, PendingCancel> {
@@ -238,6 +270,11 @@ function controllerFor(
   const current = signals.get(turn);
   if (current !== undefined) return current.controller;
   const controller = new AbortController();
+  // Born aborted when the turn was cancelled and its signal has since been
+  // evicted. A route the turn dispatched that had not yet reached the
+  // surface holds nothing for the eviction to see, and would otherwise be
+  // handed a live signal for a turn the person stopped.
+  if (cancelledTurns(context).has(turn)) controller.abort();
   signals.set(turn, { session, controller });
   return controller;
 }
@@ -284,6 +321,7 @@ export function cancelSurfaceTurn(
   turn: string,
   turnExchangeId?: string,
 ): void {
+  remember(context, turn);
   controllerFor(context, session, turn).abort();
   // Claimed here rather than when it is sent. A route that discharges its
   // own cleanup withdraws the registration on its way out, and after a
@@ -307,6 +345,22 @@ export function cancelSurfaceTurn(
   // close.
   fallback.unref?.();
   pending.set(turnExchangeId, { session, due, fallback });
+}
+
+/**
+ * Record that a turn was cancelled, dropping the oldest past the bound.
+ *
+ * Insertion order is a Set's own, so the oldest is its first key.
+ */
+function remember(context: CraftContext, turn: string): void {
+  const cancelled = cancelledTurns(context);
+  cancelled.delete(turn);
+  cancelled.add(turn);
+  while (cancelled.size > CANCELLED_TURNS_REMEMBERED) {
+    const oldest = cancelled.values().next();
+    if (oldest.done === true) break;
+    cancelled.delete(oldest.value);
+  }
 }
 
 /**
