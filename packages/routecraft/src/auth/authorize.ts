@@ -309,7 +309,7 @@ function actorAllowed(
  *   .id("send-reply")
  *   .authorize({
  *     scopes: ["mail:send"],
- *     actor: ["none", { subject: "agent:zoe", issuer: "https://eywa.example" }],
+ *     actor: ["none", { subject: "agent:aria", issuer: "https://acme.example" }],
  *   })
  *   .from(direct())
  *   .to(smtp())
@@ -322,7 +322,7 @@ function actorAllowed(
  *   .authorize({
  *     anyScope: ["leave:read", "leave:read:self", "leave:read:base"],
  *     effective: true,
- *     actor: ["none", { subject: "agent:zoe", issuer: "https://agents.example" }],
+ *     actor: ["none", { subject: "agent:aria", issuer: "https://agents.example" }],
  *   })
  *   .from(direct())
  *   .to(leaveDestination)

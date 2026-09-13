@@ -88,7 +88,7 @@ async function selectEnvironment(
   try {
     // Resolved under the project root, not the shell's directory: the file
     // that declares a profile and the env files that profile selects have
-    // to be the same project's, or `craft start ./apps/eywa` reads one
+    // to be the same project's, or `craft start ./apps/acme` reads one
     // project's profile and another's environment.
     const settings = resolveSettings({
       cwd: projectRoot,
@@ -159,7 +159,7 @@ program
  *
  * Example:
  * craft start
- * craft start ./apps/eywa --once
+ * craft start ./apps/acme --once
  */
 program
   .command("start")
@@ -379,7 +379,7 @@ program
  * Example:
  * craft acp
  * craft acp --profile company
- * craft acp --url https://eywa.devoptix.nl --token "$TOKEN" --agent zoe
+ * craft acp --url https://acme.example --token "$TOKEN" --agent aria
  */
 program
   .command("acp")

@@ -355,13 +355,13 @@ curl -H "authorization: Bearer $TOKEN" 'http://127.0.0.1:8080/ops/deferrals?rout
 This resource reads every session, whoever owns it. That is the deliberate operator privilege: `owner` gates who may list and read a conversation over a protocol surface such as [`acpPlugin()`](/docs/reference/plugins/acpplugin), and the management credential is what sees past it. It is what makes "who owns this conversation and which directory is it bound to" an answerable question.
 
 ```bash
-curl -H "authorization: Bearer $TOKEN" 'http://127.0.0.1:8080/ops/agent-sessions?agent=max'
+curl -H "authorization: Bearer $TOKEN" 'http://127.0.0.1:8080/ops/agent-sessions?agent=aria'
 ```
 
 ```json
 {
   "items": [
-    { "agent": "max", "session": "feature-login", "owner": "jaco", "cwd": "/work/eywa", "title": "Feature login", "turn": "idle", "inbox": 0, "background": 1, "deferred": true, "messages": 14, "turns": 6, "updatedAt": "2026-09-04T21:40:11.522Z" }
+    { "agent": "aria", "session": "feature-login", "owner": "operator", "cwd": "/work/acme", "title": "Feature login", "turn": "idle", "inbox": 0, "background": 1, "deferred": true, "messages": 14, "turns": 6, "updatedAt": "2026-09-04T21:40:11.522Z" }
   ]
 }
 ```
