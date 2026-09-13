@@ -198,7 +198,37 @@ export function isExcludedExamplePath(relativePath: string): boolean {
   if (segments.some((segment) => EXAMPLE_EXCLUDED_DIRECTORIES.has(segment))) {
     return true;
   }
+  if (isExcludedPrefix(segments)) return true;
   return EXAMPLE_EXCLUDED_FILES.has(segments[segments.length - 1]!);
+}
+
+/**
+ * Path prefixes never copied out of an example.
+ *
+ * A prefix rather than a bare segment name, because the thing being excluded
+ * is a specific location and not a word: an example may legitimately carry a
+ * capability folder called `workflows/`, and a bare segment test would drop
+ * that too.
+ */
+const EXAMPLE_EXCLUDED_PREFIXES: readonly (readonly string[])[] = [
+  [".github", "workflows"],
+];
+
+/**
+ * Whether a path sits under one of {@link EXAMPLE_EXCLUDED_PREFIXES}.
+ *
+ * The template's CI is about the template's repository: it tests the
+ * example against its own branches and its own secrets, and none of that is
+ * true in the project being scaffolded. A workflow copied there either fails
+ * on the first push or, worse, is guarded into never running and sits in
+ * somebody's repository forever as config they did not write.
+ */
+function isExcludedPrefix(segments: readonly string[]): boolean {
+  return EXAMPLE_EXCLUDED_PREFIXES.some(
+    (prefix) =>
+      segments.length >= prefix.length &&
+      prefix.every((segment, index) => segments[index] === segment),
+  );
 }
 
 /**
@@ -207,10 +237,28 @@ export function isExcludedExamplePath(relativePath: string): boolean {
 export interface GitHubExampleRef {
   owner: string;
   repo: string;
-  /** Branch to clone. `main` when the URL names none: templates are untagged. */
-  branch: string;
+  /**
+   * Everything after `/tree/`, unsplit, and `""` when the URL names nothing.
+   *
+   * Unsplit on purpose. A ref name may contain `/`, so nothing in the URL
+   * says which slash divides the ref from the path inside it. The remote
+   * does, and {@link resolveExampleRef} asks it.
+   */
+  remainder: string;
+}
+
+/** Where a `/tree/...` remainder actually points, once the remote has said. */
+export interface ResolvedExampleRef {
+  /** The ref to clone, or `undefined` for the repository's default branch. */
+  ref: string | undefined;
   /** Subdirectory inside the repository, or `""` for the whole thing. */
   subPath: string;
+}
+
+/** A remote's ref names, without their `refs/heads/` or `refs/tags/` prefix. */
+export interface RemoteRefs {
+  heads: readonly string[];
+  tags: readonly string[];
 }
 
 /**
@@ -240,18 +288,116 @@ export function parseGitHubExampleUrl(url: string): GitHubExampleRef {
   const match = url
     .replace(/[?#].*$/, "")
     .match(
-      /^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?(?:\/tree\/([^/]+?)(?:\/(.+?))?)?\/?$/,
+      /^https?:\/\/github\.com\/([^/]+)\/([^/]+?)(?:\.git)?(?:\/tree\/(.+?))?\/?$/,
     );
   if (!match) {
     throw new Error(`Invalid GitHub URL format: ${url}`);
   }
-  const [, owner, repo, branch = "main", subPath = ""] = match;
-  if (subPath.split(/[\\/]/).some((segment) => segment === "..")) {
+  const [, owner, repo, remainder = ""] = match;
+  // Checked here rather than after the split, so it catches a climb whichever
+  // side of the boundary it lands on. A ref named `..` is invalid in git
+  // anyway, so nothing legitimate is refused by testing the whole remainder.
+  if (remainder.split(/[\\/]/).some((segment) => segment === "..")) {
     throw new Error(
-      `Invalid example path "${subPath}": a path inside the repository cannot contain "..".`,
+      `Invalid example path "${remainder}": a path inside the repository cannot contain "..".`,
     );
   }
-  return { owner: owner!, repo: repo!, branch, subPath };
+  return { owner: owner!, repo: repo!, remainder };
+}
+
+/**
+ * Split a `/tree/...` remainder into the ref it names and the path inside it.
+ *
+ * Exact rather than a heuristic, and the reason is how git stores refs. They
+ * are a directory tree, so `refs/heads/claude` and `refs/heads/claude/foo`
+ * cannot both exist: git refuses the second with "cannot lock ref". At most
+ * one ref can therefore be a prefix of any given remainder, so taking the
+ * longest match resolves the URL rather than guessing at it, and there is no
+ * ambiguity left for a flag to settle.
+ *
+ * This is what GitHub itself does when it renders a `/tree/` URL, and it is
+ * why a branch named `feature/login` is expressible here at all. It used to
+ * be read as branch `feature` with `login` as a path inside it, which broke
+ * every `feat/*`, `fix/*` and `claude/*` branch.
+ *
+ * Branches are searched before tags at the same length. The two namespaces
+ * are separate, so a name can be both, and a branch is what a `/tree/` URL
+ * means when a browser produces one.
+ *
+ * @throws Error naming the refs that do exist, which is the question a miss
+ *   actually raises
+ */
+export function resolveExampleRef(
+  remainder: string,
+  refs: RemoteRefs,
+): ResolvedExampleRef {
+  if (remainder === "") return { ref: undefined, subPath: "" };
+
+  const segments = remainder.split("/").filter(Boolean);
+  const heads = new Set(refs.heads);
+  const tags = new Set(refs.tags);
+  for (let take = segments.length; take > 0; take--) {
+    const candidate = segments.slice(0, take).join("/");
+    if (heads.has(candidate) || tags.has(candidate)) {
+      return { ref: candidate, subPath: segments.slice(take).join("/") };
+    }
+  }
+
+  throw new Error(
+    `No branch or tag matches "${remainder}".\n` +
+      `${describeRefs("Branches", refs.heads)}\n` +
+      `${describeRefs("Tags", refs.tags)}`,
+  );
+}
+
+/** How many ref names a miss lists before it starts counting instead. */
+const REFS_NAMED_ON_A_MISS = 20;
+
+/**
+ * Name the refs a miss could have meant, bounded. A repository with six
+ * hundred branches would otherwise answer a typo with six hundred lines.
+ */
+function describeRefs(label: string, names: readonly string[]): string {
+  if (names.length === 0) return `${label}: none`;
+  const shown = names.slice(0, REFS_NAMED_ON_A_MISS).join(", ");
+  const rest = names.length - REFS_NAMED_ON_A_MISS;
+  return rest > 0
+    ? `${label}: ${shown}, and ${rest} more`
+    : `${label}: ${shown}`;
+}
+
+/**
+ * Ask the remote which refs it has.
+ *
+ * Unauthenticated, no API token and no rate limit, over the same transport
+ * as the clone on the next line. It adds one round trip to a path that
+ * already makes one, so an offline or firewalled run fails a step earlier
+ * and with a clearer message than a clone would give.
+ */
+async function listRemoteRefs(repoUrl: string): Promise<RemoteRefs> {
+  const output = execFileSync(
+    "git",
+    ["ls-remote", "--heads", "--tags", repoUrl],
+    {
+      encoding: "utf-8",
+      stdio: ["ignore", "pipe", "pipe"],
+    },
+  );
+  const heads: string[] = [];
+  const tags: string[] = [];
+  for (const line of output.split("\n")) {
+    const ref = line.split("\t")[1];
+    if (ref === undefined) continue;
+    // `refs/tags/v1^{}` is the peeled object of an annotated tag, the same
+    // name a second time. Cloning by name works either way, so the marker is
+    // dropped rather than offered as a separate ref.
+    if (ref.endsWith("^{}")) continue;
+    if (ref.startsWith("refs/heads/"))
+      heads.push(ref.slice("refs/heads/".length));
+    else if (ref.startsWith("refs/tags/"))
+      tags.push(ref.slice("refs/tags/".length));
+  }
+  return { heads, tags };
 }
 
 /**
@@ -314,26 +460,26 @@ async function downloadGitHubExample(url: string): Promise<string> {
   try {
     console.log(`📥 Downloading example from ${url}...`);
 
-    const { owner, repo, branch, subPath } = parseGitHubExampleUrl(url);
+    const { owner, repo, remainder } = parseGitHubExampleUrl(url);
     const repoUrl = `https://github.com/${owner}/${repo}.git`;
+
+    // The remote is asked which refs exist before the clone, because the URL
+    // alone cannot say where the ref ends and the path begins.
+    const { ref, subPath } = resolveExampleRef(
+      remainder,
+      await listRemoteRefs(repoUrl),
+    );
 
     try {
       const args = ["clone", "--depth", "1"];
-      if (branch) {
-        args.push("--branch", branch);
+      if (ref !== undefined) {
+        args.push("--branch", ref);
       }
       args.push(repoUrl, tempDir);
       execFileSync("git", args, { stdio: "inherit" });
     } catch {
-      // A multi-segment branch reaches here rather than the not-found branch
-      // below, because the clone is what rejects the guessed branch name.
-      // Without this the user is told to check the repository's visibility,
-      // which is not the problem.
-      const ambiguity = subPath
-        ? ` The branch was read as "${branch}" and "${subPath}" as a path inside it; if "${branch}/${subPath}" is one branch name, scaffold from the repository root instead and copy the folder yourself.`
-        : "";
       throw new Error(
-        `Failed to clone ${repoUrl} at branch "${branch}". Make sure the repository is public and the branch exists.${ambiguity}`,
+        `Failed to clone ${repoUrl}${ref === undefined ? "" : ` at "${ref}"`}. Make sure the repository is public.`,
       );
     }
 
@@ -769,15 +915,46 @@ export async function mergeExamplePackageJson(
     "dependencies",
     "devDependencies",
     "peerDependencies",
-    "scripts",
   ] as const) {
     const base = mapFieldOrThrow(pkg[field], field, "scaffold");
     const overlay = mapFieldOrThrow(example[field], field, "example");
     if (base === undefined && overlay === undefined) continue;
-    merged[field] = { ...base, ...overlay };
+    merged[field] = pinRoutecraftVersions({ ...base, ...overlay });
+  }
+  {
+    const base = mapFieldOrThrow(pkg["scripts"], "scripts", "scaffold");
+    const overlay = mapFieldOrThrow(example["scripts"], "scripts", "example");
+    if (base !== undefined || overlay !== undefined) {
+      merged["scripts"] = { ...base, ...overlay };
+    }
   }
 
   await writeFile(pkgPath, JSON.stringify(merged, null, 2) + "\n");
+}
+
+/**
+ * Give every `@routecraft/*` entry the version this scaffolder belongs to.
+ *
+ * An example repository describes a project's shape. It does not decide
+ * which version of the framework the person scaffolding is entitled to, and
+ * letting it pin one produced two failures at once: asking for `@canary` and
+ * getting whatever the example last committed, and a tree whose packages
+ * came from different builds of a train the changeset config versions in
+ * lockstep. `@routecraft/os` sat eight days behind the rest that way.
+ *
+ * The pinned value is replaced rather than warned about, because a warning
+ * nobody reads still leaves the wrong tree installed. Everything that is not
+ * `@routecraft/*` is the example's to choose and is left alone.
+ */
+function pinRoutecraftVersions(
+  deps: Record<string, string>,
+): Record<string, string> {
+  const version = getRoutecraftVersion();
+  const pinned: Record<string, string> = {};
+  for (const [name, range] of Object.entries(deps)) {
+    pinned[name] = name.startsWith("@routecraft/") ? version : range;
+  }
+  return pinned;
 }
 
 /**
@@ -802,13 +979,16 @@ async function mergeExampleDeps(
   const pkg = JSON.parse(await readFile(pkgPath, "utf-8"));
 
   if (exampleDeps.dependencies) {
-    pkg.dependencies = { ...pkg.dependencies, ...exampleDeps.dependencies };
+    pkg.dependencies = pinRoutecraftVersions({
+      ...pkg.dependencies,
+      ...exampleDeps.dependencies,
+    });
   }
   if (exampleDeps.devDependencies) {
-    pkg.devDependencies = {
+    pkg.devDependencies = pinRoutecraftVersions({
       ...pkg.devDependencies,
       ...exampleDeps.devDependencies,
-    };
+    });
   }
 
   await writeFile(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
