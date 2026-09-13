@@ -14,6 +14,7 @@ import {
   type SerializedOutcome,
   type NewDeferral,
   type DeferralStore,
+  type DeferralListCursor,
 } from "../src/index.ts";
 
 const scratch = mkdtempSync(join(tmpdir(), "rc-deferral-"));
@@ -892,16 +893,20 @@ function contractSuite(name: string, open: () => Promise<DeferralStore>): void {
 
     /**
      * @case The listing refuses a cursor it would have to guess at
-     * @preconditions Cursors carrying an invalid date and an empty id
+     * @preconditions Cursors carrying an invalid date, an empty id, and
+     *   `null`, which only a JavaScript caller can supply
      * @expectedResult Each rejects with RC5044 rather than being
      *   interpreted, so a malformed cursor cannot silently restart the
-     *   listing from the beginning
+     *   listing from the beginning. `null` in particular is a coded
+     *   refusal and not a TypeError from reading a field off it
      */
     test("list refuses a malformed cursor", async () => {
       store = await open();
       const bad = [
         { deferredAt: new Date("nonsense"), id: "d-1" },
         { deferredAt: new Date(), id: "" },
+        // Cast: the case under test is a caller who is not type-checked.
+        null as unknown as DeferralListCursor,
       ];
       for (const after of bad) {
         await expect(store.list({ limit: 10, after })).rejects.toThrow(

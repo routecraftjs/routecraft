@@ -403,7 +403,11 @@ export function assertScanCursor(after: ExpiredScanCursor | undefined): void {
  */
 export function assertListCursor(after: DeferralListCursor | undefined): void {
   if (after === undefined) return;
+  // `null` only reaches here from JavaScript, where the type is not
+  // enforced. Reading its fields would raise a TypeError instead of the
+  // coded refusal every other malformed cursor gets.
   if (
+    after === null ||
     !(after.deferredAt instanceof Date) ||
     Number.isNaN(after.deferredAt.getTime()) ||
     typeof after.id !== "string" ||
