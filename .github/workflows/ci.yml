@@ -319,6 +319,111 @@ jobs:
           path: apps/routecraft.dev/playwright-report
           retention-days: 7
 
+  # The release publishes /docs from the last released tag, not from the working
+  # tree, so a page built on main that links into /docs resolves in this
+  # workflow and 404s in that one. Two releases died exactly there, both at the
+  # link check, on links the changelog had added for pages 0.7.0 introduces.
+  # This job runs the release's own freeze sequence, so the shape that breaks is
+  # a shape a pull request can see. It is a separate job rather than more steps
+  # on docs-site because the freeze rewrites the content tree in place, and the
+  # acceptance suite has to keep running against the working-tree site.
+  docs-release-shape:
+    needs: [changes, setup]
+    if: needs.changes.outputs.docs == 'true'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          # The freeze checks the released tag's docs out of history, so the
+          # tags and the commits behind them must be present. The default
+          # shallow clone carries neither, and the resolve step below would
+          # silently find no tag and skip the whole job.
+          fetch-depth: 0
+
+      - name: Use Node.js from .nvmrc
+        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version-file: ".nvmrc"
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: "package.json"
+
+      - name: Restore the bun package cache
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.bun/install/cache
+          key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lock') }}
+          restore-keys: ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      # The resolution release.yml runs, minus the workflow_dispatch override,
+      # which exists to republish a corrected release and means nothing on a
+      # pull request. The floor and the reachable-tags rule are deliberately the
+      # same as that job's: a drift here tests a shape the release never builds,
+      # which is the failure this job exists to prevent.
+      - name: Resolve the docs release ref
+        id: docver
+        run: |
+          set -eo pipefail
+
+          # Exclusive lower bound: only releases strictly newer than this render
+          # with the current docs shell and are eligible to be frozen.
+          MIN_FREEZE_VERSION="v0.5.0"
+
+          # 0 (true) when $1 is strictly greater than $2 under version sort.
+          version_gt() {
+            [ "$1" != "$2" ] &&
+              [ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -n1)" = "$1" ]
+          }
+
+          # Only tags reachable from the checked-out ref, matching the release.
+          LATEST_TAG="$(git tag --merged HEAD -l 'v*' | sort -V | tail -n1)"
+          if [ -n "$LATEST_TAG" ] && version_gt "$LATEST_TAG" "$MIN_FREEZE_VERSION"; then
+            LABEL="$LATEST_TAG"
+            FREEZE_TAG="$LATEST_TAG"
+          else
+            LABEL="v$(jq -r .version packages/routecraft/package.json)"
+            FREEZE_TAG=""
+          fi
+          echo "label=$LABEL" >> "$GITHUB_OUTPUT"
+          echo "freeze_tag=$FREEZE_TAG" >> "$GITHUB_OUTPUT"
+          echo "Freeze docs to tag: ${FREEZE_TAG:-<none, nothing to check>}"
+
+      - name: Freeze docs and cheat-sheet to the released ref
+        if: steps.docver.outputs.freeze_tag != ''
+        env:
+          FREEZE_TAG: ${{ steps.docver.outputs.freeze_tag }}
+        run: bun apps/routecraft.dev/scripts/freeze-docs.ts "$FREEZE_TAG"
+
+      # No VITE_BASE_URL here, unlike docs-site: nothing serves this build, and
+      # the release does not set one either, so the absolute URLs match what
+      # ships rather than a localhost origin.
+      - name: Build the frozen site
+        if: steps.docver.outputs.freeze_tag != ''
+        env:
+          VITE_DOC_VERSION: ${{ steps.docver.outputs.label }}
+        run: bun run --filter routecraft.dev build
+
+      - name: Verify the built docs match the released ref
+        if: steps.docver.outputs.freeze_tag != ''
+        env:
+          FREEZE_TAG: ${{ steps.docver.outputs.freeze_tag }}
+        run: bun apps/routecraft.dev/scripts/verify-docs-freeze.ts "$FREEZE_TAG"
+
+      # The gate this job exists for. A link from a page built on main into a
+      # /docs page the released tag does not carry fails here, on the pull
+      # request that wrote it, instead of on the deploy after it merged.
+      - name: Check internal links against the frozen channel
+        if: steps.docver.outputs.freeze_tag != ''
+        env:
+          FREEZE_TAG: ${{ steps.docver.outputs.freeze_tag }}
+        run: bun apps/routecraft.dev/scripts/check-links.ts --freeze-tag "$FREEZE_TAG"
+
   scaffolder-smoke:
     needs: [changes, validate, test, build]
     if: needs.changes.outputs.packages == 'true'
