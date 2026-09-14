@@ -214,6 +214,13 @@ The CLI's `--version` needs no syncing: `packages/cli/src/index.ts` imports the 
 
 The publish goes through `changeset publish` (npm under the hood) even though the workspace is Bun, because npm publishing remains the canonical registry path and `prepublishOnly` hooks call `bun run build` to assemble dist.
 
+### After the tag
+
+Two things are part of every release and are not owned by the pipeline, so they are written down here and checked off in the release's own tracking issue.
+
+- **The README is refreshed every release.** It is the page most readers see first and the one nothing regenerates. It went stale enough once to show a DSL that never existed (#766). Before the Version Packages PR merges, read it as a first-time visitor: the quick start runs, the feature list names what the release adds, the package table is true.
+- **Every supporting repository is bumped off the pre-release after the tag, never before.** craft-harness and the other starters pin a canary or the previous release while a release is in flight; a person following any of their READMEs must land on the version just tagged. Bumping before the tag points them at a version that does not exist. One issue per release, one checkbox per repository (#798 is the 0.7.0 instance).
+
 ---
 
 ## References
