@@ -109,6 +109,7 @@ export interface ErrorCodeRegistry {
   RC5063: RCMeta;
   RC5064: RCMeta;
   RC5065: RCMeta;
+  RC5066: RCMeta;
   RC9901: RCMeta;
 }
 
@@ -652,6 +653,14 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     suggestion:
       "The payload a caller supplied did not satisfy the route's `.input()` schema. Read the message: it names the field and the rule. This is the caller's fault rather than the instance's, which is what separates it from `RC5002`; a transport answering a request maps it to a client error, and the ops dispatch mount returns 400 with the message.",
     docs: `${DOCS_BASE}#rc-5065`,
+    retryable: false,
+  },
+  RC5066: {
+    category: "Definition",
+    message: "Deferral store is missing a contract member",
+    suggestion:
+      "A surface asked the deferral store for something the store this context was given does not implement. The two shipped backends (sqlite and memory) implement the whole `DeferralStore` contract; a store supplied through `deferral: { store }` is the caller's own, and one written against an earlier version of the contract can be missing a member added since. The message names the member. Implement it, or drop back to a shipped backend. The surface refuses rather than answering empty, because an empty listing and a listing the store cannot produce look identical to whoever is reading it.",
+    docs: `${DOCS_BASE}#rc-5066`,
     retryable: false,
   },
   RC9901: {

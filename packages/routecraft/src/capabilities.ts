@@ -54,11 +54,19 @@ declare module "@routecraft/routecraft" {
  *
  * Keyed by the RAW endpoint id; any transport-level key encoding stays
  * inside the adapter that needs it.
+ *
+ * @returns A disposer that removes THIS registration when the endpoint is
+ *   still held by it, and does nothing once something else has taken the
+ *   name. An unconditional delete would be wrong on the one path that
+ *   matters: a local route stopping hands its endpoint to the remote route
+ *   it shadowed, `route:stopped` reaches the remotes plugin before the
+ *   direct source's own abort listener, and a blind delete would then
+ *   erase the replacement that already owns the name.
  */
 export function registerCapability(
   context: CraftContext,
   capability: Capability,
-): void {
+): () => void {
   // Loud, not last-writer-wins: a capability is an external door, and an
   // endpoint that declared itself internal must not have one quietly opened
   // beside it. Fail-open here would expose the very subroutine the flag
@@ -74,7 +82,13 @@ export function registerCapability(
     registry = new Map<string, Capability>();
     context.setStore(CAPABILITY_REGISTRY, registry);
   }
-  registry.set(capability.endpoint, snapshotCapability(capability));
+  const entry = snapshotCapability(capability);
+  registry.set(capability.endpoint, entry);
+  return () => {
+    if (registry.get(capability.endpoint) === entry) {
+      registry.delete(capability.endpoint);
+    }
+  };
 }
 
 /**
@@ -85,11 +99,17 @@ export function registerCapability(
  * A `direct({ internal: true })` source registers here INSTEAD of the
  * capability registry: its in-process endpoint works unchanged, while the
  * two external doors (ops dispatch, agent `directTool` resolution) find
- * no capability. This set is what lets their refusals say "declared
+ * no capability. This map is what lets their refusals say "declared
  * internal" instead of the wrong advice "add `.from(direct())`" for a
  * route that has one.
  *
- * @internal The set shape is internal; write via
+ * A map rather than a set of names, because a marker has to be removable
+ * by the registration that wrote it and by nothing else. The value is an
+ * identity token: a stale disposer from a route that has already stopped
+ * compares its own token against what the map holds and finds a stranger
+ * there, so it leaves the live marker alone.
+ *
+ * @internal The map shape is internal; write via
  *   {@link registerInternalEndpoint} and read via {@link isInternalEndpoint}.
  */
 export const INTERNAL_ENDPOINT_REGISTRY = Symbol.for(
@@ -98,7 +118,7 @@ export const INTERNAL_ENDPOINT_REGISTRY = Symbol.for(
 
 declare module "@routecraft/routecraft" {
   interface StoreRegistry {
-    [INTERNAL_ENDPOINT_REGISTRY]: Set<string>;
+    [INTERNAL_ENDPOINT_REGISTRY]: Map<string, symbol>;
   }
 }
 
@@ -106,11 +126,15 @@ declare module "@routecraft/routecraft" {
  * Record that an endpoint declared itself internal: composable in-process,
  * deliberately absent from the capability registry. Called by adapters at
  * subscribe, alongside where they would otherwise register a capability.
+ *
+ * @returns A disposer with the same ownership rule as
+ *   {@link registerCapability}'s: it clears the marker only while this
+ *   registration still holds it.
  */
 export function registerInternalEndpoint(
   context: CraftContext,
   endpoint: string,
-): void {
+): () => void {
   // The mirror of the guard in registerCapability: whichever half of a
   // contradictory declaration registers second is the one that fails, so
   // the contradiction is loud regardless of source order.
@@ -121,10 +145,14 @@ export function registerInternalEndpoint(
   }
   let registry = context.getStore(INTERNAL_ENDPOINT_REGISTRY);
   if (!registry) {
-    registry = new Set<string>();
+    registry = new Map<string, symbol>();
     context.setStore(INTERNAL_ENDPOINT_REGISTRY, registry);
   }
-  registry.add(endpoint);
+  const token = Symbol(endpoint);
+  registry.set(endpoint, token);
+  return () => {
+    if (registry.get(endpoint) === token) registry.delete(endpoint);
+  };
 }
 
 /**

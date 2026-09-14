@@ -1333,7 +1333,7 @@ describe("Direct adapter validation", () => {
         .routes([craft().id("test-endpoint").from(direct()).to(mock())])
         .build();
 
-      await t.test();
+      await t.startAndWaitReady();
       const endpoints = t.ctx.capabilities().map((c) => c.endpoint);
       expect(endpoints).toContain("test-endpoint");
     });
@@ -1360,7 +1360,7 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await t.test();
+      await t.startAndWaitReady();
       const caps = t.ctx.capabilities();
       const find = caps.find((c) => c.endpoint === "orders/find");
       expect(find).toBeDefined();
@@ -1380,7 +1380,7 @@ describe("Direct adapter validation", () => {
         .routes([craft().id("first-endpoint").from(direct()).to(mock())])
         .build();
 
-      await t.test();
+      await t.startAndWaitReady();
       expect(t.ctx.capabilities().map((c) => c.endpoint)).toContain(
         "first-endpoint",
       );
@@ -1400,7 +1400,7 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await t.test();
+      await t.startAndWaitReady();
       const endpoints = t.ctx.capabilities().map((c) => c.endpoint);
       expect(endpoints).toHaveLength(3);
       expect(endpoints).toContain("endpoint-a");
@@ -1427,7 +1427,7 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await t.test();
+      await t.startAndWaitReady();
       const routes = t.ctx.capabilities();
       expect(routes).toHaveLength(1);
       expect(routes[0]).toEqual({
@@ -1455,7 +1455,7 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await t.test();
+      await t.startAndWaitReady();
       const endpoints = t.ctx.capabilities().map((c) => c.endpoint);
       expect(endpoints).toContain("my.special/endpoint/name");
       expect(endpoints).not.toContain("my.special%2Fendpoint%2Fname");
@@ -1592,11 +1592,12 @@ describe("Direct adapter validation", () => {
     });
 
     /**
-     * @case Registry persists across multiple route registrations
-     * @preconditions Multiple routes registered sequentially
-     * @expectedResult All routes in registry
+     * @case One registry accumulates every route that registers into it
+     * @preconditions Two direct routes on one running context
+     * @expectedResult Both endpoints are listed. The second registration
+     *   adds to the registry the first created rather than replacing it
      */
-    test("registry persists across route registrations", async () => {
+    test("registry accumulates across route registrations", async () => {
       t = await testContext()
         .routes([
           craft().id("endpoint-1").from(direct()).to(mock()),
@@ -1604,7 +1605,7 @@ describe("Direct adapter validation", () => {
         ])
         .build();
 
-      await t.test();
+      await t.startAndWaitReady();
       const endpoints = t.ctx.capabilities().map((c) => c.endpoint);
       expect(endpoints).toHaveLength(2);
       expect(endpoints).toContain("endpoint-1");

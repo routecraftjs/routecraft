@@ -26,6 +26,17 @@ export class DirectSourceAdapter<T = unknown> implements Source<T> {
     this.options = options;
   }
 
+  /**
+   * Subscribe the route's endpoint, and keep the registry honest about it.
+   *
+   * One rule, stated here rather than at each of the sites that keep it:
+   * the registry entry (a capability, or an internal marker) is written
+   * only once the subscription can actually answer, and is disposed on
+   * every path that leaves nothing to answer it. A stopped route that
+   * stayed listed was offered to agents and reported dispatchable by the
+   * ops listing, and the dispatch that followed reached a channel with no
+   * handler and failed RC5004.
+   */
   async subscribe(sub: Subscription<T>): Promise<void> {
     const { context, meta } = sub;
     if (!meta?.routeId) {
@@ -39,24 +50,8 @@ export class DirectSourceAdapter<T = unknown> implements Source<T> {
 
     const endpoint = sanitizeEndpoint(meta.routeId);
 
-    // Discovery speaks raw route ids; the sanitised key is only for the
-    // channel map. An internal route registers its internal-ness INSTEAD
-    // of a capability: the in-process endpoint below works unchanged,
-    // while ops dispatch and directTool resolution find no capability and
-    // can refuse by name.
-    if (this.options.internal === true) {
-      registerInternalEndpoint(context, meta.routeId);
-    } else {
-      registerRoute(context, meta.routeId, meta.discovery);
-    }
-
-    context.logger.debug(
-      { endpoint, adapter: "direct" },
-      "Setting up subscription for direct endpoint",
-    );
-
-    const channel = getDirectChannel<T>(context, endpoint, this.options);
-
+    // Before registering: an aborted subscription returns below without a
+    // handler, and would leave no unsubscribe to undo the entry.
     if (sub.signal.aborted) {
       context.logger.debug(
         { endpoint, adapter: "direct" },
@@ -64,6 +59,26 @@ export class DirectSourceAdapter<T = unknown> implements Source<T> {
       );
       return;
     }
+
+    // Discovery speaks raw route ids; the sanitised key is only for the
+    // channel map. An internal route registers its internal-ness INSTEAD
+    // of a capability: the in-process endpoint below works unchanged,
+    // while ops dispatch and directTool resolution find no capability and
+    // can refuse by name.
+    // The channel first: a configured `channelType` constructor can throw,
+    // and a registry entry written before it would outlive a route that
+    // never subscribed, which is the defect this whole path exists to stop.
+    const channel = getDirectChannel<T>(context, endpoint, this.options);
+
+    const unregister =
+      this.options.internal === true
+        ? registerInternalEndpoint(context, meta.routeId)
+        : registerRoute(context, meta.routeId, meta.discovery);
+
+    context.logger.debug(
+      { endpoint, adapter: "direct" },
+      "Setting up subscription for direct endpoint",
+    );
 
     // Unwrap the channel's Exchange payload and hand body / headers to the
     // framework-provided handler. The caller's principal rides through on
@@ -81,10 +96,11 @@ export class DirectSourceAdapter<T = unknown> implements Source<T> {
       return result as Exchange<T>;
     };
 
-    // Set up cleanup on abort before subscribing
+    // Wired before subscribing, so an abort landing mid-setup is caught.
     sub.signal.addEventListener(
       "abort",
       () => {
+        unregister();
         channel.unsubscribe(context, endpoint).catch((err) => {
           context.logger.error(
             { err, adapter: "direct", endpoint, operation: "unsubscribe" },
@@ -95,8 +111,13 @@ export class DirectSourceAdapter<T = unknown> implements Source<T> {
       { once: true },
     );
 
-    // Set up the subscription
-    await channel.subscribe(context, endpoint, wrappedHandler);
+    // Roll the registration back if the channel refuses the handler.
+    try {
+      await channel.subscribe(context, endpoint, wrappedHandler);
+    } catch (error: unknown) {
+      unregister();
+      throw error;
+    }
 
     sub.ready();
 

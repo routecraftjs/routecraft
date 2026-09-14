@@ -7,6 +7,9 @@ export type {
   SerializedOutcome,
   Deferral,
   DeferralCasResult,
+  DeferralListCursor,
+  DeferralListQuery,
+  DeferralSummary,
   DeferralSchema,
   DeferralResumption,
   DeferralState,
@@ -14,7 +17,7 @@ export type {
   DeferralWaitingFor,
   DeferralStore,
 } from "./types.ts";
-export { claimed, resumable } from "./types.ts";
+export { claimed, resumable, summariseDeferral } from "./types.ts";
 
 export { MemoryDeferralStore } from "./memory-store.ts";
 export {

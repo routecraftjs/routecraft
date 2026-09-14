@@ -3004,25 +3004,25 @@ describe("Mail Adapter", () => {
     test("Google Groups forward resolves to X-Original-From", () => {
       const headers = extractAnalysisHeaders(
         headerLines([
-          "From: Detachering via DevOptix <detachering@devoptix.nl>",
-          "Sender: detachering+bncBDG@devoptix.nl",
-          "List-Id: <detachering.devoptix.nl>",
+          "From: Notifications via Acme <notifications@acme.example>",
+          "Sender: notifications+bncBDG@acme.example",
+          "List-Id: <notifications.acme.example>",
           "Precedence: list",
-          "X-Original-From: Team Flextender <no-reply@flextender.nl>",
+          "X-Original-From: Team Partner <no-reply@partner.example>",
           "ARC-Seal: i=1; cv=none; d=google.com",
-          "ARC-Authentication-Results: i=1; mx.google.com; dkim=pass header.i=@flextender.nl; spf=pass; dmarc=pass header.from=flextender.nl",
-          "Authentication-Results: mx.example.com; dkim=pass header.i=@devoptix.nl; spf=pass; dmarc=pass header.from=devoptix.nl",
+          "ARC-Authentication-Results: i=1; mx.google.com; dkim=pass header.i=@partner.example; spf=pass; dmarc=pass header.from=partner.example",
+          "Authentication-Results: mx.example.com; dkim=pass header.i=@acme.example; spf=pass; dmarc=pass header.from=acme.example",
         ]),
       );
       const sender = analyzeHeaders(headers);
       expect(sender.forwardType).toBe("mailing-list");
-      expect(sender.address).toBe("no-reply@flextender.nl");
-      expect(sender.domain).toBe("flextender.nl");
-      expect(sender.headerFrom?.address).toBe("detachering@devoptix.nl");
+      expect(sender.address).toBe("no-reply@partner.example");
+      expect(sender.domain).toBe("partner.example");
+      expect(sender.headerFrom?.address).toBe("notifications@acme.example");
       expect(sender.forwardChain).toHaveLength(1);
       expect(sender.forwardChain[0].type).toBe("mailing-list");
       expect(sender.forwardChain[0].via.address).toBe(
-        "detachering@devoptix.nl",
+        "notifications@acme.example",
       );
       // cv=none on the only ARC-Seal means arc-unverified trust, not verified.
       expect(sender.authentication.arc).toBe("none");
@@ -3037,11 +3037,11 @@ describe("Mail Adapter", () => {
     test("mailing-list forward with ARC cv=pass is verified", () => {
       const headers = extractAnalysisHeaders(
         headerLines([
-          "From: Detachering via DevOptix <detachering@devoptix.nl>",
-          "List-Id: <detachering.devoptix.nl>",
-          "X-Original-From: Team Flextender <no-reply@flextender.nl>",
+          "From: Notifications via Acme <notifications@acme.example>",
+          "List-Id: <notifications.acme.example>",
+          "X-Original-From: Team Partner <no-reply@partner.example>",
           "ARC-Seal: i=1; cv=pass; d=google.com",
-          "ARC-Authentication-Results: i=1; mx.google.com; dkim=pass; spf=pass; dmarc=pass header.from=flextender.nl",
+          "ARC-Authentication-Results: i=1; mx.google.com; dkim=pass; spf=pass; dmarc=pass header.from=partner.example",
         ]),
       );
       const sender = analyzeHeaders(headers);
@@ -3080,8 +3080,8 @@ describe("Mail Adapter", () => {
     test("direct mail with dmarc=fail is failed", () => {
       const headers = extractAnalysisHeaders(
         headerLines([
-          "From: fake <ceo@devoptix.nl>",
-          "Authentication-Results: mx.example.com; dkim=fail; spf=fail; dmarc=fail header.from=devoptix.nl",
+          "From: fake <ceo@acme.example>",
+          "Authentication-Results: mx.example.com; dkim=fail; spf=fail; dmarc=fail header.from=acme.example",
         ]),
       );
       const sender = analyzeHeaders(headers);
@@ -3114,16 +3114,16 @@ describe("Mail Adapter", () => {
     test("mailing-list forward without X-Original-From falls back to ARC domain", () => {
       const headers = extractAnalysisHeaders(
         headerLines([
-          "From: detachering via DevOptix <detachering@devoptix.nl>",
-          "List-Id: <detachering.devoptix.nl>",
+          "From: notifications via Acme <notifications@acme.example>",
+          "List-Id: <notifications.acme.example>",
           "ARC-Seal: i=1; cv=pass; d=google.com",
-          "ARC-Authentication-Results: i=1; mx.google.com; dkim=pass; spf=pass; dmarc=pass header.from=flextender.nl",
+          "ARC-Authentication-Results: i=1; mx.google.com; dkim=pass; spf=pass; dmarc=pass header.from=partner.example",
         ]),
       );
       const sender = analyzeHeaders(headers);
       expect(sender.forwardType).toBe("mailing-list");
-      expect(sender.domain).toBe("flextender.nl");
-      expect(sender.address).toBe("unknown@flextender.nl");
+      expect(sender.domain).toBe("partner.example");
+      expect(sender.address).toBe("unknown@partner.example");
       expect(sender.trust).toBe("verified");
     });
 

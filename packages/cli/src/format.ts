@@ -11,7 +11,9 @@
 import type {
   HealthComponent,
   HealthReport,
+  OpsDeferralSummary,
   OpsDispatchOutcome,
+  OpsPage,
   OpsRouteDetail,
   OpsRouteSummary,
 } from "@routecraft/routecraft";
@@ -101,6 +103,85 @@ export function renderRoutes(
     ],
     rows,
   );
+}
+
+/**
+ * Render a page of deferrals.
+ *
+ * A page rather than a listing: an instance can hold every exchange it
+ * ever deferred, so the answer says how to ask for the next screen
+ * instead of pretending the first one is all of it.
+ */
+export function renderDeferrals(
+  page: OpsPage<OpsDeferralSummary>,
+  format: OutputFormat,
+): string {
+  if (format === "json") return asJson(page);
+  if (format === "raw") {
+    return page.items.map((deferral) => deferral.id).join("\n");
+  }
+  // Phrased against the query rather than the instance: this page is
+  // already narrowed by `--state` and `--route`, and "nothing is deferred"
+  // would report an empty settled history as an idle instance.
+  if (page.items.length === 0) return "No deferrals match.";
+
+  const rows = page.items.map((deferral) => [
+    deferral.id,
+    deferral.routeId,
+    // What it waits for, or what it was waiting for and how that ended.
+    // One column because they are one question asked at two moments, and
+    // splitting them would leave whichever half does not apply blank on
+    // every row.
+    deferral.state === "waiting"
+      ? deferral.claimed
+        ? `${deferral.waitingFor} (claimed)`
+        : deferral.waitingFor
+      : (deferral.outcome?.kind ?? "settled"),
+    deferral.deferredAt,
+    deferral.expiresAt ?? "",
+  ]);
+  const listing = table(
+    ["DEFERRAL", "ROUTE", "WAITING FOR", "DEFERRED", "EXPIRES"],
+    rows,
+  );
+  return page.nextCursor === undefined
+    ? listing
+    : `${listing}\n\nMore: --after ${page.nextCursor}`;
+}
+
+/** Render one deferral. */
+export function renderDeferral(
+  deferral: OpsDeferralSummary,
+  format: OutputFormat,
+): string {
+  if (format === "json") return asJson(deferral);
+  // The whole record, not the id: describing one deferral is asked with the
+  // id in hand, so answering with it back says nothing the caller did not
+  // already type.
+  if (format === "raw") return asRaw(deferral);
+  const lines = [
+    `  deferral    ${deferral.id}`,
+    `  route       ${deferral.routeId}`,
+    `  state       ${deferral.state}`,
+    `  waiting for ${deferral.waitingFor}`,
+    `  claimed     ${deferral.claimed ? "yes" : "no"}`,
+    `  deferred    ${deferral.deferredAt}`,
+  ];
+  if (deferral.expiresAt !== undefined) {
+    lines.push(`  expires     ${deferral.expiresAt}`);
+  }
+  if (deferral.outcome !== undefined) {
+    lines.push(
+      `  outcome     ${deferral.outcome.kind} at ${deferral.outcome.at}`,
+    );
+    if (deferral.outcome.reason !== undefined) {
+      lines.push(`  reason      ${deferral.outcome.reason}`);
+    }
+    if (deferral.outcome.by !== undefined) {
+      lines.push(`  resumed by  ${deferral.outcome.by.subject}`);
+    }
+  }
+  return lines.join("\n");
 }
 
 /** Render one route, optionally alongside its health component. */
