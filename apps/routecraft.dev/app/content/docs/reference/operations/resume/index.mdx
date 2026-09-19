@@ -9,10 +9,11 @@ title: resume
 ```ts skip="signature: a type signature, not a statement"
 resume(
   map?: (exchange: Exchange<Current>) => ResumeRequest | Promise<ResumeRequest>,
-  options?: { authorize?: ResumeAuthorizer },
+  options?: { authorize?: ResumeAuthorizer, elevate?: ResumeElevator },
 ): RouteBuilder<ResumeAcknowledgment>
 resume(options: {
   authorize?: ResumeAuthorizer,
+  elevate?: ResumeElevator,
 }): RouteBuilder<ResumeAcknowledgment>
 ```
 
@@ -57,6 +58,7 @@ The door's own options are deliberately not on the mapper's request: the mapper 
 | Option | Type | Description |
 |--------|------|-------------|
 | `authorize` | `({ principal, deferred, payload, record }) => boolean \| Promise<boolean>` | Decides who may resume. Omitted, the door is bearer. See [Securing resume](#securing-resume). |
+| `elevate` | `({ principal, deferred, payload, record }) => Principal \| Promise<Principal>` | Re-mints the principal the continuation runs with. Omitted, it runs as the restored one. See [Elevating within the same identity](#elevating-within-the-same-identity). |
 
 ## What the ingress route receives
 
@@ -111,6 +113,8 @@ Return false or throw to refuse. Both, and a hook that never settles, produce on
 <Callout type="warning" title="The continuation runs as the deferred principal">
 
 The hook gates who may inject the payload and receive the result. It does not change whose authority the rest of the route executes under: the continuation runs as the principal that deferred, restored from storage, with the resuming principal recorded as `resumedBy`. An approver who may resume a payout is not thereby granted the deferred run's authority. A restored principal fails a downstream route-entry [`.authorize()`](/docs/reference/operations/authorize) with [`RC5043`](/docs/reference/errors#rc-5043) precisely so this cannot be confused. That is the route operation, not this hook: the hook receives `deferred` on purpose and never refuses it by itself.
+
+Changing the authority the continuation carries is a different question with a different hook: [`elevate`](#elevating-within-the-same-identity).
 
 </Callout>
 
@@ -228,10 +232,59 @@ The two authorization refusals (`RC5055`, `RC5056`) stay in the ingress route fo
 | [`RC5049`](/docs/reference/errors#rc-5049) | The payload does not satisfy the declared `schema`. Ingress route only. The deferral stays resumable, so a corrected payload still works. |
 | [`RC5050`](/docs/reference/errors#rc-5050) | The deferral was denied, typically because the run carrying it was cancelled. |
 | [`RC5055`](/docs/reference/errors#rc-5055) | The credential names a different call than the one this record deferred on. Non-destructive: the record stays resumable by the rightful credential. |
-| [`RC5056`](/docs/reference/errors#rc-5056) | This route's `authorize` hook refused the principal. Non-destructive. |
+| [`RC5056`](/docs/reference/errors#rc-5056) | This route's `authorize` hook refused the principal, or its `elevate` hook returned a principal outside the identity rule. Non-destructive. |
+
+## Elevating within the same identity
+
+A continuation normally runs as the principal that deferred, which came back from the store marked restored and is therefore refused by any route-entry `.authorize()`. That is the correct default: a shape read off disk is not a credential.
+
+`elevate` is how an application says "I re-verified this identity just now, and a human lent it one more scope". It answers a different question from `authorize`, which is why it is a second hook rather than a widened return type: `authorize` decides **who may resume**, `elevate` decides **what authority the continuation carries**.
+
+```ts skip="fragment: applyStepUp, parseDecision are illustrative"
+craft()
+  .id('step-up-decide')
+  .from(http({ path: '/step-up/decide', method: 'POST' }))
+  .resume(mapper, {
+    authorize: ({ principal, record }) => principal?.email === record.meta.approver,
+    elevate: ({ deferred, payload }) => applyStepUp(deferred, parseDecision(payload)),
+  })
+```
+
+It returns the live principal the continuation runs with, or throws to refuse. **Refuse, never reconcile**: if the person has left, their roles changed, or the agent's registration differs from what parked, throw and let the requester ask again, so the new park carries the new ring.
+
+### The identity rule
+
+The framework enforces three things and has no other opinion.
+
+**It must be live.** A principal that is not live-branded is refused, including the restored one the hook is handed. A re-mint is by construction a fresh verification.
+
+**It must be the same two parties.** Everything below is compared structurally, on the subject and on the outermost actor, and any difference is `RC5056`:
+
+| Compared | Not compared |
+|---|---|
+| `(issuer, subject)`, `roles`, `subjectProfile`, `email`, `name`, `audience`, `clientId`; `mayAct` on the subject; the actor chain's depth, and every prior actor whole | `scopes`, which is the point; and `kind`, `scheme`, `expiresAt`, `claims`, `userinfoClaims`, because a re-mint is a fresh verification and those describe HOW it was verified rather than WHO |
+
+**The lend is bounded.** When the park was raised on an `RC5038` refusal, the framework records the scopes that refusal named in a field it owns on the record, never in `meta`. `elevate` may add at most those scopes, and anything wider is `RC5056`. The executor reads the same field to refuse a second park for scopes a lend was already asked for, so a lend that does not satisfy the gate cannot ask a human forever.
+
+### Where it runs
+
+Immediately after `authorize` (or in its place when the door declares none), above the record's lifecycle disclosure and above the claim. Its result is held and applied after the claim is won. Below either settling transition, a refused caller could burn the rightful principal's single-use link and drive the approver notification with a credential that was never theirs.
+
+Because the principal is live, the continuation **re-runs the route's `.authorize()`**. The lent scope has to satisfy the gate that refused it, or the resume fails the way the original call did.
+
+<Callout type="warning" title="What a lend can and cannot reach">
+
+A scope check reads the SUBJECT's ring unless the gate opts in with [`effective: true`](/docs/reference/operations/authorize), and then the outermost actor's ring and no further. A lend landed on the actor's ring is therefore read only by a gate declaring `effective: true`; a subject-ring-only gate that refused a member is refused by design, and no lend to the agent helps. The `effective` flag on the `RC5038` cause is what lets a handler decline to raise a step-up that could never succeed.
+
+</Callout>
+
+`claims` is outside the compared set, so a continuation whose gate is `authorize({ predicate })` and whose predicate reads `principal.claims` sees the ELEVATED principal's claims, which are whatever the door minted, not the claims the exchange parked with.
+
+`resumedBy` still records the door's own live principal, not the elevated one: who resumed it and what the continuation ran as are two different facts.
 
 ## Related
 
 - [`.defer()`](/docs/reference/operations/defer) -- the other half.
+- [`recovery.defer()`](/docs/reference/operations/error#recoverydeferrequest) -- parking from the error path, which is what raises the parks `elevate` completes.
 - [`.authorize()`](/docs/reference/operations/authorize) -- guarding the ingress.
 - [Configuration → deferral](/docs/reference/configuration#deferral) -- the store and the signing secret.

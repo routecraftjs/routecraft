@@ -123,7 +123,7 @@ export class ErrorWrapperStep<
             // CAN name a position (the route-scope `.error()` and a context
             // error handler) both reach the same failure.
             //
-            // Recorded in `.standards/resilience-wrappers.md` §9.
+            // Recorded in `.standards/resilience-wrappers.md` §4.
             throw rcError("RC5051", innerError, {
               message: `Step "${stepLabel}" has a step-scope .error() handler that answered with recovery.defer(), which the framework cannot place: a step-scope wrapper inside a stack is not a position the defer-site walk addresses, so there is nothing to revive the continuation at. Park from the route-scope .error() handler (declared before .from()) or from a context error handler; both see the same failure and the executor resolves the failing step's position for them.`,
             });

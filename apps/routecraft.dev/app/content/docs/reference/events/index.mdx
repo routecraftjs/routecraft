@@ -280,7 +280,9 @@ Concurrent exchanges that share one computation (stampede dedupe) currently emit
 
 ### Agent operations
 
-Emitted by `agent()` destinations. These are the **coarse decision events**: broadcast to every subscriber, no opt-in needed. For token-level streaming use `agent({ stream: true })`, or `AgentOptions.onDelta` for the push form; both are separate per-call channels.
+Emitted by `agent()` destinations, and **declared by `@routecraft/ai`** rather than by core: the package that emits an event is the package that carries its name and payload, the same way the MCP events are declared. `EventDetailsMap` is one map whichever package writes into it, so subscribing is unchanged; importing `@routecraft/ai` is what brings the declarations into scope.
+
+These are the **coarse decision events**: broadcast to every subscriber, no opt-in needed. For token-level streaming use `agent({ stream: true })`, or `AgentOptions.onDelta` for the push form; both are separate per-call channels.
 
 | Event | When it fires | Details |
 | --- | --- | --- |
@@ -310,6 +312,8 @@ Tool input/output (and block-load output) ride in a `_snapshot` envelope. So doe
 `route:agent:tool:denied` fires before any model call, once per tool the policy refused, and carries no `toolCallId` because the tool was never invoked. `reason` is `rule` (a policy decided against it), `rule-error` (a predicate threw, so the tool was denied to fail closed), or `unknown-provenance` (the tool's `source` is missing or names a kind the policy surface does not define, which means a hand-built `ResolvedTool` from outside the type contract; `toolKind` is `unknown`).
 
 Every tool-call event names the conversation the call was made in as `session`, when the agent was dispatched with one. The exchange identity alone cannot: a session's boundary turn runs on the exchange that deferred, which may be an earlier caller's, so a consumer attributing tool calls to a conversation (the ACP mount streaming them to an editor) reads `session` rather than `correlationId`.
+
+`route:agent:tool:result` carries what the tool returned, with one substitution. A tool whose own route PARKED resolves with the framework's [`Deferred`](/docs/reference/operations/defer) acknowledgment, which carries a live resume token; under the default bearer door that token would let whoever holds it resume the parked act, so the bridge records the neutral `DEFERRED_TOOL_PLACEHOLDER` instead. That is what reaches the model's context, the session thread and this snapshot alike, and it is the same placeholder the model already sees when the agent's own `ctx.defer()` comes back. The agent's own run does not park on a downstream park: the turn continues. See [#737](https://github.com/routecraftjs/routecraft/issues/737) for the in-conversation case.
 
 `route:agent:tool:refused` is its call-time counterpart: the tool WAS offered, the model called it, and the tool's guard rejected that particular call. Keeping the two apart matters for what you can count. `denied` says an agent may not have a tool; `refused` says an agent asked for something its grant does not cover, which is the signal that an agent is probing the edges of what it was given. The payload is bounded to identity plus `rc`, the error code the guard threw. The refused input is deliberately absent even under snapshot capture: it is the input least worth trusting, and it can carry a token someone passed as an argument. The refusal also surfaces to the model as an ordinary tool error, so it can retry with a permitted form.
 

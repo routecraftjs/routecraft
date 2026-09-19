@@ -83,6 +83,27 @@ The runtime path is the existing catch in
 Wrappers piggyback on it for free by rethrowing on unrecoverable
 failure.
 
+### What a step-scope `.error()` handler may return
+
+The three plain answers (a recovery body, `recovery.drop()`,
+`recovery.rethrow()`) all work at step scope, because none of them needs
+to know WHERE in the route the wrapper sits.
+
+`recovery.defer()` does, and is refused there with `RC5051`. A park needs
+a POSITION to revive at, and positions are assigned by the defer-site walk
+to the entries of `definition.steps`, which is the OUTERMOST wrapper of a
+stack: an `.error()` wrapped by a `.retry()` is not in that array at all
+and cannot look its own site up. A park resolved by guessing would revive
+a continuation that re-enters the stack somewhere the approval was never
+taken against, which is the class of bug the site walk exists to prevent.
+
+The two scopes that CAN name a position reach the same failure: the
+route-scope `.error()` handler, and a context error handler. Both leave
+the resolution to the executor, which holds the failing step. If a future
+change gives a wrapper a stable address within the walk, this refusal is
+what should be revisited, and the message names the alternatives so a user
+is never merely blocked.
+
 ## 5. Implementation skeleton
 
 A new wrapper takes about 40 lines plus builder glue. Subclass
