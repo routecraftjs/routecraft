@@ -1,0 +1,12 @@
+{
+  "name": "@routecraft/spike-plugin-architecture",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Throwaway spike: does the plugin architecture proposal survive contact with TypeScript?",
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit",
+    "demo": "bun run src/demo.ts"
+  }
+}
