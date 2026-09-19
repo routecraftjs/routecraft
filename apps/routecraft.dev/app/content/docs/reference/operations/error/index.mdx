@@ -106,6 +106,8 @@ So the notification rides the directive and the framework owns the order: **reso
 
 The event is last because it is the claim that an exchange IS parked. A `notify` that throws denies the record and fails the run with [RC5067](/docs/reference/errors#rc-5067), so firing it earlier would give one exchange both `route:exchange:deferred` and `route:exchange:failed`, and a subscriber would be looking at a park that was already dead. An exchange gets exactly one terminal event.
 
+**`notify` tells someone; it must not answer on their behalf.** `forward` awaits the route it calls, so a hook that forwards to a resume door resumes the parked exchange before `notify` returns, and therefore before `route:exchange:deferred` fires. A subscriber then sees `route:exchange:resumed` for a park it was never told about, and the caller is handed an acknowledgment whose token is already spent. Neither is worth designing around, because a hook that resumes the deferral it is announcing has not notified anyone: it has done the work, and the route should simply not have parked. Put the decision in the handler, where returning `undefined` declines to park at all.
+
 ```ts skip="fragment: isLendable, stepUpDecision, sendStepUpMail are illustrative"
 ctx.registerHandler('error', (error, exchange, forward, ctx) => {
   const refusal = insufficientAuthorityOf(error)
