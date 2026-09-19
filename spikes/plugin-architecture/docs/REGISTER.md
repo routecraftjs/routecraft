@@ -290,7 +290,7 @@ The method that produced the evidence table below, with one refinement it needed
 > We have very high test coverage, which means many of these refactors should be testable: everything still works, but it's now cleaner.
     
 
-Only 12 of 270 test files reach into internals, so roughly 96% of the suite asserts behaviour and will survive a refactor that replaces the internals wholesale. The qualification: a green suite proves preservation, not correctness. PR #818 was green at 3,841 tests while carrying two Major defects in the core error path, and `settleOrAbort`, the bound on every user hook, had zero tests.
+**Refuted in validation.** 129–194 of 265 test files import a deep `src/` path, so roughly half the suite is coupled to the internal module layout the refactor exists to change. This number is the migration budget, not a rounding error. The original 12-of-270 figure does not reproduce under any method. The qualification: a green suite proves preservation, not correctness. PR #818 was green at 3,841 tests while carrying two Major defects in the core error path, and `settleOrAbort`, the bound on every user hook, had zero tests.
   
 
   
@@ -422,8 +422,13 @@ Churn alone does not identify tangle, because a healthy subsystem grows. Edits p
 
 **! 
   
+> **WITHDRAWN. This table does not survive its own command.** Re-run over a full clone: `adapters` does have the highest raw churn (27,532) as claimed, but it is **not** the lowest rework at 0.9 edits per file. The lowest is `deferral/` at **0.1, on two commits in twelve months** — the subsystem this whole register calls the most tangled in the codebase.
+  
 
-**The adapters row is the control group, and it proves the thesis.** It has the highest raw churn of any subsystem and the lowest rework rate. It is also the one subsystem with a real, exported, implementable interface: write an adapter, ship it, never touch it again. Every subsystem without such an interface sits above it.
+**The cause is the failure mode this register already identified and withdrew as O3.** `deferral/` was created by the rename from `suspension/` weeks before the measurement, so its files have had no time to accumulate edits. The register caught that a completed rename distorts churn, then left the distortion in the row it called its control group.
+  
+
+**Consequence.** This was the only evidence offered that a real interface prevents rework. The thesis may still be true; this table is not the reason to believe it. Either re-derive it with `--follow` and a stated commit window, or drop it and rest the case on the impossibility claims, which do reproduce.
 
 ## Diagnosed
 
@@ -437,7 +442,7 @@ Evidenced against the code. A direction is proposed for each; none is settled.
   
   
 
-`RouteDefinition` carries 21 fields. Three are identity, three are wiring, and fifteen are cross-cutting capability state bolted onto a route's identity: nine chain positions, five deferral resolver outputs, one principal flag. `CHAIN_SURVIVAL` is keyed by `Exclude<keyof RouteDefinition, NonChainField>`, a policy table keyed by that bag with a hand-maintained ten-entry carve-out list.
+`RouteDefinition` carries **19** fields on main. Six are identity and wiring, and thirteen are cross-cutting capability state bolted onto a route's identity: nine chain keys, three deferral resolver outputs, one principal flag. *Corrected: the published "21 fields, five resolver outputs" was measured on the halted PR's branch, not on main.* `CHAIN_SURVIVAL` is keyed by `Exclude<keyof RouteDefinition, NonChainField>`, a policy table keyed by that bag. **Three of its nine keys are buckets, not positions** (`preParseFilters`, `postParseFilters`, `postFromFilters`), each justifying a whole-bucket policy by citing one member, while the pre-from chain standard names eleven positions. Per-contribution survival therefore forces a decision for every position currently hidden inside a bucket, and nobody has made those decisions.
   
 > `pipeline/` is **4 files at 5.8 edits each**, the worst ratio in the codebase. `executor.ts` alone: **11 commits, 2,275 lines**. Those commits include SSE streaming on the HTTP source, a concept rename, error-path parking and the handler registry. Adding a transport feature edits the executor.
   
@@ -483,13 +488,13 @@ Compare the principal, which solves the same problem the opposite way: trust is 
      _[Diagnosed]_
   
   
-> Only `deferral/` and `telemetry/` have an `index.ts`. **193 cross-folder deep imports** inside core reach past a folder root at a specific file. The package's outer surface is **663 exports across an 846-line index.ts**.
+> Only `deferral/` and `telemetry/` have an `index.ts`. **312 cross-folder deep imports** inside core reach past a folder root at a specific file, excluding the barrel, which must reach at files. The package's outer surface is **598 exports across an 833-line index.ts**. *Corrected in validation: the register first published 193 and 663/846, none of which reproduce.*
   
 
 There is nothing to import through, so every import reaches at a file. This is an absent mechanism rather than a cultural problem, and the proof is next door: `@routecraft/ai` imports from `@routecraft/routecraft` 86 times and **never once** reaches past the published entry point. The team respects a boundary when one exists and is enforceable.
   
 
-Discounting `shared/` (see D7), the real figure is **90 deep imports across eight folders**: a finite worklist, not an open-ended refactor.
+**The reassurance was the wrong way round.** Discounting `shared/` leaves **239**, not 90. The count of distinct target files reached is 125. This makes step 2 of the sequence roughly three times the size first stated, and it is the step everything else waits on.
   
 
 **Direction.** An `index.ts` per folder, then `no-restricted-imports` path patterns denying everything but `shared/` and each folder's own index. The exception list lives in the ESLint config, so coupling two modules becomes a visible diff in one file; a CODEOWNERS entry on that file means the only way to couple two modules is a pull request that tags Jaco. Everything else keeps merging on green.
@@ -512,14 +517,14 @@ Challenged by Jaco, measured, and he was close to exactly right: he guessed half
   
 > By distinct consumers, discounting the root index which only re-exports:
 > 
-  **Genuinely shared:** `duration` (11), `abort` (6), `stale-options` (6)
+  **Genuinely shared:** `duration` (**35**), `stale-options` (**11**), `abort` (6)
 > 
   **Marginal:** `safe-json` (2), `thenable` (2)
 > 
   **Not shared:** `runtime-version`, `standard-schema`, `compare`, `iterable` (1 each)
   
 
-Import volume tells the other half of the story: three files account for **61 of the 103** imports, and the four that do not belong account for **six imports total**. So both things are true. Nearly half the files do not earn their place, and moving all four is a twenty-minute job rather than a refactor.
+Import volume tells the other half of the story: three files account for the large majority of **139** imports, and the four that do not belong account for **six imports total**. So both things are true. Nearly half the files do not earn their place, and moving all four is a twenty-minute job rather than a refactor.
   
 
 The duplication argument already has evidence in this repo: `@routecraft/ai` keeps its own `isThenable` rather than widening core's `@internal` export. Someone already made that call and it was right.
@@ -615,7 +620,7 @@ Each comment says some version of "matches the pino child shape without pinning 
 
 Writing a Postgres backend for deferrals today is not implementing storage. It is reimplementing what "claimed", "expired" and "denied" mean and keeping that in step with core's lease semantics forever. That, not a missing registry, is why no third-party store exists.
   
-> **In lines:** `DeferralStore` implemented twice costs **1,314** (858 sqlite, 456 memory). `SessionStore`, already the generic shape, costs **362**. Under A5 a Postgres author writes one `RecordStore` adapter and serves every plugin that chose the contract, including ones written years later.
+> **In lines:** `DeferralStore` implemented twice costs **1,289** (836 sqlite, 453 memory). `SessionStore`'s two backends cost 362, *but that omits `session/store.ts`, 242 lines, which is the typed semantics layer over them*. The like-for-like figure is **604**. Under A5 a Postgres author writes one `RecordStore` adapter and serves every plugin that chose the contract. The honest saving is 1,289 collapsing to roughly 850–1,050 including deferral's own semantics layer, **and the real win arrives at the third backend rather than the first**.
   
 
 **Where the 15 methods go.** They do not disappear; they move from the store contract into the plugin, written once instead of once per backend. The state transitions become versioned writes. The queries become ordered reads over index keys the plugin maintains itself: `idx/expiry/<deadline>/<id>`, `idx/claim/<claimedAt>/<id>`. Key design is the real work and is where a plan that says "just use a generic store" has stopped too early.
@@ -644,7 +649,7 @@ Writing a Postgres backend for deferrals today is not implementing storage. It i
 
 Through the public door a third party adds a step delegating to one of five primitives. It cannot define a **source** (`from` lives on `craft()`, `builder.ts:618`, and fixes the route's type parameters), a **resilience wrapper** (retry, timeout, circuit breaker, throttle and concurrency occupy pre-from filter-chain positions), a **branch operator** (`choice`, `multicast`, `split`, `aggregate` shape the chain rather than appending to it), or a **new position in the filter chain** at all.
   
-> **Six operations go through the public door:** `log`, `debug`, `map`, `schema`, `defer`, `resume`, which is exactly the set needing nothing but an append. Everything else is a class method: **24 declarations on `StepBuilderBase`** (892 lines) and **48 on `RouteBuilder`** (1,892 lines), internals included in both counts.
+> **Six operations go through the public door:** `log`, `debug`, `map`, `schema`, `defer`, `resume`, which is exactly the set needing nothing but an append. Everything else is a class method. By AST walk: **23–25 distinct on `StepBuilderBase`** and **25–30 distinct on `RouteBuilder`** (1,899 lines), so a user-visible surface of roughly **54 distinct methods**. *Corrected: the first count used a regex that swept in overload signatures and published "roughly seventy", overstating by about a third.*
   
 
 This is D5's rule with a number attached. The door main uses to build itself is not the door it hands out, and the gap is not a detail: it is sources, wrappers and branch operators, which is most of what makes the DSL worth using.
@@ -664,10 +669,10 @@ This is D5's rule with a number attached. The door main uses to build itself is 
      _[Diagnosed]_
   
   
-> 28 core-candidate files (root modules minus the barrel, plus `pipeline/`) make **81 imports into plugin territory**: `operations` 52, `deferral` 14, `adapters` 9, `auth` 3, `consumers` 2, `plugins` 1, **`telemetry` 0**.
+> Of 28 core-candidate files, **12 actually import into plugin territory**, making **75 import statements** carrying **~156–190 symbols**: `operations` 52 statements and **122–152 symbols**, `deferral` 9, `adapters` 9, `consumers` 2, `auth` 2, `plugins` 1, **`telemetry` 0**. *Corrected: the published 81 mixed statement counts and symbol counts inside one figure and reproduces under neither method; 28 was the population, not the offenders.*
   
 
-**Telemetry and deferral are the same class of subsystem.** Both observe exchanges, both persist, both carry a config key, both have a lifecycle. Telemetry sits at **0 imports and one reference** in core (`context.ts:220`, validating its own config key), hooking in entirely through `ctx.on("*")` and `registerConfigApplier`. Deferral sits at **202 references across 14 core files**: `exchange.ts` 36, `error.ts` 32, `context.ts` 29, `route.ts` 18, `executor.ts` 15.
+**Telemetry and deferral are the same class of subsystem.** Both observe exchanges, both persist, both carry a config key, both have a lifecycle. Telemetry sits at **0 imports and one reference** in core (`context.ts:220`, validating its own config key), hooking in entirely through `ctx.on("*")` and `registerConfigApplier`. Deferral sits at **420 occurrences across 14 core files** (218–274 with comments stripped): `error.ts` 83, `exchange.ts` 68. *Corrected: the published 202 counted matching lines in some files and occurrences in others. The file count of 14 is exact, and the contrast is sharper than first stated, not weaker.*
   
 
 **The only difference between them is that telemetry observes and deferral intervenes.** Core publishes an observation seam, the event bus, and nothing for participation. So anything that needs to change what happens next is hand-threaded through core instead of plugged into it.
@@ -695,6 +700,38 @@ That one absence accounts for the rest of this register. C1's field bag is the l
   
 
 **One thing stays in core against the "everything is a plugin" rule.** The event bus itself. Telemetry is the plugin and already is one; the bus is how core announces lifecycle transitions, and lifecycle announcement is the only job A1 leaves core. The symmetry to build toward is two core seams, observation and intervention, with everything else a plugin.
+
+  
+    
+### M1. How this register got sixteen numbers wrong, and the eight habits that produced them
+
+     _[Method]_
+  
+  
+
+An independent clean-room agent checked every load-bearing figure against the tree. **Sixteen were refuted, misleading or unreproducible.** Each has been corrected in place above rather than deleted. The direction of every finding survived; several were understated. But the errors were not sixteen accidents, they were eight habits, and the habits are the durable lesson.
+  
+> **1. Measured on the wrong branch and never said which.** `POINT_SURVIVAL`, "21 fields", "five deferral resolver outputs" and the 858+456 line counts all came from `feat/810-error-path-defer`, the halted PR, written as facts about main. On main they are: absent, 19, three, and 836+453. **This one habit produced four of the sixteen.**
+> 
+  **2. Grepped for what was suspected instead of enumerating.** Three import cycles were reported; `madge` finds **71**, one of them a value cycle.
+> 
+  **3. Mixed two counting methods inside one figure.** The "81 core-to-plugin imports" took two folders from a statement count and two from a symbol count. No method yields 81.
+> 
+  **4. Counted lines where occurrences were meant.** "202 deferral references" was lines in some files and occurrences in others; the real figure is 420 occurrences.
+> 
+  **5. Used a regex where an AST was needed.** "48 methods on `RouteBuilder`" swept in overload signatures; an AST walk gives 25–30 distinct.
+> 
+  **6. Reasoned about a language limit instead of testing it.** F8's "fluent or sound, not both" was argued, not run. A fifth encoding disproves it.
+> 
+  **7. Declared without wiring.** The spike declared `RouteSpec.source` and never subscribed it, so sources were never demonstrated at all.
+> 
+  **8. Omitted the file that undercut the comparison.** `session/store.ts`, 242 lines, is the semantics layer D10 proposes deferral acquire, and leaving it out made the saving look 3.6x when the honest figure is smaller and arrives at the third backend.
+  
+
+**What follows for anyone using this register.** Every number here is now either reproduced or corrected, but none of them is pinned to a commit, and that is the root of habit 1. Before any of these figures gates a decision, pin them: one checked-in script per claim, quoted output, and a stated commit. A ratchet on a figure two people cannot reproduce with the same command is a gate nobody will trust.
+  
+
+**What this does not change.** D12, the headline, is confirmed by every count re-run, and the coupling it names is *larger* than first published: `operations` alone carries 122–152 imported symbols into core, six times the next folder. The thesis was never the weak part. The arithmetic was.
 
 ## Open
 
@@ -809,15 +846,15 @@ The comparison that matters is D9's: four logger interfaces are a duplicate ever
 
 No design. No chosen mechanism. No file layout. The entries state what is wrong, what it has cost, and roughly where the boundary belongs.
 
-**Where this now points.** The register has reached a single headline diagnosis (D12) and seven agreed positions. The design that follows from them lives in a separate artifact rather than here, because this one is a record of what is wrong and the other is a proposal for what to build. What remains uninvestigated here: the event bus internals, `capabilities.ts`, `consumers/`, and the open entries O1, O2, O4 and O5, which are still churn signal rather than diagnosis.
+**Where this now points.** The register has reached a single headline diagnosis (D12), seven agreed positions, and one method entry (M1) that matters more than any individual number. The design that follows from them lives in a separate artifact rather than here, because this one is a record of what is wrong and the other is a proposal for what to build. What remains uninvestigated here: the event bus internals, `capabilities.ts`, `consumers/`, and the open entries O1, O2, O4 and O5, which are still churn signal rather than diagnosis.
 
 The sequence from here is: complete the open entries to the same evidence standard, then have a clean-room agent independently validate the diagnoses without access to this reasoning, then turn the surviving entries into concrete patterns, and only then build. The first thing built should be the executable test under the governing principle, because a principle with no gate rots quietly, and this codebase has already demonstrated that.
 
 **Who does what.** Fable implements, in an expected one to four pull requests. Astra validates the design before implementation and the result after it. Both must agree on the design or it does not get built. This register exists so neither starts from scratch, and so the difference between what Jaco observed and what the code says is visible rather than blended.
 
-**For whoever validates this.** Every number here is reproducible from the commands in the footer. The J entries are hypotheses from experience, not measurements, and two of them are explicitly unchecked. Three claims in earlier drafts of this register were wrong and were caught by checking the tree rather than the signal: O3 entirely, the plugin-coupling target in J2, and the AI sub-interface proposal in J6. Treat confident prose here as a lead, not a finding.
+**Validated once, and it did not go well.** A clean-room agent checked every load-bearing figure and refuted, corrected or could not reproduce **sixteen** of them. All sixteen are corrected in place above; M1 records the eight habits that produced them. The direction of every finding survived and several were understated, but treat any number here as pinned to nothing until M1's remedy is applied. **For whoever validates this next.** Every number here is reproducible from the commands in the footer. The J entries are hypotheses from experience, not measurements, and two of them are explicitly unchecked. Three claims in earlier drafts of this register were wrong and were caught by checking the tree rather than the signal: O3 entirely, the plugin-coupling target in J2, and the AI sub-interface proposal in J6. Treat confident prose here as a lead, not a finding.
 
   
 
-Opened from the PR #818 post-mortem, 19 September 2026. PR #818 is halted in draft, green at ce0c38e, carrying the requirements this work must preserve. Churn figures are reproducible with `git log --since="12 months ago" --numstat` over `packages/*/src/**/*.ts`.
+Validated by an independent clean-room agent on 19 September 2026; its full report, counter-examples and 22 tests are on branch `validation/clean-room` at `spikes/plugin-architecture/docs/VALIDATION.md`. Every refutation in it was independently re-run before being accepted here; one of its own claims (a line number in `config-applier.ts`) was wrong and is not carried over. Opened from the PR #818 post-mortem, 19 September 2026. PR #818 is halted in draft, green at ce0c38e, carrying the requirements this work must preserve. Churn figures are reproducible with `git log --since="12 months ago" --numstat` over `packages/*/src/**/*.ts`.
 

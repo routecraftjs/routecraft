@@ -4,12 +4,12 @@ Routecraft · architecture proposal · draft for validation
 
   
 
-Core keeps the lifecycle and two seams. Everything that makes the framework valuable moves outside it, including what ships as main. Nine principles, what is impossible today, what the code shows, the blocks and their dependency graph, the design that follows, and a running spike that tries to falsify it.
+Core keeps the lifecycle and two seams. Everything that makes the framework valuable moves outside it, including what ships as main. Nine principles, what is impossible today, what the code shows, the blocks and their dependency graph, the design that follows, a running spike that tries to falsify it, and an independent validation that refuted sixteen of its figures and overturned its central technical conclusion.
   
     19 September 2026
     Evidence: [Boundary Register](https://claude.ai/artifact/434hdasBY6KJTiZLFZj6TS)
     Spike: `feat/dazzling-fermi-01x3ns`
-    Not yet independently validated
+    Validated once; 16 figures corrected
   
 
 ## 0. How to validate this
@@ -25,6 +25,9 @@ Written for the agents who will check it before anything is built, and for the o
   
 
 **The design is only assessable once the principles are settled.** Judging section 4 against principles you have not accepted produces disagreement about the wrong thing.
+  
+
+**This document has been validated once, and sixteen of its figures did not survive.** All are corrected in place rather than deleted; section 8 records what changed and why. The direction of every finding held and several were understated, but **no number here is pinned to a commit**, which is the root cause of four of the sixteen. Treat a figure as a claim until a checked-in script reproduces it.
   
 
 **Section 7 is runnable.** The spike is on branch `feat/dazzling-fermi-01x3ns` under `spikes/plugin-architecture/`. `bun test` and `bun run typecheck` take seconds and depend on nothing else in the repo. Where the spike contradicts this document, the spike wins, because it executes.
@@ -44,7 +47,12 @@ What this architecture is for. Each is traceable to an agreed entry in the regis
 Anything a first-party package can do, a third party can do through published API. Not "mostly", not "for the common cases". This is the principle every other one serves, and it must be true before 1.0.
   
 
-**Test, executable rather than aspirational:** move one first-party provider into its own workspace package depending only on the published entry point. If it compiles and its tests pass, the interface is real. If it needs one private import, that import is the gap, named and located.
+**Amended after validation.** The original test — "if it compiles with no private import, the interface is real" — is too weak, and I1 shows why: a stranger passes it today by re-deriving a global symbol from its string, and proves nothing, because the thing they depend on is not a contract.
+  
+> **P1, amended.** Anything a first-party package can do, a third party can do through API that is **exported, documented and covered by the version policy**. A capability reachable only through a name that is not exported is not reachable, whatever the module system permits.
+  
+
+**Test:** move one first-party provider into its own workspace package depending only on exported symbols. The ratchet counts undocumented contract surfaces alongside private imports.
 
   
 ### P2. Core is lifecycle and interfaces. Nothing in core is logic
@@ -57,15 +65,19 @@ Core owns the interfaces and the lifecycle of everything implementing them: cont
 ### P3. Everything that is not core is a plugin, including main
  _(register: A6)_
   
+> **The slogan is struck; the operative sentence is kept.** "Everything is a plugin" has four conceded exceptions written next to it before anything is built: the kernel, the event bus, `from` as a position, and the exchange and route contracts. A principle with four exceptions is not doing work. **Core defines the kinds; nobody in core defines an instance.** That is checkable, and it is the real principle. "Everything is a plugin" survives only as the name of the effort.
+  
 
-The package published today as `@routecraft/routecraft` becomes a set of first-party plugins with no privileges. Core defines the kinds; nobody in core defines an instance. Main ships `from()`, `transform()` and `retry()` through the same door a stranger uses, or the door is not real.
+The package published today as `@routecraft/routecraft` becomes a set of first-party plugins with no privileges. Main ships `from()`, `transform()` and `retry()` through the same door a stranger uses, or the door is not real.
 
   
 ### P4. One plugin interface, tiered by declaration
  _(register: A3)_
   
 
-A plugin declares what it participates in and implements only those parts. The simple case declares two things and the advanced case declares eight, but there is one contract and one place to change it. Two interfaces, one simple and one advanced, recreates the failure this work exists to remove: two things that must agree, maintained by hand.
+A plugin declares what it participates in and implements only those parts. Two interfaces, one simple and one advanced, recreates the failure this work exists to remove: two things that must agree, maintained by hand.
+  
+> **P4, amended, because the spike violated it.** One plugin interface, and the type-level declaration of what a plugin contributes is *derived from the same value that is installed*. Two shapes that must agree is the bug, whether they are two interfaces or an interface and a `declare module`. See V3.
 
   
 ### P5. Reuse is optional and unprivileged
@@ -79,7 +91,9 @@ Shared convenience belongs in an abstract implementation of the same interface, 
  _(register: A7)_
   
 
-Core provides a dependency graph and a typed registry. It never learns the word "store" or "server". A foundational plugin is one with a high in-degree, not a different kind of thing. There is no middle tier, only a graph that happens to have a middle when drawn.
+Core provides a dependency graph and a typed registry. A foundational plugin is one with a high in-degree, not a different kind of thing. There is no middle tier, only a graph that happens to have a middle when drawn.
+  
+> **P6, amended.** As first written it was contradicted by the design itself: `InterventionPoint` is a closed set of five names, and those names are capabilities. Core *does* learn them; it just does not learn "store". **Core knows the shape of a run and the dependencies between plugins. It knows nothing about the meaning of anything that occupies a position in that run.**
 
   
 ### P7. Every plugin can be declined and replaced, first-party included
@@ -87,6 +101,8 @@ Core provides a dependency graph and a typed registry. It never learns the word 
   
 
 The test is not that a plugin can be switched off. It is that a context starts and runs with a first-party plugin switched off and a stranger's substituted for it. A capability nobody can decline is one core actually owns, whatever package it sits in.
+  
+> **P7, amended.** The decline half is proven. The replace half is not: the spike's substitution test installs the stranger *instead of* the first party under the same id, which is absence plus impersonation. With both installed the last `provide` wins silently. **A replacement declares itself one. Core refuses two undeclared providers of the same token, naming both.**
 
   
 ### P8. A boundary that is not mechanically enforced does not exist
@@ -107,14 +123,17 @@ Whatever core uses to build itself must be the same thing it hands out, and anyt
 Binary claims, each checkable against a named file. This is the case. If these hold, the architecture needs to change whatever anyone concludes about churn.
 
   
-### I1. A third party cannot write a server plugin
- _(breaks P1, P3)_
+### I1. ~~A third party cannot write a server plugin~~ — restated
+ _[Refuted]_
   
 
-Servers are core. `requireWebIngress` resolves a named server from a core registry and throws RC5003 when it is absent. Four consumers depend on it: HTTP mounts, MCP, ACP and Ops.
+**False as written.** A stranger can do it today with no private import. Every one of the **78** store keys in the codebase uses `Symbol.for` and **zero** use a non-global `Symbol()`, so a third party re-derives `WEB_INGRESSES` from its string, augments `StoreRegistry`, and publishes the same map the first party does. Proof compiles.
   
 
-**plugins/server/registry.ts:576** · plugins/server/plugin.ts
+**The accurate claim is narrower and still worth making:** the contract exists but is *unnamed, undocumented and unversioned*, so writing against it means writing against a private detail that can be renamed without a major version. **That changes the remedy.** Exporting the keys is a one-line change each; it is not an argument for rebuilding the plugin system.
+  
+
+**plugins/server/registry.ts:574** · counter-example: `spikes/validation/i1/stranger.ts`
 
   
 ### I2. A third party cannot add a resilience wrapper or any pre-from chain position
@@ -144,10 +163,10 @@ The fourth claim in these documents to be confidently wrong and caught by readin
  _(breaks P1, P4)_
   
 
-`CHAIN_SURVIVAL` is keyed by `Exclude<keyof RouteDefinition, NonChainField>`, so a chain position must be a field on `RouteDefinition`. Handler points are not fields, so the halted handlers work had to add a second, parallel, hand-maintained table. Two tables that must agree, one derived by the type system and one written by hand.
+`CHAIN_SURVIVAL` is keyed by `Exclude<keyof RouteDefinition, NonChainField>`, so a chain position must be a field on `RouteDefinition`. Handler points are not fields, so the handler-points work had to add a second, parallel, hand-maintained table on its own branch. **And three of the nine keys are buckets, not positions** (`preParseFilters`, `postParseFilters`, `postFromFilters`), each justifying a whole-bucket policy by citing one member, while the chain standard names eleven positions. Per-contribution survival forces a decision for every position hidden inside a bucket, and nobody has made those decisions.
   
 
-**pipeline/chain-policy.ts** `CHAIN_SURVIVAL` / `POINT_SURVIVAL`
+**pipeline/chain-policy.ts** `CHAIN_SURVIVAL` · `POINT_SURVIVAL` is on `feat/816-route-handler-points`, **not on main** — the original claim cited it as current code
 
   
 ### I5. Two subsystems cannot share one database, by design
@@ -167,7 +186,7 @@ The fourth claim in these documents to be confidently wrong and caught by readin
 `DeferralStore` has 15 methods. Four are storage; five encode what "claimed", "expired" and "denied" mean; six are queries. Writing a Postgres backend means reimplementing the state machine and keeping it in step with core's lease semantics forever. `SessionStore` next door is 6 methods with nothing session-specific in its shape.
   
 
-**1,314 lines** to implement `DeferralStore` twice (858 sqlite + 456 memory) versus **362** for `SessionStore` (277 + 85)
+**1,289 lines** to implement `DeferralStore` twice (836 + 453) versus **604** for sessions (277 + 85 + a 242-line semantics layer the first version omitted). Honest saving ~850–1,050, and the win arrives at the **third** backend, not the first.
 
   
 ### I7. Core's public type surface cannot be described without pino
@@ -184,10 +203,10 @@ No `Logger` interface exists. `CraftContext.logger`, `Route.logger` and `Exchang
  _(breaks P2, P3, P7)_
   
 
-Deferral is a core feature wearing a config key. `exchange.ts` 36, `error.ts` 32, `context.ts` 29, `route.ts` 18, `executor.ts` 15, across 14 core files in total.
+Deferral is a core feature wearing a config key. `error.ts` 83, `exchange.ts` 68, across exactly 14 core files.
   
 
-**202 references / 14 core files**
+**420 occurrences / 14 core files** (218–274 with comments stripped). The first version published 202, which counted lines in some files and occurrences in others and reproduces under neither. The contrast with telemetry's 1 is sharper than first stated.
 
   
 ### I9. Replacing a first-party plugin works, but silently and by import order
@@ -211,7 +230,7 @@ Interpretive rather than binary. These need agreement on method before they mean
 Telemetry and deferral both observe exchanges, both persist, both carry a config key, both have a lifecycle. Telemetry sits at **0 imports into core** and one reference, hooking in entirely through `ctx.on("*")` and `registerConfigApplier`. Deferral sits at 202. The only difference is that telemetry observes and deferral intervenes, and core publishes a seam for the first and nothing for the second.
   
 
-28 core-candidate files make **81 imports into plugin territory**: operations 52, deferral 14, adapters 9, auth 3, consumers 2, plugins 1, telemetry 0
+Of 28 core-candidate files, **12** import into plugin territory, in **75 statements** carrying **~156–190 symbols**. `operations` alone is 122–152 symbols, six times the next folder, and is the real coupling. The first version published 81, which mixed two counting methods.
 
   
 ### F2. Four hand-rolled copies of an interface nobody created
@@ -224,11 +243,11 @@ Telemetry and deferral both observe exchanges, both persist, both carry a config
 telemetry/types.ts:111 · event-bus.ts:9 · adapters/mail/shared.ts:730 · ai/mcp/stdio-client-manager.ts:22
 
   
-### F3. Six operations use the public door; about seventy are class methods
+### F3. Six operations use the public door; about fifty-four are class methods
  _(register: D11)_
   
 
-`log`, `debug`, `map`, `schema`, `defer` and `resume` go through `registerDsl`, which is exactly the set needing nothing but an append. Everything else is hard-coded: 24 declarations on `StepBuilderBase`, 48 on `RouteBuilder`, internals included.
+`log`, `debug`, `map`, `schema`, `defer` and `resume` go through `registerDsl`, which is exactly the set needing nothing but an append. Everything else is hard-coded. By AST walk: **23–25 distinct** on `StepBuilderBase` and **25–30** on `RouteBuilder`, a user-visible surface of roughly **54**. The first version said "about seventy", from a regex that swept in overload signatures.
   
 
 P9 with a number attached: the door main uses is not the door it hands out
@@ -238,7 +257,7 @@ P9 with a number attached: the door main uses is not the door it hands out
  _(register: D6)_
   
 
-Only 2 of 9 core folders have an `index.ts`. **193 cross-folder deep imports** reach past a folder root at a specific file. The package's outer surface is **663 exports across an 846-line index.ts**. Discounting `shared/`, the real worklist is 90 deep imports across eight folders, which is finite rather than open-ended.
+Only 2 of 9 core folders have an `index.ts`. **312 cross-folder deep imports** reach past a folder root at a specific file, excluding the barrel. The outer surface is **598 exports across an 833-line index.ts**. Discounting `shared/` leaves **239**, not the 90 first published: **the reassurance was the wrong way round**, and step 2 is roughly three times the stated size.
   
 
 The proof this is mechanism and not culture: `@routecraft/ai` imports from core 86 times and never once reaches past the published entry point
@@ -248,7 +267,7 @@ The proof this is mechanism and not culture: `@routecraft/ai` imports from core 
  _(register: D7)_
   
 
-By distinct consumers: genuinely shared are `duration` (11), `abort` (6), `stale-options` (6); not shared are `runtime-version`, `standard-schema`, `compare` and `iterable`, at one each. Three files account for 61 of 103 imports; the four that do not belong account for six.
+By distinct consumers: genuinely shared are `duration` (**35**), `stale-options` (**11**), `abort` (6); not shared are `runtime-version`, `standard-schema`, `compare` and `iterable`, at one each, which reproduce exactly. Total imports 139, not 103.
   
 
 Proposed rule: a utility earns `shared/` at its third consumer
@@ -258,7 +277,7 @@ Proposed rule: a utility earns `shared/` at its third consumer
  _(register: evidence)_
   
 
-Edits per file separates growth from tangle: a healthy subsystem adds files, a tangled one rewrites the same ones. `adapters/`, which has a real published interface, carries the highest churn and the lowest rework. The subsystems with no interface carry the rework.
+**Withdrawn.** Re-run over a full clone, `adapters/` does carry the highest raw churn (27,532) but **not** the lowest rework, at 0.9 edits per file. The lowest is `deferral/` at **0.1, on two commits in twelve months**, because the rename from `suspension/` created it weeks before the measurement — the exact distortion the register itself identified and withdrew as O3. This was the only evidence that a real interface prevents rework, and it does not survive its own command.
   
 
 Reproduce with `git log --since="12 months ago" --numstat` over `packages/*/src/**/*.ts`
@@ -735,7 +754,111 @@ The one finding the spike cannot decide, because it is a taste judgement about t
 
 **What the spike does not answer, listed so nobody mistakes a green suite for a validated design.** `from` and type flow is untouched: steps carry no body type through the chain, so how a source fixes a route's type parameters is still open and remains the item most likely to make P3 unreachable. Also untested: halt and continue semantics, teardown under partial exchange failure, the cost of a chain composed per route versus compiled, and the store contract, which is deliberately a mock.
 
-## 8. What this deletes
+## 8. The validation round
+
+An independent clean-room agent was given the branch and these documents, and no part of the reasoning that produced them. It refuted sixteen figures, broke the proof of concept in four places, and answered all five awkward things with compiling code. Every refutation below was independently re-run before being accepted; one of its own claims was wrong and is not carried over. Its report, counter-examples and 22 tests are at `spikes/plugin-architecture/docs/VALIDATION.md` on branch `validation/clean-room`.
+
+**! 
+  
+
+**The single most important result: F8 is false.** The dichotomy "a DSL can be fluent, body-typed and plugin-extensible, or sound, but not both" was argued rather than tested. A fifth encoding gives all four. See V1.
+
+  
+### V1. Encoding E: fluent, body-typed, extensible and sound, at once
+ _(overturns F8, S1, S2)_
+  
+
+The fix is to stop asking TypeScript to infer a type-level relationship out of a value-level generic function, and have the plugin state it directly as a defunctionalised type-level function: the parameter list and the resulting body are computed members on an interface that reads the incoming body through `this`. Nothing is inferred through a generic; everything is applied.
+  
+> **Verified independently, including by mutation.** Removing the `@ts-expect-error` on a declined plugin's step yields `Property 'defer' does not exist`; removing the one on a wrong key yields a real type error. The assertions are load-bearing, not vacuous.
+> 
+  **Scale:** 40 chained steps across 40 distinct plugin signatures, body type still flowing and deeply accessible, whole spike typechecks in **1.29s**. The standard objection to HKT encodings does not bite here.
+  
+
+**Consequence for the plan.** The design's single largest stated risk — that `from` and type flow make P3 unreachable — was assessed against an encoding set that excluded the one that works. Step 1 of the sequence is still the right first step, aimed at the wrong target.
+  
+
+`spikes/validation/src/e-hkt.ts` · `e-hkt.check.ts` · `scale.check.ts`
+
+  
+### V2. The proof of concept cannot express deferral, which is its own acceptance test
+ _(changes the sequence)_
+  
+
+Four passing tests, each demonstrating a failure. **A step cannot halt:** `Step.run` returns `Promise<void> | void`, so the only signal is a throw, which is a failure rather than a halt. **A wrapper can skip everything or nothing, never a suffix:** it receives the whole composed pipeline and a `RouteView` with nothing executable. **Resuming re-runs completed work:** the runtime loops the step list from index 0 and no contribution supplies an entry offset. **The `source` point does not exist:** `RouteSpec.source` is declared and `subscribe` is never called, which I verified.
+  
+> **This is a sixth thing core must own.** A `Step` outcome (`continue | halt(continuation)`), a continuation value carrying the entry index and each participant's serialized state, and an executor entry point that accepts one. The register already found it as C2, "six carriers of where is this exchange and what re-runs", and the design dropped it.
+  
+
+**Consequence.** Discovering the missing concept at step 5 is precisely the failure the sequence was ordered to avoid, and the sequence as written walks into it.
+
+  
+### V3. The design contradicts itself in two places, and both were mine
+ _(amends P4, P8)_
+  
+
+**Two plugin interfaces.** The spike has `Plugin`, used by the kernel, and `TypedPlugin`, used by the derived builder. They share no members, nothing correlates them, and the builder ignores `dependsOn` entirely — so it hands you a `defer` method for a plugin set the kernel would refuse to start. That is the two-halves bug this work exists to remove, reintroduced by the fix for it.
+  
+
+**Tokens are a weaker boundary than what they replace.** `token(name)` is `Symbol.for(name)`, a process-global string registry. Two packages choosing `"acme.thing"` get the same key — I ran it, they do — **silently, at runtime**, where declaration merging gave a compile error. By P8's own standard the replacement is worse. The token design is still right for other reasons, but it needs a collision mechanism and package-namespaced names.
+
+  
+### V4. All five awkward things have better answers, with code
+ _(replaces S4 and the open questions)_
+  
+  
+|  | What this document said | Better answer |
+|---|---|---|
+
+    
+| a | ex.deferral regresses to ex.use(TOKEN); a real cost | The premise was false. The exchange type is not fixed: the builder already carries a plugin-derived parameter, so add a second for extensions and the named property returns, checked. Strictly better than today, because declining the plugin removes the property, where today it is on the type regardless. Mutation-verified. |
+|---|---|---|
+
+| b | Fluent, typed, extensible, sound: pick three | All four. V1. |
+|---|---|---|
+
+| c | Steps declarative, wrappers imperative, reason is convenience | The split is not steps versus wrappers, it is value known at module load versus value known after dependency resolution. A step factory closes over nothing; a wrapper closes over what require returned. A thunk over resolved dependencies erases the distinction and one declarative shape serves all five points. |
+|---|---|---|
+
+| d | One pipe overload per arity | Moot under (b). |
+|---|---|---|
+
+| e | Inert or fatal, neither is free | Inert and recorded, with a nearest-neighbour suggestion. Its implementation found two real unmatched constraints in this design's own demo. |
+|---|---|---|
+
+    
+  
+  
+  
+
+(a) and (b) need the same plumbing: step lambdas receive an exchange type parameterised by the plugin set. Do both or neither.
+
+  
+### V5. Twelve things missing entirely, ordered by when they hurt
+ _(new work)_
+  
+
+**1. Versioning of the plugin contract.** The largest omission for a design whose whole purpose is third parties. After this change the public surface is 598 exported names *plus* every token name, wrapper id, step name and handler id — all strings, none under any policy. Put the ids in exported constants so a rename is a compile error, and bring them under `.standards/api-stability.md`.
+  
+
+**2. Isolation is claimed and not built.** A2 says "you cannot read what you did not declare". In the spike any plugin can `require` any token it can name and `provide` over one a first-party plugin already published. Either scope the registry by declaration or delete the claim, because it will be quoted later as a security property.
+  
+
+**3. Halt, continue and the continuation.** V2.
+  
+
+**4–7.** Handler ordering (wrappers get constraints, handlers get install order, and error-classification order decides behaviour). Route-scoped versus context-scoped wrapper state, which is undesigned: circuit breaker and concurrency are per-route today, and one contribution instance serves every route. Observability of the graph: nothing lists installed plugins, resolved order, the wrapper chain, token providers or unmatched constraints, and every one is a support question the ops plugin already exists to answer. An error taxonomy for the seven boot failures, in a codebase whose error policy is a standards document.
+  
+
+**8–10.** Streaming: `Pipeline` is `(ex) => Promise<void>`, and SSE on the HTTP source is one of the changes that drove the executor to 2,275 lines. A testing story for plugin authors. Migration, which R2 prices at roughly half the suite.
+  
+
+**11. What breaks in year two.** `InterventionPoint` is closed at five and a sixth is "a core change by definition", with no process for it. And relative ordering is a coordination problem that worsens with population: with thirty wrappers most pairs are undetermined, and the sort resolves undetermined pairs by *install order* — the same non-determinism I9 complains about, relocated. Core should detect an under-constrained chain, or define a tiebreak that is not install order.
+  
+
+**12. A problem this design creates that today does not have.** Today a wrapper's position is wrong only if someone edits `executor.ts`, one reviewed file. After this change it is a function of every installed plugin's constraints, so installing an unrelated third-party plugin can silently reorder your resilience chain. Items 6 and 11 are what make that tolerable, and both are absent.
+
+## 9. What this deletes
 
   
 - `shared/sqlite/claims.ts`, whose only job is detecting two subsystems colliding on one database file. With namespaces allocated rather than claimed, the collision cannot occur.
@@ -748,18 +871,18 @@ The one finding the spike cannot decide, because it is a taste judgement about t
   
 - Roughly 20 misfiled type imports, once `Source`, `Subscription`, `OnParseError`, `HealthChange`, `CronExpression` and the `Resolved*Options` move to core.
 
-## 9. The sequence
+## 10. The sequence
 
 Ordered so the cheapest work unblocks the rest, and so the one thing that could make the design unreachable is discovered before most of the effort is spent.
 
   
 - 
     
-### Spike `from` first, build it last _(spike)_
+### Re-spike `from` against encoding E _(retargeted)_
 
     
 
-`from` is not on the step builder and it fixes the route's type parameters, so making it externally definable means the type-level machinery becomes part of the published contract rather than a class signature. If this cannot be done, "everything is a plugin" is not reachable and the plan should say so rather than route around it. A spike answers it in days; discovering it at step 6 wastes the refactor.
+**Still the right first step, now aimed correctly.** The original target was the wrong encoding set (V1). What remains open is not whether a body type can flow — it can, at 40 steps in 1.29s — but how a *source* becomes a contribution, which the spike never demonstrated because it declared `RouteSpec.source` and never subscribed it.
   
   
 - 
@@ -768,7 +891,7 @@ Ordered so the cheapest work unblocks the rest, and so the one thing that could 
 
     
 
-About 20 import sites, no behaviour change, no test changes. Unblocks everything after it and is safe to land alone.
+**Larger than first stated.** The deep-import worklist is 239 after discounting `shared/`, not 90, and roughly half the test suite imports internal paths directly, so test migration is a first-class cost rather than a rounding error. Still safe to land alone, still unblocks everything after it. Also here: break the `logger ↔ exchange` **value** cycle, which a contracts module does not fix because `getExchangeContext` is a function.
   
   
 - 
@@ -778,6 +901,15 @@ About 20 import sites, no behaviour change, no test changes. Unblocks everything
     
 
 Enforce `dependsOn`, topologically sort, refuse a missing dependency at boot with a legible error. Add `token<T>()` alongside the existing registry rather than replacing it, so nothing has to migrate on this step.
+  
+  
+- 
+    
+### Model halt, continue and the continuation _(new, blocking)_
+
+    
+
+A `Step` outcome, a continuation value carrying the entry index and each participant's serialized state, and an executor entry point that accepts one. This is C2 from the register, it is a sixth thing core must own, and V2 shows the five closed points do not cover it. It must precede the registry, not follow it.
   
   
 - 
@@ -816,7 +948,7 @@ In that order, because auth is the smallest (three core imports) and proves the 
 Today six operations go through `registerDsl` and roughly seventy are hard-coded builder methods. This is the step that makes main a peer rather than a privileged package, and it is last because it is the largest and the least risky.
   
 
-## 10. How we will know it worked
+## 11. How we will know it worked
 
   
 - **Extraction.** Deferral moves to its own workspace package depending only on the published entry point, and its tests pass unchanged.
@@ -825,11 +957,11 @@ Today six operations go through `registerDsl` and roughly seventy are hard-coded
   
 - **Substitution.** A package outside this repo replaces `servers` and http, mcp and ops still mount to it.
   
-- **Ratchet.** CI counts core-to-plugin imports. The number only goes down. Today it is 81 across 28 files.
+- **Ratchet.** CI counts core-to-plugin imports *with a checked-in script whose output is quoted*, never a prose number. Today: 12 offending files, 75 statements, ~156–190 symbols. A ratchet on a figure two people cannot reproduce with the same command is a gate nobody trusts.
   
-- **Suite.** The existing tests pass throughout. Only 12 of 270 test files reach into internals, so about 96% of the suite asserts behaviour and should survive wholesale internal replacement. The qualification stands: a green suite proves preservation, not correctness. #818 was green at 3,841 tests while carrying two defects in the core error path.
+- **Suite.** The existing tests pass throughout — but **129–194 of 265 test files import a deep `src/` path**, so roughly half the suite is coupled to the layout this work changes. That figure is the migration budget. The earlier "96% survives" claim does not reproduce under any method. And a green suite proves preservation, not correctness: #818 was green at 3,841 tests while carrying two defects in the core error path.
 
-## 11. Open questions
+## 12. Open questions
 
   
 - **Does `RouteDefinition` survive as a field bag?** C1 says its 21 fields are the list of interventions core hard-codes. If interventions become contributions, the definition may become a contribution map. Not decided, and it changes the shape of step 4.
@@ -850,5 +982,5 @@ Today six operations go through `registerDsl` and roughly seventy are hard-coded
 
   
 
-Derived from the [Routecraft Boundary Register](https://claude.ai/artifact/434hdasBY6KJTiZLFZj6TS), which holds the evidence for every claim referenced here. Both are drafts pending independent validation; neither has been reviewed by anyone but its author and Jaco.
+Validated by an independent clean-room agent, 19 September 2026: report, counter-examples and 22 tests on branch `validation/clean-room`. Every refutation was independently re-run before being accepted here; one of the validator's own claims was wrong and is not carried over. Derived from the [Routecraft Boundary Register](https://claude.ai/artifact/434hdasBY6KJTiZLFZj6TS), which holds the evidence for every claim referenced here. Both are drafts pending independent validation; neither has been reviewed by anyone but its author and Jaco.
 
