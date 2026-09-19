@@ -61,7 +61,7 @@ craft()
 **Error handling levels:**
 1. **Step level**: an `.error()` wrapper chained after `.from()`, covering one step
 2. **Route level**: this handler, catching everything in the route (including tap errors via events)
-3. **Context level**: [`ctx.registerErrorHandler()`](/docs/reference/configuration#error-handlers), reached only where the two above gave up
+3. **Context level**: a handler registered at the [`error` point](/docs/reference/configuration#handlers), reached only where the two above gave up
 
 The three are consulted innermost first and the first to decide wins. A route that handles its own failures is never overridden by the context.
 
@@ -101,7 +101,7 @@ A handler that notifies a human and then returns the directive has told someone 
 So the notification rides the directive and the framework owns the order: **resolve the site** (a refusal ends here, and nothing was sent), **write the record**, **emit `route:exchange:deferred`**, then **await `notify`** with the same acknowledgment the caller receives.
 
 ```ts skip="fragment: isLendable, stepUpDecision, sendStepUpMail are illustrative"
-ctx.registerErrorHandler((error, exchange, forward, route) => {
+ctx.registerHandler('error', (error, exchange, forward, route) => {
   const refusal = insufficientAuthorityOf(error)
   if (!refusal || !refusal.effective) return undefined   // not mine, next handler
   return recovery.defer({

@@ -150,7 +150,7 @@ export const recovery = {
    *
    * @example
    * ```ts
-   * ctx.registerErrorHandler((error, exchange, forward) => {
+   * ctx.registerHandler("error", (error, exchange, forward) => {
    *   const refusal = insufficientAuthorityOf(error);
    *   if (!refusal) return undefined;
    *   return recovery.defer({

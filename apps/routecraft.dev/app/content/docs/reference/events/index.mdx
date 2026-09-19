@@ -257,7 +257,7 @@ A suppressed duplicate also fires `route:exchange:dropped` with reason `"duplica
 | `route:error-handler:recovered` | Handler returned a value; pipeline continues (step scope), replaces the body, or parks the exchange | Same plus `recoveryStrategy` |
 | `route:error-handler:failed` | Handler itself threw | Same plus `handlerIndex?` |
 
-`scope` names which ring handled it: `"step"` for a wrapper attached AFTER `.from()`, `"route"` for the catch-all set via `.error()` BEFORE `.from()`, and `"context"` for a handler registered with [`ctx.registerErrorHandler()`](/docs/reference/configuration#error-handlers). `stepLabel` is the label of the wrapped step when `scope === "step"`. `recoveryStrategy` is `"step-error-handler"`, `"route-error-handler"` or `"context-error-handler"`. Subscribe to the exact names and branch on `scope` in the payload.
+`scope` names which ring handled it: `"step"` for a wrapper attached AFTER `.from()`, `"route"` for the catch-all set via `.error()` BEFORE `.from()`, and `"context"` for a handler registered at the [`error` point](/docs/reference/configuration#handlers). `stepLabel` is the label of the wrapped step when `scope === "step"`. `recoveryStrategy` is `"step-error-handler"`, `"route-error-handler"` or `"context-error-handler"`. Subscribe to the exact names and branch on `scope` in the payload.
 
 `handlerIndex` appears on a failure at context scope only, and names which registered handler threw, by its position in registration order. It exists because "the handler" is ambiguous there: the chain CONTINUES past a handler that throws, so an operator needs to know which one to fix. At route and step scope there is only one handler to blame, and the field is absent.
 

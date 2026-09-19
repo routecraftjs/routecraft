@@ -1002,7 +1002,7 @@ async function runContextErrorHandlers(
     failingStep?: Step<Adapter>;
   },
 ): Promise<ErrorDecision | undefined> {
-  const handlers = deps.context.getErrorHandlers();
+  const handlers = deps.context.getHandlers("error", deps.route);
   if (handlers.length === 0) return undefined;
 
   for (const [index, handler] of handlers.entries()) {

@@ -7,6 +7,7 @@ import {
   noop,
   recovery,
   type CraftContext,
+  type ErrorHandler,
   type Exchange,
   type Route,
 } from "../src/index.ts";
@@ -14,7 +15,7 @@ import { asDeferred } from "./helpers/deferral.ts";
 
 const SECRET = "context-error-handler-test-secret-0123456789";
 
-describe("context error handlers", () => {
+describe("context handlers: the error point", () => {
   let t: TestContext | undefined;
 
   afterEach(async () => {
@@ -40,7 +41,7 @@ describe("context error handlers", () => {
           .to(noop()),
       ])
       .build();
-    const off = t.ctx.registerErrorHandler((error) => {
+    const off = t.ctx.registerHandler("error", (error) => {
       seen.push("handler");
       return { recovered: (error as Error).message };
     });
@@ -76,15 +77,15 @@ describe("context error handlers", () => {
           .to(noop()),
       ])
       .build();
-    t.ctx.registerErrorHandler(() => {
+    t.ctx.registerHandler("error", () => {
       seen.push("first");
       return undefined;
     });
-    t.ctx.registerErrorHandler(() => {
+    t.ctx.registerHandler("error", () => {
       seen.push("second");
       return { by: "second" };
     });
-    t.ctx.registerErrorHandler(() => {
+    t.ctx.registerHandler("error", () => {
       seen.push("third");
       return { by: "third" };
     });
@@ -105,15 +106,17 @@ describe("context error handlers", () => {
     const seen: string[] = [];
     t = await testContext()
       .with({
-        errorHandler: () => {
-          seen.push("config");
-          return undefined;
+        handlers: {
+          error: () => {
+            seen.push("config");
+            return undefined;
+          },
         },
         plugins: [
           {
             name: "late",
             apply(ctx: CraftContext) {
-              ctx.registerErrorHandler(() => {
+              ctx.registerHandler("error", () => {
                 seen.push("plugin");
                 return { by: "plugin" };
               });
@@ -157,7 +160,7 @@ describe("context error handlers", () => {
           .to(noop()),
       ])
       .build();
-    t.ctx.registerErrorHandler(() => {
+    t.ctx.registerHandler("error", () => {
       consulted += 1;
       return { by: "context" };
     });
@@ -187,7 +190,7 @@ describe("context error handlers", () => {
           .to(noop()),
       ])
       .build();
-    t.ctx.registerErrorHandler(() => ({ by: "context" }));
+    t.ctx.registerHandler("error", () => ({ by: "context" }));
     await t.startAndWaitReady();
 
     const body = (await t.client.sendDirect("work", {})) as { by: string };
@@ -221,7 +224,8 @@ describe("context error handlers", () => {
           .to(noop()),
       ])
       .build();
-    t.ctx.registerErrorHandler(
+    t.ctx.registerHandler(
+      "error",
       async (_error, exchange: Exchange, forward, route: Route) => {
         named = route.definition.id;
         await forward("report" as never, { about: exchange.id });
@@ -262,10 +266,10 @@ describe("context error handlers", () => {
           : {}),
       });
     });
-    t.ctx.registerErrorHandler(() => {
+    t.ctx.registerHandler("error", () => {
       throw new Error("the handler itself broke");
     });
-    t.ctx.registerErrorHandler(() => ({ by: "second" }));
+    t.ctx.registerHandler("error", () => ({ by: "second" }));
     await t.startAndWaitReady();
 
     const body = (await t.client.sendDirect("work", {})) as { by: string };
@@ -291,7 +295,7 @@ describe("context error handlers", () => {
           .to(noop()),
       ])
       .build();
-    t.ctx.registerErrorHandler(() => {
+    t.ctx.registerHandler("error", () => {
       throw new Error("the handler itself broke");
     });
     await t.startAndWaitReady();
@@ -325,7 +329,7 @@ describe("context error handlers", () => {
     t.ctx.on("route:exchange:failed", () => {
       fired.push("route:exchange:failed");
     });
-    const off = t.ctx.registerErrorHandler(() => ({ by: "context" }));
+    const off = t.ctx.registerHandler("error", () => ({ by: "context" }));
     await t.startAndWaitReady();
 
     await t.client.sendDirect("work", {});
@@ -359,7 +363,7 @@ describe("context error handlers", () => {
     t.ctx.on("route:exchange:dropped", ({ details }) => {
       dropped.push(details.reason);
     });
-    t.ctx.registerErrorHandler(() => recovery.drop("poison"));
+    t.ctx.registerHandler("error", () => recovery.drop("poison"));
     await t.startAndWaitReady();
 
     // A dropped exchange has no response body, so a request/reply caller is
@@ -391,7 +395,7 @@ describe("context error handlers", () => {
         craft().id("answers").from(direct()).resume(),
       ])
       .build();
-    t.ctx.registerErrorHandler(() => recovery.defer({ ttl: "1h" }), {
+    t.ctx.registerHandler("error", () => recovery.defer({ ttl: "1h" }), {
       mayDefer: true,
     });
     await t.startAndWaitReady();
@@ -409,7 +413,7 @@ describe("context error handlers", () => {
     t = await testContext()
       .routes([craft().id("work").from(direct()).to(noop())])
       .build();
-    t.ctx.registerErrorHandler(() => recovery.defer({ ttl: "1h" }), {
+    t.ctx.registerHandler("error", () => recovery.defer({ ttl: "1h" }), {
       mayDefer: true,
     });
 
@@ -425,7 +429,7 @@ describe("context error handlers", () => {
     t = await testContext()
       .routes([craft().id("work").from(direct()).to(noop())])
       .build();
-    t.ctx.registerErrorHandler(() => undefined);
+    t.ctx.registerHandler("error", () => undefined);
 
     await t.startAndWaitReady();
     expect(t.ctx.hasDeferringErrorHandler()).toBe(false);
@@ -441,10 +445,10 @@ describe("context error handlers", () => {
       .with({ deferral: { store: new MemoryDeferralStore(), secret: SECRET } })
       .routes([craft().id("work").from(direct()).to(noop())])
       .build();
-    const offFirst = t.ctx.registerErrorHandler(() => undefined, {
+    const offFirst = t.ctx.registerHandler("error", () => undefined, {
       mayDefer: true,
     });
-    const offSecond = t.ctx.registerErrorHandler(() => undefined, {
+    const offSecond = t.ctx.registerHandler("error", () => undefined, {
       mayDefer: true,
     });
 
@@ -487,7 +491,7 @@ describe("context error handlers", () => {
         terminals.push(name);
       });
     }
-    t.ctx.registerErrorHandler(() => recovery.defer({ ttl: "1h" }));
+    t.ctx.registerHandler("error", () => recovery.defer({ ttl: "1h" }));
     await t.startAndWaitReady();
 
     // The ORIGINAL failure reaches the caller, not the refusal of the
@@ -530,7 +534,7 @@ describe("context error handlers", () => {
         craft().id("answers").from(direct()).resume(),
       ])
       .build();
-    t.ctx.registerErrorHandler(() => recovery.defer({ ttl: "1h" }), {
+    t.ctx.registerHandler("error", () => recovery.defer({ ttl: "1h" }), {
       mayDefer: true,
     });
     await t.startAndWaitReady();
@@ -544,6 +548,173 @@ describe("context error handlers", () => {
   });
 
   /**
+   * @case A selector by route id applies the handler to those routes and no others
+   * @preconditions Two failing routes, with a handler registered for one of them by id
+   * @expectedResult Only the named route is recovered; the other reaches the ordinary failure path
+   */
+  test("a selector matches by route id", async () => {
+    const seen: string[] = [];
+    t = await testContext()
+      .routes([
+        craft()
+          .id("mine")
+          .from(direct())
+          .transform(() => {
+            throw new Error("boom");
+          })
+          .to(noop()),
+        craft()
+          .id("theirs")
+          .from(direct())
+          .transform(() => {
+            throw new Error("boom");
+          })
+          .to(noop()),
+      ])
+      .build();
+    t.ctx.registerHandler(
+      "error",
+      (_error, _exchange, _forward, route: Route) => {
+        seen.push(route.definition.id);
+        return { by: "context" };
+      },
+      { routes: ["mine"] },
+    );
+    await t.startAndWaitReady();
+
+    await t.client.sendDirect("mine", {});
+    await expect(t.client.sendDirect("theirs", {})).rejects.toThrow("boom");
+
+    // Not merely unrecovered: never consulted at all, which is the point of
+    // a selector over an `if` at the top of the handler.
+    expect(seen).toEqual(["mine"]);
+  });
+
+  /**
+   * @case A selector by tag applies the handler to every route carrying it
+   * @preconditions A tagged failing route and an untagged one
+   * @expectedResult The tagged route is recovered and the untagged one is not
+   */
+  test("a selector matches by tag", async () => {
+    t = await testContext()
+      .routes([
+        craft()
+          .id("gated")
+          .tag("gated")
+          .from(direct())
+          .transform(() => {
+            throw new Error("boom");
+          })
+          .to(noop()),
+        craft()
+          .id("open")
+          .from(direct())
+          .transform(() => {
+            throw new Error("boom");
+          })
+          .to(noop()),
+      ])
+      .build();
+    t.ctx.registerHandler("error", () => ({ by: "context" }), {
+      tags: ["gated"],
+    });
+    await t.startAndWaitReady();
+
+    const body = (await t.client.sendDirect("gated", {})) as { by: string };
+    expect(body.by).toBe("context");
+    await expect(t.client.sendDirect("open", {})).rejects.toThrow("boom");
+  });
+
+  /**
+   * @case A selector carrying both keys names routes two ways rather than intersecting them
+   * @preconditions A handler selecting one route by id and another by tag
+   * @expectedResult Both are recovered, because routes and tags are alternatives
+   */
+  test("routes and tags in one selector are alternatives", async () => {
+    t = await testContext()
+      .routes([
+        craft()
+          .id("by-id")
+          .from(direct())
+          .transform(() => {
+            throw new Error("boom");
+          })
+          .to(noop()),
+        craft()
+          .id("by-tag")
+          .tag("gated")
+          .from(direct())
+          .transform(() => {
+            throw new Error("boom");
+          })
+          .to(noop()),
+        craft()
+          .id("neither")
+          .from(direct())
+          .transform(() => {
+            throw new Error("boom");
+          })
+          .to(noop()),
+      ])
+      .build();
+    t.ctx.registerHandler("error", () => ({ by: "context" }), {
+      routes: ["by-id"],
+      tags: ["gated"],
+    });
+    await t.startAndWaitReady();
+
+    expect(await t.client.sendDirect<unknown, unknown>("by-id", {})).toEqual({
+      by: "context",
+    });
+    expect(await t.client.sendDirect<unknown, unknown>("by-tag", {})).toEqual({
+      by: "context",
+    });
+    await expect(t.client.sendDirect("neither", {})).rejects.toThrow("boom");
+  });
+
+  /**
+   * @case A function written for the .error() operation is assignable to the error point unchanged
+   * @preconditions One handler body used both as a route .error() and as a registered handler
+   * @expectedResult Both compile and both decide, which is why the point is positional rather than context-shaped
+   */
+  test("an ErrorHandler body works at the error point unchanged", async () => {
+    const handler: ErrorHandler = (error) => ({
+      recovered: (error as Error).message,
+    });
+
+    t = await testContext()
+      .routes([
+        craft()
+          .id("route-scope")
+          .error(handler)
+          .from(direct())
+          .transform(() => {
+            throw new Error("boom");
+          })
+          .to(noop()),
+        craft()
+          .id("context-scope")
+          .from(direct())
+          .transform(() => {
+            throw new Error("boom");
+          })
+          .to(noop()),
+      ])
+      .build();
+    // The same value, at the other ring. The point takes an extra `route`
+    // parameter this body simply ignores.
+    t.ctx.registerHandler("error", handler);
+    await t.startAndWaitReady();
+
+    expect(
+      await t.client.sendDirect<unknown, unknown>("route-scope", {}),
+    ).toEqual({ recovered: "boom" });
+    expect(
+      await t.client.sendDirect<unknown, unknown>("context-scope", {}),
+    ).toEqual({ recovered: "boom" });
+  });
+
+  /**
    * @case A non-function registration is refused rather than failing at the first error
    * @preconditions registerErrorHandler called with something that is not a function
    * @expectedResult RC5003 naming the expected shape
@@ -553,8 +724,8 @@ describe("context error handlers", () => {
       .routes([craft().id("work").from(direct()).to(noop())])
       .build();
 
-    expect(() => t!.ctx.registerErrorHandler("not a handler" as never)).toThrow(
-      /registerErrorHandler/,
-    );
+    expect(() =>
+      t!.ctx.registerHandler("error", "not a handler" as never),
+    ).toThrow(/registerHandler/);
   });
 });
