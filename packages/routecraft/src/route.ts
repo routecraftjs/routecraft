@@ -103,28 +103,55 @@ export type ErrorHandler = (
 ) => unknown | Promise<unknown>;
 
 /**
+ * What a context handler is told about the failure beyond the failure itself.
+ *
+ * An object rather than the bare {@link Route} it started as, because `error`
+ * is the one handler point locked to a positional signature: a fourth slot
+ * holding a `Route` could never gain a field without breaking every handler
+ * already written against it.
+ */
+export interface ErrorContext {
+  /** The route the failing exchange belongs to. */
+  readonly route: Route;
+  /**
+   * `1` on the exchange's first run, `2` once it is a resumed continuation.
+   *
+   * A handler that parks on a failure needs to know it is looking at the
+   * resumed run rather than the original, or a failure the resume itself
+   * causes parks the same exchange again and the human is asked twice. An
+   * exchange that parks a second time and resumes again stays `2`: the
+   * distinction is original against continuation, not a park counter, which
+   * `ex.deferral.sequence` already is.
+   */
+  readonly execution: 1 | 2;
+}
+
+/**
  * Error handler registered on the CONTEXT rather than on one route.
  *
- * Same signature and same return vocabulary as an {@link ErrorHandler},
- * plus the route the failure belongs to, because a context handler serves
- * every route and cannot otherwise tell which one it is looking at.
+ * Same signature and same return vocabulary as an {@link ErrorHandler}, plus
+ * an {@link ErrorContext}, because a context handler serves every route and
+ * cannot otherwise tell which one it is looking at.
  *
  * Returning `undefined` passes to the next registered handler, which is what
  * lets two plugins each own a slice of the failures without either knowing
  * about the other. Every other return value decides.
+ *
+ * A three-parameter {@link ErrorHandler} stays assignable, so the same
+ * function can serve a route and the context.
  *
  * @param error - The thrown error, as the route's own handling left it
  * @param exchange - The exchange at the point of failure, whose headers
  *   carry the principal and the correlation id
  * @param forward - Sends a payload to another route via the direct adapter,
  *   bound to the failing exchange so the target inherits its identity
- * @param route - The route the failing exchange belongs to
+ * @param ctx - The route the failure belongs to, and which execution it is
  */
 export type ContextErrorHandler = (
   error: unknown,
   exchange: Exchange,
   forward: ForwardFn,
-  route: Route,
+  ctx: ErrorContext,
 ) => unknown | Promise<unknown>;
 
 /**

@@ -7,9 +7,9 @@ import {
   noop,
   recovery,
   type CraftContext,
+  type ErrorContext,
   type ErrorHandler,
   type Exchange,
-  type Route,
 } from "../src/index.ts";
 import { asDeferred } from "./helpers/deferral.ts";
 
@@ -226,8 +226,8 @@ describe("context handlers: the error point", () => {
       .build();
     t.ctx.registerHandler(
       "error",
-      async (_error, exchange: Exchange, forward, route: Route) => {
-        named = route.definition.id;
+      async (_error, exchange: Exchange, forward, ctx: ErrorContext) => {
+        named = ctx.route.definition.id;
         await forward("report" as never, { about: exchange.id });
         return { handled: true };
       },
@@ -548,6 +548,58 @@ describe("context handlers: the error point", () => {
   });
 
   /**
+   * @case The handler can tell a resumed continuation from the original run
+   * @preconditions A step that fails on both executions, and a handler that parks on the first and recovers on the second
+   * @expectedResult The handler sees execution 1 then 2, and the resumed failure is recovered rather than parked a second time
+   */
+  test("ctx.execution separates the continuation from the original run", async () => {
+    const store = new MemoryDeferralStore();
+    const executions: (1 | 2)[] = [];
+    t = await testContext()
+      .with({ deferral: { store, secret: SECRET } })
+      .routes([
+        craft()
+          .id("work")
+          .from(direct())
+          .transform(() => {
+            throw new Error("needs a human");
+          })
+          .to(noop()),
+        craft()
+          .id("answers")
+          .from(direct())
+          .resume((ex) => ({
+            token: (ex.body as { token: string }).token,
+            result: { approved: true },
+          })),
+      ])
+      .build();
+    t.ctx.registerHandler(
+      "error",
+      (_error, _exchange, _forward, ctx: ErrorContext) => {
+        executions.push(ctx.execution);
+        // Parking again on the continuation would ask the same human the same
+        // question a second time, which is the mistake the flag exists to
+        // make visible.
+        return ctx.execution === 1
+          ? recovery.defer({ ttl: "1h" })
+          : { gaveUp: true };
+      },
+      { routes: ["work"], mayDefer: true },
+    );
+    await t.startAndWaitReady();
+
+    const deferred = asDeferred(await t.client.sendDirect("work", {}));
+    const ack = (await t.client.sendDirect("answers", {
+      token: deferred.token,
+    })) as { continuation: { status: string; body?: unknown } };
+
+    expect(executions).toEqual([1, 2]);
+    expect(ack.continuation.status).toBe("completed");
+    expect(ack.continuation.body).toEqual({ gaveUp: true });
+  });
+
+  /**
    * @case A selector by route id applies the handler to those routes and no others
    * @preconditions Two failing routes, with a handler registered for one of them by id
    * @expectedResult Only the named route is recovered; the other reaches the ordinary failure path
@@ -574,8 +626,8 @@ describe("context handlers: the error point", () => {
       .build();
     t.ctx.registerHandler(
       "error",
-      (_error, _exchange, _forward, route: Route) => {
-        seen.push(route.definition.id);
+      (_error, _exchange, _forward, ctx: ErrorContext) => {
+        seen.push(ctx.route.definition.id);
         return { by: "context" };
       },
       { routes: ["mine"] },

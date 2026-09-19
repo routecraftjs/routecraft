@@ -101,9 +101,12 @@ A handler that notifies a human and then returns the directive has told someone 
 So the notification rides the directive and the framework owns the order: **resolve the site** (a refusal ends here, and nothing was sent), **write the record**, **emit `route:exchange:deferred`**, then **await `notify`** with the same acknowledgment the caller receives.
 
 ```ts skip="fragment: isLendable, stepUpDecision, sendStepUpMail are illustrative"
-ctx.registerHandler('error', (error, exchange, forward, route) => {
+ctx.registerHandler('error', (error, exchange, forward, ctx) => {
   const refusal = insufficientAuthorityOf(error)
   if (!refusal || !refusal.effective) return undefined   // not mine, next handler
+  // Execution two already carries what a human lent; parking it again would
+  // ask for the same scope a second time.
+  if (ctx.execution === 2) return undefined
   return recovery.defer({
     schema: stepUpDecision,
     ttl: '4h',

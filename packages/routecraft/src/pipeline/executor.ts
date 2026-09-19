@@ -1022,7 +1022,16 @@ async function runContextErrorHandlers(
         // handler's, so a forward from here carries the parked exchange's
         // principal and correlation id by reference.
         deps.buildForward(args.exchange),
-        deps.route,
+        {
+          route: deps.route,
+          // The resume stamps `resumedAt` on the revived exchange, so the
+          // header IS the fact: no continuation reaches a handler without it
+          // and no first run carries it.
+          execution:
+            args.exchange.headers[DeferralHeaders.RESUMED_AT] !== undefined
+              ? 2
+              : 1,
+        },
       );
       if (result === undefined) continue;
       if (isRecovery(result) && result.kind === "rethrow") {

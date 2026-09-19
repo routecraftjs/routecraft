@@ -241,6 +241,7 @@ export {
   type Route,
   type RouteDefinition,
   type ContextErrorHandler,
+  type ErrorContext,
   type ErrorHandler,
   type ForwardFn,
   type RouteDiscovery,

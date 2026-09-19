@@ -458,7 +458,7 @@ There are two ways in, landing in one chain. The config field is registered whil
 ```ts skip="fragment: stepUpPlugin and the handler bodies are illustrative"
 export default defineConfig({
   handlers: {
-    error: (error, exchange, forward, route) => undefined,
+    error: (error, exchange, forward, ctx) => undefined,
   },
   plugins: [stepUpPlugin()],
   deferral: {},
@@ -471,8 +471,10 @@ const stepUpPlugin = (): CraftPlugin => ({
   apply(ctx) {
     ctx.registerHandler(
       'error',
-      (error, exchange, forward, route) =>
-        isMine(error) ? recovery.defer({ ttl: '4h' }) : undefined,
+      (error, exchange, forward, ctx) =>
+        isMine(error) && ctx.execution === 1
+          ? recovery.defer({ ttl: '4h' })
+          : undefined,
       { tags: ['gated'], mayDefer: true },
     )
   },
@@ -480,6 +482,8 @@ const stepUpPlugin = (): CraftPlugin => ({
 ```
 
 `registerHandler` returns an unregister function, the same shape `ctx.on()` returns.
+
+**The fourth argument is a context object, not a bare route.** `ErrorContext` carries `route`, the route the failing exchange belongs to, and `execution`, which is `1` on the exchange's first run and `2` once it is a resumed continuation. A handler that parks needs `execution`: without it, a failure the resume itself causes parks the same exchange again and the human is asked the same question twice. An exchange that parks a second time and resumes again stays `2`, because the distinction is original against continuation and not a park counter, which `ex.deferral.sequence` already is. A three-parameter route `ErrorHandler` stays assignable, so the same function can serve a route and the context.
 
 **A selector scopes a registration to some routes**, by id or by tag, rather than an `if` at the top of the handler: that `if` is a switch statement that grows forever and runs on every exchange of every route. `routes` and `tags` are two ways of naming routes, so a selector carrying both applies to a route matching either; carrying neither applies to every route. A config-declared handler always applies to every route, because a selector is a registration-time argument; scope one by wrapping it in a one-line plugin.
 
