@@ -401,7 +401,7 @@ export interface CraftConfig {
    * @example
    * ```typescript
    * export default defineConfig({
-   *   handlers: { error: (error, exchange, forward, route) => undefined },
+   *   handlers: { error: (error, exchange, forward, ctx) => undefined },
    *   deferral: {},
    * });
    * ```
@@ -1190,8 +1190,10 @@ export class CraftContext {
    * ```typescript
    * const off = ctx.registerHandler(
    *   "error",
-   *   (error, exchange, forward, route) =>
-   *     isPoison(error) ? recovery.drop("poison") : undefined,
+   *   (error, exchange, forward, ctx) =>
+   *     isPoison(error) && ctx.execution === 1
+   *       ? recovery.drop("poison")
+   *       : undefined,
    *   { tags: ["gated"] },
    * );
    * ```
@@ -1203,7 +1205,7 @@ export class CraftContext {
   ): () => void {
     if (typeof handler !== "function") {
       throw rcError("RC5003", undefined, {
-        message: `ctx.registerHandler("${point}", handler) takes a function. The "error" point receives (error, exchange, forward, route) and returns a recovery body, a recovery directive, or undefined to pass.`,
+        message: `ctx.registerHandler("${point}", handler) takes a function. The "error" point receives (error, exchange, forward, ctx) and returns a recovery body, a recovery directive, or undefined to pass.`,
       });
     }
     // A per-REGISTRATION record rather than the bare function, so the same
