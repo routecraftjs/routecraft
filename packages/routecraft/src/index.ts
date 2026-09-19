@@ -72,6 +72,19 @@ export {
   type TeardownInfo,
 } from "./context.ts";
 export {
+  type AdmissionContext,
+  type AdmissionHandler,
+  type AdmissionOutcome,
+  type EntryContext,
+  type EntryHandler,
+  type EntryOutcome,
+  type ExitContext,
+  type ExitHandler,
+  type ExitOutcome,
+  type HandlerExecution,
+  type HeaderDecoration,
+} from "./handlers/types.ts";
+export {
   type Capability,
   isInternalEndpoint,
   registerCapability,

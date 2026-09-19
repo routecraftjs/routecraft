@@ -36,10 +36,12 @@ import { buildInputValidationStep, buildParseStep } from "./synthetic-steps.ts";
 import { applyOutputStage } from "./validation.ts";
 import {
   CHAIN_SURVIVAL,
+  POINT_SURVIVAL,
   type ExecutedDefinition,
   type DetachedKind,
   detachedDefinition,
 } from "./chain-policy.ts";
+import { buildEntryHandlerStep } from "./handler-steps.ts";
 import {
   DeadlineExceededError,
   raceWithDeadline,
@@ -121,6 +123,17 @@ export interface ExecutorDeps {
    * @internal
    */
   admissionMustWait?: boolean;
+  /**
+   * Which detached run this is, when it is one.
+   *
+   * The definition already carries the chain positions the kind survives,
+   * but the handler points are not definition fields, so the kind itself has
+   * to reach the executor for `POINT_SURVIVAL` to be readable here. Absent
+   * means the exchange's first, ordinary run.
+   *
+   * @internal
+   */
+  detached?: DetachedKind;
 }
 
 /**
@@ -288,9 +301,23 @@ export async function runPipeline(
   const lastPreAdmission = preAdmission.at(-1);
   let admitted = lastPreAdmission === undefined;
 
+  // The `entry` point (#4.5), between input and throttle. Present only where
+  // something is registered there AND this run reaches the position: a
+  // continuation re-enters below the chain, so its decoration is already on
+  // the exchange rather than owed again. Below the admission tracking above
+  // deliberately: the route HAS admitted an exchange that reaches this, so a
+  // failure here is not an admission park.
+  const entryStep: Step<Adapter> | undefined =
+    deps.context.hasHandlers("entry") &&
+    (deps.detached === undefined ||
+      POINT_SURVIVAL.entry[deps.detached].survives)
+      ? buildEntryHandlerStep(deps)
+      : undefined;
+
   const initialSteps: Step<Adapter>[] = [
     ...deps.definition.preParseFilters,
     ...(admissionStep ? [admissionStep] : []),
+    ...(entryStep ? [entryStep] : []),
     ...tail,
   ];
 
@@ -1529,6 +1556,7 @@ export function runDetachedPipeline(
       route: deps.route,
       buildForward: deps.buildForward,
       definition: detachedDefinition(routeDefinition, downstream, kind),
+      detached: kind,
       ...(CHAIN_SURVIVAL.concurrency[kind].mustNotRefuse
         ? { admissionMustWait: true }
         : {}),

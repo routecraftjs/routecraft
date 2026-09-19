@@ -883,6 +883,30 @@ export interface EventDetailsMap {
     stepLabel?: string;
   };
 
+  // -- Handler points --
+  /**
+   * A handler registered at one of the context's non-error points is about
+   * to be consulted.
+   *
+   * The error point keeps its own `route:error-handler:*` events, because a
+   * subscriber counting failures reads those and would be surprised by an
+   * ordinary admission decoration arriving among them.
+   */
+  "route:handler:invoked": ExchangeScoped & {
+    /** Which point: `admission`, `entry` or `exit`. */
+    point: string;
+  };
+  /**
+   * A handler threw, or the route's signal cut it short. The chain
+   * continues to the next handler either way, which is why this carries the
+   * index: "the handler" is ambiguous at a point that keeps going.
+   */
+  "route:handler:failed": ExchangeScoped & {
+    point: string;
+    handlerIndex: number;
+    error: unknown;
+  };
+
   // -- Cache --
   "route:cache:hit": ExchangeScoped & {
     /** Label of the wrapped step, or `"route"` when `scope === "route"`. */

@@ -25,6 +25,11 @@ import { type AdapterOverride, RC_ADAPTER_OVERRIDES } from "./testing-hooks.ts";
 import { getConfigAppliers } from "./config-applier.ts";
 import { DEFERRAL_RUNTIME } from "./deferral/runtime-key.ts";
 import { EventBus } from "./event-bus.ts";
+import type {
+  AdmissionHandler,
+  EntryHandler,
+  ExitHandler,
+} from "./handlers/types.ts";
 
 import type { EventHandler, EventName, EventPayload } from "./types.ts";
 
@@ -289,9 +294,9 @@ function appliesTo(selector: HandlerSelector, route: Route): boolean {
  * denominator. A second package claiming a name with a different signature is
  * a compile error on the merged interface, which is the right failure.
  *
- * One point today. The rest of the set (`admission`, `entry`, `exit`) is
- * specified in #816 and lands after this; the registry exists from the start
- * so they arrive as keys rather than as three more bespoke registrations.
+ * The four points are the route's own lifecycle and the set is deliberately
+ * bounded: a hook wherever the framework calls back into user code grows by
+ * accretion and pulls in things that are not on that lifecycle at all.
  *
  * @example
  * ```typescript
@@ -304,15 +309,30 @@ function appliesTo(selector: HandlerSelector, route: Route): boolean {
  */
 export interface HandlerPointRegistry {
   /**
+   * Before the pre-from filter chain runs: nothing validated, and for a
+   * source carrying no verifier, no caller known.
+   */
+  admission: AdmissionHandler;
+  /**
+   * After the pre-from chain, before the first user step: a known caller, a
+   * validated body, none of the route's own work done.
+   */
+  entry: EntryHandler;
+  /**
    * A failure the route's own handling gave up on: no route `.error()`, or
    * one that rethrew or threw.
    *
    * Positional rather than context-shaped, and deliberately: it stays
    * assignment-compatible with {@link ErrorHandler}, the type the `.error()`
    * operation already takes, so one function body works in either place and
-   * ignores the extra `route` parameter it gains here.
+   * ignores the extra parameter it gains here.
    */
   error: ContextErrorHandler;
+  /**
+   * After the last step, before the source receives the body. Never on a
+   * `Deferred` acknowledgment, which carries a live resume token.
+   */
+  exit: ExitHandler;
 }
 
 /** A point on the route lifecycle a handler can be registered at. */
@@ -581,6 +601,16 @@ export class CraftContext {
    * this list reaches.
    */
   private readonly handlers: RegisteredHandler[] = [];
+
+  /**
+   * How many registrations each point holds.
+   *
+   * The flat list above is the contract; this is the index that keeps an
+   * unused point free. Every exchange asks each point whether anything is
+   * registered there, and walking the whole list four times per exchange to
+   * answer "no" is the cost the ticket's benchmark exists to catch.
+   */
+  private readonly handlersPerPoint: Map<HandlerPoint, number> = new Map();
 
   /**
    * How many registered handlers declared `mayDefer`. A count rather than a
@@ -1220,12 +1250,34 @@ export class CraftContext {
     };
     if (entry.mayDefer) this.deferringErrorHandlers += 1;
     this.handlers.push(entry);
+    this.handlersPerPoint.set(
+      point,
+      (this.handlersPerPoint.get(point) ?? 0) + 1,
+    );
     return () => {
       const at = this.handlers.indexOf(entry);
       if (at === -1) return;
       this.handlers.splice(at, 1);
+      this.handlersPerPoint.set(
+        point,
+        (this.handlersPerPoint.get(point) ?? 1) - 1,
+      );
       if (entry.mayDefer) this.deferringErrorHandlers -= 1;
     };
+  }
+
+  /**
+   * Whether anything is registered at a point, for any route.
+   *
+   * A counter rather than a scan, because this is asked on the hot path: a
+   * point nobody registered at must cost one map lookup per exchange and no
+   * walk of every registration in the context. {@link getHandlers}, which
+   * does walk, is reached only once this answers true.
+   *
+   * @internal
+   */
+  hasHandlers(point: HandlerPoint): boolean {
+    return (this.handlersPerPoint.get(point) ?? 0) > 0;
   }
 
   /**

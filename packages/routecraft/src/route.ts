@@ -1374,6 +1374,7 @@ export class DefaultRoute implements Route {
         ],
         "errorChannel",
       ),
+      detached: "errorChannel",
     };
     const result = await runPipeline(deps, exchange, start);
     if (!result.failed && !result.dropped) {

@@ -274,6 +274,104 @@ export const CHAIN_SURVIVAL: Readonly<
   },
 };
 
+/**
+ * The handler points core ships, as the survival table keys them.
+ *
+ * A literal union rather than `HandlerPoint`, which is declaration-merged: a
+ * package outside core contributing a point cannot add a row to a constant
+ * in core, so keying the table on the open type would make such a point
+ * impossible to declare rather than merely unclassified. Core's four answer
+ * here; a contributed point answers wherever it is consulted.
+ */
+type CorePoint = "admission" | "entry" | "error" | "exit";
+
+/**
+ * Which handler points apply to a run that re-enters partway down.
+ *
+ * A sibling of {@link CHAIN_SURVIVAL} rather than rows inside it, because
+ * that table is keyed by `RouteDefinition` field and a handler point is not
+ * one: it is registered on the context by someone who did not write the
+ * route. The forcing that matters is kept: `Record<DetachedKind, KindPolicy>`
+ * breaks this table when a new kind of detached run is added without saying
+ * what each point means for it, which is the half a reader needs.
+ */
+export const POINT_SURVIVAL: Readonly<
+  Record<CorePoint, Readonly<Record<DetachedKind, KindPolicy>>>
+> = {
+  admission: {
+    resume: {
+      survives: false,
+      why: "The exchange was admitted on execution one, and the point sits above a chain that does not re-run for a continuation. A handler here also may not establish identity on a continuation at all, so there is nothing left for it to decide.",
+    },
+    debounce: {
+      survives: false,
+      why: "A released exchange was admitted when it arrived; the hold was the route's own doing and not a second admission.",
+    },
+    errorChannel: {
+      survives: false,
+      why: "Nothing is being admitted: a failure is being reported about work that already ran.",
+    },
+    admission: {
+      survives: false,
+      why: "This re-entry IS the admission the original call never completed, but the point that names it has already run: it ran on execution one, above the chain position that failed. Running it again would let a fresh mint discard the scopes a human lent through the door's elevate hook, which is the one thing the continuation exists to carry.",
+    },
+  },
+  entry: {
+    resume: {
+      survives: false,
+      why: "The continuation re-enters below the chain, at the step that parked, so the position it sits at is not reached. Its decoration is already on the exchange, restored from the record.",
+    },
+    debounce: {
+      survives: false,
+      why: "The release re-enters below the chain for the same reason the cache check does not run: the exchange passed this position when it arrived.",
+    },
+    errorChannel: {
+      survives: false,
+      why: "A failure report is not an entry: there is no route work about to start for the point to decorate or refuse.",
+    },
+    admission: {
+      survives: true,
+      why: "The chain above it is exactly what this re-entry re-runs, so the position IS reached, and a handler that decorated the first attempt must decorate the one that replaces it. It is told it is execution two, and a refusal here is safe for the same reason authorize's is: the door's own hooks ran before the claim.",
+    },
+  },
+  error: {
+    resume: {
+      survives: true,
+      why: "The same reason the route's own `.error()` survives: a continuation that fails has nowhere else to go, and the point is the outermost ring around it.",
+    },
+    debounce: {
+      survives: true,
+      why: "A released exchange is the route's primary flow, so its failures reach the same rings.",
+    },
+    errorChannel: {
+      survives: true,
+      why: "Reaching a handler IS the point of the re-entry, and this ring is consulted where the route's own gave up.",
+    },
+    admission: {
+      survives: true,
+      why: "A continuation that fails where the original call failed has to reach the same rings, or a lend that did not satisfy the gate would strand the approver with no re-ask.",
+    },
+  },
+  exit: {
+    resume: {
+      survives: true,
+      why: "The continuation produces the body the deferred call answers with, and that body leaves. A point that only ran on execution one would let a redaction be skipped by parking.",
+    },
+    debounce: {
+      survives: true,
+      why: "A release produces the route's output like any other run of it.",
+    },
+    errorChannel: {
+      survives: false,
+      why: "What a re-ask handler returns is a notification rather than the route's output, which is why `.output()` validation is skipped there too.",
+    },
+    admission: {
+      survives: true,
+      why: "Same as resume: the continuation is what produces the body that leaves.",
+    },
+  },
+};
+
 /** The chain positions, as a value. */
 const CHAIN_FIELDS = Object.keys(CHAIN_SURVIVAL) as ChainField[];
 
