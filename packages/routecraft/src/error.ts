@@ -110,6 +110,7 @@ export interface ErrorCodeRegistry {
   RC5064: RCMeta;
   RC5065: RCMeta;
   RC5066: RCMeta;
+  RC5067: RCMeta;
   RC9901: RCMeta;
 }
 
@@ -661,6 +662,14 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     suggestion:
       "A surface asked the deferral store for something the store this context was given does not implement. The two shipped backends (sqlite and memory) implement the whole `DeferralStore` contract; a store supplied through `deferral: { store }` is the caller's own, and one written against an earlier version of the contract can be missing a member added since. The message names the member. Implement it, or drop back to a shipped backend. The surface refuses rather than answering empty, because an empty listing and a listing the store cannot produce look identical to whoever is reading it.",
     docs: `${DOCS_BASE}#rc-5066`,
+    retryable: false,
+  },
+  RC5067: {
+    category: "Runtime",
+    message: "Deferral notification failed",
+    suggestion:
+      "An error handler answered with `recovery.defer({ notify })`, the exchange parked, and then the `notify` hook threw or did not settle before the deferring route's abort signal fired. Nobody was successfully told the work is waiting, so the deferral was denied claim-first and its resume link is dead: a token that did go out reads RC5050 rather than reviving work whose caller was told it failed. The hook's own failure is the cause. Notify by forwarding to a route the application owns rather than calling a mailer inline, so the send is a route like any other: retryable, observable, and testable without the handler. A hook that legitimately takes longer than the route allows needs the route's `.timeout()` widened, not the bound removed.",
+    docs: `${DOCS_BASE}#rc-5067`,
     retryable: false,
   },
   RC9901: {

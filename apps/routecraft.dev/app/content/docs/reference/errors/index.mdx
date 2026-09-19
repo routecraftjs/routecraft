@@ -1050,6 +1050,19 @@ A surface asked the deferral store for something the store this context was give
 **Suggestion**  
 Implement the member the message names, or drop back to a shipped backend (`sqlite`, or `memory` for tests). The surface refuses rather than answering an empty listing, because an empty listing and a listing the store cannot produce look identical to whoever is reading them, and one of them is a lie about what the instance is holding.
 
+## RC5067
+Deferral notification failed
+
+**Why it happens**  
+An error handler answered with [`recovery.defer({ notify })`](/docs/reference/operations#recoverydefer), the exchange parked, and then the `notify` hook threw or did not settle before the deferring route's abort signal fired.
+
+Nobody was successfully told the work is waiting, so the deferral was denied claim-first and its resume link is dead: a token that did reach a recipient reads [RC5050](#rc-5050) rather than reviving work whose caller was told the run failed. The hook's own failure is carried as the cause.
+
+The hook is bounded by the deferring route's abort signal, widened by an enclosing `.timeout()`, because it is awaited inside the executor: an unsettled hook holds the step, which holds `drain()`, and its latency sits in front of the caller's acknowledgment.
+
+**Suggestion**  
+Notify by forwarding to a route your application owns rather than calling a mailer inline. The send is then a route like any other: retryable, observable, and testable without the handler, and it runs under the parked exchange's principal because `forward` carries identity by reference. A hook that legitimately takes longer than the route allows needs the route's `.timeout()` widened, not the bound removed.
+
 ## RC9901
 Unknown error
 

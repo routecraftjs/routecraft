@@ -1178,7 +1178,11 @@ describe("authorize() anyScope", () => {
     const refusal = refusalOf({ anyScope: family }, principal);
 
     expect(String(refusal)).toContain("RC5038");
-    expect(missingFromCause(refusal)).toEqual({ scopes: family, mode: "any" });
+    expect(missingFromCause(refusal)).toEqual({
+      scopes: family,
+      mode: "any",
+      effective: false,
+    });
     for (const scope of family) expect(String(refusal)).toContain(scope);
   });
 
@@ -1201,11 +1205,16 @@ describe("authorize() anyScope", () => {
     expect(missingFromCause(noAnd)).toEqual({
       scopes: ["leave:list"],
       mode: "all",
+      effective: false,
     });
 
     const noOr = refusalOf(options, holder(["leave:list"]));
     expect(String(noOr)).toContain("RC5038");
-    expect(missingFromCause(noOr)).toEqual({ scopes: family, mode: "any" });
+    expect(missingFromCause(noOr)).toEqual({
+      scopes: family,
+      mode: "any",
+      effective: false,
+    });
   });
 
   /**

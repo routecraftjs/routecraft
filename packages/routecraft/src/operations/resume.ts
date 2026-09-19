@@ -16,7 +16,10 @@ import {
   reviveDeferral,
 } from "../deferral/revive.ts";
 import { principalRef } from "../deferral/principal-ref.ts";
-import type { ResumeAuthorizer } from "../deferral/authorize.ts";
+import type {
+  ResumeAuthorizer,
+  ResumeElevator,
+} from "../deferral/authorize.ts";
 
 /**
  * Maps the ingress exchange to the deferral it resumes.
@@ -64,6 +67,46 @@ export interface ResumeOptions {
    * a resume ingress is a thing you do, not a thing you inherit.
    */
   authorize?: ResumeAuthorizer;
+
+  /**
+   * Re-mints the principal the continuation runs with, so it carries more
+   * authority than the exchange parked with.
+   *
+   * Without it a continuation always runs as the principal that parked,
+   * which comes back from the store marked restored and therefore fails
+   * `.authorize()` with `RC5043` by design. That is the correct default: a
+   * shape read off disk is not a credential. This hook is how an application
+   * says "I re-verified this identity just now, and a human lent it one more
+   * scope".
+   *
+   * Returns a LIVE principal or throws; a throw is a refusal and is the
+   * right answer whenever the world moved under the park. The framework
+   * enforces three things and has no other opinion: the principal is live
+   * (not restored), it is the SAME two parties the exchange parked with, and
+   * the only thing that changed is `scopes`, capped by the scopes the
+   * refusal that parked the exchange named. Anything else is `RC5056`,
+   * non-destructive, so the record stays resumable.
+   *
+   * Because the principal is live, the continuation re-runs the route's
+   * `.authorize()`: the lent scope has to satisfy the gate that refused it
+   * or the resume fails the way the original call did. Note that a lend on
+   * the ACTOR's ring is only read by a gate declaring `effective: true`, and
+   * that a gate whose `predicate` reads `principal.claims` sees the claims
+   * this hook minted rather than the ones the exchange parked with.
+   *
+   * Runs immediately after `authorize` and above the record's claim, so a
+   * refusal never spends the rightful principal's single-use link.
+   *
+   * @example
+   * ```ts
+   * .resume(mapper, {
+   *   authorize: ({ principal, record }) =>
+   *     principal?.email === record.meta.approver,
+   *   elevate: ({ deferred, payload }) => applyStepUp(deferred, parse(payload)),
+   * })
+   * ```
+   */
+  elevate?: ResumeElevator;
 }
 
 /**
@@ -91,6 +134,9 @@ export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
   /** The door's own authorization policy, when it declares one. */
   readonly authorize?: ResumeAuthorizer;
 
+  /** The door's re-mint of the parked principal, when it declares one. */
+  readonly elevate?: ResumeElevator;
+
   constructor(
     private readonly mapper?: ResumeMapper<In>,
     options?: ResumeOptions,
@@ -103,6 +149,15 @@ export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
         });
       }
       this.authorize = options.authorize;
+    }
+    if (options?.elevate !== undefined) {
+      if (typeof options.elevate !== "function") {
+        throw rcError("RC5003", undefined, {
+          message:
+            ".resume({ elevate }) must be a function receiving { principal, deferred, payload, record } and returning the live Principal the continuation runs with (or a promise of one), or throwing to refuse.",
+        });
+      }
+      this.elevate = options.elevate;
     }
   }
 
@@ -160,6 +215,7 @@ export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
       // the untrusted half of an ingress choose what the trusted half checks.
       {
         ...(this.authorize !== undefined ? { authorize: this.authorize } : {}),
+        ...(this.elevate !== undefined ? { elevate: this.elevate } : {}),
         ...(live ? { principal: live } : {}),
         ...(hookSignal ? { signal: hookSignal } : {}),
       },

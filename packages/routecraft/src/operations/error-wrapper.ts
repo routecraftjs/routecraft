@@ -111,6 +111,23 @@ export class ErrorWrapperStep<
             // the original error so the route-level cascade fires.
             throw innerError;
           }
+          if (recovered.kind === "defer") {
+            // A park needs a POSITION, and a step-scope wrapper has none it
+            // can name. Positions are assigned by the defer-site walk to the
+            // entries of `definition.steps`, which is the OUTERMOST wrapper
+            // of a stack; an `.error()` wrapped by a `.retry()` is not in
+            // that array at all, so it cannot look its own site up, and a
+            // park it resolved by guessing would revive a continuation that
+            // re-enters the stack somewhere the approval was never taken
+            // against. Refused rather than approximated: the two scopes that
+            // CAN name a position (the route-scope `.error()` and a context
+            // error handler) both reach the same failure.
+            //
+            // Recorded in `.standards/resilience-wrappers.md` §9.
+            throw rcError("RC5051", innerError, {
+              message: `Step "${stepLabel}" has a step-scope .error() handler that answered with recovery.defer(), which the framework cannot place: a step-scope wrapper inside a stack is not a position the defer-site walk addresses, so there is nothing to revive the continuation at. Park from the route-scope .error() handler (declared before .from()) or from a context error handler; both see the same failure and the executor resolves the failing step's position for them.`,
+            });
+          }
           // `recovery.drop()`: resolve the error by discarding the
           // exchange (shared semantics in applyDropDirective). The
           // forward guard above already threw when no route is bound, so

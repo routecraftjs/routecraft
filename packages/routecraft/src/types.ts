@@ -445,12 +445,30 @@ type ExchangeSnapshot = {
   body: unknown;
 };
 
-/** Shared identity fields on per-exchange events. */
-type ExchangeScoped = {
+/**
+ * Shared identity fields on per-exchange events.
+ *
+ * Exported because an ecosystem package declaring its own exchange-scoped
+ * events through declaration merging needs the same three fields, and a
+ * second definition of them is how two packages' events drift into
+ * correlating on different keys.
+ */
+export type ExchangeScoped = {
   routeId: string;
   exchangeId: string;
   correlationId: string;
 };
+
+/**
+ * Which ring an error handler belongs to, innermost first.
+ *
+ * The three are consulted in this order and the first to decide wins:
+ * `step` is a `.error()` wrapper on one step, `route` is the route's own
+ * `.error()`, and `context` is a handler registered on the context, which
+ * is reached only where the route's own handling gave up (no route handler,
+ * or one that rethrew or threw).
+ */
+export type ErrorHandlerScope = "route" | "step" | "context";
 
 /**
  * What every tool-call event carries.
@@ -848,9 +866,12 @@ export interface EventDetailsMap {
     /**
      * `"route"` for the route-level (`.error()` before `.from()`)
      * catch-all handler; `"step"` for a wrapper-scope handler
-     * attached to a single step (`.error()` after `.from()`).
+     * attached to a single step (`.error()` after `.from()`);
+     * `"context"` for a handler registered on the context with
+     * `ctx.registerErrorHandler()` or the `errorHandler` config key, which
+     * is consulted only where the route's own handling gave up.
      */
-    scope?: "route" | "step";
+    scope?: ErrorHandlerScope;
     /** Step label when `scope === "step"`. */
     stepLabel?: string;
   };
@@ -858,14 +879,21 @@ export interface EventDetailsMap {
     originalError: unknown;
     failedOperation: string;
     recoveryStrategy: string;
-    scope?: "route" | "step";
+    scope?: ErrorHandlerScope;
     stepLabel?: string;
   };
   "route:error-handler:failed": ExchangeScoped & {
     originalError: unknown;
     failedOperation: string;
     recoveryStrategy?: string;
-    scope?: "route" | "step";
+    scope?: ErrorHandlerScope;
+    /**
+     * Which registered context handler failed, as its index in registration
+     * order. Present only when `scope === "context"`, where "the handler"
+     * is ambiguous: the chain continues past a handler that throws, so an
+     * operator needs to know which one to fix.
+     */
+    handlerIndex?: number;
     stepLabel?: string;
   };
 

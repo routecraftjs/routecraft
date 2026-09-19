@@ -14,10 +14,12 @@ import type { Adapter, Step } from "../types.ts";
 import { continuationTailHash, describeSchema } from "./hash.ts";
 import {
   type ResumeAuthorizer,
+  type ResumeElevator,
   checkCallBinding,
   deferredPrincipal,
   recordView,
   runAuthorizer,
+  runElevator,
 } from "./authorize.ts";
 import { DeferralHeaders } from "./exchange-state.ts";
 import { DEFERRAL_RUNTIME } from "./runtime-key.ts";
@@ -76,6 +78,14 @@ export interface ResumeRequest {
 export interface ResumeDoor {
   /** The door's own authorization policy, when it declares one. */
   readonly authorize?: ResumeAuthorizer;
+  /**
+   * The door's re-mint of the parked principal, when it declares one.
+   *
+   * On the trusted half with `authorize`, and for the same reason: this sets
+   * the authority the continuation runs with, and the mapper is the
+   * untrusted half of an ingress.
+   */
+  readonly elevate?: ResumeElevator;
   /** The principal this ingress route verified live, if any. */
   readonly principal?: Principal;
   /** The ingress step's abort signal, which is what bounds an async hook. */
@@ -189,19 +199,35 @@ export async function reviveDeferral(
   // record's lifecycle becomes observable. It reads the record and the two
   // principals; it cannot transition anything, and a refusal leaves the
   // record exactly as it was found.
+  const hookInput = {
+    principal: door.principal,
+    deferred: deferredPrincipal(deferral),
+    payload: request.result,
+    record: recordView(deferral),
+  };
   if (door.authorize) {
-    await runAuthorizer(
-      door.authorize,
-      {
-        principal: door.principal,
-        deferred: deferredPrincipal(deferral),
-        payload: request.result,
-        record: recordView(deferral),
-      },
-      context.logger,
-      door.signal,
-    );
+    await runAuthorizer(door.authorize, hookInput, context.logger, door.signal);
   }
+
+  // Still step 3: `elevate` runs immediately after `authorize` (or in its
+  // place when the door declares none), and its result is HELD until
+  // `rehydrate()` applies it after the claim. Both halves are deliberate.
+  //
+  // Evaluated here, above the lifecycle disclosure and above the claim,
+  // because a refusal below either settling transition burns the rightful
+  // principal's single-use link and drives the approver notification with a
+  // credential that was never theirs. Applied after the claim, because the
+  // principal is what the continuation runs as, and the continuation only
+  // exists once this resume has won.
+  const elevated = door.elevate
+    ? await runElevator(
+        door.elevate,
+        hookInput,
+        context.logger,
+        deferral.errorPath?.refusedScopes,
+        door.signal,
+      )
+    : undefined;
 
   if (!resumable(deferral)) {
     return unresumable(deferral);
@@ -263,26 +289,27 @@ export async function reviveDeferral(
   // from the hashed tail by design, which makes this descriptor the ONLY
   // representation of that step in the digest.
   //
-  // For a re-entrant site the stored descriptor is all there is: the live
-  // schema was raised inside the step's own code and cannot be read back
-  // off the route, so the schema arm IS inert there. The step itself heads
-  // the hashed tail instead, so its definition is covered; the schema is
-  // the same residue class as the behaviour of what the tail calls.
+  // For every other site the stored descriptor is all there is: the live
+  // schema was raised inside code the route cannot be asked about (a
+  // re-entrant step's own body, or an error handler's `recovery.defer()`
+  // call), so the schema arm IS inert there. What heads the hashed tail
+  // covers the definition instead; the schema is the same residue class as
+  // the behaviour of what the tail calls.
   //
   // `meta` is deliberately NOT in the digest. It lives only on the record,
   // so there is no live copy for it to drift from: a defer site that snapshots
   // its policy into `meta` gets policy-travels-with-the-deferral by
   // construction rather than by a tamper check.
   //
-  // The branch keys on RE-ENTRANCY, not on whether a live schema was found.
-  // A static site always describes what it declares TODAY, absence included:
-  // keying on `site.schema` would make a removed schema fall through to the
-  // stored descriptor, compare it against itself, and accept the deferred
-  // payload unvalidated with no re-ask, which is the exact edit the absent
-  // sentinel exists to catch.
+  // The branch keys on whether the site's schema is READABLE off the route,
+  // not on whether one was found. A static site always describes what it
+  // declares TODAY, absence included: keying on `site.schema` would make a
+  // removed schema fall through to the stored descriptor, compare it against
+  // itself, and accept the deferred payload unvalidated with no re-ask,
+  // which is the exact edit the absent sentinel exists to catch.
   const current = continuationTailHash(
     site.site.continuation,
-    site.site.reentrant ? deferral.schema : describeSchema(site.schema),
+    site.schemaIsLive ? describeSchema(site.schema) : deferral.schema,
   );
   if (current !== deferral.continuationHash) {
     // Reached only by a caller the credential binding and the door's hook
@@ -391,6 +418,7 @@ export async function reviveDeferral(
       result: payload,
       resumedAt,
       ...(request.resumedBy ? { resumedBy: request.resumedBy } : {}),
+      ...(elevated ? { elevated } : {}),
     });
     // The step-owned closure state goes back to the step that deferred it,
     // through internals rather than headers: it is runtime context for one
@@ -414,6 +442,7 @@ export async function reviveDeferral(
       exchange,
       site.site.continuation,
       resumedAt,
+      deferral.errorPath?.admission === true,
     );
   } catch (error) {
     // Best-effort, and the ordering is the point: the original error must
@@ -729,24 +758,55 @@ function rehydrate(
     result: unknown;
     resumedAt: Date;
     resumedBy?: PrincipalRef;
+    /**
+     * What the door's `elevate` hook re-minted, already checked against the
+     * identity rule. Replaces the restored principal, which is what lets the
+     * continuation re-run `.authorize()` and pass.
+     */
+    elevated?: Principal;
   },
 ): Exchange {
   const base = deserializeExchange(context, deferral.exchange);
-  const exchange = DefaultExchange.rewrap(base, {
-    headers: {
-      ...base.headers,
-      [HeadersKeys.ROUTE_ID]: deferral.routeId,
-      ...(resumption
-        ? {
-            [DeferralHeaders.RESULT]: resumption.result,
-            [DeferralHeaders.RESUMED_AT]: resumption.resumedAt,
-            ...(resumption.resumedBy
-              ? { [DeferralHeaders.RESUMED_BY]: resumption.resumedBy }
-              : {}),
-          }
-        : {}),
-    },
-  });
+  const headers: Record<string, unknown> = {
+    ...base.headers,
+    [HeadersKeys.ROUTE_ID]: deferral.routeId,
+    ...(resumption
+      ? {
+          [DeferralHeaders.RESULT]: resumption.result,
+          [DeferralHeaders.RESUMED_AT]: resumption.resumedAt,
+          ...(resumption.resumedBy
+            ? { [DeferralHeaders.RESUMED_BY]: resumption.resumedBy }
+            : {}),
+        }
+      : {}),
+    // The live principal the door minted, in place of the restored one.
+    // Only here, after the claim: the hooks ran long before this, and what
+    // they decided is applied to the run that actually happens.
+    //
+    // By REFERENCE. `markAuthentic` freezes what it brands, so the
+    // constructor's clone-and-freeze defence does not fire and the object
+    // that reaches `.authorize()` is the one the WeakSet knows. Copying it
+    // would silently drop the brand and refuse every elevated resume with
+    // RC5023.
+    ...(resumption?.elevated
+      ? { [HeadersKeys.AUTH_PRINCIPAL]: resumption.elevated }
+      : {}),
+  };
+
+  // Written on every resumption, and DELETED when this record carries none.
+  // An exchange that parks, resumes and parks again re-serializes whatever
+  // headers it was carrying, so the second record's stored exchange holds
+  // the FIRST park's value; leaving it in place would let a stale set decide
+  // the loop-closing rule for a park that recorded nothing. Assigning
+  // `undefined` is not the same thing here, because a header key holding
+  // `undefined` still serializes as present.
+  if (resumption) {
+    const refused = deferral.errorPath?.refusedScopes;
+    if (refused) headers[DeferralHeaders.REFUSED_SCOPES] = refused;
+    else delete headers[DeferralHeaders.REFUSED_SCOPES];
+  }
+
+  const exchange = DefaultExchange.rewrap(base, { headers });
   setExchangeRoute(exchange, route);
   return exchange;
 }
@@ -761,8 +821,9 @@ async function runContinuation(
   exchange: Exchange,
   continuation: ReadonlyArray<Step<Adapter>>,
   at: Date,
+  admission: boolean,
 ): Promise<SerializedOutcome> {
-  const result = await route.runContinuation(exchange, continuation);
+  const result = await route.runContinuation(exchange, continuation, admission);
   if (result.deferred) {
     // The continuation reached another `.defer()`. Recording a body here
     // would cache the SECOND deferral's acknowledgment, token included,
@@ -820,13 +881,51 @@ function findSite(
   route: Route,
   deferral: Deferral,
 ):
-  | { step: Step<Adapter>; site: DeferSite; schema?: StandardSchemaV1 }
+  | {
+      step?: Step<Adapter>;
+      site: DeferSite;
+      schema?: StandardSchemaV1;
+      /**
+       * The site's schema can be read back off the route TODAY, which is
+       * true only of a static `.defer()`. Every other site raised its
+       * schema inside code the route cannot be asked about: a re-entrant
+       * step's own body, or an error handler's `recovery.defer()` call.
+       */
+      schemaIsLive?: boolean;
+    }
   | undefined {
+  // An ADMISSION park is addressed by the record's own flag rather than by
+  // its position, which it shares with the first step's error-path site.
+  // Checked first so that shared number can never resolve to the wrong one.
+  if (deferral.errorPath?.admission) {
+    const site = route.definition.admissionSite;
+    return site ? { site } : undefined;
+  }
+  // An error-path park at a step's position, and ONLY for a record the
+  // error path wrote. Every step carries an error-path site, a static
+  // `.defer()` step included, so an unguarded lookup here would answer for
+  // that step's own deferrals too and hand them a continuation that
+  // re-enters the defer rather than following it. The record's
+  // framework-owned `errorPath` field is what says which kind of park this
+  // was; it is written for every error-path park and for nothing else.
+  //
+  // Looked up by position rather than by step instance, because the record
+  // carries a number and the map is keyed by instance; the walk is
+  // deterministic, so the same source produces the same numbers in both
+  // processes.
+  if (deferral.errorPath) {
+    const errorPathSite = findErrorPathSite(route, deferral.position);
+    if (errorPathSite) {
+      return { site: errorPathSite.site, step: errorPathSite.step };
+    }
+    return undefined;
+  }
   for (const step of route.definition.deferSteps ?? []) {
     if (step.site?.position === deferral.position) {
       return {
         step,
         site: step.site,
+        schemaIsLive: true,
         ...(step.schema !== undefined ? { schema: step.schema } : {}),
       };
     }
@@ -834,6 +933,31 @@ function findSite(
   for (const host of route.definition.reentrantDeferSteps ?? []) {
     if (host.deferSite?.position === deferral.position) {
       return { step: host, site: host.deferSite };
+    }
+  }
+  return undefined;
+}
+
+/**
+ * The error-path site stamped at `position`, if the route still has one
+ * there.
+ *
+ * Kept apart from the two defer lists because it answers a different
+ * question: those say the route CAN defer here, this says where a park
+ * WOULD land. A record written for an error-path park is resolved from it
+ * alone, so editing the route into or out of a defer site cannot silently
+ * move a parked exchange onto a different continuation; the hash comparison
+ * that follows catches the rest.
+ *
+ * @internal
+ */
+function findErrorPathSite(
+  route: Route,
+  position: number,
+): { step: Step<Adapter>; site: DeferSite } | undefined {
+  for (const [step, resolved] of route.definition.errorPathSites ?? []) {
+    if (resolved.kind === "site" && resolved.site.position === position) {
+      return { step, site: resolved.site };
     }
   }
   return undefined;

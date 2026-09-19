@@ -13,8 +13,15 @@ import {
   setResumeStepState,
   setStartedAt,
 } from "../exchange.ts";
-import { isRecovery, applyDropDirective } from "../recovery.ts";
+import {
+  isRecovery,
+  applyDropDirective,
+  type RecoveryDefer,
+} from "../recovery.ts";
 import { deferExchange } from "../deferral/defer.ts";
+import { DeferralHeaders } from "../deferral/exchange-state.ts";
+import { insufficientAuthorityOf } from "../auth/authorize.ts";
+import { parseDuration } from "../shared/duration.ts";
 import { SPLIT_PARENT_STORE } from "../operations/split.ts";
 import { rcError, RoutecraftError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
@@ -251,13 +258,24 @@ export async function runPipeline(
     tail = [...deps.definition.throttle, ...tail];
   }
 
+  // Hoisted rather than inlined into `initialSteps` so the loop can tell
+  // when it has run. An error-path park raised BEFORE it is an admission
+  // park, and admission is the one resume that has to reproduce this step:
+  // a source-attached parser is a per-message closure, so a park above a
+  // pending one is refused rather than resumed against an unparsed body.
+  const admissionStep: Step<Adapter> | undefined = sourceParse
+    ? buildParseStep(sourceParse, sourceFailureMode, sourceValidate)
+    : sourceValidate
+      ? buildInputValidationStep(sourceValidate)
+      : undefined;
+  // Only a SOURCE PARSER is unreproducible. A standalone `.input()` step is
+  // rebuilt from `definition.discovery.input`, which the live route still
+  // has, so an admission resume runs it again.
+  let pendingSourceParse = sourceParse !== undefined;
+
   const initialSteps: Step<Adapter>[] = [
     ...deps.definition.preParseFilters,
-    ...(sourceParse
-      ? [buildParseStep(sourceParse, sourceFailureMode, sourceValidate)]
-      : sourceValidate
-        ? [buildInputValidationStep(sourceValidate)]
-        : []),
+    ...(admissionStep ? [admissionStep] : []),
     ...tail,
   ];
 
@@ -474,6 +492,9 @@ export async function runPipeline(
 
     try {
       const outcome = await step.execute(exchange, stepContext);
+      // The source's parse has now run, so a park raised from here on can be
+      // revived without reproducing it.
+      if (step === admissionStep) pendingSourceParse = false;
       // A settled step consumed any resume step state a revival attached:
       // the re-entrant host is by construction the first step of its
       // continuation, so clearing on every committed outcome keeps the
@@ -590,6 +611,26 @@ export async function runPipeline(
         });
       }
 
+      // The step that actually failed, which is the position an error-path
+      // park borrows. Noted before any ring runs, and keyed by the error
+      // object so a rethrow out of a nested resilience segment carries the
+      // INNER step out to whichever ring decides, rather than the segment
+      // wrapper the outer loop is holding.
+      noteFailingStep(err, step);
+
+      /** Apply a ring's decision to this run's bookkeeping. */
+      const settle = (decision: ErrorDecision): void => {
+        if (decision.kind === "dropped") {
+          // Only a drop of the PARENT exchange marks the run dropped
+          // (suppressing the parent's exchange:completed). A dropped
+          // split CHILD resolves that child alone, mirroring the
+          // handler-threw path's failedChildExchanges accounting.
+          if (exchange.id === parentExchangeId) dropped = true;
+          return;
+        }
+        lastProcessedExchange = decision.exchange;
+      };
+
       if (deps.definition.errorHandler) {
         // Route-scope error-handler events. Step-scope wrappers
         // emit the same set with `scope: "step"` and `stepLabel`.
@@ -609,59 +650,23 @@ export async function runPipeline(
             exchange,
             forward,
           );
-          if (isRecovery(result)) {
-            if (result.kind === "rethrow") {
-              // Declarative equivalent of `throw error` inside the
-              // handler: fall through to the handler-threw path below
-              // with the original error.
-              throw err;
-            }
-            // `recovery.drop()`: resolve the error by discarding the
-            // exchange (shared semantics in applyDropDirective).
-            applyDropDirective({
-              context: deps.context,
-              routeId: deps.routeId,
+          if (isRecovery(result) && result.kind === "rethrow") {
+            // Declarative equivalent of `throw error` inside the
+            // handler: fall through to the handler-threw path below
+            // with the original error.
+            throw err;
+          }
+          settle(
+            await applyErrorDecision(deps, {
               exchange,
               originalError: err,
-              failedOperation: stepLabel,
+              result,
+              stepLabel,
               correlationId,
-              reason: result.reason,
               scope: "route",
-              route: deps.route,
-            });
-            // Only a drop of the PARENT exchange marks the run dropped
-            // (suppressing the parent's exchange:completed). A dropped
-            // split CHILD resolves that child alone, mirroring the
-            // handler-threw path's failedChildExchanges accounting.
-            if (exchange.id === parentExchangeId) {
-              dropped = true;
-            }
-          } else {
-            // Replace body via rewrap (frozen exchange); keep id and
-            // internals so telemetry continues to reference the same
-            // logical exchange.
-            const recovered = DefaultExchange.rewrap(exchange, {
-              body: result,
-            });
-            lastProcessedExchange = recovered;
-
-            // Error handler recovered
-            deps.context.emit("route:error:caught", {
-              routeId: deps.routeId,
-              error: err,
-              route: deps.route,
-              exchange: recovered,
-            });
-            deps.context.emit("route:error-handler:recovered", {
-              routeId: deps.routeId,
-              exchangeId: recovered.id,
-              correlationId,
-              originalError: err,
-              failedOperation: stepLabel,
-              recoveryStrategy: "route-error-handler",
-              scope: "route",
-            });
-          }
+              pendingSourceParse,
+            }),
+          );
         } catch (handlerError) {
           const handlerErr = processError(handlerError);
           exchange.logger.error(
@@ -681,35 +686,79 @@ export async function runPipeline(
             recoveryStrategy: "route-error-handler",
             scope: "route",
           });
-          // Error handler rethrew -- route-level + context-level error
-          deps.context.emit("route:error", {
-            routeId: deps.routeId,
-            error: handlerErr,
-            route: deps.route,
+
+          // The route gave up, which is exactly where the context chain
+          // gets its turn. A handler that decides here resolves the
+          // exchange, so `context:error` and `route:exchange:failed` below
+          // never fire for it.
+          const decided = await runContextErrorHandlers(deps, {
             exchange,
-          });
-          deps.context.emit("context:error", {
-            error: handlerErr,
-            route: deps.route,
-            exchange,
-          });
-          deps.context.emit("route:exchange:failed", {
-            routeId: deps.routeId,
-            exchangeId: exchange.id,
+            // The route handler's own failure is what the route left
+            // behind, so that is what the context sees and what reaches the
+            // failure path if nothing decides.
+            originalError: handlerErr,
+            stepLabel,
             correlationId,
-            duration,
-            error: handlerErr,
-            exchange,
+            pendingSourceParse,
           });
-          if (exchange.id !== parentExchangeId) {
-            failedChildExchanges.add(exchange.id);
+          if (decided) {
+            settle(decided);
           } else {
-            failed = true;
-            stepError = handlerErr;
+            // Error handler rethrew -- route-level + context-level error
+            deps.context.emit("route:error", {
+              routeId: deps.routeId,
+              error: handlerErr,
+              route: deps.route,
+              exchange,
+            });
+            deps.context.emit("context:error", {
+              error: handlerErr,
+              route: deps.route,
+              exchange,
+            });
+            deps.context.emit("route:exchange:failed", {
+              routeId: deps.routeId,
+              exchangeId: exchange.id,
+              correlationId,
+              duration,
+              error: handlerErr,
+              exchange,
+            });
+            if (exchange.id !== parentExchangeId) {
+              failedChildExchanges.add(exchange.id);
+            } else {
+              failed = true;
+              stepError = handlerErr;
+            }
           }
         }
 
         // Pipeline does not resume after error handler (success or failure)
+        return {
+          exchange: lastProcessedExchange,
+          failed,
+          dropped,
+          deferred: isDeferredRun(exchange),
+          error: stepError,
+        };
+      }
+
+      // No route handler, the other place the executor used to give up, so
+      // the context chain gets its turn here too. Above the
+      // `rethrowUnhandled` escape deliberately: a nested resilience segment
+      // rethrows so the WRAPPING segment can react, and a context handler
+      // that parks the exchange has already resolved it, so surfacing the
+      // failure to a retry would re-run work that is now waiting on a human.
+      const decided = await runContextErrorHandlers(deps, {
+        exchange,
+        originalError: err,
+        stepLabel,
+        correlationId,
+        pendingSourceParse,
+      });
+      if (decided) {
+        settle(decided);
+        // Same as after a route handler: the pipeline does not resume.
         return {
           exchange: lastProcessedExchange,
           failed,
@@ -811,6 +860,366 @@ export async function runPipeline(
     deferred: isDeferredRun(exchange),
     error: stepError,
   };
+}
+
+/**
+ * What an error ring decided, once the decision has been applied.
+ *
+ * `unhandled` is deliberately absent: a ring that declined returns nothing,
+ * so "no decision" cannot be mistaken for a decision with a missing field.
+ *
+ * @internal
+ */
+type ErrorDecision =
+  | { kind: "recovered"; exchange: Exchange }
+  | { kind: "dropped" }
+  /** Parked durably. The run ends with the `Deferred` acknowledgment. */
+  | { kind: "deferred"; exchange: Exchange };
+
+/**
+ * The step that failed, keyed by the error object it threw.
+ *
+ * Keyed by the ERROR rather than held on the exchange for one reason: a
+ * failure inside a route-scope resilience segment is caught by the nested
+ * run, rethrown so the wrapping segment can react, and caught again by the
+ * outer run, which is holding the SEGMENT step rather than the step that
+ * actually failed. The error object travels intact through that (a
+ * `RoutecraftError` passes through `processError` unchanged), so it is the
+ * one thing that still names the real position by the time a handler
+ * decides.
+ *
+ * Weak, so nothing has to be cleared, and first-writer-wins, so the
+ * innermost catch is the one that counts.
+ *
+ * @internal
+ */
+const FAILING_STEP = new WeakMap<object, Step<Adapter>>();
+
+/** @internal */
+function noteFailingStep(error: unknown, step: Step<Adapter>): void {
+  if (typeof error !== "object" || error === null) return;
+  if (FAILING_STEP.has(error)) return;
+  FAILING_STEP.set(error, step);
+}
+
+/** @internal */
+function failingStepOf(error: unknown): Step<Adapter> | undefined {
+  if (typeof error !== "object" || error === null) return undefined;
+  return FAILING_STEP.get(error);
+}
+
+/**
+ * The scopes the park this exchange was revived from was raised for, when it
+ * was revived from one at all.
+ *
+ * Read from a framework header rather than from the store because the
+ * executor has the exchange and not the record; a revival writes the header
+ * from the record's own field, absent value included.
+ *
+ * @internal
+ */
+function parkedRefusedScopes(
+  exchange: Exchange,
+): readonly string[] | undefined {
+  const carried = exchange.headers[DeferralHeaders.REFUSED_SCOPES];
+  return Array.isArray(carried) && carried.every((s) => typeof s === "string")
+    ? (carried as readonly string[])
+    : undefined;
+}
+
+/**
+ * Consult the context's error handlers, in registration order.
+ *
+ * Reached only where the route's own handling gave up: no route handler, or
+ * one that rethrew or threw. The first handler to return anything other than
+ * `undefined` decides; `undefined` passes to the next.
+ *
+ * A handler that throws is reported and the chain CONTINUES to the next one,
+ * and its throw never replaces the error that reaches the failure path. A
+ * chain whose first member could take the whole context's error reporting
+ * down with it would be worse than no chain.
+ *
+ * @returns What was decided, or `undefined` when nothing was
+ *
+ * @internal
+ */
+async function runContextErrorHandlers(
+  deps: ExecutorDeps,
+  args: {
+    exchange: Exchange;
+    originalError: RoutecraftError;
+    stepLabel: string;
+    correlationId: string;
+    pendingSourceParse: boolean;
+  },
+): Promise<ErrorDecision | undefined> {
+  const handlers = deps.context.getErrorHandlers();
+  if (handlers.length === 0) return undefined;
+
+  for (const [index, handler] of handlers.entries()) {
+    deps.context.emit("route:error-handler:invoked", {
+      routeId: deps.routeId,
+      exchangeId: args.exchange.id,
+      correlationId: args.correlationId,
+      originalError: args.originalError,
+      failedOperation: args.stepLabel,
+      scope: "context",
+    });
+    let result: unknown;
+    try {
+      result = await handler(
+        args.originalError,
+        args.exchange,
+        // Bound to the FAILING exchange, the same as a route `.error()`
+        // handler's, so a forward from here carries the parked exchange's
+        // principal and correlation id by reference.
+        deps.buildForward(args.exchange),
+        deps.route,
+      );
+    } catch (thrown) {
+      const handlerErr = processError(thrown);
+      args.exchange.logger.error(
+        {
+          operation: args.stepLabel,
+          err: handlerErr,
+          context: "context error handler",
+          handlerIndex: index,
+        },
+        handlerErr.meta.message,
+      );
+      deps.context.emit("route:error-handler:failed", {
+        routeId: deps.routeId,
+        exchangeId: args.exchange.id,
+        correlationId: args.correlationId,
+        originalError: args.originalError,
+        failedOperation: args.stepLabel,
+        recoveryStrategy: "context-error-handler",
+        scope: "context",
+        handlerIndex: index,
+      });
+      continue;
+    }
+    if (result === undefined) continue;
+    if (isRecovery(result) && result.kind === "rethrow") {
+      // Declines on behalf of the whole chain, not just itself: a handler
+      // saying "propagate the original error" has answered the question the
+      // chain exists to ask, and consulting the next one would let a later
+      // handler overturn a decision already taken.
+      return undefined;
+    }
+    return await applyErrorDecision(deps, {
+      exchange: args.exchange,
+      originalError: args.originalError,
+      result,
+      stepLabel: args.stepLabel,
+      correlationId: args.correlationId,
+      scope: "context",
+      pendingSourceParse: args.pendingSourceParse,
+    });
+  }
+  return undefined;
+}
+
+/**
+ * Turn a handler's non-`undefined`, non-rethrow answer into a decision, and
+ * emit the events that go with it.
+ *
+ * Shared by the route ring and the context ring so the two cannot drift into
+ * recovering, dropping or parking differently for the same answer. `rethrow`
+ * is handled by each caller instead, because it means something different to
+ * each: at route scope it falls into the handler-threw path, and at context
+ * scope it declines for the chain.
+ *
+ * @internal
+ */
+async function applyErrorDecision(
+  deps: ExecutorDeps,
+  args: {
+    exchange: Exchange;
+    originalError: RoutecraftError;
+    result: unknown;
+    stepLabel: string;
+    correlationId: string;
+    scope: "route" | "context";
+    pendingSourceParse: boolean;
+  },
+): Promise<ErrorDecision> {
+  const strategy =
+    args.scope === "route" ? "route-error-handler" : "context-error-handler";
+
+  if (isRecovery(args.result) && args.result.kind === "drop") {
+    applyDropDirective({
+      context: deps.context,
+      routeId: deps.routeId,
+      exchange: args.exchange,
+      originalError: args.originalError,
+      failedOperation: args.stepLabel,
+      correlationId: args.correlationId,
+      reason: args.result.reason,
+      scope: args.scope,
+      route: deps.route,
+    });
+    return { kind: "dropped" };
+  }
+
+  if (isRecovery(args.result) && args.result.kind === "defer") {
+    const deferred = await parkFromErrorPath(deps, {
+      exchange: args.exchange,
+      directive: args.result,
+      originalError: args.originalError,
+      pendingSourceParse: args.pendingSourceParse,
+    });
+    deps.context.emit("route:error-handler:recovered", {
+      routeId: deps.routeId,
+      exchangeId: deferred.id,
+      correlationId: args.correlationId,
+      originalError: args.originalError,
+      failedOperation: args.stepLabel,
+      recoveryStrategy: strategy,
+      scope: args.scope,
+    });
+    return { kind: "deferred", exchange: deferred };
+  }
+
+  // Replace body via rewrap (frozen exchange); keep id and internals so
+  // telemetry continues to reference the same logical exchange.
+  const recovered = DefaultExchange.rewrap(args.exchange, {
+    body: args.result,
+  });
+  deps.context.emit("route:error:caught", {
+    routeId: deps.routeId,
+    error: args.originalError,
+    route: deps.route,
+    exchange: recovered,
+  });
+  deps.context.emit("route:error-handler:recovered", {
+    routeId: deps.routeId,
+    exchangeId: recovered.id,
+    correlationId: args.correlationId,
+    originalError: args.originalError,
+    failedOperation: args.stepLabel,
+    recoveryStrategy: strategy,
+    scope: args.scope,
+  });
+  return { kind: "recovered", exchange: recovered };
+}
+
+/**
+ * Park an exchange a handler answered `recovery.defer()` for.
+ *
+ * The handler names no position, and must not: it runs outside the step tree
+ * and a position it chose could revive a continuation the approval was never
+ * taken against. The executor resolves one instead, from the step that
+ * actually failed.
+ *
+ * Three refusals, all BEFORE the store write, so a park the framework will
+ * not make never reaches the record and its `notify` never runs:
+ *
+ * - the failing position cannot be revived (`RC5051`), which is exactly the
+ *   set a `DeferSignal` is refused from;
+ * - the failure came from above a source-attached parse that a resume cannot
+ *   reproduce (`RC5051`);
+ * - the run is already cancelled (`RC5054`), the same as the `defer`
+ *   outcome case.
+ *
+ * Plus the loop-closing rule: a resumed exchange is not parked again for
+ * scopes a lend was already asked for, so a lend that did not satisfy the
+ * gate cannot ask a human forever.
+ *
+ * @internal
+ */
+async function parkFromErrorPath(
+  deps: ExecutorDeps,
+  args: {
+    exchange: Exchange;
+    directive: RecoveryDefer;
+    originalError: RoutecraftError;
+    pendingSourceParse: boolean;
+  },
+): Promise<Exchange> {
+  const definition = deps.route.definition;
+  const failing = failingStepOf(args.originalError);
+  const resolved = failing
+    ? definition.errorPathSites?.get(failing)
+    : undefined;
+
+  if (resolved?.kind === "refused") {
+    throw rcError("RC5051", args.originalError, { message: resolved.refusal });
+  }
+
+  // Nothing in the step tree owns this failure, so it came from the chain
+  // around the pipeline and nothing in the body has run: the park is an
+  // ADMISSION park. Its resume runs `.authorize()` and `.input()`, and NOT
+  // the source's parse, which is why a park above a pending one is refused
+  // here rather than resumed against a body nothing parsed.
+  //
+  // The alternative, running the pending parser at park time so the stored
+  // body is parsed, is refused for a reason that outlives this case:
+  // `recovery.defer()` is generic. A handler may answer it on an RC5012 (no
+  // principal) or an RC5023 (not authentic) as readily as on the RC5038 a
+  // step-up reacts to, and the framework cannot know which. Parsing here
+  // would therefore feed a caller's bytes to a parser BELOW the authorize
+  // position in the general case, inverting the ordering the pre-from chain
+  // fixes. Failing closed in a narrow case beats silently inverting a
+  // security ordering in a general mechanism.
+  const admission = resolved === undefined;
+  if (admission && args.pendingSourceParse) {
+    throw rcError("RC5051", args.originalError, {
+      message: `Route "${deps.routeId}" failed before its source's parse ran, and an error-path park here cannot be revived: the parser arrives per message on the queue envelope and is neither stored with the record nor re-derivable from the route, so the continuation would resume against an unparsed body. Park from a position below the parse, or let the failure stand. A route fed by an identity-bearing transport (http, direct, mcp) attaches no source parser and is unaffected.`,
+    });
+  }
+  const site = admission ? definition.admissionSite : resolved.site;
+  if (!site) {
+    throw rcError("RC5051", args.originalError, {
+      message: `Route "${deps.routeId}" has no resolved defer sites, so an error-path park has no position to revive from. This route was not produced by craft().build().`,
+    });
+  }
+
+  // A cancelled run must not leave a live resume link behind, exactly as on
+  // the `defer` outcome path: before the store write, refusing to park is
+  // free, and an abort that lands during the write is resolved inside
+  // `deferExchange`.
+  if (deps.abortSignal?.aborted) {
+    throw rcError("RC5054", deps.abortSignal.reason, {
+      message: `Route "${deps.routeId}" answered a failure with recovery.defer() after its run was cancelled; nothing was deferred.`,
+    });
+  }
+
+  const refused = insufficientAuthorityOf(args.originalError)?.scopes;
+  const alreadyAsked = parkedRefusedScopes(args.exchange);
+  if (
+    refused &&
+    alreadyAsked &&
+    refused.every((scope) => alreadyAsked.includes(scope))
+  ) {
+    throw rcError("RC5051", args.originalError, {
+      message: `Route "${deps.routeId}" refused the same scope(s) again after a resume that was supposed to supply them (${refused.join(", ")}), so it is not parked a second time. A lend that does not satisfy the gate must not be able to ask a human for the same thing forever; check that the scopes being lent are the ones the gate reads (a lend on the actor's ring is only read by a gate declaring effective: true).`,
+    });
+  }
+
+  const { notify, ttl, schema, meta, callBinding, stepState } =
+    args.directive.request;
+  return await deferExchange(
+    deps.context,
+    args.exchange,
+    {
+      site,
+      ...(schema !== undefined ? { schema } : {}),
+      ...(meta !== undefined ? { meta } : {}),
+      ...(callBinding !== undefined ? { callBinding } : {}),
+      ...(ttl !== undefined
+        ? { expiresInMs: parseDuration(ttl, "recovery.defer({ ttl })") }
+        : {}),
+      ...(stepState !== undefined ? { stepState } : {}),
+      ...(notify !== undefined ? { notify } : {}),
+      errorPath: {
+        ...(admission ? { admission: true } : {}),
+        ...(refused ? { refusedScopes: refused } : {}),
+      },
+    },
+    deps.routeId,
+    deps.abortSignal,
+  );
 }
 
 /**

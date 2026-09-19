@@ -7,7 +7,12 @@ import {
 } from "./enablement.ts";
 import { randomUUID } from "node:crypto";
 import { BRAND, setBrand } from "./brand.ts";
-import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
+import {
+  DefaultRoute,
+  type ContextErrorHandler,
+  type Route,
+  type RouteDefinition,
+} from "./route.ts";
 import {
   CAPABILITY_REGISTRY,
   snapshotCapability,
@@ -233,6 +238,7 @@ const BASE_CONFIG_KEYS: ReadonlySet<string> = new Set([
   "on",
   "once",
   "plugins",
+  "errorHandler",
   "shutdown",
 ]);
 
@@ -273,6 +279,28 @@ export interface CraftConfig {
   >;
   /** Plugins to run before routes are registered (call initPlugins() then registerRoutes) */
   plugins?: CraftPlugin[];
+  /**
+   * The application's own error handler for every route in this context.
+   *
+   * Sugar for {@link CraftContext.registerErrorHandler}, the same
+   * relationship `on` has to `ctx.on()`. Registered while the context is
+   * constructed, so it is consulted BEFORE any handler a plugin registers in
+   * its `apply()`.
+   *
+   * The object form declares that the handler may answer
+   * `recovery.defer()`, which is what makes the context refuse to start
+   * without a deferral runtime rather than failing on the first park.
+   *
+   * @example
+   * ```typescript
+   * export default defineConfig({
+   *   errorHandler: (error, exchange, forward, route) => undefined,
+   *   deferral: {},
+   * });
+   * ```
+   */
+  errorHandler?:
+    ContextErrorHandler | { handler: ContextErrorHandler; mayDefer?: boolean };
   /** How long a graceful shutdown may drain before it is forced. */
   shutdown?: ShutdownConfig;
 }
@@ -434,6 +462,24 @@ export class CraftContext {
   /** Teardown callbacks registered by plugins; run during stop() before context:stopped */
   private readonly teardownCallbacks: Array<() => void | Promise<void>> = [];
 
+  /**
+   * Error handlers registered on the context, in registration order, which
+   * is also consultation order.
+   *
+   * An array rather than a single slot because two plugins that each decide
+   * some failures must coexist: with one slot the second registration either
+   * throws or silently wins, and the only way to combine them is for one to
+   * wrap the other, which is more special-casing than a chain.
+   */
+  private readonly errorHandlers: ContextErrorHandler[] = [];
+
+  /**
+   * How many registered handlers declared `mayDefer`. A count rather than a
+   * flag because unregistering one must not clear the answer while another
+   * still holds it.
+   */
+  private deferringErrorHandlers = 0;
+
   /** Cached shutdown promise so concurrent stop() callers all await the same teardown */
   private shutdownPromise: Promise<ShutdownOutcome> | null = null;
 
@@ -484,6 +530,21 @@ export class CraftContext {
           } else if (handler) {
             this.on(event as EventName, handler);
           }
+        }
+      }
+
+      // Before the appliers below push any plugin, so the application's own
+      // handler is consulted ahead of every plugin's: config applies first.
+      if (config.errorHandler) {
+        const declared = config.errorHandler;
+        if (typeof declared === "function") {
+          this.registerErrorHandler(declared);
+        } else {
+          this.registerErrorHandler(declared.handler, {
+            ...(declared.mayDefer !== undefined
+              ? { mayDefer: declared.mayDefer }
+              : {}),
+          });
         }
       }
 
@@ -920,6 +981,15 @@ export class CraftContext {
    */
   private assertDeferralConfigured(): void {
     if (this.getStore(DEFERRAL_RUNTIME)) return;
+    // A registered handler that may answer `recovery.defer()` can park ANY
+    // route in the context, including one that declares no defer site of its
+    // own, so it is checked before the per-route markers and reported without
+    // naming a route: no route is the offender.
+    if (this.hasDeferringErrorHandler()) {
+      this.refuseWithoutDeferralRuntime(
+        "A context error handler registered with { mayDefer: true } can park any exchange in this context, but this context has no deferral runtime. Add deferral: {} to defineConfig (or deferral: { store, secret } to be explicit).",
+      );
+    }
     const deferring = this.routes.find(
       (route) => (route.definition.deferSteps?.length ?? 0) > 0,
     );
@@ -930,9 +1000,21 @@ export class CraftContext {
     const offender = deferring ?? resuming;
     if (!offender) return;
     const reached = deferring ? ".defer()" : ".resume()";
-    const err = rcError("RC5052", undefined, {
-      message: `Route "${offender.definition.id}" can reach a ${reached}, but this context has no deferral runtime. Add deferral: {} to defineConfig (or deferral: { store, secret } to be explicit).`,
-    });
+    this.refuseWithoutDeferralRuntime(
+      `Route "${offender.definition.id}" can reach a ${reached}, but this context has no deferral runtime. Add deferral: {} to defineConfig (or deferral: { store, secret } to be explicit).`,
+    );
+  }
+
+  /**
+   * Report a missing deferral runtime and throw.
+   *
+   * Shared by the three things that need one, so they cannot drift into
+   * logging or emitting differently for the same missing config line.
+   *
+   * @throws RC5052 always
+   */
+  private refuseWithoutDeferralRuntime(message: string): never {
+    const err = rcError("RC5052", undefined, { message });
     // Emitted as well as thrown, matching the plugin-init failure path: a
     // caller that never awaits `start()` (every long-running source holds
     // it open until shutdown) would otherwise only see this as an
@@ -953,6 +1035,93 @@ export class CraftContext {
    */
   registerTeardown(fn: () => void | Promise<void>): void {
     this.teardownCallbacks.push(fn);
+  }
+
+  /**
+   * Register an error handler for every route in this context.
+   *
+   * The outermost of the three error rings. A step's `.error()` wrapper
+   * runs first, then the route's own `.error()`, and this chain is reached
+   * only where those gave up: a route with no handler, or one whose handler
+   * rethrew or threw. A route that handles its own failures is never
+   * overridden.
+   *
+   * Handlers are consulted in registration order and the first to return
+   * anything other than `undefined` decides; `undefined` passes to the next.
+   * The return vocabulary is a route `.error()` handler's, unchanged: a body
+   * recovers, `recovery.drop()` discards, `recovery.rethrow()` propagates,
+   * and `recovery.defer()` parks the exchange durably. A handler that throws
+   * is reported as `route:error-handler:failed` with `scope: "context"` and
+   * the chain continues; its throw never replaces the error that reaches the
+   * failure path.
+   *
+   * This is what lets something OUTSIDE a route decide that a failure is
+   * recoverable, which is the whole point: a plugin can recognise an
+   * authorization refusal, park the exchange, have a human lend the missing
+   * scope, and let the continuation finish, without any route knowing.
+   *
+   * A handler that may answer with `recovery.defer()` makes every route in
+   * the context deferrable, so declare it with `mayDefer` and the context
+   * will refuse to start without a deferral runtime (`RC5052`) rather than
+   * failing on the first park.
+   *
+   * `context:error` and `route:exchange:failed` fire only when nothing
+   * decided. A failure a handler resolves no longer reaches either, which is
+   * a change from before this chain existed.
+   *
+   * @param handler - Consulted with the error, the failing exchange, a
+   *   `forward` bound to it, and the route it belongs to
+   * @param options.mayDefer - This handler may answer `recovery.defer()`
+   * @returns Unregister function, the same shape `ctx.on()` returns
+   *
+   * @example
+   * ```typescript
+   * const off = ctx.registerErrorHandler(
+   *   (error, exchange, forward, route) =>
+   *     isPoison(error) ? recovery.drop("poison") : undefined,
+   * );
+   * ```
+   */
+  registerErrorHandler(
+    handler: ContextErrorHandler,
+    options?: { mayDefer?: boolean },
+  ): () => void {
+    if (typeof handler !== "function") {
+      throw rcError("RC5003", undefined, {
+        message:
+          "ctx.registerErrorHandler(handler) takes a function receiving (error, exchange, forward, route) and returning a recovery body, a recovery directive, or undefined to pass.",
+      });
+    }
+    const entry: ContextErrorHandler = handler;
+    if (options?.mayDefer) this.deferringErrorHandlers += 1;
+    this.errorHandlers.push(entry);
+    return () => {
+      const at = this.errorHandlers.indexOf(entry);
+      if (at === -1) return;
+      this.errorHandlers.splice(at, 1);
+      if (options?.mayDefer) this.deferringErrorHandlers -= 1;
+    };
+  }
+
+  /**
+   * The registered error handlers, in consultation order.
+   *
+   * @internal
+   */
+  getErrorHandlers(): ReadonlyArray<ContextErrorHandler> {
+    return this.errorHandlers;
+  }
+
+  /**
+   * Whether any registered handler declared it may park an exchange.
+   *
+   * Read by the startup runtime check and by `routeCanDefer`, because such a
+   * handler can defer ANY route in the context: a transport that advertises
+   * deferability per route would otherwise under-advertise every route that
+   * declares no defer site of its own.
+   */
+  hasDeferringErrorHandler(): boolean {
+    return this.deferringErrorHandlers > 0;
   }
 
   /**

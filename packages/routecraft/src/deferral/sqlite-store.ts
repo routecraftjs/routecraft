@@ -24,6 +24,7 @@ import {
 } from "../shared/sqlite/database.ts";
 import { claimIsOutstanding } from "./types.ts";
 import type {
+  ErrorPathRecord,
   ExpiredScanCursor,
   NewDeferral,
   PendingDeferralSummary,
@@ -60,7 +61,7 @@ const SQLITE_CONSUMER = "deferral store (sqlite)";
  * Schema version this build writes. Bumped whenever
  * {@link MIGRATIONS} grows an entry.
  */
-const SCHEMA_VERSION = 1;
+const SCHEMA_VERSION = 2;
 
 /**
  * How long a writer waits for a competing write lock before giving up.
@@ -101,7 +102,9 @@ const CLAIMED = "state = 'waiting' AND claimed_at IS NOT NULL";
  * across the 0.7.0 canary is deliberately not carried: no released build
  * produced those files, and keeping the steps would preserve the retired
  * vocabulary in table and column names an operator only meets by opening the
- * database.
+ * database. Version 2 IS carried, for the opposite reason: a released build
+ * has written version 1 files, and an operator's existing deferrals have to
+ * survive the upgrade.
  *
  * Timestamps are stored as epoch milliseconds rather than SQLite datetimes
  * so ordering and comparison work without a date function, and JSON columns
@@ -137,6 +140,12 @@ const MIGRATIONS: ReadonlyArray<string> = [
    CREATE INDEX deferrals_by_route ON deferrals (route_id, deferred_at, id);
    CREATE INDEX deferrals_retention ON deferrals (state, outcome_at);
    CREATE INDEX deferrals_stranded ON deferrals (outcome_kind, deferred_at);`,
+  // Version 2: what an error-path park records about itself (whether it was
+  // raised before admission, and the scopes the refusal named). Nullable and
+  // unindexed: every record written before this migration is a `.defer()` or
+  // a re-entrant deferral, for which absent is the correct answer, and the
+  // field is only ever read by id on a resume that already has the row.
+  `ALTER TABLE deferrals ADD COLUMN error_path TEXT;`,
 ];
 
 /**
@@ -212,9 +221,9 @@ export class SqliteDeferralStore implements DeferralStore {
         .prepare(
           `INSERT INTO deferrals (
              id, route_id, position, continuation_hash, action_fingerprint,
-             exchange, "schema", call_binding, meta,
+             exchange, "schema", call_binding, meta, error_path,
              step_state, state, waiting_for, deferred_at, expires_at
-           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+           ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
         )
         .run(
           record.id,
@@ -228,6 +237,13 @@ export class SqliteDeferralStore implements DeferralStore {
           record.meta === undefined
             ? null
             : JSON.stringify(encodePersistable(record.meta, "meta")),
+          // Framework-owned and plain JSON by construction (a boolean and a
+          // string array), so it never goes through `encodePersistable`: it
+          // carries no user value that could hold a Date, a secret or a
+          // resolver.
+          record.errorPath === undefined
+            ? null
+            : JSON.stringify(record.errorPath),
           record.stepState === undefined
             ? null
             : JSON.stringify(encodePersistable(record.stepState, "stepState")),
@@ -704,6 +720,9 @@ interface DeferralRow {
   schema: string;
   call_binding: string | null;
   meta: string | null;
+  // Nullable-or-absent: a row written before the version 2 migration has no
+  // value, and a driver reading a freshly added column can report either.
+  error_path?: string | null;
   step_state: string | null;
   state: string;
   waiting_for: string;
@@ -803,6 +822,9 @@ function toDeferral(row: DeferralRow): Deferral {
     schema: JSON.parse(row.schema) as DeferralSchema,
     ...(row.call_binding !== null ? { callBinding: row.call_binding } : {}),
     ...(row.meta !== null ? { meta: JSON.parse(row.meta) as unknown } : {}),
+    ...(row.error_path != null
+      ? { errorPath: JSON.parse(row.error_path) as ErrorPathRecord }
+      : {}),
     ...(row.step_state !== null
       ? { stepState: JSON.parse(row.step_state) as unknown }
       : {}),

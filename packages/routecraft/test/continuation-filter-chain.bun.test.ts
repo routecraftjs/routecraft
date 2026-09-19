@@ -441,15 +441,63 @@ describe("the filter chain on a resumed continuation", () => {
     // another, shows up here as a shape difference rather than passing
     // because the filter happened not to select it.
     expect(survival).toEqual({
-      errorHandler: { resume: true, debounce: true, errorChannel: true },
-      preParseFilters: { resume: false, debounce: false, errorChannel: false },
-      postParseFilters: { resume: false, debounce: false, errorChannel: false },
-      postFromFilters: { resume: false, debounce: false, errorChannel: false },
-      throttle: { resume: false, debounce: false, errorChannel: false },
-      circuitBreaker: { resume: false, debounce: false, errorChannel: false },
-      retry: { resume: true, debounce: false, errorChannel: false },
-      timeout: { resume: true, debounce: false, errorChannel: false },
-      concurrency: { resume: true, debounce: false, errorChannel: false },
+      errorHandler: {
+        resume: true,
+        debounce: true,
+        errorChannel: true,
+        admission: true,
+      },
+      // `admission` is the one kind that runs authorize (#2): the park was
+      // raised before the route admitted the exchange, and the door's
+      // `elevate` hook supplied a live principal for it to read.
+      preParseFilters: {
+        resume: false,
+        debounce: false,
+        errorChannel: false,
+        admission: true,
+      },
+      postParseFilters: {
+        resume: false,
+        debounce: false,
+        errorChannel: false,
+        admission: false,
+      },
+      postFromFilters: {
+        resume: false,
+        debounce: false,
+        errorChannel: false,
+        admission: false,
+      },
+      throttle: {
+        resume: false,
+        debounce: false,
+        errorChannel: false,
+        admission: false,
+      },
+      circuitBreaker: {
+        resume: false,
+        debounce: false,
+        errorChannel: false,
+        admission: false,
+      },
+      retry: {
+        resume: true,
+        debounce: false,
+        errorChannel: false,
+        admission: true,
+      },
+      timeout: {
+        resume: true,
+        debounce: false,
+        errorChannel: false,
+        admission: true,
+      },
+      concurrency: {
+        resume: true,
+        debounce: false,
+        errorChannel: false,
+        admission: true,
+      },
     });
 
     // Every answer states its own reason. The same position is off for
@@ -473,6 +521,13 @@ describe("the filter chain on a resumed continuation", () => {
           .filter(([, policy]) => policy.mustNotRefuse === true)
           .map(([kind]) => `${field}.${kind}`),
     );
-    expect(mayNotBeRefused).toEqual(["concurrency.resume"]);
+    // Both continuations of a parked exchange, and only those: each runs
+    // below a claim it has already spent, so the bulkhead queues them rather
+    // than refusing. No other kind may be added here without the same
+    // argument.
+    expect(mayNotBeRefused).toEqual([
+      "concurrency.resume",
+      "concurrency.admission",
+    ]);
   });
 });

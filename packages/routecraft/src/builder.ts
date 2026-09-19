@@ -1848,6 +1848,13 @@ export class RouteBuilder<
       if (sites.reentrantDeferSteps.length > 0) {
         route.reentrantDeferSteps = sites.reentrantDeferSteps;
       }
+      // Always, unlike the two lists above. Those are absent on a route that
+      // never defers so the common case costs nothing to ask about; these
+      // answer a question that only arises once a handler has already asked
+      // to park, and the answer has to exist for every route because a
+      // CONTEXT handler can park any of them.
+      route.errorPathSites = sites.errorPathSites;
+      route.admissionSite = sites.admissionSite;
       if (usesResume(route)) route.usesResume = true;
       assertRouteScopeCacheCompatibility(route);
     }
