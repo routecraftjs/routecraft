@@ -447,7 +447,7 @@ A **handler** is registered on the context, by someone who did not write the rou
 
 Handlers are keyed by a POINT on the route lifecycle. One point exists today, `error`; `admission`, `entry` and `exit` are specified in [#816](https://github.com/routecraftjs/routecraft/issues/816) and land separately. `HandlerPoint` is a declaration-merged interface, so a package outside core contributes a point without core changing, and two packages claiming one name with different signatures is a compile error.
 
-### The `error` point
+### The `error` point \{#the-error-point}
 
 The outermost of three error rings. A step's `.error()` wrapper runs first, then the route's own [`.error()`](/docs/reference/operations/error), and this chain is reached only where those gave up: a route with no handler, or one whose handler rethrew or threw. A route that handles its own failures is never overridden.
 

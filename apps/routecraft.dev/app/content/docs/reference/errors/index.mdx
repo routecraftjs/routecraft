@@ -1054,7 +1054,7 @@ Implement the member the message names, or drop back to a shipped backend (`sqli
 Deferral notification failed
 
 **Why it happens**  
-An error handler answered with [`recovery.defer({ notify })`](/docs/reference/operations#recoverydefer), the exchange parked, and then the `notify` hook threw or did not settle before the deferring route's abort signal fired.
+An error handler answered with [`recovery.defer({ notify })`](/docs/reference/operations/error#recovery-defer-request), the exchange parked, and then the `notify` hook threw or did not settle before the deferring route's abort signal fired.
 
 Nobody was successfully told the work is waiting, so the deferral was denied claim-first and its resume link is dead: a token that did reach a recipient reads [RC5050](#rc-5050) rather than reviving work whose caller was told the run failed. The hook's own failure is carried as the cause.
 

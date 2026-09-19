@@ -207,7 +207,7 @@ const ctx = new ContextBuilder()
   .build()
 ```
 
-For a catch-all, subscribe to `context:error`. It fires for unhandled errors and for handler failures, but only when nothing DECIDED the failure: a [context error handler](/docs/reference/configuration#error-handlers) that recovers, drops or parks the exchange resolves it, and neither `context:error` nor `route:exchange:failed` fires for it. Count on this as "every failure" only in a context that registers no such handler.
+For a catch-all, subscribe to `context:error`. It fires for unhandled errors and for handler failures, but only when nothing DECIDED the failure. A step `.error()` wrapper, a route [`.error()`](/docs/reference/operations/error) and a [context error handler](/docs/reference/configuration#the-error-point) all resolve the exchange when they recover, drop or park it, and neither `context:error` nor `route:exchange:failed` fires for a failure any of them resolved. Count on this as "every failure" only where none of the three is in play.
 
 ```ts skip="fragment: ctx is illustrative"
 ctx.on('context:error', ({ details }) => {
