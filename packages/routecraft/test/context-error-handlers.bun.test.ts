@@ -625,6 +625,40 @@ describe("context handlers: the error point", () => {
   });
 
   /**
+   * @case A hand-written definition claiming defer steps its own steps do not support
+   * @preconditions A route with no .defer(), handed over with deferSteps set by hand
+   * @expectedResult The walk's answer replaces it, rather than being merged with it
+   */
+  test("a definition's own claim about its defer steps does not outrank the walk", async () => {
+    const store = new MemoryDeferralStore();
+    const [built] = craft()
+      .id("claims")
+      .from(direct())
+      .transform((body) => body)
+      .to(noop())
+      .build();
+    const raw = { ...built! } as Record<string, unknown>;
+    delete raw["errorPathSites"];
+    delete raw["admissionSite"];
+    // Nothing in `steps` can defer, so startup demanding a deferral runtime
+    // for this route, and a revival walking this list, would both be wrong.
+    raw["deferSteps"] = [{ index: 0 }];
+    raw["usesResume"] = true;
+
+    t = await testContext()
+      .with({ deferral: { store, secret: SECRET } })
+      .routes([raw as never, craft().id("answers").from(direct()).resume()])
+      .build();
+    await t.startAndWaitReady();
+
+    const registered = t.ctx
+      .getRoutes()
+      .find((r) => r.definition.id === "claims");
+    expect(registered?.definition.deferSteps).toBeUndefined();
+    expect(registered?.definition.usesResume).toBeUndefined();
+  });
+
+  /**
    * @case A forward out of a continuation does not make the target look like one
    * @preconditions A parked route whose continuation forwards to a second route, with a handler recording what each run reports
    * @expectedResult The target route runs as execution one, with no resume payload and no refusal carried from the exchange that parked

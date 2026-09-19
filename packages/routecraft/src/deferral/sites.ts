@@ -396,20 +396,36 @@ export function resolveDeferSites(route: RouteDefinition): ResolvedDeferSites {
  */
 export function applyResolvedSites(definition: RouteDefinition): void {
   const sites = resolveDeferSites(definition);
-  // Absent rather than empty on a route that never defers, so the common
-  // case costs nothing to ask about.
+  // Every field written, including to `undefined`, because this is the walk's
+  // answer rather than an addition to whatever was there. A hand-written
+  // definition can arrive carrying `deferSteps` that its own steps do not
+  // support, and leaving that in place would have startup demand a deferral
+  // runtime for a route that cannot park, then have a revival walk a list
+  // that matches nothing.
+  //
+  // Undefined rather than empty where there is nothing, so the common case
+  // stays cheap to ask about.
+  // Deleted rather than set to `undefined`: `exactOptionalPropertyTypes` is
+  // on, so these fields are absent or present, never present and undefined.
+  // A route definition is built once at startup, so the cost of `delete`
+  // here is not the per-exchange one it would be on a header bag.
   if (sites.deferSteps.length > 0) {
     definition.deferSteps = sites.deferSteps;
+  } else {
+    delete definition.deferSteps;
   }
   if (sites.reentrantDeferSteps.length > 0) {
     definition.reentrantDeferSteps = sites.reentrantDeferSteps;
+  } else {
+    delete definition.reentrantDeferSteps;
   }
-  // Always, unlike the two above: these answer a question that only arises
-  // once a handler has asked to park, and a CONTEXT handler can park any
-  // route, so the answer has to exist for every one.
   definition.errorPathSites = sites.errorPathSites;
   definition.admissionSite = sites.admissionSite;
-  if (usesResume(definition)) definition.usesResume = true;
+  if (usesResume(definition)) {
+    definition.usesResume = true;
+  } else {
+    delete definition.usesResume;
+  }
 }
 
 export function usesResume(route: RouteDefinition): boolean {
