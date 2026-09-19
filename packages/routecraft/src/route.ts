@@ -834,11 +834,15 @@ export class DefaultRoute implements Route {
     //
     // Read off `DeferralHeaders` rather than spelled out here, so a key added
     // there is stripped without anyone remembering this site.
-    const inherited = Object.fromEntries(
-      Object.entries(headers ?? {}).filter(
-        ([key]) => !PER_EXCHANGE_HEADERS.has(key),
-      ),
-    );
+    //
+    // One pass rather than entries-filter-fromEntries: this runs on every
+    // ingress, and that shape allocates a pair array per header before
+    // discarding most of them.
+    const incoming = (headers ?? {}) as Record<string, unknown>;
+    const inherited: Record<string, unknown> = {};
+    for (const key of Object.keys(incoming)) {
+      if (!PER_EXCHANGE_HEADERS.has(key)) inherited[key] = incoming[key];
+    }
     const builtHeaders: Record<string, unknown> = {
       ...inherited,
       [HeadersKeys.ID]: randomUUID(),

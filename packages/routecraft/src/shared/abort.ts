@@ -74,6 +74,14 @@ export async function settleOrAbort<T>(
   run: () => T | Promise<T>,
   signal?: AbortSignal,
 ): Promise<T> {
+  // Before `run` is called at all, not just before the race is settled.
+  // `Promise.race` builds its array left to right, so the hook is invoked
+  // before the executor below can look at the signal, and an already-settled
+  // hook then wins the race against an already-rejected bound. Reaching a
+  // notification hook this way means telling a human about work whose route
+  // is already being torn down.
+  if (signal?.aborted) throw HOOK_ABORTED;
+
   let onAbort: (() => void) | undefined;
   try {
     return await Promise.race([

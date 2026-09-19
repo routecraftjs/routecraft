@@ -1401,6 +1401,27 @@ describe("insufficientAuthorityOf", () => {
   });
 
   /**
+   * @case The shape an application throws by hand, carrying scopes and nothing else
+   * @preconditions A branded RC5038 whose cause has `missing` with only `scopes`, which the helper documents as supported: `authorize()` always sets `mode`, an application need not
+   * @expectedResult A detail with the scopes copied and the optionals absent, rather than the whole thing refused
+   */
+  test("accepts a detail carrying only scopes, as an application may throw", async () => {
+    const real = await refuse(
+      { scopes: ["payout:write"] },
+      markAuthentic({ subject: "agent", scopes: [] } as unknown as Principal),
+    );
+    delete (real.cause.missing as { mode?: unknown }).mode;
+    delete (real.cause.missing as { effective?: unknown }).effective;
+
+    const detail = insufficientAuthorityOf(real);
+    expect(detail?.scopes).toEqual(["payout:write"]);
+    expect(detail?.mode).toBeUndefined();
+    expect(detail?.effective).toBeUndefined();
+    // Copied rather than handed back, same as every other accepted shape.
+    expect(detail?.scopes).not.toBe(real.cause.missing.scopes);
+  });
+
+  /**
    * @case What the caller receives cannot be changed afterwards
    * @preconditions A refusal read once, then its own scopes array mutated through the error
    * @expectedResult The detail already returned still reports what it reported
