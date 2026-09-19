@@ -159,7 +159,7 @@ export const CHAIN_SURVIVAL: Readonly<
     },
     admission: {
       survives: false,
-      why: "cacheCheck (#9). Same as resume: refused at build alongside a reachable defer, and a check below the claim would key work that has already spent an approval.",
+      why: "cacheCheck (#9). A check below the claim would key work that has already spent an approval. NOT the build refusal that covers a static .defer(): that gates on deferSteps, which an error-path park does not have, so it never sees this route.",
     },
   },
   postFromFilters: {

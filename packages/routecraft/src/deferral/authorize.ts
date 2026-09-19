@@ -4,6 +4,7 @@ import { isAuthentic } from "../auth/authentic.ts";
 import { markRestored } from "../auth/restored.ts";
 import { HeadersKeys } from "../exchange.ts";
 import { rcError } from "../error.ts";
+import { rcCodeOf } from "../brand.ts";
 import { HOOK_ABORTED, settleOrAbort } from "../shared/abort.ts";
 import { decodePersistable } from "./serialize.ts";
 import type { Deferral } from "./types.ts";
@@ -335,9 +336,20 @@ function elevationDeviation(
     // it with `authorize`, which answers exactly that question.
     return "returned a principal for a deferral that parked without one";
   }
-  const sameParty = comparableIdentity(parked);
-  const remint = comparableIdentity(elevated);
-  if (!identicalJson(sameParty, remint)) {
+  // A principal is application data: an actor chain that loops would make
+  // `JSON.stringify` throw, and a raw TypeError out of the elevator reads as
+  // a framework fault rather than as a principal it declined to accept. An
+  // identity this function cannot compare is one it must not approve.
+  let same: boolean;
+  try {
+    same = identicalJson(
+      comparableIdentity(parked),
+      comparableIdentity(elevated),
+    );
+  } catch {
+    return "returned a principal that could not be compared with the parked one";
+  }
+  if (!same) {
     return "returned a principal differing from the parked one outside scopes";
   }
   const lent = lentScopes(parked, elevated);
@@ -480,9 +492,9 @@ function stableJson(value: unknown): string {
 }
 
 function isRefusal(err: unknown): boolean {
-  return (
-    typeof err === "object" &&
-    err !== null &&
-    (err as { rc?: unknown }).rc === "RC5056"
-  );
+  // The BRAND, not a matching `rc` property. A hook is application code and
+  // may reject with anything, including an object shaped like one of these
+  // refusals; passing that through would report the hook's own message as
+  // the framework's verdict and skip logging it as a hook that threw.
+  return rcCodeOf(err) === "RC5056";
 }

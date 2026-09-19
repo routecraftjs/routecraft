@@ -764,6 +764,7 @@ export type {
   SerializedExchange,
   SerializedOutcome,
   Deferral,
+  ErrorPathRecord,
   DeferralCasResult,
   DeferralConfig,
   DeferralListCursor,

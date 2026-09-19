@@ -930,7 +930,7 @@ function failingStepMap(
   const internals = EXCHANGE_INTERNALS.get(exchange);
   if (!internals) return undefined;
   internals.failingSteps ??= new WeakMap<object, Step<Adapter>>();
-  return internals.failingSteps as WeakMap<object, Step<Adapter>>;
+  return internals.failingSteps;
 }
 
 /** @internal */

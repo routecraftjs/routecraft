@@ -8,6 +8,7 @@ import { INTERNALS_KEY, BRAND, setBrand, setInternals } from "./brand.ts";
 import type { CraftContext } from "./context.ts";
 import { logger, childBindings } from "./logger.ts";
 import type { Route } from "./route.ts";
+import type { Adapter, Step } from "./types.ts";
 import type { OnParseError } from "./adapters/shared/parse.ts";
 import type { Principal } from "./auth/types.ts";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
@@ -330,7 +331,7 @@ type ExchangeInternals = {
    * outer run, which is the one case the executor cannot answer from the step
    * it is holding.
    */
-  failingSteps?: WeakMap<object, unknown>;
+  failingSteps?: WeakMap<object, Step<Adapter>>;
   /**
    * How the synthetic parse step should handle a parse failure.
    * - `"fail"` / `"abort"`: throw `RC5016` so `exchange:failed` fires (and

@@ -6,6 +6,7 @@ export type {
   SerializedExchange,
   SerializedOutcome,
   Deferral,
+  ErrorPathRecord,
   DeferralCasResult,
   DeferralListCursor,
   DeferralListQuery,
