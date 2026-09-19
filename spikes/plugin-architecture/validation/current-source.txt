@@ -1,0 +1,4 @@
+I1: replacement lookup works by recreating the private Symbol.for name (unsupported protocol, public imports only)
+I2/D11: registerDsl accepts a custom early-complete Step despite kind tap; kind does not restrict factory behavior
+I8: context starts/stops with no deferral configured
+I5: same-context database path conflict rejected

@@ -1,0 +1,6 @@
+{
+  "name": "@probe/a",
+  "exports": {
+    ".": "./index.ts"
+  }
+}

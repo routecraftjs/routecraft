@@ -1,0 +1,10 @@
+{
+  "extends": "../../../tsconfig.json",
+  "compilerOptions": {
+    "noUnusedLocals": false,
+    "noUnusedParameters": false,
+    "types": ["node", "bun-types"],
+    "skipLibCheck": true
+  },
+  "include": ["current-source.probe.ts"]
+}

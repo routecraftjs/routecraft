@@ -1,0 +1,28 @@
+install order: routecraft.stores -> acme.audit -> routecraft.deferral -> routecraft.telemetry -> routecraft.operations -> routecraft.resilience
+wrapper chain: routecraft.admission -> routecraft.retry -> acme.audit -> routecraft.timeout -> routecraft.concurrency
+steps: auditMark, defer, transform, tap, fail
+body: hello world
+audit: enter greet | exit greet
+waiting deferrals: [ "def-1" ]
+health: {
+  "routecraft.stores": {
+    up: true,
+    detail: "2 namespace(s)",
+  },
+  "acme.audit": {
+    up: true,
+  },
+  "routecraft.deferral": {
+    up: true,
+  },
+  "routecraft.telemetry": {
+    up: true,
+  },
+  "routecraft.operations": {
+    up: true,
+  },
+  "routecraft.resilience": {
+    up: true,
+  },
+}
+events seen by telemetry: 6

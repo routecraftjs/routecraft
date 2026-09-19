@@ -1,0 +1,110 @@
+test files 266 import internal source path excluding package root index 156
+[
+  [ "packages/eslint-plugin-routecraft/test/batch-before-from.bun.test.ts", [ "../src/rules/batch-before-from" ] ], [ "packages/eslint-plugin-routecraft/test/capability-boundaries.bun.test.ts",
+    [ "../src/rules/capability-boundaries" ]
+  ], [ "packages/eslint-plugin-routecraft/test/restrict-principal-minting.bun.test.ts",
+    [ "../src/rules/restrict-principal-minting" ]
+  ], [ "packages/eslint-plugin-routecraft/test/require-untrusted-shell-args.bun.test.ts",
+    [ "../src/rules/require-untrusted-shell-args" ]
+  ], [ "packages/eslint-plugin-routecraft/test/single-to-per-route.bun.test.ts", [
+      "../src/rules/single-to-per-route"
+    ] ], [ "packages/eslint-plugin-routecraft/test/require-named-route.bun.test.ts",
+    [ "../src/rules/require-named-route" ]
+  ], [ "packages/testing/test/test-fn.bun.test.ts", [ "../src/test-fn.ts", "../src/thenable-schema.ts" ] ], [ "packages/os/test/shell-docker.bun.test.ts", [ "../src/adapters/shell/isolation/docker.ts",
+      "../src/adapters/shell/enricher.ts", "../src/adapters/shell/isolation/index.ts",
+      "../src/adapters/shell/isolation/types.ts"
+    ] ], [ "packages/os/test/shell.bun.test.ts", [ "../src/adapters/shell/isolation/none.ts",
+      "../src/adapters/shell/isolation/unshare.ts", "../src/adapters/shell/isolation/index.ts",
+      "../src/adapters/shell/shared.ts"
+    ] ], [ "packages/cli/test/runtime-gate.bun.test.ts", [ "../src/runtime-gate" ] ], [ "packages/cli/test/acp.bun.test.ts", [ "../src/acp.js" ] ], [ "packages/cli/test/ops-client.bun.test.ts",
+    [ "../src/settings" ]
+  ], [ "packages/cli/test/deferrals-format.bun.test.ts", [ "../src/format" ] ], [
+    "packages/cli/test/acp-bridge.bun.test.ts", [ "../src/acp-bridge.js" ]
+  ], [ "packages/cli/test/tui/db.bun.test.ts", [ "../../src/tui/db.js" ] ], [ "packages/cli/test/tui/utils.bun.test.ts",
+    [ "../../src/tui/utils.js" ]
+  ], [ "packages/ai/test/mcp-structured-output.bun.test.ts", [ "../src/mcp/server.ts",
+      "../src/mcp/types.ts"
+    ] ], [ "packages/ai/test/agent-session-persona.bun.test.ts", [ "../src/agent/session/index.ts" ] ], [ "packages/ai/test/agent-tool-policy.bun.test.ts", [ "../src/mcp/types.ts",
+      "../src/mcp/tool-registry.ts", "../src/agent/tools/policy.ts", "../src/llm/types.ts"
+    ] ], [ "packages/ai/test/mcp-cors.bun.test.ts", [ "../src/mcp/cors.ts" ] ], [ "packages/ai/test/acp-surface.bun.test.ts", [ "../src/surface/index.ts",
+      "../src/surface/cancellation.ts"
+    ] ], [ "packages/ai/test/agent-prompt-source.bun.test.ts", [ "../src/llm/types.ts",
+      "../src/llm/providers/index.ts"
+    ] ], [ "packages/ai/test/agent-validate.bun.test.ts", [ "../src/llm/types.ts" ] ], [ "packages/ai/test/agent.bun.test.ts", [ "../src/llm/types.ts", "../src/llm/providers/index.ts" ] ], [ "packages/ai/test/llm-sampling-dispatch.bun.test.ts", [ "../src/llm/providers/llm-utils.ts",
+      "../src/llm/types.ts"
+    ] ], [ "packages/ai/test/agent-background-tool.bun.test.ts", [ "../src/agent/session/index.ts" ] ], [ "packages/ai/test/mcp.bun.test.ts", [ "../src/mcp/types.ts", "../src/mcp/adapters/mcp/enricher.ts" ] ], [ "packages/ai/test/mcp-deferred.bun.test.ts", [ "../src/mcp/server.ts",
+      "../src/mcp/types.ts"
+    ] ], [ "packages/ai/test/agent-blocks-progressive.bun.test.ts", [ "../src/llm/types.ts" ] ], [ "packages/ai/test/project-discoverers.bun.test.ts", [ "../src/agent/types.ts",
+      "../src/block/types.ts"
+    ] ], [ "packages/ai/test/llm-utils.bun.test.ts", [ "../src/llm/providers/llm-utils.ts" ] ], [ "packages/ai/test/schema-thenable.bun.test.ts", [ "../src/mcp/validate-options.ts",
+      "../src/llm/structured-output.ts", "../src/mcp/types.ts"
+    ] ], [ "packages/ai/test/oauth.bun.test.ts", [ "../src/mcp/oauth.ts",
+      "../src/mcp/userinfo.ts"
+    ] ], [ "packages/ai/test/agent-stream-option.bun.test.ts", [ "../src/agent/delta-stream.ts",
+      "../src/llm/types.ts"
+    ] ], [ "packages/ai/test/agent-sampling.bun.test.ts", [ "../src/agent/types.ts",
+      "../src/llm/providers/llm-utils.ts", "../src/llm/types.ts"
+    ] ], [ "packages/ai/test/acp-config-key.bun.test.ts", [ "../src/acp/types.ts" ] ], [ "packages/ai/test/session-bounded.bun.test.ts", [ "../src/agent/session/bounded.ts" ] ], [ "packages/ai/test/acp-peer.bun.test.ts", [ "../src/acp/sdk.ts" ] ],
+  [ "packages/ai/test/llm-providers.bun.test.ts", [ "../src/llm/providers/resolve.ts" ] ], [ "packages/ai/test/mcp-auth-errors.bun.test.ts", [ "../src/mcp/auth-errors.ts" ] ], [ "packages/ai/test/agent-principal-prompt.bun.test.ts", [ "../src/llm/types.ts" ] ], [ "packages/ai/test/agent-blocks-defaults.bun.test.ts", [ "../src/llm/types.ts" ] ], [ "packages/ai/test/config-applier.bun.test.ts", [ "../src/llm/types.ts",
+      "../src/agent/index.ts", "../src/llm/types.ts", "../src/mcp/types.ts", "../src/embedding/types.ts",
+      "../src/agent/plugin.ts"
+    ] ], [ "packages/ai/test/agent-streaming.bun.test.ts", [ "../src/llm/types.ts",
+      "../src/llm/providers/index.ts"
+    ] ], [ "packages/ai/test/stream-llm.bun.test.ts", [ "../src/llm/providers/stream-llm.ts" ] ], [ "packages/ai/test/agent-choices.bun.test.ts", [ "../src/agent/loader.ts",
+      "../src/agent/advertised.ts", "../src/agent/session/index.ts"
+    ] ], [ "packages/ai/test/http-client-cache.bun.test.ts", [ "../src/mcp/http-client-cache.ts" ] ], [ "packages/ai/test/tools-default.bun.test.ts", [ "../src/agent/store.ts",
+      "../src/agent/tools/selection.ts"
+    ] ], [ "packages/ai/test/agent-bus-events.bun.test.ts", [ "../src/llm/types.ts" ] ], [ "packages/ai/test/agent-session-ops.bun.test.ts", [ "../src/agent/session/index.ts" ] ], [ "packages/ai/test/agent-blocks-nested.bun.test.ts", [ "../src/block/resolve.ts",
+      "../src/agent/agent.ts", "../src/llm/types.ts"
+    ] ], [ "packages/ai/test/tools-selection.bun.test.ts", [ "../src/agent/tools/selection.ts" ] ], [ "packages/ai/test/llm-prompt-parts-sdk.test.ts", [ "../src/llm/providers/llm-utils.ts",
+      "../src/llm/shared.ts", "../src/llm/types.ts"
+    ] ], [ "packages/ai/test/llm-context-overflow.bun.test.ts", [ "../src/llm/context-overflow.ts" ] ], [ "packages/ai/test/mcp-stateless.bun.test.ts", [ "../src/mcp/server.ts",
+      "../src/mcp/types.ts"
+    ] ], [ "packages/ai/test/agent-defer.bun.test.ts", [ "../src/fn/handler-context.ts" ] ], [ "packages/ai/test/agent-blocks-lifetime.bun.test.ts", [ "../src/llm/types.ts" ] ], [ "packages/ai/test/agent-thread-compaction.bun.test.ts", [ "../src/agent/thread.ts",
+      "../src/agent/deferral-state.ts"
+    ] ], [ "packages/ai/test/standard-schema-guards.bun.test.ts", [ "../src/mcp/validate-options.ts",
+      "../src/llm/structured-output.ts", "../src/fn/fn.ts", "../src/agent/agent.ts", "../src/fn/handler-context.ts",
+      "../src/mcp/types.ts", "../src/fn/types.ts"
+    ] ], [ "packages/ai/test/tools-selection-mcp.bun.test.ts", [ "../src/mcp/types.ts",
+      "../src/mcp/tool-registry.ts"
+    ] ], [ "packages/ai/test/session-store-config.bun.test.ts", [ "../src/agent/session/index.ts",
+      "../src/agent/session/config.ts", "../src/agent/store.ts"
+    ] ], [ "packages/ai/test/tool-registry.bun.test.ts", [ "../src/mcp/tool-registry.ts" ] ], [ "packages/ai/test/mcp-plugin.bun.test.ts", [ "../src/mcp/types.ts" ] ], [ "packages/ai/test/enricher-structured-fallback.bun.test.ts", [ "../src/llm/types.ts" ] ], [ "packages/ai/test/llm-reasoning.bun.test.ts", [ "../src/llm/providers/llm-utils.ts",
+      "../src/llm/providers/reasoning.ts", "../src/llm/types.ts"
+    ] ], [ "packages/ai/test/agent-blocks-client.bun.test.ts", [ "../src/llm/types.ts" ] ], [ "packages/ai/test/mcp-proxy.bun.test.ts", [ "../src/mcp/server.ts",
+      "../src/mcp/tool-registry.ts", "../src/mcp/types.ts", "../src/mcp/types.ts", "../src/fn/types.ts"
+    ] ], [ "packages/ai/test/agent-blocks-validation.bun.test.ts", [ "../src/llm/types.ts" ] ], [ "packages/ai/test/llm-resolve-baseurl.bun.test.ts", [ "../src/llm/providers/resolve.ts" ] ], [ "packages/ai/test/tools-builders.bun.test.ts", [ "../src/agent/tools/types.ts",
+      "../src/fn/store.ts"
+    ] ], [ "packages/ai/test/surface-protocol.bun.test.ts", [ "../src/surface/index.ts",
+      "../src/surface/protocol.ts"
+    ] ], [ "packages/ai/test/protocol-ingress.bun.test.ts", [ "../src/mcp/types.ts" ] ], [ "packages/routecraft/test/direct-plugin.bun.test.ts", [ "../src/adapters/direct/shared.ts",
+      "../src/context.ts", "../src/adapters/direct/types.ts"
+    ] ], [ "packages/ai/test/fn.bun.test.ts", [ "../src/fn/store.ts" ] ], [ "packages/routecraft/test/ops-health-state.bun.test.ts",
+    [ "../src/plugins/ops/state.ts" ]
+  ], [ "packages/routecraft/test/deferral-runtime.bun.test.ts", [ "../src/deferral/index.ts",
+      "../src/shared/sqlite/driver.ts"
+    ] ], [ "packages/routecraft/test/runtime-version.bun.test.ts", [ "../src/shared/runtime-version.ts" ] ], [ "packages/routecraft/test/queue.bun.test.ts", [ "../src/queue.ts", "../src/exchange.ts" ] ], [ "packages/routecraft/test/context-type-safety.bun.test.ts", [ "../src/context.ts",
+      "../src/types.ts"
+    ] ], [ "packages/routecraft/test/deferral-serialize.bun.test.ts", [ "../src/deferral/index.ts",
+      "../src/brand.ts"
+    ] ], [ "packages/routecraft/test/shutdown-bounded.bun.test.ts", [ "../src/context.ts" ] ], [ "packages/routecraft/test/protected-resource.bun.test.ts", [ "../src/plugins/server/registry.ts" ] ], [ "packages/routecraft/test/schema-thenable.bun.test.ts", [ "../src/operations/validate.ts",
+      "../src/pipeline/validation.ts"
+    ] ], [ "packages/routecraft/test/exchange-immutability.bun.test.ts", [ "../src/exchange.ts" ] ], [ "packages/routecraft/test/circuit-breaker.bun.test.ts", [ "../src/operations/circuit-breaker-wrapper.ts" ] ], [ "packages/routecraft/test/continuation-filter-chain.bun.test.ts", [
+      "../src/pipeline/chain-policy.ts"
+    ] ], [ "packages/routecraft/test/ops-client-dispatch.bun.test.ts", [ "../src/plugins/ops/client.ts" ] ], [ "packages/routecraft/test/event-bus-thenable.bun.test.ts", [ "../src/event-bus.ts" ] ], [ "packages/routecraft/test/cron-plugin.bun.test.ts", [ "../src/adapters/cron/source.ts",
+      "../src/context.ts"
+    ] ], [ "packages/routecraft/test/telemetry.bun.test.ts", [ "../src/telemetry/sqlite-event-writer.ts",
+      "../src/shared/sqlite/driver.ts", "../src/shared/sqlite/types.ts", "../src/telemetry/types.ts"
+    ] ], [ "packages/routecraft/test/http-package-info.bun.test.ts", [ "../src/plugins/http/package-info" ] ], [ "packages/routecraft/test/optional-peer.bun.test.ts", [ "../src/adapters/shared/optional-peer",
+      "../src/brand"
+    ] ], [ "packages/routecraft/test/request-validation.bun.test.ts", [ "../src/plugins/server/registry.ts",
+      "../src/plugins/server/request-validation.ts", "../src/plugins/server/plugin.ts"
+    ] ], [ "packages/routecraft/test/shutdown-handler.bun.test.ts", [ "../src/shutdown.ts",
+      "../src/context.ts"
+    ] ], [ "packages/routecraft/test/direct-internal.bun.test.ts", [ "../src/brand.ts" ] ], [ "packages/routecraft/test/capability-lifecycle.bun.test.ts", [ "../src/context.ts",
+      "../src/adapters/direct/source.ts", "../src/brand.ts"
+    ] ], [ "packages/routecraft/test/ops-events.bun.test.ts", [ "../src/plugins/ops/management.ts" ] ], [ "packages/routecraft/test/throttle.bun.test.ts", [ "../src/operations/throttle-wrapper.ts" ] ], [ "packages/routecraft/test/context-unknown-config-key.bun.test.ts", [
+      "../src/context.ts", "../src/config-applier.ts", "../src/logger.ts"
+    ] ], [ "packages/routecraft/test/safe-json.bun.test.ts", [ "../src/shared/safe-json.ts" ] ],
+  ... 56 more items
+]
