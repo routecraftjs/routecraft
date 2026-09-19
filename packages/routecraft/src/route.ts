@@ -808,9 +808,31 @@ export class DefaultRoute implements Route {
     // Omitted rather than deleted after the fact: `delete` on a fresh literal
     // drops the object into dictionary mode, and this one becomes the header
     // bag every step then reads.
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructure to omit
-    const { [HeadersKeys.SPLIT_HIERARCHY]: _unjoinable, ...inherited } =
-      headers ?? {};
+    //
+    // The deferral keys are dropped for the same reason the split hierarchy
+    // and the exchange id are: they are per-exchange state, and an ingress is
+    // a new exchange. `forward()` and a `direct()` destination hand the
+    // target the caller's headers verbatim, so a continuation forwarding
+    // anywhere would otherwise tell the target it is execution two, hand it
+    // another exchange's resume payload, and suppress its own park with a
+    // refusal recorded against work it has nothing to do with.
+    const {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructured to omit
+      [HeadersKeys.SPLIT_HIERARCHY]: _unjoinable,
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructured to omit
+      "routecraft.deferral.sequence": _sequence,
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructured to omit
+      "routecraft.deferral.owner": _owner,
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructured to omit
+      "routecraft.deferral.result": _result,
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructured to omit
+      "routecraft.deferral.resumedBy": _resumedBy,
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructured to omit
+      "routecraft.deferral.resumedAt": _resumedAt,
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructured to omit
+      "routecraft.deferral.refusedScopes": _refusedScopes,
+      ...inherited
+    } = headers ?? {};
     const builtHeaders: Record<string, unknown> = {
       ...inherited,
       [HeadersKeys.ID]: randomUUID(),

@@ -548,6 +548,71 @@ describe("context handlers: the error point", () => {
   });
 
   /**
+   * @case A forward out of a continuation does not make the target look like one
+   * @preconditions A parked route whose continuation forwards to a second route, with a handler recording what each run reports
+   * @expectedResult The target route runs as execution one, with no resume payload and no refusal carried from the exchange that parked
+   */
+  test("deferral state does not travel through a forward into another route", async () => {
+    const store = new MemoryDeferralStore();
+    const seen: { route: string; execution: number; result: unknown }[] = [];
+    t = await testContext()
+      .with({ deferral: { store, secret: SECRET } })
+      .routes([
+        craft()
+          .id("work")
+          .from(direct())
+          .transform(() => {
+            throw new Error("needs a human");
+          })
+          .to(noop()),
+        craft()
+          .id("downstream")
+          .from(direct())
+          .transform(() => {
+            throw new Error("downstream is broken too");
+          })
+          .to(noop()),
+        craft()
+          .id("answers")
+          .from(direct())
+          .resume((ex) => ({
+            token: (ex.body as { token: string }).token,
+            result: { approved: true },
+          })),
+      ])
+      .build();
+    t.ctx.registerHandler(
+      "error",
+      async (_error, exchange: Exchange, forward, ctx: ErrorContext) => {
+        seen.push({
+          route: ctx.route.definition.id,
+          execution: ctx.execution,
+          result: exchange.deferral?.result,
+        });
+        if (ctx.route.definition.id === "downstream") return { done: true };
+        if (ctx.execution === 1) return recovery.defer({ ttl: "1h" });
+        await forward("downstream" as never, { from: "the continuation" });
+        return { done: true };
+      },
+      { mayDefer: true },
+    );
+    await t.startAndWaitReady();
+
+    const deferred = asDeferred(await t.client.sendDirect("work", {}));
+    await t.client.sendDirect("answers", { token: deferred.token });
+
+    // An ingress is a new exchange. Carrying the deferral keys through a
+    // forward would tell the target it is execution two, hand it another
+    // exchange's resume payload, and suppress its own park with a refusal
+    // recorded against work it has nothing to do with.
+    expect(seen).toEqual([
+      { route: "work", execution: 1, result: undefined },
+      { route: "work", execution: 2, result: { approved: true } },
+      { route: "downstream", execution: 1, result: undefined },
+    ]);
+  });
+
+  /**
    * @case A resilience segment does not hand the context ring the route's turn
    * @preconditions A route with .retry(), its own .error(), and a context handler
    * @expectedResult The retry runs every attempt and the route's own handler decides; the context handler is never consulted
