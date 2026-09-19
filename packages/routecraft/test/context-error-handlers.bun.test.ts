@@ -548,6 +548,41 @@ describe("context handlers: the error point", () => {
   });
 
   /**
+   * @case A hand-written route definition can still be parked by a context handler
+   * @preconditions A RouteDefinition built as a literal rather than through craft().build(), and a deferring handler
+   * @expectedResult It parks, rather than being refused for having no resolved site
+   */
+  test("a definition that did not come from the builder still carries its park sites", async () => {
+    const store = new MemoryDeferralStore();
+    const [built] = craft()
+      .id("work")
+      .from(direct())
+      .transform(() => {
+        throw new Error("needs a human");
+      })
+      .to(noop())
+      .build();
+    // What `ContextBuilder.routes()` accepts is a definition, and nothing
+    // says it came from a builder. Stripping what the builder resolved is
+    // how a hand-written one arrives.
+    const raw = { ...built! };
+    delete (raw as { errorPathSites?: unknown }).errorPathSites;
+    delete (raw as { admissionSite?: unknown }).admissionSite;
+
+    t = await testContext()
+      .with({ deferral: { store, secret: SECRET } })
+      .routes([raw as never, craft().id("answers").from(direct()).resume()])
+      .build();
+    t.ctx.registerHandler("error", () => recovery.defer({ ttl: "1h" }), {
+      mayDefer: true,
+    });
+    await t.startAndWaitReady();
+
+    const deferred = asDeferred(await t.client.sendDirect("work", {}));
+    expect(await store.get(deferred.deferralId)).toBeDefined();
+  });
+
+  /**
    * @case A forward out of a continuation does not make the target look like one
    * @preconditions A parked route whose continuation forwards to a second route, with a handler recording what each run reports
    * @expectedResult The target route runs as execution one, with no resume payload and no refusal carried from the exchange that parked
