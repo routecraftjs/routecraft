@@ -1002,6 +1002,16 @@ async function runContextErrorHandlers(
     failingStep?: Step<Adapter>;
   },
 ): Promise<ErrorDecision | undefined> {
+  // A run that exists to surface its failure to a wrapping resilience segment
+  // consults NO error ring, which is what it did before this chain existed.
+  // `nestedDeps` builds the nested definition without `errorHandler`, so the
+  // route ring cannot fire inside a `.retry()`, `.timeout()`, `.circuitBreaker()`
+  // or `.concurrency()` segment; consulting the context ring there would let a
+  // handler registered on the context pre-empt the route's own `.error()`
+  // invisibly, and settle the failure before the declared retry policy ever
+  // ran. Both rings get their turn at the outermost run, in order, once the
+  // segment's attempts are exhausted.
+  if (deps.rethrowUnhandled) return undefined;
   const handlers = deps.context.getHandlers("error", deps.route);
   if (handlers.length === 0) return undefined;
 

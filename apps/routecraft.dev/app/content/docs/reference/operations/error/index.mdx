@@ -65,6 +65,8 @@ craft()
 
 The three are consulted innermost first and the first to decide wins. A route that handles its own failures is never overridden by the context.
 
+**All three run outside the route's resilience wrappers.** A failure inside a `.retry()`, `.timeout()`, `.circuitBreaker()` or `.concurrency()` segment surfaces to the wrapper first, so the rings are consulted once the attempts are exhausted rather than once per attempt. That is what a route author declaring `.retry()` means by it, and it is why a park lands after the retries rather than on attempt one: nobody should be asked to approve something an automatic retry would have fixed.
+
 ## Recovery directives
 
 Instead of a recovery body the handler may return a branded directive built with the `recovery` helpers. A plain (unbranded) return value keeps its meaning: it becomes the recovered exchange body.

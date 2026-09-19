@@ -548,6 +548,48 @@ describe("context handlers: the error point", () => {
   });
 
   /**
+   * @case A resilience segment does not hand the context ring the route's turn
+   * @preconditions A route with .retry(), its own .error(), and a context handler
+   * @expectedResult The retry runs every attempt and the route's own handler decides; the context handler is never consulted
+   */
+  test("a context handler does not pre-empt the route ring inside a retry segment", async () => {
+    const order: string[] = [];
+    let attempts = 0;
+    t = await testContext()
+      .routes([
+        craft()
+          .id("work")
+          .retry({ maxAttempts: 3, backoff: 1 })
+          .error(() => {
+            order.push("route");
+            return { by: "route" };
+          })
+          .from(direct())
+          .transform(() => {
+            attempts += 1;
+            throw new Error("boom");
+          })
+          .to(noop()),
+      ])
+      .build();
+    t.ctx.registerHandler("error", () => {
+      order.push("context");
+      return { by: "context" };
+    });
+    await t.startAndWaitReady();
+
+    const result = await t.client.sendDirect("work", {});
+
+    // Both halves of the same defect. The route's own handler is what a
+    // reader of the route file expects to decide, and the declared retry
+    // policy is what a nested run exists to serve: a context handler
+    // deciding inside the segment takes both away, invisibly.
+    expect(result).toEqual({ by: "route" });
+    expect(attempts).toBe(3);
+    expect(order).toEqual(["route"]);
+  });
+
+  /**
    * @case The handler can tell a resumed continuation from the original run
    * @preconditions A step that fails on both executions, and a handler that parks on the first and recovers on the second
    * @expectedResult The handler sees execution 1 then 2, and the resumed failure is recovered rather than parked a second time
