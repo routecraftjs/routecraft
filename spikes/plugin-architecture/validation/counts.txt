@@ -1,0 +1,96 @@
+core candidate files 28 importing files 12 imports {
+  deferral: 9,
+  operations: 52,
+  adapters: 9,
+  consumers: 2,
+  auth: 2,
+  plugins: 1,
+} total 75
+deferral matching lines 132 files 12 [["pipeline/executor.ts",5],["pipeline/chain-policy.ts",6],["brand.ts",4],["context.ts",13],["builder.ts",2],["types.ts",13],["exchange.ts",30],["route.ts",7],["step-builder-base.ts",14],["error.ts",28],["dsl.ts",9],["enablement.ts",1]]
+deferral occurrences 163
+telemetry matching lines 16 files 8 [["pipeline/executor.ts",2],["pipeline/synthetic-steps.ts",2],["context.ts",3],["builder.ts",3],["types.ts",2],["route.ts",2],["step-builder-base.ts",1],["event-bus.ts",1]]
+telemetry occurrences 17
+index lines 833 named exports 597
+DeferralStore [{"file":"packages/routecraft/src/deferral/types.ts","line":468,"count":15,"members":["create","get","markResumed","claimExpiry","markExpired","markDenied","releaseClaims","replaceStepState","recordContinuation","findExpired","pending","list","resumedWithoutContinuation","purgeSettled","close"]}] TOTAL 15
+SessionStore [{"file":"packages/ai/src/agent/session/port.ts","line":44,"count":6,"members":["get","create","replace","keys","remove","close"]}] TOTAL 6
+StoreRegistry [{"file":"packages/routecraft/src/deferral/runtime-key.ts","line":20,"count":1,"members":["[DEFERRAL_RUNTIME]"]},{"file":"packages/routecraft/src/plugins/server/registry.ts","line":34,"count":1,"members":["[WEB_INGRESSES]"]},{"file":"packages/routecraft/src/plugins/remotes/store.ts","line":38,"count":1,"members":["[REMOTE_ROUTES]"]},{"file":"packages/routecraft/src/plugins/http/registry.ts","line":92,"count":2,"members":["[HTTP_MOUNTS]","[HTTP_PLUGIN_REGISTERED]"]},{"file":"packages/routecraft/src/plugins/ops/store.ts","line":32,"count":2,"members":["[OPS_HEALTH_STATE]","[OPS_RESOURCES]"]},{"file":"packages/routecraft/src/plugins/ops/store.ts","line":124,"count":1,"members":["[OPS_CONTRIBUTED_INDICATORS]"]},{"file":"packages/routecraft/src/context.ts","line":49,"count":3,"members":["?","[RUNNER_ARGV]","[RC_ADAPTER_OVERRIDES]"]},{"file":"packages/routecraft/src/capabilities.ts","line":44,"count":1,"members":["[CAPABILITY_REGISTRY]"]},{"file":"packages/routecraft/src/capabilities.ts","line":120,"count":1,"members":["[INTERNAL_ENDPOINT_REGISTRY]"]},{"file":"packages/routecraft/src/operations/split.ts","line":30,"count":1,"members":["[SPLIT_PARENT_STORE]"]},{"file":"packages/routecraft/src/adapters/carddav/shared.ts","line":29,"count":1,"members":["[CARDDAV_CLIENT_MANAGER]"]},{"file":"packages/routecraft/src/adapters/direct/shared.ts","line":31,"count":2,"members":["[ADAPTER_DIRECT_STORE]","[ADAPTER_DIRECT_OPTIONS]"]},{"file":"packages/routecraft/src/adapters/mail/shared.ts","line":35,"count":1,"members":["[MAIL_CLIENT_MANAGER]"]},{"file":"packages/routecraft/src/adapters/cron/source.ts","line":21,"count":1,"members":["[ADAPTER_CRON_OPTIONS]"]},{"file":"packages/ai/src/llm/types.ts","line":31,"count":2,"members":["[ADAPTER_LLM_PROVIDERS]","[ADAPTER_LLM_OPTIONS]"]},{"file":"packages/ai/src/embedding/types.ts","line":14,"count":2,"members":["[ADAPTER_EMBEDDING_PROVIDERS]","[ADAPTER_EMBEDDING_OPTIONS]"]},{"file":"packages/ai/src/surface/cancellation.ts","line":191,"count":6,"members":["[AGENT_SURFACE_TURN_SIGNALS]","[AGENT_SURFACE_PINS]","[AGENT_SURFACE_CLEANUPS]","[AGENT_SURFACE_LIFECYCLE]","[AGENT_SURFACE_PENDING_CANCELS]","[AGENT_SURFACE_CANCELLED_TURNS]"]},{"file":"packages/ai/src/surface/registry.ts","line":45,"count":2,"members":["[AGENT_SURFACES]","[AGENT_SURFACE_TURNS]"]},{"file":"packages/ai/src/agent/store.ts","line":106,"count":6,"members":["[ADAPTER_AGENT_SESSIONS]","[ADAPTER_AGENT_SESSIONS_BOOT]","[ADAPTER_AGENT_SESSION_STORE]","[ADAPTER_AGENT_REGISTRY]","[ADAPTER_AGENT_DEFAULT_OPTIONS]","[ADAPTER_AGENT_TOOL_POLICIES]"]},{"file":"packages/ai/src/mcp/types.ts","line":127,"count":5,"members":["[MCP_PLUGIN_REGISTERED]","[ADAPTER_MCP_CLIENT_SERVERS]","[MCP_TOOL_REGISTRY]","[MCP_LOCAL_TOOL_REGISTRY]","[MCP_STDIO_MANAGERS]"]},{"file":"packages/ai/src/fn/store.ts","line":30,"count":2,"members":["[ADAPTER_FN_REGISTRY]","[ADAPTER_FN_RESOLVED]"]}] TOTAL 44
+RouteDefinition [] TOTAL 0
+StepBuilderBase step-builder-base.ts methods 29 all members 30
+RouteBuilder builder.ts methods 35 all members 39
+cross-top-folder deep imports (including root barrel) 319 {
+  shared: 71,
+  deferral: 28,
+  operations: 138,
+  adapters: 27,
+  auth: 29,
+  plugins: 16,
+  pipeline: 6,
+  consumers: 2,
+  telemetry: 1,
+  "..": 1,
+}
+triangle exchange.ts [
+  [ "./context.ts", true ], [ "./route.ts", true ]
+]
+triangle route.ts [
+  [ "./context.ts", true ], [ "./exchange.ts", false ]
+]
+triangle context.ts [
+  [ "./route.ts", false ]
+]
+AI imports core {
+  "@routecraft/routecraft": 82,
+}
+logger child declarations 7 logger files 48
+core folders [
+  [ "pipeline", false ], [ "deferral", true ], [ "auth", false ], [ "plugins", false ], [ "shared", false ], [ "operations", false ], [ "adapters", false ], [ "consumers",
+    false
+  ], [ "telemetry", true ]
+]
+nested-folder-only deep imports 232 {
+  shared: 64,
+  deferral: 19,
+  operations: 92,
+  adapters: 16,
+  auth: 27,
+  plugins: 11,
+  pipeline: 2,
+  "..": 1,
+}
+core imports including reexports/import types/dynamic 78 {
+  deferral: 9,
+  operations: 54,
+  adapters: 10,
+  consumers: 2,
+  auth: 2,
+  plugins: 1,
+}
+RouteDefinition fields 19 [
+  "id", "sources", "steps", "consumer", "errorHandler", "preParseFilters", "postParseFilters",
+  "postFromFilters", "discovery", "enablement", "requiresPrincipal", "retry", "timeout", "throttle",
+  "circuitBreaker", "concurrency", "deferSteps", "reentrantDeferSteps", "usesResume"
+]
+checker public export symbols 597
+StoreRegistry keys excluding index signatures: 43 (44 members includes the string index signature)
+resolved TS deep imports all 318 {
+  shared: 71,
+  deferral: 28,
+  operations: 138,
+  adapters: 27,
+  auth: 29,
+  plugins: 16,
+  pipeline: 6,
+  consumers: 2,
+  telemetry: 1,
+}
+resolved TS deep imports nested 231 {
+  shared: 64,
+  deferral: 19,
+  operations: 92,
+  adapters: 16,
+  auth: 27,
+  plugins: 11,
+  pipeline: 2,
+}
+ai agent->mcp 4
+ai mcp->agent 0
