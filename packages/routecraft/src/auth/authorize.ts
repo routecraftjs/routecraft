@@ -1,5 +1,6 @@
 import type { Exchange } from "../exchange.ts";
 import { rcError, type RoutecraftError } from "../error.ts";
+import { rcCodeOf } from "../brand.ts";
 import type { CallableValidator } from "../operations/validate.ts";
 import { isAuthentic } from "./authentic.ts";
 import { isPrincipalExpired } from "./expiry.ts";
@@ -85,8 +86,14 @@ export interface InsufficientAuthority extends Error {
 export function insufficientAuthorityOf(
   error: unknown,
 ): InsufficientAuthority["missing"] | undefined {
-  if (typeof error !== "object" || error === null) return undefined;
-  if ((error as { rc?: unknown }).rc !== "RC5038") return undefined;
+  // `rcCodeOf` reads the code off a BRANDED error and answers `undefined`
+  // for anything else, which is the check that matters: a plain object
+  // carrying `rc: "RC5038"` is not a refusal this framework raised, and a
+  // thrown value is not always in-process code's own. An adapter rejecting
+  // with a parsed remote payload would otherwise let that payload name the
+  // scopes a park records as its lend bound, which is the one thing the
+  // bound exists to stop a door widening.
+  if (rcCodeOf(error) !== "RC5038") return undefined;
   const cause = (error as { cause?: unknown }).cause;
   if (typeof cause !== "object" || cause === null) return undefined;
   const missing = (cause as Partial<InsufficientAuthority>).missing;
@@ -99,7 +106,34 @@ export function insufficientAuthorityOf(
   if (!missing.scopes.every((scope) => typeof scope === "string")) {
     return undefined;
   }
-  return missing;
+  // The optional fields are checked too, and a bad one refuses the whole
+  // detail rather than being dropped. Both drive what a consent flow asks a
+  // human for: `mode` decides whether one scope suffices or all are needed,
+  // and `effective` decides whether lending on the actor's ring could ever
+  // open this door. A detail we only half understand is not one to build an
+  // approval request from.
+  if (
+    missing.mode !== undefined &&
+    missing.mode !== "all" &&
+    missing.mode !== "any"
+  ) {
+    return undefined;
+  }
+  if (
+    missing.effective !== undefined &&
+    typeof missing.effective !== "boolean"
+  ) {
+    return undefined;
+  }
+  // A frozen copy, so what the framework records as a deferral's lend bound
+  // cannot be widened afterwards by whoever still holds the error.
+  return Object.freeze({
+    scopes: Object.freeze([...missing.scopes]) as string[],
+    ...(missing.mode !== undefined ? { mode: missing.mode } : {}),
+    ...(missing.effective !== undefined
+      ? { effective: missing.effective }
+      : {}),
+  });
 }
 
 /**

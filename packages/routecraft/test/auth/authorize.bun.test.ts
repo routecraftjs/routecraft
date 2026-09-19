@@ -10,6 +10,9 @@ import { spy, testContext, type TestContext } from "@routecraft/testing";
 import {
   authenticate,
   authorize,
+  DefaultExchange,
+  HeadersKeys,
+  insufficientAuthorityOf,
   craft,
   delegate,
   type InsufficientAuthority,
@@ -1311,5 +1314,108 @@ describe(".authorize() type checks", () => {
     // After .from<{id: string}>, the builder's Current generic must be
     // {id: string} so a downstream .to(spy<{id:string}>()) type-checks.
     expectTypeOf(built.to).toBeCallableWith(spy<{ id: string }>());
+  });
+});
+
+describe("insufficientAuthorityOf", () => {
+  /** Run a gate against a principal and hand back whatever it threw. */
+  async function refuse(
+    options: Parameters<typeof authorize>[0],
+    principal: Principal,
+  ): Promise<{ cause: InsufficientAuthority }> {
+    const exchange = new DefaultExchange(undefined as never, {
+      body: {},
+      headers: { [HeadersKeys.AUTH_PRINCIPAL]: principal },
+    });
+    // The gate throws synchronously, so the call has to be inside the try
+    // rather than handed to a promise that never sees it.
+    try {
+      await authorize(options)(exchange);
+      throw new Error("the gate did not refuse");
+    } catch (err) {
+      return err as { cause: InsufficientAuthority };
+    }
+  }
+
+  /**
+   * @case A real RC5038 refusal reads back with its scopes, mode and effective flag
+   * @preconditions An authorize({ scopes }) gate refusing a principal that lacks one
+   * @expectedResult The detail carries the missing scope and the flags authorize() sets
+   */
+  test("reads the detail off a refusal the framework raised", async () => {
+    const thrown = await refuse(
+      { scopes: ["payout:write"] },
+      markAuthentic({
+        subject: "agent",
+        scopes: ["payout:read"],
+      } as unknown as Principal),
+    );
+
+    const refusal = insufficientAuthorityOf(thrown);
+    expect(refusal?.scopes).toEqual(["payout:write"]);
+    expect(refusal?.mode).toBe("all");
+    expect(refusal?.effective).toBe(false);
+  });
+
+  /**
+   * @case A plain object wearing the RC code is not a refusal
+   * @preconditions A hand-built object carrying rc "RC5038" and a well-formed cause
+   * @expectedResult undefined, because the brand is what says the framework raised it
+   */
+  test("refuses an unbranded look-alike", () => {
+    const lookalike = {
+      rc: "RC5038",
+      cause: { missing: { scopes: ["admin"], mode: "any", effective: true } },
+    };
+
+    // A thrown value is not always in-process code's own: an adapter
+    // rejecting with a parsed remote payload would otherwise let that
+    // payload name the scopes a park records as its lend bound.
+    expect(insufficientAuthorityOf(lookalike)).toBeUndefined();
+  });
+
+  /**
+   * @case A malformed optional field refuses the whole detail
+   * @preconditions A real RC5038 whose cause is given a bad mode, then a bad effective
+   * @expectedResult undefined for each, rather than the field being dropped and the rest trusted
+   */
+  test("refuses a detail whose mode or effective is not the documented shape", async () => {
+    const real = await refuse(
+      { scopes: ["payout:write"] },
+      markAuthentic({ subject: "agent", scopes: [] } as unknown as Principal),
+    );
+    const detail = real.cause.missing as unknown as Record<string, unknown>;
+
+    detail["mode"] = "either";
+    expect(insufficientAuthorityOf(real)).toBeUndefined();
+
+    detail["mode"] = "any";
+    detail["effective"] = "yes";
+    expect(insufficientAuthorityOf(real)).toBeUndefined();
+
+    // Both fields are what a consent flow asks a human for: whether one
+    // scope suffices, and whether lending on the actor's ring could open
+    // this door at all. Half-understanding them is not a basis for asking.
+    detail["effective"] = true;
+    expect(insufficientAuthorityOf(real)?.mode).toBe("any");
+  });
+
+  /**
+   * @case What the caller receives cannot be changed afterwards
+   * @preconditions A refusal read once, then its own scopes array mutated through the error
+   * @expectedResult The detail already returned still reports what it reported
+   */
+  test("returns a frozen copy rather than a live reference", async () => {
+    const thrown = await refuse(
+      { scopes: ["payout:write"] },
+      markAuthentic({ subject: "agent", scopes: [] } as unknown as Principal),
+    );
+
+    const refusal = insufficientAuthorityOf(thrown)!;
+    thrown.cause.missing.scopes.push("admin");
+
+    // The framework records this as a deferral's lend bound, so whoever
+    // still holds the error must not be able to widen it afterwards.
+    expect(refusal.scopes).toEqual(["payout:write"]);
   });
 });
