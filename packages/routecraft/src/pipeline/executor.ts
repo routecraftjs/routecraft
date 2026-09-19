@@ -61,7 +61,8 @@ import {
   concurrencyEmitHooks,
   executeWithConcurrency,
 } from "../operations/concurrency-wrapper.ts";
-import type { ForwardFn, Route } from "../route.ts";
+import type { ContextErrorHandler, ForwardFn, Route } from "../route.ts";
+import { consultHandlers } from "../handlers/consult.ts";
 
 /**
  * Dependencies the pipeline executor needs from the owning route. Passed
@@ -1002,20 +1003,23 @@ async function runContextErrorHandlers(
     failingStep?: Step<Adapter>;
   },
 ): Promise<ErrorDecision | undefined> {
-  const handlers = deps.context.getHandlers("error", deps.route);
-  if (handlers.length === 0) return undefined;
-
-  for (const [index, handler] of handlers.entries()) {
-    deps.context.emit("route:error-handler:invoked", {
-      routeId: deps.routeId,
-      exchangeId: args.exchange.id,
-      correlationId: args.correlationId,
-      originalError: args.originalError,
-      failedOperation: args.stepLabel,
-      scope: "context",
-    });
-    try {
-      const result = await handler(
+  const { settlement } = await consultHandlers<
+    ContextErrorHandler,
+    ErrorDecision,
+    never
+  >(deps.context.getHandlers("error", deps.route), {
+    announce: () => {
+      deps.context.emit("route:error-handler:invoked", {
+        routeId: deps.routeId,
+        exchangeId: args.exchange.id,
+        correlationId: args.correlationId,
+        originalError: args.originalError,
+        failedOperation: args.stepLabel,
+        scope: "context",
+      });
+    },
+    invoke: (handler) =>
+      handler(
         args.originalError,
         args.exchange,
         // Bound to the FAILING exchange, the same as a route `.error()`
@@ -1032,39 +1036,49 @@ async function runContextErrorHandlers(
               ? 2
               : 1,
         },
-      );
-      if (result === undefined) continue;
+      ),
+    // Decision-only: the point has nothing to accumulate, because a body,
+    // `drop`, `rethrow` and `defer` are all settlements. That is why this
+    // policy has no `merge` and the other points do.
+    read: async (result) => {
+      if (result === undefined) return { kind: "pass" };
       if (isRecovery(result) && result.kind === "rethrow") {
         // Declines on behalf of the whole chain, not just itself: a handler
         // saying "propagate the original error" has answered the question the
         // chain exists to ask, and consulting the next one would let a later
         // handler overturn a decision already taken.
-        return undefined;
+        return { kind: "abandon" };
       }
-      // INSIDE the guard, because applying a decision can fail as readily as
-      // reaching one: a park is refused at a position it cannot be revived
-      // from, or its store write fails, or its notify does. A throw from here
-      // escaping would leave the exchange with no terminal event at all and
-      // the original failure reported nowhere, which is strictly worse than
-      // the failure the handler was trying to improve on.
-      return await applyErrorDecision(deps, {
-        exchange: args.exchange,
-        originalError: args.originalError,
-        result,
-        stepLabel: args.stepLabel,
-        correlationId: args.correlationId,
-        scope: "context",
-        pendingSourceParse: args.pendingSourceParse,
-        admitted: args.admitted,
-        ...(args.failingStep ? { failingStep: args.failingStep } : {}),
-      });
-    } catch (thrown) {
+      // Applying is inside the walk's guard, because applying a decision can
+      // fail as readily as reaching one: a park is refused at a position it
+      // cannot be revived from, or its store write fails, or its notify does.
+      // A throw escaping would leave the exchange with no terminal event at
+      // all and the original failure reported nowhere, which is strictly
+      // worse than the failure the handler was trying to improve on.
+      return {
+        kind: "settle",
+        settlement: await applyErrorDecision(deps, {
+          exchange: args.exchange,
+          originalError: args.originalError,
+          result,
+          stepLabel: args.stepLabel,
+          correlationId: args.correlationId,
+          scope: "context",
+          pendingSourceParse: args.pendingSourceParse,
+          admitted: args.admitted,
+          ...(args.failingStep ? { failingStep: args.failingStep } : {}),
+        }),
+      };
+    },
+    report: (thrown, index, aborted) => {
       const handlerErr = processError(thrown);
       args.exchange.logger.error(
         {
           operation: args.stepLabel,
           err: handlerErr,
-          context: "context error handler",
+          context: aborted
+            ? "context error handler, cut short by the route stopping"
+            : "context error handler",
           handlerIndex: index,
         },
         handlerErr.meta.message,
@@ -1079,10 +1093,12 @@ async function runContextErrorHandlers(
         scope: "context",
         handlerIndex: index,
       });
-      continue;
-    }
-  }
-  return undefined;
+    },
+    // The route's own signal, widened by the abandon signal an enclosing
+    // `.timeout()` mints: the outer run carries none on `ExecutorDeps`.
+    signal: anySignal(deps.route.signal, deps.abortSignal),
+  });
+  return settlement;
 }
 
 /**
