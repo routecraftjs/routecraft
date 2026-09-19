@@ -389,14 +389,23 @@ export interface Deferral {
  */
 export interface ErrorPathRecord {
   /**
-   * The park was raised before the route admitted the exchange, so the
-   * continuation is an ADMISSION rather than a continuation: `.authorize()`
-   * and `.input()` run on resume, where a mid-pipeline site re-runs neither.
+   * Where the park was raised, which decides how the record is addressed at
+   * resume.
    *
-   * Also what tells the admission site apart from the first step's own
-   * error-path site, since both live at position 0.
+   * `"admission"` means it was raised before the route admitted the
+   * exchange, so the continuation is an ADMISSION rather than a
+   * continuation: `.authorize()` and `.input()` run on resume, where a
+   * `"step"` site re-runs neither. It is also what tells the admission site
+   * apart from the first step's own error-path site, since both live at
+   * position 0.
+   *
+   * REQUIRED, so the record cannot be reduced to an empty object. `DeferralStore`
+   * is an interface applications implement, and a backend that normalises an
+   * empty sub-document away (a JSON column mapper, a document store) would
+   * otherwise erase this record's provenance and let a resume address it
+   * against the wrong site table.
    */
-  readonly admission?: true;
+  readonly origin: "admission" | "step";
   /**
    * The scopes the `RC5038` refusal that caused this park named.
    *

@@ -4,6 +4,7 @@ import { isAuthentic } from "../auth/authentic.ts";
 import { markRestored } from "../auth/restored.ts";
 import { HeadersKeys } from "../exchange.ts";
 import { rcError } from "../error.ts";
+import { HOOK_ABORTED, settleOrAbort } from "../shared/abort.ts";
 import { decodePersistable } from "./serialize.ts";
 import type { Deferral } from "./types.ts";
 
@@ -197,7 +198,36 @@ export async function runAuthorizer(
   logger: CraftContext["logger"],
   signal?: AbortSignal,
 ): Promise<void> {
-  const refused = (outcome: string, err?: unknown): Error => {
+  const refused = refusalOf("authorize", input, logger);
+  try {
+    const verdict = await settleOrAbort(() => authorize(input), signal);
+    if (verdict !== true) throw refused("returned false");
+  } catch (err) {
+    if (err === HOOK_ABORTED)
+      throw refused("did not settle before the route aborted");
+    // A refusal this function already built and logged. Re-logging it as a
+    // hook that threw would double-count it and misname it.
+    if (isRefusal(err)) throw err;
+    throw refused("threw", err);
+  }
+}
+
+/**
+ * Build the single refusal both resume hooks answer with, and log its cause.
+ *
+ * One builder, because the two hooks are required to be indistinguishable
+ * from outside: three failure modes, one `RC5056`, one message, and the
+ * operator's log as the only place they are told apart. Asserting that
+ * property in two copies is how it stops being true.
+ *
+ * @internal
+ */
+function refusalOf(
+  hook: "authorize" | "elevate",
+  input: ResumeAuthorizerInput,
+  logger: CraftContext["logger"],
+): (outcome: string, err?: unknown) => Error {
+  return (outcome, err) => {
     logger.warn(
       {
         deferralId: input.record.id,
@@ -206,40 +236,12 @@ export async function runAuthorizer(
         outcome,
         ...(err !== undefined ? { err } : {}),
       },
-      "A .resume({ authorize }) hook refused a resume",
+      `A .resume({ ${hook} }) hook refused a resume`,
     );
     return rcError("RC5056", undefined, {
-      message: `The resume route's authorize hook refused this principal for deferral "${input.record.id}".`,
+      message: `The resume route's ${hook} hook refused this principal for deferral "${input.record.id}".`,
     });
   };
-
-  let onAbort: (() => void) | undefined;
-  try {
-    const verdict = await Promise.race([
-      (async () => authorize(input))(),
-      new Promise<never>((_, reject) => {
-        if (!signal) return;
-        if (signal.aborted) {
-          reject(ABORTED);
-          return;
-        }
-        onAbort = () => {
-          reject(ABORTED);
-        };
-        signal.addEventListener("abort", onAbort, { once: true });
-      }),
-    ]);
-    if (verdict !== true) throw refused("returned false");
-  } catch (err) {
-    if (err === ABORTED)
-      throw refused("did not settle before the route aborted");
-    // A refusal this function already built and logged. Re-logging it as a
-    // hook that threw would double-count it and misname it.
-    if (isRefusal(err)) throw err;
-    throw refused("threw", err);
-  } finally {
-    if (onAbort && signal) signal.removeEventListener("abort", onAbort);
-  }
 }
 
 /**
@@ -272,46 +274,15 @@ export async function runElevator(
   bound: readonly string[] | undefined,
   signal?: AbortSignal,
 ): Promise<Principal> {
-  const refused = (outcome: string, err?: unknown): Error => {
-    logger.warn(
-      {
-        deferralId: input.record.id,
-        routeId: input.record.routeId,
-        principal: input.principal?.subject,
-        outcome,
-        ...(err !== undefined ? { err } : {}),
-      },
-      "A .resume({ elevate }) hook refused a resume",
-    );
-    return rcError("RC5056", undefined, {
-      message: `The resume route's elevate hook refused this principal for deferral "${input.record.id}".`,
-    });
-  };
-
-  let onAbort: (() => void) | undefined;
+  const refused = refusalOf("elevate", input, logger);
   let elevated: Principal;
   try {
-    elevated = await Promise.race([
-      (async () => elevate(input))(),
-      new Promise<never>((_, reject) => {
-        if (!signal) return;
-        if (signal.aborted) {
-          reject(ABORTED);
-          return;
-        }
-        onAbort = () => {
-          reject(ABORTED);
-        };
-        signal.addEventListener("abort", onAbort, { once: true });
-      }),
-    ]);
+    elevated = await settleOrAbort(() => elevate(input), signal);
   } catch (err) {
-    if (err === ABORTED)
+    if (err === HOOK_ABORTED)
       throw refused("did not settle before the route aborted");
     if (isRefusal(err)) throw err;
     throw refused("threw", err);
-  } finally {
-    if (onAbort && signal) signal.removeEventListener("abort", onAbort);
   }
 
   // A re-mint is by construction a fresh verification, so what comes back
@@ -452,8 +423,14 @@ function without(
 }
 
 /**
- * The scopes the re-mint added, on the subject's ring and the outermost
- * actor's together.
+ * The scopes the re-mint added, counted PER RING.
+ *
+ * Per ring rather than over the two merged, because the rings are not
+ * interchangeable: a scope check reads the subject's ring alone unless the
+ * gate opts in with `effective: true`. Merged, a door could move a scope the
+ * park already held on the ACTOR onto the SUBJECT, lend nothing by the count,
+ * and still satisfy a default subject-ring gate that had refused before the
+ * park.
  *
  * Added only. Dropping a scope narrows authority, which no gate can be
  * opened by, so a door that hands back less than parked is within the rule.
@@ -461,13 +438,17 @@ function without(
  * @internal
  */
 function lentScopes(parked: Principal, elevated: Principal): string[] {
-  const held = new Set([
-    ...(parked.scopes ?? []),
-    ...(parked.actor?.scopes ?? []),
-  ]);
-  return [...(elevated.scopes ?? []), ...(elevated.actor?.scopes ?? [])].filter(
-    (scope) => !held.has(scope),
-  );
+  const added = (
+    from: readonly string[] | undefined,
+    to: readonly string[] | undefined,
+  ): string[] => {
+    const held = new Set(from ?? []);
+    return (to ?? []).filter((scope) => !held.has(scope));
+  };
+  return [
+    ...added(parked.scopes, elevated.scopes),
+    ...added(parked.actor?.scopes, elevated.actor?.scopes),
+  ];
 }
 
 /**
@@ -497,9 +478,6 @@ function stableJson(value: unknown): string {
     );
   });
 }
-
-/** Sentinel for the abort arm, so it is distinguishable from a thrown cause. */
-const ABORTED = Symbol("routecraft.deferral.authorize.aborted");
 
 function isRefusal(err: unknown): boolean {
   return (

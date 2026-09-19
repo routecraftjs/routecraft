@@ -272,6 +272,20 @@ export async function runPipeline(
   // rebuilt from `definition.discovery.input`, which the live route still
   // has, so an admission resume runs it again.
   let pendingSourceParse = sourceParse !== undefined;
+  // The last position the exchange passes through before the route has
+  // admitted it. Tracked as a FACT rather than inferred from a failed site
+  // lookup, because the two are not the same question: a failure can have no
+  // site and still be well past admission (a route-scope resilience segment
+  // throws its own deadline, and the carrier it throws from is synthetic and
+  // never walked). Treating that as an admission park would store position 0
+  // with the whole body as its continuation and re-run every step that had
+  // already completed.
+  const preAdmission: Step<Adapter>[] = [
+    ...deps.definition.preParseFilters,
+    ...(admissionStep ? [admissionStep] : []),
+  ];
+  const lastPreAdmission = preAdmission.at(-1);
+  let admitted = lastPreAdmission === undefined;
 
   const initialSteps: Step<Adapter>[] = [
     ...deps.definition.preParseFilters,
@@ -495,6 +509,7 @@ export async function runPipeline(
       // The source's parse has now run, so a park raised from here on can be
       // revived without reproducing it.
       if (step === admissionStep) pendingSourceParse = false;
+      if (step === lastPreAdmission) admitted = true;
       // A settled step consumed any resume step state a revival attached:
       // the re-entrant host is by construction the first step of its
       // continuation, so clearing on every committed outcome keeps the
@@ -616,7 +631,7 @@ export async function runPipeline(
       // object so a rethrow out of a nested resilience segment carries the
       // INNER step out to whichever ring decides, rather than the segment
       // wrapper the outer loop is holding.
-      noteFailingStep(err, step);
+      noteFailingStep(exchange, err, step);
 
       /** Apply a ring's decision to this run's bookkeeping. */
       const settle = (decision: ErrorDecision): void => {
@@ -665,6 +680,8 @@ export async function runPipeline(
               correlationId,
               scope: "route",
               pendingSourceParse,
+              admitted,
+              failingStep: failingStepOf(exchange, err) ?? step,
             }),
           );
         } catch (handlerError) {
@@ -700,6 +717,11 @@ export async function runPipeline(
             stepLabel,
             correlationId,
             pendingSourceParse,
+            admitted,
+            // The step the LOOP failed at, not one derived from
+            // `handlerErr`: a route handler that throws its own error
+            // produces a fresh one the failing-step map has never seen.
+            failingStep: failingStepOf(exchange, err) ?? step,
           });
           if (decided) {
             settle(decided);
@@ -755,6 +777,8 @@ export async function runPipeline(
         stepLabel,
         correlationId,
         pendingSourceParse,
+        admitted,
+        failingStep: failingStepOf(exchange, err) ?? step,
       });
       if (decided) {
         settle(decided);
@@ -891,21 +915,43 @@ type ErrorDecision =
  * Weak, so nothing has to be cleared, and first-writer-wins, so the
  * innermost catch is the one that counts.
  *
+ * Scoped to the EXCHANGE rather than the module, because the key is an object
+ * the application owns: a route that throws a preallocated error instance
+ * from more than one place would otherwise bind it to the first step that
+ * ever failed with it, for the lifetime of the process and across every
+ * context in it. The nested segment run this exists for shares its
+ * exchange with the outer run, so exchange scope is all the reach it needs.
+ *
  * @internal
  */
-const FAILING_STEP = new WeakMap<object, Step<Adapter>>();
-
-/** @internal */
-function noteFailingStep(error: unknown, step: Step<Adapter>): void {
-  if (typeof error !== "object" || error === null) return;
-  if (FAILING_STEP.has(error)) return;
-  FAILING_STEP.set(error, step);
+function failingStepMap(
+  exchange: Exchange,
+): WeakMap<object, Step<Adapter>> | undefined {
+  const internals = EXCHANGE_INTERNALS.get(exchange);
+  if (!internals) return undefined;
+  internals.failingSteps ??= new WeakMap<object, Step<Adapter>>();
+  return internals.failingSteps as WeakMap<object, Step<Adapter>>;
 }
 
 /** @internal */
-function failingStepOf(error: unknown): Step<Adapter> | undefined {
+function noteFailingStep(
+  exchange: Exchange,
+  error: unknown,
+  step: Step<Adapter>,
+): void {
+  if (typeof error !== "object" || error === null) return;
+  const map = failingStepMap(exchange);
+  if (!map || map.has(error)) return;
+  map.set(error, step);
+}
+
+/** @internal */
+function failingStepOf(
+  exchange: Exchange,
+  error: unknown,
+): Step<Adapter> | undefined {
   if (typeof error !== "object" || error === null) return undefined;
-  return FAILING_STEP.get(error);
+  return failingStepMap(exchange)?.get(error);
 }
 
 /**
@@ -951,6 +997,9 @@ async function runContextErrorHandlers(
     stepLabel: string;
     correlationId: string;
     pendingSourceParse: boolean;
+    admitted: boolean;
+    /** The step that failed, as the step loop holds it. */
+    failingStep?: Step<Adapter>;
   },
 ): Promise<ErrorDecision | undefined> {
   const handlers = deps.context.getErrorHandlers();
@@ -965,9 +1014,8 @@ async function runContextErrorHandlers(
       failedOperation: args.stepLabel,
       scope: "context",
     });
-    let result: unknown;
     try {
-      result = await handler(
+      const result = await handler(
         args.originalError,
         args.exchange,
         // Bound to the FAILING exchange, the same as a route `.error()`
@@ -976,6 +1024,31 @@ async function runContextErrorHandlers(
         deps.buildForward(args.exchange),
         deps.route,
       );
+      if (result === undefined) continue;
+      if (isRecovery(result) && result.kind === "rethrow") {
+        // Declines on behalf of the whole chain, not just itself: a handler
+        // saying "propagate the original error" has answered the question the
+        // chain exists to ask, and consulting the next one would let a later
+        // handler overturn a decision already taken.
+        return undefined;
+      }
+      // INSIDE the guard, because applying a decision can fail as readily as
+      // reaching one: a park is refused at a position it cannot be revived
+      // from, or its store write fails, or its notify does. A throw from here
+      // escaping would leave the exchange with no terminal event at all and
+      // the original failure reported nowhere, which is strictly worse than
+      // the failure the handler was trying to improve on.
+      return await applyErrorDecision(deps, {
+        exchange: args.exchange,
+        originalError: args.originalError,
+        result,
+        stepLabel: args.stepLabel,
+        correlationId: args.correlationId,
+        scope: "context",
+        pendingSourceParse: args.pendingSourceParse,
+        admitted: args.admitted,
+        ...(args.failingStep ? { failingStep: args.failingStep } : {}),
+      });
     } catch (thrown) {
       const handlerErr = processError(thrown);
       args.exchange.logger.error(
@@ -999,23 +1072,6 @@ async function runContextErrorHandlers(
       });
       continue;
     }
-    if (result === undefined) continue;
-    if (isRecovery(result) && result.kind === "rethrow") {
-      // Declines on behalf of the whole chain, not just itself: a handler
-      // saying "propagate the original error" has answered the question the
-      // chain exists to ask, and consulting the next one would let a later
-      // handler overturn a decision already taken.
-      return undefined;
-    }
-    return await applyErrorDecision(deps, {
-      exchange: args.exchange,
-      originalError: args.originalError,
-      result,
-      stepLabel: args.stepLabel,
-      correlationId: args.correlationId,
-      scope: "context",
-      pendingSourceParse: args.pendingSourceParse,
-    });
   }
   return undefined;
 }
@@ -1042,6 +1098,8 @@ async function applyErrorDecision(
     correlationId: string;
     scope: "route" | "context";
     pendingSourceParse: boolean;
+    admitted: boolean;
+    failingStep?: Step<Adapter>;
   },
 ): Promise<ErrorDecision> {
   const strategy =
@@ -1068,6 +1126,8 @@ async function applyErrorDecision(
       directive: args.result,
       originalError: args.originalError,
       pendingSourceParse: args.pendingSourceParse,
+      admitted: args.admitted,
+      ...(args.failingStep ? { failingStep: args.failingStep } : {}),
     });
     deps.context.emit("route:error-handler:recovered", {
       routeId: deps.routeId,
@@ -1112,13 +1172,27 @@ async function applyErrorDecision(
  * taken against. The executor resolves one instead, from the step that
  * actually failed.
  *
- * Three refusals, all BEFORE the store write, so a park the framework will
+ * Four refusals, all BEFORE the store write, so a park the framework will
  * not make never reaches the record and its `notify` never runs:
  *
  * - the failing position cannot be revived (`RC5051`), which is exactly the
  *   set a `DeferSignal` is refused from;
+ * - the failure was raised after admission at a position the walk does not
+ *   address (`RC5051`), which is a framework-owned carrier around the
+ *   pipeline: a route-scope `.timeout()` raising its deadline, a bulkhead
+ *   refusing, a breaker fast-failing. Those sit above steps that have
+ *   already run, so parking one would resume from the top of the route and
+ *   charge every completed step's side effects twice. An ordinary step
+ *   failure inside such a segment is unaffected, because the nested run
+ *   notes the real step before it rethrows;
  * - the failure came from above a source-attached parse that a resume cannot
- *   reproduce (`RC5051`);
+ *   reproduce (`RC5051`). The alternative, running the pending parser at
+ *   park time, is refused for a reason that outlives this case:
+ *   `recovery.defer()` is generic, so a handler may answer it on an `RC5012`
+ *   or an `RC5023` as readily as on the `RC5038` a step-up reacts to, and
+ *   the framework cannot know which. Parsing here would feed a caller's
+ *   bytes to a parser BELOW the authorize position in the general case,
+ *   inverting the ordering the pre-from chain fixes;
  * - the run is already cancelled (`RC5054`), the same as the `defer`
  *   outcome case.
  *
@@ -1135,10 +1209,21 @@ async function parkFromErrorPath(
     directive: RecoveryDefer;
     originalError: RoutecraftError;
     pendingSourceParse: boolean;
+    admitted: boolean;
+    failingStep?: Step<Adapter>;
   },
 ): Promise<Exchange> {
   const definition = deps.route.definition;
-  const failing = failingStepOf(args.originalError);
+  // The step the loop was holding, which is the truth wherever it exists.
+  // The error-keyed lookup is the fallback and covers exactly one case the
+  // loop cannot: a failure raised inside a route-scope resilience segment,
+  // where the OUTER loop holds the synthetic carrier and the nested run
+  // noted the real step on its way past. Inferring the step from the error
+  // alone is not safe on its own, because the error reaching a handler is
+  // not always the one a step threw: a route handler that throws its own
+  // error hands the context chain a fresh one with no entry at all.
+  const failing =
+    args.failingStep ?? failingStepOf(args.exchange, args.originalError);
   const resolved = failing
     ? definition.errorPathSites?.get(failing)
     : undefined;
@@ -1147,21 +1232,14 @@ async function parkFromErrorPath(
     throw rcError("RC5051", args.originalError, { message: resolved.refusal });
   }
 
-  // Nothing in the step tree owns this failure, so it came from the chain
-  // around the pipeline and nothing in the body has run: the park is an
-  // ADMISSION park. Its resume runs `.authorize()` and `.input()`, and NOT
-  // the source's parse, which is why a park above a pending one is refused
-  // here rather than resumed against a body nothing parsed.
-  //
-  // The alternative, running the pending parser at park time so the stored
-  // body is parsed, is refused for a reason that outlives this case:
-  // `recovery.defer()` is generic. A handler may answer it on an RC5012 (no
-  // principal) or an RC5023 (not authentic) as readily as on the RC5038 a
-  // step-up reacts to, and the framework cannot know which. Parsing here
-  // would therefore feed a caller's bytes to a parser BELOW the authorize
-  // position in the general case, inverting the ordering the pre-from chain
-  // fixes. Failing closed in a narrow case beats silently inverting a
-  // security ordering in a general mechanism.
+  // Refused rather than approximated: storing position 0 here would re-run
+  // every completed step on resume. See this function's JSDoc.
+  if (args.admitted && resolved === undefined) {
+    throw rcError("RC5051", args.originalError, {
+      message: `Route "${deps.routeId}" failed at a position the defer-site walk does not address, after the exchange had already been admitted. This is a framework-owned position around the pipeline (a route-scope .timeout(), .retry(), .circuitBreaker() or .concurrency() raising its own failure rather than a step's), and parking there would have to resume from the top of the route and re-run every step that already completed. Park from a failure raised by a step instead.`,
+    });
+  }
+
   const admission = resolved === undefined;
   if (admission && args.pendingSourceParse) {
     throw rcError("RC5051", args.originalError, {
@@ -1231,7 +1309,7 @@ async function parkFromErrorPath(
       ...(stepState !== undefined ? { stepState } : {}),
       ...(notify !== undefined ? { notify } : {}),
       errorPath: {
-        ...(admission ? { admission: true } : {}),
+        origin: admission ? "admission" : "step",
         ...(refused ? { refusedScopes: refused } : {}),
       },
     },

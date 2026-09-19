@@ -186,7 +186,7 @@ describe("recovery.defer: parking an exchange from the error path", () => {
     expect(bodyRan).toBe(false);
 
     const record = await store.get(deferred.deferralId);
-    expect(record?.errorPath?.admission).toBe(true);
+    expect(record?.errorPath?.origin).toBe("admission");
     // The framework recorded what the refusal named, which is the bound a
     // lend is later held to.
     expect(record?.errorPath?.refusedScopes).toEqual(["sessions:manage"]);
@@ -580,6 +580,92 @@ describe("recovery.defer: parking an exchange from the error path", () => {
 
     await expect(t.client.sendDirect("work", {})).rejects.toThrow();
     expect(notified).toBe(0);
+  });
+
+  /**
+   * @case A failure raised by the framework's own chain positions, after admission, is refused rather than replayed
+   * @preconditions A route-scope .timeout() elapsing after two steps have already run, with a handler answering recovery.defer
+   * @expectedResult RC5051 and nothing written, rather than an admission park that would re-run both completed steps on resume
+   */
+  test("a post-admission failure with no site is refused, not parked at position 0", async () => {
+    const store = new MemoryDeferralStore();
+    const ran: string[] = [];
+
+    t = await testContext()
+      .with(shared(store))
+      .routes([
+        craft()
+          .id("slow")
+          .timeout(40)
+          .error(() => recovery.defer({ ttl: "1h" }))
+          .from(direct())
+          .transform((body) => {
+            ran.push("first");
+            return body;
+          })
+          .transform(async (body) => {
+            ran.push("second");
+            await new Promise((resolve) => setTimeout(resolve, 200));
+            return body;
+          })
+          .to(noop()),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const failure = await t.client
+      .sendDirect("slow", {})
+      .then(() => undefined)
+      .catch((err: unknown) => err as { rc?: string });
+
+    // The deadline is thrown by a synthetic segment carrier the defer-site
+    // walk never visits, and two steps had already completed. Parking it as
+    // an admission would store position 0 with the whole body as the
+    // continuation and charge both steps' side effects again on resume.
+    expect(ran).toEqual(["first", "second"]);
+    expect(failure?.rc).toBe("RC5051");
+    expect(await store.list({ limit: 10, state: "waiting" })).toHaveLength(0);
+  });
+
+  /**
+   * @case A step failure INSIDE a route-scope segment still resolves to the real step
+   * @preconditions A route-scope .retry() around a pipeline whose second step throws
+   * @expectedResult The park lands at the failing step re-entrantly rather than being refused, because the nested run noted the real step before rethrowing
+   */
+  test("a step failure inside a resilience segment still finds its own position", async () => {
+    const store = new MemoryDeferralStore();
+    const ran: string[] = [];
+
+    t = await testContext()
+      .with(shared(store))
+      .routes([
+        craft()
+          .id("retried")
+          .retry({ maxAttempts: 2, backoff: 1 })
+          .error(() => recovery.defer({ ttl: "1h" }))
+          .from(direct())
+          .transform((body) => {
+            ran.push("first");
+            return body;
+          })
+          .transform(() => {
+            throw new Error("needs a human");
+          })
+          .to(noop()),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const deferred = asDeferred(await t.client.sendDirect("retried", {}));
+    const record = await store.get(deferred.deferralId);
+
+    // Resolved to the failing step itself, not to the retry carrier the
+    // outer loop was holding, and not downgraded to an admission park.
+    expect(record?.errorPath?.origin).toBe("step");
+    expect(record?.position).toBe(1);
+    // Both attempts ran the first step; what matters is that the park landed
+    // at the second one rather than at position 0.
+    expect(ran).toEqual(["first", "first"]);
   });
 
   /**

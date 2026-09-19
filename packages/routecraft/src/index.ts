@@ -8,6 +8,7 @@ export { jwks } from "./auth/jwks.ts";
 export type { JwksOptions } from "./auth/jwks.ts";
 export {
   authorize,
+  insufficientAuthorityOf,
   type AuthorizeOptions,
   type ActorSpec,
   type InsufficientAuthority,
@@ -224,8 +225,10 @@ export { type DirectConfig } from "./adapters/direct/types.ts";
 export {
   recovery,
   type Recovery,
+  type RecoveryDefer,
   type RecoveryDrop,
   type RecoveryRethrow,
+  type ErrorPathDeferRequest,
   isRecovery,
 } from "./recovery.ts";
 
@@ -233,6 +236,7 @@ export {
   DefaultRoute,
   type Route,
   type RouteDefinition,
+  type ContextErrorHandler,
   type ErrorHandler,
   type ForwardFn,
   type RouteDiscovery,
@@ -747,6 +751,7 @@ export type {
   ResumeAcknowledgment,
   ResumeAuthorizer,
   ResumeAuthorizerInput,
+  ResumeElevator,
   ResumeRequest,
   Deferred,
   DeferralRecordView,

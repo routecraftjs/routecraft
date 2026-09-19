@@ -49,7 +49,10 @@ import {
   type DetachedResult,
   type ExecutorDeps,
 } from "./pipeline/executor.ts";
-import { detachedDefinition } from "./pipeline/chain-policy.ts";
+import {
+  detachedDefinition,
+  type DetachedKind,
+} from "./pipeline/chain-policy.ts";
 import type {
   DeferCapableStep,
   DeferrableStep,
@@ -557,13 +560,14 @@ export interface Route<T = unknown> {
    *
    * @param exchange - The rehydrated exchange, already bound to this route
    * @param steps - The continuation, in execution order
-   * @param admission - The park was raised before admission
+   * @param kind - Which re-entry this is, which selects the chain policy.
+   *   Defaults to `"resume"`; `"admission"` is the park-before-admission case.
    * @internal
    */
   runContinuation(
     exchange: Exchange,
     steps: ReadonlyArray<Step<Adapter>>,
-    admission?: boolean,
+    kind?: DetachedKind,
   ): Promise<DetachedResult>;
 
   /**
@@ -1271,7 +1275,7 @@ export class DefaultRoute implements Route {
   runContinuation(
     exchange: Exchange,
     steps: ReadonlyArray<Step<Adapter>>,
-    admission?: boolean,
+    kind: DetachedKind = "resume",
   ): Promise<DetachedResult> {
     // An admission run has to validate its input, and the validator is a
     // closure the consumer handler normally stashes on the arriving
@@ -1280,13 +1284,8 @@ export class DefaultRoute implements Route {
     // `.input()` schemas, which the live route still holds. The source's
     // parse is NOT re-attachable, and that is the difference the park-time
     // refusal exists for.
-    if (admission) this.attachInputValidation(exchange);
-    const run = runDetachedPipeline(
-      this.executorDeps(),
-      steps,
-      exchange,
-      admission ? "admission" : "resume",
-    );
+    if (kind === "admission") this.attachInputValidation(exchange);
+    const run = runDetachedPipeline(this.executorDeps(), steps, exchange, kind);
     this.trackTask(run);
     return run;
   }

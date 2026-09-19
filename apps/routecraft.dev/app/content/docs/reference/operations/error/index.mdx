@@ -75,7 +75,7 @@ Instead of a recovery body the handler may return a branded directive built with
 | `recovery.rethrow()` | Propagates the original error, exactly as if the handler had thrown it. |
 | `recovery.defer(request)` | Parks the exchange durably and answers with the [`Deferred`](/docs/reference/operations/defer) acknowledgment. |
 
-### `recovery.defer(request)`
+### `recovery.defer(request)` \{#recovery-defer-request}
 
 Turns an error into a deferral. This is what lets a failure be waited on rather than reported: a handler that recognises an authorization refusal can park the call, have a human lend the missing scope, and let the continuation finish, without the route that refused knowing any of it happened.
 
@@ -94,7 +94,7 @@ An admission park raised while a source-attached parser is still pending is refu
 
 **Schema is descriptive only.** The request may carry `schema`, and it is folded into the continuation descriptor and rendered onto the acknowledgment, exactly as a re-entrant site's is. No live validation runs at resume and [RC5049](/docs/reference/errors#rc-5049) never fires, because the schema lives in handler code and cannot be read back off the route. The resuming door is the validator.
 
-### `notify`: telling someone, in the right order
+### `notify`: telling someone, in the right order \{#notify}
 
 A handler that notifies a human and then returns the directive has told someone about a park the framework may still refuse. The site is resolved when the executor receives the directive, which is after the handler's side effects, so the recipient would hold a correctly signed token for a record that will never exist.
 

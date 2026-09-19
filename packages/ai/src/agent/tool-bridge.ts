@@ -7,6 +7,7 @@ import {
   type Principal,
 } from "@routecraft/routecraft";
 import { isBlockLoaderTool } from "../block/resolve.ts";
+import { isThenable } from "../shared/thenable.ts";
 import { toAiInputSchema } from "../llm/structured-output.ts";
 import { makeFnHandlerContext } from "../fn/handler-context.ts";
 import type { FnHandlerContext } from "../fn/types.ts";
@@ -31,6 +32,12 @@ import type { ResolvedTool } from "./tools/selection.ts";
  * only the first would leak exactly the credential this check exists to
  * withhold.
  *
+ * What a recognised one becomes is the neutral `DEFERRED_TOOL_PLACEHOLDER`,
+ * which is also what the model already sees when the agent's OWN defer
+ * sentinel comes back, so the two are indistinguishable from the thread. The
+ * placeholder is what reaches the model, the session thread and the
+ * telemetry snapshot alike.
+ *
  * @internal
  */
 function isDownstreamDeferred(value: unknown): boolean {
@@ -41,21 +48,6 @@ function isDownstreamDeferred(value: unknown): boolean {
   // still checked rather than cast away, because reading `.issues` off a
   // thenable would answer "this is a Deferred" for anything at all.
   return !isThenable(result) && result.issues === undefined;
-}
-
-/**
- * Whether a value is a thenable.
- *
- * Any thenable counts as async, not only a `Promise`: a hand-rolled one and
- * a native promise from another realm both fail an `instanceof` check. Core
- * holds the same predicate in `shared/thenable.ts`, which is `@internal` and
- * so deliberately absent from its entry point, and
- * `llm/structured-output.ts` keeps its own copy for the same reason.
- *
- * @internal
- */
-function isThenable(value: unknown): value is PromiseLike<unknown> {
-  return typeof (value as { then?: unknown } | null)?.then === "function";
 }
 
 /**
@@ -258,22 +250,11 @@ export async function buildVercelTools(
           let output = await handler(input, callCtx);
           let deferred = false;
           if (isDownstreamDeferred(output)) {
-            // A tool whose own route parked. `sendDirect` resolves with the
-            // executed exchange's body, so what came back is the framework's
-            // `Deferred` acknowledgment, and it carries a resume TOKEN.
-            //
-            // Under the default bearer door that token is a capability to
-            // resume the parked act, so a model holding it could approve its
-            // own work. It is replaced by the neutral placeholder here, which
-            // is also what the model already sees when the agent's OWN defer
-            // sentinel comes back, so the two look identical from the thread.
-            // The placeholder is what reaches the model, the session thread
-            // and the telemetry snapshot alike.
-            //
-            // Nothing is pushed into `deferrals.signals`: this is a
-            // DOWNSTREAM park, not this agent's. The turn continues and the
-            // agent's own run does not park. Whether it should, and how it
-            // would resume, is #737.
+            // The acknowledgment carries a live resume token, and under the
+            // default bearer door that is a capability to resume the parked
+            // act; see `isDownstreamDeferred`. Nothing is collected: a
+            // DOWNSTREAM park is not this agent's, so the turn continues
+            // (#737 asks whether it should park too).
             output = DEFERRED_TOOL_PLACEHOLDER;
             deferred = true;
           } else if (isDeferSentinel(output)) {

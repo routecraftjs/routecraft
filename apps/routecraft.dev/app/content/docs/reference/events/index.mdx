@@ -253,11 +253,15 @@ A suppressed duplicate also fires `route:exchange:dropped` with reason `"duplica
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `route:error-handler:invoked` | A `.error()` handler runs (route or step scope) | `{ routeId, exchangeId, correlationId, originalError, failedOperation, scope: "route" \| "step", stepLabel? }` |
-| `route:error-handler:recovered` | Handler returned a value; pipeline continues (step scope) or replaces body (route scope) | Same plus `recoveryStrategy` |
-| `route:error-handler:failed` | Handler itself threw; rethrows for the next layer (route scope or default error path) | Same |
+| `route:error-handler:invoked` | A handler runs, at any of the three scopes | `{ routeId, exchangeId, correlationId, originalError, failedOperation, scope: "route" \| "step" \| "context", stepLabel? }` |
+| `route:error-handler:recovered` | Handler returned a value; pipeline continues (step scope), replaces the body, or parks the exchange | Same plus `recoveryStrategy` |
+| `route:error-handler:failed` | Handler itself threw | Same plus `handlerIndex?` |
 
-`scope` is `"route"` for the catch-all set via `.error()` BEFORE `.from()`, and `"step"` for a wrapper attached AFTER `.from()`. `stepLabel` is the label of the wrapped step when `scope === "step"`. Subscribe to the exact names and branch on `scope` in the payload.
+`scope` names which ring handled it: `"step"` for a wrapper attached AFTER `.from()`, `"route"` for the catch-all set via `.error()` BEFORE `.from()`, and `"context"` for a handler registered with [`ctx.registerErrorHandler()`](/docs/reference/configuration#error-handlers). `stepLabel` is the label of the wrapped step when `scope === "step"`. `recoveryStrategy` is `"step-error-handler"`, `"route-error-handler"` or `"context-error-handler"`. Subscribe to the exact names and branch on `scope` in the payload.
+
+`handlerIndex` appears on a failure at context scope only, and names which registered handler threw, by its position in registration order. It exists because "the handler" is ambiguous there: the chain CONTINUES past a handler that throws, so an operator needs to know which one to fix. At route and step scope there is only one handler to blame, and the field is absent.
+
+A failure at context scope is also the one case where `route:error-handler:failed` does not imply the exchange failed: the next handler in the chain may still decide. Conversely, once any handler decides, `context:error` and `route:exchange:failed` do not fire at all.
 
 ### Cache wrapper operations
 

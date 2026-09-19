@@ -261,6 +261,49 @@ describe("the resume elevate hook", () => {
   });
 
   /**
+   * @case A scope moved between rings is a lend on the receiving ring, not a free pass
+   * @preconditions A door re-minting with the actor's parked scope relocated onto the SUBJECT, lending nothing by a merged count
+   * @expectedResult RC5056, because the rings are not interchangeable: a subject-ring gate reads what a merged count would have hidden
+   */
+  test("a scope moved from the actor ring to the subject ring is refused", async () => {
+    const store = new MemoryDeferralStore();
+    const ran = { body: 0 };
+
+    t = await testContext()
+      .with(shared(store))
+      .routes([
+        archiveRoute(ran),
+        craft()
+          .id("answers")
+          .from(direct())
+          .resume(payloadFrom, {
+            // The park held HELD on the actor. This hands it back on the
+            // subject instead and adds nothing anywhere, so a bound computed
+            // over the two rings merged would see zero lent scopes and never
+            // consult the recorded refusal at all.
+            elevate: () =>
+              delegate(
+                authenticate({
+                  subject: "member-1",
+                  email: "member@acme.test",
+                  scopes: [HELD],
+                }),
+                { subject: "agent-1", roles: ["agent"], scopes: [] },
+                { scopes: [HELD] },
+              ),
+          }),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const deferred = await park(t);
+    await expect(
+      t.client.sendDirect("answers", { token: deferred.token }),
+    ).rejects.toThrow(/elevate hook refused/);
+    expect(ran.body).toBe(0);
+  });
+
+  /**
    * @case A principal that was not verified live is refused
    * @preconditions A door returning a plain object shaped like the parked principal
    * @expectedResult RC5056, because a re-mint is by construction a fresh verification

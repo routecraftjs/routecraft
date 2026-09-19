@@ -445,7 +445,7 @@ platform kill timer, budget for the teardown that follows it, not for
 
 A context error handler is the outermost of three error rings. A step's `.error()` wrapper runs first, then the route's own [`.error()`](/docs/reference/operations/error), and this chain is reached only where those gave up: a route with no handler, or one whose handler rethrew or threw. A route that handles its own failures is never overridden.
 
-It exists so that something OUTSIDE a route can decide a failure is recoverable. A plugin can recognise an authorization refusal, park the exchange with [`recovery.defer()`](/docs/reference/operations/error#recoverydeferrequest), have a human lend the missing scope, and let the continuation finish, without any route knowing it happened.
+It exists so that something OUTSIDE a route can decide a failure is recoverable. A plugin can recognise an authorization refusal, park the exchange with [`recovery.defer()`](/docs/reference/operations/error#recovery-defer-request), have a human lend the missing scope, and let the continuation finish, without any route knowing it happened.
 
 There are two ways in, landing in one chain. The config field is registered while the context is built, so it is consulted ahead of anything a plugin registers in its `apply()`.
 

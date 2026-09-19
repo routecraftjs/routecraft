@@ -258,6 +258,19 @@ const BASE_CONFIG_KEYS: ReadonlySet<string> = new Set([
  * }
  * ```
  */
+/**
+ * One registration of a context error handler.
+ *
+ * A record rather than the bare function so two registrations of the same
+ * function stay distinguishable; see {@link CraftContext.registerErrorHandler}.
+ *
+ * @internal
+ */
+interface RegisteredErrorHandler {
+  readonly handler: ContextErrorHandler;
+  readonly mayDefer: boolean;
+}
+
 export interface CraftConfig {
   /**
    * Service / application name for this context. Emitted on every log line as
@@ -471,7 +484,7 @@ export class CraftContext {
    * throws or silently wins, and the only way to combine them is for one to
    * wrap the other, which is more special-casing than a chain.
    */
-  private readonly errorHandlers: ContextErrorHandler[] = [];
+  private readonly errorHandlers: RegisteredErrorHandler[] = [];
 
   /**
    * How many registered handlers declared `mayDefer`. A count rather than a
@@ -1092,14 +1105,22 @@ export class CraftContext {
           "ctx.registerErrorHandler(handler) takes a function receiving (error, exchange, forward, route) and returning a recovery body, a recovery directive, or undefined to pass.",
       });
     }
-    const entry: ContextErrorHandler = handler;
-    if (options?.mayDefer) this.deferringErrorHandlers += 1;
+    // A per-REGISTRATION record rather than the bare function, so the same
+    // handler registered twice is two entries with their own `mayDefer` and
+    // their own unregister. Keying on the function would make the second
+    // registration's unregister remove the first's entry and decrement
+    // against the wrong declaration.
+    const entry: RegisteredErrorHandler = {
+      handler,
+      mayDefer: options?.mayDefer === true,
+    };
+    if (entry.mayDefer) this.deferringErrorHandlers += 1;
     this.errorHandlers.push(entry);
     return () => {
       const at = this.errorHandlers.indexOf(entry);
       if (at === -1) return;
       this.errorHandlers.splice(at, 1);
-      if (options?.mayDefer) this.deferringErrorHandlers -= 1;
+      if (entry.mayDefer) this.deferringErrorHandlers -= 1;
     };
   }
 
@@ -1109,7 +1130,7 @@ export class CraftContext {
    * @internal
    */
   getErrorHandlers(): ReadonlyArray<ContextErrorHandler> {
-    return this.errorHandlers;
+    return this.errorHandlers.map((entry) => entry.handler);
   }
 
   /**

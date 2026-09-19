@@ -28,6 +28,7 @@ import {
   deserializeExchange,
   encodePersistable,
 } from "./serialize.ts";
+import type { DetachedKind } from "../pipeline/chain-policy.ts";
 import type { DeferSite } from "./sites.ts";
 import type { Principal } from "../auth/types.ts";
 import { resumable } from "./types.ts";
@@ -209,16 +210,9 @@ export async function reviveDeferral(
     await runAuthorizer(door.authorize, hookInput, context.logger, door.signal);
   }
 
-  // Still step 3: `elevate` runs immediately after `authorize` (or in its
-  // place when the door declares none), and its result is HELD until
-  // `rehydrate()` applies it after the claim. Both halves are deliberate.
-  //
-  // Evaluated here, above the lifecycle disclosure and above the claim,
-  // because a refusal below either settling transition burns the rightful
-  // principal's single-use link and drives the approver notification with a
-  // credential that was never theirs. Applied after the claim, because the
-  // principal is what the continuation runs as, and the continuation only
-  // exists once this resume has won.
+  // Still step 3, and the placement is the security property: see
+  // `runElevator`. Its answer is HELD here and applied by `rehydrate()` only
+  // once the claim is won.
   const elevated = door.elevate
     ? await runElevator(
         door.elevate,
@@ -442,7 +436,9 @@ export async function reviveDeferral(
       exchange,
       site.site.continuation,
       resumedAt,
-      deferral.errorPath?.admission === true,
+      // Read where the record says the park was raised, which is where the
+      // fact lives; the chain policy is keyed on the kind, not on a flag.
+      deferral.errorPath?.origin === "admission" ? "admission" : "resume",
     );
   } catch (error) {
     // Best-effort, and the ordering is the point: the original error must
@@ -821,9 +817,9 @@ async function runContinuation(
   exchange: Exchange,
   continuation: ReadonlyArray<Step<Adapter>>,
   at: Date,
-  admission: boolean,
+  kind: DetachedKind,
 ): Promise<SerializedOutcome> {
-  const result = await route.runContinuation(exchange, continuation, admission);
+  const result = await route.runContinuation(exchange, continuation, kind);
   if (result.deferred) {
     // The continuation reached another `.defer()`. Recording a body here
     // would cache the SECOND deferral's acknowledgment, token included,
@@ -897,7 +893,7 @@ function findSite(
   // An ADMISSION park is addressed by the record's own flag rather than by
   // its position, which it shares with the first step's error-path site.
   // Checked first so that shared number can never resolve to the wrong one.
-  if (deferral.errorPath?.admission) {
+  if (deferral.errorPath?.origin === "admission") {
     const site = route.definition.admissionSite;
     return site ? { site } : undefined;
   }

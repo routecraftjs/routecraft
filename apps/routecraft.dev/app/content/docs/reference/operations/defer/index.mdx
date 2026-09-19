@@ -121,7 +121,9 @@ On the agent surface that step is the MODEL, and the model has read whatever unt
 
 </Callout>
 
-The continuation always runs as the **deferred** principal, restored from storage and [marked restored](/docs/reference/operations/resume#securing-resume). The resuming hook gates who may inject the payload and receive the result; it never changes whose authority the rest of the route executes under.
+The continuation runs as the **deferred** principal, restored from storage and [marked restored](/docs/reference/operations/resume#securing-resume). The `authorize` hook gates who may inject the payload and receive the result; it never changes whose authority the rest of the route executes under.
+
+One hook does change it, and only within the same identity: a door declaring [`elevate`](/docs/reference/operations/resume#elevating-within-the-same-identity) re-mints the parked principal so the continuation carries a lent scope. It is the same two parties either way, and everything but `scopes` is compared structurally.
 
 ## The branch-rejoin rule
 

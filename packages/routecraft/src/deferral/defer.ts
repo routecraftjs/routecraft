@@ -1,5 +1,6 @@
 import type { CraftContext } from "../context.ts";
 import { rcError } from "../error.ts";
+import { HOOK_ABORTED, settleOrAbort } from "../shared/abort.ts";
 import {
   type Exchange,
   DefaultExchange,
@@ -192,25 +193,11 @@ async function runNotify(
     signal?: AbortSignal;
   },
 ): Promise<void> {
-  let onAbort: (() => void) | undefined;
   const { signal } = ctx;
   try {
-    await Promise.race([
-      (async () => notify(ack))(),
-      new Promise<never>((_, reject) => {
-        if (!signal) return;
-        if (signal.aborted) {
-          reject(NOTIFY_ABORTED);
-          return;
-        }
-        onAbort = () => {
-          reject(NOTIFY_ABORTED);
-        };
-        signal.addEventListener("abort", onAbort, { once: true });
-      }),
-    ]);
+    await settleOrAbort(() => notify(ack), signal);
   } catch (cause) {
-    const aborted = cause === NOTIFY_ABORTED;
+    const aborted = cause === HOOK_ABORTED;
     // Claim-first, exactly as the cancellation path does: a replayed token
     // then reads RC5050 from the settled path rather than reviving work
     // whose caller was told it failed.
@@ -227,13 +214,8 @@ async function runNotify(
         ? `Route "${ctx.routeId}" parked an exchange but its notify hook ${aborted ? "did not settle before the run was cancelled" : "failed"}, so the deferral was denied and its resume link is dead.`
         : `Route "${ctx.routeId}" parked an exchange, its notify hook ${aborted ? "did not settle before the run was cancelled" : "failed"}, and denying the deferral failed; its resume link may stay live (deferral "${ctx.deferralId}", see the error log).`,
     });
-  } finally {
-    if (onAbort && signal) signal.removeEventListener("abort", onAbort);
   }
 }
-
-/** Sentinel for the abort arm, so it is distinguishable from a thrown cause. */
-const NOTIFY_ABORTED = Symbol("routecraft.deferral.notify.aborted");
 
 /**
  * The record a deferral writes, and the exchange it was taken from.

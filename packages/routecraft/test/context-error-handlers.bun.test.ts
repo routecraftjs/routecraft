@@ -456,6 +456,94 @@ describe("context error handlers", () => {
   });
 
   /**
+   * @case A park the framework refuses does not swallow the exchange's terminal event
+   * @preconditions A context handler parking a failure raised inside a .split() fan-out, which RC5051 refuses
+   * @expectedResult The refusal does not escape the executor: the exchange still reaches the ordinary failure path with the ORIGINAL error, and route:exchange:failed fires exactly once
+   */
+  test("a failed park still leaves exactly one terminal event", async () => {
+    const terminals: string[] = [];
+    // No deferral runtime, and the handler does not declare `mayDefer`, so
+    // the boot check does not catch it: the park fails with RC5052 the first
+    // time a failure reaches the handler. That is the misconfiguration this
+    // guard exists to keep loud rather than swallow.
+    t = await testContext()
+      .routes([
+        craft()
+          .id("work")
+          .from(direct())
+          .transform(() => {
+            throw new Error("the original");
+          })
+          .to(noop()),
+      ])
+      .build();
+    for (const name of [
+      "route:exchange:failed",
+      "route:exchange:completed",
+      "route:exchange:dropped",
+      "route:exchange:deferred",
+    ] as const) {
+      t.ctx.on(name, () => {
+        terminals.push(name);
+      });
+    }
+    t.ctx.registerErrorHandler(() => recovery.defer({ ttl: "1h" }));
+    await t.startAndWaitReady();
+
+    // The ORIGINAL failure reaches the caller, not the refusal of the
+    // recovery attempted for it, and not nothing at all.
+    await expect(t.client.sendDirect("work", {})).rejects.toThrow(
+      "the original",
+    );
+
+    expect(terminals).toEqual(["route:exchange:failed"]);
+  });
+
+  /**
+   * @case A route handler that throws its own error does not downgrade the park to an admission
+   * @preconditions A route .error() that throws a fresh error, and a context handler that parks the result
+   * @expectedResult The park lands at the step that actually failed, not at position 0 with the whole body as its continuation
+   */
+  test("a park after a route handler threw still lands at the failing step", async () => {
+    const store = new MemoryDeferralStore();
+    const ran: string[] = [];
+    t = await testContext()
+      .with({ deferral: { store, secret: SECRET } })
+      .routes([
+        craft()
+          .id("work")
+          .error(() => {
+            // A fresh error the failing-step map has never seen. Inferring
+            // the position from it alone would find nothing and read that
+            // absence as "the failure came from outside the step tree".
+            throw new Error("the compensation also failed");
+          })
+          .from(direct())
+          .transform((body) => {
+            ran.push("first");
+            return body;
+          })
+          .transform(() => {
+            throw new Error("needs a human");
+          })
+          .to(noop()),
+        craft().id("answers").from(direct()).resume(),
+      ])
+      .build();
+    t.ctx.registerErrorHandler(() => recovery.defer({ ttl: "1h" }), {
+      mayDefer: true,
+    });
+    await t.startAndWaitReady();
+
+    const deferred = asDeferred(await t.client.sendDirect("work", {}));
+    const record = await store.get(deferred.deferralId);
+
+    expect(record?.errorPath?.origin).toBe("step");
+    expect(record?.position).toBe(1);
+    expect(ran).toEqual(["first"]);
+  });
+
+  /**
    * @case A non-function registration is refused rather than failing at the first error
    * @preconditions registerErrorHandler called with something that is not a function
    * @expectedResult RC5003 naming the expected shape

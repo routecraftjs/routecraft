@@ -322,6 +322,16 @@ type ExchangeInternals = {
    */
   parse?: (raw: unknown) => unknown | Promise<unknown>;
   /**
+   * The step each error was thrown by, for this exchange's run.
+   *
+   * Written by the pipeline executor's catch and read when an error handler
+   * asks to park, which needs the position the failure came from. It lives on
+   * internals because a nested resilience-segment run shares them with the
+   * outer run, which is the one case the executor cannot answer from the step
+   * it is holding.
+   */
+  failingSteps?: WeakMap<object, unknown>;
+  /**
    * How the synthetic parse step should handle a parse failure.
    * - `"fail"` / `"abort"`: throw `RC5016` so `exchange:failed` fires (and
    *   for `"abort"` the adapter rethrows out of subscribe).

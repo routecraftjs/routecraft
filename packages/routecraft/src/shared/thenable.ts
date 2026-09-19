@@ -12,7 +12,8 @@
  * Core-internal on purpose: this is plumbing, and
  * `DEFINITION_OF_DONE.md` bars new `@internal` symbols from the public
  * entry point. `@routecraft/ai` cannot reach this module across the
- * package boundary and keeps its own copy at the AI SDK seam.
+ * package boundary and keeps one copy of its own, in its
+ * `src/shared/thenable.ts`.
  */
 
 /**
