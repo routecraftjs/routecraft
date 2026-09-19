@@ -1,0 +1,11 @@
+{
+  "name": "@routecraft/spike-validation",
+  "version": "0.0.0",
+  "private": true,
+  "type": "module",
+  "description": "Clean-room validation counter-examples for the plugin-architecture spike",
+  "scripts": {
+    "test": "bun test",
+    "typecheck": "tsc --noEmit"
+  }
+}
