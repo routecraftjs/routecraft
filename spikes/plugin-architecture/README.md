@@ -92,6 +92,50 @@ may be where it falls over.
 the "one interface, tiered by declaration" story splits. Either wrappers
 become declarative too, or the split needs a reason better than convenience.
 
+### F8. `from` and type flow: four encodings, two survive, and the sound one is not fluent
+
+This was the one open question with the weight to kill the design. Four
+encodings were tried under `src/typed/`. Each verdict is a compile-time
+assertion or a passing test, not an opinion.
+
+| | fluent chain | body type flows | plugin-extensible | sound |
+|---|---|---|---|---|
+| **A** naive inference from a generic factory | yes | **no** | yes | n/a |
+| **B** derived from the installed plugin set | yes | **no** (same reason as A) | yes | yes |
+| **C** merged interface with a body type parameter | **yes** | **yes** | **yes** | **no** |
+| **D** free functions in a pipe | no | **yes** | **yes** | **yes** |
+
+**A fails on a hard limit of the language, not a detail.** `infer` against a
+generic function instantiates its type parameters at their constraints, so
+the relationship between a step's input and output body is erased at exactly
+the point the builder needs it. `a-naive.check.ts` asserts the erasure at
+compile time, so if a future TypeScript fixes it, the assertion breaks and
+tells us.
+
+**B inherits A's failure.** The derived builder from F3 is sound and makes
+declining a plugin visible to the compiler, but it cannot carry a body type
+through the chain for the same reason A cannot.
+
+**C works and is what ships today.** `StepBuilderBase<S extends BuilderState>`
+with `Retyped<this, SetBody<S, R>>` is this encoding. The plugin author writes
+the whole signature including the return type, so the body relationship
+survives. `c-merged.check.ts` proves the body flows through
+`{subject, size} -> string -> string -> number` with every argument inferred
+rather than annotated. It is also the encoding F3 proved unsound.
+
+**D is sound because the declaration IS the implementation.** An operator is
+an ordinary exported function; there is no second half to drift, no global
+interface, no prototype patching, no proxy. `d-pipe.check.ts` proves the same
+body flow. The cost is the fluent chain, which is Routecraft's most
+recognisable surface, plus a `pipe` overload per arity.
+
+**The conclusion, stated plainly.** In TypeScript today you can have a fluent,
+body-typed, plugin-extensible DSL, or you can have a sound one. Not both.
+Every framework with this shape has made the same trade, and Routecraft
+already chose fluency. The design does not change that trade; it only makes
+it visible and confines the unsoundness to one mechanism instead of
+scattering it.
+
 ### F4. Ordering constraints against absent plugins must be inert
 
 `deferral`'s admission wrapper declares `after: ["routecraft.authorize"]`, and
@@ -122,11 +166,9 @@ single mechanism rather than a family of them.
 
 ## What this spike does not answer
 
-Listed so nobody mistakes a green suite for a validated design.
+Listed so nobody mistakes a green suite for a validated design. `from` and
+type flow moved out of this list in the second round; see F8.
 
-- **`from` and type flow.** The hardest item in the proposal is untouched
-  here. Steps carry no body type through the chain, so the question of how a
-  source fixes a route's type parameters is still open.
 - **Halt and continue semantics.** The executor runs steps to completion or
   throws. The real one has a halt contract this does not model.
 - **Teardown under partial failure.** Tested for plugins, not for a failure
