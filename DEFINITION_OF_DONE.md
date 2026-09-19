@@ -32,13 +32,13 @@ The checklists below apply to **packages that ship code**: anything under `packa
 > Event docs are at `apps/routecraft.dev/app/content/docs/reference/events/index.mdx`.
 
 - [ ] New behavior emits events for at least: started, completed/stopped, and failed states
-- [ ] Event names follow the existing hierarchical convention (e.g., `route:{routeId}:operation:{type}:{adapterId}:started`)
+- [ ] Event names follow the existing hierarchical convention and carry no identity (e.g., `route:operation:choice:matched`); `routeId`, `exchangeId` and adapter ids live in the payload
 - [ ] Event payloads are type-safe: add a new entry to the `EventDetailsMap` interface in `types.ts` with a typed payload shape (`EventDetailsMapping` is a derived lookup alias and cannot receive entries)
 - [ ] Payloads include enough context for correlation: `contextId`, `routeId`, `exchangeId`, or `correlationId` as appropriate
 - [ ] Duration-sensitive operations include timing information (start timestamp at minimum; duration where practical)
 - [ ] Failure events include the error or reason for failure
 - [ ] Adapter operations expose structured `metadata` in their event payloads (IDs, status codes, counts -- not large bodies)
-- [ ] Wildcard subscriptions still work: new event names must be compatible with `*` and `**` glob patterns
+- [ ] Subscribers can still reach the event: subscription is by exact name or the bare `"*"` catch-all, patterned wildcards (`route:*`, `route:**`) are rejected with `RC2001`, and per-route filtering is `forRoute(routeId, handler)`
 - [ ] New events are documented on the events reference page with their payload shape and when they fire
 - [ ] If the change removes or renames an event, treat it as a breaking change and document the migration path
 - [ ] Event payloads do not hold live mutable references that could change after emission. The `Exchange` wrapper, `headers`, and `principal` are shallow-frozen by `DefaultExchange` and safe to attach by reference; `body` is intentionally left mutable so adapter authors can attach arbitrary user payloads, so any payload that includes `exchange.body` (or other unfrozen fields like nested `principal.claims`) must be snapshotted (spread / `structuredClone`) at emission time when subscribers depend on payload stability.
