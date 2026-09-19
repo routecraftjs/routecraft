@@ -378,6 +378,40 @@ export function resolveDeferSites(route: RouteDefinition): ResolvedDeferSites {
  *
  * @internal
  */
+/**
+ * Resolve a definition's park sites and write every one of them onto it.
+ *
+ * The single place that answers "what did the walk decide about this route",
+ * because there are two ways a definition reaches a context: built by
+ * `craft().build()`, or handed over hand-written. Both need the same five
+ * answers, and copying four of them at one site is a silent failure: the
+ * startup deferral-runtime check reads `deferSteps` (`context.ts`), and a
+ * revival finds its static parked site by walking the same list
+ * (`deferral/revive.ts`), so a definition missing it starts without a
+ * runtime and then cannot be resumed.
+ *
+ * Callers guard on whether the work is already done; this always does it.
+ *
+ * @internal
+ */
+export function applyResolvedSites(definition: RouteDefinition): void {
+  const sites = resolveDeferSites(definition);
+  // Absent rather than empty on a route that never defers, so the common
+  // case costs nothing to ask about.
+  if (sites.deferSteps.length > 0) {
+    definition.deferSteps = sites.deferSteps;
+  }
+  if (sites.reentrantDeferSteps.length > 0) {
+    definition.reentrantDeferSteps = sites.reentrantDeferSteps;
+  }
+  // Always, unlike the two above: these answer a question that only arises
+  // once a handler has asked to park, and a CONTEXT handler can park any
+  // route, so the answer has to exist for every one.
+  definition.errorPathSites = sites.errorPathSites;
+  definition.admissionSite = sites.admissionSite;
+  if (usesResume(definition)) definition.usesResume = true;
+}
+
 export function usesResume(route: RouteDefinition): boolean {
   return containsResume(route.steps);
 }

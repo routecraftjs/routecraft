@@ -24,7 +24,7 @@ import { logger, childBindings } from "./logger.ts";
 import { type AdapterOverride, RC_ADAPTER_OVERRIDES } from "./testing-hooks.ts";
 import { getConfigAppliers } from "./config-applier.ts";
 import { DEFERRAL_RUNTIME } from "./deferral/runtime-key.ts";
-import { resolveDeferSites } from "./deferral/sites.ts";
+import { applyResolvedSites } from "./deferral/sites.ts";
 import { EventBus } from "./event-bus.ts";
 
 import type { EventHandler, EventName, EventPayload } from "./types.ts";
@@ -1419,9 +1419,7 @@ export class CraftContext {
       // the whole reason the sites are resolved for every route rather than
       // only for one that declares a `.defer()`.
       if (definition.errorPathSites === undefined) {
-        const sites = resolveDeferSites(definition);
-        definition.errorPathSites = sites.errorPathSites;
-        definition.admissionSite = sites.admissionSite;
+        applyResolvedSites(definition);
       }
 
       // Binder injection removed

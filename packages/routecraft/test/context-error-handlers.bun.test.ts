@@ -557,6 +557,9 @@ describe("context handlers: the error point", () => {
     const [built] = craft()
       .id("work")
       .from(direct())
+      // A step before the failing one, so the recorded position tells an
+      // admission fallback (always 0) apart from the real failing step.
+      .transform((body) => body)
       .transform(() => {
         throw new Error("needs a human");
       })
@@ -579,7 +582,46 @@ describe("context handlers: the error point", () => {
     await t.startAndWaitReady();
 
     const deferred = asDeferred(await t.client.sendDirect("work", {}));
-    expect(await store.get(deferred.deferralId)).toBeDefined();
+    // Existence alone would still pass if the site fell back to admission at
+    // position 0, which is the regression this test exists to catch.
+    const record = await store.get(deferred.deferralId);
+    expect(record?.errorPath?.origin).toBe("step");
+    expect(record?.position).toBe(1);
+  });
+
+  /**
+   * @case A hand-written definition keeps the resolver output both consumers read
+   * @preconditions A RouteDefinition with a static .defer(), stripped of everything the builder resolved, registered on a context
+   * @expectedResult deferSteps is restored, so the startup runtime check sees the route and a revival can find its static site
+   */
+  test("a definition that did not come from the builder keeps its defer steps", async () => {
+    const store = new MemoryDeferralStore();
+    const [built] = craft()
+      .id("parks")
+      .from(direct())
+      .defer({})
+      .to(noop())
+      .build();
+    // Everything the builder's walk wrote, removed. Copying only some of it
+    // back is silent: `deferSteps` is what the startup deferral-runtime check
+    // reads and what a revival walks to find its static parked site.
+    const raw = { ...built! };
+    delete (raw as { errorPathSites?: unknown }).errorPathSites;
+    delete (raw as { admissionSite?: unknown }).admissionSite;
+    delete (raw as { deferSteps?: unknown }).deferSteps;
+    delete (raw as { reentrantDeferSteps?: unknown }).reentrantDeferSteps;
+    delete (raw as { usesResume?: unknown }).usesResume;
+
+    t = await testContext()
+      .with({ deferral: { store, secret: SECRET } })
+      .routes([raw as never, craft().id("answers").from(direct()).resume()])
+      .build();
+    await t.startAndWaitReady();
+
+    const registered = t.ctx
+      .getRoutes()
+      .find((r) => r.definition.id === "parks");
+    expect(registered?.definition.deferSteps?.length).toBe(1);
   });
 
   /**
