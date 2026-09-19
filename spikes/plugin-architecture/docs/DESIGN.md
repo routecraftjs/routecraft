@@ -284,7 +284,7 @@ What exists, who owns it, and what it deliberately does not know. Core is the bo
 
 Each becomes a real module with its own manifest and its own `index.ts`, bundled into one published artifact rather than published separately. The dependency arrows only point downward.
   
-```
+```ts
 contracts     → (nothing)          // Route, Exchange, CraftContext as interfaces
 logger        → (nothing)          // the Logger port, issue #542
 errors        → contracts
@@ -383,7 +383,7 @@ The inventory the design must satisfy, and the packaging rule that keeps most of
 ### The tree
 
   
-```
+```ts
 core
 │
 ├── stores            no deps        ← in-degree 4
@@ -433,35 +433,35 @@ Arrows are declared dependencies. Telemetry depends on nothing but core, which i
 
 One interface. A plugin implements the parts it participates in and leaves the rest absent. This is A3: no simple tier and advanced tier, because two interfaces that must agree is the bug this whole exercise exists to remove.
 
-```
+```ts
 export interface Plugin {
   readonly id: string;                     // "routecraft.deferral"
   readonly dependsOn?: readonly string[];  // plugin ids, topologically sorted
 
-  apply?(ctx: PluginContext): void | Promise;
-  start?(ctx: PluginContext): void | Promise;
-  health?(): Promise;
-  stop?(ctx: PluginContext): void | Promise;
+  apply?(ctx: PluginContext): void | Promise<void>;
+  start?(ctx: PluginContext): void | Promise<void>;
+  health?(): Promise<Health>;
+  stop?(ctx: PluginContext): void | Promise<void>;
 }
 ```
 
 `PluginContext` is the entire privileged surface. If something is not reachable through it, no plugin can do it, which makes the governing principle checkable by reading one type rather than auditing a package.
 
-```
+```ts
 export interface PluginContext {
   readonly id: string;
   readonly logger: Logger;
 
   // publish and consume other plugins' APIs
-  provide(token: Token, value: T): void;
-  require(token: Token): T;            // throws, naming the missing plugin
-  optional(token: Token): T | undefined;
+  provide<T>(token: Token<T>, value: T): void;
+  require<T>(token: Token<T>): T;            // throws, naming the missing plugin
+  optional<T>(token: Token<T>): T | undefined;
 
   // the two seams
   on(event: EventName, handler: EventHandler): Registration;
   contribute(point: InterventionPoint, contribution: Contribution): void;
 
-  onTeardown(fn: () => void | Promise): void;
+  onTeardown(fn: () => void | Promise<void>): void;
 }
 ```
 
@@ -472,9 +472,9 @@ export interface PluginContext {
 
 Today a plugin publishes its API by augmenting a global `StoreRegistry` interface with `declare module`. It works, and it is used 44 times. The proposal replaces it with a local branded symbol:
   
-```
+```ts
 // @routecraft/stores
-export const STORE_API = token("routecraft.stores.api");
+export const STORE_API = token<StoreApi>("routecraft.stores.api");
 
 // any other package, first or third party
 import { STORE_API } from "@routecraft/stores";
@@ -503,7 +503,7 @@ Unchanged. `ctx.on("*")` and named events. This stays in core against the "every
 
 Core defines **where** a plugin may intervene, because that is the shape of an exchange's run and the exchange lifecycle is core's. Core defines **nothing** about what any intervention does.
   
-```
+```ts
 type InterventionPoint =
   | "source"     // produces exchanges
   | "wrapper"    // wraps the pipeline; ordered by declared constraints
@@ -523,7 +523,7 @@ Five points, closed on purpose. A new kind of point would mean a different excha
 
 The pre-from chain is today a fixed order compiled into `pipeline/executor.ts`, which imports the timeout, retry, circuit-breaker and concurrency wrappers by name. A contribution declares its position relatively instead:
   
-```
+```ts
 interface WrapperContribution {
   readonly id: string;                      // "routecraft.retry"
   readonly before?: readonly string[];
@@ -544,7 +544,7 @@ Core topologically sorts and refuses a cycle at boot, naming both sides. The fra
 
 Core knows about dependency, not about stores. That single sentence is what makes a middle band possible without a middle tier.
 
-```
+```ts
 defineConfig({
   plugins: [stores(), servers(), deferral(), http(), mcp()],
 })
@@ -579,7 +579,7 @@ Jaco's rule was that a foundational plugin changing often means something is wro
 
 The hardest case in the codebase and therefore the one worth writing out. 202 references across 14 core files today.
 
-```
+```ts
 export function deferral(options?: DeferralOptions): Plugin {
   return {
     id: "routecraft.deferral",
@@ -615,7 +615,7 @@ Branch `feat/dazzling-fermi-01x3ns`, folder `spikes/plugin-architecture/`. Depen
 ### The folder, in action
 
   
-```
+```ts
 spikes/plugin-architecture/
 ├── src/
 │   ├── contracts/     interfaces only: Token, Exchange, Step, Pipeline,
@@ -635,7 +635,7 @@ spikes/plugin-architecture/
 ### The demo output, which is the thesis in two lines
 
   
-```
+```ts
 install order:  stores → acme.audit → deferral → telemetry → operations → resilience
 wrapper chain:  admission → retry → acme.audit → timeout → concurrency
 ```
@@ -655,10 +655,10 @@ How does a step contributed by a plugin become a typed method on the builder? Th
 
 `registerDsl` patches a prototype at runtime and the plugin author writes a `declare module` separately. Nothing correlates the two halves.
   
-```
+```ts
 // test/builder.test.ts — `ghost` is declared and never registered
 declare module "../src/builder/index.ts" {
-  interface FluentBuilder {
+  interface FluentBuilder<S extends { body: unknown }> {
     ghost(): this;
   }
 }
@@ -677,7 +677,7 @@ A passing test, not an argument. The gap is structural: two halves maintained by
 
 A plugin declares its steps in its *type*, and the builder type is computed from the plugins actually passed in. There is no second half, so nothing can drift.
   
-```
+```ts
 export const typedDeferral = {
   id: "routecraft.deferral",
   dependsOn: ["routecraft.stores"],

@@ -137,18 +137,24 @@ That rule resolves the servers question without copying the store answer wholesa
 Settled with Jaco across several rounds, correcting two of my own proposals on the way (J15). The layering:
   
   
-    | Layer | Owns | Knows about data |
+| Layer | Owns | Knows about data |
+|---|---|---|
 
     
-      | core | the plugin lifecycle, which the store plugin reuses. Core never learns the word "store" | nothing |
+| core | the plugin lifecycle, which the store plugin reuses. Core never learns the word "store" | nothing |
+|---|---|---|
 
-      | store plugin | naming, lifecycle and health of stores, using core's plugin lifecycle one level down | nothing |
+| store plugin | naming, lifecycle and health of stores, using core's plugin lifecycle one level down | nothing |
+|---|---|---|
 
-      | shared | RecordStore and KeyValue, contracts only | the contracts, no implementations |
+| shared | RecordStore and KeyValue, contracts only | the contracts, no implementations |
+|---|---|---|
 
-      | adapters | memory, sqlite, postgres, redis | implement one or both contracts |
+| adapters | memory, sqlite, postgres, redis | implement one or both contracts |
+|---|---|---|
 
-      | plugins | their own API, their own key design | choose a contract, or neither |
+| plugins | their own API, their own key design | choose a contract, or neither |
+|---|---|---|
 
     
   
@@ -374,31 +380,43 @@ Churn alone does not identify tangle, because a healthy subsystem grows. Edits p
 
   Source churn by subsystem, 12 months, `packages/*/src/**/*.ts`. Churn is lines added plus deleted.
   
-    | Subsystem | Churn | Files | Per file | Edits / file |
+| Subsystem | Churn | Files | Per file | Edits / file |
+|---|---|---|---|---|
 
   
   
-    | routecraft/pipeline | 3,564 | 4 | 891 | 5.8 |
+| routecraft/pipeline | 3,564 | 4 | 891 | 5.8 |
+|---|---|---|---|---|
 
-    | ai/agent | 13,436 | 31 | 433 | 3.7 |
+| ai/agent | 13,436 | 31 | 433 | 3.7 |
+|---|---|---|---|---|
 
-    | ai/llm | 2,668 | 14 | 191 | 2.9 |
+| ai/llm | 2,668 | 14 | 191 | 2.9 |
+|---|---|---|---|---|
 
-    | routecraft/plugins | 11,674 | 42 | 278 | 2.8 |
+| routecraft/plugins | 11,674 | 42 | 278 | 2.8 |
+|---|---|---|---|---|
 
-    | routecraft/deferral | 2,501 | 11 | 227 | 2.6 |
+| routecraft/deferral | 2,501 | 11 | 227 | 2.6 |
+|---|---|---|---|---|
 
-    | ai/acp | 2,826 | 10 | 283 | 2.3 |
+| ai/acp | 2,826 | 10 | 283 | 2.3 |
+|---|---|---|---|---|
 
-    | routecraft/suspension | 6,970 | 19 | 367 | 1.9 |
+| routecraft/suspension | 6,970 | 19 | 367 | 1.9 |
+|---|---|---|---|---|
 
-    | routecraft/auth | 2,841 | 12 | 237 | 1.9 |
+| routecraft/auth | 2,841 | 12 | 237 | 1.9 |
+|---|---|---|---|---|
 
-    | routecraft/operations | 9,298 | 41 | 227 | 1.7 |
+| routecraft/operations | 9,298 | 41 | 227 | 1.7 |
+|---|---|---|---|---|
 
-    | ai/mcp | 7,012 | 26 | 270 | 1.7 |
+| ai/mcp | 7,012 | 26 | 270 | 1.7 |
+|---|---|---|---|---|
 
-    | routecraft/adapters | 14,549 | 106 | 137 | 1.3 |
+| routecraft/adapters | 14,549 | 106 | 137 | 1.3 |
+|---|---|---|---|---|
 
   
 
