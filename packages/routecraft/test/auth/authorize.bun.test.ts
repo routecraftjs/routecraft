@@ -1412,7 +1412,9 @@ describe("insufficientAuthorityOf", () => {
     );
 
     const refusal = insufficientAuthorityOf(thrown)!;
-    thrown.cause.missing.scopes.push("admin");
+    // Cast because the type forbids exactly what this line does. That is the
+    // point: the guarantee has to hold against a holder who reaches past it.
+    (thrown.cause.missing.scopes as string[]).push("admin");
 
     // The framework records this as a deferral's lend bound, so whoever
     // still holds the error must not be able to widen it afterwards.

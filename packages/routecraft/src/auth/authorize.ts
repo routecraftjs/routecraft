@@ -30,7 +30,12 @@ import type { ActorMatcher, Principal, PrincipalProfile } from "./types.ts";
  */
 export interface InsufficientAuthority extends Error {
   missing: {
-    scopes: string[];
+    /**
+     * Readonly because {@link insufficientAuthorityOf} freezes what it
+     * returns: the detail becomes a parked deferral's lend bound, and a
+     * mutable one could be widened after the bound was recorded.
+     */
+    readonly scopes: readonly string[];
     /**
      * How to read `scopes`. `"all"` lists the required scopes the
      * principal lacked, every one of them needed. `"any"` lists the whole
@@ -128,7 +133,7 @@ export function insufficientAuthorityOf(
   // A frozen copy, so what the framework records as a deferral's lend bound
   // cannot be widened afterwards by whoever still holds the error.
   return Object.freeze({
-    scopes: Object.freeze([...missing.scopes]) as string[],
+    scopes: Object.freeze([...missing.scopes]),
     ...(missing.mode !== undefined ? { mode: missing.mode } : {}),
     ...(missing.effective !== undefined
       ? { effective: missing.effective }

@@ -59,10 +59,25 @@ import type {
   DeferSite,
   ErrorPathSite,
 } from "./deferral/sites.ts";
+import { DeferralHeaders } from "./deferral/exchange-state.ts";
 import type { RouteEnablement } from "./enablement.ts";
 
 // Re-exported for existing imports (builder.ts and @internal consumers).
 export { buildCacheCheckStep, buildCacheStoreStep, buildThrottleCheckStep };
+
+/**
+ * Header keys that belong to ONE exchange and never to the next, stripped at
+ * every route ingress by {@link DefaultRoute.buildExchange}.
+ *
+ * Built from {@link DeferralHeaders} rather than listed, because the list and
+ * the keys drifting apart is silent: the stripping site is nowhere near the
+ * declaration, and a key that keeps its value across an ingress tells the
+ * receiving route it is a continuation of work it never did.
+ */
+const PER_EXCHANGE_HEADERS: ReadonlySet<string> = new Set<string>([
+  HeadersKeys.SPLIT_HIERARCHY,
+  ...Object.values(DeferralHeaders),
+]);
 
 /**
  * Function that forwards a payload to another route via the direct adapter and returns its result.
@@ -816,23 +831,14 @@ export class DefaultRoute implements Route {
     // anywhere would otherwise tell the target it is execution two, hand it
     // another exchange's resume payload, and suppress its own park with a
     // refusal recorded against work it has nothing to do with.
-    const {
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructured to omit
-      [HeadersKeys.SPLIT_HIERARCHY]: _unjoinable,
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructured to omit
-      "routecraft.deferral.sequence": _sequence,
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructured to omit
-      "routecraft.deferral.owner": _owner,
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructured to omit
-      "routecraft.deferral.result": _result,
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructured to omit
-      "routecraft.deferral.resumedBy": _resumedBy,
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructured to omit
-      "routecraft.deferral.resumedAt": _resumedAt,
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructured to omit
-      "routecraft.deferral.refusedScopes": _refusedScopes,
-      ...inherited
-    } = headers ?? {};
+    //
+    // Read off `DeferralHeaders` rather than spelled out here, so a key added
+    // there is stripped without anyone remembering this site.
+    const inherited = Object.fromEntries(
+      Object.entries(headers ?? {}).filter(
+        ([key]) => !PER_EXCHANGE_HEADERS.has(key),
+      ),
+    );
     const builtHeaders: Record<string, unknown> = {
       ...inherited,
       [HeadersKeys.ID]: randomUUID(),
