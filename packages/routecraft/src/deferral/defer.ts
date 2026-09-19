@@ -129,6 +129,26 @@ export async function deferExchange(
   });
 
   const deferred = DefaultExchange.rewrap(deferring, { body: ack });
+
+  // BEFORE the terminal event, and that ordering is the exactly-one-terminal
+  // -event invariant rather than a preference. A `notify` that throws denies
+  // the record claim-first and fails the run with RC5067, so announcing the
+  // park first would give one exchange both `route:exchange:deferred` and
+  // `route:exchange:failed`: a subscriber would see a park that is already
+  // dead, and the operator would have to know which of the two to believe.
+  //
+  // What the ordering promise actually protects is untouched: the record is
+  // durable before anyone is told, which is why `notify` cannot hand a human
+  // a token for a park that never committed.
+  if (request.notify) {
+    await runNotify(context, deferred, request.notify, ack, {
+      deferralId: id,
+      routeId,
+      ...(record.expiresAt ? { expiresAt: record.expiresAt } : {}),
+      ...(request.notifySignal ? { signal: request.notifySignal } : {}),
+    });
+  }
+
   markDeferred(deferred);
   context.emit("route:exchange:deferred", {
     routeId,
@@ -142,15 +162,6 @@ export async function deferExchange(
     { deferralId: id, routeId, position: request.site.position },
     "Exchange deferred",
   );
-
-  if (request.notify) {
-    await runNotify(context, deferred, request.notify, ack, {
-      deferralId: id,
-      routeId,
-      ...(record.expiresAt ? { expiresAt: record.expiresAt } : {}),
-      ...(request.notifySignal ? { signal: request.notifySignal } : {}),
-    });
-  }
   return deferred;
 }
 
@@ -158,13 +169,21 @@ export async function deferExchange(
  * Hand the acknowledgment to the directive's `notify` hook, and make sure a
  * notification that did not go out leaves no live link behind.
  *
- * LAST, after the store write and after `route:exchange:deferred`. The
- * ordering is the safety property: the site is resolved when the executor
- * receives the directive, so a handler that notified on its own would hand a
- * human a correctly signed token for a park `RC5051` can still refuse, and
- * nothing retires a dead link in an inbox. The reverse of `deferAside`'s
- * `announce`, which commits BEFORE its write for the opposite and equally
- * correct reason; see its JSDoc.
+ * AFTER the store write, and BEFORE `route:exchange:deferred`.
+ *
+ * After the write is the safety property: the site is resolved when the
+ * executor receives the directive, so a handler that notified on its own
+ * would hand a human a correctly signed token for a park `RC5051` can still
+ * refuse, and nothing retires a dead link in an inbox. The reverse of
+ * `deferAside`'s `announce`, which commits BEFORE its write for the opposite
+ * and equally correct reason; see its JSDoc.
+ *
+ * Before the event is the exactly-one-terminal-event invariant. This throws
+ * `RC5067` and denies the record, so the run fails; announcing the park
+ * first would give one exchange both `route:exchange:deferred` and
+ * `route:exchange:failed`, and a subscriber would see a park that is already
+ * dead. The event is the claim that an exchange IS parked, so it waits until
+ * that is true of the notification as well as of the record.
  *
  * Bounded like {@link runAuthorizer} bounds the resume `authorize` hook, and
  * for the same reason: this is awaited inside the executor with a network

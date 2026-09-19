@@ -50,13 +50,19 @@ export interface ErrorPathDeferRequest extends DeferSignalRequest {
   /**
    * Tell someone the exchange parked, once the park is real.
    *
-   * Awaited by the executor AFTER the record is written and
-   * `route:exchange:deferred` has fired, and handed the same acknowledgment
-   * the caller receives, token included. The ordering is the safety
-   * property: the site is resolved when the executor receives the directive,
-   * which is after the handler has run, so a handler that notified first
-   * could hand a human a correctly signed token for a park RC5051 then
-   * refuses, and nothing retires a dead link in an inbox.
+   * Awaited by the executor AFTER the record is written and BEFORE
+   * `route:exchange:deferred` fires, and handed the same acknowledgment the
+   * caller receives, token included.
+   *
+   * After the record is the safety property: the site is resolved when the
+   * executor receives the directive, which is after the handler has run, so
+   * a handler that notified first could hand a human a correctly signed
+   * token for a park RC5051 then refuses, and nothing retires a dead link in
+   * an inbox.
+   *
+   * Before the event is the exactly-one-terminal-event invariant: this hook
+   * failing denies the record and fails the run with RC5067, so a park
+   * announced first would be contradicted by the failure that follows it.
    *
    * The OPPOSITE of `deferAside`'s `announce`, which commits BEFORE its
    * store write because an aside deferral carries no expiry, so a crash

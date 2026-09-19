@@ -171,7 +171,7 @@ export interface DeferRequest {
   readonly errorPath?: ErrorPathRecord;
   /**
    * Tell someone the exchange parked, awaited AFTER the record is written
-   * and the deferred event has fired. See the ordering note on
+   * and BEFORE the deferred event fires. See the ordering note on
    * `ErrorPathDeferRequest.notify`, which is where it comes from.
    */
   readonly notify?: (ack: Deferred) => void | Promise<void>;

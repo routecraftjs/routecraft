@@ -245,11 +245,11 @@ describe("recovery.defer: parking an exchange from the error path", () => {
   });
 
   /**
-   * @case notify runs after the record and the event, with the caller's own acknowledgment
+   * @case notify runs after the record and before the event, with the caller's own acknowledgment
    * @preconditions A park whose notify records what it was handed and when
-   * @expectedResult notify sees the same deferralId and token the caller receives, the record already exists when it runs, and the deferred event has already fired
+   * @expectedResult notify sees the same deferralId and token the caller receives, the record already exists when it runs, and the deferred event has not fired yet
    */
-  test("notify commits after the record and the event, with the caller's acknowledgment", async () => {
+  test("notify commits after the record and before the event, with the caller's acknowledgment", async () => {
     const store = new MemoryDeferralStore();
     const order: string[] = [];
     let handed: Deferred | undefined;
@@ -286,7 +286,10 @@ describe("recovery.defer: parking an exchange from the error path", () => {
 
     const deferred = asDeferred(await t.client.sendDirect("work", {}));
 
-    expect(order).toEqual(["event", "notify"]);
+    // After the record, so nobody is handed a token for a park that never
+    // committed; before the event, so a notify that throws denies the record
+    // without an announced park to contradict the failure that follows.
+    expect(order).toEqual(["notify", "event"]);
     expect(recordExistedAtNotify).toBe(true);
     expect(handed?.deferralId).toBe(deferred.deferralId);
     expect(handed?.token).toBe(deferred.token);
@@ -394,6 +397,58 @@ describe("recovery.defer: parking an exchange from the error path", () => {
     await expect(
       t.client.sendDirect("answers", { token: issued!.token }),
     ).rejects.toThrow(/RC5050|denied/);
+  });
+
+  /**
+   * @case A notify failure produces exactly one terminal event, not two
+   * @preconditions A park whose notify throws, with every terminal event on the exchange recorded
+   * @expectedResult Only route:exchange:failed fires; route:exchange:deferred does not, because the park it would claim is already denied
+   */
+  test("a failed notify does not announce a park it then denies", async () => {
+    const store = new MemoryDeferralStore();
+    const terminal: string[] = [];
+
+    t = await testContext()
+      .with(shared(store))
+      .routes([
+        craft()
+          .id("work")
+          .error(() =>
+            recovery.defer({
+              ttl: "1h",
+              notify: () => {
+                throw new Error("the mail server said no");
+              },
+            }),
+          )
+          .from(direct())
+          .transform(() => {
+            throw new Error("needs a human");
+          })
+          .to(noop()),
+        craft().id("answers").from(direct()).resume(payloadFrom),
+      ])
+      .build();
+    t.ctx.on("route:exchange:deferred", () => {
+      terminal.push("deferred");
+    });
+    t.ctx.on("route:exchange:failed", () => {
+      terminal.push("failed");
+    });
+    t.ctx.on("route:exchange:completed", () => {
+      terminal.push("completed");
+    });
+    t.ctx.on("route:exchange:dropped", () => {
+      terminal.push("dropped");
+    });
+    await t.startAndWaitReady();
+
+    await expect(t.client.sendDirect("work", {})).rejects.toThrow();
+
+    // Zero terminal events was one bug and two is the same contract broken
+    // the other way: an operator seeing `deferred` would be looking at a
+    // record RC5067 had already denied.
+    expect(terminal).toEqual(["failed"]);
   });
 
   /**

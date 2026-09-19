@@ -98,7 +98,9 @@ An admission park raised while a source-attached parser is still pending is refu
 
 A handler that notifies a human and then returns the directive has told someone about a park the framework may still refuse. The site is resolved when the executor receives the directive, which is after the handler's side effects, so the recipient would hold a correctly signed token for a record that will never exist.
 
-So the notification rides the directive and the framework owns the order: **resolve the site** (a refusal ends here, and nothing was sent), **write the record**, **emit `route:exchange:deferred`**, then **await `notify`** with the same acknowledgment the caller receives.
+So the notification rides the directive and the framework owns the order: **resolve the site** (a refusal ends here, and nothing was sent), **write the record**, **await `notify`** with the same acknowledgment the caller receives, and only then **emit `route:exchange:deferred`**.
+
+The event is last because it is the claim that an exchange IS parked. A `notify` that throws denies the record and fails the run with [RC5067](/docs/reference/errors#rc-5067), so firing it earlier would give one exchange both `route:exchange:deferred` and `route:exchange:failed`, and a subscriber would be looking at a park that was already dead. An exchange gets exactly one terminal event.
 
 ```ts skip="fragment: isLendable, stepUpDecision, sendStepUpMail are illustrative"
 ctx.registerHandler('error', (error, exchange, forward, ctx) => {
@@ -125,7 +127,7 @@ Two properties of that example are worth copying deliberately.
 `notify` is **bounded** by the deferring route's own abort signal, widened by an enclosing `.timeout()`, because it is awaited inside the executor with a network call in it: an unsettled hook holds the step, which holds `drain()`, and its latency sits in front of the caller's acknowledgment. A throw and an abort are treated alike: the record is denied claim-first, so a token that did go out reads [RC5050](/docs/reference/errors#rc-5050) rather than reviving work whose caller was told it failed, and the run fails with [RC5067](/docs/reference/errors#rc-5067) carrying the hook's own failure as the cause.
 
 <Callout title="Two hooks, two orderings, two names">
-`notify` commits AFTER the record. The `announce` callback on an aside deferral commits BEFORE its write, deliberately: an aside deferral carries no expiry, so a crash between the two must leave a reference to release rather than a record nothing points at. One hands an id to an in-process caller, the other hands a token to a person, and in both the commit ordering IS the safety property. They do not share a word for that reason.
+`notify` commits AFTER the record and BEFORE the deferred event. The `announce` callback on an aside deferral commits BEFORE its write, deliberately: an aside deferral carries no expiry, so a crash between the two must leave a reference to release rather than a record nothing points at. One hands an id to an in-process caller, the other hands a token to a person, and in both the commit ordering IS the safety property. They do not share a word for that reason.
 </Callout>
 
 The accepted residue is stated rather than hidden: a crash between the write and the notification leaves a record nobody was told about, which the record's `ttl` retires. The reverse order leaves a dead link in a human's inbox, which nothing retires.
