@@ -16,11 +16,11 @@
  * Usage: bun scripts/check-links.ts [--freeze-tag <tag>] [output-dir]
  */
 
-import { readFileSync } from 'node:fs'
+import { readFileSync, statSync } from 'node:fs'
 import { join, relative } from 'node:path'
 import { Glob } from 'bun'
 
-import { PUBLIC_DIR } from './paths'
+import { CONTENT_DIR, PUBLIC_DIR } from './paths'
 
 const args = process.argv.slice(2)
 const tagIndex = args.indexOf('--freeze-tag')
@@ -55,6 +55,50 @@ function pageUrl(file: string): string {
   const path = relative(outputDir, file).replace(/index\.html$/, '')
   return `/${path}`.replace(/\/+$/, '/')
 }
+
+/**
+ * Refuse to answer against output older than the content it claims to check.
+ *
+ * This walks the PRERENDERED site, so editing an MDX file and re-running it
+ * reports the previous build's result: a link you just fixed still reads as
+ * broken, and a link you just broke still reads as fine. Both have cost a
+ * cycle on this repository. Silence is the failure, so the script refuses
+ * rather than answering a question it cannot see the input to.
+ */
+function assertOutputIsNewerThanContent(): void {
+  let builtAt: number
+  try {
+    builtAt = statSync(outputDir).mtimeMs
+  } catch {
+    console.error(
+      `No built site at ${outputDir}. Run the docs-site build first.`,
+    )
+    process.exit(1)
+  }
+
+  let newest = 0
+  let newestFile = ''
+  for (const file of new Glob('**/*').scanSync({
+    cwd: CONTENT_DIR,
+    absolute: true,
+  })) {
+    const changed = statSync(file).mtimeMs
+    if (changed > newest) {
+      newest = changed
+      newestFile = file
+    }
+  }
+
+  if (newest > builtAt) {
+    console.error(
+      `Stale build: ${relative(process.cwd(), newestFile)} changed after the site was built.`,
+    )
+    console.error('Run the docs-site build first; this checks built output.')
+    process.exit(1)
+  }
+}
+
+assertOutputIsNewerThanContent()
 
 const pages = new Map<string, string>()
 const anchors = new Map<string, Set<string>>()

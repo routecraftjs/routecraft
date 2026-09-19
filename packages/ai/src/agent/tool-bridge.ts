@@ -1,11 +1,13 @@
 import { randomUUID } from "node:crypto";
 import {
+  deferredSchema,
   rcCodeOf,
   rcError,
   type CraftContext,
   type Principal,
 } from "@routecraft/routecraft";
 import { isBlockLoaderTool } from "../block/resolve.ts";
+import { isThenable } from "../shared/thenable.ts";
 import { toAiInputSchema } from "../llm/structured-output.ts";
 import { makeFnHandlerContext } from "../fn/handler-context.ts";
 import type { FnHandlerContext } from "../fn/types.ts";
@@ -16,6 +18,37 @@ import {
 } from "./deferral-state.ts";
 import type { AgentDispatchIdentity, AgentRunSession } from "./run.ts";
 import type { ResolvedTool } from "./tools/selection.ts";
+
+/**
+ * Whether a tool's result is the framework's `Deferred` acknowledgment from
+ * a route DOWNSTREAM of this agent.
+ *
+ * Decided with the acknowledgment's own Standard Schema rather than a brand
+ * check alone, because that schema is brand-first WITH a structural
+ * fallback, and both arms matter here. A `direct()` tool resolves in
+ * process and keeps the brand; an acknowledgment that crossed a transport
+ * (a proxied MCP tool answering with one) arrives as plain JSON and has
+ * lost it. The token is just as live in the second case, so recognising
+ * only the first would leak exactly the credential this check exists to
+ * withhold.
+ *
+ * What a recognised one becomes is the neutral `DEFERRED_TOOL_PLACEHOLDER`,
+ * which is also what the model already sees when the agent's OWN defer
+ * sentinel comes back, so the two are indistinguishable from the thread. The
+ * placeholder is what reaches the model, the session thread and the
+ * telemetry snapshot alike.
+ *
+ * @internal
+ */
+function isDownstreamDeferred(value: unknown): boolean {
+  const result = deferredSchema["~standard"].validate(value);
+  // Synchronous by construction: the acknowledgment's validator is a brand
+  // check plus a closed shape check, with no user schema in it, so there is
+  // no promise arm to await in a tool handler's hot path. The async arm is
+  // still checked rather than cast away, because reading `.issues` off a
+  // thenable would answer "this is a Deferred" for anything at all.
+  return !isThenable(result) && result.issues === undefined;
+}
 
 /**
  * The deferral channel between one agent dispatch and its tools: the
@@ -216,7 +249,15 @@ export async function buildVercelTools(
           }
           let output = await handler(input, callCtx);
           let deferred = false;
-          if (isDeferSentinel(output)) {
+          if (isDownstreamDeferred(output)) {
+            // The acknowledgment carries a live resume token, and under the
+            // default bearer door that is a capability to resume the parked
+            // act; see `isDownstreamDeferred`. Nothing is collected: a
+            // DOWNSTREAM park is not this agent's, so the turn continues
+            // (#737 asks whether it should park too).
+            output = DEFERRED_TOOL_PLACEHOLDER;
+            deferred = true;
+          } else if (isDeferSentinel(output)) {
             // ctx.defer already refuses (AI1006) when the bridge has no
             // deferral channel, so a sentinel arriving without one means
             // it was minted outside the handler context. Same refusal.

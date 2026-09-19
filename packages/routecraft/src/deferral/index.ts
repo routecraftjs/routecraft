@@ -6,6 +6,7 @@ export type {
   SerializedExchange,
   SerializedOutcome,
   Deferral,
+  ErrorPathRecord,
   DeferralCasResult,
   DeferralListCursor,
   DeferralListQuery,
@@ -51,6 +52,7 @@ export {
 export type {
   ResumeAuthorizer,
   ResumeAuthorizerInput,
+  ResumeElevator,
   DeferralRecordView,
 } from "./authorize.ts";
 

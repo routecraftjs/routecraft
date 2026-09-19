@@ -4,7 +4,10 @@ import { rcError } from "../error.ts";
 import { OperationType } from "../exchange.ts";
 import { NESTED_STEPS, DEFER_HOST } from "../dsl-symbol.ts";
 import type { Adapter, Step } from "../types.ts";
+import type { CraftContext } from "../context.ts";
 import type { RouteDefinition } from "../route.ts";
+import type { Deferred } from "./deferred.ts";
+import type { ErrorPathRecord } from "./types.ts";
 
 /**
  * Where a `.defer()` sits in a route, and what runs when it is resumed.
@@ -161,6 +164,30 @@ export interface DeferRequest {
   /** Where this defer sits, and what runs on resume. */
   readonly site: DeferSite;
   /**
+   * What the error path recorded about this park. Set only when the park
+   * came from an error handler's `recovery.defer()`; absent for every
+   * `.defer()` step and every re-entrant deferral.
+   */
+  readonly errorPath?: ErrorPathRecord;
+  /**
+   * Tell someone the exchange parked, awaited AFTER the record is written
+   * and BEFORE the deferred event fires. See the ordering note on
+   * `ErrorPathDeferRequest.notify`, which is where it comes from.
+   */
+  readonly notify?: (ack: Deferred) => void | Promise<void>;
+  /**
+   * What bounds {@link DeferRequest.notify}.
+   *
+   * Resolved by the executor rather than supplied by the handler, like
+   * {@link DeferRequest.site}: the deferring route's intake signal widened by
+   * an enclosing `.timeout()`, which is the same bound `runAuthorizer` gives
+   * the resume `authorize` hook and for the same reason. Stop has to be in
+   * it, because a route with no `.timeout()` could otherwise never interrupt
+   * a hook that never settles, and an unsettled hook holds the step, which
+   * holds `drain()`.
+   */
+  readonly notifySignal?: AbortSignal;
+  /**
    * Closure state owned by the deferring step, persisted in the record's
    * `stepState` slot and handed back to a re-entrant step at revival. The
    * store never interprets it; the plain-JSON rule (`RC5042`) applies.
@@ -209,31 +236,90 @@ interface NestingStep extends Step<Adapter> {
 }
 
 /**
+ * Where an error-path park would land, for one step of the route.
+ *
+ * An error handler sits outside the step tree and has no position of its
+ * own, so a park it raises has to borrow the position of whatever failed.
+ * The walk resolves that for EVERY step rather than only for defer hosts,
+ * because any step can fail; the two arms mirror the two answers the walk
+ * already computes for a defer host, so an error-path park is refused from
+ * exactly the positions a `DeferSignal` is.
+ *
+ * @internal
+ */
+export type ErrorPathSite =
+  | { readonly kind: "site"; readonly site: DeferSite }
+  /** Inside a `.split()` fan-out or a sealed side flow. Fires as RC5051. */
+  | { readonly kind: "refused"; readonly refusal: string };
+
+/**
+ * Where an error-path park lands for a failure that did not come from the
+ * route's step tree at all: the pre-from filter chain, and the framework's
+ * own filter positions around the pipeline.
+ *
+ * Position 0 with the whole step list as its continuation, because nothing
+ * in the body has run. Resuming it is ADMISSION rather than continuation,
+ * which is why the record flags it: three positions run that a mid-pipeline
+ * site never re-runs, and a restored principal is refused at `.authorize()`
+ * by design, so such a park is completable only by a door that elevates.
+ *
+ * Shares position 0 with the first step's own error-path site, and the two
+ * are told apart by the record's admission flag rather than by the number.
+ * Giving admission a number outside the step range would read as an address
+ * in a space where every other value is one.
+ *
+ * @internal
+ */
+export type AdmissionSite = DeferSite;
+
+/**
  * What {@link resolveDeferSites} resolves for one route: the static
- * `.defer()` steps, and the defer-capable `.to()` / `.enrich()` steps
- * that were assigned a re-entrant site. The two lists are kept apart
- * because they answer different questions: static sites are what the
- * startup runtime check (`RC5052`) and the route-scope cache refusal key
- * on, while re-entrant sites only say a step MAY defer at runtime.
+ * `.defer()` steps, the defer-capable `.to()` / `.enrich()` steps that
+ * were assigned a re-entrant site, and where an error-path park would land
+ * from each step. The lists are kept apart because they answer different
+ * questions: static sites are what the startup runtime check (`RC5052`) and
+ * the route-scope cache refusal key on, re-entrant sites only say a step MAY
+ * defer at runtime, and error-path sites say nothing about whether the route
+ * defers at all, only where a park would go if a handler asked for one.
  *
  * @internal
  */
 export interface ResolvedDeferSites {
   deferSteps: DeferrableStep[];
   reentrantDeferSteps: DeferCapableStep[];
+  /**
+   * Keyed by step INSTANCE rather than by position, because that is what the
+   * executor holds when a step fails. Positions are derivable from the site
+   * inside; the reverse lookup is not.
+   */
+  errorPathSites: Map<Step<Adapter>, ErrorPathSite>;
+  admissionSite: AdmissionSite;
 }
 
 /**
  * Whether a built route can raise a durable deferral: statically (a
- * declared `.defer()`) or at runtime (a defer-capable step that MAY
- * defer). The predicate transports key on to advertise a `Deferred`
- * acknowledgment arm, owned here next to the fields it reads so a new way
- * for a route to defer updates every consumer in one edit.
+ * declared `.defer()`), at runtime (a defer-capable step that MAY defer),
+ * or from the error path (a context error handler that may answer with
+ * `recovery.defer()`). The predicate transports key on to advertise a
+ * `Deferred` acknowledgment arm, owned here next to the fields it reads so
+ * a new way for a route to defer updates every consumer in one edit.
+ *
+ * @param context - The context the route is registered in, when the caller
+ *   has one. A registered deferring error handler can park ANY route in the
+ *   context, including one that declares no defer site of its own, so a
+ *   transport that omits this under-advertises every such route. Optional
+ *   rather than required because the two shipped callers differ: the MCP
+ *   source holds the context, and a caller reasoning about a definition
+ *   alone gets the definition's own answer.
  */
-export function routeCanDefer(definition: RouteDefinition): boolean {
+export function routeCanDefer(
+  definition: RouteDefinition,
+  context?: Pick<CraftContext, "hasDeferringErrorHandler">,
+): boolean {
   return (
     (definition.deferSteps?.length ?? 0) > 0 ||
-    (definition.reentrantDeferSteps?.length ?? 0) > 0
+    (definition.reentrantDeferSteps?.length ?? 0) > 0 ||
+    context?.hasDeferringErrorHandler() === true
   );
 }
 
@@ -266,6 +352,11 @@ export function resolveDeferSites(route: RouteDefinition): ResolvedDeferSites {
   const found: ResolvedDeferSites = {
     deferSteps: [],
     reentrantDeferSteps: [],
+    errorPathSites: new Map(),
+    // Nothing in the body has run, so the continuation is the body itself,
+    // as declared: the executor walks nested steps through its own branch
+    // outcomes, so the top-level array is the whole of it.
+    admissionSite: { position: 0, continuation: route.steps },
   };
   const counter = { next: 0 };
   walk(route, route.steps, [], found, counter, {
@@ -287,6 +378,56 @@ export function resolveDeferSites(route: RouteDefinition): ResolvedDeferSites {
  *
  * @internal
  */
+/**
+ * Resolve a definition's park sites and write every one of them onto it.
+ *
+ * The single place that answers "what did the walk decide about this route",
+ * because there are two ways a definition reaches a context: built by
+ * `craft().build()`, or handed over hand-written. Both need the same five
+ * answers, and copying four of them at one site is a silent failure: the
+ * startup deferral-runtime check reads `deferSteps` (`context.ts`), and a
+ * revival finds its static parked site by walking the same list
+ * (`deferral/revive.ts`), so a definition missing it starts without a
+ * runtime and then cannot be resumed.
+ *
+ * Callers guard on whether the work is already done; this always does it.
+ *
+ * @internal
+ */
+export function applyResolvedSites(definition: RouteDefinition): void {
+  const sites = resolveDeferSites(definition);
+  // Every field written, including to `undefined`, because this is the walk's
+  // answer rather than an addition to whatever was there. A hand-written
+  // definition can arrive carrying `deferSteps` that its own steps do not
+  // support, and leaving that in place would have startup demand a deferral
+  // runtime for a route that cannot park, then have a revival walk a list
+  // that matches nothing.
+  //
+  // Undefined rather than empty where there is nothing, so the common case
+  // stays cheap to ask about.
+  // Deleted rather than set to `undefined`: `exactOptionalPropertyTypes` is
+  // on, so these fields are absent or present, never present and undefined.
+  // A route definition is built once at startup, so the cost of `delete`
+  // here is not the per-exchange one it would be on a header bag.
+  if (sites.deferSteps.length > 0) {
+    definition.deferSteps = sites.deferSteps;
+  } else {
+    delete definition.deferSteps;
+  }
+  if (sites.reentrantDeferSteps.length > 0) {
+    definition.reentrantDeferSteps = sites.reentrantDeferSteps;
+  } else {
+    delete definition.reentrantDeferSteps;
+  }
+  definition.errorPathSites = sites.errorPathSites;
+  definition.admissionSite = sites.admissionSite;
+  if (usesResume(definition)) {
+    definition.usesResume = true;
+  } else {
+    delete definition.usesResume;
+  }
+}
+
 export function usesResume(route: RouteDefinition): boolean {
   return containsResume(route.steps);
 }
@@ -329,6 +470,38 @@ function walk(
     else if (step.operation === OperationType.AGGREGATE && splitDepth > 0) {
       splitDepth--;
     }
+
+    // Every step, not just the defer hosts. A park raised from the error
+    // path borrows the failing step's position, and the step that fails is
+    // whichever one threw, so the verdict has to exist for all of them. The
+    // continuation re-enters the failing step itself, like a re-entrant
+    // site: the step failed part-way through the work it was doing, and
+    // nothing before it may run twice.
+    //
+    // `splitDepth` and `sealed` are read AFTER the split / aggregate
+    // adjustment above, so a `.split()` step's own park is refused along
+    // with everything inside the fan-out it opens.
+    found.errorPathSites.set(
+      step,
+      splitDepth > 0
+        ? {
+            kind: "refused",
+            refusal: unrevivablePosition(route.id, "split", "raised"),
+          }
+        : scope.sealed
+          ? {
+              kind: "refused",
+              refusal: unrevivablePosition(route.id, "sealed", "raised"),
+            }
+          : {
+              kind: "site",
+              site: {
+                position,
+                continuation: [step, ...after],
+                reentrant: true,
+              },
+            },
+    );
 
     if (step.operation === OperationType.DEFER) {
       if (splitDepth > 0) {

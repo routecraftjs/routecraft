@@ -40,7 +40,7 @@ import { BatchConsumer } from "./consumers/batch.ts";
 import { type Source, type SourceLike, toSource } from "./operations/from.ts";
 import type { Adapter, Step, Consumer, ConsumerType } from "./types.ts";
 import { OperationType } from "./exchange.ts";
-import { resolveDeferSites, usesResume } from "./deferral/sites.ts";
+import { applyResolvedSites } from "./deferral/sites.ts";
 import {
   type Splitter,
   type CallableSplitter,
@@ -1841,14 +1841,7 @@ export class RouteBuilder<
       // that cannot be revived is refused, so it runs on every build rather
       // than only when the route turns out to defer. It runs BEFORE the
       // cache check, which reads what it resolved.
-      const sites = resolveDeferSites(route);
-      if (sites.deferSteps.length > 0) {
-        route.deferSteps = sites.deferSteps;
-      }
-      if (sites.reentrantDeferSteps.length > 0) {
-        route.reentrantDeferSteps = sites.reentrantDeferSteps;
-      }
-      if (usesResume(route)) route.usesResume = true;
+      applyResolvedSites(route);
       assertRouteScopeCacheCompatibility(route);
     }
     logger.trace({ routeCount: this.routes.length }, "Building routes");

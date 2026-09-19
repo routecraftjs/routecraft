@@ -74,6 +74,7 @@ A disabled route is registered and known to the context, not started, not intaki
 | `store` | `Map<keyof StoreRegistry, StoreRegistry[keyof StoreRegistry]>` | No | -- | Initial values for the context store |
 | `on` | `Partial<Record<EventName, EventHandler \| EventHandler[]>>` | No | -- | Event handlers to register on context creation |
 | `once` | `Partial<Record<EventName, EventHandler \| EventHandler[]>>` | No | -- | One-time event handlers that fire once then auto-unsubscribe |
+| `handlers` | `Partial<Record<HandlerPoint, Handler \| Handler[]>>` | No | -- | The application's own handlers, keyed by lifecycle point ([details](#handlers)) |
 | `cron` | `Partial<CronOptions>` | No | -- | Default options for all `cron()` sources ([details](#cron)) |
 | `direct` | `{ channelType?: DirectChannelType }` | No | -- | Custom channel implementation for all `direct()` endpoints ([details](#direct)) |
 | `servers` | `Record<string, HttpServerDefinition>` | Only when a surface mounts HTTP | -- | Named HTTP listeners that HTTP, MCP, ops, and custom plugins mount onto ([details](#servers-and-http)) |
@@ -439,6 +440,64 @@ defaults to 30 seconds. A context with an HTTP mount and both defaults can
 therefore take up to 60 seconds to exit. When you size `timeout` against a
 platform kill timer, budget for the teardown that follows it, not for
 `timeout` alone.
+
+## Handlers
+
+A **handler** is registered on the context, by someone who did not write the route, and reaches routes that never mention it. Registration site and authorship are the whole definition, and they are what separate a handler from an [operation](/docs/reference/operations) (which the route author declares, in the chain, at the position it runs) and from an [event](/docs/reference/events) (which cannot change what happens next).
+
+Handlers are keyed by a POINT on the route lifecycle. One point exists today, `error`; `admission`, `entry` and `exit` are specified in [#816](https://github.com/routecraftjs/routecraft/issues/816) and land separately. `HandlerPoint` is a declaration-merged interface, so a package outside core contributes a point without core changing, and two packages claiming one name with different signatures is a compile error.
+
+### The `error` point \{#the-error-point}
+
+The outermost of three error rings. A step's `.error()` wrapper runs first, then the route's own [`.error()`](/docs/reference/operations/error), and this chain is reached only where those gave up: a route with no handler, or one whose handler rethrew or threw. A route that handles its own failures is never overridden.
+
+It exists so that something OUTSIDE a route can decide a failure is recoverable. A plugin can recognise an authorization refusal, park the exchange with [`recovery.defer()`](/docs/reference/operations/error#recovery-defer-request), have a human lend the missing scope, and let the continuation finish, without any route knowing it happened.
+
+There are two ways in, landing in one chain. The config field is registered while the context is built, so it is consulted ahead of anything a plugin registers in its `apply()`.
+
+```ts skip="fragment: stepUpPlugin and the handler bodies are illustrative"
+export default defineConfig({
+  handlers: {
+    error: (error, exchange, forward, ctx) => undefined,
+  },
+  plugins: [stepUpPlugin()],
+  deferral: {},
+})
+```
+
+```ts skip="fragment: isMine and the recovery body are illustrative"
+const stepUpPlugin = (): CraftPlugin => ({
+  name: 'step-up',
+  apply(ctx) {
+    ctx.registerHandler(
+      'error',
+      (error, exchange, forward, ctx) =>
+        isMine(error) && ctx.execution === 1
+          ? recovery.defer({ ttl: '4h' })
+          : undefined,
+      { tags: ['gated'], mayDefer: true },
+    )
+  },
+})
+```
+
+`registerHandler` returns an unregister function, the same shape `ctx.on()` returns.
+
+**The fourth argument is a context object, not a bare route.** `ErrorContext` carries `route`, the route the failing exchange belongs to, and `execution`, which is `1` on the exchange's first run and `2` once it is a resumed continuation. A handler that parks needs `execution`: without it, a failure the resume itself causes parks the same exchange again and the human is asked the same question twice. An exchange that parks a second time and resumes again stays `2`, because the distinction is original against continuation and not a park counter, which `ex.deferral.sequence` already is. A three-parameter route `ErrorHandler` stays assignable, so the same function can serve a route and the context.
+
+**A selector scopes a registration to some routes**, by id or by tag, rather than an `if` at the top of the handler: that `if` is a switch statement that grows forever and runs on every exchange of every route. `routes` and `tags` are two ways of naming routes, so a selector carrying both applies to a route matching either; carrying neither applies to every route. A config-declared handler always applies to every route, because a selector is a registration-time argument; scope one by wrapping it in a one-line plugin.
+
+**Handlers are consulted in registration order and the first to return anything other than `undefined` decides.** `undefined` passes to the next one, which is what lets two plugins each own a slice of the failures without either knowing about the other. The return vocabulary is a route handler's, unchanged: a body recovers, `recovery.drop()` discards, `recovery.rethrow()` propagates, and `recovery.defer()` parks.
+
+A handler that throws is reported as `route:error-handler:failed` with `scope: "context"` and a `handlerIndex`, and **the chain continues to the next handler**. Its throw never replaces the error that reaches the failure path. A chain whose first member could take the whole context's error reporting down with it would be worse than no chain.
+
+Declare `mayDefer` on a handler that may answer `recovery.defer()`. It lives on the selector because it is a property of the registration, not of the point. It makes every route in the context deferrable, so the context refuses to start without a deferral runtime ([`RC5052`](/docs/reference/errors#rc-5052)) rather than failing on the first park, and transports that advertise deferability (the MCP source's `Deferred` arm) advertise it for every route while such a handler is registered.
+
+<Callout type="warning" title="A decided failure no longer reaches context:error">
+
+`context:error` and `route:exchange:failed` fire only when nothing decided. A failure a handler resolves reaches neither, which is a change from before this chain existed: a subscriber counting `context:error` as "every failure" will under-count once a handler starts deciding.
+
+</Callout>
 
 ## Logging configuration
 

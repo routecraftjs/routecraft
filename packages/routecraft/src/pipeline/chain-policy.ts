@@ -28,6 +28,10 @@ type NonChainField =
   // chain position. A detached run reaches those steps through its own
   // step array, and each host carries its site on the instance.
   | "reentrantDeferSteps"
+  // Site bookkeeping too: where a park WOULD land, addressed by step
+  // instance and by the run that is failing, never carried into one.
+  | "errorPathSites"
+  | "admissionSite"
   | "usesResume"
   // Metadata mirrored to sources (transport admission), not a chain
   // position: the authorize steps it describes already answer for
@@ -56,8 +60,15 @@ type ChainField = Exclude<keyof RouteDefinition, NonChainField>;
  * - `errorChannel` is a failure pushed at an exchange that is not running,
  *   so that the route's own handler can react. It is not the exchange's
  *   work resuming; it is the route being told something about it.
+ * - `admission` is execution two of an exchange that was parked from the
+ *   error path BEFORE the route admitted it: an error handler answered a
+ *   pre-from failure with `recovery.defer()`, so nothing in the body ran and
+ *   the chain above it never finished. It is the only re-entry that is an
+ *   admission rather than a continuation, which is why it is not a `resume`
+ *   with a flag: the whole point of the column is that positions mean
+ *   different things to it.
  */
-export type DetachedKind = "resume" | "debounce" | "errorChannel";
+export type DetachedKind = "resume" | "debounce" | "errorChannel" | "admission";
 
 /** Whether one chain position survives one kind of detached run, and why. */
 interface KindPolicy {
@@ -110,6 +121,10 @@ export const CHAIN_SURVIVAL: Readonly<
       survives: true,
       why: "Reaching this handler IS the point of the re-entry. Without it there is nothing to push the failure at.",
     },
+    admission: {
+      survives: true,
+      why: "The route still owns the exchange, and a continuation that fails where the original call failed has to reach the same handler, or a lend that did not satisfy the gate would strand the approver with no re-ask.",
+    },
   },
   preParseFilters: {
     resume: {
@@ -123,6 +138,10 @@ export const CHAIN_SURVIVAL: Readonly<
     errorChannel: {
       survives: false,
       why: "authorize (#2). Nothing is being admitted: a failure is being reported about work that already ran.",
+    },
+    admission: {
+      survives: true,
+      why: "authorize (#2). This re-entry IS the admission the original call never completed, and the reason the resume column turns it off does not hold: the door's elevate hook supplied a LIVE principal, so RC5043 does not fire and the gate that refused gets to read the lent scope. Without it the lend would never be checked against the gate it was lent for.",
     },
   },
   postParseFilters: {
@@ -138,6 +157,10 @@ export const CHAIN_SURVIVAL: Readonly<
       survives: false,
       why: "cacheCheck (#9). A failure report is not a cacheable request.",
     },
+    admission: {
+      survives: false,
+      why: "cacheCheck (#9). A check below the claim would key work that has already spent an approval. NOT the build refusal that covers a static .defer(): that gates on deferSteps, which an error-path park does not have, so it never sees this route.",
+    },
   },
   postFromFilters: {
     resume: {
@@ -151,6 +174,10 @@ export const CHAIN_SURVIVAL: Readonly<
     errorChannel: {
       survives: false,
       why: "cacheStore (#10). What a re-ask handler returns is a notification, not a cacheable output.",
+    },
+    admission: {
+      survives: false,
+      why: "cacheStore (#10). The other half of the cacheCheck refusal above: no key was taken on the way in, because the run that would have taken it never got past the chain.",
     },
   },
   throttle: {
@@ -166,6 +193,10 @@ export const CHAIN_SURVIVAL: Readonly<
       survives: false,
       why: "Rate-limiting a failure report would drop the report, not the load.",
     },
+    admission: {
+      survives: false,
+      why: "It REFUSES work rather than bounding it, and this re-entry runs after the deferral is claimed, so a refusal here would record a failed continuation result and spend the approval. Unlike authorize, no hook can make that safe. Answer arrival is governed by the resume ingress route's own throttle.",
+    },
   },
   circuitBreaker: {
     resume: {
@@ -179,6 +210,10 @@ export const CHAIN_SURVIVAL: Readonly<
     errorChannel: {
       survives: false,
       why: "An open breaker must not suppress the report of a failure.",
+    },
+    admission: {
+      survives: false,
+      why: "It fast-fails, which below the claim spends the approval on work that never ran. Same rule as resume, same home: the resume ingress route's own chain, which refuses above the transition.",
     },
   },
   retry: {
@@ -194,6 +229,10 @@ export const CHAIN_SURVIVAL: Readonly<
       survives: false,
       why: "Re-running a handler would re-notify per attempt, which is the amplifier the exactly-once transitions exist to prevent.",
     },
+    admission: {
+      survives: true,
+      why: "Same as resume: attempts run before any continuation result is recorded, so a retried continuation never spends an approval.",
+    },
   },
   timeout: {
     resume: {
@@ -207,6 +246,10 @@ export const CHAIN_SURVIVAL: Readonly<
     errorChannel: {
       survives: false,
       why: "A handler that runs long should finish reporting rather than be abandoned mid-notification.",
+    },
+    admission: {
+      survives: true,
+      why: "Bounds execution two, as it does for a resume. Distinct from the deferral's ttl, which is a store-side expiry rather than a per-attempt deadline in this process.",
     },
   },
   concurrency: {
@@ -222,6 +265,11 @@ export const CHAIN_SURVIVAL: Readonly<
     errorChannel: {
       survives: false,
       why: "A failure report must not queue behind the work it is reporting on.",
+    },
+    admission: {
+      survives: true,
+      mustNotRefuse: true,
+      why: "Same as resume: a bulkhead bounds simultaneous work against a downstream and a continuation is that work, so it queues for the route's own semaphore rather than refusing, because a refusal below the claim would spend an approval.",
     },
   },
 };

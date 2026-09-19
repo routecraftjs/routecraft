@@ -79,7 +79,9 @@ An agent-raised deferral also cannot re-validate the payload against its `schema
 
 Identity is restored, not re-verified: execution two's principal came back from storage, so it is [marked restored](/docs/reference/operations/resume#securing-resume) and any route the resumed agent dispatches into (a `Direct(...)` tool) refuses it under `.authorize()` until a live credential re-verifies it. The `principal` system-prompt block and tool guards render and read the restored shape as data; authorization is what refuses it.
 
-The resumed loop therefore runs as the principal that DEFERRED it, never as the resuming one. The resuming route's hook gates who may inject the payload; that principal is recorded as `resumedBy` and gains none of the run's authority. Post-approval authorization that needs a live credential belongs on the resume ingress route, where the resuming principal is verified.
+The resumed loop therefore runs as the principal that DEFERRED it, never as the resuming one. The resuming route's `authorize` hook gates who may inject the payload; that principal is recorded as `resumedBy` and gains none of the run's authority. Post-approval authorization that needs a live credential belongs on the resume ingress route, where the resuming principal is verified.
+
+The one exception is a door declaring [`elevate`](/docs/reference/operations/resume#elevating-within-the-same-identity), which re-mints the parked principal so the continuation carries more authority than it parked with. It is still not the resuming principal: the framework refuses anything but a lent `scope` on the same two parties, and `resumedBy` still records whoever resumed it.
 
 ## Rewriting a deferred thread
 

@@ -1,5 +1,6 @@
 import type { Exchange } from "../exchange.ts";
 import { rcError, type RoutecraftError } from "../error.ts";
+import { rcCodeOf } from "../brand.ts";
 import type { CallableValidator } from "../operations/validate.ts";
 import { isAuthentic } from "./authentic.ts";
 import { isPrincipalExpired } from "./expiry.ts";
@@ -29,7 +30,12 @@ import type { ActorMatcher, Principal, PrincipalProfile } from "./types.ts";
  */
 export interface InsufficientAuthority extends Error {
   missing: {
-    scopes: string[];
+    /**
+     * Readonly because {@link insufficientAuthorityOf} freezes what it
+     * returns: the detail becomes a parked deferral's lend bound, and a
+     * mutable one could be widened after the bound was recorded.
+     */
+    readonly scopes: readonly string[];
     /**
      * How to read `scopes`. `"all"` lists the required scopes the
      * principal lacked, every one of them needed. `"any"` lists the whole
@@ -41,7 +47,98 @@ export interface InsufficientAuthority extends Error {
      * `authorize()` always sets it. Absent means `"all"`.
      */
     mode?: "all" | "any";
+    /**
+     * Whether the gate that refused read the EFFECTIVE ring: the subject's
+     * scopes widened by the outermost actor's.
+     *
+     * What it answers is whether lending a scope to the actor could ever
+     * satisfy this gate. A scope check reads the subject's ring alone unless
+     * the gate opts in with `effective: true` (see {@link grantedScopes} and
+     * `.standards/security.md` §12), so a consent flow that would lend on the
+     * ACTOR's ring can only help here when this is true; against a
+     * subject-ring-only gate the refusal stands however much the actor is
+     * lent, and the flow should decline rather than ask a human for a scope
+     * that cannot open the door.
+     *
+     * Optional for the same reason as `mode`: an application throwing this
+     * shape itself predates the field. `authorize()` always sets it.
+     */
+    effective?: boolean;
   };
+}
+
+/**
+ * Read the {@link InsufficientAuthority} detail off a thrown value, or
+ * `undefined` when it is not a scope refusal.
+ *
+ * The detail rides the CAUSE of an `RC5038`, which every consumer would
+ * otherwise cast for itself. Shipped because the framework reads it too: an
+ * error-path park records the refused scopes on the deferral so a resume
+ * door cannot lend wider than the gate asked for, and it must read them the
+ * same way an application's handler does, or the bound and the ask could
+ * describe different sets.
+ *
+ * @param error - Anything thrown; a non-error and a non-`RC5038` both answer
+ *   `undefined`
+ * @returns The refusal detail, or `undefined`
+ *
+ * @example
+ * ```ts
+ * const refusal = insufficientAuthorityOf(error);
+ * if (refusal?.mode === "any") offerChoice(refusal.scopes);
+ * ```
+ */
+export function insufficientAuthorityOf(
+  error: unknown,
+): InsufficientAuthority["missing"] | undefined {
+  // `rcCodeOf` reads the code off a BRANDED error and answers `undefined`
+  // for anything else, which is the check that matters: a plain object
+  // carrying `rc: "RC5038"` is not a refusal this framework raised, and a
+  // thrown value is not always in-process code's own. An adapter rejecting
+  // with a parsed remote payload would otherwise let that payload name the
+  // scopes a park records as its lend bound, which is the one thing the
+  // bound exists to stop a door widening.
+  if (rcCodeOf(error) !== "RC5038") return undefined;
+  const cause = (error as { cause?: unknown }).cause;
+  if (typeof cause !== "object" || cause === null) return undefined;
+  const missing = (cause as Partial<InsufficientAuthority>).missing;
+  if (typeof missing !== "object" || missing === null) return undefined;
+  // Shape-checked rather than trusted: the cause is an ordinary `Error` an
+  // application may also throw by hand (the documented pre-`anyScope`
+  // workaround), so a `missing` that is not the documented shape must read
+  // as absent rather than as an empty lend bound.
+  if (!Array.isArray(missing.scopes)) return undefined;
+  if (!missing.scopes.every((scope) => typeof scope === "string")) {
+    return undefined;
+  }
+  // The optional fields are checked too, and a bad one refuses the whole
+  // detail rather than being dropped. Both drive what a consent flow asks a
+  // human for: `mode` decides whether one scope suffices or all are needed,
+  // and `effective` decides whether lending on the actor's ring could ever
+  // open this door. A detail we only half understand is not one to build an
+  // approval request from.
+  if (
+    missing.mode !== undefined &&
+    missing.mode !== "all" &&
+    missing.mode !== "any"
+  ) {
+    return undefined;
+  }
+  if (
+    missing.effective !== undefined &&
+    typeof missing.effective !== "boolean"
+  ) {
+    return undefined;
+  }
+  // A frozen copy, so what the framework records as a deferral's lend bound
+  // cannot be widened afterwards by whoever still holds the error.
+  return Object.freeze({
+    scopes: Object.freeze([...missing.scopes]),
+    ...(missing.mode !== undefined ? { mode: missing.mode } : {}),
+    ...(missing.effective !== undefined
+      ? { effective: missing.effective }
+      : {}),
+  });
 }
 
 /**
@@ -492,13 +589,15 @@ export function authorize(
       const granted = grantedScopes(principal, effective);
       if (scopes && scopes.length > 0) {
         const missing = scopes.filter((scope) => !granted.has(scope));
-        if (missing.length > 0) throw insufficientScope(missing, "all");
+        if (missing.length > 0) {
+          throw insufficientScope(missing, "all", effective);
+        }
       }
       if (
         anyScope !== undefined &&
         !anyScope.some((scope) => granted.has(scope))
       ) {
-        throw insufficientScope([...anyScope], "any");
+        throw insufficientScope([...anyScope], "any", effective);
       }
     }
 
@@ -545,10 +644,16 @@ function grantedScopes(principal: Principal, effective: boolean): Set<string> {
  * principal lacked, since every one was required. `"any"` names the whole
  * accepted set, since no single entry was required and any one of them would
  * have opened the door.
+ *
+ * `effective` records which ring the gate read, because that is what decides
+ * whether a lend on the actor's ring could satisfy it at all. Carried on the
+ * cause rather than inferred from the message, so a consent flow can decline
+ * an impossible ask without parsing prose.
  */
 function insufficientScope(
   scopes: string[],
   mode: "all" | "any",
+  effective: boolean,
 ): RoutecraftError {
   const detail =
     mode === "all"
@@ -562,7 +667,7 @@ function insufficientScope(
           ? `Missing required scopes: ${scopes.join(", ")}`
           : `Missing any of the accepted scopes: ${scopes.join(", ")}`,
       ),
-      { missing: { scopes, mode } },
+      { missing: { scopes, mode, effective } },
     ) satisfies InsufficientAuthority,
     {
       message: `Authorization failed: principal is ${detail}`,

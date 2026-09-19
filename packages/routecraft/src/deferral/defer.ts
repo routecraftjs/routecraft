@@ -1,5 +1,6 @@
 import type { CraftContext } from "../context.ts";
 import { rcError } from "../error.ts";
+import { HOOK_ABORTED, settleOrAbort } from "../shared/abort.ts";
 import {
   type Exchange,
   DefaultExchange,
@@ -88,11 +89,12 @@ export async function deferExchange(
   // would give one `exchange:started` two terminals, breaking the events
   // page's exactly-one lifecycle guarantee.
   if (abortSignal?.aborted) {
-    const settled = await denyDeferredOnCancellation(
+    const settled = await denyDeferred(
       context,
       deferring,
       id,
       routeId,
+      "run cancelled",
       record.expiresAt,
     );
     // The RC5054 must land whatever the store does (the caller was told
@@ -127,6 +129,26 @@ export async function deferExchange(
   });
 
   const deferred = DefaultExchange.rewrap(deferring, { body: ack });
+
+  // BEFORE the terminal event, and that ordering is the exactly-one-terminal
+  // -event invariant rather than a preference. A `notify` that throws denies
+  // the record claim-first and fails the run with RC5067, so announcing the
+  // park first would give one exchange both `route:exchange:deferred` and
+  // `route:exchange:failed`: a subscriber would see a park that is already
+  // dead, and the operator would have to know which of the two to believe.
+  //
+  // What the ordering promise actually protects is untouched: the record is
+  // durable before anyone is told, which is why `notify` cannot hand a human
+  // a token for a park that never committed.
+  if (request.notify) {
+    await runNotify(context, deferred, request.notify, ack, {
+      deferralId: id,
+      routeId,
+      ...(record.expiresAt ? { expiresAt: record.expiresAt } : {}),
+      ...(request.notifySignal ? { signal: request.notifySignal } : {}),
+    });
+  }
+
   markDeferred(deferred);
   context.emit("route:exchange:deferred", {
     routeId,
@@ -144,6 +166,77 @@ export async function deferExchange(
 }
 
 /**
+ * Hand the acknowledgment to the directive's `notify` hook, and make sure a
+ * notification that did not go out leaves no live link behind.
+ *
+ * AFTER the store write, and BEFORE `route:exchange:deferred`.
+ *
+ * After the write is the safety property: the site is resolved when the
+ * executor receives the directive, so a handler that notified on its own
+ * would hand a human a correctly signed token for a park `RC5051` can still
+ * refuse, and nothing retires a dead link in an inbox. The reverse of
+ * `deferAside`'s `announce`, which commits BEFORE its write for the opposite
+ * and equally correct reason; see its JSDoc.
+ *
+ * Before the event is the exactly-one-terminal-event invariant. This throws
+ * `RC5067` and denies the record, so the run fails; announcing the park
+ * first would give one exchange both `route:exchange:deferred` and
+ * `route:exchange:failed`, and a subscriber would see a park that is already
+ * dead. The event is the claim that an exchange IS parked, so it waits until
+ * that is true of the notification as well as of the record.
+ *
+ * Bounded like {@link runAuthorizer} bounds the resume `authorize` hook, and
+ * for the same reason: this is awaited inside the executor with a network
+ * call in it, so an unsettled hook holds the step, which holds `drain()`, and
+ * its latency is caller-visible. An abort is treated exactly as a throw.
+ *
+ * The residue, stated because it is chosen rather than overlooked: a crash
+ * between the write and the notification leaves a record nobody was told
+ * about, which the record's ttl retires. The reverse order leaves a dead link
+ * in a human's inbox, which nothing retires.
+ *
+ * @throws RC5067 when the hook throws or never settles, carrying the hook's
+ *   own failure as the cause
+ *
+ * @internal
+ */
+async function runNotify(
+  context: CraftContext,
+  deferred: Exchange,
+  notify: (ack: Deferred) => void | Promise<void>,
+  ack: Deferred,
+  ctx: {
+    deferralId: string;
+    routeId: string;
+    expiresAt?: Date;
+    signal?: AbortSignal;
+  },
+): Promise<void> {
+  const { signal } = ctx;
+  try {
+    await settleOrAbort(() => notify(ack), signal);
+  } catch (cause) {
+    const aborted = cause === HOOK_ABORTED;
+    // Claim-first, exactly as the cancellation path does: a replayed token
+    // then reads RC5050 from the settled path rather than reviving work
+    // whose caller was told it failed.
+    const settled = await denyDeferred(
+      context,
+      deferred,
+      ctx.deferralId,
+      ctx.routeId,
+      aborted ? "notification aborted" : "notification failed",
+      ctx.expiresAt,
+    );
+    throw rcError("RC5067", aborted ? (signal?.reason ?? undefined) : cause, {
+      message: settled
+        ? `Route "${ctx.routeId}" parked an exchange but its notify hook ${aborted ? "did not settle before the run was cancelled" : "failed"}, so the deferral was denied and its resume link is dead.`
+        : `Route "${ctx.routeId}" parked an exchange, its notify hook ${aborted ? "did not settle before the run was cancelled" : "failed"}, and denying the deferral failed; its resume link may stay live (deferral "${ctx.deferralId}", see the error log).`,
+    });
+  }
+}
+
+/**
  * The record a deferral writes, and the exchange it was taken from.
  *
  * Shared by the two ways an exchange reaches the store: a `.defer()`
@@ -158,7 +251,7 @@ function describeRecord(
   routeId: string,
   request: Pick<
     DeferRequest,
-    "site" | "schema" | "meta" | "callBinding" | "stepState"
+    "site" | "schema" | "meta" | "callBinding" | "stepState" | "errorPath"
   >,
   ttlMs: number | undefined,
 ): { id: string; deferring: Exchange; record: NewDeferral } {
@@ -201,6 +294,9 @@ function describeRecord(
     ...(request.callBinding !== undefined
       ? { callBinding: request.callBinding }
       : {}),
+    ...(request.errorPath !== undefined
+      ? { errorPath: request.errorPath }
+      : {}),
     ...(stepState !== undefined ? { stepState } : {}),
     actionFingerprint: actionFingerprint({
       routeId,
@@ -237,8 +333,14 @@ function describeRecord(
  *
  * @param stepState - Built from the deferral id, so the state a revival
  *   hands back can name the record it came from
- * @param announce - Awaited with the id before the record is written, so
- *   the caller's own record can name the deferral from the first write on
+ * @param announce - Awaited with the id BEFORE the record is written, so
+ *   the caller's own record can name the deferral from the first write on.
+ *   The opposite ordering to the `notify` hook a `recovery.defer()` directive
+ *   carries, which is awaited AFTER its write: this one hands an id to an
+ *   in-process caller that can release a dangling reference, while that one
+ *   hands a token to a person, and a person must never hold a link to a
+ *   record that does not exist. The commit ordering is the safety property in
+ *   both, which is why they do not share a word.
  * @returns The deferral id, which `reviveDeferral` takes back
  * @throws RC5052 without a deferral runtime, RC5042 when the exchange
  *   cannot be persisted, RC5044 when the store write fails
@@ -271,7 +373,9 @@ export async function deferAside(
   // The caller learns the id before the record exists, so what it keeps
   // can name the deferral from the first write on: a crash between the two
   // leaves a reference to release, not a record nothing points at, and an
-  // aside deferral has no expiry to retire it otherwise.
+  // aside deferral has no expiry to retire it otherwise. The `notify` hook
+  // on a `recovery.defer()` directive commits the other way round; see this
+  // function's `@param announce` for why both are correct.
   if (announce) await announce(id);
   await runtime.store.create(record);
   // The run goes on with this exchange, and its headers are frozen: the
@@ -282,33 +386,38 @@ export async function deferAside(
 }
 
 /**
- * Deny a deferral whose run was cancelled after the deferral committed.
+ * Deny a deferral that committed and must not stay resumable.
  *
- * The abort raced the store write and lost, so a caller who is being told
- * the run failed would otherwise leave behind a live resume link: an
- * approver clicking it days later would run a continuation for work whose
- * caller already saw a cancellation. Claim-first, like expiry and the
- * changed-continuation denial, so a crash between the transition and the
- * caller's cancellation error still leaves the record deniable rather than
- * stuck. No re-ask is delivered: the cancellation error the caller receives
- * IS the notification, and a later replay of the token reads the denial as
- * `RC5050` from the settled path.
+ * Two raisers, one shape. A run cancelled after the store write: the abort
+ * raced the write and lost, so a caller being told the run failed would
+ * otherwise leave a live resume link, and an approver clicking it days later
+ * would run a continuation for work whose caller already saw a cancellation.
+ * And a `notify` hook that threw or never settled: nobody was successfully
+ * told, so nobody may hold a working link.
  *
- * Best effort by design: the cancellation error must reach the caller
- * whatever the store does, so a store failure here is logged and swallowed.
- * The return value keeps the caller's RC5054 honest about what happened.
+ * Claim-first, like expiry and the changed-continuation denial, so a crash
+ * between the transition and the caller's error still leaves the record
+ * deniable rather than stuck. No re-ask is delivered: the error the caller
+ * receives IS the notification, and a later replay of the token reads the
+ * denial as `RC5050` from the settled path.
  *
+ * Best effort by design: the caller's error must reach it whatever the store
+ * does, so a store failure here is logged and swallowed. The return value
+ * keeps that error honest about what happened.
+ *
+ * @param reason - Recorded on the denial and read back by a later replay
  * @returns Whether the record is confirmed settled (denied here, or already
  *   settled by whoever won the claim). `false` means the denial failed and
  *   the resume link may still be live.
  *
  * @internal
  */
-async function denyDeferredOnCancellation(
+async function denyDeferred(
   context: CraftContext,
   exchange: Exchange,
   deferralId: string,
   routeId: string,
+  reason: string,
   expiresAt?: Date,
 ): Promise<boolean> {
   const runtime = context.getStore(DEFERRAL_RUNTIME);
@@ -323,20 +432,20 @@ async function denyDeferredOnCancellation(
     // return value exists to prevent: if the claim's lease elapsed in
     // between, `releaseClaims` has cleared it, the record is resumable
     // again, and the link the caller was told is dead comes back.
-    const denied = await runtime.store.markDenied(deferralId, "run cancelled");
+    const denied = await runtime.store.markDenied(deferralId, reason);
     if (!denied.won) {
       exchange.logger.error(
-        { deferralId, routeId, expiresAt },
-        "A deferral deferred by a cancelled run lost its denial transition, so its resume link may become live again when the expiry claim is released.",
+        { deferralId, routeId, reason, expiresAt },
+        "A deferral that had to be denied lost its denial transition, so its resume link may become live again when the expiry claim is released.",
       );
     }
     return denied.won;
   } catch (err) {
     exchange.logger.error(
-      { deferralId, routeId, expiresAt, err },
+      { deferralId, routeId, reason, expiresAt, err },
       expiresAt
-        ? "Could not deny a deferral deferred by a cancelled run. Its resume link stays live until the ttl retires it."
-        : 'Could not deny a deferral deferred by a cancelled run. It has no ttl (defaultTtl: "never"), so its resume link stays live until it is settled by hand.',
+        ? "Could not deny a deferral that had to be denied. Its resume link stays live until the ttl retires it."
+        : 'Could not deny a deferral that had to be denied. It has no ttl (defaultTtl: "never"), so its resume link stays live until it is settled by hand.',
     );
     return false;
   }

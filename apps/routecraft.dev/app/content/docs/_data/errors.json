@@ -264,6 +264,12 @@
     "retryable": false
   },
   {
+    "code": "RC5067",
+    "category": "Runtime",
+    "message": "Deferral notification failed",
+    "retryable": false
+  },
+  {
     "code": "RC9901",
     "category": "Runtime",
     "message": "Unknown error",

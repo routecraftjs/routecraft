@@ -49,12 +49,35 @@ import {
   type DetachedResult,
   type ExecutorDeps,
 } from "./pipeline/executor.ts";
-import { detachedDefinition } from "./pipeline/chain-policy.ts";
-import type { DeferCapableStep, DeferrableStep } from "./deferral/sites.ts";
+import {
+  detachedDefinition,
+  type DetachedKind,
+} from "./pipeline/chain-policy.ts";
+import type {
+  DeferCapableStep,
+  DeferrableStep,
+  DeferSite,
+  ErrorPathSite,
+} from "./deferral/sites.ts";
+import { DeferralHeaders } from "./deferral/exchange-state.ts";
 import type { RouteEnablement } from "./enablement.ts";
 
 // Re-exported for existing imports (builder.ts and @internal consumers).
 export { buildCacheCheckStep, buildCacheStoreStep, buildThrottleCheckStep };
+
+/**
+ * Header keys that belong to ONE exchange and never to the next, stripped at
+ * every route ingress by {@link DefaultRoute.buildExchange}.
+ *
+ * Built from {@link DeferralHeaders} rather than listed, because the list and
+ * the keys drifting apart is silent: the stripping site is nowhere near the
+ * declaration, and a key that keeps its value across an ingress tells the
+ * receiving route it is a continuation of work it never did.
+ */
+const PER_EXCHANGE_HEADERS: ReadonlySet<string> = new Set<string>([
+  HeadersKeys.SPLIT_HIERARCHY,
+  ...Object.values(DeferralHeaders),
+]);
 
 /**
  * Function that forwards a payload to another route via the direct adapter and returns its result.
@@ -77,9 +100,11 @@ export type ForwardFn = (
  * Instead of a recovery body the handler may return a branded `Recovery`
  * directive built with the `recovery` helpers (see `recovery.ts`):
  * `recovery.drop(reason?)` discards the exchange (emits
- * `route:exchange:dropped`, no `exchange:completed`), and
+ * `route:exchange:dropped`, no `exchange:completed`),
  * `recovery.rethrow()` propagates the original error exactly as if the
- * handler had thrown it. Plain (unbranded) return values are unaffected.
+ * handler had thrown it, and `recovery.defer(request)` parks the exchange
+ * durably and answers with the `Deferred` acknowledgment. Plain (unbranded)
+ * return values are unaffected.
  *
  * @param error - The thrown error
  * @param exchange - The exchange at the point of failure
@@ -90,6 +115,58 @@ export type ErrorHandler = (
   error: unknown,
   exchange: Exchange,
   forward: ForwardFn,
+) => unknown | Promise<unknown>;
+
+/**
+ * What a context handler is told about the failure beyond the failure itself.
+ *
+ * An object rather than the bare {@link Route} it started as, because `error`
+ * is the one handler point locked to a positional signature: a fourth slot
+ * holding a `Route` could never gain a field without breaking every handler
+ * already written against it.
+ */
+export interface ErrorContext {
+  /** The route the failing exchange belongs to. */
+  readonly route: Route;
+  /**
+   * `1` on the exchange's first run, `2` once it is a resumed continuation.
+   *
+   * A handler that parks on a failure needs to know it is looking at the
+   * resumed run rather than the original, or a failure the resume itself
+   * causes parks the same exchange again and the human is asked twice. An
+   * exchange that parks a second time and resumes again stays `2`: the
+   * distinction is original against continuation, not a park counter, which
+   * `ex.deferral.sequence` already is.
+   */
+  readonly execution: 1 | 2;
+}
+
+/**
+ * Error handler registered on the CONTEXT rather than on one route.
+ *
+ * Same signature and same return vocabulary as an {@link ErrorHandler}, plus
+ * an {@link ErrorContext}, because a context handler serves every route and
+ * cannot otherwise tell which one it is looking at.
+ *
+ * Returning `undefined` passes to the next registered handler, which is what
+ * lets two plugins each own a slice of the failures without either knowing
+ * about the other. Every other return value decides.
+ *
+ * A three-parameter {@link ErrorHandler} stays assignable, so the same
+ * function can serve a route and the context.
+ *
+ * @param error - The thrown error, as the route's own handling left it
+ * @param exchange - The exchange at the point of failure, whose headers
+ *   carry the principal and the correlation id
+ * @param forward - Sends a payload to another route via the direct adapter,
+ *   bound to the failing exchange so the target inherits its identity
+ * @param ctx - The route the failure belongs to, and which execution it is
+ */
+export type ContextErrorHandler = (
+  error: unknown,
+  exchange: Exchange,
+  forward: ForwardFn,
+  ctx: ErrorContext,
 ) => unknown | Promise<unknown>;
 
 /**
@@ -365,6 +442,34 @@ export type RouteDefinition<T = unknown> = {
    * @internal
    */
   usesResume?: boolean;
+
+  /**
+   * Where an error-path park would land, per step of this route.
+   *
+   * Resolved by the same walk that assigns defer sites, for every step
+   * rather than only the defer hosts: an error handler sits outside the step
+   * tree and has no position of its own, so a park it raises borrows the
+   * position of whatever failed, and any step can fail. A step inside a
+   * `.split()` fan-out or a sealed side flow carries a refusal instead, so
+   * an error-path park is refused from exactly the positions a `DeferSignal`
+   * is.
+   *
+   * Says nothing about whether this route defers. A route with no handler
+   * anywhere near it still has the map; what decides is whether a handler
+   * ever answers with `recovery.defer()`.
+   *
+   * @internal
+   */
+  errorPathSites?: ReadonlyMap<Step<Adapter>, ErrorPathSite>;
+
+  /**
+   * Where an error-path park lands when the failure did not come from the
+   * step tree at all: the pre-from filter chain, and the framework's own
+   * filter positions around the pipeline.
+   *
+   * @internal
+   */
+  admissionSite?: DeferSite;
 };
 
 /**
@@ -488,13 +593,23 @@ export interface Route<T = unknown> {
    * pre-from filter chain (authorize, parse, input, throttle, cache), all
    * of which belong to execution one.
    *
+   * An ADMISSION continuation is the exception, and the only one. It comes
+   * from an exchange parked before the route admitted it, so execution one
+   * never finished the chain: `.authorize()` and `.input()` run here
+   * instead. The source's parse does not, which is why such a park is
+   * refused while a source parser is pending rather than resumed against a
+   * body nothing parsed.
+   *
    * @param exchange - The rehydrated exchange, already bound to this route
    * @param steps - The continuation, in execution order
+   * @param kind - Which re-entry this is, which selects the chain policy.
+   *   Defaults to `"resume"`; `"admission"` is the park-before-admission case.
    * @internal
    */
   runContinuation(
     exchange: Exchange,
     steps: ReadonlyArray<Step<Adapter>>,
+    kind?: DetachedKind,
   ): Promise<DetachedResult>;
 
   /**
@@ -708,9 +823,26 @@ export class DefaultRoute implements Route {
     // Omitted rather than deleted after the fact: `delete` on a fresh literal
     // drops the object into dictionary mode, and this one becomes the header
     // bag every step then reads.
-    // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructure to omit
-    const { [HeadersKeys.SPLIT_HIERARCHY]: _unjoinable, ...inherited } =
-      headers ?? {};
+    //
+    // The deferral keys are dropped for the same reason the split hierarchy
+    // and the exchange id are: they are per-exchange state, and an ingress is
+    // a new exchange. `forward()` and a `direct()` destination hand the
+    // target the caller's headers verbatim, so a continuation forwarding
+    // anywhere would otherwise tell the target it is execution two, hand it
+    // another exchange's resume payload, and suppress its own park with a
+    // refusal recorded against work it has nothing to do with.
+    //
+    // Read off `DeferralHeaders` rather than spelled out here, so a key added
+    // there is stripped without anyone remembering this site.
+    //
+    // One pass rather than entries-filter-fromEntries: this runs on every
+    // ingress, and that shape allocates a pair array per header before
+    // discarding most of them.
+    const incoming = (headers ?? {}) as Record<string, unknown>;
+    const inherited: Record<string, unknown> = {};
+    for (const key of Object.keys(incoming)) {
+      if (!PER_EXCHANGE_HEADERS.has(key)) inherited[key] = incoming[key];
+    }
     const builtHeaders: Record<string, unknown> = {
       ...inherited,
       [HeadersKeys.ID]: randomUUID(),
@@ -1005,37 +1137,50 @@ export class DefaultRoute implements Route {
   private buildConsumerHandler(): (envelope: Message) => Promise<Exchange> {
     return async ({ message, headers, parse, parseFailureMode }) => {
       const exchange = this.buildExchange(message, headers);
-      const inputSchemas = this.definition.discovery?.input;
-      const hasInputSchema = !!inputSchemas?.body || !!inputSchemas?.headers;
 
       const internals = EXCHANGE_INTERNALS.get(exchange);
-      if (internals) {
-        if (parse) {
-          // Stash the source-supplied parser so `runPipeline` applies it
-          // as a synthetic first pipeline step. This is what makes parse
-          // errors surface as normal pipeline events the route can
-          // observe (`.error()` for `'fail'`, `exchange:dropped` for
-          // `'drop'`). See #187.
-          internals.parse = parse;
-          internals.parseFailureMode = parseFailureMode ?? "fail";
-        }
-        // Stash the `.input()` validator alongside. With a parser the
-        // synthetic parse step runs it once parse succeeds (input
-        // validates the parsed body, not the raw bytes); without one
-        // `runPipeline` inserts a standalone input step in the same
-        // chain position. The non-emitting variant throws RC5065
-        // cleanly into the step loop's catch path (which emits
-        // `step:failed` and then the error path), without firing
-        // duplicate `exchange:started` / stray `exchange:dropped`
-        // events (see #187, #447).
-        if (hasInputSchema && inputSchemas) {
-          internals.applyValidation = (ex: Exchange) =>
-            validateInputOrThrow(this.validationDeps(), ex, inputSchemas);
-        }
+      if (internals && parse) {
+        // Stash the source-supplied parser so `runPipeline` applies it
+        // as a synthetic first pipeline step. This is what makes parse
+        // errors surface as normal pipeline events the route can
+        // observe (`.error()` for `'fail'`, `exchange:dropped` for
+        // `'drop'`). See #187.
+        internals.parse = parse;
+        internals.parseFailureMode = parseFailureMode ?? "fail";
       }
+      // Stash the `.input()` validator alongside. With a parser the
+      // synthetic parse step runs it once parse succeeds (input validates
+      // the parsed body, not the raw bytes); without one `runPipeline`
+      // inserts a standalone input step in the same chain position.
+      this.attachInputValidation(exchange);
 
       return this.handler(exchange);
     };
+  }
+
+  /**
+   * Stash this route's `.input()` validator on an exchange, so `runPipeline`
+   * runs it at chain position #4.
+   *
+   * Two callers, and the second is why it is a method. An arriving exchange
+   * gets it from the consumer handler; a rehydrated one parked before
+   * admission gets it here, because the closure cannot cross the store and
+   * has to be rebuilt from the route's own schemas. Building it twice would
+   * be two chances to validate a different thing.
+   *
+   * No-op on a route that declares no input schemas.
+   */
+  private attachInputValidation(exchange: Exchange): void {
+    const inputSchemas = this.definition.discovery?.input;
+    if (!inputSchemas?.body && !inputSchemas?.headers) return;
+    const internals = EXCHANGE_INTERNALS.get(exchange);
+    if (!internals) return;
+    // The non-emitting variant throws RC5065 cleanly into the step loop's
+    // catch path (which emits `step:failed` and then the error path),
+    // without firing duplicate `exchange:started` / stray
+    // `exchange:dropped` events (see #187, #447).
+    internals.applyValidation = (ex: Exchange) =>
+      validateInputOrThrow(this.validationDeps(), ex, inputSchemas);
   }
 
   /**
@@ -1189,13 +1334,17 @@ export class DefaultRoute implements Route {
   runContinuation(
     exchange: Exchange,
     steps: ReadonlyArray<Step<Adapter>>,
+    kind: DetachedKind = "resume",
   ): Promise<DetachedResult> {
-    const run = runDetachedPipeline(
-      this.executorDeps(),
-      steps,
-      exchange,
-      "resume",
-    );
+    // An admission run has to validate its input, and the validator is a
+    // closure the consumer handler normally stashes on the arriving
+    // exchange. A rehydrated exchange carries none, so it is re-attached
+    // here from the same source the handler builds it from: the route's own
+    // `.input()` schemas, which the live route still holds. The source's
+    // parse is NOT re-attachable, and that is the difference the park-time
+    // refusal exists for.
+    if (kind === "admission") this.attachInputValidation(exchange);
+    const run = runDetachedPipeline(this.executorDeps(), steps, exchange, kind);
     this.trackTask(run);
     return run;
   }

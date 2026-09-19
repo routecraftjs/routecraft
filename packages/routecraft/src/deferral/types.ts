@@ -339,6 +339,17 @@ export interface Deferral {
    */
   readonly stepState?: unknown;
   /**
+   * What the ERROR PATH recorded about this park, when a park is what an
+   * error handler answered with. Absent on every `.defer()` and every
+   * re-entrant deferral.
+   *
+   * Framework-owned, and deliberately not part of {@link Deferral.meta}:
+   * `meta` is whatever the defer site chose, which on the agent surface
+   * means the model influenced it, and both facts here are inputs to
+   * security decisions the framework makes at resume.
+   */
+  readonly errorPath?: ErrorPathRecord;
+  /**
    * Binds an approval to the operation it authorized rather than to a
    * deferral id, so a receipt reads "this principal authorized this exact
    * operation". See {@link actionFingerprint}.
@@ -364,6 +375,50 @@ export interface Deferral {
   readonly outcome?: DeferralOutcome;
   /** Cached result of execution two, for idempotent re-resume. */
   readonly continuation?: SerializedOutcome;
+}
+
+/**
+ * What an error-path park records about itself, for the two decisions the
+ * framework makes at resume that a `.defer()` never faces.
+ *
+ * Its PRESENCE is also the marker that this record was written by the error
+ * path rather than by a `.defer()` step or a re-entrant deferral, which is
+ * what tells the resume which set of sites to address the record against.
+ * Written for every error-path park, empty object included, and for nothing
+ * else.
+ */
+export interface ErrorPathRecord {
+  /**
+   * Where the park was raised, which decides how the record is addressed at
+   * resume.
+   *
+   * `"admission"` means it was raised before the route admitted the
+   * exchange, so the continuation is an ADMISSION rather than a
+   * continuation: `.authorize()` and `.input()` run on resume, where a
+   * `"step"` site re-runs neither. It is also what tells the admission site
+   * apart from the first step's own error-path site, since both live at
+   * position 0.
+   *
+   * REQUIRED, so the record cannot be reduced to an empty object. `DeferralStore`
+   * is an interface applications implement, and a backend that normalises an
+   * empty sub-document away (a JSON column mapper, a document store) would
+   * otherwise erase this record's provenance and let a resume address it
+   * against the wrong site table.
+   */
+  readonly origin: "admission" | "step";
+  /**
+   * The scopes the `RC5038` refusal that caused this park named.
+   *
+   * Two readers, both bounds rather than information. A `.resume({ elevate })`
+   * hook may add at most these scopes to the parked ring, and anything wider
+   * is `RC5056`. And the executor refuses to raise a SECOND error-path park
+   * on a resumed exchange for scopes already listed here, so a lend that did
+   * not satisfy the gate cannot ask a human again forever.
+   *
+   * Absent when the park was not raised on a scope refusal, which leaves a
+   * door with nothing to lend within.
+   */
+  readonly refusedScopes?: readonly string[];
 }
 
 /**
