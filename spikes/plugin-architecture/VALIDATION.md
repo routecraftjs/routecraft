@@ -1,6 +1,6 @@
 # Adversarial validation: plugin architecture
 
-Validated against `feat/dazzling-fermi-01x3ns` at **86ec81bc6ee8ab41e4068d6a3f86b091d6643502**, using Bun **1.4.2** and TypeScript **5.9.3**. Work is on **validation/astra**. All authored changes are under `spikes/`; the existing implementation was left intact so the counterexamples remain reproducible.
+Validated against `feat/dazzling-fermi-01x3ns` at **86ec81bc6ee8ab41e4068d6a3f86b091d6643502**, using Bun **1.4.2** and TypeScript **5.9.3**. Work is pushed to [**validation/astra**](https://github.com/routecraftjs/routecraft/tree/validation/astra). All authored changes are under `spikes/`; the existing implementation was left intact so the counterexamples remain reproducible.
 
 **Verdict: do not build this proposal as written. The fluent-versus-sound dichotomy is false. The real blockers are execution semantics, contract-based substitution, and resource ownership.** Fix those before moving files or standardising persistence.
 
@@ -111,7 +111,7 @@ The server probe supplies a minimal WebIngress, not a complete production server
 
 ### Final validation
 
-After adding counterexamples and alternatives:
+After adding counterexamples and alternatives (repository commit hooks also passed lint and all three repository typecheck commands):
 
 ```text
 bun test: 63 pass, 0 fail, 96 expect() calls, 8 files
@@ -120,7 +120,7 @@ bun run demo: unchanged successful output
 TypeScript extended diagnostics: 0.67 seconds total on this machine
 ```
 
-That includes a 40-plugin, 40-method fluent chain. It is a compiler smoke test, not an editor-performance benchmark or a production readiness claim.
+That includes 40 distinct additional method-family plugins plus operations: **41 installed descriptors**, with all 40 additional methods used in one fluent chain. It is a compiler smoke test, not an editor-performance benchmark or a production readiness claim.
 
 ## 2. Claims refuted or misleading, with the correction
 
