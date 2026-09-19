@@ -176,6 +176,18 @@ export interface DeferRequest {
    */
   readonly notify?: (ack: Deferred) => void | Promise<void>;
   /**
+   * What bounds {@link DeferRequest.notify}.
+   *
+   * Resolved by the executor rather than supplied by the handler, like
+   * {@link DeferRequest.site}: the deferring route's intake signal widened by
+   * an enclosing `.timeout()`, which is the same bound `runAuthorizer` gives
+   * the resume `authorize` hook and for the same reason. Stop has to be in
+   * it, because a route with no `.timeout()` could otherwise never interrupt
+   * a hook that never settles, and an unsettled hook holds the step, which
+   * holds `drain()`.
+   */
+  readonly notifySignal?: AbortSignal;
+  /**
    * Closure state owned by the deferring step, persisted in the record's
    * `stepState` slot and handed back to a re-entrant step at revival. The
    * store never interprets it; the plain-JSON rule (`RC5042`) applies.

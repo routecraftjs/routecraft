@@ -147,7 +147,7 @@ export async function deferExchange(
       deferralId: id,
       routeId,
       ...(record.expiresAt ? { expiresAt: record.expiresAt } : {}),
-      ...(abortSignal ? { signal: abortSignal } : {}),
+      ...(request.notifySignal ? { signal: request.notifySignal } : {}),
     });
   }
   return deferred;

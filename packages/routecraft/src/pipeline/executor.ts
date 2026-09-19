@@ -1179,8 +1179,17 @@ async function parkFromErrorPath(
   // the `defer` outcome path: before the store write, refusing to park is
   // free, and an abort that lands during the write is resolved inside
   // `deferExchange`.
-  if (deps.abortSignal?.aborted) {
-    throw rcError("RC5054", deps.abortSignal.reason, {
+  //
+  // Two signals, because a route-scope handler runs in the OUTER run, which
+  // carries none of its own: an enclosing `.timeout()` builds a nested run
+  // and its signal exists only there. `route.signal` is the EXECUTION
+  // signal, which fires when in-flight work is being abandoned rather than
+  // when the route merely stops accepting new work, and that is exactly the
+  // condition this refusal is about: the caller is being told the run
+  // failed, so nothing may stay resumable behind it.
+  const cancellation = anySignal(deps.route.signal, deps.abortSignal);
+  if (cancellation?.aborted) {
+    throw rcError("RC5054", cancellation.reason, {
       message: `Route "${deps.routeId}" answered a failure with recovery.defer() after its run was cancelled; nothing was deferred.`,
     });
   }
@@ -1199,11 +1208,20 @@ async function parkFromErrorPath(
 
   const { notify, ttl, schema, meta, callBinding, stepState } =
     args.directive.request;
+  // The hook's bound, resolved here because only the executor knows both
+  // halves: the route's INTAKE signal, so an unsettled hook cannot hold
+  // drain open forever, widened by an enclosing `.timeout()`. The same pair
+  // `runAuthorizer` races the resume `authorize` hook against, for the same
+  // reason. Deliberately not the execution signal used above: that one
+  // refuses the park outright, while this one only stops WAITING for the
+  // notification of a park that already committed.
+  const notifySignal = anySignal(deps.route.intakeSignal, deps.abortSignal);
   return await deferExchange(
     deps.context,
     args.exchange,
     {
       site,
+      ...(notifySignal ? { notifySignal } : {}),
       ...(schema !== undefined ? { schema } : {}),
       ...(meta !== undefined ? { meta } : {}),
       ...(callBinding !== undefined ? { callBinding } : {}),
@@ -1218,7 +1236,10 @@ async function parkFromErrorPath(
       },
     },
     deps.routeId,
-    deps.abortSignal,
+    // The post-write cancellation check inside `deferExchange` gets the same
+    // composite the refusal above used, so a stop landing during the write
+    // denies the record rather than leaving a live link.
+    cancellation,
   );
 }
 
