@@ -1,0 +1,13 @@
+{
+  "extends": "../../tsconfig.json",
+  "compilerOptions": {
+    "noEmit": false,
+    "declaration": true,
+    "emitDeclarationOnly": true,
+    "rootDir": "../../src/v2",
+    "outDir": "./package",
+    "stripInternal": true
+  },
+  "include": ["../../src/v2"],
+  "exclude": ["../../src/v2/types.check.ts"]
+}

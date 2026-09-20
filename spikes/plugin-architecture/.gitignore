@@ -1,0 +1,4 @@
+/validation/round-two/package/
+/validation/round-two/*.tgz
+/validation/round-two/lint-*.json
+/validation/round-two/negative.check.ts
