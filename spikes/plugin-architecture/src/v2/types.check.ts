@@ -78,3 +78,9 @@ uncertain.pair();
 const dynamic: Plugin[] = [operations];
 // @ts-expect-error dynamic lists have no statically known DSL
 application(dynamic);
+const preserved = lean.route("body").from(manual as Source<string>);
+preserved.step(
+  "changes-body",
+  // @ts-expect-error a body-preserving step cannot return an incompatible body
+  (ex) => ({ kind: "continue", exchange: { ...ex, body: 42 } }),
+);

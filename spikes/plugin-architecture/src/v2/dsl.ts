@@ -161,7 +161,7 @@ export class Cursor<
     execute: (
       ex: TypedExchange<B, P, H>,
       ctx: StepContext,
-    ) => StepOutcome | Promise<StepOutcome>,
+    ) => StepOutcome<B> | Promise<StepOutcome<B>>,
     children: readonly Step[] = [],
   ): Chain<B, P, H, "after"> {
     return this.#append({

@@ -51,12 +51,12 @@ export interface DeferRequest {
   readonly reason: string;
   readonly reenter?: boolean;
 }
-export type StepOutcome =
-  | { kind: "continue" | "complete"; exchange: Exchange }
+export type StepOutcome<B = unknown> =
+  | { kind: "continue" | "complete"; exchange: Exchange<B> }
   | { kind: "drop" }
-  | { kind: "branch"; exchange: Exchange; steps: readonly Step[] }
-  | { kind: "fanOut"; exchanges: readonly Exchange[] }
-  | { kind: "defer"; exchange: Exchange; request: DeferRequest };
+  | { kind: "branch"; exchange: Exchange<B>; steps: readonly Step[] }
+  | { kind: "fanOut"; exchanges: readonly Exchange<B>[] }
+  | { kind: "defer"; exchange: Exchange<B>; request: DeferRequest };
 export interface Step {
   readonly id: string;
   readonly owner: string;
