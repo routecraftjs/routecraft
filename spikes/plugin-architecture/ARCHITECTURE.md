@@ -6,7 +6,17 @@ Everything else in this folder is either input to
 this document or code that tests it. Where a published artifact and this file
 disagree, this file wins: the artifact is a rendering of it.
 
-**Status: design, not approved. No implementation has started and none should.**
+**Status: round-five POC rebuilt; production migration not yet approved.**
+The direction is supported, subject to round-six execution review, Jaco's
+hands-on review, feature-fit checks and an accepted implementation plan.
+POC implementation is not production implementation approval.
+
+**Post-round-five update (2026-09-20).** This update incorporates Jaco's
+clarification about plugin-author responsibility and mechanically enforced
+internal boundaries. It was made against `ab29c2e86c9f`; the round-five report
+records the implementation commit on which its execution evidence was measured.
+The four-voice tables below preserve the earlier consolidation; the explicit
+post-round-five positions in this file supersede their older status and scope.
 
 Every substantive claim carries four voices, in this order:
 
@@ -35,13 +45,22 @@ asymmetry is the most useful thing in this document.
 
 - **Opus validation:** `reviews/OPUS-VALIDATION.md`, branch `validation/clean-room`
 - **Astra validation:** `reviews/ASTRA-VALIDATION.md`, branch `validation/astra`
-- **All code:** `src/`, `test/`, `validation/` in this folder. 63 tests, strict typecheck clean.
+- **Round-five implementation and report:** `src/v2/`, `test/round-two/`,
+  `validation/round-two/`, and `reviews/ASTRA-ROUND-FIVE.md`, on
+  `spike/astra-round-five`. Reported evidence: 32 tests, 22 behavioral mutants
+  killed, 10 compiler negative controls, strict typecheck, and a separately
+  packed consumer. Round six must independently reproduce these results.
+- **Historical round-one evidence:** 63 passing tests included defect
+  characterizations. Historical test files remain available but are excluded
+  from the new default acceptance run. Counts from different rounds are not
+  interchangeable.
 
 ---
 
 ## 1. The plan
 
-Nothing is built until step 8. Models are named because they are not
+Production work starts at step 9, after the plan from step 8 is accepted.
+POCs are built earlier. Models are named because they are not
 interchangeable here: each round exists to catch what the previous one could
 not see.
 
@@ -51,7 +70,7 @@ not see.
 | 2 | Clean-room validation | Claude Opus 5, fresh session | ✅ Done. 16 figures refuted, 4 POC defects, encoding E. |
 | 3 | Clean-room validation | ChatGPT Astra | ✅ Done. 20 POC defects, `StepOutcome` finding, 5 alternatives. |
 | 4 | Consolidation | Claude Opus 5 (this session) | ✅ This document. |
-| 5 | POC round two | ChatGPT Astra | Rebuild the POC against the corrected design and the new acceptance list. |
+| 5 | POC round two | ChatGPT Astra | Built on `spike/astra-round-five`; report and executable evidence checked in. Awaiting independent verification. |
 | 6 | Review of round 5 | Claude Opus 5 (this session) | Verify by execution, not by reading. |
 | 7a | Feature fit, clean room | Claude Opus 5, fresh session | Walk the real framework feature by feature: what fits the model, what does not. |
 | 7b | Feature fit, clean room | ChatGPT Astra | Same brief, independently, from its own round-3 work plus round 6. |
@@ -62,9 +81,78 @@ not see.
 before the feature-fit rounds begin.
 
 **Two rounds are deliberately duplicated** (2 and 3; 7a and 7b) because
-agreement between two models with no shared context is the strongest evidence
-this process can produce, and duplication is what makes agreement mean
-something.
+independent coverage can expose omissions. Agreement is supporting evidence,
+not certification: independently reproduced behavior against the real framework
+is stronger evidence than model agreement.
+
+### Post-round-five scope and stopping conditions
+
+**Objective.** Preserve route behavior and the fluent route DSL, enforce internal
+module boundaries, and move first-party capabilities behind the same supported
+contracts available to external plugins. AI-written changes make locality,
+reviewability and executable dependency rules central requirements. Third-party
+parity is also a test that the boundaries are real; it is not a requirement to
+make arbitrary third-party behavior safe.
+
+Internal modularity alone does not justify a consumer-facing DSL change. Breaking
+changes need a specific benefit such as clearer naming, consistent semantics,
+better inference or removal of duplication. Default installation may remain
+convenient while its components become replaceable. Pure libraries need not
+become lifecycle plugins.
+
+The remaining review stages have bounded outputs:
+
+- **Round 6:** independently execute the rebuilt POC, inspect assertions and
+  mutation controls, and separate contract defects from stated guarantee limits.
+  Fix demonstrated blockers; do not restart a general design exercise.
+- **Jaco's review:** inspect representative routes and configuration; resolve
+  consumer-facing tradeoffs before feature-fit work.
+- **Rounds 7a/7b:** independently produce a feature migration ledger. For each
+  real framework capability, record current behavior, proposed owner, required
+  public contracts, a compatibility fixture and unresolved gaps. Reopen the
+  architecture only for demonstrated gaps.
+- **Round 8:** turn that ledger into mergeable tickets with bounded ownership,
+  allowed dependencies, preserved behavior and concrete acceptance checks. No
+  production build starts until Jaco accepts this plan.
+
+### Production migration sequence proposed for planning
+
+This supersedes the old sequence in `docs/DESIGN.md`. It is the planning baseline,
+not permission to edit production packages during the spike.
+
+| Stage | Mergeable result and gate |
+|---|---|
+| 1. Boundaries and compatibility | Enforce allowed imports in CI and establish representative existing routes as behavioral and typing fixtures. Guard changes to boundary rules, public contracts and their tests with ownership review. Temporary exceptions must be specific and tracked. |
+| 2. Contracts and installation | Introduce ports, provider resolution, resource ownership and named failures alongside the current runtime. Preserve the existing `StepOutcome`/`StepContext` semantics rather than replacing them with the spike's implementation. |
+| 3. One production capability | Migrate a bounded first-party capability end to end, including public packaging, replacement and any DSL integration. Select it from the feature ledger; it must exercise real contracts, not merely move files. |
+| 4. Execution contributions and deferral | Replace privileged execution connections through proven contracts. Verify branching, resilience ordering, detached execution and durable continuation against existing behavior. This stage needs multiple bounded tickets, not one executor rewrite. |
+| 5. Remaining migration and cleanup | Move remaining capabilities through those contracts, preserve convenient defaults, and remove bridges only after their users migrate. |
+
+Enforcement comes before broad file movement. Package exports, project references
+and CODEOWNERS alone do not prevent forbidden internal imports. Use resolved
+import checks and lint failures, with review protection for the enforcement
+configuration itself. The spike's static-import gate is evidence for its tested
+modules, not proof of every production dependency boundary.
+
+### Release decision
+
+**Target 0.7 conditionally.** There is not yet a production feature inventory or
+migration estimate sufficient to promise that release. Use the first production
+migration as a decision gate: if it preserves the DSL and behavior, stays within
+the intended boundaries, and the feature ledger supports reuse of those
+contracts, continue toward 0.7. If it requires broad executor changes or consumer
+compromises, reassess before migrating everything.
+
+Do not pre-commit 0.7 and 0.8 to featureless restructuring, or hold 0.7 indefinitely
+for the slogan that everything must be a plugin. If a split is necessary, choose
+a coherent supported boundary: completed migrations, maintained compatibility
+for the remainder and one documented consumer path. Jaco retains the release
+and production-plan decisions.
+
+Existing guarantees must survive. New guarantees for distributed durability,
+exactly-once external effects, arbitrary uncooperative cancellation or sandboxing
+are outside this refactor unless separately scoped. A missing existing guarantee
+is a migration blocker, not something this paragraph permits dropping.
 
 ---
 
@@ -397,6 +485,51 @@ Ordered by when it hurts. Nothing here was in the original design.
 
 ---
 
+### Post-round-five: ordering responsibility and guarantee boundaries
+
+**Ordering is powerful and plugin authors own correct use.** Jaco explicitly
+accepts that a plugin can construct a semantically bad chain. The framework must
+reject mechanically invalid configurations (cycles, missing required contracts,
+undeclared duplicate providers and invalid required anchors) and expose the
+resolved chain, selected providers and contribution origins. It need not prove
+that every valid chain makes business sense.
+
+Document the tie-break rule and declare explicit constraints for first-party
+chains whose order matters. The POC demonstrates that replacement under a new
+plugin ID can change otherwise unconstrained lexical ties. That is a documented
+composition consequence, not by itself an architecture blocker. Stable
+contribution identities are an option if needed; they are not a prerequisite for
+continuing. This clarification does not choose numeric slots over named anchors.
+
+Name the executing plugin and relevant chain when reporting failures. That is
+attribution of execution context, not a guarantee of identifying the root cause
+of every interaction. Diagnostics, testable contracts and plugin-author tests
+are the desired safeguards; semantic misuse cannot always be detected.
+
+**Evidence limits from round five, pending independent review:**
+
+- A committed deferred checkpoint survives a real process kill and resumes at
+  the correct instruction, including a conversation spanning two stores.
+  Recovery from a crash after claiming a continuation is not implemented. The
+  two stores do not have a distributed transaction, and external effects do not
+  acquire exactly-once semantics.
+- Cancellation suppresses late outcomes and effects submitted through the
+  guarded API. Arbitrary plugin IO that ignores cancellation can still occur;
+  graceful drain can wait forever on uncooperative work.
+- Encoding E remains a demonstrated solution for fluent extensibility, not a
+  blanket soundness guarantee. Round five found and fixed integration defects
+  in facet typing, body-preserving outcomes and the correspondence between
+  installed resilience methods and runtime wrappers. Real DSL compatibility
+  still requires the feature-fit fixtures.
+- Continuation compatibility relies on declared identities and versions. The
+  POC rejects mismatched plans; it does not migrate saved plans or discover
+  changes hidden inside captured closures.
+
+The acceptance bullets below are retained as the round-five review checklist.
+The report records each result and qualification; unmarked boxes are not a new
+claim that nothing was implemented. In particular, the timeout bullet cannot
+honestly promise suppression of arbitrary unguarded external IO.
+
 ## 8. Acceptance criteria for the round-two POC
 
 Nothing below is optional. The round-one POC fails most of them, which is why
@@ -462,9 +595,17 @@ mocked bodies are fine, a `Step` that cannot halt is not.
 
 ---
 
-## 9. Open rulings Jaco owes before round five
+## 9. Rulings and outstanding decisions after round five
 
-1. **Closed or open intervention points.** #816's acceptance says `HandlerPoint` is declaration-merged and extensible by a package outside core, with a duplicate name a compile error. This design says the five points are closed and a sixth is a core change by definition. **These cannot both be true.** My reading: #816 is right, boundedness is unenforceable once strangers contribute, and `DetachedKind` growing three to four during this project is the evidence.
+**Updates.** Jaco instructed round five to use open handler points. His later
+clarification accepts plugin-author responsibility for semantically bad ordering,
+with visibility and mechanical validation rather than universal prevention.
+Numeric versus named ordering and the exact tie-break policy remain distinct
+choices; the POC uses named anchors and lexical ties provisionally. Remaining
+items below record the earlier questions, not an assertion that no ruling has
+been given. The scope and release baseline is now stated in section 1.
+
+1. **Closed or open intervention points — open for the POC.** #816's acceptance says `HandlerPoint` is declaration-merged and extensible by a package outside core, with a duplicate name a compile error. This design says the five points are closed and a sixth is a core change by definition. **These cannot both be true.** My reading: #816 is right, boundedness is unenforceable once strangers contribute, and `DetachedKind` growing three to four during this project is the evidence.
 2. **Ordering: named anchors or numeric slots.** Jaco proposed Spring-style numeric order. My recommendation is named contract-owned anchors with numeric slots underneath, where the names are the API and the numbers are not, because a third party hardcoding `150` breaks silently when core renumbers.
 3. **Tie-break rule** inside a gap. Not install order. Proposed: plugin id, lexicographic — arbitrary, deterministic, stable, inspectable.
 4. **Is isolation a goal.** If yes, `provide`/`require` must be scoped by declaration and that is a different registry. If no, delete the claim from A2.
