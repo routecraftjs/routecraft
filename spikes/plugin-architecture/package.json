@@ -3,10 +3,16 @@
   "version": "0.0.0",
   "private": true,
   "type": "module",
-  "description": "Throwaway spike: does the plugin architecture proposal survive contact with TypeScript?",
+  "description": "Round-five contract spike: installed plugins, explicit execution, durable continuation and external artifact proof",
   "scripts": {
-    "test": "bun test",
+    "test": "bun test test/round-two",
     "typecheck": "tsc --noEmit",
-    "demo": "bun run src/demo.ts"
-  }
+    "demo": "bun run src/v2/demo.ts",
+    "verify:mutations": "bun run validation/round-two/mutations.ts",
+    "verify:packed": "bun run validation/round-two/packed.ts",
+    "verify:boundaries": "bun run validation/round-two/boundaries.ts",
+    "verify": "bun run typecheck && bun run test && bun run verify:mutations && bun run verify:boundaries && bun run verify:types",
+    "verify:types": "bun run validation/round-two/type-controls.ts"
+  },
+  "exports": "./src/v2/index.ts"
 }
