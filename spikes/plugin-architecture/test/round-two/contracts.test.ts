@@ -1213,6 +1213,7 @@ test("step timeout drains abandoned work before disposing its provider", async (
     closed = false;
   const app = application([
     operations,
+    resilience,
     infrastructure({
       id: "worker",
       stop() {
@@ -1336,4 +1337,30 @@ test("steps and lazy facets resolve declared services in their own application",
     "[routecraft.operations] UNDECLARED_REQUIRE",
   );
   await Promise.all([a.stop(), b.stop()]);
+});
+/**
+ * @case single descriptor for DSL and execution
+ * @preconditions Resilience is omitted from one context and installed without operations in another.
+ * @expectedResult Retry is absent when declined and executes when its owning descriptor is installed.
+ */
+test("resilience owns both its methods and its runtime wrappers", async () => {
+  const lean = application([operations]);
+  expect("retry" in lean.route("lean")).toBe(false);
+  await lean.start([]);
+  let attempts = 0;
+  const app = application([resilience]);
+  await app.start([
+    app
+      .route("r")
+      .retry(2)
+      .from(manual)
+      .step("attempt", (ex) => {
+        if (++attempts === 1) throw Error("retry me");
+        return continueWith(ex);
+      })
+      .build(),
+  ]);
+  expect((await app.runtime.deliver("r", 0)).status).toBe("completed");
+  expect(attempts).toBe(2);
+  await Promise.all([lean.stop(), app.stop()]);
 });

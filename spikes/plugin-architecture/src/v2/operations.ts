@@ -6,7 +6,6 @@ import {
   type Phase,
   type TypedExchange,
   type Cursor,
-  type EmptyFamily,
 } from "./dsl.ts";
 import {
   Fault,
@@ -32,9 +31,7 @@ type Operations<
     this: Cursor<B, P, H, "after">,
     fn: (body: B, ex: TypedExchange<B, P, H>) => R,
   ): Chain<Awaited<R>, P, H, "after">;
-  retry(attempts: number): Chain<B, P, H, S>;
   delay(this: Cursor<B, P, H, "after">, ms: number): Chain<B, P, H, S>;
-  timeout(this: Cursor<B, P, H, "after">, ms: number): Chain<B, P, H, S>;
 };
 export interface OperationsFamily extends Family {
   readonly methods: Operations<
@@ -123,10 +120,6 @@ export const operations: Plugin<OperationsFamily, Record<never, never>> = {
         return cursor.configure({ title });
       },
       transform: (fn) => cursor.map(fn),
-      retry: (attempts) =>
-        cursor.phase === "before"
-          ? cursor.configure({ retry: attempts })
-          : cursor.wrap((step) => retryStep(step, attempts)),
       delay: (ms) =>
         cursor.wrap((step) => ({
           ...step,
@@ -137,15 +130,44 @@ export const operations: Plugin<OperationsFamily, Record<never, never>> = {
             return step.execute(ex, ctx);
           },
         })),
-      timeout: (ms) => cursor.wrap((step) => timeoutStep(step, ms)),
     };
   },
 };
-export const resilience: Plugin<EmptyFamily, Record<never, never>> = {
+type ResilienceMethods<
+  B,
+  P extends readonly Plugin[],
+  H extends object,
+  S extends Phase,
+> = {
+  retry(attempts: number): Chain<B, P, H, S>;
+  timeout(ms: number): Chain<B, P, H, S>;
+};
+export interface ResilienceFamily extends Family {
+  readonly methods: ResilienceMethods<
+    this["Body"],
+    this["Plugins"],
+    this["Headers"],
+    this["Phase"]
+  >;
+}
+export const resilience: Plugin<ResilienceFamily, Record<never, never>> = {
   id: "routecraft.resilience",
   facets: {},
   provides: [RESILIENCE],
-  methods: () => ({}),
+  methods<B, P extends readonly Plugin[], H extends object, S extends Phase>(
+    cursor: Cursor<B, P, H, S>,
+  ): ResilienceMethods<B, P, H, S> {
+    return {
+      retry: (attempts) =>
+        cursor.phase === "before"
+          ? cursor.configure({ retry: attempts })
+          : cursor.wrap((step) => retryStep(step, attempts)),
+      timeout: (ms) =>
+        cursor.phase === "before"
+          ? cursor.configure({ timeout: ms })
+          : cursor.wrap((step) => timeoutStep(step, ms)),
+    };
+  },
   bind(ctx) {
     ctx.provide(RESILIENCE, true);
     ctx.contribute({
