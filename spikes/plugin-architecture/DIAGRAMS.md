@@ -1,280 +1,118 @@
-# The architecture, drawn
+# What changes, in two pictures
 
-Five diagrams of the round-six spike. They describe `src/v2/`, not the shipped
-framework, and they are drawn from the code rather than from the prose: the
-module graph is the import gate's allowlist, the chain order is the wrappers'
-declared constraints, and the claim states are what `durableStore` does.
+The whole redesign is one move: **the framework stops being a block that our
+features live inside, and becomes a small kernel that every feature plugs into
+from outside, ours and yours through the same holes.**
 
-`ARCHITECTURE.md` is still the source of truth. Where a picture and that file
-disagree, the file wins and the picture is a bug.
-
-Mermaid renders inline on GitHub. Nothing here needs a toolchain.
+Everything else in this folder is a consequence of that sentence. If the two
+pictures below land, the rest is detail you can take later.
 
 ---
 
-## 1. Modules and the enforced dependency graph
-
-The layering exists so that editors who come and go cannot quietly couple two
-things. Every edge below is permitted by `validation/round-two/boundaries.ts`;
-every edge not drawn is a build failure. The gate is closed over the directory,
-walks dynamic `import()` as well as top-level statements, and refuses a computed
-specifier, so a new file cannot sit outside it.
+## Today
 
 ```mermaid
-graph TD
-    subgraph kernel["kernel: lifecycle and contracts, no business logic"]
-        contracts["contracts.ts<br/><i>types, ports, StepOutcome</i>"]
-        graph_["graph.ts<br/><i>topological sort</i>"]
-        host["host.ts<br/><i>installation, resolution, teardown</i>"]
-        runtime["runtime.ts<br/><i>execution, handlers, continuation</i>"]
+flowchart LR
+    YOU["your plugin"] -. "apply(ctx)" .-> RC
+    subgraph RC["R O U T E C R A F T"]
+        direction TB
+        A["routes · DSL"]
+        B["deferral · resilience · auth"]
+        C["agents · stores · HTTP"]
     end
-    subgraph surface["consumer surface"]
-        dsl["dsl.ts<br/><i>fluent builder, facets, Application</i>"]
-    end
-    subgraph plugins["first-party plugins, replaceable like any other"]
-        operations["operations.ts<br/><i>transform, retry, timeout, breaker</i>"]
-        storage["storage.ts<br/><i>SQLite records, deferral</i>"]
-    end
-    index["index.ts<br/><i>the published entry point</i>"]
-
-    graph_ --> contracts
-    host --> contracts
-    host --> graph_
-    runtime --> contracts
-    runtime --> host
-    dsl --> contracts
-    dsl --> host
-    dsl --> runtime
-    operations --> contracts
-    operations --> dsl
-    storage --> contracts
-    storage --> dsl
-    index --> contracts
-    index --> dsl
-    index --> host
-    index --> runtime
-    index --> operations
-    index --> storage
+    style YOU fill:#f2f2f2,stroke:#999,stroke-dasharray:5 3
+    style RC fill:#f7e4e4,stroke:#a34,stroke-width:2px
 ```
 
-Read the absent edges. `contracts.ts` imports nothing, so a contract can never
-reach an implementation. `host.ts` cannot see `runtime.ts`, so installation does
-not know how an exchange runs. Neither `operations.ts` nor `storage.ts` is
-visible to anything in the kernel, which is the mechanical form of the claim
-that first-party capabilities hold no privilege.
+Our features are **inside**. They do not ask permission and they do not go
+through a door, because there is no door between a thing and itself. Deferral
+reaches the step executor directly. The filter chain order is fixed and owned by
+the framework. Resilience knows where the route lives.
+
+A plugin is **outside**, and gets handed the entire context with one verb,
+`apply`. It can reach whatever it happens to find. What it cannot do is any of
+what our features do, because those paths are private. Even `dependsOn` exists
+on the interface today and is documented as reserved and not enforced.
+
+So the asymmetry is not a matter of degree. It is structural: we are in the
+room and you are at the window.
 
 ---
 
-## 2. What core owns, and what a plugin reaches it through
-
-Core is lifecycle management and contracts. It has no opinion about retries,
-storage, agents or HTTP. A plugin never names another plugin: it names a **port**
-and the host resolves a provider, which is why a stranger can replace a
-first-party provider under its own identity.
+## After
 
 ```mermaid
-graph TB
-    subgraph core["CORE: lifecycle and contracts only"]
-        direction LR
-        lifecycle["Lifecycle<br/>bind → freeze → start → stop"]
-        resolution["Resolution<br/>ports → one provider"]
-        ordering["Ordering<br/>anchors and constraints"]
-        execution["Execution<br/>the six-outcome protocol"]
+flowchart LR
+    subgraph P["every feature is a plugin, all equal"]
+        direction TB
+        A["routes · DSL"]
+        B["deferral · resilience · auth"]
+        C["agents · stores · HTTP"]
+        D["your store · your steps"]
     end
-
-    subgraph contractsbox["CONTRACTS core defines and never implements"]
-        direction LR
-        port["Port&lt;T&gt;<br/><i>RECORDS, SESSIONS,<br/>CONTINUATIONS</i>"]
-        contribution["Contribution<br/><i>Handler | Wrapper</i>"]
-        instr["Step<br/><i>returns StepOutcome</i>"]
-        facet["Facet<br/><i>typed exchange property</i>"]
-    end
-
-    subgraph first["FIRST PARTY (plugins)"]
-        ops["operations"]
-        res["resilience"]
-        defer["deferral"]
-        sql["sqlite"]
-    end
-
-    subgraph third["THIRD PARTY (plugins)"]
-        acme["acme.store<br/><i>replaces CONTINUATIONS</i>"]
-        acmeh["acme.inspect<br/><i>declares a handler point</i>"]
-    end
-
-    core --- contractsbox
-    first -->|"require / provide / contribute"| contractsbox
-    third -->|"the same verbs, no extra privilege"| contractsbox
-
-    style core fill:#1f3a5f,color:#fff
-    style contractsbox fill:#2d4a2b,color:#fff
+    P --> K["K E R N E L<br/>lifecycle + contracts"]
+    style P fill:#e8f2e8,stroke:#4a7a4a,stroke-width:2px
+    style D fill:#fff3cd,stroke:#b8860b,stroke-width:2px
+    style K fill:#1f3a5f,color:#ffffff,stroke:#1f3a5f,stroke-width:2px
 ```
 
-The two lower boxes reach the middle one by identical arrows on purpose. That
-equality is the whole design claim, and it is tested by building a plugin
-against a packed tarball rather than against workspace source.
+The kernel keeps only two jobs: **run the lifecycle** (install, order, start,
+stop) and **define the contracts**. It has no opinion about retries, storage,
+agents or HTTP, and it cannot reach them.
+
+Everything else moves outside, including everything we ship. The two arrows are
+drawn identically because they are identical: our deferral plugin and your
+deferral plugin use the same verbs and get the same access. That is the claim
+the whole spike exists to test, and the test is building a plugin against a
+published tarball rather than against our source.
 
 ---
 
-## 3. Installation: descriptors to a running application
+## The only new thing to learn: four sockets
 
-Everything that can fail names the plugin responsible, and everything that can
-be contributed must be contributed before the chain is composed. `freeze` is the
-line: a contribution arriving from `start()` would silently miss an already
-composed chain, so it is refused instead.
+A plugin does exactly four things. Not forty.
 
 ```mermaid
-flowchart TD
-    A["Plugin descriptors<br/><i>an ordinary array</i>"] --> B{"Validate identity"}
-    B -->|"duplicate id"| X1["DUPLICATE_ID"]
-    B -->|"two tokens, one name"| X2["PORT_IDENTITY"]
-    B -->|"replaces without provides"| X3["INVALID_REPLACEMENT"]
-    B --> C{"Resolve each port"}
-    C -->|"no provider"| X4["UNAVAILABLE_PORT"]
-    C -->|"two undeclared providers"| X5["DUPLICATE_PROVIDER<br/><i>names both</i>"]
-    C -->|"one, or one plus<br/>a declared replacement"| D["Topologically sort<br/>by declared dependency"]
-    D -->|"cycle"| X6["CYCLE<br/><i>owner is every unresolved id,<br/>detail is the edges</i>"]
-    D --> E["bind() each plugin in order<br/><i>require, provide, contribute, observe</i>"]
-    E --> F["FREEZE<br/><i>no contribution after this point</i>"]
-    F --> G["Order contributions<br/>by anchor and constraint"]
-    G --> H["Compile routes<br/><i>wrapper state binds once per route</i>"]
-    H --> I["start() each plugin<br/><i>sources subscribe</i>"]
-    I -->|"any failure"| R["Roll back<br/><i>release what was acquired</i>"]
-    I --> J(["Running"])
-    J --> K["stop() in reverse<br/><i>consumers before providers,<br/>failures aggregated</i>"]
-
-    style F fill:#5f1f1f,color:#fff
-    style J fill:#1f5f2f,color:#fff
+flowchart LR
+    P["a plugin<br/><i>ours or yours</i>"]
+    P --> S1["<b>PORT</b><br/>offer a capability,<br/>or ask for one"]
+    P --> S2["<b>CONTRIBUTION</b><br/>a handler or a wrapper,<br/>placed in the chain"]
+    P --> S3["<b>STEP</b><br/>an instruction<br/>a route can run"]
+    P --> S4["<b>FACET</b><br/>typed data on<br/>the exchange"]
+    style P fill:#d7e8d7,stroke:#4a7a4a,stroke-width:2px
 ```
 
-The same topological sort orders plugins by dependency and contributions by
-constraint. They are the same problem, and solving them once is the evidence
-that core understands dependency rather than capability.
+- **Port.** A named capability, not a named plugin. You ask for "a place to
+  store continuations", not for "our SQLite plugin". That is what lets a
+  stranger replace a first-party provider under their own name.
+- **Contribution.** A handler runs at a point (admission, entry, error, exit)
+  and may refuse or decorate. A wrapper surrounds the route, like retry or
+  timeout. Both say where they sit by naming anchors, not numbers.
+- **Step.** An instruction inside a route. It returns an outcome rather than
+  nothing, which is how a plugin gets to halt, branch or defer instead of only
+  the framework being able to.
+- **Facet.** Typed data your plugin hangs on the exchange, which the route's
+  `.transform((body, ex) => ...)` sees with real types.
 
 ---
 
-## 4. One exchange through a route
+## What that buys, in one table
 
-The step loop is the protocol round one discarded and round five restored. Six
-outcomes, not a `void` return, which is what makes halting, branching and
-deferring expressible by a plugin rather than only by the framework.
-
-```mermaid
-flowchart TD
-    D(["deliver / resume / errorChannel"]) --> ADM{"admission handlers"}
-    ADM -->|"refuse"| REF(["refused"])
-    ADM -->|"allow, decoration composes"| ENT{"entry handlers"}
-    ENT -->|"refuse"| REF
-    ENT --> W
-
-    subgraph W["wrapper chain, ordered by declared anchors"]
-        direction LR
-        BR["breaker"] --> RT["retry"] --> TO["timeout"] --> CC["concurrency"]
-    end
-
-    W --> LOOP{"next step<br/>returns StepOutcome"}
-    LOOP -->|"continue"| LOOP
-    LOOP -->|"complete"| EXIT
-    LOOP -->|"drop"| EXIT
-    LOOP -->|"branch"| NEST["run declared children<br/><i>isolated nested path</i>"]
-    NEST --> LOOP
-    LOOP -->|"fanOut"| FAN["schedule every child<br/><i>siblings pend</i>"]
-    FAN --> LOOP
-    LOOP -->|"defer"| SAVE["persist continuation<br/><i>route, plan hash, pending, exchange</i>"]
-    SAVE --> PARK(["deferred: process may now exit"])
-    LOOP -->|"fault"| ERRH{"error handlers"}
-    ERRH -->|"a handler throws"| SEC["primary error kept,<br/>handler fault recorded as secondary"]
-    SEC --> ERRH
-    ERRH --> EXIT["exit handlers"]
-    EXIT --> DONE(["completed"])
-
-    style PARK fill:#5f4a1f,color:#fff
-    style DONE fill:#1f5f2f,color:#fff
-    style REF fill:#5f1f1f,color:#fff
-```
-
-A handler declares which run kinds it survives, so a policy can apply on first
-delivery and deliberately not re-apply on a resumed continuation. A wrapper does
-the same: the breaker does not re-arm on `resume`, and nothing in the chain runs
-on `errorChannel`.
-
-Two things are worth noticing because they were defects before they were
-features. The chain order is declared, not positional, so a stranger can land
-between `retry` and `timeout` without a core change. And wrapper state binds
-once per compiled route, so a concurrency limit is a property of the route
-rather than of one delivery.
+| | Today | After |
+|---|---|---|
+| Our features | inside, privileged | plugins, like any other |
+| Your features | one verb, reach in and hope | the same four sockets we use |
+| Depending on something | `dependsOn` is declared and ignored | a port, resolved to a provider, enforced |
+| Replacing something of ours | not possible | install yours, declare the replacement |
+| Chain position | framework picks, fixed list | you name an anchor and land in it |
+| A failure at boot | wherever it surfaces | names the plugin responsible |
 
 ---
 
-## 5. A deferred continuation, including the crash path
+## Going deeper
 
-This is the diagram round six changed. A claim is a **second axis** over a record
-that stays `waiting`, never a transition out of it. Round five modelled it as a
-state change that also deleted the waiting index, which meant a process dying
-mid-resume stranded the continuation forever. The shipped framework already
-heals this with a lease, so the spike now does too.
-
-```mermaid
-stateDiagram-v2
-    [*] --> waiting: defer<br/>record + index in ONE transaction
-    state waiting {
-        [*] --> unclaimed
-        unclaimed --> claimed: claim(id, at)<br/>sets claimedAt, CAS
-        claimed --> unclaimed: releaseClaims(before)<br/>lease elapsed
-        claimed --> claimed: second claim REFUSED<br/>while lease is live
-    }
-    waiting --> completed: finish("completed")<br/>clears the index
-    waiting --> failed: finish("failed")<br/>clears the index
-    completed --> [*]
-    failed --> [*]
-
-    note right of waiting
-        The record stays discoverable
-        the whole time it is claimed.
-        That is what lets a sweep find
-        a claim whose holder died.
-    end note
-```
-
-The crash path in sequence, which is what the process test actually executes:
-
-```mermaid
-sequenceDiagram
-    participant P1 as Process 1
-    participant S as Store (SQLite)
-    participant P2 as Process 2
-
-    P1->>S: defer: record + waiting index (one transaction)
-    Note over P1: effects so far: prefix, tool-request
-    P1-xP1: SIGKILL
-    Note over S: record: waiting, unclaimed
-    P2->>S: resume("approval")
-    P2->>S: plan hash check
-    Note over P2: a changed plan is rejected<br/>BEFORE the claim is consumed
-    P2->>S: claim → claimedAt set, still waiting
-    P2->>P2: run the SUFFIX only<br/>prefix is not repeated
-    P2->>S: finish("completed"), index cleared
-    Note over P2: effects now: prefix, tool-request,<br/>tool-result, suffix
-
-    rect rgb(95, 74, 31)
-        Note over P2,S: if Process 2 also dies here,<br/>releaseClaims hands the record back<br/>once the lease elapses
-    end
-```
-
-What this does **not** claim, checked against the shipped framework rather than
-asserted: external effects are at-least-once, not exactly-once; the session and
-deferral stores are not in one distributed transaction; and a timeout cannot
-retract IO from a plugin that ignores cancellation. All three are limits the
-current framework also has and documents.
-
----
-
-## Where to look in the code
-
-| Diagram | Code |
-|---|---|
-| 1 | `validation/round-two/boundaries.ts` is the allowlist, executable |
-| 2 | `src/v2/contracts.ts` for ports and contributions, `Installation` for the verbs |
-| 3 | `src/v2/host.ts` constructor and `start`, `src/v2/graph.ts` |
-| 4 | `src/v2/runtime.ts`, the outcome switch and the handler loop |
-| 5 | `src/v2/storage.ts` `durableStore`, `test/round-two/process.test.ts` |
+Only when you want it. `DIAGRAMS-MECHANISM.md` has five diagrams of how this
+actually runs: the enforced module graph, installation from descriptors to a
+running application, one exchange through a route, and the durable continuation
+including the crash path. Those are drawn from the code and checked against it,
+which is why they look like reality rather than like an idea.
