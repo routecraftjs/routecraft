@@ -68,6 +68,7 @@ writeFileSync(
     files: ["*.js", "*.d.ts"],
   }),
 );
+writeFileSync(join(out, "private.js"), "export const secret = 1;\n");
 await run(
   [process.execPath, "pm", "pack", "--destination", import.meta.dir],
   out,
@@ -128,8 +129,18 @@ try {
   // Boundary negative control is checked against the installed artifact, not aliases.
   writeFileSync(
     join(consumer, "private.ts"),
-    "import '@routecraft/spike-plugin-architecture/src/v2/runtime';\n",
+    "import '@routecraft/spike-plugin-architecture/private.js';\n",
   );
+  if (
+    !readFileSync(
+      join(
+        consumer,
+        "node_modules/@routecraft/spike-plugin-architecture/private.js",
+      ),
+      "utf8",
+    ).includes("secret")
+  )
+    throw Error("negative-control file absent");
   const probe = spawn([process.execPath, "private.ts"], {
     cwd: consumer,
     stdout: "pipe",
