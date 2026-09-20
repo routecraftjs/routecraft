@@ -189,7 +189,11 @@ export const deferral: Plugin<DeferralFamily, typeof facets> = {
   ) {
     return {
       defer: (id: string) =>
-        cursor.step(`defer:${id}`, (ex) => facets.deferral(ex).request(id)),
+        cursor.step(`defer:${id}`, (ex) => ({
+          kind: "defer",
+          exchange: ex,
+          request: { id, reason: "approval" },
+        })),
     };
   },
   bind(ctx: PluginContext) {
