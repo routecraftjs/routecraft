@@ -15,6 +15,7 @@ bun run validation/round-two/uncooperative.ts
 - `mutations.ts`: edits a disposable source copy, requires a behavioral test failure for each mutant, and refuses to count parse/import errors as a successful kill. Run it again after changing either the implementation or assertions.
 - `type-controls.ts`: verifies ordinary strict compiler options, then removes each `@ts-expect-error` individually and requires rejection.
 - `boundaries.ts`: enumerates imports using the TypeScript AST and resolves relative paths against an explicit allowed graph. The allowlist is closed over `src/v2` in both directions, the walk covers dynamic `import()` and `require()` as well as top-level statements, and a computed specifier is refused. This is a gate for the ten implementation modules, not a claim that project references enforce privacy.
+- `diagram.ts`: re-derives the module graph from the AST and compares it to the Mermaid block in `DIAGRAMS.md`. A drawn edge that does not exist and an import that is not drawn both fail, so the picture cannot quietly rot away from the code it claims to show.
 - `uncooperative.ts`: separate limit probe, not an acceptance test. It prints `UNGUARDED_EFFECT_AFTER_TIMEOUT=true`, demonstrating why arbitrary in-process IO cannot be revoked by a framework timeout.
 
 `packed.ts` stages its build, tarball and consumer outside the repository, because a generated artifact inside it is linted by the root flat config, which does not read `.gitignore`.

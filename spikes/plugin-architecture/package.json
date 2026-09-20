@@ -11,8 +11,9 @@
     "verify:mutations": "bun run validation/round-two/mutations.ts",
     "verify:packed": "bun run validation/round-two/packed.ts",
     "verify:boundaries": "bun run validation/round-two/boundaries.ts",
-    "verify": "bun run typecheck && bun run test && bun run verify:mutations && bun run verify:boundaries && bun run verify:types",
-    "verify:types": "bun run validation/round-two/type-controls.ts"
+    "verify": "bun run typecheck && bun run test && bun run verify:mutations && bun run verify:boundaries && bun run verify:types && bun run verify:diagram",
+    "verify:types": "bun run validation/round-two/type-controls.ts",
+    "verify:diagram": "bun run validation/round-two/diagram.ts"
   },
   "exports": "./src/v2/index.ts"
 }
