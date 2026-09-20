@@ -114,12 +114,28 @@ export interface Continuation {
   readonly pending: readonly string[];
   readonly exchange: Exchange;
 }
-/** Semantic persistence boundary, not a generic KV contract in the executor. */
+/**
+ * Semantic persistence boundary, not a generic KV contract in the executor.
+ *
+ * A claim is a second axis over a record that stays `waiting`, never a
+ * transition out of it. A holder that dies mid-resume must leave the
+ * continuation discoverable, so {@link ContinuationStore.releaseClaims}
+ * can hand it back once the lease elapses. Collapsing the claim into a
+ * state change strands the record permanently, which is the failure this
+ * shape exists to prevent.
+ */
 export interface ContinuationStore {
   save(id: string, continuation: Continuation): Promise<void>;
   read(id: string): Promise<Continuation | undefined>;
-  claim(id: string): Promise<Continuation | undefined>;
+  claim(id: string, at?: number): Promise<Continuation | undefined>;
   finish(id: string, state: "completed" | "failed"): Promise<void>;
+  /**
+   * Clear every claim taken at or before `before`, reporting how many were
+   * released. Released records were and remain waiting; what changes is that
+   * they are resumable again. The cost is at-least-once delivery after a
+   * crash, which is the trade the lease is chosen to make.
+   */
+  releaseClaims(before: number): Promise<number>;
 }
 export const CONTINUATIONS = port<ContinuationStore>(
   "execution.continuations@1",

@@ -116,8 +116,10 @@ export function sqlite(
   });
 }
 interface Saved {
-  readonly state: "waiting" | "running" | "completed" | "failed";
+  readonly state: "waiting" | "completed" | "failed";
   readonly continuation: Continuation;
+  /** Epoch millis of the outstanding delivery claim, absent when unclaimed. */
+  readonly claimedAt?: number;
 }
 export function durableStore(records: AtomicStore): ContinuationStore {
   return {
@@ -136,24 +138,46 @@ export function durableStore(records: AtomicStore): ContinuationStore {
       const row = await records.get(`record/${id}`);
       return row ? (row.value as Saved).continuation : undefined;
     },
-    async claim(id) {
+    async claim(id, at = Date.now()) {
       const row = await records.get(`record/${id}`);
-      if (!row || (row.value as Saved).state !== "waiting") return undefined;
+      if (!row) return undefined;
       const saved = row.value as Saved;
+      if (saved.state !== "waiting" || saved.claimedAt !== undefined)
+        return undefined;
       const won = await records.write(
-        [
-          { key: `record/${id}`, value: { ...saved, state: "running" } },
-          { key: `waiting/${id}`, delete: true },
-        ],
+        [{ key: `record/${id}`, value: { ...saved, claimedAt: at } }],
         [{ key: `record/${id}`, version: row.version }],
       );
       return won ? saved.continuation : undefined;
     },
+    async releaseClaims(before) {
+      let released = 0;
+      for (const key of await records.keys("waiting/")) {
+        const id = key.slice("waiting/".length),
+          row = await records.get(`record/${id}`);
+        if (!row) continue;
+        const { claimedAt, ...rest } = row.value as Saved;
+        if (claimedAt === undefined || claimedAt > before) continue;
+        if (
+          await records.write(
+            [{ key: `record/${id}`, value: rest }],
+            [{ key: `record/${id}`, version: row.version }],
+          )
+        )
+          released++;
+      }
+      return released;
+    },
     async finish(id, state) {
       const row = await records.get(`record/${id}`);
       if (!row) throw new Fault("routecraft.deferral", "MISSING_RECORD", id);
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructure to omit the claim
+      const { claimedAt: _claimed, ...rest } = row.value as Saved;
       const won = await records.write(
-        [{ key: `record/${id}`, value: { ...(row.value as Saved), state } }],
+        [
+          { key: `record/${id}`, value: { ...rest, state } },
+          { key: `waiting/${id}`, delete: true },
+        ],
         [{ key: `record/${id}`, version: row.version }],
       );
       if (!won) throw new Fault("routecraft.deferral", "FINISH_CONFLICT", id);

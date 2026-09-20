@@ -183,6 +183,41 @@ const mutants: [string, string, string, string, string][] = [
     "ex=outcome.exchange;break;",
     "continue, complete, drop",
   ],
+  [
+    "tag selector ignored",
+    "runtime.ts",
+    "(h.selector?.tag && !route.spec.tags.includes(h.selector.tag))",
+    "false",
+    "tag selector excludes",
+  ],
+  [
+    "handler survival ignored",
+    "runtime.ts",
+    "!h.survival[kind] ||",
+    "false ||",
+    "declining resume",
+  ],
+  [
+    "claim is a state transition that strands its record",
+    "storage.ts",
+    "value: { ...saved, claimedAt: at } }]",
+    'value: { ...saved, state: "completed" } }, { key: `waiting/${id}`, delete: true }]',
+    "claimed by a process that dies",
+  ],
+  [
+    "claim exclusivity removed",
+    "storage.ts",
+    'saved.state !== "waiting" || saved.claimedAt !== undefined',
+    'saved.state !== "waiting"',
+    "claimed by a process that dies",
+  ],
+  [
+    "releaseClaims ignores the lease deadline",
+    "storage.ts",
+    "if (claimedAt === undefined || claimedAt > before) continue;",
+    "if (claimedAt === undefined) continue;",
+    "releaseClaims honours the lease",
+  ],
 ];
 try {
   for (const path of ["src/v2", "test/round-two"]) {
