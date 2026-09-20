@@ -1,6 +1,6 @@
 # Round five: rebuilt plugin architecture proof of concept
 
-**Base:** `5dac4d97`. **Measured implementation:** `21faace01c7f6a93757d281d74413b7b821580d3`.
+**Base:** `5dac4d97`. **Measured implementation:** `045c034d1854bda8c0bd6aa7d90c72c4ecf5ef50`.
 **Branch:** `spike/astra-round-five`. No production package was changed. No pull request was opened.
 
 The active implementation is `spikes/plugin-architecture/src/v2/index.ts`. The earlier implementation remains historical material. Its eight test files were renamed `*.historical.ts`; they remain typechecked but do not inflate the acceptance count with passing assertions of defects. Both original encoding-E experiments remain available.
@@ -33,11 +33,11 @@ bun run validation/round-two/tie-replacement.ts
 `verify` runs strict typechecking, acceptance tests including an independently installed packed artifact, runtime mutations, the import gate, and compiler negative controls. The measured output is checked in at `validation/round-two/verification.txt`, beginning with the measured commit. Demo and limit-probe outputs are beside it.
 
 ```text
-30 pass
+32 pass
 0 fail
-129 expect() calls
+137 expect() calls
 22/22 runtime mutations killed by behavioral assertions
-9/9 compiler negative controls detected; ordinary strict options also pass baseline
+10/10 compiler negative controls detected; ordinary strict options also pass baseline
 BOUNDARIES: 7 modules, 12 permitted import edges, no private/legacy imports
 ```
 
@@ -123,6 +123,8 @@ The deferred instruction is nested and re-entrant. Re-entering that instruction 
 
 **Shutdown ownership outlives a timeout.** Reporting timeout and disposing a resource still used by abandoned work are separate decisions. The runtime suppresses the result but retains ownership until settlement. A plugin that ignores cancellation forever can therefore prevent graceful shutdown forever. Solving forced termination requires a worker/process boundary or an explicit forced-shutdown policy; it cannot be repaired by another `Promise.race`.
 
+**Service binding is application-scoped, including inside steps and lazy facets.** A shared plugin descriptor cannot store the most recently bound service in a closure and remain correct across contexts. Steps now have declaration-scoped service lookup, and facet factories receive a scoped lookup for their own application. One descriptor is tested against two simultaneously live providers; each step and facet observes the right value, and undeclared access is refused.
+
 **Storage stays semantic above atomicity.** Deferral owns waiting/running/completed transitions and index maintenance once. The generic backend supports asynchronous implementations; it is not accidentally limited to SQLite's synchronous API. The spike intentionally does not specify a production scan/cursor/migration algebra.
 
 ## Outstanding rulings: assumptions actually made
@@ -151,10 +153,11 @@ A framework can reject a late outcome, fence a supported commit operation and ca
 
 ### 2. “The DSL question is settled” only settles the existence result
 
-Two integration defects were caught and fixed during this build:
+Three integration defects were caught and fixed during this build:
 
 - Projecting facets through the broad array index of the HKT's constrained plugin tuple advertised a string index. One compiler option masked that problem. The packed consumer using ordinary strict settings exposed it. Projection now uses literal tuple keys.
 - The fluent step helper accepted an untyped outcome while preserving the old body type. A number-returning step followed by a string-only callback compiled. `StepOutcome<B>` and the helper's checked callback now reject that program.
+- Retry methods initially lived on the operations descriptor while the route wrappers lived on resilience. Declining resilience could therefore leave an executable-looking route retry with no wrapper. Retry/timeout methods now belong to the same resilience descriptor as their runtime contributions. The compiler rejects retry when resilience is declined, and a context containing resilience without operations executes retry correctly.
 
 These do not revive the fluent-versus-sound dichotomy. They refute the stronger interpretation that choosing encoding E proves an integrated compiler sound. P4's wording should distinguish checked installation/method availability from arbitrary behavioral agreement between types and runtime.
 

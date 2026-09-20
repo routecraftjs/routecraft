@@ -1,6 +1,6 @@
 $ bun run src/v2/demo.ts
 park {"status":"deferred","exchanges":[],"deferrals":["approve"]} effects [ "before" ]
-resume {"status":"completed","exchanges":[{"id":"89db32b6-f9e7-48d2-a99a-ee07716c5bba","routeId":"approval-demo","body":"hello world","headers":{},"principal":{"subject":"anonymous","grants":[],"lent":[]}}],"deferrals":[]} effects [
+resume {"status":"completed","exchanges":[{"id":"07a01775-999a-4e68-8245-5faac101f4f5","routeId":"approval-demo","body":"hello world","headers":{},"principal":{"subject":"anonymous","grants":[],"lent":[]}}],"deferrals":[]} effects [
   "before", "after"
 ]
 plan {
