@@ -172,6 +172,9 @@ facets and providers, the documentation that explains those five concepts is
 part of the release rather than a follow-up: an extension point nobody can find
 is not an extension point. That work belongs in the round-8 plan with its own
 tickets, and the concepts it has to explain are the ones drawn in `DIAGRAMS.md`.
+`DOCS-ARCHITECTURE-DRAFT.md` is a first cut of that public page, written in the
+docs site's own vocabulary, so the concepts can be judged for explainability
+before they are committed to.
 
 Existing guarantees must survive. New guarantees for distributed durability,
 exactly-once external effects, arbitrary uncooperative cancellation or sandboxing
