@@ -52,6 +52,9 @@ asymmetry is the most useful thing in this document.
   packed consumer. Round six reproduced all of these, then raised the suite to
   36 tests and 27 mutants and widened the import gate to 10 modules. Its report
   is `reviews/OPUS-ROUND-SIX.md`.
+- **Diagrams:** `DIAGRAMS.md`. Five Mermaid views of the modules, the plugin
+  model, installation, execution and durable continuation, checked against the
+  source by `bun run verify:diagram`.
 - **Historical round-one evidence:** 63 passing tests included defect
   characterizations. Historical test files remain available but are excluded
   from the new default acceptance run. Counts from different rounds are not
@@ -136,20 +139,38 @@ import checks and lint failures, with review protection for the enforcement
 configuration itself. The spike's static-import gate is evidence for its tested
 modules, not proof of every production dependency boundary.
 
-### Release decision
+### Release decision: 0.7 ships without this, 0.8 carries it
 
-**Target 0.7 conditionally.** There is not yet a production feature inventory or
-migration estimate sufficient to promise that release. Use the first production
-migration as a decision gate: if it preserves the DSL and behavior, stays within
-the intended boundaries, and the feature ledger supports reuse of those
-contracts, continue toward 0.7. If it requires broad executor changes or consumer
-compromises, reassess before migrating everything.
+**Decided by Jaco, 2026-09-20.** This supersedes the conditional framing that
+stood here before.
 
-Do not pre-commit 0.7 and 0.8 to featureless restructuring, or hold 0.7 indefinitely
-for the slogan that everything must be a plugin. If a split is necessary, choose
-a coherent supported boundary: completed migrations, maintained compatibility
-for the remainder and one documented consumer path. Jaco retains the release
-and production-plan decisions.
+- **0.7 is cut from current work**, shortly after the pull request that started
+  this project merges, plus possibly one or two documentation tickets. It does
+  not wait for any part of this redesign, and nothing in this document is a
+  reason to delay it.
+- **0.8 is the redesign release.** The migration, the contracts and the
+  documentation overhaul land there.
+
+This is a better shape than what it replaces. The earlier wording worried about
+pre-committing two releases to featureless restructuring; only one is committed,
+and 0.7 stops being a hostage to work that has not been planned yet. The
+decision gate survives inside 0.8 rather than across the two: the first
+production migration still decides whether the remaining capabilities follow the
+same contracts or the plan is reassessed.
+
+One risk is worth naming and is small. Naming 0.8 fixes a release boundary
+before the feature ledger exists, so if the ledger turns out larger than the
+spike suggests, either 0.8 grows or part of the migration slips to 0.9. Under
+the v0 policy, where the whole public API is unstable, the cost of that is a
+version number rather than a compatibility promise, so the pre-commitment is
+cheap. The ledger from rounds 7a and 7b is what turns it into an estimate.
+
+**0.8 needs public extensibility documentation written alongside the code, not
+after it.** If third parties can now contribute handlers, wrappers, steps,
+facets and providers, the documentation that explains those five concepts is
+part of the release rather than a follow-up: an extension point nobody can find
+is not an extension point. That work belongs in the round-8 plan with its own
+tickets, and the concepts it has to explain are the ones drawn in `DIAGRAMS.md`.
 
 Existing guarantees must survive. New guarantees for distributed durability,
 exactly-once external effects, arbitrary uncooperative cancellation or sandboxing
