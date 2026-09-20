@@ -1,0 +1,83 @@
+21faace01c7f6a93757d281d74413b7b821580d3
+$ bun run typecheck && bun run test && bun run verify:mutations && bun run verify:boundaries && bun run verify:types
+$ tsc --noEmit
+$ bun test test/round-two
+bun test v1.4.2 (744846f84)
+
+test/round-two/process.test.ts:
+(pass) defer → SIGKILL → new process → resume named nested instruction across two stores [121.81ms]
+(pass) SIGKILL between record and index statements rolls back both [36.04ms]
+(pass) CAS under overlapping processes sharing the same observed version [43.07ms]
+
+test/round-two/packed.test.ts:
+(pass) independently compiled plugin consumes only the packed artifact [1695.08ms]
+
+test/round-two/contracts.test.ts:
+(pass) continue, complete, drop, public branch, fanOut and takePending schedule exact suffixes [2.48ms]
+(pass) source really emits and shutdown unsubscribes [0.62ms]
+(pass) replacement under own identity, duplicate refusal, undeclared access and unique tokens [0.79ms]
+(pass) rollback and teardown aggregate with consumers stopped before providers close [0.42ms]
+(pass) observers cannot abort execution; subscriptions are snapshotted [6.12ms]
+(pass) descriptor mutation cannot bypass freeze and collisions name both owners [0.41ms]
+(pass) four handlers use selectors, deterministic order, compositional decoration and refusal [0.72ms]
+(pass) a failing error handler cannot replace primary or skip subsequent handlers [0.51ms]
+(pass) timeout cancels, suppresses late result and rejects a late guarded side effect [12.15ms]
+(pass) concurrency and breaker state persist per route [12.19ms]
+(pass) drain owns streaming response after the step returns [6.15ms]
+(pass) debounce and errorChannel execute the captured suffix with explicit survival [0.55ms]
+(pass) installed DSL executes all four categories and two retry scopes in one route [5.05ms]
+(pass) anchors survive replacement and missing optional contracts are reported [0.69ms]
+(pass) atomic store deletes, copies values, rolls back throwing writes and rejects stale ABA versions [0.56ms]
+(pass) caller cancellation rejects before released work and suppresses outcome [5.99ms]
+(pass) runPaths isolates failures while fan-out schedules all children [0.75ms]
+(pass) resume rechecks admission without consuming a refused claim [1.49ms]
+(pass) boot failure taxonomy and foreign instruction faults name responsible plugins [0.72ms]
+(pass) a stranger owns the disabled reason it sets [0.42ms]
+(pass) an asynchronous provider supports concurrent semantic resume [35.92ms]
+(pass) start hooks see sources ready; concurrent stop awaits hooks [6.14ms]
+(pass) a plugin can enter the error channel through its public lifecycle context [0.78ms]
+(pass) different installed sets coexist in two live contexts [0.99ms]
+(pass) step timeout drains abandoned work before disposing its provider [8.55ms]
+(pass) a source can register cleanup before subscription acquisition fails [0.34ms]
+
+ 30 pass
+ 0 fail
+ 129 expect() calls
+Ran 30 tests across 3 files. [2.03s]
+$ bun run validation/round-two/mutations.ts
+KILLED: duplicate provider accepted
+KILLED: installation order breaks ties
+KILLED: concurrency reset per delivery
+KILLED: breaker reset per delivery
+KILLED: changed plan accepted
+KILLED: fanout drops second child
+KILLED: handler decoration discarded
+KILLED: resume repeats prefix
+KILLED: defer fails to halt
+KILLED: reentrant instruction skipped
+KILLED: CAS condition ignored
+KILLED: transaction removed
+KILLED: delete is a read
+KILLED: dependencies disposed first
+KILLED: remaining cleanup skipped
+KILLED: observer failure escapes
+KILLED: secondary error replaces primary
+KILLED: cancelled effect fence removed
+KILLED: resume admission skipped
+KILLED: source never subscribed
+KILLED: stream completion reported early
+KILLED: complete does not halt
+22/22 runtime mutations killed by behavioral assertions
+$ bun run validation/round-two/boundaries.ts
+BOUNDARIES: 7 modules, 12 permitted import edges, no private/legacy imports
+$ bun run validation/round-two/type-controls.ts
+TYPE REJECTED: headers are explicit, not an ambient global bag
+TYPE REJECTED: pipeline operation requires after-from receiver
+TYPE REJECTED: route-only operation requires before-from receiver
+TYPE REJECTED: omitted plugin removes method
+TYPE REJECTED: omitted plugin removes facet
+TYPE REJECTED: installed family must return its implementation
+TYPE REJECTED: pair is merely possible, not installed with certainty
+TYPE REJECTED: dynamic lists have no statically known DSL
+TYPE REJECTED: a body-preserving step cannot return an incompatible body
+9/9 compiler negative controls detected; ordinary strict options also pass baseline
