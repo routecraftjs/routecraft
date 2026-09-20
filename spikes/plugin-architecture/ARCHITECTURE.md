@@ -6,10 +6,10 @@ Everything else in this folder is either input to
 this document or code that tests it. Where a published artifact and this file
 disagree, this file wins: the artifact is a rendering of it.
 
-**Status: round-five POC rebuilt; production migration not yet approved.**
-The direction is supported, subject to round-six execution review, Jaco's
-hands-on review, feature-fit checks and an accepted implementation plan.
-POC implementation is not production implementation approval.
+**Status: round-six execution review complete; production migration not yet
+approved.** The direction is supported, subject to Jaco's hands-on review,
+feature-fit checks and an accepted implementation plan. POC implementation is
+not production implementation approval.
 
 **Post-round-five update (2026-09-20).** This update incorporates Jaco's
 clarification about plugin-author responsibility and mechanically enforced
@@ -49,7 +49,9 @@ asymmetry is the most useful thing in this document.
   `validation/round-two/`, and `reviews/ASTRA-ROUND-FIVE.md`, on
   `spike/astra-round-five`. Reported evidence: 32 tests, 22 behavioral mutants
   killed, 10 compiler negative controls, strict typecheck, and a separately
-  packed consumer. Round six must independently reproduce these results.
+  packed consumer. Round six reproduced all of these, then raised the suite to
+  36 tests and 27 mutants and widened the import gate to 10 modules. Its report
+  is `reviews/OPUS-ROUND-SIX.md`.
 - **Historical round-one evidence:** 63 passing tests included defect
   characterizations. Historical test files remain available but are excluded
   from the new default acceptance run. Counts from different rounds are not
@@ -71,7 +73,7 @@ not see.
 | 3 | Clean-room validation | ChatGPT Astra | ✅ Done. 20 POC defects, `StepOutcome` finding, 5 alternatives. |
 | 4 | Consolidation | Claude Opus 5 (this session) | ✅ This document. |
 | 5 | POC round two | ChatGPT Astra | Built on `spike/astra-round-five`; report and executable evidence checked in. Awaiting independent verification. |
-| 6 | Review of round 5 | Claude Opus 5 (this session) | Verify by execution, not by reading. |
+| 6 | Review of round 5 | Claude Opus 5 (this session) | ✅ Done. All round-five numbers reproduced; 4 defects found by mutation and fixed; one stated limit reclassified as a regression. |
 | 7a | Feature fit, clean room | Claude Opus 5, fresh session | Walk the real framework feature by feature: what fits the model, what does not. |
 | 7b | Feature fit, clean room | ChatGPT Astra | Same brief, independently, from its own round-3 work plus round 6. |
 | 8 | Implementation planning | Fable 5.1 | Given everything: decide sequencing, pull-request shape, and whether to fan out to sub-agents. **Fable decides how, not whether.** |
@@ -529,6 +531,58 @@ The acceptance bullets below are retained as the round-five review checklist.
 The report records each result and qualification; unmarked boxes are not a new
 claim that nothing was implemented. In particular, the timeout bullet cannot
 honestly promise suppression of arbitrary unguarded external IO.
+
+---
+
+### Post-round-six: independent execution review
+
+Measured on `3b69bfda` (round five) and `HEAD` (this round). Every round-five
+number reproduced exactly: 32 tests, 22 mutants killed, 10 compiler negative
+controls, strict typecheck, the import gate, and the packed consumer. The
+mutation harness was itself checked before its results were accepted: a
+deliberately unparseable mutant is reported as `SURVIVED or invalid`, never as
+a kill, so its counts mean what they say.
+
+Four defects were found by mutation and fixed here. Three were untested
+mechanisms; one is a contract gap against a guarantee the shipped framework
+already makes.
+
+| Defect | Evidence it was real | Status |
+|---|---|---|
+| **A claimed continuation whose holder dies is stranded forever.** `claim()` moved the record out of `waiting` and deleted its waiting index, so no later process could find or re-claim it | A probe that claims, closes the connection and reopens finds an empty waiting index and a permanently unclaimable record | **Fixed.** Claim is now a second axis (`claimedAt`) over a record that stays `waiting`, plus `releaseClaims(before)`. Three mutants guard it |
+| **Handler survival was never exercised.** Every contribution in all 32 tests used `allRuns`, so `!h.survival[kind]` could be deleted with the full suite still green | Deleting the check passed 32/32 | **Fixed.** A handler declining `resume` is now asserted absent from the resumed continuation. Wrapper survival was already load-bearing; two mutants confirmed it |
+| **Tag selectors were never exercised.** The test helper hardcoded `tags: ["protected"]`, so every route carried the tag and the branch could be deleted | Deleting the check passed 32/32 | **Fixed.** A route without the tag is now asserted unselected |
+| **The import gate was evadable three ways**: a new file in `src/v2` was simply not in the allowlist, a dynamic `import()` inside a function body was never inspected, and a non-literal specifier was invisible | Each probe passed the round-five gate unchanged | **Fixed.** The allowlist is closed over the directory, the walk covers every node, and a computed specifier is refused. Coverage went from 7 modules and 12 edges to 10 and 21 |
+
+**The stranded-claim defect is the one that changes a conclusion.** Round five
+classified "recovery after a crash during an already-claimed resume" as a
+stated scope limit. It is not: `DeferralStore.releaseClaims` is part of the
+shipped contract today, `sweeper.ts` runs it on a lease that defaults to sixty
+minutes, and `types.ts` documents the claim as a second axis precisely so
+"a claim whose holder died is released ... so the next sweep redelivers".
+The accepted cost is named there too: "one duplicate escalation after the lease
+elapses, which is the accepted at-least-once trade". A design that cannot
+express this is not descoping a future feature, it is dropping a current one.
+
+The other three stated limits hold, checked the same way:
+
+- **Exactly-once external effects.** The framework explicitly does not promise
+  it. `revive.ts` calls notification "at-least-once by design". Legitimate limit.
+- **Suppressing uncooperative IO on timeout.** `timeout-wrapper.ts` states that
+  "side effects of the abandoned run still happen". The spike reproduces shipped
+  behaviour, and the uncooperative probe is an honest demonstration rather than
+  a gap. Legitimate limit.
+- **One distributed transaction across the session and deferral stores.** The
+  framework does not have one either; `@routecraft/ai` instead makes the agent
+  thread idempotent per sequence number. Legitimate limit, but that replay
+  discipline is a feature-fit item, not something the current spike models.
+
+**What round six did not reopen.** The execution protocol, installation model,
+ordering, encoding E, and the DSL are unchanged. The restart proof is genuine:
+separate PIDs, `SIGKILL`, physically separate databases, an append-only effect
+log, and a prefix written only by the first process. The packed consumer is
+genuine: a real tarball installed from `file:` into a fresh directory, with only
+type support copied and the private subpath refused by the exports map.
 
 ## 8. Acceptance criteria for the round-two POC
 

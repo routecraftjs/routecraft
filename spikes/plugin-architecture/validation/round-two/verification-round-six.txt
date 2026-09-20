@@ -1,0 +1,60 @@
+Round-six verification. Measured on: 3b69bfda4bd1ac8901299061070805c23b99b806 (pre-commit working tree)
+Base reviewed: 3b69bfda4bd1ac8901299061070805c23b99b806
+Bun 1.3.11
+
+$ bun run typecheck && bun run test && bun run verify:mutations && bun run verify:boundaries && bun run verify:types
+$ tsc --noEmit
+$ bun test test/round-two
+bun test v1.3.11 (af24e281)
+
+ 36 pass
+ 0 fail
+ 154 expect() calls
+Ran 36 tests across 4 files. [3.61s]
+$ bun run validation/round-two/mutations.ts
+KILLED: duplicate provider accepted
+KILLED: installation order breaks ties
+KILLED: concurrency reset per delivery
+KILLED: breaker reset per delivery
+KILLED: changed plan accepted
+KILLED: fanout drops second child
+KILLED: handler decoration discarded
+KILLED: resume repeats prefix
+KILLED: defer fails to halt
+KILLED: reentrant instruction skipped
+KILLED: CAS condition ignored
+KILLED: transaction removed
+KILLED: delete is a read
+KILLED: dependencies disposed first
+KILLED: remaining cleanup skipped
+KILLED: observer failure escapes
+KILLED: secondary error replaces primary
+KILLED: cancelled effect fence removed
+KILLED: resume admission skipped
+KILLED: source never subscribed
+KILLED: stream completion reported early
+KILLED: complete does not halt
+KILLED: tag selector ignored
+KILLED: handler survival ignored
+KILLED: claim is a state transition that strands its record
+KILLED: claim exclusivity removed
+KILLED: releaseClaims ignores the lease deadline
+27/27 runtime mutations killed by behavioral assertions
+$ bun run validation/round-two/boundaries.ts
+BOUNDARIES: 10 modules (all declared), 21 permitted import edges (0 dynamic), no private/legacy imports
+$ bun run validation/round-two/type-controls.ts
+TYPE REJECTED: headers are explicit, not an ambient global bag
+TYPE REJECTED: pipeline operation requires after-from receiver
+TYPE REJECTED: route-only operation requires before-from receiver
+TYPE REJECTED: omitted plugin removes method
+TYPE REJECTED: omitted plugin removes facet
+TYPE REJECTED: installed family must return its implementation
+TYPE REJECTED: pair is merely possible, not installed with certainty
+TYPE REJECTED: dynamic lists have no statically known DSL
+TYPE REJECTED: a body-preserving step cannot return an incompatible body
+TYPE REJECTED: declining resilience removes its route and step retry method
+10/10 compiler negative controls detected; ordinary strict options also pass baseline
+
+$ bun run validation/round-two/packed.ts
+PACKED: external branching DSL, open handler, source, facets, replacement, actual resume PASS
+PACKED: private package subpath refused PASS
