@@ -1,6 +1,8 @@
 # Routecraft plugin architecture
 
-**Single source of truth.** Everything else in this folder is either input to
+**Single source of truth.** Rendered artifact: https://claude.ai/artifact/QURVh6GhDVSREgCuzP1spb
+
+Everything else in this folder is either input to
 this document or code that tests it. Where a published artifact and this file
 disagree, this file wins: the artifact is a rendering of it.
 
