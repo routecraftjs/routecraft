@@ -58,10 +58,10 @@ export interface AgentDeferSignalRecord {
 }
 
 /**
- * The tool result the bridge records for a call that deferred. The model
- * only ever sees it after a resume, and only for a losing sibling (the
- * winner's placeholder is replaced by the real answer before the loop
- * continues), so it reads as a state description, not an instruction.
+ * The token-free result the bridge records for a deferred call. An agent's
+ * own winning deferral is replaced by its answer on resume. A downstream
+ * route's park leaves this placeholder in the calling agent's thread:
+ * that route owns the pending work, and the calling turn may continue.
  *
  * @internal
  */

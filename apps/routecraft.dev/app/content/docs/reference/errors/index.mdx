@@ -464,6 +464,8 @@ Agent deferral unavailable on this surface
 **Suggestion**  
 Dispatch the agent through a route: its exchange is then route-bound, the hosting `.to()` / `.enrich()` step carries a revivable defer site, and `ctx.defer()` defers. If this surface genuinely cannot defer (an MCP proxy guard), drop the deferral from the handler; a guard's job is admission, not waiting.
 
+A [background tool](/docs/reference/plugins/agentplugin#background-tools) also reports this code when its downstream route returns a `Deferred` acknowledgment. In that case the downstream record already exists and stays pending; only background result delivery fails. Resolve the existing action through the application's approval flow instead of retrying it. The receipt's bearer token is withheld from the model and session inbox.
+
 ## AI1007
 Agent deferral state invalid at rehydration
 
