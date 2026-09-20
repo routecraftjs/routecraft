@@ -11,12 +11,17 @@ import ts from "typescript";
 import { readFileSync, readdirSync } from "node:fs";
 import { resolve, basename } from "node:path";
 const src = resolve(import.meta.dir, "../../src/v2"),
-  doc = resolve(import.meta.dir, "../../DIAGRAMS.md");
+  doc = resolve(import.meta.dir, "../../DIAGRAMS-MECHANISM.md");
 
-const block = /```mermaid\n(graph TD[\s\S]*?)```/.exec(
+// Keyed on the marker, not on block order, so adding a diagram above it
+// cannot silently point this check at the wrong picture.
+const block = /```mermaid\n%% module-graph\n([\s\S]*?)```/.exec(
   readFileSync(doc, "utf8"),
 );
-if (!block) throw Error("DIAGRAMS.md: the module graph block is missing");
+if (!block)
+  throw Error(
+    "DIAGRAMS-MECHANISM.md: no mermaid block marked `%% module-graph`",
+  );
 const mermaid = block[1];
 
 const label = new Map<string, string>();
@@ -29,7 +34,9 @@ for (const [, from, to] of mermaid.matchAll(/^\s*(\w+)\s*-->\s*(\w+)\s*$/gm)) {
   const a = label.get(from),
     b = label.get(to);
   if (!a || !b)
-    throw Error(`DIAGRAMS.md: edge ${from} --> ${to} names an unlabelled node`);
+    throw Error(
+      `DIAGRAMS-MECHANISM.md: edge ${from} --> ${to} names an unlabelled node`,
+    );
   drawn.add(`${a} -> ${b}`);
 }
 
@@ -74,7 +81,7 @@ for (const e of missing) console.error(`UNDRAWN import: ${e}`);
 for (const e of invented) console.error(`DRAWN but absent: ${e}`);
 if (missing.length || invented.length)
   throw Error(
-    `DIAGRAMS.md module graph disagrees with src/v2 (${missing.length} undrawn, ${invented.length} invented)`,
+    `DIAGRAMS-MECHANISM.md module graph disagrees with src/v2 (${missing.length} undrawn, ${invented.length} invented)`,
   );
 console.log(
   `DIAGRAM: module graph matches src/v2 (${drawn.size} edges, ${omitted.size} example modules omitted by design)`,

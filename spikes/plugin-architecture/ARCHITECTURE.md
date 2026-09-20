@@ -52,9 +52,10 @@ asymmetry is the most useful thing in this document.
   packed consumer. Round six reproduced all of these, then raised the suite to
   36 tests and 27 mutants and widened the import gate to 10 modules. Its report
   is `reviews/OPUS-ROUND-SIX.md`.
-- **Diagrams:** `DIAGRAMS.md`. Five Mermaid views of the modules, the plugin
-  model, installation, execution and durable continuation, checked against the
-  source by `bun run verify:diagram`.
+- **Diagrams:** `DIAGRAMS.md` is the overview: what changes, in two pictures,
+  plus the four things a plugin can do. `DIAGRAMS-MECHANISM.md` is one level
+  down, and its module graph is checked against the source by
+  `bun run verify:diagram`.
 - **Historical round-one evidence:** 63 passing tests included defect
   characterizations. Historical test files remain available but are excluded
   from the new default acceptance run. Counts from different rounds are not
