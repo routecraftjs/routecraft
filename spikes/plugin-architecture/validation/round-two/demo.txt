@@ -1,0 +1,82 @@
+$ bun run src/v2/demo.ts
+park {"status":"deferred","exchanges":[],"deferrals":["approve"]} effects [ "before" ]
+resume {"status":"completed","exchanges":[{"id":"89db32b6-f9e7-48d2-a99a-ee07716c5bba","routeId":"approval-demo","body":"hello world","headers":{},"principal":{"subject":"anonymous","grants":[],"lent":[]}}],"deferrals":[]} effects [
+  "before", "after"
+]
+plan {
+  "phase": "running",
+  "order": [
+    "acme.sqlite",
+    "routecraft.deferral",
+    "routecraft.operations",
+    "routecraft.resilience"
+  ],
+  "providers": [
+    {
+      "port": "resilience@1",
+      "plugin": "routecraft.resilience",
+      "replacement": false
+    },
+    {
+      "port": "execution.continuations@1",
+      "plugin": "routecraft.deferral",
+      "replacement": false
+    },
+    {
+      "port": "records.atomic@1",
+      "plugin": "acme.sqlite",
+      "replacement": true
+    }
+  ],
+  "contributions": [
+    {
+      "id": "breaker",
+      "owner": "routecraft.resilience",
+      "kind": "wrapper"
+    },
+    {
+      "id": "retry",
+      "owner": "routecraft.resilience",
+      "kind": "wrapper"
+    },
+    {
+      "id": "timeout",
+      "owner": "routecraft.resilience",
+      "kind": "wrapper"
+    },
+    {
+      "id": "concurrency",
+      "owner": "routecraft.resilience",
+      "kind": "wrapper"
+    }
+  ],
+  "unmatched": [],
+  "routes": [
+    {
+      "id": "approval-demo",
+      "hash": "996edd0f979ccd3db422e391620dc5ff0e4d6864e0a958c0f7cd2a3aadee9511",
+      "instructions": [
+        {
+          "id": "routecraft.operations:transform:0",
+          "owner": "routecraft.operations",
+          "version": "1"
+        },
+        {
+          "id": "defer:approve",
+          "owner": "routecraft.deferral",
+          "version": "1"
+        },
+        {
+          "id": "routecraft.operations:transform:2",
+          "owner": "routecraft.operations",
+          "version": "1"
+        }
+      ],
+      "status": {
+        "state": "enabled",
+        "owner": "application",
+        "reason": "compiled"
+      }
+    }
+  ]
+}
