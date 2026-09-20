@@ -1,3 +1,8 @@
+> **SUPERSEDED.** The live document is `spikes/plugin-architecture/ARCHITECTURE.md`,
+> which consolidates this file with two independent validations. More than twenty
+> figures in this file were refuted and its central technical conclusion was
+> overturned. Kept for the audit trail; do not build from it.
+
 # Spike: plugin architecture
 
 Throwaway. Depends on nothing in `packages/`, ships nothing, and exists to
