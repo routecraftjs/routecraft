@@ -84,3 +84,6 @@ preserved.step(
   // @ts-expect-error a body-preserving step cannot return an incompatible body
   (ex) => ({ kind: "continue", exchange: { ...ex, body: 42 } }),
 );
+
+// @ts-expect-error declining resilience removes its route and step retry method
+lean.route("no-retry").retry(2);
