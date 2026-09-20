@@ -121,10 +121,14 @@ export interface ContinuationStore {
 export const CONTINUATIONS = port<ContinuationStore>(
   "execution.continuations@1",
 );
+export interface Acquisition {
+  onDispose(dispose: () => void | Promise<void>): void;
+}
 export interface Source<B = unknown> {
   readonly owner: string;
   subscribe(
     emit: (body: B, principal?: Principal) => Promise<RunResult>,
+    acquisition: Acquisition,
   ): Promise<() => void | Promise<void>>;
 }
 export interface RouteSpec {

@@ -166,8 +166,12 @@ export class Runtime {
         if (route.spec.source) {
           const source = route.spec.source;
           try {
-            const stop = await source.subscribe((body, principal) =>
-              this.deliver(route.spec.id, body, principal),
+            const stop = await source.subscribe(
+              (body, principal) => this.deliver(route.spec.id, body, principal),
+              {
+                onDispose: (stop) =>
+                  this.#unsubscribes.push({ owner: source.owner, stop }),
+              },
             );
             this.#unsubscribes.push({ owner: source.owner, stop });
           } catch (e) {

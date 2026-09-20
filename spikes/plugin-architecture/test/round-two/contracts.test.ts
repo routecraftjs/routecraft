@@ -1242,3 +1242,36 @@ test("step timeout drains abandoned work before disposing its provider", async (
   await stopping;
   expect([effect, closed]).toEqual([false, true]);
 });
+/**
+ * @case partial source acquisition
+ * @preconditions Subscribe acquires a resource, registers cleanup, then throws before returning an unsubscribe.
+ * @expectedResult Source cleanup runs before its plugin dependencies are disposed.
+ */
+test("a source can register cleanup before subscription acquisition fails", async () => {
+  const log: string[] = [];
+  const app = application([
+    infrastructure({
+      id: "worker",
+      stop() {
+        log.push("plugin stopped");
+      },
+    }),
+  ]);
+  await expect(
+    app.start([
+      {
+        ...route([]),
+        source: {
+          owner: "worker",
+          async subscribe(_emit, scope) {
+            scope.onDispose(() => {
+              log.push("source closed");
+            });
+            throw Error("listen failed");
+          },
+        },
+      },
+    ]),
+  ).rejects.toThrow("[worker] SOURCE_START");
+  expect(log).toEqual(["source closed", "plugin stopped"]);
+});
