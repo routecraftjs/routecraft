@@ -1,4 +1,4 @@
-# Round-five evidence
+# Round-five and round-six evidence
 
 Run from `spikes/plugin-architecture`:
 
@@ -14,7 +14,9 @@ bun run validation/round-two/uncooperative.ts
 - `packed.ts`: builds JavaScript and declarations, packs a tarball, installs it in a fresh temporary consumer, then compiles and executes `external.fixture.ts`. The consumer imports only the package entry point. Type support is copied; workspace source aliases are not installed. Private subpath import is a negative control.
 - `mutations.ts`: edits a disposable source copy, requires a behavioral test failure for each mutant, and refuses to count parse/import errors as a successful kill. Run it again after changing either the implementation or assertions.
 - `type-controls.ts`: verifies ordinary strict compiler options, then removes each `@ts-expect-error` individually and requires rejection.
-- `boundaries.ts`: enumerates imports using the TypeScript AST and resolves relative paths against an explicit allowed graph. This is a gate for the seven new implementation modules, not a claim that project references enforce privacy.
+- `boundaries.ts`: enumerates imports using the TypeScript AST and resolves relative paths against an explicit allowed graph. The allowlist is closed over `src/v2` in both directions, the walk covers dynamic `import()` and `require()` as well as top-level statements, and a computed specifier is refused. This is a gate for the ten implementation modules, not a claim that project references enforce privacy.
 - `uncooperative.ts`: separate limit probe, not an acceptance test. It prints `UNGUARDED_EFFECT_AFTER_TIMEOUT=true`, demonstrating why arbitrary in-process IO cannot be revoked by a framework timeout.
+
+`packed.ts` stages its build, tarball and consumer outside the repository, because a generated artifact inside it is linted by the root flat config, which does not read `.gitignore`.
 
 Generated tarballs, declarations, temporary compiler negatives and lint reports are ignored. The implementation is `src/v2`; the previous measurement scripts one directory above still describe the earlier source revision.

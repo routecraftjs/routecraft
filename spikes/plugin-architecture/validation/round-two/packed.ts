@@ -13,14 +13,19 @@ import {
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 const root = resolve(import.meta.dir, "../.."),
-  out = join(import.meta.dir, "package");
+  // Built outside the repository: a generated artifact inside it is linted by
+  // the root flat config, which does not read .gitignore.
+  staging = mkdtempSync(join(tmpdir(), "routecraft-pack-")),
+  out = join(staging, "package");
 async function run(args: string[], cwd = root) {
   const p = spawn(args, {
     cwd,
+    // Scratch space stays under the platform temp directory rather than a
+    // hardcoded macOS path, which on Linux creates /private/tmp at the root.
     env: {
       ...process.env,
-      TMPDIR: "/private/tmp",
-      BUN_INSTALL_CACHE_DIR: "/private/tmp/routecraft-bun-cache",
+      TMPDIR: staging,
+      BUN_INSTALL_CACHE_DIR: join(staging, "bun-cache"),
     },
     stdout: "pipe",
     stderr: "pipe",
@@ -33,7 +38,6 @@ async function run(args: string[], cwd = root) {
   if (code) throw Error(`${args.join(" ")}\n${stdout}\n${stderr}`);
   return stdout;
 }
-rmSync(out, { recursive: true, force: true });
 mkdirSync(out, { recursive: true });
 await run([
   process.execPath,
@@ -48,6 +52,8 @@ await run([
   resolve(root, "../../node_modules/typescript/bin/tsc"),
   "-p",
   "validation/round-two/tsconfig.publish.json",
+  "--outDir",
+  out,
 ]);
 for (const file of readdirSync(out).filter((f) => f.endsWith(".d.ts"))) {
   const path = join(out, file);
@@ -69,13 +75,10 @@ writeFileSync(
   }),
 );
 writeFileSync(join(out, "private.js"), "export const secret = 1;\n");
-await run(
-  [process.execPath, "pm", "pack", "--destination", import.meta.dir],
-  out,
-);
+await run([process.execPath, "pm", "pack", "--destination", staging], out);
 const tar = join(
-  import.meta.dir,
-  readdirSync(import.meta.dir).find((f) => f.endsWith(".tgz"))!,
+  staging,
+  readdirSync(staging).find((f) => f.endsWith(".tgz"))!,
 );
 const consumer = mkdtempSync(join(tmpdir(), "routecraft-external-"));
 try {
@@ -151,4 +154,5 @@ try {
   console.log("PACKED: private package subpath refused PASS");
 } finally {
   rmSync(consumer, { recursive: true, force: true });
+  rmSync(staging, { recursive: true, force: true });
 }
