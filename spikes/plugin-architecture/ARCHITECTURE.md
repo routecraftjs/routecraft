@@ -584,6 +584,82 @@ log, and a prefix written only by the first process. The packed consumer is
 genuine: a real tarball installed from `file:` into a fresh directory, with only
 type support copied and the private subpath refused by the exports map.
 
+---
+
+### Brief for rounds 7a and 7b: the feature-fit migration ledger
+
+Two independent walks of the real framework, `7a` by a fresh Claude Opus 5 and
+`7b` by Astra from its own round-three and round-five work. Same brief, no sight
+of each other. Agreement is supporting evidence; a capability only one of them
+noticed is the reason for running two.
+
+**Deliverable: one row per existing capability**, covering `packages/routecraft`
+(builder, DSL, context, adapters, consumers, operations, pipeline, deferral,
+auth, telemetry), `packages/ai`, `packages/os` and `packages/cli`.
+
+| Column | What it must contain |
+|---|---|
+| Capability | The unit as a consumer meets it, not the file |
+| Current behavior | What it does today, cited to source, including its error and edge semantics |
+| **Guarantee at risk** | The crash, ordering, concurrency or security guarantee it makes today that a naive port would silently drop |
+| Proposed owner | Core, a first-party plugin, a library, or unchanged |
+| Required public contract | The port or contribution type it needs, and whether that contract exists in the spike |
+| Compatibility fixture | The executable check that proves behavior is preserved, and the mutation that proves the fixture is load-bearing |
+| Unresolved gap | What neither the spike nor the ledger can currently answer |
+
+**The "guarantee at risk" column is not optional, and it is the one round six
+added.** Round five ported deferral without the claim lease and classified the
+loss as a scope limit; the guarantee was documented in the shipped store
+contract the whole time. Assume more of these exist. The reliable way to find
+one is to read the JSDoc on the current contract and ask what it promises after
+a crash, under concurrency, or across a restart, rather than reading the happy
+path.
+
+**Every fixture needs a mutation.** Round five's suite was green while handler
+survival and tag selection were both deletable. A compatibility fixture that
+passes against unchanged behavior proves nothing until the corresponding
+behavior change has been shown to fail it.
+
+**Order the ledger by guarantee risk, not by package.** The migration sequence
+should be driven by which capabilities carry guarantees that are hard to
+re-establish once a contract is published, not by which directories are
+convenient to move.
+
+### Challenges to the proposed production sequence
+
+The five stages are sound and the order is broadly right. Three changes are
+warranted by round-six evidence.
+
+1. **The continuation and claim contract belongs in stage 2, not stage 4.**
+   The sequence introduces ports in stage 2 and revisits deferral in stage 4.
+   Round six shows that the claim lease is a property of the persistence port's
+   shape, not of the deferral implementation: `claim` as a state transition
+   cannot express it whatever is built on top. Publishing a continuation port in
+   stage 2 and fixing it in stage 4 makes stage 4 a breaking change to a
+   contract consumers already have. Settle the claim, lease and release
+   semantics when the port is introduced.
+
+2. **Stage 1 must gate mechanisms, not just imports.** The import gate was
+   evadable three ways, and the repository's own precedent is instructive: the
+   flat ESLint config carries a comment explaining that it does not read
+   `.gitignore`, and the packed artifact still slipped past the commit hooks
+   because hooks lint staged files. Enforcement configuration needs its own
+   tests, and the gate must be closed over the directory rather than over a
+   list someone must remember to update.
+
+3. **Stage 3's bounded capability should be chosen for guarantee density, not
+   for size.** A capability that only moves files proves the boundary compiles.
+   The stage is worth a release cycle only if the chosen capability carries at
+   least one crash or concurrency guarantee that the new contracts must
+   re-establish, which is the risk the whole migration is actually exposed to.
+
+On the release decision, nothing found in round six argues against targeting
+0.7 conditionally and using the first production migration as the gate. The
+claim-lease finding is mild evidence for the conditional framing: one guarantee
+was already nearly lost to a scope note, and the feature ledger is the
+instrument for finding out how many more there are before committing to a
+release shape.
+
 ## 8. Acceptance criteria for the round-two POC
 
 Nothing below is optional. The round-one POC fails most of them, which is why
