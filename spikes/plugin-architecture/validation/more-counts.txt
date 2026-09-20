@@ -1,0 +1,303 @@
+all packages logger child references 8 logger files 68
+shared {
+  "thenable.ts": {
+    imports: 2,
+    consumers: [ "pipeline", "event-bus.ts" ],
+    count: 2,
+  },
+  "abort.ts": {
+    imports: 6,
+    consumers: [ "pipeline", "plugins", "operations", "adapters" ],
+    count: 4,
+  },
+  "sqlite/driver.ts": {
+    imports: 3,
+    consumers: [ "deferral", "telemetry" ],
+    count: 2,
+  },
+  "sqlite/database.ts": {
+    imports: 3,
+    consumers: [ "deferral", "shared", "telemetry" ],
+    count: 3,
+  },
+  "compare.ts": {
+    imports: 1,
+    consumers: [ "deferral" ],
+    count: 1,
+  },
+  "standard-schema.ts": {
+    imports: 1,
+    consumers: [ "deferral" ],
+    count: 1,
+  },
+  "duration.ts": {
+    imports: 37,
+    consumers: [ "deferral", "plugins", "context.ts", "builder.ts", "operations", "adapters",
+      "step-builder-base.ts", "telemetry", "enablement.ts"
+    ],
+    count: 9,
+  },
+  "sqlite/claims.ts": {
+    imports: 1,
+    consumers: [ "deferral" ],
+    count: 1,
+  },
+  compare: {
+    imports: 2,
+    consumers: [ "plugins" ],
+    count: 1,
+  },
+  "standard-schema": {
+    imports: 1,
+    consumers: [ "plugins" ],
+    count: 1,
+  },
+  "safe-json.ts": {
+    imports: 2,
+    consumers: [ "plugins", "telemetry" ],
+    count: 2,
+  },
+  "runtime-version.ts": {
+    imports: 1,
+    consumers: [ "plugins" ],
+    count: 1,
+  },
+  "stale-options.ts": {
+    imports: 11,
+    consumers: [ "plugins", "context.ts", "builder.ts", "operations", "adapters" ],
+    count: 5,
+  },
+  "sqlite/types.ts": {
+    imports: 3,
+    consumers: [ "shared", "telemetry" ],
+    count: 2,
+  },
+}
+class RouteBuilder fileLines 1899 classLines 1251 declarations 35 implementations 30 names [
+  "id", "title", "description", "enabled", "input", "input", "input", "output", "tag", "mergeDiscovery",
+  "normalizeSchemas", "batch", "error", "cache", "timeout", "retry", "throttle", "circuitBreaker",
+  "concurrency", "authorize", "from", "from", "from", "from", "prelude", "requireSource", "pushStep",
+  "split", "aggregate", "choice", "multicast", "dispatch", "debounce", "build", "assertNoPendingWrappers"
+]
+class CarddavClientManager fileLines 126 classLines 94 declarations 4 implementations 4 names [
+  "resolveConnection", "resolveAddressBookName", "getClient", "drain"
+]
+class MailClientManager fileLines 420 classLines 203 declarations 7 implementations 7 names [
+  "acquireImap", "releaseImap", "trackMailbox", "getSmtp", "resolveImapOptions", "resolveSmtpOptions",
+  "drain"
+]
+class StepBuilderBase fileLines 892 classLines 630 declarations 29 implementations 23 names [
+  "applyPendingWrappers", "pushStep", "error", "cache", "delay", "timeout", "retry", "throttle",
+  "circuitBreaker", "concurrency", "retype", "to", "to", "to", "to", "transform", "enrich", "enrich",
+  "enrich", "process", "header", "authenticate", "delegate", "tap", "filter", "sample", "dedupe", "validate",
+  "[PUSH_STEP]"
+]
+core test files 139 internal import files 86
+SDK files [ "packages/ai/src/llm/providers/stream-llm.ts", "packages/ai/src/llm/providers/index.ts",
+  "packages/ai/src/llm/structured-output.ts", "packages/ai/src/agent/tool-bridge.ts",
+  "packages/ai/src/agent/run.ts"
+]
+continuation headers [ "   * Sugar over the `routecraft.deferral.*` headers plus the context's" ]
+churn (fixed window, --no-renames; each changed path counted once per commit) {
+  "routecraft/adapters": {
+    lines: 29573,
+    files: 125,
+    editsPerFile: "4.4",
+  },
+  "routecraft/auth": {
+    lines: 3188,
+    files: 12,
+    editsPerFile: "5.2",
+  },
+  "routecraft/deferral": {
+    lines: 6691,
+    files: 19,
+    editsPerFile: "1.3",
+  },
+  "routecraft/plugins": {
+    lines: 12796,
+    files: 42,
+    editsPerFile: "3.8",
+  },
+  "routecraft/shared": {
+    lines: 1104,
+    files: 13,
+    editsPerFile: "1.7",
+  },
+  "ai/acp": {
+    lines: 2826,
+    files: 10,
+    editsPerFile: "2.3",
+  },
+  "ai/agent": {
+    lines: 22241,
+    files: 36,
+    editsPerFile: "7.6",
+  },
+  "ai/mcp": {
+    lines: 18939,
+    files: 31,
+    editsPerFile: "8.0",
+  },
+  "ai/mount": {
+    lines: 114,
+    files: 1,
+    editsPerFile: "1.0",
+  },
+  "ai/surface": {
+    lines: 1766,
+    files: 8,
+    editsPerFile: "1.8",
+  },
+  "routecraft/pipeline": {
+    lines: 3447,
+    files: 4,
+    editsPerFile: "10.3",
+  },
+  "ai/fn": {
+    lines: 869,
+    files: 5,
+    editsPerFile: "7.2",
+  },
+  "routecraft/operations": {
+    lines: 13041,
+    files: 42,
+    editsPerFile: "6.3",
+  },
+  "routecraft/suspension": {
+    lines: 13640,
+    files: 20,
+    editsPerFile: "4.8",
+  },
+  "testing/adapters": {
+    lines: 388,
+    files: 4,
+    editsPerFile: "4.3",
+  },
+  "ai/llm": {
+    lines: 5680,
+    files: 16,
+    editsPerFile: "6.1",
+  },
+  "os/adapters": {
+    lines: 3267,
+    files: 18,
+    editsPerFile: "2.0",
+  },
+  "routecraft/telemetry": {
+    lines: 1985,
+    files: 8,
+    editsPerFile: "2.8",
+  },
+  "routecraft/consumers": {
+    lines: 501,
+    files: 2,
+    editsPerFile: "8.0",
+  },
+  "ai/block": {
+    lines: 1672,
+    files: 6,
+    editsPerFile: "3.3",
+  },
+  "eslint-plugin-routecraft/rules": {
+    lines: 2792,
+    files: 10,
+    editsPerFile: "1.8",
+  },
+  "os/shared": {
+    lines: 19,
+    files: 1,
+    editsPerFile: "1.0",
+  },
+  "ai/embedding": {
+    lines: 1068,
+    files: 8,
+    editsPerFile: "4.0",
+  },
+  "cli/tui": {
+    lines: 1822,
+    files: 6,
+    editsPerFile: "2.5",
+  },
+  "browser/adapters": {
+    lines: 1184,
+    files: 4,
+    editsPerFile: "3.0",
+  },
+  "ai/skill": {
+    lines: 1148,
+    files: 4,
+    editsPerFile: "3.5",
+  },
+}
+executor churn {
+  lines: 1978,
+  edits: 19,
+}
+dispatcher churn {
+  lines: 1268,
+  edits: 13,
+}
+20 most edited [
+  [ "packages/ai/src/mcp/server.ts", {
+      lines: 6163,
+      edits: 42,
+    } ], [ "packages/ai/src/mcp/types.ts", {
+      lines: 2140,
+      edits: 32,
+    } ], [ "packages/ai/src/agent/agent.ts", {
+      lines: 882,
+      edits: 24,
+    } ], [ "packages/ai/src/agent/types.ts", {
+      lines: 1016,
+      edits: 24,
+    } ], [ "packages/ai/src/agent/plugin.ts", {
+      lines: 1139,
+      edits: 21,
+    } ], [ "packages/ai/src/agent/tools/builders.ts", {
+      lines: 1081,
+      edits: 20,
+    } ], [ "packages/routecraft/src/operations/enrich.ts", {
+      lines: 740,
+      edits: 20,
+    } ], [ "packages/routecraft/src/operations/tap.ts", {
+      lines: 440,
+      edits: 20,
+    } ], [ "packages/ai/src/mcp/index.ts", {
+      lines: 110,
+      edits: 20,
+    } ], [ "packages/routecraft/src/pipeline/executor.ts", {
+      lines: 1978,
+      edits: 19,
+    } ], [ "packages/ai/src/agent/tools/selection.ts", {
+      lines: 2324,
+      edits: 19,
+    } ], [ "packages/ai/src/agent/index.ts", {
+      lines: 86,
+      edits: 18,
+    } ], [ "packages/ai/src/mcp/validate-options.ts", {
+      lines: 538,
+      edits: 18,
+    } ], [ "packages/ai/src/agent/destination.ts", {
+      lines: 1676,
+      edits: 18,
+    } ], [ "packages/routecraft/src/adapters/direct/shared.ts", {
+      lines: 428,
+      edits: 16,
+    } ], [ "packages/routecraft/src/operations/choice.ts", {
+      lines: 1095,
+      edits: 16,
+    } ], [ "packages/routecraft/src/adapters/direct/index.ts", {
+      lines: 351,
+      edits: 16,
+    } ], [ "packages/ai/src/mcp/plugin.ts", {
+      lines: 651,
+      edits: 16,
+    } ], [ "packages/routecraft/src/adapters/direct.ts", {
+      lines: 1232,
+      edits: 16,
+    } ], [ "packages/routecraft/src/auth/authorize.ts", {
+      lines: 858,
+      edits: 15,
+    } ]
+]

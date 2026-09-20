@@ -1,0 +1,9 @@
+{
+  "compilerOptions": {
+    "composite": true,
+    "rootDir": ".",
+    "outDir": "../build/a",
+    "skipLibCheck": true
+  },
+  "include": ["*.ts"]
+}

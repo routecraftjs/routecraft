@@ -1,0 +1,7 @@
+spikes/plugin-architecture/validation/unexpressible.ts(5,9): error TS2769: No overload matches this call.
+  Overload 1 of 2, '(contribution: ExchangeContribution<unknown>): void', gave the following error.
+    Type '"handler"' is not assignable to type '"exchange"'.
+  Overload 2 of 2, '(contribution: Contribution): void', gave the following error.
+    Type '"beforeParse"' is not assignable to type 'HandlerPoint'.
+spikes/plugin-architecture/validation/unexpressible.ts(11,9): error TS2339: Property 'resume' does not exist on type 'PluginContext'.
+spikes/plugin-architecture/validation/unexpressible.ts(17,9): error TS2339: Property 'emit' does not exist on type 'PluginContext'.

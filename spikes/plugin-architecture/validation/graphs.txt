@@ -1,0 +1,3 @@
+routecraft static emitted-JS SCCs [["logger.ts","exchange.ts"]]
+ai static emitted-JS SCCs [["surface/registry.ts","surface/cancellation.ts"]]
+events outbound []
