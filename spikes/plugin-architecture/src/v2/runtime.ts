@@ -15,7 +15,6 @@ import {
   type HandlerPoints,
   type RunKind,
   type RouteStatus,
-  type FacetFactories,
   type Principal,
   type Continuation,
 } from "./contracts.ts";
@@ -68,7 +67,9 @@ export class Runtime {
   #accept = false;
   constructor(
     readonly host: Host,
-    readonly facets: FacetFactories = {},
+    readonly facets: Readonly<
+      Record<string, (exchange: Exchange) => unknown>
+    > = {},
   ) {
     host.connect(this);
   }
@@ -449,6 +450,7 @@ export class Runtime {
           signal: run.signal,
           attemptId,
           kind: run.kind,
+          require: (contract) => this.host.requireFor(step.owner, contract),
           commit: (effect) => {
             assertActive();
             return effect();
