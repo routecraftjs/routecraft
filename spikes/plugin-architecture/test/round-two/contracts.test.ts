@@ -1275,3 +1275,65 @@ test("a source can register cleanup before subscription acquisition fails", asyn
   ).rejects.toThrow("[worker] SOURCE_START");
   expect(log).toEqual(["source closed", "plugin stopped"]);
 });
+/**
+ * @case application-scoped services in shared descriptors
+ * @preconditions Two live contexts reuse one plugin, whose step and facet require the same port.
+ * @expectedResult Each resolves its own provider, while an undeclared lookup is refused by owner.
+ */
+test("steps and lazy facets resolve declared services in their own application", async () => {
+  const value = port<number>("value@1");
+  const shared = infrastructure({
+    id: "client",
+    requires: [value],
+    facets: {
+      bound: (
+        _ex: Exchange,
+        services: import("../../src/v2/index.ts").ServiceLookup,
+      ) => ({ value: services.require(value) }),
+    },
+  });
+  const provider = (n: number) =>
+    infrastructure({
+      id: `provider.${n}`,
+      provides: [value],
+      bind: (c) => c.provide(value, n),
+    });
+  const a = application([operations, shared, provider(1)]),
+    b = application([operations, shared, provider(2)]);
+  const raw: RouteSpec = {
+    id: "step",
+    owner: "client",
+    version: "1",
+    tags: [],
+    steps: [
+      instruction("client", "require", (ex, ctx) => ({
+        kind: "continue",
+        exchange: { ...ex, body: ctx.require(value) },
+      })),
+    ],
+  };
+  await a.start([
+    raw,
+    a
+      .route("facet")
+      .from(manual)
+      .transform((_, ex) => ex.bound.value)
+      .build(),
+  ]);
+  await b.start([
+    raw,
+    b
+      .route("facet")
+      .from(manual)
+      .transform((_, ex) => ex.bound.value)
+      .build(),
+  ]);
+  expect((await a.runtime.deliver("step", 0)).exchanges[0]?.body).toBe(1);
+  expect((await b.runtime.deliver("step", 0)).exchanges[0]?.body).toBe(2);
+  expect((await a.runtime.deliver("facet", 0)).exchanges[0]?.body).toBe(1);
+  expect((await b.runtime.deliver("facet", 0)).exchanges[0]?.body).toBe(2);
+  expect(() => a.host.requireFor("routecraft.operations", value)).toThrow(
+    "[routecraft.operations] UNDECLARED_REQUIRE",
+  );
+  await Promise.all([a.stop(), b.stop()]);
+});

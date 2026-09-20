@@ -74,7 +74,10 @@ export interface PathResult {
   readonly error?: Fault;
   readonly aborted?: boolean;
 }
-export interface StepContext {
+export interface ServiceLookup {
+  require<T>(contract: Port<T>): T;
+}
+export interface StepContext extends ServiceLookup {
   readonly signal: AbortSignal;
   readonly attemptId: string;
   readonly kind: RunKind;
@@ -232,7 +235,7 @@ export interface PluginContext {
   contribute(contribution: Contribution): void;
 }
 export type FacetFactories = Readonly<
-  Record<string, (exchange: Exchange) => unknown>
+  Record<string, (exchange: Exchange, services: ServiceLookup) => unknown>
 >;
 export interface Installation {
   readonly id: string;

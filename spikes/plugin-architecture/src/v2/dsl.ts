@@ -266,7 +266,9 @@ export class Application<P extends readonly Plugin[]> {
           );
         facets[key] = (ex) => {
           try {
-            return factory(ex);
+            return factory(ex, {
+              require: (contract) => this.host.requireFor(plugin.id, contract),
+            });
           } catch (e) {
             throw fault(plugin.id, "FACET", e);
           }

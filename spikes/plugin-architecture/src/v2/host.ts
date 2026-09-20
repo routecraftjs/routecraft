@@ -129,6 +129,14 @@ export class Host {
       throw new Fault("kernel", "UNAVAILABLE_PORT", t.name);
     return this.#values.get(t.key) as T;
   }
+  requireFor<T>(owner: string, contract: Port<T>): T {
+    const plugin = this.order.find((p) => p.id === owner);
+    if (!plugin?.requires?.some((p) => p.key === contract.key))
+      throw new Fault(owner, "UNDECLARED_REQUIRE", contract.name);
+    if (!this.#values.has(contract.key))
+      throw new Fault(owner, "UNAVAILABLE_PORT", contract.name);
+    return this.#values.get(contract.key) as T;
+  }
   has(t: AnyPort) {
     return this.#values.has(t.key);
   }
