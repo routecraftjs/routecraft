@@ -86,8 +86,9 @@ flowchart LR
   store continuations", not for "our SQLite plugin". That is what lets a
   stranger replace a first-party provider under their own name.
 - **Contribution.** A handler runs at a point (admission, entry, error, exit)
-  and may refuse or decorate. A wrapper surrounds the route, like retry or
-  timeout. Both say where they sit by naming anchors, not numbers.
+  and may decorate; at admission and entry it may refuse. A wrapper surrounds
+  the route, like retry or timeout. Both say where they sit by naming anchors,
+  not numbers, and both say which run kinds they apply to.
 - **Step.** An instruction inside a route. It returns an outcome rather than
   nothing, which is how a plugin gets to halt, branch or defer instead of only
   the framework being able to.

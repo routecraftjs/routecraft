@@ -6,10 +6,10 @@ Everything else in this folder is either input to
 this document or code that tests it. Where a published artifact and this file
 disagree, this file wins: the artifact is a rendering of it.
 
-**Status: round-six execution review complete; production migration not yet
-approved.** The direction is supported, subject to Jaco's hands-on review,
-feature-fit checks and an accepted implementation plan. POC implementation is
-not production implementation approval.
+**Status: round-seven review and its corrections complete; production
+migration not yet approved.** The direction is supported, subject to Jaco's
+hands-on review, feature-fit checks and an accepted implementation plan. POC
+implementation is not production implementation approval.
 
 **Post-round-five update (2026-09-20).** This update incorporates Jaco's
 clarification about plugin-author responsibility and mechanically enforced
@@ -49,9 +49,12 @@ asymmetry is the most useful thing in this document.
   `validation/round-two/`, and `reviews/ASTRA-ROUND-FIVE.md`, on
   `spike/astra-round-five`. Reported evidence: 32 tests, 22 behavioral mutants
   killed, 10 compiler negative controls, strict typecheck, and a separately
-  packed consumer. Round six reproduced all of these, then raised the suite to
-  36 tests and 27 mutants and widened the import gate to 10 modules. Its report
-  is `reviews/OPUS-ROUND-SIX.md`.
+  packed consumer. Round six reproduced all of these and raised the suite to
+  36 tests and 27 mutants (`reviews/OPUS-ROUND-SIX.md`). Round seven, a
+  clean-room Fable 5.1 review (`reviews/FABLE-REVIEW.md`), reproduced round
+  six, then showed its headline correction was a misreading of the shipped
+  contract and found eight guarantee regressions. The corrections that
+  followed bring the suite to 53 tests and 45 mutants over 11 modules.
 - **Diagrams:** `DIAGRAMS.md` is the overview: what changes, in two pictures,
   plus the four things a plugin can do. `DIAGRAMS-MECHANISM.md` is one level
   down, and its module graph is checked against the source by
@@ -77,14 +80,17 @@ not see.
 | 3 | Clean-room validation | ChatGPT Astra | ✅ Done. 20 POC defects, `StepOutcome` finding, 5 alternatives. |
 | 4 | Consolidation | Claude Opus 5 (this session) | ✅ This document. |
 | 5 | POC round two | ChatGPT Astra | Built on `spike/astra-round-five`; report and executable evidence checked in. Awaiting independent verification. |
-| 6 | Review of round 5 | Claude Opus 5 (this session) | ✅ Done. All round-five numbers reproduced; 4 defects found by mutation and fixed; one stated limit reclassified as a regression. |
+| 6 | Review of round 5 | Claude Opus 5 (this session) | ✅ Done. All round-five numbers reproduced; 4 defects found by mutation. Its headline reclassification of the claim lease was itself wrong, which round 7 found. |
+| 7 | Clean-room review of round 6 | Fable 5.1, fresh session | ✅ Done. Everything reproduced; round six's claim-lease correction refuted against `revive.ts`; eight guarantee regressions, thirteen surviving mutants, the encoding measured at 20 and 40 plugins. Verdict: proceed on the kernel half, send the continuation half back. |
+| 7c | Corrections | Fable 5.1 (this session, model switched) | ✅ Done. Shipped continuation shape adopted, identity moved out of core, per-step clone dropped, every surviving mutant killed. Commit `2f5812f8`. |
 | 7a | Feature fit, clean room | Claude Opus 5, fresh session | Walk the real framework feature by feature: what fits the model, what does not. |
 | 7b | Feature fit, clean room | ChatGPT Astra | Same brief, independently, from its own round-3 work plus round 6. |
 | 8 | Implementation planning | Fable 5.1 | Given everything: decide sequencing, pull-request shape, and whether to fan out to sub-agents. **Fable decides how, not whether.** |
 | 9 | Build | Fable 5.1 + sub-agents | Only after 8 produces a plan Jaco accepts. |
 
-**Jaco reviews the POC by hand between 6 and 7**, and his feedback is addressed
-before the feature-fit rounds begin.
+**Jaco reviews the POC by hand after 7c**, and his feedback is addressed
+before the feature-fit rounds begin. Rounds 7a and 7b keep their numbers; they
+follow his review.
 
 **Two rounds are deliberately duplicated** (2 and 3; 7a and 7b) because
 independent coverage can expose omissions. Agreement is supporting evidence,
@@ -463,6 +469,13 @@ the property, where today `ex.deferral` is on the type regardless. Requires the
 same plumbing as the DSL: do both or neither. It is a named API, not a security
 boundary — private state stays in a `WeakMap`.
 
+**Round seven.** This reverses a written standard and nobody had said so.
+`.standards/exchange-state-model.md`, Non-rules: "Plugins do not extend
+`DefaultExchange`'s prototype. Adding a getter for plugin-defined concerns would
+lead to arms races and conflicts. Plugins export external helpers." Typed facets
+are exactly plugin-defined getters on the exchange. The facet design may be the
+better answer; if so the standard changes with a recorded reason. Open ruling 8.
+
 ### Declarative versus imperative contributions
 
 **Astra:** the split is not steps versus wrappers, it is *value known at module
@@ -536,13 +549,15 @@ are the desired safeguards; semantic misuse cannot always be detected.
 **Evidence limits from round five, pending independent review:**
 
 - A committed deferred checkpoint survives a real process kill and resumes at
-  the correct instruction, including a conversation spanning two stores.
-  Recovery from a crash after claiming a continuation is not implemented. The
+  the correct instruction, including a conversation spanning two stores. A
+  process that dies mid-continuation leaves a record that is reported at boot
+  and never re-run, which is the shipped guarantee (see post-round-seven). The
   two stores do not have a distributed transaction, and external effects do not
   acquire exactly-once semantics.
 - Cancellation suppresses late outcomes and effects submitted through the
   guarded API. Arbitrary plugin IO that ignores cancellation can still occur;
-  graceful drain can wait forever on uncooperative work.
+  drain is bounded, as `shutdown.timeout` bounds it, and abandons what is still
+  running after the deadline, naming it.
 - Encoding E remains a demonstrated solution for fluent extensibility, not a
   blanket soundness guarantee. Round five found and fixed integration defects
   in facet typing, body-preserving outcomes and the correspondence between
@@ -574,20 +589,23 @@ already makes.
 
 | Defect | Evidence it was real | Status |
 |---|---|---|
-| **A claimed continuation whose holder dies is stranded forever.** `claim()` moved the record out of `waiting` and deleted its waiting index, so no later process could find or re-claim it | A probe that claims, closes the connection and reopens finds an empty waiting index and a permanently unclaimable record | **Fixed.** Claim is now a second axis (`claimedAt`) over a record that stays `waiting`, plus `releaseClaims(before)`. Three mutants guard it |
+| **A claimed continuation whose holder dies is stranded forever.** `claim()` moved the record out of `waiting` and deleted its waiting index | A probe that claims, closes and reopens finds an unclaimable record | **This finding was wrong, and its fix was reverted in round 7c.** The shipped resume IS a transition out of waiting, and a half-run continuation is meant to be reported, not re-run. What round five actually lacked was the duplicate reply, the expiry claim and expiry itself. See post-round-seven |
 | **Handler survival was never exercised.** Every contribution in all 32 tests used `allRuns`, so `!h.survival[kind]` could be deleted with the full suite still green | Deleting the check passed 32/32 | **Fixed.** A handler declining `resume` is now asserted absent from the resumed continuation. Wrapper survival was already load-bearing; two mutants confirmed it |
 | **Tag selectors were never exercised.** The test helper hardcoded `tags: ["protected"]`, so every route carried the tag and the branch could be deleted | Deleting the check passed 32/32 | **Fixed.** A route without the tag is now asserted unselected |
 | **The import gate was evadable three ways**: a new file in `src/v2` was simply not in the allowlist, a dynamic `import()` inside a function body was never inspected, and a non-literal specifier was invisible | Each probe passed the round-five gate unchanged | **Fixed.** The allowlist is closed over the directory, the walk covers every node, and a computed specifier is refused. Coverage went from 7 modules and 12 edges to 10 and 21 |
 
-**The stranded-claim defect is the one that changes a conclusion.** Round five
-classified "recovery after a crash during an already-claimed resume" as a
-stated scope limit. It is not: `DeferralStore.releaseClaims` is part of the
-shipped contract today, `sweeper.ts` runs it on a lease that defaults to sixty
-minutes, and `types.ts` documents the claim as a second axis precisely so
-"a claim whose holder died is released ... so the next sweep redelivers".
-The accepted cost is named there too: "one duplicate escalation after the lease
-elapses, which is the accepted at-least-once trade". A design that cannot
-express this is not descoping a future feature, it is dropping a current one.
+**The paragraph that stood here claimed the stranded-claim defect changed a
+conclusion. It did, in the wrong direction.** Round six read `releaseClaims`,
+the sixty-minute lease and the "second axis" JSDoc as the resume path. They are
+the expiry-NOTIFICATION path. `revive.ts:335` takes `markResumed`, a
+compare-and-swap out of waiting, before `runContinuation` at `:412`; `types.ts`
+says of a record left resumed without a continuation that "this residue is a
+half-run CONTINUATION and is only ever reported", and that "the asymmetry with
+the delivery claim is deliberate". The quote round six leaned on, "one
+duplicate escalation after the lease elapses", is about re-sending a nag. The
+round-six fix therefore made the spike re-run a half-run continuation, which
+the shipped design explicitly refused to build. The method failure was
+quoting JSDoc without following the call it describes; rule 9 below.
 
 The other three stated limits hold, checked the same way:
 
@@ -610,6 +628,54 @@ genuine: a real tarball installed from `file:` into a fresh directory, with only
 type support copied and the private subpath refused by the exports map.
 
 ---
+
+### Post-round-seven: the review that corrected round six, and what followed
+
+A clean-room Fable 5.1 reviewed `e5d16035` (`reviews/FABLE-REVIEW.md`).
+Everything round six reported reproduced. It then added sixteen mutants, of
+which thirteen survived, ran ten guarantee probes against the shipped
+framework, of which eight showed regressions, and measured the shipping DSL
+encoding at 20 and 40 plugins. Its verdict was to proceed on the installation
+half and send the continuation, exchange and principal half back for one
+bounded round. That round is commit `2f5812f8`. Its content, by what changed:
+
+| Finding | Shipped behaviour it was checked against | Status at `2f5812f8` |
+|---|---|---|
+| Round six's lease fix re-runs a half-run continuation | `markResumed` before `runContinuation`; `resumedWithoutContinuation` reports and never re-runs; the lease heals `claimExpiry` only | **Reverted and rebuilt.** `markResumed` CAS; second resume answered `duplicate` from the cached outcome; failed resume recorded; `claimExpiry`, `releaseClaims`, `findExpired`, `markExpired`, `sweep`, ttl |
+| `.defer("approval")` parks one exchange per route | ids are `{exchangeId}#{sequence}`, predictable before the defer | **Fixed.** Minted per exchange; `ex.deferral.id` predicts the next one; two defer points in one exchange park `#1` then `#2` |
+| Plan hash too wide (every plugin, every option) and too shallow (no callable) | `hash.ts` hashes the tail only and folds in callable source verbatim | **Fixed.** `Step.source` carries the callables; the hash covers the tail's definitions and nothing else; an edited suffix refuses, an unrelated plugin or option does not |
+| `Principal` a forgeable core field, restored and trusted after restart | `security.md` §3: restored is never authentic; `authentic.ts` brands by `WeakSet` | **Fixed.** Core carries headers; `auth` plugin owns the key, the brand and the `authorize` handler; a step-written or stored principal is refused; a resume is authorised by its ingress |
+| `structuredClone` per step rejects functions, streams, class instances | plain JSON only at the defer boundary (`RC5042`) | **Fixed.** No clone in flight; `NOT_SERIALIZABLE` names the step at the defer boundary |
+| Unbounded drain | `shutdown.timeout` then `forceStageTwo` | **Fixed.** `stop(timeout)` abandons and reports after the deadline |
+| Contributions re-sorted per handler point per exchange | drawn as once at freeze | **Fixed.** Ordered once |
+| Contribution ids one flat namespace; facet names, option keys, point names unversioned | `api-stability.md` covers TypeScript symbols only | **Open ruling 9.** Not a code change; a policy the string surface needs before stage 2 |
+| Displaced provider still binds, acquires and contributes | none | **Documented.** P7 amended below; "ours steps aside" qualified in the docs draft |
+| Refusal honoured at `admission` and `entry`, ignored at `error`, discarded at `exit` | none | **Documented.** Open ruling 11; the docs draft now says which points honour it |
+| CLI `routes/` and `plugins/` layout does not fit a DSL that starts from an `Application` value | `packages/cli/src/project.ts:194`, `start.ts:324` | **Open ruling 10.** A design question for 7a/7b, not a migration cost |
+| `keepsAlive`, auto-stop, `TeardownInfo`, `whenStarted()` absent | `context.ts` | **Ledger items.** Shipped guarantees the feature-fit rounds must carry |
+
+**Round seven's positions on the principles**, adopted here unless marked:
+P1 keep, and extend the version policy to the string surface. P2 keep, and say
+plainly that the kernel owns the resume protocol, the claim, the plan hash and
+the continuation format (it imports `CONTINUATIONS` by name at four sites).
+P4 keep; the code demonstrates it. P5 keep. **P6 amended:** core knows about
+dependency, not capability, *except the one continuation port the kernel owns
+under P2*; as written it was a slogan the runtime contradicted at its first
+line. **P7 amended:** *a provider can be replaced; a plugin can be declined
+when nothing requires its ports*; a displaced provider still binds. **P8
+amended:** keep the rule, drop "does not exist"; a boundary is graded and the
+slogan would be quoted against a partial ratchet that is progress. P3 and P9
+as already struck and merged.
+
+**Scale.** The shipping encoding checks in 3.4 s at 20 plugins and 40 steps
+(233k instantiations, 226 MB) and 10.9 s at 40 and 80. Facets cost nothing
+measurable. Editor latency is unmeasured.
+
+**Two method lessons, recorded as rules 9 and 10 in section 10.** Round six
+quoted contract JSDoc without following the call it described. Round seven's
+mutation harness reported 16/16 kills on its first run because a path error
+failed every mutant; the runner discipline caught it, the reviewer said so,
+and the real count was 3/16.
 
 ### Brief for rounds 7a and 7b: the feature-fit migration ledger
 
@@ -655,14 +721,16 @@ convenient to move.
 The five stages are sound and the order is broadly right. Three changes are
 warranted by round-six evidence.
 
-1. **The continuation and claim contract belongs in stage 2, not stage 4.**
-   The sequence introduces ports in stage 2 and revisits deferral in stage 4.
-   Round six shows that the claim lease is a property of the persistence port's
-   shape, not of the deferral implementation: `claim` as a state transition
-   cannot express it whatever is built on top. Publishing a continuation port in
-   stage 2 and fixing it in stage 4 makes stage 4 a breaking change to a
-   contract consumers already have. Settle the claim, lease and release
-   semantics when the port is introduced.
+1. **The continuation contract belongs in stage 2, not stage 4, and the
+   contract to settle is the shipped one.** The sequence introduces ports in
+   stage 2 and revisits deferral in stage 4. Rounds six and seven together show
+   the port's shape decides what can be expressed at all: per-exchange ids,
+   a tail-only hash over step definitions including callable source,
+   `markResumed` plus a cached outcome for duplicates, and `claimExpiry` with
+   its lease for notifications. Round six's version of this challenge would
+   have settled the wrong shape early, which is worse than settling it late.
+   Publishing `ContinuationStore` in stage 2 as round five or round six had it
+   publishes a contract that has to break.
 
 2. **Stage 1 must gate mechanisms, not just imports.** The import gate was
    evadable three ways, and the repository's own precedent is instructive: the
@@ -678,12 +746,12 @@ warranted by round-six evidence.
    least one crash or concurrency guarantee that the new contracts must
    re-establish, which is the risk the whole migration is actually exposed to.
 
-On the release decision, nothing found in round six argues against targeting
-0.7 conditionally and using the first production migration as the gate. The
-claim-lease finding is mild evidence for the conditional framing: one guarantee
-was already nearly lost to a scope note, and the feature ledger is the
-instrument for finding out how many more there are before committing to a
-release shape.
+On the release decision, see section 1: 0.7 ships from current work and 0.8
+carries this. Round seven's eight regressions are evidence for keeping the
+first production migration as the gate inside 0.8: round five nearly lost one
+guarantee to a scope note, round six inverted another while restoring it, and
+the feature ledger is the instrument for finding the rest before a release
+shape is committed to.
 
 ## 8. Acceptance criteria for the round-two POC
 
@@ -706,7 +774,7 @@ mocked bodies are fine, a `Step` that cannot halt is not.
 - [ ] Refusal short-circuits; decoration composes and feeds the next handler
 - [ ] Selectors by route id and tag
 - [ ] Deterministic order that is **not** install order
-- [ ] A lent elevation survives admission on a resumed continuation
+- [x] A resumed continuation is authorised by its ingress identity, never by the stored one; a step-written principal is refused (inverted in round 7c; the original criterion asserted the laundering `security.md` forbids)
 
 ### Contracts and substitution
 
@@ -736,12 +804,17 @@ mocked bodies are fine, a `Step` that cannot halt is not.
 - [ ] Atomic multi-key write: record plus index, with a crash between them proven safe
 - [ ] Delete actually deletes
 - [ ] CAS under genuine concurrency, not sequential awaits
+- [x] One route parks any number of exchanges; ids minted per exchange and predictable before the defer
+- [x] The plan hash covers the tail's step definitions including callable source and nothing else
+- [x] A second resume is answered `duplicate` from the cached outcome; a failed resume is recorded
+- [x] A record left resumed without an outcome is reported, never re-run
+- [x] An expiry claim whose holder dies is released by the lease and the nag delivered once after it
 
 ### Diagnostics
 
 - [ ] Every boot failure and runtime fault **names the plugin responsible**
 - [ ] A route-plan dump: resolved order, selected providers, contribution origins, unmatched constraints
-- [ ] Principal propagation across hops with `authorize()` at entry
+- [x] Principal propagation across hops with `authorize()` at entry, from a header an auth plugin owns
 
 ### Durable agents
 
@@ -762,11 +835,15 @@ been given. The scope and release baseline is now stated in section 1.
 
 1. **Closed or open intervention points — open for the POC.** #816's acceptance says `HandlerPoint` is declaration-merged and extensible by a package outside core, with a duplicate name a compile error. This design says the five points are closed and a sixth is a core change by definition. **These cannot both be true.** My reading: #816 is right, boundedness is unenforceable once strangers contribute, and `DetachedKind` growing three to four during this project is the evidence.
 2. **Ordering: named anchors or numeric slots.** Jaco proposed Spring-style numeric order. My recommendation is named contract-owned anchors with numeric slots underneath, where the names are the API and the numbers are not, because a third party hardcoding `150` breaks silently when core renumbers.
-3. **Tie-break rule** inside a gap. Not install order. Proposed: plugin id, lexicographic — arbitrary, deterministic, stable, inspectable.
-4. **Is isolation a goal.** If yes, `provide`/`require` must be scoped by declaration and that is a different registry. If no, delete the claim from A2.
-5. **Where `Principal` lives.** A security boundary, not a layering preference. Do not decide it from one existing field.
-6. **Scope of the not-doing list.** O1, O2, O4, O5, the AI package, the agent loop, and the thirteen omissions. Some must be explicitly deferred before Fable begins, or scope drifts.
-7. **Whether #542 runs in parallel now.** Both validators rate it independent and airtight. It is the cheapest available proof that this team can execute this pattern in this codebase.
+3. **Tie-break rule** inside a gap. Not install order. Round four proposed plugin id, lexicographic. **Round seven disagrees:** `tie-replacement.ts` shows a replacement flipping an unconstrained pair, and the pair that matters is an authorisation gate against a retry. Its recommendation: tie-break on a contract-owned contribution identity (port name plus contribution id), fall back to owner only when identities are equal, and report every unconstrained pair of wrappers that share a surviving run kind in `dump()`. Determinism is necessary and not sufficient.
+4. **Is isolation a goal.** Round seven: no. Delete the claim from A2, keep declaration-scoped `require` as API discipline. The step-path wiring is now mutation-covered.
+5. **Where `Principal` lives. Decided and implemented in 7c: not in core.** Core carries headers; the auth plugin owns the key, the brand and the `authorize` handler; a continuation never resurrects authenticity. Jaco approved the plan that included this move; the implementation is his to confirm on review.
+6. **Scope of the not-doing list.** Round seven's version, to be confirmed before 7a and 7b. Explicitly out: exactly-once external effects, one transaction across the session and deferral stores, sandboxing, automatic migration of a changed plan, retracting uncooperative IO. Explicitly NOT out, because shipped: per-exchange deferral ids, tail-only hash with callable source, duplicate-resume idempotency, TTL expiry with lease-healed escalation, restored-principal refusal, bounded shutdown (all five now in the spike); `keepsAlive` and auto-stop, `TeardownInfo`, resume payload validation and the signed token (ledger items).
+7. **Whether #542 runs in parallel now.** Both validators rate it independent and airtight. Round seven did not read it. It is the cheapest available proof that this team can execute this pattern in this codebase.
+8. **Facets against `exchange-state-model.md`.** Typed facets are the plugin-defined exchange getters the standard's non-rules forbid. Either the spike changes or the standard does, with the reason recorded. Nobody had raised it before round seven, and the docs draft teaches it.
+9. **The string surface needs a namespace and a version policy.** Contribution ids are one flat namespace per application (two third parties cannot both name a wrapper `audit`); facet names, route option keys and handler point names are bare strings; only ports carry `@1`. `api-stability.md` covers TypeScript symbols. Stage 2 is where this stops being cheap.
+10. **How a `routes/` file gets its application.** The CLI recognises a plugin by a callable `apply` and loads routes from separate files built with a free `craft()`. Under the spike, a typed chain comes from `app.route()` on an `Application<P>` value. The DSL work answered "can it exist", not "how does a route module find its plugin list". For 7a and 7b.
+11. **Which handler points honour a refusal.** Today `admission` and `entry` do; `error` ignores it and `exit` discards it. A point must declare which decisions it honours, and the docs must say so.
 
 ---
 
@@ -784,8 +861,13 @@ habit produced four of them.
 7. **Do not omit the file that weakens your case.** A 242-line semantics layer made a 3.6x saving look real.
 8. **A passing test proves what it asserts, not what its name says.** Check the assertion, then mutate it.
 
+9. **Follow the call, not the comment.** Round six quoted `releaseClaims` JSDoc and inverted a shipped guarantee. `revive.ts` had the answer three calls away.
+10. **A harness that reports every mutant killed is a harness to distrust first.** Round seven's first run said 16/16; a path error had failed every mutant. The real count was 3/16.
+
 **And the rule that generates the rest: a green suite is not evidence.** 63
-tests pass here; 20 of them assert defects.
+tests passed in round one; 20 of them asserted defects. 32 passed in round
+five with two mechanisms deletable. 36 passed in round six with a fix that
+re-ran half-run continuations.
 
 ---
 
@@ -795,16 +877,21 @@ tests pass here; 20 of them assert defects.
 |---|---|
 | `ARCHITECTURE.md` | This file. Source of truth |
 | `README.md` | Round-one spike's own findings, superseded where they conflict |
-| `reviews/OPUS-VALIDATION.md` | First clean-room validation |
-| `reviews/ASTRA-VALIDATION.md` | Second clean-room validation |
-| `src/` | Round-one spike plus both validators' alternatives |
-| `test/` | 63 tests, of which ~20 are characterisation tests asserting defects |
-| `validation/` | Astra's measurement scripts and committed outputs |
-| `docs/` | Superseded originals, kept for the audit trail |
+| `reviews/OPUS-VALIDATION.md` | First clean-room validation (round 2) |
+| `reviews/ASTRA-VALIDATION.md` | Second clean-room validation (round 3) |
+| `reviews/ASTRA-ROUND-FIVE.md` | The rebuild report (round 5) |
+| `reviews/OPUS-ROUND-SIX.md` | Execution review of round 5; its headline finding was wrong, see its banner |
+| `reviews/FABLE-REVIEW.md` | Clean-room review of round 6 that found the misreading (round 7) |
+| `DIAGRAMS.md`, `DIAGRAMS-MECHANISM.md`, `DOCS-ARCHITECTURE-DRAFT.md` | Overview, code-derived mechanism, draft public page |
+| `src/v2/` | The proof of concept: 11 modules, `auth.ts` added in 7c |
+| `test/round-two/` | 53 acceptance tests; `corrections.test.ts` holds rounds 6 and 7 |
+| `validation/round-two/` | Mutation harness (45), import gate, packed consumer, type controls, diagram check, process-kill harness |
+| `validation/round-seven/` | Round seven's probes, kept as evidence of the pre-correction API |
+| `src/`, `test/*.historical.ts`, `docs/`, `README.md` | Round one and its validators, superseded |
 
 ```bash
 cd spikes/plugin-architecture
-bun test          # 63 pass
-bun run typecheck # clean
+bun run verify         # typecheck, 53 tests, 45 mutants, gate, type controls, diagram
+bun run verify:packed  # external consumer against a real tarball
 bun run demo
 ```
