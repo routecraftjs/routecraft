@@ -698,8 +698,8 @@ describe("mergeExamplePackageJson", () => {
       test: "bun test",
     });
     expect(pkg.dependencies).toEqual({
-      "@routecraft/routecraft": "^0.6.0",
-      "@routecraft/ai": "^0.6.0",
+      "@routecraft/routecraft": getRoutecraftVersion(),
+      "@routecraft/ai": getRoutecraftVersion(),
     });
     expect(pkg.devDependencies).toEqual({
       typescript: "^5.9.3",
