@@ -2,8 +2,10 @@ import { Database } from "bun:sqlite";
 import {
   port,
   CONTINUATIONS,
-  type Continuation,
+  DEFERRAL_SEQUENCE,
+  type ContinuationRecord,
   type ContinuationStore,
+  type Exchange,
   type PluginContext,
   Fault,
 } from "./contracts.ts";
@@ -115,77 +117,137 @@ export function sqlite(
     },
   });
 }
-interface Saved {
-  readonly state: "waiting" | "completed" | "failed";
-  readonly continuation: Continuation;
-  /** Epoch millis of the outstanding delivery claim, absent when unclaimed. */
-  readonly claimedAt?: number;
-}
+/**
+ * The deferral plugin's own record shape, private to it. Two keys per parked
+ * exchange: `record/{id}` holds the continuation and its state, and
+ * `waiting/{id}` is the index the sweep scans, carrying the due time so a
+ * scan does not read every record. Both are written in one conditional
+ * transaction so a crash between them cannot make a record invisible.
+ */
 export function durableStore(records: AtomicStore): ContinuationStore {
+  const owner = "routecraft.deferral";
+  const read = async (id: string) => {
+    const row = await records.get(`record/${id}`);
+    return row
+      ? { row, saved: row.value as ContinuationRecord }
+      : { row: undefined, saved: undefined };
+  };
   return {
-    async save(id, continuation) {
+    async create(id, continuation) {
       const won = await records.write(
         [
-          { key: `record/${id}`, value: { state: "waiting", continuation } },
-          { key: `waiting/${id}`, value: null },
+          {
+            key: `record/${id}`,
+            value: { state: "waiting", continuation } as ContinuationRecord,
+          },
+          { key: `waiting/${id}`, value: continuation.expiresAt ?? null },
         ],
         [{ key: `record/${id}`, version: 0 }],
       );
-      if (!won)
-        throw new Fault("routecraft.deferral", "DUPLICATE_DEFERRAL", id);
+      if (!won) throw new Fault(owner, "DUPLICATE_DEFERRAL", id);
     },
-    async read(id) {
-      const row = await records.get(`record/${id}`);
-      return row ? (row.value as Saved).continuation : undefined;
+    async get(id) {
+      return (await read(id)).saved;
     },
-    async claim(id, at = Date.now()) {
-      const row = await records.get(`record/${id}`);
-      if (!row) return undefined;
-      const saved = row.value as Saved;
-      if (saved.state !== "waiting" || saved.claimedAt !== undefined)
-        return undefined;
+    async markResumed(id, at) {
+      const { row, saved } = await read(id);
+      if (!row || saved.state !== "waiting") return "lost";
+      const won = await records.write(
+        [
+          {
+            key: `record/${id}`,
+            value: { ...saved, state: "resumed", resumedAt: at },
+          },
+          { key: `waiting/${id}`, delete: true },
+        ],
+        [{ key: `record/${id}`, version: row.version }],
+      );
+      return won ? "won" : "lost";
+    },
+    async recordOutcome(id, outcome) {
+      const { row, saved } = await read(id);
+      if (!row) throw new Fault(owner, "MISSING_RECORD", id);
+      // No compare: only the resume winner ever writes here.
+      await records.write([
+        { key: `record/${id}`, value: { ...saved, outcome } },
+      ]);
+    },
+    async claimExpiry(id, at) {
+      const { row, saved } = await read(id);
+      if (!row || saved.state !== "waiting" || saved.claimedAt !== undefined)
+        return "lost";
       const won = await records.write(
         [{ key: `record/${id}`, value: { ...saved, claimedAt: at } }],
         [{ key: `record/${id}`, version: row.version }],
       );
-      return won ? saved.continuation : undefined;
+      return won ? "won" : "lost";
+    },
+    async markExpired(id) {
+      const { row, saved } = await read(id);
+      if (!row || saved.state !== "waiting" || saved.claimedAt === undefined)
+        return "lost";
+      const won = await records.write(
+        [
+          { key: `record/${id}`, value: { ...saved, state: "expired" } },
+          { key: `waiting/${id}`, delete: true },
+        ],
+        [{ key: `record/${id}`, version: row.version }],
+      );
+      return won ? "won" : "lost";
     },
     async releaseClaims(before) {
       let released = 0;
       for (const key of await records.keys("waiting/")) {
-        const id = key.slice("waiting/".length),
-          row = await records.get(`record/${id}`);
-        if (!row) continue;
-        const { claimedAt, ...rest } = row.value as Saved;
-        if (claimedAt === undefined || claimedAt > before) continue;
+        const { row, saved } = await read(key.slice("waiting/".length));
+        if (!row || saved.claimedAt === undefined || saved.claimedAt > before)
+          continue;
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructure to omit the claim
+        const { claimedAt: _released, ...rest } = saved;
         if (
           await records.write(
-            [{ key: `record/${id}`, value: rest }],
-            [{ key: `record/${id}`, version: row.version }],
+            [{ key: `record/${key.slice("waiting/".length)}`, value: rest }],
+            [
+              {
+                key: `record/${key.slice("waiting/".length)}`,
+                version: row.version,
+              },
+            ],
           )
         )
           released++;
       }
       return released;
     },
-    async finish(id, state) {
-      const row = await records.get(`record/${id}`);
-      if (!row) throw new Fault("routecraft.deferral", "MISSING_RECORD", id);
-      // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructure to omit the claim
-      const { claimedAt: _claimed, ...rest } = row.value as Saved;
-      const won = await records.write(
-        [
-          { key: `record/${id}`, value: { ...rest, state } },
-          { key: `waiting/${id}`, delete: true },
-        ],
-        [{ key: `record/${id}`, version: row.version }],
-      );
-      if (!won) throw new Fault("routecraft.deferral", "FINISH_CONFLICT", id);
+    async findExpired(now, limit = 100) {
+      const due: { id: string; at: number }[] = [];
+      for (const key of await records.keys("waiting/")) {
+        const at = (await records.get(key))?.value;
+        if (typeof at === "number" && at <= now)
+          due.push({ id: key.slice("waiting/".length), at });
+      }
+      return due
+        .sort((a, b) => a.at - b.at || (a.id < b.id ? -1 : 1))
+        .slice(0, limit)
+        .map((d) => d.id);
+    },
+    async resumedWithoutOutcome() {
+      const stranded: string[] = [];
+      for (const key of await records.keys("record/")) {
+        const saved = (await records.get(key))?.value as
+          ContinuationRecord | undefined;
+        if (saved?.state === "resumed" && !saved.outcome)
+          stranded.push(key.slice("record/".length));
+      }
+      return stranded;
     },
   };
 }
 type DeferralMethods<B, P extends readonly Plugin[], H extends object> = {
-  defer(this: Cursor<B, P, H, "after">, id: string): Chain<B, P, H, "after">;
+  defer(
+    this: Cursor<B, P, H, "after">,
+    name: string,
+    ttl?: number,
+  ): Chain<B, P, H, "after">;
 };
 interface DeferralFamily extends Family {
   readonly methods: DeferralMethods<
@@ -195,11 +257,17 @@ interface DeferralFamily extends Family {
   >;
 }
 const facets = {
-  deferral: (ex: import("./contracts.ts").Exchange) => ({
-    request: (id: string) => ({
+  deferral: (ex: Exchange) => ({
+    /** The id the NEXT defer on this exchange will park under, so a step can embed it before parking. */
+    id: `${ex.id}#${(Number(ex.headers[DEFERRAL_SEQUENCE]) || 0) + 1}`,
+    request: (name: string, ttl?: number) => ({
       kind: "defer" as const,
       exchange: ex,
-      request: { id, reason: "approval" },
+      request: {
+        name,
+        reason: "approval",
+        ...(ttl !== undefined ? { ttl } : {}),
+      },
     }),
   }),
 };
@@ -212,11 +280,15 @@ export const deferral: Plugin<DeferralFamily, typeof facets> = {
     cursor: Cursor<B, P, H, S>,
   ) {
     return {
-      defer: (id: string) =>
-        cursor.step(`defer:${id}`, (ex) => ({
+      defer: (name: string, ttl?: number) =>
+        cursor.step(`defer:${name}`, (ex) => ({
           kind: "defer",
           exchange: ex,
-          request: { id, reason: "approval" },
+          request: {
+            name,
+            reason: "approval",
+            ...(ttl !== undefined ? { ttl } : {}),
+          },
         })),
     };
   },

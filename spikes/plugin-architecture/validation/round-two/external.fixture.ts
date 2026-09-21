@@ -95,10 +95,11 @@ const app = application([
   deferral,
   sqlite(":memory:", "acme.store", true),
 ]);
+let held = "";
 const source: Source<number> = {
   owner: "acme.stranger",
   async subscribe(emit) {
-    await emit(5);
+    held = (await emit(5)).deferrals[0] ?? "";
     return () => {
       trace.push("unsubscribe");
     };
@@ -122,7 +123,7 @@ const spec = app
   .build();
 await app.start([spec]);
 assert.deepEqual(trace, ["wrapper", "branch", "point"]);
-assert.equal((await app.runtime.resume("hold")).exchanges[0]?.body, 6);
+assert.equal((await app.runtime.resume(held)).exchanges[0]?.body, 6);
 assert.deepEqual(trace, ["wrapper", "branch", "point", "wrapper", "suffix:6"]);
 assert.equal(
   app.runtime.dump().providers.find((p) => p.port === "records.atomic@1")

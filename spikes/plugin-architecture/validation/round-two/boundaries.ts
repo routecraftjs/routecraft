@@ -20,6 +20,7 @@ const allowed: Record<string, readonly string[]> = {
   "dsl.ts": ["contracts.ts", "host.ts", "runtime.ts"],
   "operations.ts": ["contracts.ts", "dsl.ts"],
   "storage.ts": ["contracts.ts", "dsl.ts"],
+  "auth.ts": ["contracts.ts", "dsl.ts"],
   "index.ts": [
     "contracts.ts",
     "dsl.ts",
@@ -27,6 +28,7 @@ const allowed: Record<string, readonly string[]> = {
     "runtime.ts",
     "operations.ts",
     "storage.ts",
+    "auth.ts",
   ],
   "demo.ts": ["index.ts"],
   "types.check.ts": ["index.ts"],

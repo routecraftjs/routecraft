@@ -890,14 +890,16 @@ test("resume rechecks admission without consuming a refused claim", async () => 
       })
       .build(),
   ]);
-  await app.runtime.deliver("r", 1);
-  expect((await app.runtime.resume("approval")).status).toBe("refused");
+  const parked = await app.runtime.deliver("r", 1);
+  const id = parked.deferrals[0]!;
+  expect((await app.runtime.resume(id)).status).toBe("refused");
   expect(await app.host.service(RECORDS).keys("waiting/")).toEqual([
-    "waiting/approval",
+    `waiting/${id}`,
   ]);
   allowed = true;
-  await app.runtime.resume("approval");
-  await expect(app.runtime.resume("approval")).rejects.toThrow("CLAIM_LOST");
+  expect((await app.runtime.resume(id)).status).toBe("completed");
+  // An approver double-clicks: the cached reply, and the suffix does not run again.
+  expect((await app.runtime.resume(id)).status).toBe("duplicate");
   expect(count).toBe(1);
   await app.stop();
 });
@@ -968,7 +970,7 @@ test("boot failure taxonomy and foreign instruction faults name responsible plug
         step("park", (ex) => ({
           kind: "defer",
           exchange: ex,
-          request: { id: "x", reason: "x" },
+          request: { name: "x", reason: "x" },
         })),
       ],
       "park",
@@ -1057,11 +1059,16 @@ test("an asynchronous provider supports concurrent semantic resume", async () =>
       })
       .build(),
   ]);
-  await app.runtime.deliver("r", 1);
+  const id = (await app.runtime.deliver("r", 1)).deferrals[0]!;
   const results = await Promise.allSettled(
-    Array.from({ length: 12 }, () => app.runtime.resume("race")),
+    Array.from({ length: 12 }, () => app.runtime.resume(id)),
   );
-  expect(results.filter((x) => x.status === "fulfilled")).toHaveLength(1);
+  const statuses = results.map((x) =>
+    x.status === "fulfilled" ? x.value.status : `rejected:${x.reason}`,
+  );
+  // One resume wins the compare-and-swap; every loser is answered as a duplicate, none re-runs.
+  expect(statuses.filter((x) => x === "completed")).toHaveLength(1);
+  expect(statuses.filter((x) => x === "duplicate")).toHaveLength(11);
   expect(effects).toBe(1);
   expect(await app.host.service(RECORDS).keys("waiting/")).toEqual([]);
   await app.stop();
@@ -1162,7 +1169,6 @@ test("a plugin can enter the error channel through its public lifecycle context"
         routeId: "r",
         body: null,
         headers: {},
-        principal: { subject: "a", grants: [], lent: [] },
       },
       error,
     ),
@@ -1195,11 +1201,14 @@ test("different installed sets coexist in two live contexts", async () => {
       .transform((_, ex) => "deferral" in ex)
       .build(),
   ]);
-  expect((await rich.runtime.deliver("rich", 42)).status).toBe("deferred");
+  const parked = await rich.runtime.deliver("rich", 42);
+  expect(parked.status).toBe("deferred");
   expect((await lean.runtime.deliver("lean", 0)).exchanges[0]?.body).toBe(
     false,
   );
-  expect((await rich.runtime.resume("a")).exchanges[0]?.body).toBe(42);
+  expect(
+    (await rich.runtime.resume(parked.deferrals[0]!)).exchanges[0]?.body,
+  ).toBe(42);
   await Promise.all([rich.stop(), lean.stop()]);
 });
 /**

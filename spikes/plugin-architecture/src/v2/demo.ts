@@ -29,15 +29,17 @@ const route = app
   })
   .build();
 await app.start([route]);
+const parked = await app.runtime.deliver("approval-demo", null);
+console.log("park", JSON.stringify(parked), "effects", effects);
 console.log(
-  "park",
-  JSON.stringify(await app.runtime.deliver("approval-demo", null)),
+  "resume",
+  JSON.stringify(await app.runtime.resume(parked.deferrals[0]!)),
   "effects",
   effects,
 );
 console.log(
-  "resume",
-  JSON.stringify(await app.runtime.resume("approve")),
+  "resume again",
+  JSON.stringify(await app.runtime.resume(parked.deferrals[0]!)),
   "effects",
   effects,
 );

@@ -25,17 +25,23 @@ export type AnyPort = Pick<Port<never>, "key" | "name">;
 export function port<T>(name: string): Port<T> {
   return Object.freeze({ key: Symbol(name), name });
 }
-export interface Principal {
-  readonly subject: string;
-  readonly grants: readonly string[];
-  readonly lent: readonly string[];
-}
+/**
+ * The core exchange carries no identity. Who the work is for is a header
+ * owned by an auth plugin, which is the only place that can tell a principal
+ * it minted from one a step wrote or one that came back from storage.
+ */
 export interface Exchange<B = unknown, H = Record<string, unknown>> {
   readonly id: string;
   readonly routeId: string;
   body: B;
   headers: H;
-  principal: Principal;
+}
+/** The plain-JSON form an exchange takes while parked. Only this crosses the store. */
+export interface SerializedExchange {
+  readonly id: string;
+  readonly routeId: string;
+  readonly body: unknown;
+  readonly headers: Record<string, unknown>;
 }
 export type DetachedKind = "resume" | "debounce" | "errorChannel";
 export type RunKind = "normal" | DetachedKind;
@@ -46,11 +52,20 @@ export const allRuns: Survival = Object.freeze({
   debounce: true,
   errorChannel: true,
 });
+/**
+ * What a step asks for when it parks. The continuation id is not chosen here:
+ * it is minted per exchange as `{exchangeId}#{sequence}`, so one route can
+ * park any number of exchanges at once and a step can learn the id before it
+ * defers, through the deferral facet, to embed it in a notification.
+ */
 export interface DeferRequest {
-  readonly id: string;
+  readonly name: string;
   readonly reason: string;
   readonly reenter?: boolean;
+  /** Milliseconds until the parked exchange comes due. Absent means never. */
+  readonly ttl?: number;
 }
+export const DEFERRAL_SEQUENCE = "routecraft.deferral.sequence";
 export type StepOutcome<B = unknown> =
   | { kind: "continue" | "complete"; exchange: Exchange<B> }
   | { kind: "drop" }
@@ -63,6 +78,14 @@ export interface Step {
   readonly version: string;
   /** Public discoverable children. Returned branches must reference this compiled graph. */
   readonly children?: readonly Step[];
+  /**
+   * Values that identify this step's behaviour beyond its id: the user's
+   * callable for a transform, the option bag for an adapter. Folded into the
+   * tail hash a parked exchange is checked against, with functions taken by
+   * verbatim source text, so an approval cannot authorise steps that were
+   * edited under it.
+   */
+  readonly source?: readonly unknown[];
   execute(
     exchange: Exchange,
     context: StepContext,
@@ -103,39 +126,64 @@ export interface StepContext extends ServiceLookup {
   ): Promise<Exchange | null>;
 }
 export interface RunResult {
-  readonly status: "completed" | "dropped" | "deferred" | "refused";
+  /** `duplicate` is a second resume of a continuation that already ran: the cached outcome, nothing re-executed. */
+  readonly status:
+    "completed" | "dropped" | "deferred" | "refused" | "duplicate";
   readonly exchanges: readonly Exchange[];
   readonly deferrals: readonly string[];
 }
 export interface Continuation {
   readonly codec: 1;
   readonly routeId: string;
-  readonly plan: string;
+  /** Hash of the step definitions after the defer point, callables by source text. Nothing else. */
+  readonly tail: string;
   readonly pending: readonly string[];
-  readonly exchange: Exchange;
+  readonly exchange: SerializedExchange;
+  readonly expiresAt?: number;
 }
+export interface SerializedOutcome {
+  readonly status: RunResult["status"] | "failed";
+  readonly exchanges: readonly SerializedExchange[];
+  readonly error?: string;
+}
+export interface ContinuationRecord {
+  readonly state: "waiting" | "resumed" | "expired" | "denied";
+  readonly continuation: Continuation;
+  /** Epoch millis of an outstanding expiry-delivery claim. The record stays waiting. */
+  readonly claimedAt?: number;
+  readonly resumedAt?: number;
+  /** Cached reply for a duplicate resume. Absent between markResumed and recordOutcome. */
+  readonly outcome?: SerializedOutcome;
+}
+export type CasResult = "won" | "lost";
 /**
  * Semantic persistence boundary, not a generic KV contract in the executor.
  *
- * A claim is a second axis over a record that stays `waiting`, never a
- * transition out of it. A holder that dies mid-resume must leave the
- * continuation discoverable, so {@link ContinuationStore.releaseClaims}
- * can hand it back once the lease elapses. Collapsing the claim into a
- * state change strands the record permanently, which is the failure this
- * shape exists to prevent.
+ * Two mechanisms, deliberately asymmetric, because they protect different
+ * things. A RESUME is `markResumed`, a compare-and-swap out of `waiting` taken
+ * before the continuation runs: exactly one caller wins, a second is told
+ * `duplicate` and handed the cached outcome, and a holder that dies mid-run
+ * leaves residue that `resumedWithoutOutcome` reports and nothing re-runs,
+ * because a half-run continuation may have half-happened side effects. An
+ * EXPIRY NOTIFICATION is `claimExpiry`, a claim over a record that stays
+ * waiting: a holder that dies mid-delivery is healed by `releaseClaims` once
+ * the lease elapses and the next sweep redelivers, because re-sending a nag
+ * is safe. Modelling the resume as the lease re-runs continuations; modelling
+ * the notification as the CAS loses nags. Both mistakes have been made here.
  */
 export interface ContinuationStore {
-  save(id: string, continuation: Continuation): Promise<void>;
-  read(id: string): Promise<Continuation | undefined>;
-  claim(id: string, at?: number): Promise<Continuation | undefined>;
-  finish(id: string, state: "completed" | "failed"): Promise<void>;
-  /**
-   * Clear every claim taken at or before `before`, reporting how many were
-   * released. Released records were and remain waiting; what changes is that
-   * they are resumable again. The cost is at-least-once delivery after a
-   * crash, which is the trade the lease is chosen to make.
-   */
+  /** Refuses a second continuation under one id. */
+  create(id: string, continuation: Continuation): Promise<void>;
+  get(id: string): Promise<ContinuationRecord | undefined>;
+  markResumed(id: string, at: number): Promise<CasResult>;
+  recordOutcome(id: string, outcome: SerializedOutcome): Promise<void>;
+  claimExpiry(id: string, at: number): Promise<CasResult>;
+  markExpired(id: string): Promise<CasResult>;
   releaseClaims(before: number): Promise<number>;
+  /** Waiting, unclaimed, due at or before `now`, oldest first. */
+  findExpired(now: number, limit?: number): Promise<string[]>;
+  /** Resumed records with no cached outcome: a process died mid-continuation. Report, never re-run. */
+  resumedWithoutOutcome(): Promise<string[]>;
 }
 export const CONTINUATIONS = port<ContinuationStore>(
   "execution.continuations@1",
@@ -146,7 +194,7 @@ export interface Acquisition {
 export interface Source<B = unknown> {
   readonly owner: string;
   subscribe(
-    emit: (body: B, principal?: Principal) => Promise<RunResult>,
+    emit: (body: B, headers?: Record<string, unknown>) => Promise<RunResult>,
     acquisition: Acquisition,
   ): Promise<() => void | Promise<void>>;
 }
@@ -215,7 +263,11 @@ export interface Handler extends Ordered {
   readonly survival: Survival;
   handle(
     exchange: Exchange,
-    info: { readonly kind: RunKind; readonly error?: Fault },
+    info: {
+      readonly kind: RunKind;
+      readonly route: RouteSpec;
+      readonly error?: Fault;
+    },
   ): HandlerDecision | Promise<HandlerDecision>;
 }
 export interface Wrapper extends Ordered {
@@ -228,10 +280,13 @@ export interface Execution {
   deliver(
     routeId: string,
     body: unknown,
-    principal?: Principal,
+    headers?: Record<string, unknown>,
     signal?: AbortSignal,
   ): Promise<RunResult>;
-  resume(id: string): Promise<RunResult>;
+  /** `headers` are the resume ingress: whatever identity they carry is the one authorised, never the stored one. */
+  resume(id: string, headers?: Record<string, unknown>): Promise<RunResult>;
+  /** Deliver every due continuation to its route's error channel once, then settle it expired. */
+  sweep(now?: number): Promise<number>;
   errorChannel(
     routeId: string,
     exchange: Exchange,

@@ -146,6 +146,8 @@ export class Cursor<
       id: `${this.owner}:transform:${this.plan.spec.steps.length}`,
       owner: this.owner,
       version: "1",
+      // The user's callable is what the approval authorises; the wrapper below is the same for every transform.
+      source: [fn],
       execute: async (ex, ctx) => ({
         kind: "continue",
         exchange: {
@@ -169,6 +171,7 @@ export class Cursor<
       owner: this.owner,
       version: "1",
       children,
+      source: [execute],
       execute: (ex, ctx) => execute(ex as TypedExchange<B, P, H>, ctx),
     });
   }
@@ -255,10 +258,7 @@ export class Application<P extends readonly Plugin[]> {
     const owners = new Map<string, string>();
     for (const plugin of this.plugins)
       for (const [key, factory] of Object.entries(plugin.facets)) {
-        if (
-          ["body", "id", "routeId", "headers", "principal"].includes(key) ||
-          key in facets
-        )
+        if (["body", "id", "routeId", "headers"].includes(key) || key in facets)
           throw new Fault(
             plugin.id,
             "FACET_COLLISION",
