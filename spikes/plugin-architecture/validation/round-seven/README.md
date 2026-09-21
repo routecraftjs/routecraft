@@ -21,3 +21,12 @@ bun run validation/round-seven/scale.ts        # tsc at 5, 20 and 40 plugins
 Results at the measured head are quoted in the review. They are not
 checked in as text here because the review is where they are interpreted;
 re-run the scripts to reproduce them.
+
+**Kept as evidence, not as a running check.** These probes ran against
+`e5d16035` and drove the corrections that followed. Those corrections changed
+the API they call (`deliver` takes headers, `resume` takes an id minted per
+exchange, `Principal` moved to the auth plugin, the claim lease became
+`claimExpiry`), so the scripts no longer run as written. Every regression they
+found is now an assertion in `test/round-two/corrections.test.ts`, and every
+surviving mutant in `mutants.ts` is now in `validation/round-two/mutations.ts`
+with a test that kills it.

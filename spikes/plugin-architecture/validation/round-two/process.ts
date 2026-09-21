@@ -1,5 +1,10 @@
 /** Child process probe. Each invocation has a fresh JS heap and fresh SQLite connections. */
-import { appendFileSync, writeFileSync, existsSync } from "node:fs";
+import {
+  appendFileSync,
+  writeFileSync,
+  existsSync,
+  readFileSync,
+} from "node:fs";
 import {
   application,
   infrastructure,
@@ -7,17 +12,18 @@ import {
   resilience,
   deferral,
   sqlite,
+  auth,
+  withPrincipal,
   SESSIONS,
   RECORDS,
   SqliteRecords,
-  allRuns,
   instruction,
   continueWith,
   type AtomicStore,
   type Step,
   type RouteSpec,
 } from "../../src/v2/index.ts";
-const [mode, dir, arg] = process.argv.slice(2);
+const [mode, dir] = process.argv.slice(2);
 if (!dir) throw Error("missing directory");
 const pause = async () => {
   while (true) await new Promise((r) => setTimeout(r, 100));
@@ -39,6 +45,7 @@ if (mode === "crash") {
   );
   throw Error("kill failed");
 } else if (mode === "cas") {
+  const arg = process.argv[4];
   const s = new SqliteRecords(`${dir}/cas.db`);
   const version = s.get("latch")!.version;
   writeFileSync(`${dir}/ready-${arg}`, String(process.pid));
@@ -60,43 +67,14 @@ if (mode === "crash") {
       session = c.require(SESSIONS);
     },
   });
-  const security = infrastructure({
-    id: "acme.security",
-    bind(c) {
-      c.contribute({
-        kind: "handler",
-        id: "admit",
-        point: "admission",
-        survival: allRuns,
-        handle(ex, { kind }) {
-          if (kind === "resume" && !ex.principal.lent.includes("approve"))
-            throw Error("lost elevation");
-          return { kind: "allow", exchange: ex };
-        },
-      });
-      c.contribute({
-        kind: "handler",
-        id: "authorize",
-        point: "entry",
-        survival: allRuns,
-        handle(ex) {
-          if (
-            ![...ex.principal.grants, ...ex.principal.lent].includes("approve")
-          )
-            return { kind: "refuse", reason: "authorize" };
-          return { kind: "allow", exchange: ex };
-        },
-      });
-    },
-  });
   const app = application([
     operations,
     resilience,
     deferral,
+    auth,
     sqlite(`${dir}/deferrals.db`, "acme.disk", true),
     sqlite(`${dir}/sessions.db`, "acme.sessions", true, SESSIONS),
     agent,
-    security,
   ]);
   const op = (
     id: string,
@@ -119,7 +97,7 @@ if (mode === "crash") {
       return {
         kind: "defer",
         exchange: ex,
-        request: { id: "approval", reason: "tool", reenter: true },
+        request: { name: "approval", reason: "tool", reenter: true },
       };
     }
     if (context.kind !== "resume") throw Error("approval required");
@@ -145,14 +123,22 @@ if (mode === "crash") {
     (ex) => ({ kind: "branch", exchange: ex, steps: [ask] }),
     [ask],
   );
+  // The sink authorises at its own entry. What it sees is whatever identity
+  // the resume ingress carried, never the one that was parked.
   const target: RouteSpec = {
     id: "sink",
     owner: "acme.agent",
     version: "1",
     tags: [],
+    options: { authorize: ["approve"] },
     steps: [
       op("sink-check", (ex) => {
-        log(`principal:${ex.principal.subject}:${ex.principal.lent.join(",")}`);
+        const p = (
+          ex as { principal?: { subject: string; authentic: boolean } }
+        ).principal;
+        log(
+          `principal:${p?.subject}:${p?.authentic ? "authentic" : "restored"}`,
+        );
         return continueWith(ex);
       }),
     ],
@@ -160,7 +146,7 @@ if (mode === "crash") {
   const spec: RouteSpec = {
     id: "conversation",
     owner: "acme.agent",
-    version: mode === "mismatch" ? "changed" : "1",
+    version: "1",
     tags: ["agent"],
     steps: [
       op("prefix", (ex) => {
@@ -168,24 +154,35 @@ if (mode === "crash") {
         return continueWith(ex);
       }),
       nested,
-      op("suffix", async (ex, ctx) => {
-        log("suffix");
-        await ctx.dispatch("sink", ex);
-        return continueWith(ex);
-      }),
+      op(
+        "suffix",
+        mode === "mismatch"
+          ? async (ex) => {
+              log("suffix-edited");
+              return continueWith(ex);
+            }
+          : async (ex, ctx) => {
+              log("suffix");
+              await ctx.dispatch("sink", ex);
+              return continueWith(ex);
+            },
+      ),
     ],
   };
   await app.start([spec, target]);
+  const parkedId = () =>
+    JSON.parse(readFileSync(`${dir}/parked.json`, "utf8")).id as string;
   if (mode === "park") {
-    const result = await app.runtime.deliver("conversation", "book", {
-      subject: "alice",
-      grants: [],
-      lent: ["approve"],
-    });
+    const result = await app.runtime.deliver(
+      "conversation",
+      "book",
+      withPrincipal({}, { subject: "alice", grants: [], lent: ["approve"] }),
+    );
     writeFileSync(
       `${dir}/parked.json`,
       JSON.stringify({
         pid: process.pid,
+        id: result.deferrals[0],
         result,
         plan: app.runtime.dump(),
         session: await session.get("conversation"),
@@ -193,20 +190,27 @@ if (mode === "crash") {
     );
     await pause();
   } else if (mode === "resume") {
-    const result = await app.runtime.resume("approval");
+    const ingress = withPrincipal(
+      {},
+      { subject: "bob", grants: ["approve"], lent: [] },
+    );
+    const result = await app.runtime.resume(parkedId(), ingress);
+    const again = await app.runtime.resume(parkedId(), ingress);
     writeFileSync(
       `${dir}/resumed.json`,
       JSON.stringify({
         pid: process.pid,
         result,
+        again,
         session: await session.get("conversation"),
         waiting: await app.host.service(RECORDS).keys("waiting/"),
       }),
     );
     await app.stop();
   } else if (mode === "mismatch") {
+    // The suffix callable was edited under the parked approval: refused before anything leaves waiting.
     try {
-      await app.runtime.resume("approval");
+      await app.runtime.resume(parkedId());
       throw Error("accepted changed plan");
     } catch (e) {
       writeFileSync(`${dir}/mismatch.txt`, String(e));

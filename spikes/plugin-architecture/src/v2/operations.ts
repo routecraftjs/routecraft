@@ -217,10 +217,8 @@ export const resilience: Plugin<ResilienceFamily, Record<never, never>> = {
           for (let i = 1; ; i++) {
             run.signal.throwIfAborted();
             try {
-              return await next({
-                ...run,
-                exchange: structuredClone(run.exchange),
-              });
+              // Attempts share the exchange, as shipped: a retried step sees what the failed attempt left.
+              return await next(run);
             } catch (e) {
               if (i >= attempts) throw e;
             }
@@ -296,7 +294,7 @@ export function instruction(
   execute: Step["execute"],
   children: readonly Step[] = [],
 ): Step {
-  return { owner, id, version: "1", execute, children };
+  return { owner, id, version: "1", execute, children, source: [execute] };
 }
 export function continueWith(ex: Parameters<Step["execute"]>[0]): StepOutcome {
   return { kind: "continue", exchange: ex };

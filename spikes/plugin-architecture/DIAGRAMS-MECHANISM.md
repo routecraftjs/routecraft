@@ -35,6 +35,7 @@ graph TD
     subgraph plugins["first-party plugins, replaceable like any other"]
         operations["operations.ts<br/><i>transform, retry, timeout, breaker</i>"]
         storage["storage.ts<br/><i>SQLite records, deferral</i>"]
+        auth["auth.ts<br/><i>principal header, brand, authorize</i>"]
     end
     index["index.ts<br/><i>the published entry point</i>"]
 
@@ -50,12 +51,15 @@ graph TD
     operations --> dsl
     storage --> contracts
     storage --> dsl
+    auth --> contracts
+    auth --> dsl
     index --> contracts
     index --> dsl
     index --> host
     index --> runtime
     index --> operations
     index --> storage
+    index --> auth
 ```
 
 Read the absent edges. `contracts.ts` imports nothing, so a contract can never

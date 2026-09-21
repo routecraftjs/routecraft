@@ -35,7 +35,7 @@ async function success(child: ReturnType<typeof spawn>) {
 /**
  * @case actual restart
  * @preconditions child parks nested reentrant agent and is killed
- * @expectedResult new PID resumes suffix, prefix/tool request once, two stores retain conversation */
+ * @expectedResult new PID resumes suffix once under the ingress identity, prefix/tool request once, a repeat is a duplicate, two stores retain conversation */
 test("defer → SIGKILL → new process → resume named nested instruction across two stores", async () => {
   const dir = mkdtempSync(join(tmpdir(), "routecraft-restart-"));
   const child = spawn("park", dir);
@@ -53,10 +53,13 @@ test("defer → SIGKILL → new process → resume named nested instruction acro
     expect(readFileSync(join(dir, "mismatch.txt"), "utf8")).toContain(
       "PLAN_MISMATCH",
     );
+    expect(parked.id).toMatch(/#1$/);
     await success(spawn("resume", dir));
     const resumed = read(dir, "resumed.json");
     expect(resumed.pid).not.toBe(parked.pid);
     expect(resumed.result.status).toBe("completed");
+    // The same approval presented twice is answered from the cache; the suffix ran once.
+    expect(resumed.again.status).toBe("duplicate");
     expect(resumed.session.value.messages).toEqual([
       "user:book",
       "assistant:tool-request",
@@ -65,7 +68,7 @@ test("defer → SIGKILL → new process → resume named nested instruction acro
     ]);
     expect(resumed.waiting).toEqual([]);
     expect(readFileSync(join(dir, "effects.log"), "utf8")).toBe(
-      "prefix\ntool-request\ntool-result\nsuffix\nprincipal:alice:approve\n",
+      "prefix\ntool-request\ntool-result\nsuffix\nprincipal:bob:authentic\n",
     );
   } finally {
     child.kill();

@@ -12,11 +12,15 @@ import {
   type RunResult,
   type Next,
   type Handler,
+  type Contribution,
   type HandlerPoints,
   type RunKind,
   type RouteStatus,
-  type Principal,
   type Continuation,
+  type ContinuationRecord,
+  type SerializedExchange,
+  type SerializedOutcome,
+  DEFERRAL_SEQUENCE,
 } from "./contracts.ts";
 async function abortable<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
   signal.throwIfAborted();
@@ -39,20 +43,55 @@ const empty = (): RunResult => ({
   exchanges: [],
   deferrals: [],
 });
+/** A fresh core envelope so facets attach cleanly. Bodies are not cloned: a stream or a class instance is an ordinary body in flight. */
 export function wireExchange(ex: Exchange): Exchange {
-  return structuredClone({
-    id: ex.id,
-    routeId: ex.routeId,
-    body: ex.body,
-    headers: ex.headers,
-    principal: ex.principal,
-  });
+  return { id: ex.id, routeId: ex.routeId, body: ex.body, headers: ex.headers };
+}
+/**
+ * The plain-JSON form that crosses the store. This is the one boundary that
+ * requires it, and it refuses rather than silently dropping a function or
+ * stream, naming the step that tried to park it.
+ */
+function serialize(ex: Exchange, owner: string): SerializedExchange {
+  try {
+    return structuredClone({
+      id: ex.id,
+      routeId: ex.routeId,
+      body: ex.body,
+      headers: ex.headers,
+    });
+  } catch (e) {
+    throw fault(owner, "NOT_SERIALIZABLE", e);
+  }
+}
+/**
+ * Hash of the step DEFINITIONS a parked exchange will run when it resumes:
+ * ids, owners, versions, declared children, and every value a step names in
+ * `source`, with functions taken by verbatim source text. Nothing outside the
+ * tail is folded in, so an unrelated plugin or a route option cannot strand
+ * every approval in flight, and an edited callable cannot slip under one.
+ */
+function tailHash(
+  steps: ReadonlyMap<string, Step>,
+  pending: readonly string[],
+) {
+  const describe = (step: Step): unknown => [
+    step.id,
+    step.owner,
+    step.version,
+    (step.source ?? []).map((v) =>
+      typeof v === "function" ? Function.prototype.toString.call(v) : v,
+    ),
+    step.children?.map(describe) ?? [],
+  ];
+  return createHash("sha256")
+    .update(JSON.stringify(pending.map((id) => describe(steps.get(id)!))))
+    .digest("hex");
 }
 interface Compiled {
   spec: RouteSpec;
   steps: Map<string, Step>;
   initial: readonly string[];
-  hash: string;
   invoke: Next;
   status: RouteStatus;
 }
@@ -65,6 +104,10 @@ export class Runtime {
     stop: () => void | Promise<void>;
   }[] = [];
   #accept = false;
+  #ordered: readonly Owned<Contribution>[] | undefined;
+  private get ordered() {
+    return (this.#ordered ??= this.host.ordered(this.host.contributions));
+  }
   constructor(
     readonly host: Host,
     readonly facets: Readonly<
@@ -109,27 +152,11 @@ export class Runtime {
       steps: initial,
       options: Object.freeze({ ...spec.options }),
     });
-    const ordered = this.host.ordered(this.host.contributions);
-    const hash = createHash("sha256")
-      .update(
-        JSON.stringify({
-          version: spec.version,
-          steps: [...steps.values()].map((s) => [
-            s.id,
-            s.owner,
-            s.version,
-            s.children?.map((c) => c.id),
-          ]),
-          chain: ordered.map((c) => [c.owner, c.id, c.kind, c.survival]),
-          options: spec.options ?? {},
-        }),
-      )
-      .digest("hex");
+    const ordered = this.ordered;
     const compiled: Compiled = {
       spec: frozen,
       steps,
       initial: initial.map((s) => s.id),
-      hash,
       status: { state: "enabled", owner: spec.owner, reason: "compiled" },
       invoke: () => Promise.resolve(empty()),
     };
@@ -168,7 +195,7 @@ export class Runtime {
           const source = route.spec.source;
           try {
             const stop = await source.subscribe(
-              (body, principal) => this.deliver(route.spec.id, body, principal),
+              (body, headers) => this.deliver(route.spec.id, body, headers),
               {
                 onDispose: (stop) =>
                   this.#unsubscribes.push({ owner: source.owner, stop }),
@@ -198,7 +225,6 @@ export class Runtime {
   }
   private attach(ex: Exchange): Exchange {
     for (const [name, factory] of Object.entries(this.facets)) {
-      if (name in ex) throw new Fault("kernel", "FACET_COLLISION", name);
       let made = false,
         value: unknown;
       Object.defineProperty(ex, name, {
@@ -222,7 +248,7 @@ export class Runtime {
   async deliver(
     routeId: string,
     body: unknown,
-    principal: Principal = { subject: "anonymous", grants: [], lent: [] },
+    headers: Record<string, unknown> = {},
     signal: AbortSignal = new AbortController().signal,
   ): Promise<RunResult> {
     if (!this.#accept) throw new Fault("kernel", "NOT_RUNNING", routeId);
@@ -235,73 +261,145 @@ export class Runtime {
       );
     return this.own(
       this.enter(route, {
-        exchange: { id: randomUUID(), routeId, body, headers: {}, principal },
+        exchange: { id: randomUUID(), routeId, body, headers: { ...headers } },
         kind: "normal",
         signal,
         pending: route.initial,
       }),
     );
   }
-  async resume(id: string): Promise<RunResult> {
+  async resume(
+    id: string,
+    headers: Record<string, unknown> = {},
+  ): Promise<RunResult> {
     if (!this.#accept) throw new Fault("kernel", "NOT_RUNNING", "resume");
     const store = this.host.service(CONTINUATIONS),
       provider = this.host.selected.get(CONTINUATIONS.key)!.plugin.id;
-    let saved: Continuation | undefined;
+    let record: ContinuationRecord | undefined;
     try {
-      saved = await store.read(id);
+      record = await store.get(id);
     } catch (e) {
       throw fault(provider, "READ_CONTINUATION", e);
     }
-    if (!saved) throw new Fault(provider, "UNKNOWN_CONTINUATION", id);
+    if (!record) throw new Fault(provider, "UNKNOWN_CONTINUATION", id);
+    // An approver double-clicks, a webhook is redelivered: the normal case, answered from the cache.
+    if (record.state === "resumed")
+      return {
+        status: "duplicate",
+        exchanges:
+          record.outcome?.exchanges.map((x: SerializedExchange) =>
+            wireExchange(x),
+          ) ?? [],
+        deferrals: [],
+      };
+    if (record.state !== "waiting")
+      throw new Fault(provider, "RESUME_SETTLED", `${id}: ${record.state}`);
+    const saved = record.continuation;
     const route = this.route(saved.routeId);
     if (
       saved.codec !== 1 ||
-      saved.plan !== route.hash ||
-      saved.pending.some((x) => !route.steps.has(x))
+      saved.pending.some((x) => !route.steps.has(x)) ||
+      saved.tail !== tailHash(route.steps, saved.pending)
     )
       throw new Fault(provider, "PLAN_MISMATCH", id);
-    // Current admission is evaluated BEFORE consuming the durable claim. Refusal preserves approval.
+    // The ingress headers win: what the resume carries is what is authorised, never what was stored.
+    const ingress: Exchange = {
+      ...wireExchange(saved.exchange),
+      headers: { ...saved.exchange.headers, ...headers },
+    };
+    // Admission is evaluated BEFORE the record leaves waiting. Refusal preserves the approval.
     const admitted = await this.handlers(
       route,
       "admission",
-      this.attach(wireExchange(saved.exchange)),
+      this.attach(ingress),
       "resume",
     );
     if (!admitted) return { status: "refused", exchanges: [], deferrals: [] };
-    let claimed: Continuation | undefined;
+    let cas: "won" | "lost";
     try {
-      claimed = await store.claim(id);
+      cas = await store.markResumed(id, Date.now());
     } catch (e) {
-      throw fault(provider, "CLAIM", e);
+      throw fault(provider, "MARK_RESUMED", e);
     }
-    if (!claimed) throw new Fault(provider, "CLAIM_LOST", id);
+    if (cas === "lost") {
+      // Lost the race to another resume: read back and answer as the duplicate it is.
+      const settled = await store.get(id);
+      if (settled?.state === "resumed")
+        return {
+          status: "duplicate",
+          exchanges:
+            settled.outcome?.exchanges.map((x: SerializedExchange) =>
+              wireExchange(x),
+            ) ?? [],
+          deferrals: [],
+        };
+      throw new Fault(provider, "RESUME_LOST", id);
+    }
     return this.own(
       (async () => {
+        let result: RunResult;
         try {
-          const result = await this.enter(
+          result = await this.enter(
             route,
             {
               exchange: wireExchange(admitted),
               kind: "resume",
               signal: new AbortController().signal,
-              pending: claimed.pending,
+              pending: saved.pending,
             },
             true,
           );
-          await store.finish(id, "completed");
-          return result;
         } catch (e) {
-          try {
-            await store.finish(id, "failed");
-          } catch (secondary) {
-            const f = fault(provider, "RESUME", e);
-            f.secondary.push(fault(provider, "FINISH", secondary));
-            throw f;
-          }
+          // Recording the failure keeps a replay idempotent: a duplicate is told it failed, not re-run.
+          await store
+            .recordOutcome(id, {
+              status: "failed",
+              exchanges: [],
+              error: String(e),
+            })
+            .catch(() => undefined);
           throw e;
         }
+        const outcome: SerializedOutcome = {
+          status: result.status,
+          exchanges: result.exchanges.map((x) => serialize(x, provider)),
+        };
+        try {
+          await store.recordOutcome(id, outcome);
+        } catch (e) {
+          const f = fault(provider, "RECORD_OUTCOME", e);
+          this.host.emit("continuation:unrecorded", { id, fault: f.message });
+        }
+        return result;
       })(),
     );
+  }
+  /**
+   * Deliver every due continuation to its route's error channel and settle
+   * it expired. The claim is taken first and released by the lease if this
+   * process dies mid-delivery, so a nag is re-sent rather than lost, which
+   * is the at-least-once trade that is safe for a notification and never
+   * for a continuation.
+   */
+  async sweep(now = Date.now()): Promise<number> {
+    if (!this.#accept) throw new Fault("kernel", "NOT_RUNNING", "sweep");
+    const store = this.host.service(CONTINUATIONS),
+      provider = this.host.selected.get(CONTINUATIONS.key)!.plugin.id;
+    let delivered = 0;
+    for (const id of await store.findExpired(now)) {
+      if ((await store.claimExpiry(id, now)) !== "won") continue;
+      const record = await store.get(id);
+      if (!record) continue;
+      const route = this.route(record.continuation.routeId);
+      // The error channel rethrows after the handlers ran; the nag was delivered either way.
+      await this.errorChannel(
+        route.spec.id,
+        wireExchange(record.continuation.exchange),
+        new Fault(provider, "EXPIRED", id),
+      ).catch(() => undefined);
+      if ((await store.markExpired(id)) === "won") delivered++;
+    }
+    return delivered;
   }
   errorChannel(
     routeId: string,
@@ -328,11 +426,9 @@ export class Runtime {
     error?: Fault,
   ): Promise<Exchange | null> {
     let ex = exchange;
-    const handlers = this.host
-      .ordered(this.host.contributions)
-      .filter(
-        (x): x is Owned<Handler> => x.kind === "handler" && x.point === point,
-      );
+    const handlers = this.ordered.filter(
+      (x): x is Owned<Handler> => x.kind === "handler" && x.point === point,
+    );
     for (const h of handlers) {
       if (
         !h.survival[kind] ||
@@ -341,7 +437,12 @@ export class Runtime {
       )
         continue;
       try {
-        const result = await h.handle(ex, error ? { kind, error } : { kind });
+        const result = await h.handle(
+          ex,
+          error
+            ? { kind, route: route.spec, error }
+            : { kind, route: route.spec },
+        );
         if (result.kind === "refuse") {
           if (error) continue;
           return null;
@@ -548,24 +649,37 @@ export class Runtime {
             case "defer": {
               if (!this.host.has(CONTINUATIONS))
                 throw new Fault(step.owner, "MISSING_CONTINUATION_STORE", id);
-              const store = this.host.service(CONTINUATIONS);
+              const store = this.host.service(CONTINUATIONS),
+                provider = this.host.selected.get(CONTINUATIONS.key)!.plugin.id;
+              const sequence =
+                (Number(outcome.exchange.headers[DEFERRAL_SEQUENCE]) || 0) + 1;
+              const continuationId = `${outcome.exchange.id}#${sequence}`;
+              const parked: Exchange = {
+                ...outcome.exchange,
+                headers: {
+                  ...outcome.exchange.headers,
+                  [DEFERRAL_SEQUENCE]: sequence,
+                },
+              };
+              const remaining = outcome.request.reenter
+                ? [id, ...pending]
+                : pending;
               const saved: Continuation = {
                 codec: 1,
                 routeId: route.spec.id,
-                plan: route.hash,
-                pending: outcome.request.reenter ? [id, ...pending] : pending,
-                exchange: wireExchange(outcome.exchange),
+                tail: tailHash(route.steps, remaining),
+                pending: remaining,
+                exchange: serialize(parked, step.owner),
+                ...(outcome.request.ttl !== undefined
+                  ? { expiresAt: Date.now() + outcome.request.ttl }
+                  : {}),
               };
               try {
-                await store.save(outcome.request.id, saved);
+                await store.create(continuationId, saved);
               } catch (e) {
-                throw fault(
-                  this.host.selected.get(CONTINUATIONS.key)!.plugin.id,
-                  "PARK",
-                  e,
-                );
+                throw fault(provider, "PARK", e);
               }
-              deferrals.push(outcome.request.id);
+              deferrals.push(continuationId);
               pending = [];
               break;
             }
@@ -625,7 +739,6 @@ export class Runtime {
       ...this.host.dump(),
       routes: [...this.#routes.values()].map((r) => ({
         id: r.spec.id,
-        hash: r.hash,
         instructions: [...r.steps.values()].map((s) => ({
           id: s.id,
           owner: s.owner,
@@ -635,7 +748,13 @@ export class Runtime {
       })),
     };
   }
-  async stop() {
+  /**
+   * Drain for at most `timeout` milliseconds, then abandon what is still
+   * running and dispose. A step that ignores cancellation forever must not
+   * hold the process open forever; what it was doing is reported, not waited
+   * for.
+   */
+  async stop(timeout = 30_000) {
     this.#accept = false;
     const errors: Fault[] = [];
     for (const sub of this.#unsubscribes.splice(0).reverse())
@@ -644,7 +763,25 @@ export class Runtime {
       } catch (e) {
         errors.push(fault(sub.owner, "UNSUBSCRIBE", e));
       }
-    while (this.#work.size) await Promise.allSettled([...this.#work]);
+    const deadline = Date.now() + timeout;
+    while (this.#work.size) {
+      const left = deadline - Date.now();
+      if (left <= 0) {
+        this.host.emit("drain:abandoned", { pending: this.#work.size });
+        errors.push(
+          new Fault(
+            "kernel",
+            "DRAIN_TIMEOUT",
+            `${this.#work.size} still running after ${timeout}ms`,
+          ),
+        );
+        break;
+      }
+      await Promise.race([
+        Promise.allSettled([...this.#work]),
+        new Promise((r) => setTimeout(r, left)),
+      ]);
+    }
     errors.push(...(await this.host.dispose()));
     if (errors.length)
       throw new AggregateError(errors, errors.map((e) => e.message).join("\n"));
