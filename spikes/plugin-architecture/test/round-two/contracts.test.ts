@@ -310,7 +310,7 @@ test("observers cannot abort execution; subscriptions are snapshotted", async ()
  * @case immutable contributions
  * @preconditions original descriptor changed after bind
  * @expectedResult compiled behavior unchanged */
-test("descriptor mutation cannot bypass freeze and collisions name both owners", async () => {
+test("descriptor mutation cannot bypass freeze and contribution ids are owner-qualified", async () => {
   const h: Handler = {
     kind: "handler",
     id: "h",
@@ -328,11 +328,25 @@ test("descriptor mutation cannot bypass freeze and collisions name both owners",
   };
   expect((await app.runtime.deliver("r", 1)).exchanges[0]?.body).toBe(2);
   await app.stop();
-  const clash = application([
+  // Ids are owner-qualified: two plugins may both contribute an `h`; one plugin may not contribute it twice.
+  const shared = application([
     infrastructure({ id: "one", bind: (c) => c.contribute(h) }),
     infrastructure({ id: "two", bind: (c) => c.contribute(h) }),
   ]);
-  await expect(clash.start([])).rejects.toThrow("h already owned by one");
+  await shared.start([]);
+  await shared.stop();
+  const twice = application([
+    infrastructure({
+      id: "one",
+      bind: (c) => {
+        c.contribute(h);
+        c.contribute(h);
+      },
+    }),
+  ]);
+  await expect(twice.start([])).rejects.toThrow(
+    "[one] DUPLICATE_CONTRIBUTION: h",
+  );
 });
 /**
  * @case handlers
@@ -475,7 +489,7 @@ test("timeout cancels, suppresses late result and rejects a late guarded side ef
         }),
       ],
       "r",
-      { timeout: 5 },
+      { "resilience.timeout": 5 },
     ),
   ]);
   await expect(app.runtime.deliver("r", 0)).rejects.toThrow("TIMEOUT");
@@ -496,8 +510,8 @@ test("concurrency and breaker state persist per route", async () => {
   });
   const app = application([worker, resilience]);
   await app.start([
-    route([slow], "a", { concurrency: 1 }),
-    route([slow], "b", { concurrency: 1 }),
+    route([slow], "a", { "resilience.concurrency": 1 }),
+    route([slow], "b", { "resilience.concurrency": 1 }),
     route(
       [
         step("fail", () => {
@@ -505,9 +519,9 @@ test("concurrency and breaker state persist per route", async () => {
         }),
       ],
       "breaker",
-      { breaker: 1 },
+      { "resilience.breaker": 1 },
     ),
-    route([], "healthy", { breaker: 1 }),
+    route([], "healthy", { "resilience.breaker": 1 }),
   ]);
   const a = app.runtime.deliver("a", 1),
     b = app.runtime.deliver("b", 2);
@@ -659,7 +673,7 @@ test("installed DSL executes all four categories and two retry scopes in one rou
   await app.start([r]);
   expect((await app.runtime.deliver("dsl", 2)).exchanges[0]?.body).toBe(6);
   expect([first, last]).toEqual([3, 2]);
-  expect(r.options?.["title"]).toBe("hello");
+  expect(r.options?.["operations.title"]).toBe("hello");
   expect(root.build().steps).toHaveLength(0);
   await app.stop();
   const lean = application([operations]);
@@ -1156,7 +1170,7 @@ test("a plugin can enter the error channel through its public lifecycle context"
         }),
       ],
       "r",
-      { breaker: 1 },
+      { "resilience.breaker": 1 },
     ),
   ]);
   await expect(app.runtime.deliver("r", 0)).rejects.toThrow("open");
@@ -1296,7 +1310,7 @@ test("steps and lazy facets resolve declared services in their own application",
     id: "client",
     requires: [value],
     facets: {
-      bound: (
+      client: (
         _ex: Exchange,
         services: import("../../src/v2/index.ts").ServiceLookup,
       ) => ({ value: services.require(value) }),
@@ -1327,7 +1341,7 @@ test("steps and lazy facets resolve declared services in their own application",
     a
       .route("facet")
       .from(manual)
-      .transform((_, ex) => ex.bound.value)
+      .transform((_, ex) => ex.client.value)
       .build(),
   ]);
   await b.start([
@@ -1335,7 +1349,7 @@ test("steps and lazy facets resolve declared services in their own application",
     b
       .route("facet")
       .from(manual)
-      .transform((_, ex) => ex.bound.value)
+      .transform((_, ex) => ex.client.value)
       .build(),
   ]);
   expect((await a.runtime.deliver("step", 0)).exchanges[0]?.body).toBe(1);

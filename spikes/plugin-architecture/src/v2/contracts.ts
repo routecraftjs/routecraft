@@ -205,6 +205,13 @@ export interface RouteSpec {
   readonly tags: readonly string[];
   readonly steps: readonly Step[];
   readonly source?: Source;
+  /**
+   * Ports this route cannot run without. The kernel refuses to compile the
+   * route when no installed plugin provides one, so an ask that only a
+   * plugin can honour cannot fail open when that plugin is absent.
+   */
+  readonly requires?: readonly AnyPort[];
+  /** Keys are `namespace.key`, the namespace being an installed plugin's or `route`. The kernel refuses anything else. */
   readonly options?: Readonly<Record<string, unknown>>;
 }
 export interface RouteStatus {
@@ -242,23 +249,43 @@ export interface Ordered {
   readonly before?: readonly Constraint[];
   readonly after?: readonly Constraint[];
 }
-/** Open by declaration merging. Adding a point does not invent a lifecycle: its owner must invoke it. */
+/** The kernel's own point identities. A package declaring a new point supplies its own. */
+export const ADMISSION_POINT: unique symbol = Symbol("admission");
+export const ENTRY_POINT: unique symbol = Symbol("entry");
+export const ERROR_POINT: unique symbol = Symbol("error");
+export const EXIT_POINT: unique symbol = Symbol("exit");
+/**
+ * Open by declaration merging. Adding a point does not invent a lifecycle:
+ * its owner must invoke it. Each point carries two things: an `owner`
+ * identity, a unique symbol, so two packages declaring the same name with
+ * different identities fail to compile; and `refuse`, which says whether a
+ * handler at that point may refuse the exchange. A refusal where it is not
+ * honoured is a compile error through {@link HandlerDecision}, and a fault at
+ * runtime for a caller the compiler did not see.
+ */
 export interface HandlerPoints {
-  admission: true;
-  entry: true;
-  error: true;
-  exit: true;
+  admission: { readonly owner: typeof ADMISSION_POINT; readonly refuse: true };
+  entry: { readonly owner: typeof ENTRY_POINT; readonly refuse: true };
+  error: { readonly owner: typeof ERROR_POINT; readonly refuse: false };
+  exit: { readonly owner: typeof EXIT_POINT; readonly refuse: false };
 }
-export type HandlerDecision =
-  | { readonly kind: "allow"; readonly exchange: Exchange }
-  | { readonly kind: "refuse"; readonly reason: string };
+type Refusal<K> = K extends keyof HandlerPoints
+  ? HandlerPoints[K] extends { readonly refuse: true }
+    ? { readonly kind: "refuse"; readonly reason: string }
+    : never
+  : never;
+export type HandlerDecision<
+  K extends keyof HandlerPoints = keyof HandlerPoints,
+> = { readonly kind: "allow"; readonly exchange: Exchange } | Refusal<K>;
 export interface Selector {
   readonly routeId?: string;
   readonly tag?: string;
 }
-export interface Handler extends Ordered {
+export interface Handler<
+  K extends keyof HandlerPoints = keyof HandlerPoints,
+> extends Ordered {
   readonly kind: "handler";
-  readonly point: keyof HandlerPoints;
+  readonly point: K;
   readonly selector?: Selector;
   readonly survival: Survival;
   handle(
@@ -268,7 +295,7 @@ export interface Handler extends Ordered {
       readonly route: RouteSpec;
       readonly error?: Fault;
     },
-  ): HandlerDecision | Promise<HandlerDecision>;
+  ): HandlerDecision<K> | Promise<HandlerDecision<K>>;
 }
 export interface Wrapper extends Ordered {
   readonly kind: "wrapper";
@@ -303,13 +330,21 @@ export interface PluginContext {
   observe(
     observer: (event: Readonly<{ name: string; data: unknown }>) => unknown,
   ): void;
-  contribute(contribution: Contribution): void;
+  contribute<K extends keyof HandlerPoints>(
+    contribution: Handler<K> | Wrapper,
+  ): void;
 }
 export type FacetFactories = Readonly<
   Record<string, (exchange: Exchange, services: ServiceLookup) => unknown>
 >;
 export interface Installation {
   readonly id: string;
+  /**
+   * The prefix this plugin's strings live under: its facet key and its route
+   * option keys. Defaults to the last segment of `id`. Unique per
+   * application, which is what makes two plugins' strings unable to collide.
+   */
+  readonly namespace?: string;
   readonly requires?: readonly AnyPort[];
   readonly provides?: readonly AnyPort[];
   /** Contract replacements; an alternative may be installed alone or displace one default provider. */
@@ -317,4 +352,7 @@ export interface Installation {
   bind?(context: PluginContext): void | Promise<void>;
   start?(context: PluginContext): void | Promise<void>;
   stop?(context: PluginContext): void | Promise<void>;
+}
+export function namespaceOf(p: Pick<Installation, "id" | "namespace">): string {
+  return p.namespace ?? p.id.slice(p.id.lastIndexOf(".") + 1);
 }

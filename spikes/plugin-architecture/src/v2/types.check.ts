@@ -12,6 +12,8 @@ import {
   type Cursor,
   type Chain,
   type Phase,
+  allRuns,
+  type Handler,
 } from "./index.ts";
 type Pair<B, P extends readonly Plugin[], H extends object> = {
   pair(this: Cursor<B, P, H, "after">): Chain<readonly [B, B], P, H, "after">;
@@ -87,3 +89,15 @@ preserved.step(
 
 // @ts-expect-error declining resilience removes its route and step retry method
 lean.route("no-retry").retry(2);
+
+// @ts-expect-error declining auth removes the authorize route method
+lean.route("no-auth").authorize("admin");
+const cannotRefuseAtExit: Handler<"exit"> = {
+  kind: "handler",
+  id: "late-refusal",
+  point: "exit",
+  survival: allRuns,
+  // @ts-expect-error a point that does not honour refusal cannot return one
+  handle: () => ({ kind: "refuse", reason: "no" }),
+};
+void cannotRefuseAtExit;

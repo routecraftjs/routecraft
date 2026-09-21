@@ -8,6 +8,7 @@ import {
   type Port,
   type Contribution,
   type Ordered,
+  namespaceOf,
 } from "./contracts.ts";
 import { sort } from "./graph.ts";
 export type Owned<T> = T & { readonly owner: string };
@@ -54,12 +55,22 @@ export class Host {
     | "running"
     | "stopping"
     | "stopped" = "new";
+  readonly namespaces: ReadonlySet<string>;
   constructor(plugins: readonly Installation[]) {
     const ids = new Set<string>();
     const names = new Map<string, symbol>();
+    const namespaces = new Map<string, string>();
     for (const p of plugins) {
       if (ids.has(p.id)) throw new Fault(p.id, "DUPLICATE_ID", p.id);
       ids.add(p.id);
+      const ns = namespaceOf(p);
+      if (namespaces.has(ns))
+        throw new Fault(
+          p.id,
+          "DUPLICATE_NAMESPACE",
+          `${ns}: ${namespaces.get(ns)}`,
+        );
+      namespaces.set(ns, p.id);
       for (const t of [...(p.requires ?? []), ...(p.provides ?? [])]) {
         const prior = names.get(t.name);
         if (prior && prior !== t.key)
@@ -74,6 +85,7 @@ export class Host {
         if (!p.provides?.some((x) => x.key === t.key))
           throw new Fault(p.id, "INVALID_REPLACEMENT", t.name);
     }
+    this.namespaces = new Set(namespaces.keys());
     const candidates = new Map<
       symbol,
       { port: AnyPort; plugins: Installation[] }
@@ -195,13 +207,13 @@ export class Host {
           contribute: (c) => {
             if (this.#phase !== "binding")
               throw new Fault(plugin.id, "FROZEN", c.id);
-            const previous = this.#contributions.find((x) => x.id === c.id);
-            if (previous)
-              throw new Fault(
-                plugin.id,
-                "DUPLICATE_CONTRIBUTION",
-                `${c.id} already owned by ${previous.owner}`,
-              );
+            // Ids are owner-qualified, as ordering already keys them: two plugins may both name a wrapper `audit`.
+            if (
+              this.#contributions.some(
+                (x) => x.owner === plugin.id && x.id === c.id,
+              )
+            )
+              throw new Fault(plugin.id, "DUPLICATE_CONTRIBUTION", c.id);
             this.#contributions.push(snapshot({ ...c, owner: plugin.id }));
           },
         };

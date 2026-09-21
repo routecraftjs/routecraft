@@ -18,7 +18,7 @@ await app.start([
     owner: "uncooperative",
     version: "1",
     tags: [],
-    options: { timeout: 1 },
+    options: { "resilience.timeout": 1 },
     steps: [
       instruction("uncooperative", "raw-io", async (ex) => {
         await gate;

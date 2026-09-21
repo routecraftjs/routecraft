@@ -9,6 +9,8 @@ import {
   type RouteSpec,
   type StepContext,
   type StepOutcome,
+  namespaceOf,
+  type AnyPort,
 } from "./contracts.ts";
 import { Host } from "./host.ts";
 import { Runtime } from "./runtime.ts";
@@ -100,6 +102,20 @@ export class Cursor<
   ) {}
   get phase(): S {
     return this.plan.phase as S;
+  }
+  /** Declare ports this route cannot run without; the kernel refuses to compile it when one is unprovided. */
+  require(...ports: readonly AnyPort[]): Chain<B, P, H, S> {
+    const known = new Set((this.plan.spec.requires ?? []).map((x) => x.key));
+    return assemble(this.app, {
+      ...this.plan,
+      spec: {
+        ...this.plan.spec,
+        requires: [
+          ...(this.plan.spec.requires ?? []),
+          ...ports.filter((x) => !known.has(x.key)),
+        ],
+      },
+    });
   }
   configure(options: Record<string, unknown>): Chain<B, P, H, S> {
     return assemble(this.app, {
@@ -263,6 +279,13 @@ export class Application<P extends readonly Plugin[]> {
             plugin.id,
             "FACET_COLLISION",
             `${key}: ${owners.get(key) ?? "kernel"}`,
+          );
+        // A plugin's facet is its namespace and nothing else, so `ex.auth.principal` can never meet `ex.acme.principal`.
+        if (key !== namespaceOf(plugin))
+          throw new Fault(
+            plugin.id,
+            "FACET_NAMESPACE",
+            `${key}: a facet must be named ${namespaceOf(plugin)}`,
           );
         facets[key] = (ex) => {
           try {
