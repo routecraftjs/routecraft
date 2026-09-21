@@ -302,7 +302,27 @@ async function dispatchBackground<TIn>(
   // the runtime's business.
   void new CraftClient(ctx).sendDirect(routeId, input, headers).then(
     (result) => {
-      if (isDownstreamDeferred(result)) {
+      let downstreamDeferred: boolean;
+      try {
+        downstreamDeferred = isDownstreamDeferred(result);
+      } catch {
+        // A user result can throw during inspection. Retire the handle without
+        // forwarding that result or an accessor's potentially sensitive error.
+        settle({
+          handle,
+          tool: toolName,
+          by,
+          status: "failed",
+          error: {
+            name: "Error",
+            message:
+              "The background result could not be stored because it could not be inspected safely.",
+          },
+          duration: Date.now() - startedAt.getTime(),
+        });
+        return;
+      }
+      if (downstreamDeferred) {
         // A receipt is not the eventual action result. Durable linkage to
         // execution two belongs to #813; until then, fail result delivery
         // without persisting the receipt's live token or stranding a handle.
