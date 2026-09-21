@@ -1,5 +1,4 @@
-Round-seven corrections verification. Measured on: 2f5812f8 (fix(spike): adopt the shipped continuation contract and move identity out of core)
-Base reviewed by round seven: e5d16035. Review branch: validation/round-six-fable df7cc6e2.
+Round-seven corrections verification, including rulings 5, 9 and 11. Measured on: ede7ea66
 Bun 1.3.11
 
 $ bun run typecheck && bun run test && bun run verify:mutations && bun run verify:boundaries && bun run verify:types && bun run verify:diagram
@@ -7,10 +6,10 @@ $ tsc --noEmit
 $ bun test test/round-two
 bun test v1.3.11 (af24e281)
 
- 53 pass
+ 56 pass
  0 fail
- 206 expect() calls
-Ran 53 tests across 4 files. [4.33s]
+ 215 expect() calls
+Ran 56 tests across 4 files. [5.52s]
 $ bun run validation/round-two/mutations.ts
 KILLED: duplicate provider accepted
 KILLED: installation order breaks ties
@@ -57,9 +56,15 @@ KILLED: step context require ignores declaration
 KILLED: late disposer accepted
 KILLED: compile after start accepted
 KILLED: dispatch inherits the caller's run kind
-45/45 runtime mutations killed by behavioral assertions
+KILLED: route requirement unchecked (authorization fails open)
+KILLED: refusal at exit silently ignored
+KILLED: option key namespace unchecked
+KILLED: facet may be named anything
+KILLED: duplicate namespace accepted
+KILLED: contribution ids collide across plugins
+51/51 runtime mutations killed by behavioral assertions
 $ bun run validation/round-two/boundaries.ts
-BOUNDARIES: 11 modules (all declared), 24 permitted import edges (0 dynamic), no private/legacy imports
+BOUNDARIES: 11 modules (all declared), 23 permitted import edges (0 dynamic), no private/legacy imports
 $ bun run validation/round-two/type-controls.ts
 TYPE REJECTED: headers are explicit, not an ambient global bag
 TYPE REJECTED: pipeline operation requires after-from receiver
@@ -71,7 +76,9 @@ TYPE REJECTED: pair is merely possible, not installed with certainty
 TYPE REJECTED: dynamic lists have no statically known DSL
 TYPE REJECTED: a body-preserving step cannot return an incompatible body
 TYPE REJECTED: declining resilience removes its route and step retry method
-10/10 compiler negative controls detected; ordinary strict options also pass baseline
+TYPE REJECTED: declining auth removes the authorize route method
+TYPE REJECTED: a point that does not honour refusal cannot return one
+12/12 compiler negative controls detected; ordinary strict options also pass baseline
 $ bun run validation/round-two/diagram.ts
 DIAGRAM: module graph matches src/v2 (21 edges, 2 example modules omitted by design)
 

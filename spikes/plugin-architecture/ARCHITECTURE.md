@@ -83,6 +83,7 @@ not see.
 | 6 | Review of round 5 | Claude Opus 5 (this session) | ✅ Done. All round-five numbers reproduced; 4 defects found by mutation. Its headline reclassification of the claim lease was itself wrong, which round 7 found. |
 | 7 | Clean-room review of round 6 | Fable 5.1, fresh session | ✅ Done. Everything reproduced; round six's claim-lease correction refuted against `revive.ts`; eight guarantee regressions, thirteen surviving mutants, the encoding measured at 20 and 40 plugins. Verdict: proceed on the kernel half, send the continuation half back. |
 | 7c | Corrections | Fable 5.1 (this session, model switched) | ✅ Done. Shipped continuation shape adopted, identity moved out of core, per-step clone dropped, every surviving mutant killed. Commit `2f5812f8`. |
+| 7d | Rulings 5, 8, 9, 10, 11 | Jaco, with code shown for each | ✅ Done. Principal out of core confirmed and the fail-open ask closed; facets kept and the standard's amendment drafted; strings owner-qualified; routes-file shape deferred to 7a/7b; refusal policy encoded in the type. Commit `ede7ea66`. |
 | 7a | Feature fit, clean room | Claude Opus 5, fresh session | Walk the real framework feature by feature: what fits the model, what does not. |
 | 7b | Feature fit, clean room | ChatGPT Astra | Same brief, independently, from its own round-3 work plus round 6. |
 | 8 | Implementation planning | Fable 5.1 | Given everything: decide sequencing, pull-request shape, and whether to fan out to sub-agents. **Fable decides how, not whether.** |
@@ -473,8 +474,9 @@ boundary — private state stays in a `WeakMap`.
 `.standards/exchange-state-model.md`, Non-rules: "Plugins do not extend
 `DefaultExchange`'s prototype. Adding a getter for plugin-defined concerns would
 lead to arms races and conflicts. Plugins export external helpers." Typed facets
-are exactly plugin-defined getters on the exchange. The facet design may be the
-better answer; if so the standard changes with a recorded reason. Open ruling 8.
+are exactly plugin-defined getters on the exchange. **Decided, ruling 8:** keep
+facets, one per plugin named by its namespace, and amend the standard with the
+reason recorded there.
 
 ### Declarative versus imperative contributions
 
@@ -648,11 +650,12 @@ bounded round. That round is commit `2f5812f8`. Its content, by what changed:
 | `structuredClone` per step rejects functions, streams, class instances | plain JSON only at the defer boundary (`RC5042`) | **Fixed.** No clone in flight; `NOT_SERIALIZABLE` names the step at the defer boundary |
 | Unbounded drain | `shutdown.timeout` then `forceStageTwo` | **Fixed.** `stop(timeout)` abandons and reports after the deadline |
 | Contributions re-sorted per handler point per exchange | drawn as once at freeze | **Fixed.** Ordered once |
-| Contribution ids one flat namespace; facet names, option keys, point names unversioned | `api-stability.md` covers TypeScript symbols only | **Open ruling 9.** Not a code change; a policy the string surface needs before stage 2 |
+| Contribution ids one flat namespace; facet names, option keys, point names unversioned | `api-stability.md` covers TypeScript symbols only | **Fixed per ruling 9** (`ede7ea66`): namespaces, per-owner ids, facet named by namespace, namespaced option keys. Version policy extension is 0.8 work |
 | Displaced provider still binds, acquires and contributes | none | **Documented.** P7 amended below; "ours steps aside" qualified in the docs draft |
-| Refusal honoured at `admission` and `entry`, ignored at `error`, discarded at `exit` | none | **Documented.** Open ruling 11; the docs draft now says which points honour it |
+| Refusal honoured at `admission` and `entry`, ignored at `error`, discarded at `exit` | none | **Fixed per ruling 11.** Encoded in `HandlerPoints`; compile error where not honoured, `REFUSE_UNSUPPORTED` at runtime |
 | CLI `routes/` and `plugins/` layout does not fit a DSL that starts from an `Application` value | `packages/cli/src/project.ts:194`, `start.ts:324` | **Open ruling 10.** A design question for 7a/7b, not a migration cost |
 | `keepsAlive`, auto-stop, `TeardownInfo`, `whenStarted()` absent | `context.ts` | **Ledger items.** Shipped guarantees the feature-fit rounds must carry |
+| An authorization ask was a bare option that failed open without the auth plugin (found while answering Jaco's question on ruling 5) | `.authorize()` is a core builder method, so the ask and the check are one | **Fixed.** `.authorize()` contributed by the auth plugin; `RouteSpec.requires` enforced by the kernel |
 
 **Round seven's positions on the principles**, adopted here unless marked:
 P1 keep, and extend the version policy to the string surface. P2 keep, and say
@@ -815,6 +818,9 @@ mocked bodies are fine, a `Step` that cannot halt is not.
 - [ ] Every boot failure and runtime fault **names the plugin responsible**
 - [ ] A route-plan dump: resolved order, selected providers, contribution origins, unmatched constraints
 - [x] Principal propagation across hops with `authorize()` at entry, from a header an auth plugin owns
+- [x] An authorization ask cannot fail open: `.authorize()` is absent from the type without the auth plugin, and a route requiring `AUTHORITY` refuses to compile without a provider
+- [x] Strings are owner-qualified: one namespace per plugin, contribution ids per owner, one facet per namespace, `namespace.key` option keys
+- [x] A refusal at a point that does not honour it is a compile error and a named runtime fault
 
 ### Durable agents
 
@@ -837,13 +843,15 @@ been given. The scope and release baseline is now stated in section 1.
 2. **Ordering: named anchors or numeric slots.** Jaco proposed Spring-style numeric order. My recommendation is named contract-owned anchors with numeric slots underneath, where the names are the API and the numbers are not, because a third party hardcoding `150` breaks silently when core renumbers.
 3. **Tie-break rule** inside a gap. Not install order. Round four proposed plugin id, lexicographic. **Round seven disagrees:** `tie-replacement.ts` shows a replacement flipping an unconstrained pair, and the pair that matters is an authorisation gate against a retry. Its recommendation: tie-break on a contract-owned contribution identity (port name plus contribution id), fall back to owner only when identities are equal, and report every unconstrained pair of wrappers that share a surviving run kind in `dump()`. Determinism is necessary and not sufficient.
 4. **Is isolation a goal.** Round seven: no. Delete the claim from A2, keep declaration-scoped `require` as API discipline. The step-path wiring is now mutation-covered.
-5. **Where `Principal` lives. Decided and implemented in 7c: not in core.** Core carries headers; the auth plugin owns the key, the brand and the `authorize` handler; a continuation never resurrects authenticity. Jaco approved the plan that included this move; the implementation is his to confirm on review.
+5. **Where `Principal` lives. Confirmed by Jaco, 2026-09-21: not in core.** Core carries headers; the auth plugin owns the key, the `WeakSet` brand, the `.authorize()` route method and the entry handler; a continuation never resurrects authenticity. The cost was stated before he confirmed: the brand is as strong as shipped, core is identity-blind, and the ask had been a bare option that **failed open** when the plugin was absent (probed: `completed "leaked"`). That gap is closed in the same commit: `.authorize()` is a method the auth plugin contributes, so a route cannot express the ask without it (compiler control), and it declares `AUTHORITY` as a route requirement, which the kernel refuses to compile unprovided (`ROUTE_REQUIRES`, mutation-covered).
 6. **Scope of the not-doing list.** Round seven's version, to be confirmed before 7a and 7b. Explicitly out: exactly-once external effects, one transaction across the session and deferral stores, sandboxing, automatic migration of a changed plan, retracting uncooperative IO. Explicitly NOT out, because shipped: per-exchange deferral ids, tail-only hash with callable source, duplicate-resume idempotency, TTL expiry with lease-healed escalation, restored-principal refusal, bounded shutdown (all five now in the spike); `keepsAlive` and auto-stop, `TeardownInfo`, resume payload validation and the signed token (ledger items).
 7. **Whether #542 runs in parallel now.** Both validators rate it independent and airtight. Round seven did not read it. It is the cheapest available proof that this team can execute this pattern in this codebase.
-8. **Facets against `exchange-state-model.md`.** Typed facets are the plugin-defined exchange getters the standard's non-rules forbid. Either the spike changes or the standard does, with the reason recorded. Nobody had raised it before round seven, and the docs draft teaches it.
-9. **The string surface needs a namespace and a version policy.** Contribution ids are one flat namespace per application (two third parties cannot both name a wrapper `audit`); facet names, route option keys and handler point names are bare strings; only ports carry `@1`. `api-stability.md` covers TypeScript symbols. Stage 2 is where this stops being cheap.
-10. **How a `routes/` file gets its application.** The CLI recognises a plugin by a callable `apply` and loads routes from separate files built with a free `craft()`. Under the spike, a typed chain comes from `app.route()` on an `Application<P>` value. The DSL work answered "can it exist", not "how does a route module find its plugin list". For 7a and 7b.
-11. **Which handler points honour a refusal.** Today `admission` and `entry` do; `error` ignores it and `exit` discards it. A point must declare which decisions it honours, and the docs must say so.
+8. **Facets against `exchange-state-model.md`. Decided by Jaco, 2026-09-21: keep facets, amend the standard.** Facets are typed per installation (`TypedExchange<B, P, H> = Exchange<B, Partial<H>> & Facets<P>`; `ex.auth.principal` is `PrincipalView | undefined` when auth is installed and a compile error when it is not, `types.check.ts`), and a collision is refused at construction. The standard's non-rule was written when a plugin getter could only be typed globally. The amendment to apply in 0.8, since `.standards/` is outside this spike:
+
+   > **Plugins do not extend `DefaultExchange`'s prototype ad hoc.** A plugin exposes at most one facet, named after its namespace (`ex.deferral`, `ex.auth`), declared through the plugin protocol. Installation is what makes this safe: the facet exists on the type only when the plugin is installed, two namespaces cannot collide, and a collision with a core field is refused at construction. Anything else stays an exported helper.
+9. **The string surface. Decided by Jaco, 2026-09-21: owner-qualify everything.** Implemented: every plugin has a namespace (declared, or the last segment of its id), unique per application (`DUPLICATE_NAMESPACE`); contribution ids are checked per owner, as ordering already keyed them, so two plugins may both name a wrapper `audit` and one plugin may not name two; a plugin's facet must be its namespace (`FACET_NAMESPACE`); route option keys must be `namespace.key` for an installed plugin or `route` (`OPTION_NAMESPACE`), so `resilience.retry`, `operations.title`, `auth.authorize`. Handler point names stay global by declaration merging and carry an owner identity that makes two declarations of one name with different identities fail to compile. Remaining for 0.8: extend `api-stability.md` so these strings are covered by the version policy alongside TypeScript symbols.
+10. **How a `routes/` file gets its application. Deferred by Jaco to rounds 7a and 7b, 2026-09-21.** The CLI recognises a plugin by a callable `apply` (`project.ts:194`) and loads routes from separate files built with a free `craft()`. Under the spike, a typed chain comes from `app.route()` on an `Application<P>` value. The three shapes to weigh with the CLI, TUI and testing package in view: a project-level `app.ts` that routes import; a `defineRoutes(app => [...])` callback the CLI invokes; or a free `craft()` over a global registry, which is what exists and what encoding E was built to leave.
+11. **Which handler points honour a refusal. Decided by Jaco, 2026-09-21: encode it in the type.** Each `HandlerPoints` entry now carries `refuse: true | false` beside its owner identity; `HandlerDecision<K>` offers `refuse` only where the point honours it, so a refusal at `exit` is a compile error (control in `types.check.ts`). For a caller the compiler did not see, the runtime raises `REFUSE_UNSUPPORTED` naming the handler: a fault at `exit`, a secondary on the primary error at `error`. Nothing is silently ignored any more.
 
 ---
 

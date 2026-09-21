@@ -85,6 +85,17 @@ flowchart LR
 - **Provider.** The runtime needs a few things to do its job, such as somewhere
   to keep exchanges that are waiting. You can be the one who supplies it.
 
+Everything a plugin names lives under its own name: its data on the exchange
+is `ex.yourplugin.whatever`, its route options are `yourplugin.whatever`, and
+its layers and handlers are yours even if another plugin picked the same word.
+Two plugins cannot collide on a string, and the compiler tells you when you use
+one that is not installed.
+
+A route that asks for something only a plugin can give, such as
+`.authorize("approve")`, cannot ask without that plugin installed: the method
+is not there to call, and if it somehow were, the route would refuse to start.
+An ask never fails open.
+
 **Everything Routecraft ships is built from these five.** Retry is a layer.
 `.transform()` is an operation. Deferral's store is a provider and `.defer()` is
 an operation. There is no sixth kind that only we are allowed to use. If

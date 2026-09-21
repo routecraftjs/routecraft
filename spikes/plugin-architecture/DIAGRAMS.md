@@ -92,8 +92,10 @@ flowchart LR
 - **Step.** An instruction inside a route. It returns an outcome rather than
   nothing, which is how a plugin gets to halt, branch or defer instead of only
   the framework being able to.
-- **Facet.** Typed data your plugin hangs on the exchange, which the route's
-  `.transform((body, ex) => ...)` sees with real types.
+- **Facet.** Typed data your plugin hangs on the exchange under its own name
+  (`ex.deferral`, `ex.auth`), which the route's `.transform((body, ex) => ...)`
+  sees with real types, and which is a compile error when the plugin is not
+  installed.
 
 ---
 
