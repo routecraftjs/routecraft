@@ -10,6 +10,7 @@ import { toAiInputSchema } from "../llm/structured-output.ts";
 import { makeFnHandlerContext } from "../fn/handler-context.ts";
 import type { FnHandlerContext } from "../fn/types.ts";
 import { isDeferError, isDeferSentinel } from "./defer.ts";
+import { isDownstreamDeferred } from "./downstream-deferred.ts";
 import {
   DEFERRED_TOOL_PLACEHOLDER,
   type AgentDeferSignalRecord,
@@ -216,7 +217,13 @@ export async function buildVercelTools(
           }
           let output = await handler(input, callCtx);
           let deferred = false;
-          if (isDeferSentinel(output)) {
+          if (isDownstreamDeferred(output)) {
+            // The downstream route owns this park. Its bearer token must
+            // reach neither model messages nor result snapshots; this does
+            // not defer the calling agent or settle the downstream action.
+            output = DEFERRED_TOOL_PLACEHOLDER;
+            deferred = true;
+          } else if (isDeferSentinel(output)) {
             // ctx.defer already refuses (AI1006) when the bridge has no
             // deferral channel, so a sentinel arriving without one means
             // it was minted outside the handler context. Same refusal.

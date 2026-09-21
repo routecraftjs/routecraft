@@ -518,6 +518,10 @@ The call dispatches the route as usual and returns `{ handle, status: 'running' 
 
 The result lands in a session, so the flag needs one: an agent dispatched without `session` refuses a background tool when its tool list is resolved (`RC5003` naming the tool), before the model can call it. A restart while the route runs loses the dispatch the way it loses any in-flight exchange. At the next boot, every session with a stored continuation has the calls its dead process was waiting on reported lost, attributed to their handles, and the continuation revived, so the loss reaches the agent as a turn and it can start the run again; a session whose turn died before it could store a continuation is restored by its next message instead. Nothing is dropped silently.
 
+**A downstream deferral is not a completed action.** Ordinary tool calls that receive a `Deferred` acknowledgment expose only `{ status: 'deferred' }` to the model, session thread and tool-result telemetry. The application owns that pending approval; the calling agent does not automatically receive its eventual result.
+
+A background tool whose route defers settles its result-delivery handle as failed with [`AI1006`](/docs/reference/errors#ai-1006). Its resume token never enters the session inbox. This failure does not cancel the downstream action: it remains pending in the application's approval flow. Do not retry it automatically, since that would create another pending action. Durable delivery of execution two's result to a background handle is not supported yet.
+
 Not here yet: cancelling a background call from the agent, progress from a running route, and a join over several calls.
 
 #### Tags

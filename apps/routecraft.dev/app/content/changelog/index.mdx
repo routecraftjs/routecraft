@@ -14,6 +14,10 @@ Routecraft is in active development -- APIs may change between minor versions.
 
 This section covers every change since the v0.6.0 release. 0.7.0 is the durable release: a capability can defer mid-pipeline and continue days later from another transport, an agent can do the same in the middle of a conversation, and a running instance can be driven, watched and reached over HTTP, from a terminal, from an editor, or from another instance. See the [0.6.x to 0.7.0 migration guide](/docs/next/migrating/0.6-to-0.7) for every upgrade step.
 
+### Safety fix
+
+- Downstream deferral receipts no longer expose resume tokens through agent tool results or background session inboxes. Ordinary calls receive a pending marker; background delivery fails with AI1006 while the underlying approval stays pending. Resolve that approval through the application rather than automatically retrying the action. See [background tools](/docs/next/reference/plugins/agentplugin#background-tools).
+
 ### Core <Badge color="red">Breaking</Badge>
 
 - **Every authored time option takes `Duration`, and the `Ms` suffix is gone** -- `intervalMs` is `interval`, `timeoutMs` is `timeout`, `backoffMs` is `backoff`, `jitterMs` is `maxJitter`, `shutdown.timeoutMs` is `shutdown.timeout`, and so on across `timer`, `cron`, `http`, `mail`, `.retry()`, `.circuitBreaker()`, `.debounce()`, `.batch()`, `.sample()`, `.timeout()`, `.delay()`, `defineIndicator`, `mcpPlugin` and `@routecraft/testing`. Existing numbers keep working under the new names, `'1m'` is now accepted everywhere, and a stale name fails the build with `RC5003` naming its replacement instead of being silently dropped. See the [migration guide](/docs/next/migrating/0.6-to-0.7#1-time-options).

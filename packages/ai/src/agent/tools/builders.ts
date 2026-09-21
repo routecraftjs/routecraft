@@ -23,6 +23,7 @@ import {
   type BackgroundOutcome,
 } from "../session/runtime.ts";
 import { LAZY_FN_BRAND, FN_BACKGROUND, type LazyFn } from "./types.ts";
+import { isDownstreamDeferred } from "../downstream-deferred.ts";
 
 /**
  * Re-hydrate a frozen `ReadonlyPrincipal` (as exposed on
@@ -92,6 +93,11 @@ export interface ToolBuilderOverrides<TIn = unknown> {
    * without `session` refuses the tool when its tool list is resolved
    * (`RC5003`). The description the model sees says the tool is
    * asynchronous, so it does not wait on the return value.
+   *
+   * If the downstream route defers, result delivery fails with AI1006:
+   * this background handle cannot track its eventual continuation yet.
+   * The action remains pending in the application's approval flow; its
+   * resume token is never delivered to the session or model.
    */
   background?: boolean;
 }
@@ -295,7 +301,47 @@ async function dispatchBackground<TIn>(
   // Deliberately not awaited: the turn continues, and the settlement is
   // the runtime's business.
   void new CraftClient(ctx).sendDirect(routeId, input, headers).then(
-    (result) =>
+    (result) => {
+      let downstreamDeferred: boolean;
+      try {
+        downstreamDeferred = isDownstreamDeferred(result);
+      } catch {
+        // A user result can throw during inspection. Retire the handle without
+        // forwarding that result or an accessor's potentially sensitive error.
+        settle({
+          handle,
+          tool: toolName,
+          by,
+          status: "failed",
+          error: {
+            name: "Error",
+            message:
+              "The background result could not be stored because it could not be inspected safely.",
+          },
+          duration: Date.now() - startedAt.getTime(),
+        });
+        return;
+      }
+      if (downstreamDeferred) {
+        // A receipt is not the eventual action result. Durable linkage to
+        // execution two belongs to #813; until then, fail result delivery
+        // without persisting the receipt's live token or stranding a handle.
+        // The downstream park remains pending and must not be retried.
+        settle({
+          handle,
+          tool: toolName,
+          by,
+          status: "failed",
+          error: {
+            rc: "AI1006",
+            name: "RoutecraftError",
+            message:
+              "Background result delivery does not support a deferred downstream route. The action is still awaiting approval, not cancelled or completed. Do not retry it; use the application's approval flow to resolve the pending action.",
+          },
+          duration: Date.now() - startedAt.getTime(),
+        });
+        return;
+      }
       settle({
         handle,
         tool: toolName,
@@ -303,7 +349,8 @@ async function dispatchBackground<TIn>(
         status: "completed",
         result,
         duration: Date.now() - startedAt.getTime(),
-      }),
+      });
+    },
     (err: unknown) =>
       settle({
         handle,

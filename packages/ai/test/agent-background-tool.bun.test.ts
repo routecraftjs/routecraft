@@ -40,6 +40,7 @@ const sleep = (ms: number): Promise<void> =>
 /** The long route is held here until the test lets it finish. */
 let release: ((value: string) => void) | undefined;
 let finished = false;
+let oddResult: unknown = { size: 1n };
 
 function routes(
   sink: ReturnType<typeof spy>,
@@ -75,7 +76,7 @@ function routes(
       .description("Answers with a value JSON cannot hold")
       .input({ body: RunInput })
       .from(direct())
-      .transform(() => ({ size: 1n }))
+      .transform(() => oddResult)
       .to(noop())
       .build(),
     ...craft()
@@ -156,6 +157,7 @@ describe("background tools", () => {
     llm.reset();
     release = undefined;
     finished = false;
+    oddResult = { size: 1n };
   });
 
   afterEach(async () => {
@@ -342,32 +344,45 @@ describe("background tools", () => {
 
   /**
    * @case A background result the record cannot hold is delivered as a failure, and the call is retired
-   * @preconditions odd-run answers with a BigInt, which JSON refuses; the agent calls it and replies
+   * @preconditions odd-run answers with a BigInt or a throwing status getter; the agent calls it and replies
    * @expectedResult The boundary turn opens with a user message saying the tool failed, naming the handle and the encoding reason, and no background call remains
    */
-  test("a result the store cannot hold is reported, not stuck", async () => {
-    const store = new MemoryDeferralStore();
-    t = await contextWith(store, spy()).build();
-    await t.startAndWaitReady();
-    llm.script.push(
-      { toolCalls: [{ toolName: "oddRun", input: { cmd: "size" } }] },
-      { text: "started" },
-      { text: "noted" },
-    );
-    const reply = await send(t, { session: "s", message: "go" });
-    const receipt = reply.toolCalls?.[0]?.output as BackgroundToolHandle;
-    await waitForCalls(2);
-    await t.ctx.getRouteById("chat")!.drain();
-    const parts = lastUserOf(llm.calls[1]!) as Array<{ text: string }>;
-    expect(parts).toHaveLength(1);
-    expect(parts[0]!.text).toContain('"oddRun" failed');
-    expect(parts[0]!.text).toContain(`Handle: ${receipt.handle}`);
-    expect(parts[0]!.text).toContain("could not be stored");
-    expect(
-      (await AgentSessionRuntime.for(t.ctx).summary("s", "operator"))
-        ?.background,
-    ).toBe(0);
-  });
+  test.each(["bigint", "getter"])(
+    "an unsafe result is reported, not stuck (%s)",
+    async (kind) => {
+      if (kind === "getter") {
+        oddResult = {
+          get status() {
+            throw new Error("sensitive-accessor-error");
+          },
+        };
+      }
+      const store = new MemoryDeferralStore();
+      t = await contextWith(store, spy()).build();
+      await t.startAndWaitReady();
+      llm.script.push(
+        { toolCalls: [{ toolName: "oddRun", input: { cmd: "size" } }] },
+        { text: "started" },
+        { text: "noted" },
+      );
+      const reply = await send(t, { session: "s", message: "go" });
+      const receipt = reply.toolCalls?.[0]?.output as BackgroundToolHandle;
+      await waitForCalls(2);
+      await t.ctx.getRouteById("chat")!.drain();
+      const parts = lastUserOf(llm.calls[1]!) as Array<{ text: string }>;
+      expect(parts).toHaveLength(1);
+      expect(parts[0]!.text).toContain('"oddRun" failed');
+      expect(parts[0]!.text).toContain(`Handle: ${receipt.handle}`);
+      expect(parts[0]!.text).toContain("could not be stored");
+      expect(JSON.stringify(llm.calls)).not.toContain(
+        "sensitive-accessor-error",
+      );
+      expect(
+        (await AgentSessionRuntime.for(t.ctx).summary("s", "operator"))
+          ?.background,
+      ).toBe(0);
+    },
+  );
 
   /**
    * @case A background tool on a sessionless agent is refused when the tool list is resolved
