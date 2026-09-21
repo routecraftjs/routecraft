@@ -677,14 +677,15 @@ describe("mergeExamplePackageJson", () => {
    * @case Dependency maps and scripts merge key by key
    * @preconditions A template declaring one extra dependency and one extra script
    * @expectedResult The base entries survive alongside the template's, and the
-   *   template wins where both declare the same key
+   *   template wins where both declare the same key, except Routecraft dependencies
+   *   are pinned to the scaffolder version rather than the example's version
    */
   test("merges dependency maps and scripts instead of replacing them", async () => {
     await writeFile(
       join(source, "package.json"),
       JSON.stringify({
         scripts: { start: "craft start", test: "bun test" },
-        dependencies: { "@routecraft/ai": "^0.6.0" },
+        dependencies: { "@routecraft/ai": "0.0.0-example" },
         devDependencies: { prettier: "^3.8.1" },
       }),
     );

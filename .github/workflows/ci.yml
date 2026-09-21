@@ -362,8 +362,10 @@ jobs:
         run: bun install --frozen-lockfile
 
       # Ordinary changes use the same reachable tag and floor as release.yml.
-      # Version Packages must also pass before its new tag can be published;
-      # validate that candidate's content when the manifest is ahead of tags.
+      # release.yml pushes the release commit's v* tag before its docs job
+      # runs, so freezing HEAD for Version Packages reproduces the content
+      # that the release will freeze from that tag. Keep the floor and the
+      # reachable-tags rule aligned; this candidate preview is the exception.
       - name: Resolve the docs release ref
         id: docver
         run: |
@@ -382,7 +384,7 @@ jobs:
           # Only tags reachable from the checked-out ref, matching the release.
           LATEST_TAG="$(git tag --merged HEAD -l 'v*' | sort -V | tail -n1)"
           CANDIDATE_TAG="v$(jq -r .version packages/routecraft/package.json)"
-          if version_gt "$CANDIDATE_TAG" "${LATEST_TAG:-$MIN_FREEZE_VERSION}" &&
+          if [ -n "$LATEST_TAG" ] && version_gt "$CANDIDATE_TAG" "$LATEST_TAG" &&
             version_gt "$CANDIDATE_TAG" "$MIN_FREEZE_VERSION"; then
             # Version Packages has already finalised changelog links for the
             # upcoming release. Its tag cannot exist before CI permits the
