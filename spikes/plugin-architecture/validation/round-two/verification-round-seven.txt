@@ -1,16 +1,16 @@
-Round-six verification. Measured on the working tree that became 8d8d7c76 and a0d07e7b (base reviewed: 3b69bfda). Superseded by verification-round-seven.txt.
-Base reviewed: 3b69bfda4bd1ac8901299061070805c23b99b806
+Round-seven corrections verification. Measured on: 2f5812f8 (fix(spike): adopt the shipped continuation contract and move identity out of core)
+Base reviewed by round seven: e5d16035. Review branch: validation/round-six-fable df7cc6e2.
 Bun 1.3.11
 
-$ bun run typecheck && bun run test && bun run verify:mutations && bun run verify:boundaries && bun run verify:types
+$ bun run typecheck && bun run test && bun run verify:mutations && bun run verify:boundaries && bun run verify:types && bun run verify:diagram
 $ tsc --noEmit
 $ bun test test/round-two
 bun test v1.3.11 (af24e281)
 
- 36 pass
+ 53 pass
  0 fail
- 154 expect() calls
-Ran 36 tests across 4 files. [3.61s]
+ 206 expect() calls
+Ran 53 tests across 4 files. [4.33s]
 $ bun run validation/round-two/mutations.ts
 KILLED: duplicate provider accepted
 KILLED: installation order breaks ties
@@ -36,12 +36,30 @@ KILLED: stream completion reported early
 KILLED: complete does not halt
 KILLED: tag selector ignored
 KILLED: handler survival ignored
-KILLED: claim is a state transition that strands its record
-KILLED: claim exclusivity removed
+KILLED: claimExpiry settles the record instead of claiming it
+KILLED: claimExpiry ignores a live claim
 KILLED: releaseClaims ignores the lease deadline
-27/27 runtime mutations killed by behavioral assertions
+KILLED: codec version ignored on resume
+KILLED: unknown pending instruction accepted on resume
+KILLED: callable source not folded into the tail hash
+KILLED: continuation id sequence not advanced
+KILLED: resume without the compare-and-swap
+KILLED: duplicate not answered from the cache
+KILLED: failed resume not recorded
+KILLED: duplicate deferral id accepted
+KILLED: sweep skips the expiry claim
+KILLED: defer boundary does not require plain JSON
+KILLED: drain never times out
+KILLED: observers receive the live event payload
+KILLED: branch identity check dropped
+KILLED: duplicate anchors accepted
+KILLED: step context require ignores declaration
+KILLED: late disposer accepted
+KILLED: compile after start accepted
+KILLED: dispatch inherits the caller's run kind
+45/45 runtime mutations killed by behavioral assertions
 $ bun run validation/round-two/boundaries.ts
-BOUNDARIES: 10 modules (all declared), 21 permitted import edges (0 dynamic), no private/legacy imports
+BOUNDARIES: 11 modules (all declared), 24 permitted import edges (0 dynamic), no private/legacy imports
 $ bun run validation/round-two/type-controls.ts
 TYPE REJECTED: headers are explicit, not an ambient global bag
 TYPE REJECTED: pipeline operation requires after-from receiver
@@ -54,6 +72,8 @@ TYPE REJECTED: dynamic lists have no statically known DSL
 TYPE REJECTED: a body-preserving step cannot return an incompatible body
 TYPE REJECTED: declining resilience removes its route and step retry method
 10/10 compiler negative controls detected; ordinary strict options also pass baseline
+$ bun run validation/round-two/diagram.ts
+DIAGRAM: module graph matches src/v2 (21 edges, 2 example modules omitted by design)
 
 $ bun run validation/round-two/packed.ts
 PACKED: external branching DSL, open handler, source, facets, replacement, actual resume PASS

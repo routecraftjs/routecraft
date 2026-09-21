@@ -43,7 +43,9 @@ flowchart LR
 ```
 
 When you call `.retry()` or `.authorize()`, you are not inserting a step into
-your pipeline. You are configuring a layer that already surrounds it.
+your pipeline. You are configuring a layer that already surrounds it. (The
+layers drawn are today's chain. The proof of concept has four of them, under
+one resilience contract; the rest are feature-fit work.)
 
 This is why the order you call them in does not matter. Authorization always
 happens before validation, retry always happens inside the timeout, and caching
@@ -77,15 +79,21 @@ flowchart LR
   sit inside and outside of, by name, and you land there. You do not pick a
   number and hope.
 - **Handler.** Code that runs at a named moment: when an exchange is admitted,
-  when it enters, when it fails, when it finishes. A handler can refuse the
-  exchange or add to it.
+  when it enters, when it fails, when it finishes. At admission and entry a
+  handler can refuse the exchange; at every moment it can add to it. Each
+  moment says which decisions it honours.
 - **Provider.** The runtime needs a few things to do its job, such as somewhere
   to keep exchanges that are waiting. You can be the one who supplies it.
 
 **Everything Routecraft ships is built from these five.** Retry is a layer.
-`.transform()` is an operation. Deferral is a provider plus an operation. There
-is no sixth kind that only we are allowed to use. If something we ship can do
-it, so can you.
+`.transform()` is an operation. Deferral's store is a provider and `.defer()` is
+an operation. There is no sixth kind that only we are allowed to use. If
+something we ship can do it, so can you.
+
+One honest exception, stated rather than hidden: the runtime itself owns how a
+parked exchange is claimed, checked and resumed. You can replace where it is
+stored and what parks it; you cannot change the protocol that resumes it. That
+is the kernel's job, and it is small.
 
 ---
 
@@ -105,9 +113,10 @@ flowchart LR
     style R fill:#1f3a5f,color:#ffffff,stroke:#1f3a5f,stroke-width:2px
 ```
 
-A plugin is a plain object that declares three things: what it **needs**, what
-it **offers**, and what it **contributes**. You never wire it up yourself and
-you never decide when it starts.
+A plugin is a plain object that declares what it **needs** and what it
+**offers**, and a `bind` function in which it **contributes** adapters,
+operations, layers and handlers. You never wire it up yourself and you never
+decide when it starts.
 
 Routecraft reads those declarations, works out an order that satisfies them,
 starts everything in that order and stops it in reverse. If two plugins need
@@ -135,7 +144,8 @@ your plugin keeps working and never learns that anything changed.
 
 It also means ours is not special. Our SQLite store is the default because it is
 installed by default, not because the framework knows its name. Install yours
-and declare that it replaces ours, and ours steps aside.
+and declare that it replaces ours, and yours is the one everyone gets. (Ours
+still starts up unless you leave it out; it just stops being chosen.)
 
 ---
 
@@ -154,9 +164,28 @@ Between parking and carrying on, the process can stop, be redeployed, or crash.
 The exchange is not in memory; it is in a store, which is one of the things a
 provider supplies.
 
-When it carries on, it carries on **from where it stopped**. Work that already
-happened does not happen twice. This is what makes a capability that waits for a
-human different from a capability that blocks a thread for three days.
+When it carries on, it carries on **from where it stopped**. The steps before
+the wait do not run again, and the same approval presented twice is answered
+from the first time rather than run twice. Who is allowed to carry it on is
+decided when the approval arrives, from the identity that arrives with it,
+never from who parked it.
+
+One thing this deliberately does not promise: if the process dies in the middle
+of carrying on, the work is not silently retried. It is reported, because the
+steps after the wait may have half happened, and re-running a payment is worse
+than asking a human. This is what makes a capability that waits for a human
+different from a capability that blocks a thread for three days.
+
+---
+
+## 7. Some things run again on a resume, and some must not
+
+A layer or a handler says which kinds of run it applies to: a first delivery, a
+resume after a wait, a debounced release, a delivery to the error channel. A
+retry applies on a resume; a circuit breaker does not re-arm on one; an
+authorisation check applies on every kind, because the resume brings its own
+identity. Getting this wrong has security consequences, so every layer and
+handler declares it rather than inheriting a default.
 
 ---
 
@@ -166,6 +195,6 @@ human different from a capability that blocks a thread for three days.
 |---|---|
 | Connect a system we do not support | Adapters |
 | Add a step others can use in a pipeline | Operations |
-| Add behaviour around every capability | Layers and handlers |
+| Add behaviour around every capability | Layers and handlers, and what runs again |
 | Replace something we ship | Providers |
 | Package any of the above | Plugins |

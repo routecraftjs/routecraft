@@ -1,5 +1,14 @@
 # Round six: independent execution review of the rebuilt proof of concept
 
+> **Corrected by round seven.** Section 2.1 of this review, its headline
+> finding, misread the shipped contract: `releaseClaims` and the lease heal
+> expiry NOTIFICATIONS, not resumes; the shipped resume is `markResumed`, a
+> transition out of waiting, and a half-run continuation is reported and never
+> re-run. The fix this review pushed made the spike re-run half-run
+> continuations and was reverted in `2f5812f8`. See `FABLE-REVIEW.md` A1 and
+> `ARCHITECTURE.md` post-round-seven. The other three defects and the
+> reproduction stand.
+
 **Reviewed:** `3b69bfda4bd1ac8901299061070805c23b99b806` (`spike/astra-round-five`).
 **Round-five implementation measured by its own report:** `045c034d`.
 **This round:** branch `validation/round-six`. No production package was changed.

@@ -213,31 +213,36 @@ rather than of one delivery.
 
 ## 5. A deferred continuation, including the crash path
 
-This is the diagram round six changed. A claim is a **second axis** over a record
-that stays `waiting`, never a transition out of it. Round five modelled it as a
-state change that also deleted the waiting index, which meant a process dying
-mid-resume stranded the continuation forever. The shipped framework already
-heals this with a lease, so the spike now does too.
+This is the diagram round seven corrected. Two mechanisms, deliberately
+asymmetric. A **resume** is a compare-and-swap out of `waiting`: exactly one
+caller wins, a second is answered from the cache, and a holder that dies
+mid-run leaves residue that is reported at boot and never re-run, because a
+half-run continuation may have half-happened side effects. An **expiry
+notification** is a claim over a record that stays `waiting`: a holder that dies
+mid-delivery is healed by the lease and the nag is re-sent, because re-sending a
+nag is safe. Round six had modelled the resume as the lease, which re-ran
+continuations. The shipped framework (`revive.ts`, `types.ts`) has it this way.
 
 ```mermaid
 stateDiagram-v2
-    [*] --> waiting: defer<br/>record + index in ONE transaction
+    [*] --> waiting: defer<br/>record + index in ONE transaction<br/>id = exchangeId#sequence
     state waiting {
         [*] --> unclaimed
-        unclaimed --> claimed: claim(id, at)<br/>sets claimedAt, CAS
-        claimed --> unclaimed: releaseClaims(before)<br/>lease elapsed
-        claimed --> claimed: second claim REFUSED<br/>while lease is live
+        unclaimed --> claimed: claimExpiry(id, at)<br/>due and unclaimed
+        claimed --> unclaimed: releaseClaims(before)<br/>lease elapsed, nag re-sent
     }
-    waiting --> completed: finish("completed")<br/>clears the index
-    waiting --> failed: finish("failed")<br/>clears the index
-    completed --> [*]
-    failed --> [*]
+    waiting --> resumed: markResumed(id, at)<br/>CAS, exactly one winner<br/>index cleared
+    resumed --> resumed: second resume<br/>answered DUPLICATE from cache
+    waiting --> expired: markExpired(id)<br/>after the nag was delivered
+    resumed --> [*]
+    expired --> [*]
 
-    note right of waiting
-        The record stays discoverable
-        the whole time it is claimed.
-        That is what lets a sweep find
-        a claim whose holder died.
+    note right of resumed
+        Winner runs the tail, then
+        recordOutcome. Died before
+        that? Reported at boot by
+        resumedWithoutOutcome.
+        Never re-run.
     end note
 ```
 
@@ -252,25 +257,26 @@ sequenceDiagram
     P1->>S: defer: record + waiting index (one transaction)
     Note over P1: effects so far: prefix, tool-request
     P1-xP1: SIGKILL
-    Note over S: record: waiting, unclaimed
-    P2->>S: resume("approval")
-    P2->>S: plan hash check
-    Note over P2: a changed plan is rejected<br/>BEFORE the claim is consumed
-    P2->>S: claim → claimedAt set, still waiting
-    P2->>P2: run the SUFFIX only<br/>prefix is not repeated
-    P2->>S: finish("completed"), index cleared
-    Note over P2: effects now: prefix, tool-request,<br/>tool-result, suffix
+    Note over S: record: waiting
+    P2->>S: resume(id, ingress headers)
+    P2->>S: tail hash check against the compiled route
+    Note over P2: an edited suffix callable is refused<br/>BEFORE anything leaves waiting
+    P2->>S: markResumed: CAS out of waiting
+    P2->>P2: run the SUFFIX only, under the INGRESS identity<br/>prefix is not repeated, the stored principal is not trusted
+    P2->>S: recordOutcome (cached reply for duplicates)
+    P2->>S: resume(id) again
+    S-->>P2: duplicate, from the cache
 
     rect rgb(95, 74, 31)
-        Note over P2,S: if Process 2 also dies here,<br/>releaseClaims hands the record back<br/>once the lease elapses
+        Note over P2,S: if Process 2 dies between markResumed<br/>and recordOutcome: reported at boot,<br/>never re-run
     end
 ```
 
-What this does **not** claim, checked against the shipped framework rather than
-asserted: external effects are at-least-once, not exactly-once; the session and
-deferral stores are not in one distributed transaction; and a timeout cannot
-retract IO from a plugin that ignores cancellation. All three are limits the
-current framework also has and documents.
+What this does **not** claim, checked against the shipped framework: external
+effects are at-least-once, not exactly-once; the session and deferral stores are
+not in one distributed transaction; and a timeout cannot retract IO from a
+plugin that ignores cancellation. All three are limits the current framework
+also has and documents.
 
 ---
 
@@ -282,4 +288,4 @@ current framework also has and documents.
 | 2 | `src/v2/contracts.ts` for ports and contributions, `Installation` for the verbs |
 | 3 | `src/v2/host.ts` constructor and `start`, `src/v2/graph.ts` |
 | 4 | `src/v2/runtime.ts`, the outcome switch and the handler loop |
-| 5 | `src/v2/storage.ts` `durableStore`, `test/round-two/process.test.ts` |
+| 5 | `src/v2/storage.ts` `durableStore`, `src/v2/runtime.ts` `resume` and `sweep`, `test/round-two/process.test.ts`, `test/round-two/corrections.test.ts` |
