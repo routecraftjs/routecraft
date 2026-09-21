@@ -12,14 +12,14 @@
     "@routecraft/ai": "workspace:*",
     "@routecraft/routecraft": "workspace:*",
     "commander": "^14.0.3",
-    "zod": "^4.4.3"
+    "zod": "^4.5.4"
   },
   "devDependencies": {
     "@routecraft/cli": "workspace:*",
     "@routecraft/testing": "workspace:*",
     "dotenv": "^17.4.2",
     "tsup": "^8.5.1",
-    "tsx": "^4.23.12",
-    "vitest": "^4.1.10"
+    "tsx": "^4.23.13",
+    "vitest": "^4.1.11"
   }
 }
