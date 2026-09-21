@@ -1,0 +1,216 @@
+COMMIT: d6823df6f06f54d653dd848669ff89ba1dfa1f1c
+METHOD: bun run verify
+$ bun run typecheck && bun run test && bun run verify:mutations && bun run verify:boundaries && bun run verify:types && bun run verify:diagram
+$ tsc --noEmit
+$ bun test test/round-two
+bun test v1.3.11 (af24e281)
+
+test/round-two/corrections.test.ts:
+(pass) a tag selector excludes a route that does not carry the tag [8.88ms]
+(pass) a handler declining resume does not run on the resumed continuation [7.47ms]
+(pass) one route parks any number of exchanges, each under its own id [3.95ms]
+(pass) the plan hash covers the tail's step definitions and nothing else [13.68ms]
+(pass) a continuation whose resumer died is reported, never re-run [1.84ms]
+(pass) the lease heals an expiry notification, and the nag is delivered exactly once after it [5.41ms]
+(pass) a step that writes its own principal cannot pass an authorize gate [1.70ms]
+(pass) a resumed continuation is authorised by its ingress, never by the stored principal [4.46ms]
+(pass) an exchange body is arbitrary in flight and plain JSON only when parked [2.57ms]
+(pass) shutdown drains for a bounded time and then abandons uncooperative work [59.42ms]
+(pass) a dispatch from a resumed run enters the target as a normal delivery [3.65ms]
+(pass) codec and pending are checked against the compiled route [3.53ms]
+(pass) an exchange with two defer points parks under #1 then #2 [1.69ms]
+(pass) a failed resume is recorded, so it is neither re-run nor reported as stranded [2.41ms]
+(pass) a second create under one id is refused, never overwritten [1.86ms]
+(pass) observers see their own copy of an event, so one cannot rewrite what the next sees [0.74ms]
+(pass) a branch cannot substitute a different function under a declared child id [0.53ms]
+(pass) two contributions claiming one anchor are refused at boot [0.96ms]
+(pass) a step's require goes through its plugin's declaration, not the application's services [1.21ms]
+(pass) a disposer registered during teardown is refused, not silently dropped [0.49ms]
+(pass) a route cannot be compiled after start [0.46ms]
+(pass) a route that requires authority does not boot without a provider of it [0.31ms]
+(pass) a refusal at exit or error is a named fault, never silently ignored [1.25ms]
+(pass) strings are owner-qualified: ids per plugin, one namespace per plugin, one facet per namespace, namespaced option keys [2.67ms]
+
+test/round-two/process.test.ts:
+(pass) defer → SIGKILL → new process → resume named nested instruction across two stores [249.23ms]
+(pass) SIGKILL between record and index statements rolls back both [40.60ms]
+(pass) CAS under overlapping processes sharing the same observed version [46.35ms]
+
+test/round-two/packed.test.ts:
+(pass) independently compiled plugin consumes only the packed artifact [5358.52ms]
+
+test/round-two/contracts.test.ts:
+(pass) continue, complete, drop, public branch, fanOut and takePending schedule exact suffixes [1.12ms]
+(pass) source really emits and shutdown unsubscribes [0.95ms]
+(pass) replacement under own identity, duplicate refusal, undeclared access and unique tokens [1.85ms]
+(pass) rollback and teardown aggregate with consumers stopped before providers close [1.00ms]
+(pass) observers cannot abort execution; subscriptions are snapshotted [7.98ms]
+(pass) descriptor mutation cannot bypass freeze and contribution ids are owner-qualified [0.84ms]
+(pass) four handlers use selectors, deterministic order, compositional decoration and refusal [1.12ms]
+(pass) a failing error handler cannot replace primary or skip subsequent handlers [1.00ms]
+(pass) timeout cancels, suppresses late result and rejects a late guarded side effect [13.52ms]
+(pass) concurrency and breaker state persist per route [12.70ms]
+(pass) drain owns streaming response after the step returns [5.85ms]
+(pass) debounce and errorChannel execute the captured suffix with explicit survival [0.89ms]
+(pass) installed DSL executes all four categories and two retry scopes in one route [6.60ms]
+(pass) anchors survive replacement and missing optional contracts are reported [1.34ms]
+(pass) atomic store deletes, copies values, rolls back throwing writes and rejects stale ABA versions [0.81ms]
+(pass) caller cancellation rejects before released work and suppresses outcome [7.85ms]
+(pass) runPaths isolates failures while fan-out schedules all children [1.31ms]
+(pass) resume rechecks admission without consuming a refused claim [2.37ms]
+(pass) boot failure taxonomy and foreign instruction faults name responsible plugins [1.93ms]
+(pass) a stranger owns the disabled reason it sets [0.46ms]
+(pass) an asynchronous provider supports concurrent semantic resume [38.74ms]
+(pass) start hooks see sources ready; concurrent stop awaits hooks [5.69ms]
+(pass) a plugin can enter the error channel through its public lifecycle context [0.86ms]
+(pass) different installed sets coexist in two live contexts [1.41ms]
+(pass) step timeout drains abandoned work before disposing its provider [16.86ms]
+(pass) a source can register cleanup before subscription acquisition fails [0.45ms]
+(pass) steps and lazy facets resolve declared services in their own application [0.84ms]
+(pass) resilience owns both its methods and its runtime wrappers [4.66ms]
+
+ 56 pass
+ 0 fail
+ 215 expect() calls
+Ran 56 tests across 4 files. [6.03s]
+$ bun run validation/round-two/mutations.ts
+KILLED: duplicate provider accepted
+KILLED: installation order breaks ties
+KILLED: concurrency reset per delivery
+KILLED: breaker reset per delivery
+KILLED: changed plan accepted
+KILLED: fanout drops second child
+KILLED: handler decoration discarded
+KILLED: resume repeats prefix
+KILLED: defer fails to halt
+KILLED: reentrant instruction skipped
+KILLED: CAS condition ignored
+KILLED: transaction removed
+KILLED: delete is a read
+KILLED: dependencies disposed first
+KILLED: remaining cleanup skipped
+KILLED: observer failure escapes
+KILLED: secondary error replaces primary
+KILLED: cancelled effect fence removed
+KILLED: resume admission skipped
+KILLED: source never subscribed
+KILLED: stream completion reported early
+KILLED: complete does not halt
+KILLED: tag selector ignored
+KILLED: handler survival ignored
+KILLED: claimExpiry settles the record instead of claiming it
+KILLED: claimExpiry ignores a live claim
+KILLED: releaseClaims ignores the lease deadline
+KILLED: codec version ignored on resume
+KILLED: unknown pending instruction accepted on resume
+KILLED: callable source not folded into the tail hash
+KILLED: continuation id sequence not advanced
+KILLED: resume without the compare-and-swap
+KILLED: duplicate not answered from the cache
+KILLED: failed resume not recorded
+KILLED: duplicate deferral id accepted
+KILLED: sweep skips the expiry claim
+KILLED: defer boundary does not require plain JSON
+KILLED: drain never times out
+KILLED: observers receive the live event payload
+KILLED: branch identity check dropped
+KILLED: duplicate anchors accepted
+KILLED: step context require ignores declaration
+KILLED: late disposer accepted
+KILLED: compile after start accepted
+KILLED: dispatch inherits the caller's run kind
+KILLED: route requirement unchecked (authorization fails open)
+KILLED: refusal at exit silently ignored
+KILLED: option key namespace unchecked
+KILLED: facet may be named anything
+KILLED: duplicate namespace accepted
+KILLED: contribution ids collide across plugins
+51/51 runtime mutations killed by behavioral assertions
+$ bun run validation/round-two/boundaries.ts
+BOUNDARIES: 11 modules (all declared), 23 permitted import edges (0 dynamic), no private/legacy imports
+$ bun run validation/round-two/type-controls.ts
+TYPE REJECTED: headers are explicit, not an ambient global bag
+TYPE REJECTED: pipeline operation requires after-from receiver
+TYPE REJECTED: route-only operation requires before-from receiver
+TYPE REJECTED: omitted plugin removes method
+TYPE REJECTED: omitted plugin removes facet
+TYPE REJECTED: installed family must return its implementation
+TYPE REJECTED: pair is merely possible, not installed with certainty
+TYPE REJECTED: dynamic lists have no statically known DSL
+TYPE REJECTED: a body-preserving step cannot return an incompatible body
+TYPE REJECTED: declining resilience removes its route and step retry method
+TYPE REJECTED: declining auth removes the authorize route method
+TYPE REJECTED: a point that does not honour refusal cannot return one
+12/12 compiler negative controls detected; ordinary strict options also pass baseline
+$ bun run validation/round-two/diagram.ts
+DIAGRAM: module graph matches src/v2 (21 edges, 2 example modules omitted by design)
+
+
+COMMIT: d6823df6f06f54d653dd848669ff89ba1dfa1f1c
+METHOD: bun run verify:packed
+$ bun run validation/round-two/packed.ts
+PACKED: external branching DSL, open handler, source, facets, replacement, actual resume PASS
+PACKED: private package subpath refused PASS
+
+
+COMMIT: 763d26aa2ef847d10dfb2dad716d6ec27086a980
+METHOD: bun test validation/contract-review/probes.test.ts
+bun test v1.3.11 (af24e281)
+
+validation/contract-review/probes.test.ts:
+(pass) review: an expiry claim does not exclude resume, unlike shipped store [7.95ms]
+(pass) review: a past-deadline continuation still executes without a sweep [10.62ms]
+(pass) review: entry authorization refusal consumes a waiting approval [3.26ms]
+(pass) review: duplicate skips admission and loses the cached failure details [3.17ms]
+(pass) review: selected third-party authority is never consulted by the auth handler or facet [0.91ms]
+(pass) review: one nested facet can expose two independent concerns [0.87ms]
+(pass) review: cloneability is not the shipped persistence codec [3.86ms]
+(pass) review: successful non-cloneable terminal body throws after its effect and strands cache [2.91ms]
+(pass) review: nested callable option edit passes hash unlike shipped hash [4.76ms]
+(pass) review: claimed oldest page starves unclaimed due record [8.18ms]
+(pass) review: protected expiry is finalized without reaching error notification [3.60ms]
+(pass) review: custom no-refusal point is not enforced at runtime [0.98ms]
+(pass) review: exit decoration is seen by next handler but missing from returned result [0.65ms]
+(pass) review: appended tail step is absent from hash and silently skipped on resume [2.47ms]
+(pass) review: adding prefix transform changes tail identity despite same tail callable [1.81ms]
+(pass) review: startup never scans resumed-without-outcome residue [0.99ms]
+(pass) review: orphan ahead of due work aborts sweep after claiming it [1.29ms]
+(pass) review: a valid authority provider without the old handler satisfies the route requirement but fails open [0.72ms]
+
+ 18 pass
+ 0 fail
+ 46 expect() calls
+Ran 18 tests across 1 file. [194.00ms]
+
+
+COMMIT: 763d26aa2ef847d10dfb2dad716d6ec27086a980
+METHOD: bun run validation/contract-review/mutations.ts
+BASELINE: 56 pass, 0 fail in disposable copy including packed consumer
+CONTROL no-op: SURVIVED
+CONTROL syntax error: INVALID before tests
+CONTROL missing import: INVALID
+CONTROL behavioral assertion: KILLED
+SURVIVED: nested child definitions omitted from tail hash; 56 pass, 0 fail
+SURVIVED: auth grant array no longer frozen; 56 pass, 0 fail
+SURVIVED: expiry scan ignores deadline; 56 pass, 0 fail
+SURVIVED: markExpired accepts unclaimed waiting records; 56 pass, 0 fail
+SURVIVED: duplicate drops cached exchanges; 56 pass, 0 fail
+KILLED: stored headers override resume ingress; 55 pass, 1 fail; defer → SIGKILL → new process → resume named nested instruction across two stores [187.26ms]; defer → SIGKILL → new process → resume named nested instruction across two stores [187.26ms]
+SURVIVED: authority effective grants empty; 56 pass, 0 fail
+RESULT: 1 killed, 6 survived, 7 new mutants; full baseline acceptance suite per mutant
+
+
+COMMIT: 763d26aa2ef847d10dfb2dad716d6ec27086a980
+METHOD: bun run validation/contract-review/language.ts
+TYPE PASS: unchecked option strings, composite facet, broad Handler exit refusal, project-bound route callback
+TYPE REJECTED: missing auth removes its DSL method
+TYPE REJECTED: missing auth removes its facet
+TYPE REJECTED: literal point retains refusal policy
+TYPE REJECTED: custom point type rejects refusal
+
+
+COMMIT: 763d26aa2ef847d10dfb2dad716d6ec27086a980
+METHOD: bun run validation/contract-review/bundling.ts
+plain to minified: PLAN_MISMATCH
+same minifier and input: completed
+edited minified callable: PLAN_MISMATCH
