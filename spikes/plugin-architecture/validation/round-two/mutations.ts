@@ -344,6 +344,48 @@ const mutants: [string, string, string, string, string][] = [
     "exchange: { ...wireExchange(exchange), routeId }, kind: run.kind,",
     "dispatch from a resumed run",
   ],
+  [
+    "route requirement unchecked (authorization fails open)",
+    "runtime.ts",
+    "if (!this.host.has(port))",
+    "if (false)",
+    "requires authority does not boot",
+  ],
+  [
+    "refusal at exit silently ignored",
+    "runtime.ts",
+    'if (point === "error" || point === "exit") {',
+    "if (false) {",
+    "refusal at exit or error",
+  ],
+  [
+    "option key namespace unchecked",
+    "runtime.ts",
+    'dot < 1 || (prefix !== "route" && !this.host.namespaces.has(prefix))',
+    "false",
+    "owner-qualified",
+  ],
+  [
+    "facet may be named anything",
+    "dsl.ts",
+    "if (key !== namespaceOf(plugin))",
+    "if (false)",
+    "owner-qualified",
+  ],
+  [
+    "duplicate namespace accepted",
+    "host.ts",
+    "if (namespaces.has(ns))",
+    "if (false)",
+    "owner-qualified",
+  ],
+  [
+    "contribution ids collide across plugins",
+    "host.ts",
+    "(x) => x.owner === plugin.id && x.id === c.id,",
+    "(x) => x.id === c.id,",
+    "owner-qualified",
+  ],
 ];
 
 try {

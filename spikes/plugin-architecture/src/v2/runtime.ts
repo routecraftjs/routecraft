@@ -121,6 +121,23 @@ export class Runtime {
       throw new Fault(spec.owner, "FROZEN", "route compilation");
     if (this.#routes.has(spec.id))
       throw new Fault(spec.owner, "DUPLICATE_ROUTE", spec.id);
+    for (const port of spec.requires ?? [])
+      if (!this.host.has(port))
+        throw new Fault(
+          spec.owner,
+          "ROUTE_REQUIRES",
+          `${spec.id}: ${port.name}`,
+        );
+    for (const key of Object.keys(spec.options ?? {})) {
+      const dot = key.indexOf(".");
+      const prefix = key.slice(0, dot);
+      if (dot < 1 || (prefix !== "route" && !this.host.namespaces.has(prefix)))
+        throw new Fault(
+          spec.owner,
+          "OPTION_NAMESPACE",
+          `${spec.id}: ${key} must be namespace.key for an installed plugin or route`,
+        );
+    }
     const steps = new Map<string, Step>();
     const collect = (list: readonly Step[]): readonly Step[] =>
       Object.freeze(
@@ -444,7 +461,19 @@ export class Runtime {
             : { kind, route: route.spec },
         );
         if (result.kind === "refuse") {
-          if (error) continue;
+          // The type forbids this at error and exit; a caller the compiler did not see is named rather than ignored.
+          if (point === "error" || point === "exit") {
+            const refusal = new Fault(
+              h.owner,
+              "REFUSE_UNSUPPORTED",
+              `${String(point)}: ${h.id}`,
+            );
+            if (error) {
+              error.secondary.push(refusal);
+              continue;
+            }
+            throw refusal;
+          }
           return null;
         }
         ex = this.attach(wireExchange(result.exchange));

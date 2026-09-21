@@ -17,6 +17,7 @@ import {
   manual,
   withPrincipal,
   PRINCIPAL_HEADER,
+  AUTHORITY,
   CONTINUATIONS,
   type Step,
   type RouteSpec,
@@ -352,9 +353,12 @@ const gateRoute = (
 ) =>
   app
     .route("sink")
-    .configure({ authorize: ["approve"] })
+    .authorize("approve")
     .from(manual)
-    .transform((_, ex) => `${ex.principal?.subject}:${ex.principal?.authentic}`)
+    .transform(
+      (_, ex) =>
+        `${ex.auth.principal?.subject}:${ex.auth.principal?.authentic}`,
+    )
     .build();
 
 /**
@@ -842,4 +846,164 @@ test("a route cannot be compiled after start", async () => {
     ),
   ).toThrow("FROZEN");
   await app.stop();
+});
+
+/**
+ * @case an authorization ask cannot fail open
+ * @preconditions a route declaring the authority port as a requirement, no auth plugin installed
+ * @expectedResult the kernel refuses to compile the route, naming the port, instead of running it unprotected */
+test("a route that requires authority does not boot without a provider of it", async () => {
+  const app = new Application([worker]);
+  await expect(
+    app.start([
+      {
+        ...route("secret", []),
+        requires: [AUTHORITY],
+        options: { "auth.authorize": ["admin"] },
+      },
+    ]),
+  ).rejects.toThrow("ROUTE_REQUIRES");
+});
+
+/**
+ * @case refusal where it is not honoured
+ * @preconditions handlers at exit and error that refuse, written past the compiler
+ * @expectedResult the exit refusal fails the run naming the handler; the error refusal is recorded as secondary */
+test("a refusal at exit or error is a named fault, never silently ignored", async () => {
+  const refuser = (point: "exit" | "error") =>
+    infrastructure({
+      id: `refuser-${point}`,
+      bind: (c) =>
+        c.contribute({
+          kind: "handler",
+          id: "refuse",
+          point,
+          survival: allRuns,
+          // The compiler forbids this; a JavaScript caller can still write it.
+          handle: () =>
+            ({ kind: "refuse", reason: "no" }) as unknown as {
+              kind: "allow";
+              exchange: never;
+            },
+        }),
+    });
+  const app = application([operations, refuser("exit")]);
+  await app.start([
+    app
+      .route("ok")
+      .from(manual)
+      .transform((x) => x)
+      .build(),
+  ]);
+  await expect(app.runtime.deliver("ok", 1)).rejects.toThrow(
+    "[refuser-exit] REFUSE_UNSUPPORTED: exit: refuse",
+  );
+  await app.stop();
+  const errApp = application([operations, refuser("error")]);
+  await errApp.start([
+    errApp
+      .route("bad")
+      .from(manual)
+      .transform(() => {
+        throw new Error("boom");
+      })
+      .build(),
+  ]);
+  const failure = await errApp.runtime.deliver("bad", 1).then(
+    () => undefined,
+    (e) => e as { secondary: { message: string }[] },
+  );
+  expect(failure?.secondary.map((f) => f.message)).toEqual([
+    "[refuser-error] REFUSE_UNSUPPORTED: error: refuse",
+  ]);
+  await errApp.stop();
+});
+
+/**
+ * @case owner-qualified strings
+ * @preconditions two plugins naming a wrapper `audit`, one plugin naming two, two plugins sharing a namespace, a facet not named after its plugin, an option key without a namespace
+ * @expectedResult only the last four are refused, each naming what collided */
+test("strings are owner-qualified: ids per plugin, one namespace per plugin, one facet per namespace, namespaced option keys", async () => {
+  const { RETRY, TIMEOUT } = await import("../../src/v2/index.ts");
+  const wrapper = (anchor: typeof RETRY) => ({
+    kind: "wrapper" as const,
+    id: "audit",
+    after: [{ anchor, presence: "ifPresent" as const }],
+    survival: allRuns,
+    bind:
+      () =>
+      (
+        next: (
+          run: import("../../src/v2/index.ts").Run,
+        ) => Promise<import("../../src/v2/index.ts").RunResult>,
+        run: import("../../src/v2/index.ts").Run,
+      ) =>
+        next(run),
+  });
+  const audit = (id: string, anchor: typeof RETRY) =>
+    infrastructure({ id, bind: (c) => c.contribute(wrapper(anchor)) });
+  const shared = application([
+    operations,
+    resilience,
+    audit("acme.one", RETRY),
+    audit("acme.two", TIMEOUT),
+  ]);
+  await shared.start([]);
+  expect(
+    shared.runtime.dump().contributions.filter((c) => c.id === "audit"),
+  ).toHaveLength(2);
+  await shared.stop();
+  const twice = infrastructure({
+    id: "acme.twice",
+    bind: (c) => {
+      c.contribute(wrapper(RETRY));
+      c.contribute(wrapper(TIMEOUT));
+    },
+  });
+  await expect(
+    application([operations, resilience, twice]).start([]),
+  ).rejects.toThrow("[acme.twice] DUPLICATE_CONTRIBUTION: audit");
+  expect(
+    () => new Application([worker, infrastructure({ id: "acme.worker" })]),
+  ).toThrow("DUPLICATE_NAMESPACE");
+  expect(
+    () =>
+      new Application([
+        infrastructure({ id: "acme.tenant", facets: { principal: () => 1 } }),
+      ]),
+  ).toThrow(
+    "[acme.tenant] FACET_NAMESPACE: principal: a facet must be named tenant",
+  );
+  const bare = application([operations]);
+  await expect(
+    bare.start([
+      bare
+        .route("r")
+        .configure({ retry: 2 })
+        .from(manual)
+        .transform((x) => x)
+        .build(),
+    ]),
+  ).rejects.toThrow("OPTION_NAMESPACE");
+  const foreign = application([operations]);
+  await expect(
+    foreign.start([
+      foreign
+        .route("r")
+        .configure({ "ghost.retry": 2 })
+        .from(manual)
+        .transform((x) => x)
+        .build(),
+    ]),
+  ).rejects.toThrow("OPTION_NAMESPACE");
+  const own = application([operations]);
+  await own.start([
+    own
+      .route("r")
+      .configure({ "route.note": "mine" })
+      .from(manual)
+      .transform((x) => x)
+      .build(),
+  ]);
+  await own.stop();
 });

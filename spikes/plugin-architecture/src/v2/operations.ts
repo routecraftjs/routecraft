@@ -117,7 +117,7 @@ export const operations: Plugin<OperationsFamily, Record<never, never>> = {
       title(title) {
         if (cursor.phase !== "before")
           throw new Fault(cursor.owner, "DSL_PHASE", "title");
-        return cursor.configure({ title });
+        return cursor.configure({ "operations.title": title });
       },
       transform: (fn) => cursor.map(fn),
       delay: (ms) =>
@@ -160,11 +160,11 @@ export const resilience: Plugin<ResilienceFamily, Record<never, never>> = {
     return {
       retry: (attempts) =>
         cursor.phase === "before"
-          ? cursor.configure({ retry: attempts })
+          ? cursor.configure({ "resilience.retry": attempts })
           : cursor.wrap((step) => retryStep(step, attempts)),
       timeout: (ms) =>
         cursor.phase === "before"
-          ? cursor.configure({ timeout: ms })
+          ? cursor.configure({ "resilience.timeout": ms })
           : cursor.wrap((step) => timeoutStep(step, ms)),
     };
   },
@@ -183,7 +183,7 @@ export const resilience: Plugin<ResilienceFamily, Record<never, never>> = {
       },
       bind: ({ route, setStatus }) => {
         let failures = 0;
-        const limit = Number(route.options?.["breaker"] ?? Infinity);
+        const limit = Number(route.options?.["resilience.breaker"] ?? Infinity);
         return async (next, run) => {
           if (failures >= limit)
             throw new Fault(ctx.id, "CIRCUIT_OPEN", route.id);
@@ -211,7 +211,7 @@ export const resilience: Plugin<ResilienceFamily, Record<never, never>> = {
       bind:
         ({ route }) =>
         async (next, run) => {
-          const attempts = Number(route.options?.["retry"] ?? 1);
+          const attempts = Number(route.options?.["resilience.retry"] ?? 1);
           if (!Number.isInteger(attempts) || attempts < 1)
             throw new Fault(ctx.id, "RETRY_OPTIONS", String(attempts));
           for (let i = 1; ; i++) {
@@ -239,7 +239,7 @@ export const resilience: Plugin<ResilienceFamily, Record<never, never>> = {
       bind:
         ({ route }) =>
         async (next, run) => {
-          const ms = route.options?.["timeout"];
+          const ms = route.options?.["resilience.timeout"];
           if (typeof ms !== "number") return next(run);
           const controller = new AbortController();
           const signal = AbortSignal.any([run.signal, controller.signal]);
@@ -274,7 +274,9 @@ export const resilience: Plugin<ResilienceFamily, Record<never, never>> = {
       bind: ({ route }) => {
         let active = 0;
         return async (next, run) => {
-          const max = Number(route.options?.["concurrency"] ?? Infinity);
+          const max = Number(
+            route.options?.["resilience.concurrency"] ?? Infinity,
+          );
           if (active >= max) throw new Fault(ctx.id, "CONCURRENCY", route.id);
           active++;
           try {

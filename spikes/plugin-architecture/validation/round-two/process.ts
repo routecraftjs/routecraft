@@ -14,6 +14,7 @@ import {
   sqlite,
   auth,
   withPrincipal,
+  AUTHORITY,
   SESSIONS,
   RECORDS,
   SqliteRecords,
@@ -130,12 +131,15 @@ if (mode === "crash") {
     owner: "acme.agent",
     version: "1",
     tags: [],
-    options: { authorize: ["approve"] },
+    requires: [AUTHORITY],
+    options: { "auth.authorize": ["approve"] },
     steps: [
       op("sink-check", (ex) => {
         const p = (
-          ex as { principal?: { subject: string; authentic: boolean } }
-        ).principal;
+          ex as {
+            auth?: { principal?: { subject: string; authentic: boolean } };
+          }
+        ).auth?.principal;
         log(
           `principal:${p?.subject}:${p?.authentic ? "authentic" : "restored"}`,
         );

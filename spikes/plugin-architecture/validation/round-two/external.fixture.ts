@@ -22,7 +22,7 @@ const CUSTOM: unique symbol = Symbol("outside point");
 void CUSTOM;
 declare module "@routecraft/spike-plugin-architecture" {
   interface HandlerPoints {
-    "acme:inspect": typeof CUSTOM;
+    "acme:inspect": { readonly owner: typeof CUSTOM; readonly refuse: true };
   }
 }
 const DUPLICATE: unique symbol = Symbol("duplicate point");
@@ -30,7 +30,7 @@ void DUPLICATE;
 declare module "@routecraft/spike-plugin-architecture" {
   interface HandlerPoints {
     // @ts-expect-error independent point owners cannot redeclare the same name with different identities
-    "acme:inspect": typeof DUPLICATE;
+    "acme:inspect": { readonly owner: typeof DUPLICATE; readonly refuse: true };
   }
 }
 type Choose<B, P extends readonly Plugin[], H extends object> = {
@@ -40,9 +40,9 @@ interface ChooseFamily extends Family {
   readonly methods: Choose<this["Body"], this["Plugins"], this["Headers"]>;
 }
 const trace: string[] = [];
-const stranger: Plugin<ChooseFamily, { audit: () => { label: string } }> = {
+const stranger: Plugin<ChooseFamily, { stranger: () => { label: string } }> = {
   id: "acme.stranger",
-  facets: { audit: () => ({ label: "outside" }) },
+  facets: { stranger: () => ({ label: "outside" }) },
   methods<B, P extends readonly Plugin[], H extends object, S extends Phase>(
     cursor: Cursor<B, P, H, S>,
   ): Choose<B, P, H> {
@@ -111,7 +111,7 @@ const spec = app
   .from(source)
   .choose()
   .transform((body, ex) => {
-    assert.equal(ex.audit.label, "outside");
+    assert.equal(ex.stranger.label, "outside");
     assert.equal(typeof ex.deferral.request, "function");
     return body + 1;
   })
