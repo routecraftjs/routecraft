@@ -1,0 +1,185 @@
+Round 7g verification, closing the round 7f review's fourteen findings and settling the door as #818 ships it. Measured on: 70cf04b6
+Bun 1.3.11
+
+$ bun run verify
+$ bun run typecheck && bun run test && bun run verify:mutations && bun run verify:boundaries && bun run verify:types && bun run verify:diagram
+$ tsc --noEmit
+$ bun test test/round-two
+bun test v1.3.11 (af24e281)
+
+ 111 pass
+ 0 fail
+ 481 expect() calls
+Ran 111 tests across 7 files. [6.32s]
+$ bun run validation/round-two/mutations.ts
+CONTROL: unchanged copy passes the whole suite
+KILLED: duplicate provider accepted
+KILLED: installation order breaks ties
+KILLED: concurrency reset per delivery
+KILLED: breaker reset per delivery
+KILLED: changed plan accepted
+KILLED: fanout drops second child
+KILLED: handler decoration discarded
+KILLED: resume repeats prefix
+KILLED: defer fails to halt
+KILLED: reentrant instruction skipped
+KILLED: CAS condition ignored
+KILLED: transaction removed
+KILLED: delete is a read
+KILLED: dependencies disposed first
+KILLED: remaining cleanup skipped
+KILLED: observer failure escapes
+KILLED: secondary error replaces primary
+KILLED: cancelled effect fence removed
+KILLED: resume admission skipped
+KILLED: source never subscribed
+KILLED: stream completion reported early
+KILLED: complete does not halt
+KILLED: tag selector ignored
+KILLED: handler survival ignored
+KILLED: claimExpiry settles the record instead of claiming it
+KILLED: claimExpiry ignores a live claim
+KILLED: releaseClaims ignores the lease deadline
+KILLED: codec version ignored on resume
+KILLED: callable source not folded into the tail hash
+KILLED: continuation id sequence not advanced
+KILLED: resume without the compare-and-swap
+KILLED: duplicate not answered from the cache
+KILLED: failed resume not recorded
+KILLED: duplicate deferral id accepted
+KILLED: sweep skips the expiry claim
+KILLED: defer boundary does not require plain JSON
+KILLED: drain never times out
+KILLED: observers receive the live event payload
+KILLED: branch identity check dropped
+KILLED: duplicate anchors accepted
+KILLED: step context require ignores declaration
+KILLED: late disposer accepted
+KILLED: compile after start accepted
+KILLED: dispatch inherits the caller's run kind
+KILLED: route requirement unchecked (authorization fails open)
+KILLED: refusal at exit silently ignored
+KILLED: option key namespace unchecked
+KILLED: facet may be named anything
+KILLED: duplicate namespace accepted
+KILLED: contribution ids collide across plugins
+KILLED: nested child definitions omitted from the tail hash
+KILLED: minted grant array not frozen
+KILLED: expiry scan ignores the deadline
+KILLED: markExpired settles an unclaimed record
+KILLED: duplicate drops the cached exchanges
+KILLED: ingress headers merged into the continuation
+KILLED: gate ignores the selected authority
+KILLED: facet ignores the selected authority
+KILLED: markResumed ignores a live claim
+KILLED: resume ignores the deadline
+KILLED: lifecycle disclosed before the door
+KILLED: gate runs on the error channel
+KILLED: expiry scan returns claimed records
+KILLED: orphan aborts the sweep
+KILLED: unpersistable terminal body fails the resume
+KILLED: nested source not projected
+KILLED: frame not anchored at the site
+KILLED: exit decoration dropped from the result
+KILLED: point policy ignored for an external point
+KILLED: undeclared point accepted at bind
+KILLED: stranded residue not reported at boot
+KILLED: boot sweep skips healing
+KILLED: step state leaks into the next deferral
+KILLED: mismatch leaves the record resumable
+KILLED: a refused resume spends the approval
+KILLED: empty ask admits anyone
+KILLED: resumer reference not recorded by the door
+KILLED: resumer not written by the swap
+KILLED: secret rule removed
+KILLED: door handed the parked body
+KILLED: route resolved before the door
+KILLED: deadline not rechecked after the swap
+KILLED: nested path may park
+KILLED: frames ignore a bounded slice
+KILLED: codec accumulates on Object.prototype
+KILLED: decode assigns __proto__
+KILLED: symbol-keyed property accepted
+KILLED: non-enumerable property accepted
+KILLED: named array property accepted
+KILLED: Date subclass accepted
+KILLED: Date with properties accepted
+KILLED: reserved envelope accepted as data
+KILLED: corrupt envelope revived
+KILLED: non-finite number accepted
+KILLED: symbol value dropped silently
+KILLED: cycle check removed
+KILLED: boot report reads the plugin's own store
+KILLED: sweep abandoned when stop begins
+KILLED: default ttl not applied
+KILLED: door hook ignored
+KILLED: default door policy skipped
+KILLED: elevation may change identity
+KILLED: lend unbounded
+KILLED: elevation need not be live
+KILLED: carry ignored
+KILLED: park from a refusal loses the bound
+KILLED: notify before the record is durable
+KILLED: event before notify
+KILLED: undeclared park accepted
+KILLED: error-path park restarts the route
+KILLED: sweep stops at the first page
+KILLED: orphan does not advance the cursor
+KILLED: sweep never purges
+KILLED: sweep releases live claims
+KILLED: settle reports expiry after a winning resume
+KILLED: claimed record proceeds
+KILLED: lent grants not honoured
+KILLED: duplicate route id accepted
+KILLED: resumedAt header dropped
+KILLED: stranded report unbounded
+KILLED: scan stall undetected
+KILLED: no re-check after the door
+KILLED: resume not owned work
+KILLED: re-admission skipped for a door park
+KILLED: cancelled run parked
+KILLED: site-less failure parked from the top
+KILLED: repeated park allowed
+KILLED: failed notify leaves a live link
+KILLED: store default ttl ignored
+KILLED: bound not namespaced
+KILLED: hook throw is an oracle
+KILLED: hook not bounded by the ingress signal
+KILLED: -0 kept
+KILLED: defer inside a fan-out parked
+KILLED: fan-out child failure carries a site
+KILLED: elevation's grant ring not compared
+KILLED: parked lent grants dropped from the bound
+KILLED: step state handed to every step
+KILLED: sweep ignores a stop between records
+KILLED: sweep ignores a stop between pages
+KILLED: a step failure records a bound
+141/141 runtime mutations killed by behavioral assertions
+$ bun run validation/round-two/boundaries.ts
+BOUNDARIES: 12 modules (all declared), 27 permitted import edges (0 dynamic), no private/legacy imports
+$ bun run validation/round-two/type-controls.ts
+TYPE REJECTED: headers are explicit, not an ambient global bag
+TYPE REJECTED: pipeline operation requires after-from receiver
+TYPE REJECTED: route-only operation requires before-from receiver
+TYPE REJECTED: omitted plugin removes method
+TYPE REJECTED: omitted plugin removes facet
+TYPE REJECTED: installed family must return its implementation
+TYPE REJECTED: pair is merely possible, not installed with certainty
+TYPE REJECTED: dynamic lists have no statically known DSL
+TYPE REJECTED: a body-preserving step cannot return an incompatible body
+TYPE REJECTED: declining resilience removes its route and step retry method
+TYPE REJECTED: declining auth removes the authorize route method
+TYPE REJECTED: a point that does not honour refusal cannot return one
+TYPE REJECTED: the broad handler type keeps point and decision correlated, so exit still cannot refuse
+TYPE REJECTED: a runtime point descriptor cannot declare a policy the merged type does not
+TYPE REJECTED: a runtime point descriptor cannot claim another point's owner identity
+15/15 compiler negative controls detected; ordinary strict options also pass baseline
+$ bun run validation/round-two/diagram.ts
+DIAGRAM: module graph matches src/v2 (25 edges, 2 example modules omitted by design)
+verify exit 0
+
+$ bun run verify:packed
+$ bun run validation/round-two/packed.ts
+PACKED: external branching DSL, open handler, source, facets, replacement, actual resume PASS
+PACKED: private package subpath refused PASS
+packed exit 0
