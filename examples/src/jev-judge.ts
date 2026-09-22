@@ -31,7 +31,7 @@ import {
   when,
 } from "@routecraft/routecraft";
 import { llm } from "@routecraft/ai";
-import { type JsonValue, noul, TypeSafeClient } from "@typesafe-ai/sdk";
+import { noul, TypeSafeClient } from "@typesafe-ai/sdk";
 import { z } from "zod";
 
 /** Verdict the calling capability branches on: `met` is data, `reason` is for the log. */
@@ -51,12 +51,12 @@ export type Judgement = z.infer<typeof judgement>;
  * neither judge is given tools.
  *
  * The shape is JSON all the way down because the screen sends it as the
- * SDK's `state`, which is structurally JSON: `request` is `JsonValue` rather
- * than `unknown`, and `error` is `null` rather than absent, since an optional
- * field infers `undefined` and `undefined` is not JSON.
+ * SDK's `state`, which is structurally JSON: `request` is validated as JSON
+ * rather than typed `unknown`, and `error` is `null` rather than absent,
+ * since an optional field infers `undefined` and `undefined` is not JSON.
  */
 export const evidence = z.object({
-  request: z.custom<JsonValue>(),
+  request: z.json(),
   account: z.string(),
   toolCalls: z.array(
     z.object({
