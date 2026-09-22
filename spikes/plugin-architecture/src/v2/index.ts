@@ -5,3 +5,4 @@ export * from "./runtime.ts";
 export * from "./operations.ts";
 export * from "./storage.ts";
 export * from "./auth.ts";
+export * from "./codec.ts";

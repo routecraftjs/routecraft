@@ -48,10 +48,11 @@ layers drawn are today's chain. The proof of concept has four of them, under
 one resilience contract; the rest are feature-fit work.)
 
 This is why the order you call them in does not matter. Authorization always
-happens before validation, retry always happens inside the timeout, and caching
-is always closest to your code. The framework owns that order so that every
-capability behaves the same way, and so that reading one tells you how all of
-them work.
+happens before validation, each retry attempt runs inside its own timeout, and
+caching is always closest to your code. The framework owns that order so that
+every capability behaves the same way, and so that reading one tells you how
+all of them work. (That is the route-level order. A retry or timeout you put on
+one step wraps that step alone, in the order you wrote them.)
 
 The layers are the part most people never think about until they want to add
 one. That is the next diagram.
@@ -80,21 +81,32 @@ flowchart LR
   number and hope.
 - **Handler.** Code that runs at a named moment: when an exchange is admitted,
   when it enters, when it fails, when it finishes. At admission and entry a
-  handler can refuse the exchange; at every moment it can add to it. Each
-  moment says which decisions it honours.
+  handler can refuse the exchange; at every moment it can add to it, and what
+  it adds at the finish is what the caller gets back. Each moment says which
+  decisions it honours, and a plugin that declares a new moment declares that
+  too, so the compiler and the runtime enforce the same policy.
 - **Provider.** The runtime needs a few things to do its job, such as somewhere
   to keep exchanges that are waiting. You can be the one who supplies it.
 
 Everything a plugin names lives under its own name: its data on the exchange
 is `ex.yourplugin.whatever`, its route options are `yourplugin.whatever`, and
 its layers and handlers are yours even if another plugin picked the same word.
-Two plugins cannot collide on a string, and the compiler tells you when you use
-one that is not installed.
+Two plugins cannot collide on a string. Some of that the compiler tells you
+(a method or a facet of a plugin that is not installed does not exist to
+call); the rest you learn when the application is constructed, by name (two
+plugins claiming one namespace, an option key under a namespace nobody
+installed, a handler at a moment nobody declared). Handler moment names and
+method names are shared vocabulary rather than owner-qualified, which is why
+both are checked for collision rather than silently merged.
 
 A route that asks for something only a plugin can give, such as
 `.authorize("approve")`, cannot ask without that plugin installed: the method
-is not there to call, and if it somehow were, the route would refuse to start.
-An ask never fails open.
+is not there to call, and the ask names the plugin's own enforcement contract
+as something the route requires, so if the ask somehow travels to an
+application without the plugin, the route refuses to start. The ask cannot
+fail open by absence. A plugin that provides that contract and then does not
+enforce it is that plugin's bug, in the same way a store that does not store
+is the store's; the framework makes absence loud, not providers honest.
 
 **Everything Routecraft ships is built from these five.** Retry is a layer.
 `.transform()` is an operation. Deferral's store is a provider and `.defer()` is
@@ -177,15 +189,21 @@ provider supplies.
 
 When it carries on, it carries on **from where it stopped**. The steps before
 the wait do not run again, and the same approval presented twice is answered
-from the first time rather than run twice. Who is allowed to carry it on is
-decided when the approval arrives, from the identity that arrives with it,
-never from who parked it.
+from the first time rather than run twice, including how the first time ended:
+completed, failed, or parked again further on. Who is allowed to carry it on
+is decided when the approval arrives, from the identity that arrives with it,
+never from who parked it. What it carries on **as** is the other way round: the
+work continues as whoever parked it, and that identity is a record of who
+they were, not a credential. The approver's authority does not become the
+run's authority. A step after the wait that needs live authority establishes
+it explicitly, from a credential it checks itself.
 
 One thing this deliberately does not promise: if the process dies in the middle
-of carrying on, the work is not silently retried. It is reported, because the
-steps after the wait may have half happened, and re-running a payment is worse
-than asking a human. This is what makes a capability that waits for a human
-different from a capability that blocks a thread for three days.
+of carrying on, the work is not silently retried. It is reported when the
+application next starts, because the steps after the wait may have half
+happened, and re-running a payment is worse than asking a human. This is what
+makes a capability that waits for a human different from a capability that
+blocks a thread for three days.
 
 ---
 
@@ -193,10 +211,14 @@ different from a capability that blocks a thread for three days.
 
 A layer or a handler says which kinds of run it applies to: a first delivery, a
 resume after a wait, a debounced release, a delivery to the error channel. A
-retry applies on a resume; a circuit breaker does not re-arm on one; an
-authorisation check applies on every kind, because the resume brings its own
-identity. Getting this wrong has security consequences, so every layer and
-handler declares it rather than inheriting a default.
+retry applies on a resume; a circuit breaker does not re-arm on one. An
+authorisation check applies to a first delivery and to the door of a resume,
+where it judges the identity that arrived with the approval before the
+approval is spent, and a refusal leaves the approval usable by its rightful
+holder. It does not apply on the error channel, where the only identity is the
+recorded one and nothing is asking to execute; a route that expires still gets
+told. Getting this wrong has security consequences, so every layer and handler
+declares it rather than inheriting a default.
 
 ---
 

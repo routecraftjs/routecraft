@@ -1,5 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { Host, type Owned } from "./host.ts";
+import { encode, decode, canonical } from "./codec.ts";
 import {
   CONTINUATIONS,
   Fault,
@@ -12,15 +13,23 @@ import {
   type RunResult,
   type Next,
   type Handler,
+  type HandlerInfo,
   type Contribution,
   type HandlerPoints,
   type RunKind,
   type RouteStatus,
   type Continuation,
   type ContinuationRecord,
+  type Frame,
+  type ResumeIngress,
   type SerializedExchange,
   type SerializedOutcome,
+  type SweepOptions,
+  type SweepReport,
   DEFERRAL_SEQUENCE,
+  DEFERRAL_RESULT,
+  DEFERRAL_RESUMED_AT,
+  DEFERRAL_INGRESS,
 } from "./contracts.ts";
 async function abortable<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
   signal.throwIfAborted();
@@ -47,53 +56,154 @@ const empty = (): RunResult => ({
 export function wireExchange(ex: Exchange): Exchange {
   return { id: ex.id, routeId: ex.routeId, body: ex.body, headers: ex.headers };
 }
-/**
- * The plain-JSON form that crosses the store. This is the one boundary that
- * requires it, and it refuses rather than silently dropping a function or
- * stream, naming the step that tried to park it.
- */
+/** The plain-JSON form that crosses the store, by the persistence codec, naming the step that tried to park what it refuses. */
 function serialize(ex: Exchange, owner: string): SerializedExchange {
-  try {
-    return structuredClone({
-      id: ex.id,
-      routeId: ex.routeId,
-      body: ex.body,
-      headers: ex.headers,
-    });
-  } catch (e) {
-    throw fault(owner, "NOT_SERIALIZABLE", e);
+  return {
+    id: ex.id,
+    routeId: ex.routeId,
+    body: encode(ex.body, owner, "body"),
+    headers: encode(ex.headers, owner, "headers") as Record<string, unknown>,
+  };
+}
+function revive(x: SerializedExchange): Exchange {
+  return {
+    id: x.id,
+    routeId: x.routeId,
+    body: decode(x.body),
+    headers: decode(x.headers) as Record<string, unknown>,
+  };
+}
+/**
+ * Project a `Step.source` value into something hashable, recursively: a
+ * function by its verbatim source text at ANY depth, so a callback nested in
+ * an option object is a step definition just as a top-level callable is;
+ * plain data as itself; the carriers an option realistically names a target
+ * with by a tagged rendering; anything else as an opaque marker, and
+ * anything past four levels as `[deep]`, so hashing a route is never a graph
+ * traversal. Source is never normalised: every fold of two texts onto one
+ * digest is a chance to resume an approval into behaviour it never covered.
+ */
+function project(value: unknown, depth = 0): unknown {
+  if (value === null) return null;
+  switch (typeof value) {
+    case "string":
+    case "boolean":
+      return value;
+    case "number":
+      return Number.isFinite(value) ? value : "[number]";
+    case "bigint":
+      return `[bigint:${String(value)}]`;
+    case "undefined":
+      return undefined;
+    case "symbol":
+      return "[symbol]";
+    case "function":
+      return Function.prototype.toString.call(value);
   }
+  if (value instanceof Date) return value.toISOString();
+  if (value instanceof URL) return `[url:${value.href}]`;
+  if (value instanceof RegExp) return `[regexp:${value.source}/${value.flags}]`;
+  if (depth >= 4) return "[deep]";
+  if (value instanceof Map)
+    return {
+      "[map]": [...value].map(([k, v]) => [
+        project(k, depth + 1),
+        project(v, depth + 1),
+      ]),
+    };
+  if (value instanceof Set)
+    return { "[set]": [...value].map((v) => project(v, depth + 1)) };
+  if (Array.isArray(value)) return value.map((v) => project(v, depth + 1));
+  const proto = Object.getPrototypeOf(value) as object | null;
+  if (proto !== Object.prototype && proto !== null) return "[opaque]";
+  const out: Record<string, unknown> = Object.create(null) as Record<
+    string,
+    unknown
+  >;
+  for (const [k, v] of Object.entries(value as Record<string, unknown>))
+    out[k] = project(v, depth + 1);
+  return out;
 }
 /**
  * Hash of the step DEFINITIONS a parked exchange will run when it resumes:
  * ids, owners, versions, declared children, and every value a step names in
- * `source`, with functions taken by verbatim source text. Nothing outside the
- * tail is folded in, so an unrelated plugin or a route option cannot strand
- * every approval in flight, and an edited callable cannot slip under one.
+ * `source`, projected by {@link project}. Nothing outside the tail is folded
+ * in, so an unrelated plugin or a route option cannot strand every approval
+ * in flight, and an edited callable cannot slip under one.
  */
-function tailHash(
+export function tailHash(
   steps: ReadonlyMap<string, Step>,
   pending: readonly string[],
 ) {
-  const describe = (step: Step): unknown => [
-    step.id,
-    step.owner,
-    step.version,
-    (step.source ?? []).map((v) =>
-      typeof v === "function" ? Function.prototype.toString.call(v) : v,
-    ),
-    step.children?.map(describe) ?? [],
-  ];
+  const describe = (step: Step): unknown => ({
+    id: step.id,
+    owner: step.owner,
+    version: step.version,
+    source: (step.source ?? []).map((v) => project(v)),
+    children: step.children?.map(describe) ?? [],
+  });
   return createHash("sha256")
-    .update(JSON.stringify(pending.map((id) => describe(steps.get(id)!))))
+    .update(canonical(pending.map((id) => describe(steps.get(id)!))))
     .digest("hex");
 }
 interface Compiled {
   spec: RouteSpec;
   steps: Map<string, Step>;
+  /** Every declared list by owner: the route's own under `null`, a step's children under its id. */
+  lists: Map<string | null, readonly string[]>;
+  position: Map<string, { list: string | null; index: number }>;
   initial: readonly string[];
   invoke: Next;
   status: RouteStatus;
+}
+/**
+ * Address the path still to run as suffixes of declared lists, anchored at
+ * the defer site even when nothing follows it, so a step appended after the
+ * site later is part of the live tail the resume compares.
+ */
+function framesOf(
+  route: Compiled,
+  site: string,
+  reenter: boolean,
+  remaining: readonly string[],
+  owner: string,
+): Frame[] {
+  const at = route.position.get(site);
+  if (!at) throw new Fault(owner, "UNKNOWN_INSTRUCTION", site);
+  const frames: Frame[] = [
+    { list: at.list, from: at.index + (reenter ? 0 : 1) },
+  ];
+  let i = 0;
+  for (;;) {
+    const frame = frames[frames.length - 1]!;
+    const suffix = route.lists.get(frame.list)!.slice(frame.from);
+    if (!suffix.every((id, k) => remaining[i + k] === id))
+      throw new Fault(owner, "UNSTRUCTURED_PENDING", remaining.join(","));
+    i += suffix.length;
+    if (i >= remaining.length) return frames;
+    const next = route.position.get(remaining[i]!);
+    if (!next) throw new Fault(owner, "UNKNOWN_INSTRUCTION", remaining[i]!);
+    frames.push({ list: next.list, from: next.index });
+  }
+}
+/** The live path the frames address today, or undefined when the graph no longer has it. */
+function pendingOf(
+  route: Compiled,
+  frames: readonly Frame[],
+): string[] | undefined {
+  const out: string[] = [];
+  for (const f of frames) {
+    const list = route.lists.get(f.list);
+    if (
+      !list ||
+      !Number.isInteger(f.from) ||
+      f.from < 0 ||
+      f.from > list.length
+    )
+      return undefined;
+    out.push(...list.slice(f.from));
+  }
+  return out;
 }
 /** Execution mechanics only. Contributions provide policy, resources and operation instances. */
 export class Runtime {
@@ -139,9 +249,14 @@ export class Runtime {
         );
     }
     const steps = new Map<string, Step>();
-    const collect = (list: readonly Step[]): readonly Step[] =>
-      Object.freeze(
-        list.map((step) => {
+    const lists = new Map<string | null, readonly string[]>();
+    const position = new Map<string, { list: string | null; index: number }>();
+    const collect = (
+      list: readonly Step[],
+      owner: string | null,
+    ): readonly Step[] => {
+      const frozen = Object.freeze(
+        list.map((step, index) => {
           if (
             step.owner !== "application" &&
             !this.host.order.some((p) => p.id === step.owner)
@@ -154,15 +269,21 @@ export class Runtime {
               "DUPLICATE_STEP",
               `${step.id} already owned by ${previous.owner}`,
             );
-          const frozen = Object.freeze({
+          position.set(step.id, { list: owner, index });
+          const compiled = Object.freeze({
             ...step,
-            children: step.children ? collect(step.children) : undefined,
+            children: step.children
+              ? collect(step.children, step.id)
+              : undefined,
           }) as Step;
-          steps.set(step.id, frozen);
-          return frozen;
+          steps.set(step.id, compiled);
+          return compiled;
         }),
       );
-    const initial = collect(spec.steps);
+      lists.set(owner, Object.freeze(frozen.map((s) => s.id)));
+      return frozen;
+    };
+    const initial = collect(spec.steps, null);
     const frozen = Object.freeze({
       ...spec,
       tags: Object.freeze([...spec.tags]),
@@ -173,6 +294,8 @@ export class Runtime {
     const compiled: Compiled = {
       spec: frozen,
       steps,
+      lists,
+      position,
       initial: initial.map((s) => s.id),
       status: { state: "enabled", owner: spec.owner, reason: "compiled" },
       invoke: () => Promise.resolve(empty()),
@@ -262,6 +385,12 @@ export class Runtime {
     void work.finally(() => this.#work.delete(work)).catch(() => {});
     return work;
   }
+  private continuations() {
+    return {
+      store: this.host.service(CONTINUATIONS),
+      provider: this.host.selected.get(CONTINUATIONS.key)!.plugin.id,
+    };
+  }
   async deliver(
     routeId: string,
     body: unknown,
@@ -285,13 +414,55 @@ export class Runtime {
       }),
     );
   }
-  async resume(
+  private duplicate(record: ContinuationRecord): RunResult {
+    return {
+      status: "duplicate",
+      exchanges: record.outcome?.exchanges.map(revive) ?? [],
+      deferrals: [],
+      ...(record.outcome ? { outcome: record.outcome } : {}),
+    };
+  }
+  /**
+   * Retire a waiting record from the resume path, expired or denied, with
+   * the same claim, deliver, settle shape the sweep uses, so a crash between
+   * the transition and the re-ask heals by redelivery. Reached only by a
+   * caller admission accepted: a refused holder must never be able to burn
+   * the rightful holder's approval and drive the notification themselves.
+   */
+  private async settle(
+    route: Compiled,
     id: string,
-    headers: Record<string, unknown> = {},
+    saved: Continuation,
+    now: number,
+    error: Fault,
+    how: "expired" | "denied",
+    reason: string,
   ): Promise<RunResult> {
+    const { store } = this.continuations();
+    if ((await store.claimExpiry(id, now)) !== "won") {
+      // Whoever won says what happened: a concurrent resume that won was accepted, and this caller must not be told otherwise.
+      const settled = await store.get(id);
+      if (settled?.state === "resumed") return this.duplicate(settled);
+      throw error;
+    }
+    await this.errorChannel(route.spec.id, revive(saved.exchange), error).catch(
+      () => undefined,
+    );
+    if (how === "expired") await store.markExpired(id, now);
+    else await store.markDenied(id, now, reason);
+    throw error;
+  }
+  /**
+   * The order of checks is the security contract. The door (admission over
+   * the ingress) runs before the record's state is disclosed, so a refused
+   * caller learns nothing and consumes nothing; the deadline and the live
+   * tail are checked next, and only then the compare-and-swap that spends
+   * the approval. The continuation then runs as the exchange that parked:
+   * the ingress is recorded on it as data, never merged into it.
+   */
+  async resume(id: string, ingress: ResumeIngress = {}): Promise<RunResult> {
     if (!this.#accept) throw new Fault("kernel", "NOT_RUNNING", "resume");
-    const store = this.host.service(CONTINUATIONS),
-      provider = this.host.selected.get(CONTINUATIONS.key)!.plugin.id;
+    const { store, provider } = this.continuations();
     let record: ContinuationRecord | undefined;
     try {
       record = await store.get(id);
@@ -299,59 +470,80 @@ export class Runtime {
       throw fault(provider, "READ_CONTINUATION", e);
     }
     if (!record) throw new Fault(provider, "UNKNOWN_CONTINUATION", id);
-    // An approver double-clicks, a webhook is redelivered: the normal case, answered from the cache.
-    if (record.state === "resumed")
-      return {
-        status: "duplicate",
-        exchanges:
-          record.outcome?.exchanges.map((x: SerializedExchange) =>
-            wireExchange(x),
-          ) ?? [],
-        deferrals: [],
-      };
-    if (record.state !== "waiting")
-      throw new Fault(provider, "RESUME_SETTLED", `${id}: ${record.state}`);
     const saved = record.continuation;
     const route = this.route(saved.routeId);
-    if (
-      saved.codec !== 1 ||
-      saved.pending.some((x) => !route.steps.has(x)) ||
-      saved.tail !== tailHash(route.steps, saved.pending)
-    )
-      throw new Fault(provider, "PLAN_MISMATCH", id);
-    // The ingress headers win: what the resume carries is what is authorised, never what was stored.
-    const ingress: Exchange = {
-      ...wireExchange(saved.exchange),
-      headers: { ...saved.exchange.headers, ...headers },
+    const door: Exchange = {
+      id: saved.exchange.id,
+      routeId: route.spec.id,
+      body: ingress.payload,
+      headers: { ...ingress.headers },
     };
-    // Admission is evaluated BEFORE the record leaves waiting. Refusal preserves the approval.
     const admitted = await this.handlers(
       route,
       "admission",
-      this.attach(ingress),
+      this.attach(door),
       "resume",
+      undefined,
+      { id, deferred: saved.exchange },
     );
     if (!admitted) return { status: "refused", exchanges: [], deferrals: [] };
+    let recorded: unknown;
+    try {
+      recorded = encode(admitted.headers, provider, "ingress headers");
+    } catch (e) {
+      throw fault(provider, "INGRESS_NOT_PERSISTABLE", e);
+    }
+    // An approver double-clicks, a webhook is redelivered: the normal case, answered from the cache, after the door.
+    if (record.state === "resumed") return this.duplicate(record);
+    if (record.state !== "waiting" || record.claimedAt !== undefined)
+      throw new Fault(
+        provider,
+        "RESUME_SETTLED",
+        `${id}: ${record.state === "waiting" ? "claimed" : record.state}`,
+      );
+    const now = Date.now();
+    if (saved.expiresAt !== undefined && saved.expiresAt <= now)
+      return this.settle(
+        route,
+        id,
+        saved,
+        now,
+        new Fault(provider, "EXPIRED", id),
+        "expired",
+        "expired before resume",
+      );
+    const live = saved.codec === 2 ? pendingOf(route, saved.frames) : undefined;
+    if (!live || saved.tail !== tailHash(route.steps, live))
+      return this.settle(
+        route,
+        id,
+        saved,
+        now,
+        new Fault(provider, "PLAN_MISMATCH", id),
+        "denied",
+        "continuation changed",
+      );
     let cas: "won" | "lost";
     try {
-      cas = await store.markResumed(id, Date.now());
+      cas = await store.markResumed(id, now);
     } catch (e) {
       throw fault(provider, "MARK_RESUMED", e);
     }
     if (cas === "lost") {
-      // Lost the race to another resume: read back and answer as the duplicate it is.
       const settled = await store.get(id);
-      if (settled?.state === "resumed")
-        return {
-          status: "duplicate",
-          exchanges:
-            settled.outcome?.exchanges.map((x: SerializedExchange) =>
-              wireExchange(x),
-            ) ?? [],
-          deferrals: [],
-        };
+      if (settled?.state === "resumed") return this.duplicate(settled);
       throw new Fault(provider, "RESUME_LOST", id);
     }
+    const parked = revive(saved.exchange);
+    const exchange: Exchange = {
+      ...parked,
+      headers: {
+        ...parked.headers,
+        [DEFERRAL_RESULT]: ingress.payload,
+        [DEFERRAL_RESUMED_AT]: now,
+        [DEFERRAL_INGRESS]: recorded,
+      },
+    };
     return this.own(
       (async () => {
         let result: RunResult;
@@ -359,10 +551,16 @@ export class Runtime {
           result = await this.enter(
             route,
             {
-              exchange: wireExchange(admitted),
+              exchange,
               kind: "resume",
-              signal: new AbortController().signal,
-              pending: saved.pending,
+              signal: ingress.signal ?? new AbortController().signal,
+              pending: live,
+              resumption: {
+                site: saved.site,
+                ...(saved.stepState !== undefined
+                  ? { stepState: decode(saved.stepState) }
+                  : {}),
+              },
             },
             true,
           );
@@ -377,9 +575,19 @@ export class Runtime {
             .catch(() => undefined);
           throw e;
         }
+        // Only what is persistable is cached; a completion whose output is not JSON data is still a completion.
+        const exchanges: SerializedExchange[] = [];
+        let omitted = 0;
+        for (const x of result.exchanges)
+          try {
+            exchanges.push(serialize(x, provider));
+          } catch {
+            omitted++;
+          }
         const outcome: SerializedOutcome = {
           status: result.status,
-          exchanges: result.exchanges.map((x) => serialize(x, provider)),
+          exchanges,
+          ...(omitted ? { omitted } : {}),
         };
         try {
           await store.recordOutcome(id, outcome);
@@ -392,31 +600,55 @@ export class Runtime {
     );
   }
   /**
-   * Deliver every due continuation to its route's error channel and settle
-   * it expired. The claim is taken first and released by the lease if this
-   * process dies mid-delivery, so a nag is re-sent rather than lost, which
-   * is the at-least-once trade that is safe for a notification and never
-   * for a continuation.
+   * Heal claims past their lease, purge settled records past retention, then
+   * page through what is due by keyset cursor: a record this pass visited
+   * and could not retire (an orphan of a route this application lacks, a
+   * claim another holder took) is behind the cursor, never re-read, so it
+   * cannot starve the records after it. Each retirement is claim, deliver
+   * to the error channel, settle, which is the at-least-once trade that is
+   * safe for a notification and never for a continuation.
    */
-  async sweep(now = Date.now()): Promise<number> {
+  async sweep({
+    now = Date.now(),
+    lease,
+    retention,
+    pageSize = 100,
+  }: SweepOptions = {}): Promise<SweepReport> {
     if (!this.#accept) throw new Fault("kernel", "NOT_RUNNING", "sweep");
-    const store = this.host.service(CONTINUATIONS),
-      provider = this.host.selected.get(CONTINUATIONS.key)!.plugin.id;
-    let delivered = 0;
-    for (const id of await store.findExpired(now)) {
-      if ((await store.claimExpiry(id, now)) !== "won") continue;
-      const record = await store.get(id);
-      if (!record) continue;
-      const route = this.route(record.continuation.routeId);
-      // The error channel rethrows after the handlers ran; the nag was delivered either way.
-      await this.errorChannel(
-        route.spec.id,
-        wireExchange(record.continuation.exchange),
-        new Fault(provider, "EXPIRED", id),
-      ).catch(() => undefined);
-      if ((await store.markExpired(id)) === "won") delivered++;
+    const { store, provider } = this.continuations();
+    const released =
+      lease !== undefined ? await store.releaseClaims(now - lease) : 0;
+    const purged =
+      retention !== undefined ? await store.purgeSettled(now - retention) : 0;
+    const orphans: Record<string, number> = {};
+    let visited = 0,
+      retired = 0,
+      cursor: { id: string; expiresAt: number } | undefined;
+    for (;;) {
+      const page = await store.findExpired(now, pageSize, cursor);
+      if (!page.length) break;
+      for (const entry of page) {
+        cursor = entry;
+        visited++;
+        const route = this.#routes.get(entry.routeId);
+        if (!route) {
+          orphans[entry.routeId] = (orphans[entry.routeId] ?? 0) + 1;
+          continue;
+        }
+        if ((await store.claimExpiry(entry.id, now)) !== "won") continue;
+        const record = await store.get(entry.id);
+        if (!record) continue;
+        // The error channel rethrows after the handlers ran; the nag was delivered either way.
+        await this.errorChannel(
+          route.spec.id,
+          revive(record.continuation.exchange),
+          new Fault(provider, "EXPIRED", entry.id),
+        ).catch(() => undefined);
+        if ((await store.markExpired(entry.id, now)) === "won") retired++;
+      }
+      if (page.length < pageSize) break;
     }
-    return delivered;
+    return { released, purged, visited, retired, orphans };
   }
   errorChannel(
     routeId: string,
@@ -441,11 +673,20 @@ export class Runtime {
     exchange: Exchange,
     kind: RunKind,
     error?: Fault,
+    resume?: HandlerInfo["resume"],
   ): Promise<Exchange | null> {
+    const descriptor = this.host.points.get(point);
+    if (!descriptor) throw new Fault("kernel", "UNKNOWN_POINT", String(point));
     let ex = exchange;
     const handlers = this.ordered.filter(
       (x): x is Owned<Handler> => x.kind === "handler" && x.point === point,
     );
+    const info: HandlerInfo = {
+      kind,
+      route: route.spec,
+      ...(error ? { error } : {}),
+      ...(resume ? { resume } : {}),
+    };
     for (const h of handlers) {
       if (
         !h.survival[kind] ||
@@ -454,15 +695,10 @@ export class Runtime {
       )
         continue;
       try {
-        const result = await h.handle(
-          ex,
-          error
-            ? { kind, route: route.spec, error }
-            : { kind, route: route.spec },
-        );
+        const result = await h.handle(ex, info);
         if (result.kind === "refuse") {
-          // The type forbids this at error and exit; a caller the compiler did not see is named rather than ignored.
-          if (point === "error" || point === "exit") {
+          // The type forbids this where the point declares no refusal; a caller the compiler did not see is named rather than ignored.
+          if (!descriptor.refuse) {
             const refusal = new Fault(
               h.owner,
               "REFUSE_UNSUPPORTED",
@@ -509,9 +745,15 @@ export class Runtime {
       const entered = await this.handlers(route, "entry", ex, run.kind);
       if (!entered) return { status: "refused", exchanges: [], deferrals: [] };
       ex = entered;
-      const result = await route.invoke({ ...run, exchange: ex });
-      for (const completed of result.exchanges)
-        await this.handlers(route, "exit", completed, run.kind);
+      const ran = await route.invoke({ ...run, exchange: ex });
+      // Exit decoration reaches the caller, not only the next exit handler.
+      const exchanges: Exchange[] = [];
+      for (const completed of ran.exchanges)
+        exchanges.push(
+          (await this.handlers(route, "exit", completed, run.kind)) ??
+            completed,
+        );
+      const result: RunResult = { ...ran, exchanges };
       this.host.emit(`exchange:${result.status}`, {
         id: ex.id,
         route: route.spec.id,
@@ -580,6 +822,9 @@ export class Runtime {
           signal: run.signal,
           attemptId,
           kind: run.kind,
+          ...(run.resumption?.site === id
+            ? { stepState: run.resumption.stepState }
+            : {}),
           require: (contract) => this.host.requireFor(step.owner, contract),
           commit: (effect) => {
             assertActive();
@@ -678,8 +923,7 @@ export class Runtime {
             case "defer": {
               if (!this.host.has(CONTINUATIONS))
                 throw new Fault(step.owner, "MISSING_CONTINUATION_STORE", id);
-              const store = this.host.service(CONTINUATIONS),
-                provider = this.host.selected.get(CONTINUATIONS.key)!.plugin.id;
+              const { store, provider } = this.continuations();
               const sequence =
                 (Number(outcome.exchange.headers[DEFERRAL_SEQUENCE]) || 0) + 1;
               const continuationId = `${outcome.exchange.id}#${sequence}`;
@@ -690,17 +934,27 @@ export class Runtime {
                   [DEFERRAL_SEQUENCE]: sequence,
                 },
               };
-              const remaining = outcome.request.reenter
-                ? [id, ...pending]
-                : pending;
+              const reenter = outcome.request.reenter === true;
+              const remaining = reenter ? [id, ...pending] : pending;
               const saved: Continuation = {
-                codec: 1,
+                codec: 2,
                 routeId: route.spec.id,
+                site: id,
+                frames: framesOf(route, id, reenter, remaining, step.owner),
                 tail: tailHash(route.steps, remaining),
-                pending: remaining,
                 exchange: serialize(parked, step.owner),
+                parkedAt: Date.now(),
                 ...(outcome.request.ttl !== undefined
                   ? { expiresAt: Date.now() + outcome.request.ttl }
+                  : {}),
+                ...(outcome.request.state !== undefined
+                  ? {
+                      stepState: encode(
+                        outcome.request.state,
+                        step.owner,
+                        "stepState",
+                      ),
+                    }
                   : {}),
               };
               try {

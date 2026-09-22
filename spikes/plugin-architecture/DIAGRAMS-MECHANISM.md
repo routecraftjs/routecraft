@@ -28,6 +28,7 @@ graph TD
         graph_["graph.ts<br/><i>topological sort</i>"]
         host["host.ts<br/><i>installation, resolution, teardown</i>"]
         runtime["runtime.ts<br/><i>execution, handlers, continuation</i>"]
+        codec["codec.ts<br/><i>persistence codec, fingerprints</i>"]
     end
     subgraph surface["consumer surface"]
         dsl["dsl.ts<br/><i>fluent builder, facets, Application</i>"]
@@ -44,6 +45,8 @@ graph TD
     host --> graph_
     runtime --> contracts
     runtime --> host
+    runtime --> codec
+    codec --> contracts
     dsl --> contracts
     dsl --> host
     dsl --> runtime
@@ -51,6 +54,7 @@ graph TD
     operations --> dsl
     storage --> contracts
     storage --> dsl
+    storage --> codec
     auth --> contracts
     auth --> dsl
     index --> contracts
@@ -60,6 +64,7 @@ graph TD
     index --> operations
     index --> storage
     index --> auth
+    index --> codec
 ```
 
 Read the absent edges. `contracts.ts` imports nothing, so a contract can never
@@ -213,34 +218,40 @@ rather than of one delivery.
 
 ## 5. A deferred continuation, including the crash path
 
-This is the diagram round seven corrected. Two mechanisms, deliberately
-asymmetric. A **resume** is a compare-and-swap out of `waiting`: exactly one
-caller wins, a second is answered from the cache, and a holder that dies
-mid-run leaves residue that is reported at boot and never re-run, because a
-half-run continuation may have half-happened side effects. An **expiry
-notification** is a claim over a record that stays `waiting`: a holder that dies
-mid-delivery is healed by the lease and the nag is re-sent, because re-sending a
-nag is safe. Round six had modelled the resume as the lease, which re-ran
-continuations. The shipped framework (`revive.ts`, `types.ts`) has it this way.
+This is the diagram round seven corrected and round 7e completed. Two
+mechanisms, deliberately asymmetric. A **resume** is a compare-and-swap out of
+`waiting`: exactly one caller wins, a second is answered from the cache with
+how the first ended, and a holder that dies mid-run leaves residue that the
+deferral plugin reports when the application next starts and never re-runs,
+because a half-run continuation may have half-happened side effects. A
+**notification** (expiry, or denial of a changed plan) is a claim over a record
+that stays `waiting` and excludes a resume while it holds: a holder that dies
+mid-delivery is healed by the lease and the nag is re-sent, because re-sending
+a nag is safe. Round six had modelled the resume as the lease, which re-ran
+continuations. The shipped framework (`revive.ts`, `types.ts`) has it this
+way.
 
 ```mermaid
 stateDiagram-v2
     [*] --> waiting: defer<br/>record + index in ONE transaction<br/>id = exchangeId#sequence
     state waiting {
         [*] --> unclaimed
-        unclaimed --> claimed: claimExpiry(id, at)<br/>due and unclaimed
+        unclaimed --> claimed: claimExpiry(id, at)<br/>due, or plan changed
         claimed --> unclaimed: releaseClaims(before)<br/>lease elapsed, nag re-sent
     }
-    waiting --> resumed: markResumed(id, at)<br/>CAS, exactly one winner<br/>index cleared
-    resumed --> resumed: second resume<br/>answered DUPLICATE from cache
-    waiting --> expired: markExpired(id)<br/>after the nag was delivered
-    resumed --> [*]
-    expired --> [*]
+    unclaimed --> resumed: markResumed(id, at)<br/>CAS, unclaimed only<br/>index cleared
+    resumed --> resumed: second resume<br/>answered DUPLICATE with the cached outcome
+    claimed --> expired: markExpired(id, at)<br/>after the nag was delivered
+    claimed --> denied: markDenied(id, at, reason)<br/>after the re-ask was delivered
+    resumed --> [*]: purgeSettled, past retention
+    expired --> [*]: purgeSettled, past retention
+    denied --> [*]: purgeSettled, past retention
 
     note right of resumed
         Winner runs the tail, then
         recordOutcome. Died before
-        that? Reported at boot by
+        that? Reported by the deferral
+        plugin's boot scan through
         resumedWithoutOutcome.
         Never re-run.
     end note
@@ -258,17 +269,18 @@ sequenceDiagram
     Note over P1: effects so far: prefix, tool-request
     P1-xP1: SIGKILL
     Note over S: record: waiting
-    P2->>S: resume(id, ingress headers)
-    P2->>S: tail hash check against the compiled route
-    Note over P2: an edited suffix callable is refused<br/>BEFORE anything leaves waiting
-    P2->>S: markResumed: CAS out of waiting
-    P2->>P2: run the SUFFIX only, under the INGRESS identity<br/>prefix is not repeated, the stored principal is not trusted
-    P2->>S: recordOutcome (cached reply for duplicates)
+    P2->>P2: resume(id, ingress): admission over the INGRESS<br/>before the record's state is disclosed
+    Note over P2: a refused resumer learns nothing<br/>and spends nothing
+    P2->>S: deadline, then LIVE tail hash against the compiled route
+    Note over P2: an edited or appended tail step is refused,<br/>the record denied, the route told through its error channel
+    P2->>S: markResumed: CAS out of waiting, unclaimed only
+    P2->>P2: run the SUFFIX only, as the PARKED identity restored<br/>the ingress recorded on it as data, never merged in
+    P2->>S: recordOutcome (what is persistable; a completion stays a completion)
     P2->>S: resume(id) again
-    S-->>P2: duplicate, from the cache
+    S-->>P2: duplicate, with the cached outcome
 
     rect rgb(95, 74, 31)
-        Note over P2,S: if Process 2 dies between markResumed<br/>and recordOutcome: reported at boot,<br/>never re-run
+        Note over P2,S: if Process 2 dies between markResumed<br/>and recordOutcome: reported by the next boot scan,<br/>never re-run
     end
 ```
 
@@ -288,4 +300,4 @@ also has and documents.
 | 2 | `src/v2/contracts.ts` for ports and contributions, `Installation` for the verbs |
 | 3 | `src/v2/host.ts` constructor and `start`, `src/v2/graph.ts` |
 | 4 | `src/v2/runtime.ts`, the outcome switch and the handler loop |
-| 5 | `src/v2/storage.ts` `durableStore`, `src/v2/runtime.ts` `resume` and `sweep`, `test/round-two/process.test.ts`, `test/round-two/corrections.test.ts` |
+| 5 | `src/v2/storage.ts` `durableStore` and `deferralPlugin`, `src/v2/codec.ts`, `src/v2/runtime.ts` `resume`, `settle` and `sweep`, `test/round-two/process.test.ts`, `test/round-two/corrections.test.ts`, `test/round-two/round-seven-e.test.ts` |

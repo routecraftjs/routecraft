@@ -13,8 +13,10 @@ import {
   deferral,
   sqlite,
   auth,
+  principals,
   withPrincipal,
-  AUTHORITY,
+  ENFORCEMENT,
+  CONTINUATIONS,
   SESSIONS,
   RECORDS,
   SqliteRecords,
@@ -72,6 +74,7 @@ if (mode === "crash") {
     operations,
     resilience,
     deferral,
+    principals,
     auth,
     sqlite(`${dir}/deferrals.db`, "acme.disk", true),
     sqlite(`${dir}/sessions.db`, "acme.sessions", true, SESSIONS),
@@ -124,25 +127,18 @@ if (mode === "crash") {
     (ex) => ({ kind: "branch", exchange: ex, steps: [ask] }),
     [ask],
   );
-  // The sink authorises at its own entry. What it sees is whatever identity
-  // the resume ingress carried, never the one that was parked.
+  // The sink authorises at its own admission. A continuation reaches it as the
+  // restored principal that parked, whoever resumed it, so it refuses.
   const target: RouteSpec = {
     id: "sink",
     owner: "acme.agent",
     version: "1",
     tags: [],
-    requires: [AUTHORITY],
+    requires: [ENFORCEMENT],
     options: { "auth.authorize": ["approve"] },
     steps: [
       op("sink-check", (ex) => {
-        const p = (
-          ex as {
-            auth?: { principal?: { subject: string; authentic: boolean } };
-          }
-        ).auth?.principal;
-        log(
-          `principal:${p?.subject}:${p?.authentic ? "authentic" : "restored"}`,
-        );
+        log("sink-ran");
         return continueWith(ex);
       }),
     ],
@@ -167,7 +163,23 @@ if (mode === "crash") {
             }
           : async (ex, ctx) => {
               log("suffix");
-              await ctx.dispatch("sink", ex);
+              const view = (
+                ex as {
+                  auth?: {
+                    principal?: { subject: string; authentic: boolean };
+                    resumedBy?: { subject: string; authentic: boolean };
+                  };
+                }
+              ).auth;
+              const p = view?.principal,
+                by = view?.resumedBy;
+              log(
+                `principal:${p?.subject}:${p?.authentic ? "authentic" : "restored"}`,
+              );
+              log(
+                `resumedBy:${by?.subject}:${by?.authentic ? "authentic" : "restored"}`,
+              );
+              log(`sink:${(await ctx.dispatch("sink", ex)).status}`);
               return continueWith(ex);
             },
       ),
@@ -198,8 +210,8 @@ if (mode === "crash") {
       {},
       { subject: "bob", grants: ["approve"], lent: [] },
     );
-    const result = await app.runtime.resume(parkedId(), ingress);
-    const again = await app.runtime.resume(parkedId(), ingress);
+    const result = await app.runtime.resume(parkedId(), { headers: ingress });
+    const again = await app.runtime.resume(parkedId(), { headers: ingress });
     writeFileSync(
       `${dir}/resumed.json`,
       JSON.stringify({
@@ -212,12 +224,24 @@ if (mode === "crash") {
     );
     await app.stop();
   } else if (mode === "mismatch") {
-    // The suffix callable was edited under the parked approval: refused before anything leaves waiting.
+    // The suffix callable was edited under a parked approval. A copy of the
+    // real record takes the hit, because a mismatch settles the record it is
+    // found on: denied, with the route told through its error channel.
+    const store = app.host.service(CONTINUATIONS);
+    const copy = `${parkedId()}-edited`;
+    await store.create(copy, (await store.get(parkedId()))!.continuation);
     try {
-      await app.runtime.resume(parkedId());
+      await app.runtime.resume(copy);
       throw Error("accepted changed plan");
     } catch (e) {
-      writeFileSync(`${dir}/mismatch.txt`, String(e));
+      writeFileSync(
+        `${dir}/mismatch.txt`,
+        JSON.stringify({
+          error: String(e),
+          copy: await store.get(copy),
+          original: await store.get(parkedId()),
+        }),
+      );
     }
     await app.stop();
   }

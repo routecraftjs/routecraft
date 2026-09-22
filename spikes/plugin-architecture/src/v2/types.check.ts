@@ -13,6 +13,9 @@ import {
   type Chain,
   type Phase,
   allRuns,
+  point,
+  EXIT_POINT,
+  ENTRY_POINT,
   type Handler,
 } from "./index.ts";
 type Pair<B, P extends readonly Plugin[], H extends object> = {
@@ -101,3 +104,16 @@ const cannotRefuseAtExit: Handler<"exit"> = {
   handle: () => ({ kind: "refuse", reason: "no" }),
 };
 void cannotRefuseAtExit;
+// @ts-expect-error the broad handler type keeps point and decision correlated, so exit still cannot refuse
+const broadRefusalAtExit: Handler = {
+  kind: "handler",
+  id: "broad-late-refusal",
+  point: "exit",
+  survival: allRuns,
+  handle: () => ({ kind: "refuse", reason: "no" }),
+};
+void broadRefusalAtExit;
+// @ts-expect-error a runtime point descriptor cannot declare a policy the merged type does not
+void point("exit", EXIT_POINT, true);
+// @ts-expect-error a runtime point descriptor cannot claim another point's owner identity
+void point("exit", ENTRY_POINT, false);
