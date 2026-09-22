@@ -25,6 +25,7 @@ If Bun is missing, the CLI fails fast with a `[routecraft]` error pointing at th
 | `craft exec [route] [--field=value...]` | Dispatch to a route on a running instance and print the result; omit the route for the list of dispatchable endpoints. Reads the body from stdin too. `--format pretty \| json \| raw` |
 | `craft ops health \| ready \| routes [id] \| deferrals [id] \| indicators [name]` | Read the ops surface of a running instance: health, readiness, the route listing, what is waiting on a deferral, and the health indicators |
 | `craft acp` | Bridge an editor speaking the Agent Client Protocol to an instance; `--agent <name>` picks the agent. It reconnects on its own when the instance restarts |
+| `craft tui [--db <path>]` | Browse routes, agents, tool calls, exchanges and events recorded by the `telemetry()` plugin, from its SQLite database (`.routecraft/telemetry.db` by default). Works while the context runs and after it stops |
 
 `exec`, `ops` and `acp` reach the instance through its ops server: `--url` and `--token` name it directly, or a profile does.
 
