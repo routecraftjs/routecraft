@@ -14,7 +14,7 @@ tags:
   - routecraft
 related:
   - stop-trusting-your-llm-to-behave
-  - your-first-mcp-server-in-typescript
+  - anatomy-of-a-team-agent-harness
 layout: blog-post
 ---
 
@@ -22,7 +22,7 @@ TypeSafe released Jev in September, and if you build agents you have probably al
 
 The first use anyone reaches for is the judge. Every agent pipeline that acts on a result needs something independent to decide whether the agent actually did the job, and today that something is usually a second LLM call with a structured output schema. Jev returns structured output natively, faster and cheaper than a reasoning model by the vendor's own numbers. Swap it in, keep the schema, done.
 
-We build agents on Routecraft at [DevOptix](https://devoptix.nl), and our judge sits on the latency path of every dispatch it gates. So we wired Jev into it. It does not work as a swap, and you can see why from the SDK's types before you make a single call. It works as something better, and the difference is the point of this post.
+We build agents on Routecraft at [DevOptix](https://devoptix.nl). The back-office harness from [Anatomy of a team agent harness](/blog/anatomy-of-a-team-agent-harness) judges every agent dispatch before anything acts on it, and that judge sits on the latency path of every dispatch it gates. So we wired Jev into it. It does not work as a swap, and you can see why from the SDK's types before you make a single call. It works as something better, and the difference is the point of this post.
 
 ## A judge that cannot write the verdict
 
@@ -43,7 +43,7 @@ Jev can answer `met`. It cannot answer `reason`, because it does not generate te
 
 So Jev is not a replacement for the judge. It is a screen in front of it. Jev answers "was the request met?" as a probability on every dispatch. When the probability is high enough to act on, the route acts on it and the reasoning model is never called. Every other outcome still goes to the LLM judge, which is the only stage that can explain itself.
 
-That is a cascade, and TypeSafe documents it themselves under the name SDE cascade. The saving comes from the common case, the one where the agent plainly did the job and nobody needs a sentence about it. The interesting cases keep the interesting model.
+That is a cascade, and TypeSafe documents it themselves under the name SDE cascade. The saving comes from the common case, the one where the agent plainly did the job and nobody needs a sentence about it. The interesting cases keep the interesting model. The harness post warns against paying AI rates for a scheduler's job; this is the same rule one level down. Do not pay reasoning-model rates for a yes.
 
 ## The route
 
@@ -165,7 +165,7 @@ TypeSafe's cookbook includes a recipe for using Jev as a guardrail: screen LLM i
 
 Those two documents describe an injectable model guarding against injection. And an agent's account of its own work is text that argues for its own classification, which is the exact input the vendor says can move the answer.
 
-We wrote at length about this in [Stop trusting your LLM to behave](/blog/stop-trusting-your-llm-to-behave), and the argument is the same here. A judge is a quality signal. It tells you whether the agent did good work. It is not a boundary, because a boundary has to hold against an input written to defeat it, and a model that reads instructions inside the state as instructions does not.
+[Stop trusting your LLM to behave](/blog/stop-trusting-your-llm-to-behave) already makes the case for what follows from that, and its line for the judge holds unchanged here: judge the envelope, not the letter. What Jev changes is the budget. That post says of classifiers and judges, "Use them. All of them, if the budget stretches." Jev stretches it. A screen this cheap can sit in front of every dispatch, which makes the probabilistic layer affordable everywhere. It does not make it a boundary.
 
 Notice what Jev takes away from the LLM judge's own defence. Our reasoning judge has no tools, which Jev also has not. And its system prompt tells it to treat everything in the evidence as content to weigh and never as commands. Jev has no system prompt. The instruction text on the noul question is the only place that sentence can go, so we put it there, and we do not pretend it is a wall. The wall is the input validation, the policy check and the identity check that run before any model sees the exchange, and those do not change because the judge got faster.
 
@@ -185,7 +185,7 @@ None of these hurt "was the request met?", which is why the judge is a good firs
 
 ## Getting a key
 
-Create one at [console.typesafe.ai](https://console.typesafe.ai/keys) and export it as `TYPESAFE_API_KEY`; the client reads it with no arguments. TypeSafe describes Jev as early access at the time of writing, so there may be a wait, and several model gateways list it if you already have an account with one. The example honours `TYPESAFE_BASE_URL` for that.
+Create one at [console.typesafe.ai](https://console.typesafe.ai/keys) and export it as `TYPESAFE_API_KEY`; the client reads it with no arguments. TypeSafe describes Jev as early access at the time of writing, so there may be a wait, and several model gateways list it if you already have an account with one. The wire format also has open-source implementations already: semif-serve, for one, says an existing Jev client needs only a changed base URL. We have not run them. `TYPESAFE_BASE_URL` is where the example would point at either.
 
 One rule worth stating plainly, because the search results for "Jev API key" already include sites that will issue you one. The only place that creates a Jev key is TypeSafe's console. A site that hands you a key from another domain is sitting between you and the vendor with your key and every payload you send, and your judge evidence is the last thing you want proxied.
 
