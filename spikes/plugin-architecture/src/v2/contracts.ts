@@ -78,6 +78,8 @@ export interface DeferRequest {
    * committed and a notification that fails does not announce a park.
    */
   readonly notify?: (id: string) => void | Promise<void>;
+  /** Policy inputs the defer site attaches for the door to read. The kernel never reads it. */
+  readonly meta?: unknown;
   /**
    * State the deferring step owns across the wait, handed back to it as
    * `StepContext.stepState` on the resume and nowhere else: it is runtime
@@ -193,8 +195,13 @@ export interface Continuation {
   /** The step that parked the exchange, or null for a park raised at admission. */
   readonly site: string | null;
   readonly frames: readonly Frame[];
-  /** What was refused when the park was raised from a refusal, as the refusing handler described it. The bound a later lend may not exceed. */
-  readonly refusal?: unknown;
+  /**
+   * What was refused when the park was raised from a refusal, keyed by the
+   * namespace of the plugin that refused, so a plugin reads back only what
+   * it wrote: an auth gate's bound is never a rate limiter's detail.
+   */
+  readonly refusal?: Readonly<Record<string, unknown>>;
+  readonly meta?: unknown;
   /** Hash of the step definitions after the defer point, callables by source text at any depth. Nothing else. */
   readonly tail: string;
   readonly exchange: SerializedExchange;
@@ -251,6 +258,8 @@ export type ScanCursor = Pick<ExpiredEntry, "id" | "expiresAt">;
  * mistakes have been made here.
  */
 export interface ContinuationStore {
+  /** Policy the provider owns and every park honours: a deadline when the request names none. */
+  readonly defaults?: { readonly ttl?: number };
   /** Refuses a second continuation under one id. */
   create(id: string, continuation: Continuation): Promise<void>;
   get(id: string): Promise<ContinuationRecord | undefined>;
@@ -440,8 +449,10 @@ export type HandlerDecision<
   | {
       readonly kind: "allow";
       readonly exchange: Exchange;
-      /** At admission of a resume: data the kernel writes into the record beside the resume, under this plugin's namespace. Must be persistable. */
+      /** At the door of a resume: data the kernel writes into the record beside the resume, under this plugin's namespace. Must be persistable. */
       readonly record?: Readonly<Record<string, unknown>>;
+      /** At the door of a resume: headers the continuation carries, applied by the kernel after the claim, to this resume call alone. */
+      readonly carry?: Readonly<Record<string, unknown>>;
     }
   | Refusal<K>
   | Parking<K>;
@@ -456,13 +467,18 @@ export interface Selector {
  */
 export interface ResumeView {
   readonly id: string;
+  /** `door`: admission over the ingress, before the claim. `continuation`: re-admission of a park raised at the door, after it, as the parked exchange. */
+  readonly stage: "door" | "continuation";
   readonly routeId: string;
   readonly site: string | null;
   readonly parkedAt: number;
   readonly expiresAt?: number;
-  readonly refusal?: unknown;
+  readonly refusal?: Readonly<Record<string, unknown>>;
+  readonly meta?: unknown;
   readonly headers: Readonly<Record<string, unknown>>;
   readonly payload: unknown;
+  /** The ingress's own bound, for a hook that awaits. */
+  readonly signal?: AbortSignal;
 }
 /** What a handler learns beside the exchange. `resume` is present at admission and entry of a resume: at admission the exchange is the INGRESS, at entry the continuation. */
 export interface HandlerInfo {

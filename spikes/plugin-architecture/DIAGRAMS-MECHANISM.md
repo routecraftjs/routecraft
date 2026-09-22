@@ -186,25 +186,33 @@ flowchart TD
     LOOP -->|"continue"| LOOP
     LOOP -->|"complete"| EXIT
     LOOP -->|"drop"| EXIT
-    LOOP -->|"branch"| NEST["run declared children<br/><i>isolated nested path</i>"]
+    LOOP -->|"branch"| NEST["splice the chosen children<br/>ahead of what pends"]
     NEST --> LOOP
-    LOOP -->|"fanOut"| FAN["schedule every child<br/><i>siblings pend</i>"]
+    LOOP -->|"fanOut"| FAN["schedule every child<br/><i>siblings pend; none may park</i>"]
     FAN --> LOOP
-    LOOP -->|"defer"| SAVE["persist continuation<br/><i>route, plan hash, pending, exchange</i>"]
+    LOOP -->|"defer"| SAVE["persist continuation<br/><i>route, frames, tail hash, exchange</i>"]
     SAVE --> PARK(["deferred: process may now exit"])
     LOOP -->|"fault"| ERRH{"error handlers"}
+    ADM -->|"refuse, first delivery"| ERRH
     ERRH -->|"a handler throws"| SEC["primary error kept,<br/>handler fault recorded as secondary"]
     SEC --> ERRH
-    ERRH --> EXIT["exit handlers"]
+    ERRH -->|"defer, from a handler<br/>that declared it"| SITE{"at the failing step,<br/>or the door for a refusal;<br/>refused if cancelled, unsited,<br/>in a fan-out, or repeated"}
+    SITE --> SAVE
+    ERRH -->|"otherwise"| FAIL(["failed"])
+    LOOP -->|"path done"| EXIT["exit handlers<br/><i>decoration reaches the caller</i>"]
     EXIT --> DONE(["completed"])
 
     style PARK fill:#5f4a1f,color:#fff
     style DONE fill:#1f5f2f,color:#fff
     style REF fill:#5f1f1f,color:#fff
+    style FAIL fill:#5f1f1f,color:#fff
 ```
 
 A handler declares which run kinds it survives, so a policy can apply on first
-delivery and deliberately not re-apply on a resumed continuation. A wrapper does
+delivery and deliberately not re-apply on a resumed continuation. A park
+raised at the door (a refusal an error handler answered by parking) is
+re-admitted when it resumes, so the gate that refused is asked again of what
+the continuation carries now. A wrapper does
 the same: the breaker does not re-arm on `resume`, and nothing in the chain runs
 on `errorChannel`.
 
@@ -274,7 +282,7 @@ sequenceDiagram
     P2->>S: deadline, then LIVE tail hash against the compiled route
     Note over P2: an edited or appended tail step is refused,<br/>the record denied, the route told through its error channel
     P2->>S: markResumed: CAS out of waiting, unclaimed only,<br/>writing what the door recorded about the resumer
-    P2->>P2: deadline checked again, then run the SUFFIX only,<br/>as the PARKED identity restored, or as the door's lend re-minted it<br/>nothing else from the ingress reaches it
+    P2->>P2: deadline checked again, then run the SUFFIX only,<br/>as the PARKED identity restored, or as the door's lend re-minted it<br/>(a park raised at the door is re-admitted first)<br/>nothing else from the ingress reaches it
     P2->>S: recordOutcome (what is persistable; a completion stays a completion)
     P2->>S: resume(id) again
     S-->>P2: duplicate, with the cached outcome

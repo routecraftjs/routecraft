@@ -1013,6 +1013,7 @@ test("admission at a resume is over the ingress, with the parked exchange beside
         "payload",
         "routeId",
         "site",
+        "stage",
       ],
       parkedHeaders: { "routecraft.deferral.sequence": 1 },
     },
