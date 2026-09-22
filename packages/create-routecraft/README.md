@@ -75,20 +75,38 @@ The CLI will guide you through:
 1. **Project name**: Choose a name for your project
 2. **Start from**: The starter template, or a GitHub repository you name
 3. **Package manager**: Select bun, npm, pnpm, or yarn
+4. **Git**: Initialise a repository (default yes)
+5. **Install**: Install dependencies now (default yes)
+
+## Flags
+
+Every prompt has a flag, so a script or an agent can scaffold without answering:
+
+| Flag | Effect |
+|------|--------|
+| `-e, --example <url>` | Start from a GitHub repository instead of the starter template |
+| `--use-bun` / `--use-npm` / `--use-pnpm` / `--use-yarn` | Package manager (default bun) |
+| `--skip-install` | Skip installing dependencies |
+| `--no-git` | Skip git initialisation |
+| `-y, --yes` | Skip the prompts and use the defaults |
+| `-f, --force` | Overwrite an existing directory |
+| `-h, --help` | Show the help text |
+
+```bash
+bunx create-routecraft my-app --yes --use-bun
+```
 
 ## Next Steps
 
-After creating your project, install dependencies and start the dev loop. Substitute the install/run command for the package manager you chose at the prompt:
+After creating your project, start the dev loop. Dependencies are installed during scaffolding unless you answered no at the prompt or passed `--skip-install`; run the install command first in that case. Substitute the run command for the package manager you chose:
 
 ```bash
 # Bun
 cd your-project-name
-bun install
 bun run start
 
 # npm
 cd your-project-name
-npm install
 npm run start
 ```
 

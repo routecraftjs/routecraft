@@ -59,6 +59,7 @@ Wrapper around `CraftContext` with:
 
 - **`ctx`** -- The underlying context.
 - **`logger`** -- A runner-agnostic spy logger. Inspect calls via `t.logger.info.mock.calls`, or build the context with your runner's mock factory (`testContext({ fn: vi.fn })` for Vitest, `testContext({ fn: mock })` for bun:test) to use native matchers like `toHaveBeenCalledWith`.
+- **`contextLogger`** -- Spy logger for calls the context makes directly, as opposed to the route-scoped calls on `logger`.
 - **`errors`** -- Collected capability errors.
 - **`test(options?)`** -- Runs start, waits for capabilities to be ready, optionally delays, drains, then stops. Assert after `await t.test()`.
 - **`startAndWaitReady()`** -- Starts the context and waits for all capabilities to be ready without draining. Use with `t.client.sendDirect()` to send to a direct endpoint, then call `stop()` when done.

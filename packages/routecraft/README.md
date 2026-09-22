@@ -59,9 +59,9 @@ Every message flowing through a capability is an `Exchange` -- a typed envelope 
 
 ```json
 {
+  "id": "ex_abc",
   "body": { "userId": "u_123", "action": "sync" },
-  "headers": { "source": "timer", "routeId": "sync-users" },
-  "exchangeId": "ex_abc"
+  "headers": { "routecraft.route": "sync-users" }
 }
 ```
 
@@ -73,10 +73,12 @@ Operations transform or gate the data flowing through a capability:
 |-----------|---------|
 | `.transform(fn)` | Reshape the exchange body |
 | `.process(fn)` | Full exchange access for side effects |
-| `.validate(schema)` | Enforce a Zod schema; drop invalid exchanges |
+| `.validate(schema)` | Validate the body against a Standard Schema (Zod, Valibot, ArkType); a failure throws `RC5002` and fails the exchange |
 | `.filter(fn)` | Conditionally stop an exchange |
 | `.enrich(adapter)` | Augment the body with data from an external source |
 | `.to(adapter)` | Send to a destination |
+| `.defer({ schema, ttl })` | Defer the exchange in a store and answer with a `Deferred` acknowledgment; `.resume()` continues it later by token |
+| `.enabled(fn)` | Declare whether the route runs at all; a disabled route is known but not started |
 
 ### Context
 
@@ -97,7 +99,9 @@ await ctx.start();
 - Type-safe by default: the entire DSL uses TypeScript generics for end-to-end inference
 - AI-authorable: the predictable, chainable DSL is easy for code generators like Claude or Cursor to write
 - Run on a schedule or hand to an agent as a tool -- the same capability file works for both
-- Secure by design: agents can only invoke the capabilities you expose; no arbitrary filesystem access or shell commands
+- Secure by design: agents can only invoke the capabilities you expose; no filesystem or shell access unless a capability you wrote grants it
+- Work that survives a restart: `.defer()` parks an exchange in a store and `.resume()` revives it by signed token, hours or days later, from any transport
+- Operable: named `servers` carry HTTP routes, MCP and the ops surface; the ops plugin serves `/health`, `/ops/routes`, `/ops/deferrals` and `/ops/events`, and `remotes` make another instance's routes direct endpoints here
 - Minimal dependencies
 
 ## Event System
@@ -139,7 +143,7 @@ const ctx = new ContextBuilder()
   .build();
 ```
 
-### Full Event Reference
+### Common events
 
 ```text
 context:starting / started / stopping / stopped / error
@@ -150,6 +154,9 @@ route:step:started / completed / failed / error
 route:batch:started / flushed / stopped
 route:error-handler:invoked / recovered / failed
 route:cache:hit / miss / stored / failed
+route:exchange:deferred / resumed / expired
+route:enablement:changed
+server:listening / failed / closed
 plugin:applying / applied / starting / started / stopping / stopped
 ```
 
@@ -174,7 +181,7 @@ Trigger a capability from internal events:
 import { craft, event, log } from '@routecraft/routecraft';
 
 craft()
-  .from(event('route:*:exchange:completed'))
+  .from(event('route:exchange:completed'))
   .process((ex) => {
     console.log('Route completed:', ex.body.details.routeId);
     return ex;
@@ -182,7 +189,7 @@ craft()
   .to(log());
 ```
 
-Note: the event adapter filters out `:operation:` and `:exchange:` events internally to prevent infinite loops.
+Note: the event adapter does not filter its own events. A route that subscribes to `route:step:*` or `route:exchange:*` events and then emits more of them loops; subscribe to lifecycle events, or filter in the route.
 
 ## Logging
 
@@ -190,7 +197,7 @@ Logs go to stdout at `warn` level by default.
 
 - **Env vars**: `LOG_LEVEL` / `CRAFT_LOG_LEVEL`, `LOG_FILE` / `CRAFT_LOG_FILE`
 - **CLI flags**: `craft --log-level info --log-file craft.log run <file>`
-- **Config**: `craftConfig.log` sets defaults; CLI flags override config for CLI runs
+- **Config file**: `craft.log.js` (or `craft.log.cjs`) in the working directory or `~/.routecraft/` sets defaults; env vars and CLI flags win
 
 ## Documentation
 
