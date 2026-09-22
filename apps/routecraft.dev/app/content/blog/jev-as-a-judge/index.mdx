@@ -18,7 +18,7 @@ related:
 layout: blog-post
 ---
 
-TypeSafe released Jev in September, and if you build agents you have probably already read the pitch. Jev is not a language model. You send it your program state and a map of typed questions, and it answers every question in one pass with a typed value, a probability distribution, and a confidence score. No text. Software branches on the answer directly.
+TypeSafe released Jev in September, and if you build agents you have probably already read the pitch. Jev is not a language model. You send it your program state and a map of typed questions, and it answers every question in one pass with a typed value and the probabilities behind it. No text. Software branches on the answer directly.
 
 The first use anyone reaches for is the judge. Every agent pipeline that acts on a result needs something independent to decide whether the agent actually did the job, and today that something is usually a second LLM call with a structured output schema. Jev returns structured output natively, faster and cheaper than a reasoning model by the vendor's own numbers. Swap it in, keep the schema, done.
 
@@ -29,6 +29,8 @@ We build agents on Routecraft at [DevOptix](https://devoptix.nl), and our judge 
 Our judge, like most, returns two fields. A boolean the calling capability branches on, and one sentence saying why, for the log and for the human who reads the log at two in the morning.
 
 ```ts
+import { z } from "zod";
+
 const judgement = z.object({
   met: z.boolean().describe("Did the agent achieve what the request asked for?"),
   reason: z.string().describe("One sentence explaining the verdict."),
