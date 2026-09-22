@@ -8,7 +8,12 @@ import {
   test,
 } from "bun:test";
 import { createServer, type Server } from "node:http";
-import { testContext, type TestContext } from "@routecraft/testing";
+import { llm } from "@routecraft/ai";
+import {
+  mockAdapter,
+  testContext,
+  type TestContext,
+} from "@routecraft/testing";
 import { TypeSafeClient } from "@typesafe-ai/sdk";
 import {
   judgeRoute,
@@ -19,8 +24,8 @@ import {
 } from "../src/jev-judge";
 
 const evidence: JudgeEvidence = {
-  request: { subject: "Archive last month's invoices" },
-  account: "I archived all 14 invoices from August.",
+  request: { subject: "Archive the invoices in the finance inbox" },
+  account: "I listed the invoices in the finance inbox and archived them.",
   toolCalls: [{ toolName: "archive-invoice", failed: false, error: null }],
 };
 
@@ -220,5 +225,34 @@ describe("judge-agent-result capability", () => {
         evidence,
       ),
     ).rejects.toThrow();
+  });
+
+  /**
+   * @case Dispatch evidence the screen scores 0.02 with the reasoning judge
+   *   mocked to return a structured verdict.
+   * @preconditions Stub server answering as Jev; the llm() adapter overridden
+   *   to return an output the judgement schema accepts
+   * @expectedResult The judge's verdict comes back as the capability's result,
+   *   which proves the escalation branch carries a real verdict through to the
+   *   final step rather than only failing closed without one
+   */
+  test("a low screen escalates and returns the reasoning judge's verdict", async () => {
+    probability = 0.02;
+    const verdict: Judgement = {
+      met: false,
+      reason:
+        "The archive tool was called but the account names invoices the record does not show.",
+    };
+    const judge = mockAdapter(llm, { send: async () => ({ output: verdict }) });
+    t = await testContext().override(judge).routes([judgeRoute]).build();
+    await t.startAndWaitReady();
+
+    const result = await t.client.sendDirect<JudgeEvidence, Judgement>(
+      "judge-agent-result",
+      evidence,
+    );
+
+    expect(result).toEqual(verdict);
+    expect(judge.calls.send).toHaveLength(1);
   });
 });
