@@ -35,8 +35,11 @@ export default [
 ];
 ```
 
-The `recommended` preset enables the convention rules at their default levels and
-`restrict-principal-minting` as an error. The preset rule ids use the
+The `recommended` preset enables the convention rules at their default levels
+(`require-named-route` error, `batch-before-from` warn, `single-to-per-route` warn),
+`restrict-principal-minting` as an error and `require-untrusted-shell-args` as a
+warning. The `all` preset is the same with `batch-before-from` raised to an error;
+`capability-boundaries` is opt-in and in neither. The preset rule ids use the
 `@routecraft/routecraft/` prefix, so the plugin must be registered under that key
 (as above) for the presets and the disable-comment examples in this document to
 match.
@@ -47,6 +50,7 @@ match.
 - `@routecraft/routecraft/batch-before-from`: Enforce `batch()` is used as a route-level operation before `.from()`
 - `@routecraft/routecraft/single-to-per-route`: Warn when a route uses more than one `.to()`
 - `@routecraft/routecraft/restrict-principal-minting`: Principal minting (`.authenticate()`, `authenticate()`, `markAuthentic()`) must be an explicitly sanctioned, per-site exception
+- `@routecraft/routecraft/require-untrusted-shell-args`: Warn when an exchange-derived value is passed to `shell()` (from `@routecraft/os`) without `untrusted()`, so it cannot pose as an option to the program
 - `@routecraft/routecraft/capability-boundaries` (opt-in): Enforce capability module boundaries (Spring Modulith style)
 
 ### require-named-route
@@ -110,6 +114,24 @@ require code that is itself review-visible: re-exporting the helpers from a loca
 module, `export *`, destructuring a namespace import, and assigning the helper to
 another variable. `delegate()` is deliberately not restricted: it requires an
 already-branded subject and can only narrow scopes, never fabricate.
+
+### require-untrusted-shell-args
+
+A value that reaches `shell()` from the exchange can start with a dash and be read by
+the program as one of its own options (`--upload-pack=...` is honoured by `git`).
+`untrusted()` refuses such a value before the program runs; this rule warns when an
+exchange-derived argument is not wrapped. It warns rather than errors while the
+analysis behind it is young.
+
+```ts
+import { shell, untrusted } from "@routecraft/os";
+
+// ✅ Good
+shell("git", (ex) => ["clone", untrusted(ex.body.url), "/work"]);
+
+// ❌ Bad: ex.body.url is exchange-derived and unmarked
+shell("git", (ex) => ["clone", ex.body.url, "/work"]);
+```
 
 ### capability-boundaries (opt-in)
 
