@@ -181,7 +181,7 @@ TypeSafe publishes a page called model jaggedness for each release, and it is th
 - Accuracy falls as the state grows with content unrelated to the decision. Irrelevant detail is a distractor, which is one more reason the judge evidence carries tool names and not tool payloads.
 - Multi-hop reasoning and double negatives degrade it.
 
-None of these hurt "was the request met?", which is why the judge is a good first use. Several of them would hurt "is this invoice total consistent with its line items", which is why it is not a general extraction engine, whatever the launch coverage implied. The vendor's own extraction recipe has code find candidate values with a regex and Jev pick between them. It chooses. It does not read.
+None of these hurt "was the request met?" as long as the answer does not turn on one of them. The judge evidence carries tool names and failure flags, not a count of invoices or a date, and a count or a date belongs in code before the question is asked, never inside it. That is why the judge is a good first use. Several of them would hurt "is this invoice total consistent with its line items", which is why it is not a general extraction engine, whatever the launch coverage implied. The vendor's own extraction recipe has code find candidate values with a regex and Jev pick between them. It chooses. It does not read.
 
 ## Getting a key
 
