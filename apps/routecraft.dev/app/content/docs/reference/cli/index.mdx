@@ -326,6 +326,20 @@ Every subcommand takes the same `--profile`, `--url`, `--token` and `--format` o
 
 **Present a credential whenever you have one, including for health.** Health does not wall, and it returns *more* when authenticated: per-component `details` are gated by [`ops.health.details`](/docs/reference/plugins/opsplugin), which defaults to `when-authenticated`. So `craft ops` presents whatever credential the settings provide on both surfaces and degrades when there is none. That is a correctness matter rather than a nicety: without a credential a route component says `degraded` and nothing else, while with one it says `degraded` because a breaker is open. The output names which view you are reading, so a thin answer never passes for the whole picture.
 
+### tui
+
+Browse what a context recorded: routes, agents, tool calls, exchanges and live events, read from the SQLite database the [`telemetry()` plugin](/docs/introduction/monitoring#telemetry-plugin) writes. It reads the file rather than a running instance, so it works while the context runs and after it has stopped.
+
+```bash
+craft tui [--db <path>]
+```
+
+| Option | Description |
+| --- | --- |
+| `--db <path>` | Telemetry database to read. Defaults to `.routecraft/telemetry.db` in the working directory |
+
+Navigation, views and keys are in the [Terminal UI guide](/docs/introduction/tui).
+
 ## Settings file
 
 `craft exec`, `craft ops` and `craft acp` read one personal settings file, and `craft run` and `craft start` read it for the profile that selects their environment. It is **your** file, not the app's: `craft.config.ts` decides what exists in an instance and what it exposes, while this decides how you like to talk to it.
