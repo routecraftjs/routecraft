@@ -94,7 +94,7 @@ What matches, by the call (`auth.ts:252` to `295` against `#818` `revive.ts:199`
 - `elevate` returns a live principal; a restored or self-asserted one is refused; identity may not change; the lend is capped by what the park recorded as refused, and an absent bound refuses any lend.
 - Both run before the lifecycle is disclosed and before the claim; the answer is applied after the claim. A refusal leaves the record waiting (asserted in "step-up").
 
-Where it differs, and whether the difference loses a guarantee:
+Where it differs, and whether the difference loses a guarantee. The `#818` side of each row is read from its code and JSDoc at `ce0c38ee`, not executed; the spike side is executed by the probe named:
 
 | Difference | Loses a guarantee? | Evidence |
 |---|---|---|
@@ -162,7 +162,6 @@ Every sentence below overpromises against the code at `814748e4`.
 - Section 4 flowchart: `fault --> error handlers --> exit handlers --> completed`. A fault never runs exit handlers and never completes (`enter`'s catch rethrows after the error ring); the error ring's **defer** branch, the one this round added, is not drawn.
 - Section 4 flowchart: "branch: run declared children, isolated nested path". A branch splices its children into the same loop (`runtime.ts:1186`); the isolated nested path is `runPath`.
 - Section 5 sequence: "run the SUFFIX only". Not for a site-less error-path park, which runs from the first step (G3).
-- Section 3, box I, now reads "sources subscribe, then start() each plugin", which is correct and matches shipped (section 4).
 
 `DIAGRAMS.md`:
 
