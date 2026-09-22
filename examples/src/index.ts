@@ -1,7 +1,14 @@
 export { craftConfig } from "./craft.config";
 import { default as helloWorld } from "./hello-world";
+import { default as jevJudge } from "./jev-judge";
 import { default as mcpGreet } from "./mcp-greet";
 import { default as mailNoreplyNotify } from "./mail-noreply-notify";
 import { default as split } from "./split";
 
-export default [...helloWorld, mcpGreet, mailNoreplyNotify, ...split];
+export default [
+  ...helloWorld,
+  ...jevJudge,
+  mcpGreet,
+  mailNoreplyNotify,
+  ...split,
+];
