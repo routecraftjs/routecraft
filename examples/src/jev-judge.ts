@@ -202,8 +202,8 @@ const callerRoute = craft()
   .id("jev-judge-demo")
   .from(
     simple<JudgeEvidence>({
-      request: { subject: "Please archive last month's invoices" },
-      account: "I archived all 14 invoices from August.",
+      request: { subject: "Please archive the invoices in the finance inbox" },
+      account: "I listed the invoices in the finance inbox and archived them.",
       toolCalls: [
         { toolName: "list-invoices", failed: false, error: null },
         { toolName: "archive-invoice", failed: false, error: null },
