@@ -55,6 +55,7 @@ export default craft()
 |--------|------|-------------|
 | `isolation` | `'unshare' \| 'docker' \| 'none'` | Isolation tier. Defaults to `unshare` (Linux only). A tier that cannot be established fails with `OS1001`; it never downgrades silently. `none` runs without isolation, deliberately, and must say `network: true` beside it |
 | `network` | `boolean` | Allow network egress. Default `false` |
+| `mapRootUser` | `boolean` | Map the caller to root inside the tier's user namespace instead of to itself. Default `false` |
 | `cwd` | `string \| (ex) => string` | Working directory |
 | `env` | `Record<string, string> \| (ex) => ...` | Environment granted to the command. Nothing is inherited from the host by default |
 | `passEnv` | `string[]` | Host variables to pass through by name |

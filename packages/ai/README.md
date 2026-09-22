@@ -175,7 +175,7 @@ To run inside a Node application instead of through the CLI, embed `@routecraft/
 - **`acpPlugin()`** and **`surface()`**: the Agent Client Protocol seam for editors
 - **`embedding(modelId, options?)`**: generate embeddings from a pipeline
 - **Schema validation**: Zod or any Standard Schema library validates MCP tool input before your code runs, and the advertised output schema is enforced on the way out
-- **Error codes**: `AI1001` to `AI1019` (blocks, agents, sessions, deferral) and `AI2001` / `AI2002` (MCP output contract, declined tool call). See the [errors reference](https://routecraft.dev/docs/reference/errors).
+- **Error codes**: `AI1001` to `AI1019` (blocks, skills, agent runs, deferral, context window, sessions, editor surface) and `AI2001` / `AI2002` (MCP output contract, declined tool call). See the [errors reference](https://routecraft.dev/docs/reference/errors).
 
 ## Documentation
 
