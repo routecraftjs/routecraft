@@ -57,7 +57,7 @@ Do not write from memory. Capabilities look small but the operator order, schema
 The DSL is fluent and mostly self-documenting once you have an example open. Common shape:
 
 ```ts
-import { craft, simple, http, log } from "@routecraft/routecraft";
+import { craft, simple, http } from "@routecraft/routecraft";
 import { z } from "zod";
 
 const Input = z.object({ /* ... */ });
@@ -111,7 +111,7 @@ craft()
 Concrete rules:
 
 - Branching is `.choice()`, conditional drop is `.filter()`, reshaping is `.transform()`, pulling data in is `.enrich(...)`, side effects are `.tap(...)`, sending is `.to(...)`, fan-out/fan-in is `.split()`/`.aggregate()`, schema checks are `.validate()`/`.input()`. An `if` inside a step body that selects *behavior* is a `.choice()` or `.filter()` that escaped the chain.
-- **`.to(noop())` is a red flag.** If the route ends in `noop()` while a step above performs the real send, the destination is hiding; move it into `.to(...)` (or `.tap(...)` if it is fire-and-forget). `noop()` is legitimate only when the route genuinely produces no outbound effect (its value is the reply body or the enrichment itself).
+- **A route needs no destination, so never end one in `.to(noop())`.** A route ends at its last real step, and its body there is the reply. `noop()` is a placeholder for tests. As a terminal it says nothing, and if a step above performs the real send, the destination is hiding: move it into `.to(...)` (or `.tap(...)` if it is fire-and-forget).
 - `.process()` is for the rare step no operation expresses (a multi-field stateful interaction with the exchange). Reaching for it because it is familiar imperative code is the failure mode; if a chain of two operations can say the same thing, write the two operations.
 - Before finishing, reread the chain alone and ask: can a reader who opens only `route.ts` say what this capability does, to what, under which conditions, and where results go? If any of those answers lives inside a step body, the chain is not done.
 
@@ -178,6 +178,16 @@ Wrapping a service call in an adapter is good when the adapter carries something
 ```
 
 One adapter per system is right. Three one-line adapters over one service's `read`, `create` and `list` is the folder structure leaking into the pipeline. The test is the same as everywhere else in this section: after the change, does the route still say what happens to the data?
+
+### Logging, refusals and human holds
+
+These are the concerns authors most often write out inline, route after route, until the chain is mostly them.
+
+- **Logging is not a side effect, so it is never a `.tap()`.** A tap runs on a deep clone of the exchange with a fresh exchange id, detached from the flow. The line cannot be tied to the exchange's own lines by id (only the correlation id survives), and the whole body is copied to read two fields. The built-in `log()` / `debug()` steps are taps too, and every line they write has the constant message `"LogAdapter output"`, so an aggregator puts every site in one bucket. Until a first-class log operation ships ([#814](https://github.com/routecraftjs/routecraft/issues/814)), write a line with `exchange.logger` inside a step that already has the exchange. An application that logs from many routes registers one small in-flow verb with `registerDsl` instead of writing a `.process()` per line. Either way the message is a fixed string, and everything variable goes in the bindings.
+- **A refusal throws. Only a decision is a result.** `.authorize()`, `.input()` and a `.validate()` guard reject before any side effect, and the route boundary logs the error once, with its code. Do not answer a refusal with a body such as `{ approved: false }`: callers cannot tell it from a human's decision, and nothing downstream can tell it failed. Do not `.filter()` a refusal you need to report either, because the framework records a filter drop as a bare "dropped by the route" and throws away the reason.
+- **When the authority needed depends on the body, keep `.authorize()` body-free and do the rest in one named step.** Put identity, actor and delegation depth in `.authorize()`. Put the part that depends on what the call reaches (which recipients, which record) in a single step that throws RC5038 with `cause.missing.scopes`, which is the shape a consent or step-up flow reads. If the same rule applies to several routes, that step is one `registerDsl` verb taking a policy object, not a copy per route.
+- **A hold for a human is one step, not six.** A route that parks for approval needs the request raised, the park, and the decision read back. Written out, that is a header stash, a composed message, `.tap(...)`, a restore, `.defer()` and a header copy, repeated in every gated route. Raise the request through one `direct()` route that owns the channel (mail today, an elicitation tomorrow), so no capability knows how a human is reached. Where several capabilities hold, package the hold as an enricher that defers itself. Mark it with `markDeferCapable`, throw a `DeferSignal` with a non-empty `stepState` on the first run, and on resume return `exchange.deferral.result` when `peekResumeStepState` sees the state again. The route then reads `.enrich(held(describe), onDecision)`. The body is never touched, so what the human was shown and what runs after the resume are one value.
+- **Comments explain why, and they live in JSDoc, never between steps.** Put the reasoning on the route's JSDoc, or on the named function a step calls. A comment between two steps pushes the flow off the screen, and the flow is what `route.ts` exists to show.
 
 Authoring rules to keep in mind:
 
