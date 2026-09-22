@@ -158,7 +158,7 @@ describe("judge-agent-result capability", () => {
     const port = typeof address === "object" && address ? address.port : 0;
     // The client is built lazily on first use, so the stub's address has to be
     // in the environment before the first dispatch reaches it.
-    process.env["TYPESAFE_API_KEY"] ??= "test-key";
+    process.env["TYPESAFE_API_KEY"] ||= "test-key";
     process.env["TYPESAFE_BASE_URL"] = `http://127.0.0.1:${port}`;
   });
 
