@@ -361,11 +361,11 @@ jobs:
       - name: Install dependencies
         run: bun install --frozen-lockfile
 
-      # The resolution release.yml runs, minus the workflow_dispatch override,
-      # which exists to republish a corrected release and means nothing on a
-      # pull request. The floor and the reachable-tags rule are deliberately the
-      # same as that job's: a drift here tests a shape the release never builds,
-      # which is the failure this job exists to prevent.
+      # Ordinary changes use the same reachable tag and floor as release.yml.
+      # release.yml pushes the release commit's v* tag before its docs job
+      # runs, so freezing HEAD for Version Packages reproduces the content
+      # that the release will freeze from that tag. Keep the floor and the
+      # reachable-tags rule aligned; this candidate preview is the exception.
       - name: Resolve the docs release ref
         id: docver
         run: |
@@ -383,11 +383,19 @@ jobs:
 
           # Only tags reachable from the checked-out ref, matching the release.
           LATEST_TAG="$(git tag --merged HEAD -l 'v*' | sort -V | tail -n1)"
-          if [ -n "$LATEST_TAG" ] && version_gt "$LATEST_TAG" "$MIN_FREEZE_VERSION"; then
+          CANDIDATE_TAG="v$(jq -r .version packages/routecraft/package.json)"
+          if [ -n "$LATEST_TAG" ] && version_gt "$CANDIDATE_TAG" "$LATEST_TAG" &&
+            version_gt "$CANDIDATE_TAG" "$MIN_FREEZE_VERSION"; then
+            # Version Packages has already finalised changelog links for the
+            # upcoming release. Its tag cannot exist before CI permits the
+            # release, so validate the content that tag will contain instead.
+            LABEL="$CANDIDATE_TAG"
+            FREEZE_TAG="$(git rev-parse HEAD)"
+          elif [ -n "$LATEST_TAG" ] && version_gt "$LATEST_TAG" "$MIN_FREEZE_VERSION"; then
             LABEL="$LATEST_TAG"
             FREEZE_TAG="$LATEST_TAG"
           else
-            LABEL="v$(jq -r .version packages/routecraft/package.json)"
+            LABEL="$CANDIDATE_TAG"
             FREEZE_TAG=""
           fi
           echo "label=$LABEL" >> "$GITHUB_OUTPUT"
