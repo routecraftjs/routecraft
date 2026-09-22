@@ -44,10 +44,13 @@ import {
  * decides what authority the continuation carries: it returns headers
  * holding a live principal that is the parked identity with at most the
  * grants the park recorded as refused lent to it; identity may not change,
- * and the answer is held at the door and applied only at entry of the run
- * that actually happens, after the claim. Without it the continuation runs
- * as the restored parked principal, which any downstream `.authorize()`
- * refuses. The gate never runs on the error channel, where a restored
+ * and the answer is carried by the kernel to the run this call's claim lets
+ * through and no other. A park raised at the door is re-admitted on resume,
+ * so the gate that refused is asked again of what the continuation carries:
+ * a lend that satisfies it passes, and without one the restored parked
+ * principal is refused, which is a failure the error ring sees. The hooks are
+ * bounded by the ingress signal, and false, a throw and an abort are one
+ * refusal. The gate never runs on the error channel, where a restored
  * principal is the only one there is and nothing is asking to execute.
  */
 export interface Principal {
@@ -224,8 +227,6 @@ export const auth: Plugin<AuthFamily, typeof facets> = {
       },
     };
     ctx.provide(ENFORCEMENT, enforcement);
-    /** Elevations decided at the door, applied at entry of the run the claim let through. */
-    const elevations = new Map<string, Record<string, unknown>>();
     const refuse = (
       reason: string,
       missing: readonly string[] = [],
@@ -234,6 +235,30 @@ export const auth: Plugin<AuthFamily, typeof facets> = {
       reason,
       detail: { refused: [...missing] },
     });
+    /**
+     * A hook's false, throw and failure to settle before the ingress aborts
+     * are one refusal on the wire: a door whose failures can be told apart
+     * from outside is an oracle for what it knows.
+     */
+    const settle = async <T>(
+      hook: () => T | Promise<T>,
+      signal: AbortSignal | undefined,
+    ): Promise<{ ok: true; value: T } | { ok: false }> => {
+      if (signal?.aborted) return { ok: false };
+      try {
+        const value = await new Promise<T>((resolve, reject) => {
+          const abort = () => reject(Error("aborted"));
+          signal?.addEventListener("abort", abort, { once: true });
+          Promise.resolve()
+            .then(hook)
+            .then(resolve, reject)
+            .finally(() => signal?.removeEventListener("abort", abort));
+        });
+        return { ok: true, value };
+      } catch {
+        return { ok: false };
+      }
+    };
     ctx.contribute({
       kind: "handler",
       id: "authorize",
@@ -242,14 +267,17 @@ export const auth: Plugin<AuthFamily, typeof facets> = {
       async handle(ex, { kind, route, resume }) {
         const required = grantsOf(route.options);
         const hooks = route.options?.[RESUME_OPTION] as ResumeHooks | undefined;
-        if (kind !== "resume" || !resume) {
+        const enforce = (): HandlerDecision<"admission"> => {
           if (!required) return { kind: "allow", exchange: ex };
           const verdict = enforcement.check(ex.headers, required);
           return verdict
             ? refuse(verdict.reason, verdict.missing)
             : { kind: "allow", exchange: ex };
-        }
-        const { headers, payload, ...record } = resume;
+        };
+        // A first delivery, and the re-admission of a park raised at the door: the route's gate, asked of what the exchange carries now.
+        if (kind !== "resume" || !resume || resume.stage === "continuation")
+          return enforce();
+        const { headers, payload, signal, ...record } = resume;
         const input: DoorInput = {
           principal: authority.principalOf(ex.headers),
           deferred: authority.principalOf(headers),
@@ -257,20 +285,25 @@ export const auth: Plugin<AuthFamily, typeof facets> = {
           record,
         };
         if (hooks?.authorize) {
-          if ((await hooks.authorize(input)) !== true)
+          const verdict = await settle(() => hooks.authorize!(input), signal);
+          if (!verdict.ok || verdict.value !== true)
             return refuse("door refused the resumer");
         } else if (required) {
           // Default door policy: the route's own grants, asked of the resumer. Recorded as ruling 13.
           const verdict = enforcement.check(ex.headers, required);
           if (verdict) return refuse(verdict.reason, verdict.missing);
         }
+        let carry: Record<string, unknown> | undefined;
         if (hooks?.elevate) {
-          const elevated = await hooks.elevate(input);
-          const view = authority.principalOf(elevated);
+          const elevated = await settle(() => hooks.elevate!(input), signal);
+          if (!elevated.ok) return refuse("door refused the resumer");
+          const view = authority.principalOf(elevated.value);
+          // The bound: what the park recorded as refused, read from this plugin's own entry, plus what the parked identity already held on loan.
+          const own = resume.refusal?.["auth"] as
+            { refused?: string[] } | undefined;
           const bound = new Set([
             ...(input.deferred?.lent ?? []),
-            ...(((resume.refusal as { refused?: string[] } | undefined)
-              ?.refused as string[] | undefined) ?? []),
+            ...(own?.refused ?? []),
           ]);
           if (!view?.authentic)
             return refuse("elevation is not a live principal");
@@ -286,44 +319,14 @@ export const auth: Plugin<AuthFamily, typeof facets> = {
             return refuse(
               `elevation lends what was never refused: ${overreach.join(",")}`,
             );
-          elevations.set(resume.id, elevated);
+          carry = elevated.value;
         }
         return {
           kind: "allow",
           exchange: ex,
           record: { resumedBy: authority.refOf(ex.headers) },
+          ...(carry ? { carry } : {}),
         };
-      },
-    });
-    ctx.contribute({
-      kind: "handler",
-      id: "elevate",
-      point: "entry",
-      survival: {
-        normal: false,
-        resume: true,
-        debounce: false,
-        errorChannel: false,
-      },
-      handle(ex, { route, resume }) {
-        const elevated = resume && elevations.get(resume.id);
-        if (!resume || !elevated) return { kind: "allow", exchange: ex };
-        elevations.delete(resume.id);
-        // The continuation is now live, so the route's own gate is asked again and the lend has to satisfy it.
-        const carried: Exchange = {
-          ...ex,
-          headers: { ...ex.headers, ...elevated },
-        };
-        const required = grantsOf(route.options);
-        const verdict =
-          required && enforcement.check(carried.headers, required);
-        return verdict
-          ? {
-              kind: "refuse",
-              reason: verdict.reason,
-              detail: { refused: verdict.missing },
-            }
-          : { kind: "allow", exchange: carried };
       },
     });
   },

@@ -197,13 +197,17 @@ first time is still running. Who is allowed to carry it on is decided when the
 approval arrives, from the identity that arrives with it: by default the
 route's own requirements asked of the approver, or by a policy the route
 declares that sees both the approver and whoever parked it. The door decides
-before it learns anything about the record and before the route is even
-looked up, and it sees the record without the parked body. What the work
-carries on **as** is the other way round: it continues as whoever parked it,
-readable, not a credential, so the approver's authority does not become the
-run's authority. When a step-up is what parked it, the same door may lend the
-parked identity exactly the grants it was refused, and no more, minted live;
-the run then passes the gate that refused it, and the record says who lent.
+before the record's state is disclosed and before the route is even looked
+up; it sees the record's headers, times and what was refused, never the
+parked body. What the work carries on **as** is the other way round: it
+continues as whoever parked it, readable, not a credential, so neither the
+approver's authority nor the requester's lack of it is hidden. A park that
+was raised at the door is asked the door's question again when it resumes:
+without a lend, the identity that was refused is refused again, audibly, and
+the record ends failed; with one, the same door may lend the parked identity
+exactly the grants the gate itself recorded as refused, and no more, minted
+live, and the run passes the gate that refused it. The lend belongs to the
+resume that made it, and the record says who lent.
 
 One thing this deliberately does not promise: if the process dies in the middle
 of carrying on, the work is not silently retried. It is reported when the
@@ -213,11 +217,15 @@ makes a capability that waits for a human different from a capability that
 blocks a thread for three days.
 
 A failure can park too. An error handler, on the route or installed for many
-routes, may answer a failure by parking the exchange where it failed, so a
-refusal for a missing grant becomes a request to a human instead of an error,
-and the approval carries the grant back in. A wait inside a fan-out cannot
-park, because nothing could revive the parent that is still waiting on it; the
-attempt is refused before anything is written.
+routes, may answer a failure by parking the exchange at the step that failed,
+so a refusal for a missing grant becomes a request to a human instead of an
+error, and the approval carries the grant back in. Four parks are refused
+before anything is written: a failure that belongs to no step, because
+reviving it would re-run steps that completed; anything inside a fan-out,
+because nothing could revive one child alone; a run its caller cancelled; and
+a second park for a refusal the same plugin already asked a human about. A
+park whose notification fails is denied on the spot, so a link nobody received
+cannot be resumed.
 
 ---
 
@@ -226,10 +234,12 @@ attempt is refused before anything is written.
 A layer or a handler says which kinds of run it applies to: a first delivery, a
 resume after a wait, a debounced release, a delivery to the error channel. A
 retry applies on a resume; a circuit breaker does not re-arm on one. An
-authorisation check applies to a first delivery and to the door of a resume,
+authorisation check applies to a first delivery, to the door of a resume,
 where it judges the identity that arrived with the approval before the
-approval is spent, and a refusal leaves the approval usable by its rightful
-holder. It does not apply on the error channel, where the only identity is the
+approval is spent, and again to a continuation that was parked at that door;
+a refusal at the door leaves the approval usable by its rightful holder, and a
+refusal after it is a failure the route hears about. It does not apply on the
+error channel, where the only identity is the
 recorded one and nothing is asking to execute; a route that expires still gets
 told. Getting this wrong has security consequences, so every layer and handler
 declares it rather than inheriting a default.

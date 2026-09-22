@@ -56,9 +56,10 @@ flowchart LR
     style K fill:#1f3a5f,color:#ffffff,stroke:#1f3a5f,stroke-width:2px
 ```
 
-The kernel keeps only two jobs: **run the lifecycle** (install, order, start,
-stop) and **define the contracts**. It has no opinion about retries, storage,
-agents or HTTP, and it cannot reach them.
+The kernel keeps two jobs: **run the lifecycle** (install, order, start,
+stop) and **define the contracts**, plus the one protocol nothing else could
+own, how a parked exchange is written, checked and resumed. It has no opinion
+about retries, storage, agents or HTTP, and it cannot reach them.
 
 Everything else moves outside, including everything we ship. The two arrows are
 drawn identically because they are identical: our deferral plugin and your

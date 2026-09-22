@@ -389,8 +389,6 @@ export function deferralPlugin(
     interval = options.interval ?? DEFAULT_SWEEP_INTERVAL,
     retention = options.retention ?? DEFAULT_RETENTION,
     ttl = options.ttl === undefined ? DEFAULT_TTL : options.ttl;
-  const withTtl = (given: number | undefined) =>
-    given !== undefined ? { ttl: given } : ttl !== null ? { ttl } : {};
   let timer: ReturnType<typeof setInterval> | undefined;
   const facets = {
     deferral: (ex: Exchange) => ({
@@ -399,7 +397,11 @@ export function deferralPlugin(
       request: (name: string, given?: number) => ({
         kind: "defer" as const,
         exchange: ex,
-        request: { name, reason: "approval", ...withTtl(given) },
+        request: {
+          name,
+          reason: "approval",
+          ...(given !== undefined ? { ttl: given } : {}),
+        },
       }),
     }),
   };
@@ -417,12 +419,20 @@ export function deferralPlugin(
           cursor.step(`defer:${name}`, (ex) => ({
             kind: "defer",
             exchange: ex,
-            request: { name, reason: "approval", ...withTtl(given) },
+            request: {
+              name,
+              reason: "approval",
+              ...(given !== undefined ? { ttl: given } : {}),
+            },
           })),
       };
     },
     bind(ctx: PluginContext) {
-      ctx.provide(CONTINUATIONS, durableStore(ctx.require(RECORDS)));
+      // The default deadline travels with the store, so the kernel applies it to every park, however raised.
+      ctx.provide(CONTINUATIONS, {
+        ...durableStore(ctx.require(RECORDS)),
+        defaults: ttl !== null ? { ttl } : {},
+      });
       ctx.onDispose(() => {
         if (timer) clearInterval(timer);
         timer = undefined;

@@ -27,7 +27,7 @@ import {
   durableStore,
   type Continuation,
   type ContinuationStore,
-  type Fault,
+  Fault,
   type Step,
   type StepOutcome,
 } from "../../src/v2/index.ts";
@@ -176,7 +176,15 @@ test("F4, F5: the door gets no body, and an unknown route is disclosed only past
   expect(seen).toEqual([
     {
       body: "p",
-      keys: ["headers", "id", "parkedAt", "payload", "routeId", "site"],
+      keys: [
+        "headers",
+        "id",
+        "parkedAt",
+        "payload",
+        "routeId",
+        "site",
+        "stage",
+      ],
     },
   ]);
   allow = true;
@@ -405,7 +413,7 @@ test("F9, F10: the codec refuses what shipped refuses and revives what shipped r
     unknown
   >;
   expect(Object.getOwnPropertyNames(decoded)).toContain("__proto__");
-  expect(Object.getPrototypeOf(decoded)).toBeNull();
+  expect(Object.getPrototypeOf(decoded)).toBe(Object.prototype);
   expect(() => decode({ when: { $date: "not a date" } })).toThrow(
     "CORRUPT_ENVELOPE: value.when holds a date envelope that is not a date",
   );
@@ -681,7 +689,7 @@ test("step-up: refused, parked from the error ring, lent at the door, run as the
   expect(record).toMatchObject({
     site: null,
     frames: [{ list: null, from: 0 }],
-    refusal: { refused: ["payout:write"] },
+    refusal: { auth: { refused: ["payout:write"] } },
   });
   expect((await app.runtime.resume(payout, { headers: bob })).status).toBe(
     "refused",
@@ -741,7 +749,11 @@ test("error-path park: a failing step is re-entered on resume, and an undeclared
         return x;
       })
       .transform((x) => {
-        if (failures-- > 0) throw Error("flaky");
+        // A failure that carries a detail is still not a refusal: the bound must stay unrecorded.
+        if (failures-- > 0)
+          throw Object.assign(new Fault("application", "FLAKY", "flaky"), {
+            detail: { refused: ["admin"] },
+          });
         log.push("suffix");
         return x;
       })
@@ -754,6 +766,8 @@ test("error-path park: a failing step is re-entered on resume, and an undeclared
     .get(parked.deferrals[0]!))!.continuation;
   expect(record.site).toBe("routecraft.operations:transform:1");
   expect(record.frames).toEqual([{ list: null, from: 1 }]);
+  // A failure is not a refusal: nothing is recorded as a bound.
+  expect(record.refusal).toBeUndefined();
   expect(
     (await app.runtime.resume(parked.deferrals[0]!)).exchanges[0]?.body,
   ).toBe(1);

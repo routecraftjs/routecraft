@@ -14,8 +14,10 @@ import { Fault } from "./contracts.ts";
  * non-enumerable own property, a named property on an array, a `Date`
  * subclass or a `Date` carrying properties, and the reserved envelope key are
  * all refused; own keys are accumulated on a null prototype so `__proto__`
- * survives as data both ways; and a corrupt envelope is refused on the way
- * back rather than revived as an invalid `Date`.
+ * survives as data both ways (accumulated on a null prototype on the way in,
+ * defined as an own key on an ordinary object on the way back); `-0` is
+ * normalised; and a corrupt envelope is refused on the way back rather than
+ * revived as an invalid `Date`.
  */
 export const DATE_TAG = "$date";
 /** Brand for a value that must never reach a store. Membership, not a property, so it cannot be copied off. */
@@ -47,7 +49,8 @@ function walk(
     case "number":
       if (!Number.isFinite(value))
         throw refuse(owner, path, "a non-finite number");
-      return value;
+      // Normalised so the persisted form does not depend on which backend serialised it.
+      return Object.is(value, -0) ? 0 : value;
     case "undefined":
       return undefined;
     case "function":
@@ -133,11 +136,15 @@ export function decode(value: unknown, path = "value"): unknown {
       );
     return revived;
   }
-  const out: Record<string, unknown> = Object.create(null) as Record<
-    string,
-    unknown
-  >;
-  for (const key of keys) out[key] = decode(record[key], `${path}.${key}`);
+  // An ordinary prototype on the way back, as shipped: a null-prototype body breaks `instanceof Object` and `hasOwnProperty` call sites. `__proto__` is defined as an own key, not assigned.
+  const out: Record<string, unknown> = {};
+  for (const key of keys)
+    Object.defineProperty(out, key, {
+      value: decode(record[key], `${path}.${key}`),
+      enumerable: true,
+      writable: true,
+      configurable: true,
+    });
   return out;
 }
 /**
