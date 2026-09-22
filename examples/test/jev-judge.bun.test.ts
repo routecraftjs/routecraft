@@ -141,6 +141,10 @@ describe("judge-agent-result capability", () => {
   let server: Server;
   let probability = 0.94;
   let t: TestContext;
+  const previousEnv = {
+    key: process.env["TYPESAFE_API_KEY"],
+    baseUrl: process.env["TYPESAFE_BASE_URL"],
+  };
 
   beforeAll(async () => {
     server = createServer((_req, res) => {
@@ -160,6 +164,12 @@ describe("judge-agent-result capability", () => {
 
   afterAll(async () => {
     await new Promise<void>((resolve) => server.close(() => resolve()));
+    // Bun runs test files in one process; leave the environment as found.
+    if (previousEnv.key === undefined) delete process.env["TYPESAFE_API_KEY"];
+    else process.env["TYPESAFE_API_KEY"] = previousEnv.key;
+    if (previousEnv.baseUrl === undefined)
+      delete process.env["TYPESAFE_BASE_URL"];
+    else process.env["TYPESAFE_BASE_URL"] = previousEnv.baseUrl;
   });
 
   afterEach(async () => {
@@ -189,5 +199,26 @@ describe("judge-agent-result capability", () => {
       met: true,
       reason: "Screened as met with probability 0.94; no reasoning call made.",
     });
+  });
+
+  /**
+   * @case Dispatch evidence the screen scores 0.02 through the whole
+   *   capability, with no reasoning judge configured in the context.
+   * @preconditions Stub server answering as Jev; no LLM provider registered,
+   *   so the escalation branch cannot produce a verdict
+   * @expectedResult The dispatch rejects: a below-threshold screen enters the
+   *   escalation, and a missing verdict fails closed instead of passing
+   */
+  test("a low screen escalates and fails closed without a judge", async () => {
+    probability = 0.02;
+    t = await testContext().routes([judgeRoute]).build();
+    await t.startAndWaitReady();
+
+    await expect(
+      t.client.sendDirect<JudgeEvidence, Judgement>(
+        "judge-agent-result",
+        evidence,
+      ),
+    ).rejects.toThrow();
   });
 });
