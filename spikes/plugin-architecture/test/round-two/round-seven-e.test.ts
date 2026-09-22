@@ -22,7 +22,7 @@ import {
   ENFORCEMENT,
   CONTINUATIONS,
   PRINCIPAL_HEADER,
-  DEFERRAL_INGRESS,
+  DEFERRAL_RESUMED_BY,
   SqliteRecords,
   durableStore,
   type Authority,
@@ -233,6 +233,10 @@ function vendorAuthority() {
         authentic: branded.has(raw),
       };
     },
+    refOf(headers) {
+      const raw = headers[HEADER] as { subject: string } | undefined;
+      return raw ? { subject: raw.subject } : undefined;
+    },
   };
   const plugin = infrastructure({
     id: "vendor.jwt",
@@ -306,7 +310,11 @@ test("a provider without the gate satisfies nothing: the route requirement is th
     id: "vendor.impostor",
     namespace: "auth",
     provides: [AUTHORITY],
-    bind: (c) => c.provide(AUTHORITY, { principalOf: () => undefined }),
+    bind: (c) =>
+      c.provide(AUTHORITY, {
+        principalOf: () => undefined,
+        refOf: () => undefined,
+      }),
   });
   await expect(
     application([operations, impostor]).start([spec]),
@@ -465,6 +473,7 @@ test("expiry on a protected route reaches its error channel", async () => {
   ).deferrals[0]!;
   expect((await app.runtime.sweep()).retired).toBe(1);
   expect(seen).toHaveLength(1);
+  expect(seen[0]).toStartWith("EXPIRED:");
   expect((await app.host.service(CONTINUATIONS).get(id))?.state).toBe(
     "expired",
   );
@@ -475,7 +484,11 @@ const CUSTOM: unique symbol = Symbol("review read-only");
 const OTHER: unique symbol = Symbol("another owner");
 declare module "../../src/v2/contracts.ts" {
   interface HandlerPoints {
-    "review:read": { readonly owner: typeof CUSTOM; readonly refuse: false };
+    "review:read": {
+      readonly owner: typeof CUSTOM;
+      readonly refuse: false;
+      readonly defer: false;
+    };
   }
 }
 /**
@@ -485,7 +498,7 @@ declare module "../../src/v2/contracts.ts" {
 test("an external point's refusal policy is enforced at runtime, not only by the compiler", async () => {
   const plugin = infrastructure({
     id: "review",
-    points: [point("review:read", CUSTOM, false)],
+    points: [point("review:read", CUSTOM, false, false)],
     bind(c) {
       c.contribute({
         kind: "handler",
@@ -535,7 +548,7 @@ test("an external point's refusal policy is enforced at runtime, not only by the
       infrastructure({
         id: "other",
         points: [
-          point("review:read", OTHER as unknown as typeof CUSTOM, false),
+          point("review:read", OTHER as unknown as typeof CUSTOM, false, false),
         ],
       }),
     ]),
@@ -895,14 +908,9 @@ test("a resumed continuation keeps the parked identity restored and records the 
             ...ex,
             body: {
               principal: `${view.principal?.subject}:${view.principal?.authentic}`,
-              resumedBy: `${view.resumedBy?.subject}:${view.resumedBy?.authentic}`,
+              resumedBy: view.resumedBy?.subject,
               note: ex.headers["note"],
-              ingressNote: (ex.headers[DEFERRAL_INGRESS] as { note?: string })
-                .note,
-              ingressPrincipalIsShape:
-                typeof (
-                  ex.headers[DEFERRAL_INGRESS] as Record<string, unknown>
-                )[PRINCIPAL_HEADER] === "object",
+              recorded: ex.headers[DEFERRAL_RESUMED_BY],
               sink: (await ctx.dispatch("sink", carried)).status,
             },
           },
@@ -923,10 +931,9 @@ test("a resumed continuation keeps the parked identity restored and records the 
     (await app.runtime.resume(plain, { headers: bob })).exchanges[0]?.body,
   ).toEqual({
     principal: "alice:false",
-    resumedBy: "bob:false",
+    resumedBy: "bob",
     note: undefined,
-    ingressNote: "from bob",
-    ingressPrincipalIsShape: true,
+    recorded: { auth: { resumedBy: { subject: "bob" } } },
     sink: "refused",
   });
   const minted = (await app.runtime.deliver("minted", 0, alice)).deferrals[0]!;
@@ -968,7 +975,8 @@ test("admission at a resume is over the ingress, with the parked exchange beside
               body: ex.body,
               headers: ex.headers,
               id: info.resume?.id,
-              deferredBody: info.resume?.deferred.body,
+              view: Object.keys(info.resume ?? {}).sort(),
+              parkedHeaders: info.resume?.headers,
             });
           return { kind: "allow", exchange: ex };
         },
@@ -997,7 +1005,16 @@ test("admission at a resume is over the ingress, with the parked exchange beside
       body: { approved: true },
       headers: { via: "slack" },
       id,
-      deferredBody: "parked-body",
+      view: [
+        "expiresAt",
+        "headers",
+        "id",
+        "parkedAt",
+        "payload",
+        "routeId",
+        "site",
+      ],
+      parkedHeaders: { "routecraft.deferral.sequence": 1 },
     },
   ]);
   await app.stop();

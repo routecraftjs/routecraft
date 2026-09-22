@@ -177,7 +177,7 @@ export function durableStore(records: AtomicStore): ContinuationStore {
     async get(id) {
       return (await read(id)).saved;
     },
-    async markResumed(id, at) {
+    async markResumed(id, at, by) {
       const { row, saved } = await read(id);
       // A claimed record is being notified about; the claim excludes a resume until the lease releases it.
       if (!row || saved.state !== "waiting" || saved.claimedAt !== undefined)
@@ -186,7 +186,13 @@ export function durableStore(records: AtomicStore): ContinuationStore {
         [
           {
             key: `record/${id}`,
-            value: { ...saved, state: "resumed", resumedAt: at, settledAt: at },
+            value: {
+              ...saved,
+              state: "resumed",
+              resumedAt: at,
+              settledAt: at,
+              ...(by !== undefined ? { by } : {}),
+            },
           },
           { key: `waiting/${id}`, delete: true },
         ],
@@ -342,22 +348,9 @@ interface DeferralFamily extends Family {
     this["Headers"]
   >;
 }
-const facets = {
-  deferral: (ex: Exchange) => ({
-    /** The id the NEXT defer on this exchange will park under, so a step can embed it before parking. */
-    id: `${ex.id}#${(Number(ex.headers[DEFERRAL_SEQUENCE]) || 0) + 1}`,
-    request: (name: string, ttl?: number) => ({
-      kind: "defer" as const,
-      exchange: ex,
-      request: {
-        name,
-        reason: "approval",
-        ...(ttl !== undefined ? { ttl } : {}),
-      },
-    }),
-  }),
-};
 export interface DeferralOptions {
+  /** How long a parked exchange stays resumable when `.defer()` names no ttl. `null` opts a context out. */
+  readonly ttl?: number | null;
   /** How long a notification claim is honoured before it is released for redelivery. */
   readonly lease?: number;
   /** How often the sweep runs. `0` disables the timer; the boot scan still runs. */
@@ -365,6 +358,20 @@ export interface DeferralOptions {
   /** How long settled records are kept, measured from settlement. Absent: kept forever. */
   readonly retention?: number;
 }
+type DeferralFacets = {
+  readonly deferral: (ex: Exchange) => {
+    readonly id: string;
+    request(
+      name: string,
+      ttl?: number,
+    ): {
+      kind: "defer";
+      exchange: Exchange;
+      request: { name: string; reason: string; ttl?: number };
+    };
+  };
+};
+export const DEFAULT_TTL = 72 * 60 * 60 * 1000;
 export const DEFAULT_LEASE = 60 * 60 * 1000;
 export const DEFAULT_SWEEP_INTERVAL = 60 * 1000;
 export const DEFAULT_RETENTION = 90 * 24 * 60 * 60 * 1000;
@@ -377,29 +384,40 @@ export const DEFAULT_RETENTION = 90 * 24 * 60 * 60 * 1000;
  */
 export function deferralPlugin(
   options: DeferralOptions = {},
-): Plugin<DeferralFamily, typeof facets> {
+): Plugin<DeferralFamily, DeferralFacets> {
   const lease = options.lease ?? DEFAULT_LEASE,
     interval = options.interval ?? DEFAULT_SWEEP_INTERVAL,
-    retention = options.retention ?? DEFAULT_RETENTION;
+    retention = options.retention ?? DEFAULT_RETENTION,
+    ttl = options.ttl === undefined ? DEFAULT_TTL : options.ttl;
+  const withTtl = (given: number | undefined) =>
+    given !== undefined ? { ttl: given } : ttl !== null ? { ttl } : {};
   let timer: ReturnType<typeof setInterval> | undefined;
+  const facets = {
+    deferral: (ex: Exchange) => ({
+      /** The id the NEXT defer on this exchange will park under, so a step can embed it before parking. */
+      id: `${ex.id}#${(Number(ex.headers[DEFERRAL_SEQUENCE]) || 0) + 1}`,
+      request: (name: string, given?: number) => ({
+        kind: "defer" as const,
+        exchange: ex,
+        request: { name, reason: "approval", ...withTtl(given) },
+      }),
+    }),
+  };
   return {
     id: "routecraft.deferral",
-    requires: [RECORDS],
+    // Requires what it provides, so a boot report reads the SELECTED store, a vendor's included.
+    requires: [RECORDS, CONTINUATIONS],
     provides: [CONTINUATIONS],
     facets,
     methods<B, P extends readonly Plugin[], H extends object, S extends Phase>(
       cursor: Cursor<B, P, H, S>,
     ) {
       return {
-        defer: (name: string, ttl?: number) =>
+        defer: (name: string, given?: number) =>
           cursor.step(`defer:${name}`, (ex) => ({
             kind: "defer",
             exchange: ex,
-            request: {
-              name,
-              reason: "approval",
-              ...(ttl !== undefined ? { ttl } : {}),
-            },
+            request: { name, reason: "approval", ...withTtl(given) },
           })),
       };
     },
@@ -411,7 +429,7 @@ export function deferralPlugin(
       });
     },
     async start(ctx: PluginContext) {
-      const store = durableStore(ctx.require(RECORDS));
+      const store = ctx.require(CONTINUATIONS);
       const sweep = () => ctx.execution.sweep({ lease, retention });
       const report = await sweep();
       const stranded = await store.resumedWithoutOutcome(100);

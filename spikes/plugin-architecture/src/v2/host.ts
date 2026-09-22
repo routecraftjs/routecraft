@@ -151,6 +151,11 @@ export class Host {
   get contributions(): readonly Owned<Contribution>[] {
     return this.#contributions;
   }
+  /** The namespace a plugin id owns, for keying what its handlers record. */
+  namespaceFor(id: string): string {
+    const plugin = this.order.find((p) => p.id === id);
+    return plugin ? namespaceOf(plugin) : id;
+  }
   service<T>(t: Port<T>): T {
     if (!this.#values.has(t.key))
       throw new Fault("kernel", "UNAVAILABLE_PORT", t.name);

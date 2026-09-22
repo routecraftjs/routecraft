@@ -23,7 +23,11 @@ const CUSTOM: unique symbol = Symbol("outside point");
 void CUSTOM;
 declare module "@routecraft/spike-plugin-architecture" {
   interface HandlerPoints {
-    "acme:inspect": { readonly owner: typeof CUSTOM; readonly refuse: true };
+    "acme:inspect": {
+      readonly owner: typeof CUSTOM;
+      readonly refuse: true;
+      readonly defer: false;
+    };
   }
 }
 const DUPLICATE: unique symbol = Symbol("duplicate point");
@@ -31,7 +35,11 @@ void DUPLICATE;
 declare module "@routecraft/spike-plugin-architecture" {
   interface HandlerPoints {
     // @ts-expect-error independent point owners cannot redeclare the same name with different identities
-    "acme:inspect": { readonly owner: typeof DUPLICATE; readonly refuse: true };
+    "acme:inspect": {
+      readonly owner: typeof DUPLICATE;
+      readonly refuse: true;
+      readonly defer: false;
+    };
   }
 }
 type Choose<B, P extends readonly Plugin[], H extends object> = {
@@ -65,7 +73,7 @@ const stranger: Plugin<ChooseFamily, { stranger: () => { label: string } }> = {
         ),
     };
   },
-  points: [point("acme:inspect", CUSTOM, true)],
+  points: [point("acme:inspect", CUSTOM, true, false)],
   bind(ctx) {
     ctx.contribute({
       kind: "handler",

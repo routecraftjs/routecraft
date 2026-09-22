@@ -617,7 +617,11 @@ test("codec and pending are checked against the compiled route", async () => {
     ...real,
     frames: [{ list: "nope", from: 0 }],
   });
-  await expect(app.runtime.resume("future#1")).rejects.toThrow("PLAN_MISMATCH");
+  // Another codec is refused without settling: nothing about this plan is known to have changed.
+  await expect(app.runtime.resume("future#1")).rejects.toThrow(
+    "CODEC_MISMATCH",
+  );
+  expect((await store.get("future#1"))?.state).toBe("waiting");
   await expect(app.runtime.resume("unknown#1")).rejects.toThrow(
     "PLAN_MISMATCH",
   );

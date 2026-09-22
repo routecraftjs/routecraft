@@ -167,7 +167,7 @@ if (mode === "crash") {
                 ex as {
                   auth?: {
                     principal?: { subject: string; authentic: boolean };
-                    resumedBy?: { subject: string; authentic: boolean };
+                    resumedBy?: { subject: string };
                   };
                 }
               ).auth;
@@ -176,9 +176,7 @@ if (mode === "crash") {
               log(
                 `principal:${p?.subject}:${p?.authentic ? "authentic" : "restored"}`,
               );
-              log(
-                `resumedBy:${by?.subject}:${by?.authentic ? "authentic" : "restored"}`,
-              );
+              log(`resumedBy:${by?.subject}`);
               log(`sink:${(await ctx.dispatch("sink", ex)).status}`);
               return continueWith(ex);
             },
