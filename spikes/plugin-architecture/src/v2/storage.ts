@@ -7,8 +7,10 @@ import {
   type ContinuationStore,
   type Exchange,
   type PluginContext,
+  type ExpiredEntry,
   Fault,
 } from "./contracts.ts";
+import { fingerprint } from "./codec.ts";
 import {
   infrastructure,
   type Family,
@@ -117,12 +119,19 @@ export function sqlite(
     },
   });
 }
+/** What the `waiting/{id}` index carries, so a scan never reads a record it will not touch. */
+interface WaitingIndex {
+  readonly routeId: string;
+  readonly expiresAt: number | null;
+  readonly claimed: boolean;
+}
 /**
  * The deferral plugin's own record shape, private to it. Two keys per parked
  * exchange: `record/{id}` holds the continuation and its state, and
- * `waiting/{id}` is the index the sweep scans, carrying the due time so a
- * scan does not read every record. Both are written in one conditional
- * transaction so a crash between them cannot make a record invisible.
+ * `waiting/{id}` is the index the sweep scans, carrying the due time, the
+ * route and whether a claim holds, so a scan reads only what it may act on.
+ * Both are written in one conditional transaction so a crash between them
+ * cannot make a record invisible.
  */
 export function durableStore(records: AtomicStore): ContinuationStore {
   const owner = "routecraft.deferral";
@@ -132,15 +141,34 @@ export function durableStore(records: AtomicStore): ContinuationStore {
       ? { row, saved: row.value as ContinuationRecord }
       : { row: undefined, saved: undefined };
   };
+  const index = (saved: ContinuationRecord): WaitingIndex => ({
+    routeId: saved.continuation.routeId,
+    expiresAt: saved.continuation.expiresAt ?? null,
+    claimed: saved.claimedAt !== undefined,
+  });
+  const settle = async (
+    id: string,
+    patch: Partial<ContinuationRecord>,
+  ): Promise<"won" | "lost"> => {
+    const { row, saved } = await read(id);
+    if (!row || saved.state !== "waiting" || saved.claimedAt === undefined)
+      return "lost";
+    const won = await records.write(
+      [
+        { key: `record/${id}`, value: { ...saved, ...patch } },
+        { key: `waiting/${id}`, delete: true },
+      ],
+      [{ key: `record/${id}`, version: row.version }],
+    );
+    return won ? "won" : "lost";
+  };
   return {
     async create(id, continuation) {
+      const value: ContinuationRecord = { state: "waiting", continuation };
       const won = await records.write(
         [
-          {
-            key: `record/${id}`,
-            value: { state: "waiting", continuation } as ContinuationRecord,
-          },
-          { key: `waiting/${id}`, value: continuation.expiresAt ?? null },
+          { key: `record/${id}`, value },
+          { key: `waiting/${id}`, value: index(value) },
         ],
         [{ key: `record/${id}`, version: 0 }],
       );
@@ -151,12 +179,14 @@ export function durableStore(records: AtomicStore): ContinuationStore {
     },
     async markResumed(id, at) {
       const { row, saved } = await read(id);
-      if (!row || saved.state !== "waiting") return "lost";
+      // A claimed record is being notified about; the claim excludes a resume until the lease releases it.
+      if (!row || saved.state !== "waiting" || saved.claimedAt !== undefined)
+        return "lost";
       const won = await records.write(
         [
           {
             key: `record/${id}`,
-            value: { ...saved, state: "resumed", resumedAt: at },
+            value: { ...saved, state: "resumed", resumedAt: at, settledAt: at },
           },
           { key: `waiting/${id}`, delete: true },
         ],
@@ -176,61 +206,64 @@ export function durableStore(records: AtomicStore): ContinuationStore {
       const { row, saved } = await read(id);
       if (!row || saved.state !== "waiting" || saved.claimedAt !== undefined)
         return "lost";
-      const won = await records.write(
-        [{ key: `record/${id}`, value: { ...saved, claimedAt: at } }],
-        [{ key: `record/${id}`, version: row.version }],
-      );
-      return won ? "won" : "lost";
-    },
-    async markExpired(id) {
-      const { row, saved } = await read(id);
-      if (!row || saved.state !== "waiting" || saved.claimedAt === undefined)
-        return "lost";
+      const value = { ...saved, claimedAt: at };
       const won = await records.write(
         [
-          { key: `record/${id}`, value: { ...saved, state: "expired" } },
-          { key: `waiting/${id}`, delete: true },
+          { key: `record/${id}`, value },
+          { key: `waiting/${id}`, value: index(value) },
         ],
         [{ key: `record/${id}`, version: row.version }],
       );
       return won ? "won" : "lost";
     },
+    markExpired: (id, at) => settle(id, { state: "expired", settledAt: at }),
+    markDenied: (id, at, reason) =>
+      settle(id, { state: "denied", settledAt: at, reason }),
     async releaseClaims(before) {
       let released = 0;
       for (const key of await records.keys("waiting/")) {
-        const { row, saved } = await read(key.slice("waiting/".length));
+        const id = key.slice("waiting/".length);
+        const { row, saved } = await read(id);
         if (!row || saved.claimedAt === undefined || saved.claimedAt > before)
           continue;
         // eslint-disable-next-line @typescript-eslint/no-unused-vars -- destructure to omit the claim
         const { claimedAt: _released, ...rest } = saved;
         if (
           await records.write(
-            [{ key: `record/${key.slice("waiting/".length)}`, value: rest }],
             [
-              {
-                key: `record/${key.slice("waiting/".length)}`,
-                version: row.version,
-              },
+              { key: `record/${id}`, value: rest },
+              { key: `waiting/${id}`, value: index(rest) },
             ],
+            [{ key: `record/${id}`, version: row.version }],
           )
         )
           released++;
       }
       return released;
     },
-    async findExpired(now, limit = 100) {
-      const due: { id: string; at: number }[] = [];
+    async findExpired(now, limit, after) {
+      if (!Number.isInteger(limit) || limit < 1)
+        throw new Fault(owner, "SCAN_LIMIT", String(limit));
+      const due: ExpiredEntry[] = [];
       for (const key of await records.keys("waiting/")) {
-        const at = (await records.get(key))?.value;
-        if (typeof at === "number" && at <= now)
-          due.push({ id: key.slice("waiting/".length), at });
+        const entry = (await records.get(key))?.value as
+          WaitingIndex | undefined;
+        if (!entry || entry.claimed || entry.expiresAt === null) continue;
+        if (entry.expiresAt > now) continue;
+        const id = key.slice("waiting/".length);
+        if (
+          after &&
+          (entry.expiresAt < after.expiresAt ||
+            (entry.expiresAt === after.expiresAt && id <= after.id))
+        )
+          continue;
+        due.push({ id, routeId: entry.routeId, expiresAt: entry.expiresAt });
       }
       return due
-        .sort((a, b) => a.at - b.at || (a.id < b.id ? -1 : 1))
-        .slice(0, limit)
-        .map((d) => d.id);
+        .sort((a, b) => a.expiresAt - b.expiresAt || (a.id < b.id ? -1 : 1))
+        .slice(0, limit);
     },
-    async resumedWithoutOutcome() {
+    async resumedWithoutOutcome(limit) {
       const stranded: string[] = [];
       for (const key of await records.keys("record/")) {
         const saved = (await records.get(key))?.value as
@@ -238,7 +271,60 @@ export function durableStore(records: AtomicStore): ContinuationStore {
         if (saved?.state === "resumed" && !saved.outcome)
           stranded.push(key.slice("record/".length));
       }
-      return stranded;
+      return limit === undefined ? stranded : stranded.slice(0, limit);
+    },
+    async replaceStepState(id, expected, stepState) {
+      const { row, saved } = await read(id);
+      if (
+        !row ||
+        saved.state !== "waiting" ||
+        saved.claimedAt !== undefined ||
+        fingerprint(saved.continuation.stepState) !== expected
+      )
+        return "lost";
+      const won = await records.write(
+        [
+          {
+            key: `record/${id}`,
+            value: {
+              ...saved,
+              continuation: { ...saved.continuation, stepState },
+            },
+          },
+        ],
+        [{ key: `record/${id}`, version: row.version }],
+      );
+      return won ? "won" : "lost";
+    },
+    async pending() {
+      let count = 0,
+        oldest: number | undefined;
+      for (const key of await records.keys("waiting/")) {
+        const saved = (
+          await records.get(`record/${key.slice("waiting/".length)}`)
+        )?.value as ContinuationRecord | undefined;
+        if (!saved) continue;
+        count++;
+        if (oldest === undefined || saved.continuation.parkedAt < oldest)
+          oldest = saved.continuation.parkedAt;
+      }
+      return oldest === undefined ? { count } : { count, oldest };
+    },
+    async purgeSettled(before) {
+      let purged = 0;
+      for (const key of await records.keys("record/")) {
+        const saved = (await records.get(key))?.value as
+          ContinuationRecord | undefined;
+        if (
+          !saved ||
+          saved.state === "waiting" ||
+          saved.settledAt === undefined ||
+          saved.settledAt >= before
+        )
+          continue;
+        if (await records.write([{ key, delete: true }])) purged++;
+      }
+      return purged;
     },
   };
 }
@@ -271,28 +357,72 @@ const facets = {
     }),
   }),
 };
-export const deferral: Plugin<DeferralFamily, typeof facets> = {
-  id: "routecraft.deferral",
-  requires: [RECORDS],
-  provides: [CONTINUATIONS],
-  facets,
-  methods<B, P extends readonly Plugin[], H extends object, S extends Phase>(
-    cursor: Cursor<B, P, H, S>,
-  ) {
-    return {
-      defer: (name: string, ttl?: number) =>
-        cursor.step(`defer:${name}`, (ex) => ({
-          kind: "defer",
-          exchange: ex,
-          request: {
-            name,
-            reason: "approval",
-            ...(ttl !== undefined ? { ttl } : {}),
-          },
-        })),
-    };
-  },
-  bind(ctx: PluginContext) {
-    ctx.provide(CONTINUATIONS, durableStore(ctx.require(RECORDS)));
-  },
-};
+export interface DeferralOptions {
+  /** How long a notification claim is honoured before it is released for redelivery. */
+  readonly lease?: number;
+  /** How often the sweep runs. `0` disables the timer; the boot scan still runs. */
+  readonly interval?: number;
+  /** How long settled records are kept, measured from settlement. Absent: kept forever. */
+  readonly retention?: number;
+}
+export const DEFAULT_LEASE = 60 * 60 * 1000;
+export const DEFAULT_SWEEP_INTERVAL = 60 * 1000;
+export const DEFAULT_RETENTION = 90 * 24 * 60 * 60 * 1000;
+/**
+ * Provides the continuation store over the atomic records port and owns
+ * expiry policy: the lease, the sweep cadence and retention. Its start hook
+ * is the boot scan the shipped sweeper runs: heal, purge, retire what came
+ * due while the process was down, and report the residue of a process that
+ * died mid-continuation, before the timer is armed.
+ */
+export function deferralPlugin(
+  options: DeferralOptions = {},
+): Plugin<DeferralFamily, typeof facets> {
+  const lease = options.lease ?? DEFAULT_LEASE,
+    interval = options.interval ?? DEFAULT_SWEEP_INTERVAL,
+    retention = options.retention ?? DEFAULT_RETENTION;
+  let timer: ReturnType<typeof setInterval> | undefined;
+  return {
+    id: "routecraft.deferral",
+    requires: [RECORDS],
+    provides: [CONTINUATIONS],
+    facets,
+    methods<B, P extends readonly Plugin[], H extends object, S extends Phase>(
+      cursor: Cursor<B, P, H, S>,
+    ) {
+      return {
+        defer: (name: string, ttl?: number) =>
+          cursor.step(`defer:${name}`, (ex) => ({
+            kind: "defer",
+            exchange: ex,
+            request: {
+              name,
+              reason: "approval",
+              ...(ttl !== undefined ? { ttl } : {}),
+            },
+          })),
+      };
+    },
+    bind(ctx: PluginContext) {
+      ctx.provide(CONTINUATIONS, durableStore(ctx.require(RECORDS)));
+      ctx.onDispose(() => {
+        if (timer) clearInterval(timer);
+        timer = undefined;
+      });
+    },
+    async start(ctx: PluginContext) {
+      const store = durableStore(ctx.require(RECORDS));
+      const sweep = () => ctx.execution.sweep({ lease, retention });
+      const report = await sweep();
+      const stranded = await store.resumedWithoutOutcome(100);
+      ctx.emit("boot", { ...report, stranded, pending: await store.pending() });
+      if (interval > 0) {
+        timer = setInterval(() => {
+          void sweep().catch((e) => ctx.emit("sweep:failed", String(e)));
+        }, interval);
+        timer.unref();
+      }
+    },
+  };
+}
+export const deferral = deferralPlugin();

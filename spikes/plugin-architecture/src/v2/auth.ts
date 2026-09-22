@@ -1,10 +1,13 @@
 import {
   port,
-  allRuns,
+  DEFERRAL_INGRESS,
   type Exchange,
   type PluginContext,
+  type ServiceLookup,
+  type Survival,
 } from "./contracts.ts";
 import {
+  infrastructure,
   type Plugin,
   type Family,
   type Cursor,
@@ -13,22 +16,31 @@ import {
 } from "./dsl.ts";
 
 /**
- * Identity as a plugin, in the direction the security standard requires.
+ * Identity as two plugins, in the direction the security standard requires.
  *
- * Core carries opaque headers. This plugin owns one header key, an
- * authenticity brand, the `.authorize()` route method and the entry handler
- * that enforces it. The brand is `WeakSet` membership over the exact object
- * this plugin minted, which nothing else can forge: a step that writes its own
- * principal into the header produces an object the set has never seen, and a
- * principal that came back from storage is a fresh parse the set has never
- * seen either. Both are RESTORED, never authentic, and `authorize` refuses
- * them. A resumed continuation is therefore authorised by whatever identity
- * the resume ingress carries, never by the one that was parked.
+ * Core carries opaque headers. The PROVIDER (`principals`) owns one header
+ * key and an authenticity brand: `WeakSet` membership over the exact object
+ * it minted, which nothing else can forge. A step that writes its own
+ * principal produces an object the set has never seen, and a principal that
+ * came back from storage is a fresh parse the set has never seen either.
+ * Both are RESTORED, never authentic. A vendor replaces this provider by
+ * providing {@link AUTHORITY} under its own header and its own brand.
  *
- * `.authorize()` cannot fail open. It is a method this plugin contributes, so
- * a route cannot express the ask without the plugin installed, and it declares
- * the {@link AUTHORITY} port as a route requirement, so the kernel refuses to
- * compile the route if the plugin is absent at runtime.
+ * The GATE (`auth`) owns the `.authorize()` route method, the `ex.auth`
+ * facet and the admission handler that enforces the ask, and it consumes
+ * whichever authority is selected, so replacing the provider replaces what
+ * the gate trusts. `.authorize()` cannot fail open: the method exists only
+ * when the gate is installed, and it declares {@link ENFORCEMENT}, the
+ * gate's own port, as a route requirement, so a route carrying the ask
+ * refuses to compile without the gate, whatever else provides authority.
+ *
+ * The gate runs at admission, before a resume spends its approval: a
+ * refused resumer leaves the approval usable by the rightful one. It
+ * authorises the ingress of a resume and never the continuation, which runs
+ * as the restored principal that parked and is refused by any downstream
+ * `.authorize()`; a step that needs live authority after the wait mints it
+ * explicitly. It does not run on the error channel, where a restored
+ * principal is the only one there is and nothing is asking to execute.
  */
 export interface Principal {
   readonly subject: string;
@@ -36,9 +48,24 @@ export interface Principal {
   readonly lent: readonly string[];
 }
 export interface PrincipalView extends Principal {
-  /** True only for the object this plugin minted in this process. */
+  /** True only for an object the selected authority minted in this process. */
   readonly authentic: boolean;
 }
+export interface Authority {
+  /** Who these headers say the work is for, and whether that is a credential or a shape. */
+  principalOf(
+    headers: Readonly<Record<string, unknown>>,
+  ): PrincipalView | undefined;
+}
+export const AUTHORITY = port<Authority>("auth.authority@2");
+export interface Enforcement {
+  /** The decision `.authorize(...grants)` makes over these headers; a reason when it refuses. */
+  check(
+    headers: Readonly<Record<string, unknown>>,
+    required: readonly string[],
+  ): string | undefined;
+}
+export const ENFORCEMENT = port<Enforcement>("auth.enforcement@1");
 export const PRINCIPAL_HEADER = "routecraft.principal";
 export const AUTHORIZE_OPTION = "auth.authorize";
 const authentic = new WeakSet<object>();
@@ -55,15 +82,17 @@ export function mint(principal: Principal): Principal {
 export function isAuthentic(value: unknown): value is Principal {
   return typeof value === "object" && value !== null && authentic.has(value);
 }
-/** Headers carrying a freshly minted principal, for `deliver` and for the resume ingress. */
+/** Headers carrying a freshly minted principal, for `deliver`, a resume ingress, or an explicit re-mint after a wait. */
 export function withPrincipal(
   headers: Record<string, unknown>,
   principal: Principal,
 ): Record<string, unknown> {
   return { ...headers, [PRINCIPAL_HEADER]: mint(principal) };
 }
-export function principalOf(ex: Exchange): PrincipalView | undefined {
-  const raw = ex.headers[PRINCIPAL_HEADER];
+export function principalOf(
+  headers: Readonly<Record<string, unknown>>,
+): PrincipalView | undefined {
+  const raw = headers[PRINCIPAL_HEADER];
   if (typeof raw !== "object" || raw === null) return undefined;
   const p = raw as Principal;
   return {
@@ -73,14 +102,16 @@ export function principalOf(ex: Exchange): PrincipalView | undefined {
     authentic: isAuthentic(raw),
   };
 }
-export interface Authority {
-  principalOf(ex: Exchange): PrincipalView | undefined;
-  /** Every grant the principal holds, whether granted or lent. Empty for a restored or missing principal. */
-  effective(ex: Exchange): readonly string[];
-}
-export const AUTHORITY = port<Authority>("auth.authority@1");
+/** The default authority: this module's header and brand. */
+export const principals = infrastructure({
+  id: "routecraft.principals",
+  provides: [AUTHORITY],
+  bind(ctx) {
+    ctx.provide(AUTHORITY, { principalOf });
+  },
+});
 type AuthMethods<B, P extends readonly Plugin[], H extends object> = {
-  /** Require every listed grant from an authentic principal at entry. A route method, before `from`. */
+  /** Require every listed grant from an authentic principal at admission. A route method, before `from`. */
   authorize(
     this: Cursor<B, P, H, "before">,
     ...grants: readonly string[]
@@ -90,11 +121,29 @@ interface AuthFamily extends Family {
   readonly methods: AuthMethods<this["Body"], this["Plugins"], this["Headers"]>;
 }
 const facets = {
-  auth: (ex: Exchange) => ({ principal: principalOf(ex) }),
+  auth: (ex: Exchange, services: ServiceLookup) => {
+    const authority = services.require(AUTHORITY);
+    const ingress = ex.headers[DEFERRAL_INGRESS];
+    return {
+      principal: authority.principalOf(ex.headers),
+      /** Who resumed this exchange, read off the recorded ingress: a shape, never a credential. */
+      resumedBy:
+        typeof ingress === "object" && ingress !== null
+          ? authority.principalOf(ingress as Record<string, unknown>)
+          : undefined,
+    };
+  },
+};
+const survival: Survival = {
+  normal: true,
+  resume: true,
+  debounce: true,
+  errorChannel: false,
 };
 export const auth: Plugin<AuthFamily, typeof facets> = {
   id: "routecraft.auth",
-  provides: [AUTHORITY],
+  requires: [AUTHORITY],
+  provides: [ENFORCEMENT],
   facets,
   methods<B, P extends readonly Plugin[], H extends object, S extends Phase>(
     cursor: Cursor<B, P, H, S>,
@@ -102,7 +151,7 @@ export const auth: Plugin<AuthFamily, typeof facets> = {
     return {
       authorize: (...grants: readonly string[]) =>
         cursor
-          .require(AUTHORITY)
+          .require(ENFORCEMENT)
           .configure({ [AUTHORIZE_OPTION]: [...grants] }) as Chain<
           B,
           P,
@@ -112,31 +161,30 @@ export const auth: Plugin<AuthFamily, typeof facets> = {
     };
   },
   bind(ctx: PluginContext) {
-    const authority: Authority = {
-      principalOf,
-      effective: (ex) => {
-        const p = principalOf(ex);
-        return p?.authentic ? [...p.grants, ...p.lent] : [];
+    const authority = ctx.require(AUTHORITY);
+    const enforcement: Enforcement = {
+      check(headers, required) {
+        if (required.length === 0) return undefined;
+        const p = authority.principalOf(headers);
+        if (!p) return "no principal";
+        if (!p.authentic) return "restored principal";
+        const held = new Set([...p.grants, ...p.lent]);
+        const missing = required.filter((g) => !held.has(g));
+        return missing.length ? `missing ${missing.join(",")}` : undefined;
       },
     };
-    ctx.provide(AUTHORITY, authority);
+    ctx.provide(ENFORCEMENT, enforcement);
     ctx.contribute({
       kind: "handler",
       id: "authorize",
-      point: "entry",
-      survival: allRuns,
+      point: "admission",
+      survival,
       handle(ex, { route }) {
         const required = route.options?.[AUTHORIZE_OPTION];
-        if (!Array.isArray(required) || required.length === 0)
-          return { kind: "allow", exchange: ex };
-        const p = principalOf(ex);
-        if (!p) return { kind: "refuse", reason: "no principal" };
-        if (!p.authentic)
-          return { kind: "refuse", reason: "restored principal" };
-        const held = new Set([...p.grants, ...p.lent]);
-        const missing = (required as string[]).filter((g) => !held.has(g));
-        return missing.length
-          ? { kind: "refuse", reason: `missing ${missing.join(",")}` }
+        if (!Array.isArray(required)) return { kind: "allow", exchange: ex };
+        const reason = enforcement.check(ex.headers, required as string[]);
+        return reason
+          ? { kind: "refuse", reason }
           : { kind: "allow", exchange: ex };
       },
     });

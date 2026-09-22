@@ -24,6 +24,7 @@ import {
   type Exchange,
   type RunResult,
   type Handler,
+  type HandlerPoints,
 } from "../../src/v2/index.ts";
 const worker = infrastructure({ id: "worker" });
 const route = (
@@ -355,10 +356,10 @@ test("descriptor mutation cannot bypass freeze and contribution ids are owner-qu
 test("four handlers use selectors, deterministic order, compositional decoration and refusal", async () => {
   async function run(reverse: boolean) {
     const log: string[] = [];
-    const make = (
+    const make = <K extends keyof HandlerPoints>(
       id: string,
-      point: Handler["point"],
-      fn: Handler["handle"],
+      point: K,
+      fn: Handler<K>["handle"],
       selector: Handler["selector"] = { tag: "protected" },
     ) =>
       infrastructure({
@@ -371,7 +372,7 @@ test("four handlers use selectors, deterministic order, compositional decoration
             survival: allRuns,
             selector,
             handle: fn,
-          }),
+          } as Handler<K>),
       });
     const plugins = [
       make("a", "admission", (ex) => {

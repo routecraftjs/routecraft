@@ -14,10 +14,11 @@ import {
   deferral,
   sqlite,
   auth,
+  principals,
   manual,
   withPrincipal,
   PRINCIPAL_HEADER,
-  AUTHORITY,
+  ENFORCEMENT,
   CONTINUATIONS,
   type Step,
   type RouteSpec,
@@ -293,7 +294,9 @@ test("a continuation whose resumer died is reported, never re-run", async () => 
   const again = await app.runtime.resume(id);
   expect(again.status).toBe("duplicate");
   expect(again.exchanges).toEqual([]);
-  expect(await app.runtime.sweep(Number.MAX_SAFE_INTEGER)).toBe(0);
+  expect(
+    (await app.runtime.sweep({ now: Number.MAX_SAFE_INTEGER })).retired,
+  ).toBe(0);
   expect(ran).toBe(0);
   await app.stop();
 });
@@ -333,23 +336,27 @@ test("the lease heals an expiry notification, and the nag is delivered exactly o
   const now = Date.now() + 10;
   // A sweeper elsewhere claimed delivery and died.
   expect(await store.claimExpiry(id, now)).toBe("won");
-  expect(await app.runtime.sweep(now)).toBe(0);
+  // A live claim is exclusive: a second sweeper cannot take it.
+  expect(await store.claimExpiry(id, now)).toBe("lost");
+  expect((await app.runtime.sweep({ now })).retired).toBe(0);
   expect(seen).toEqual([]);
   // A claim younger than the lease deadline is still live and must not be released.
   expect(await store.releaseClaims(now - 1)).toBe(0);
-  expect(await app.runtime.sweep(now)).toBe(0);
+  expect((await app.runtime.sweep({ now })).retired).toBe(0);
   expect(await store.releaseClaims(now)).toBe(1);
-  expect(await app.runtime.sweep(now)).toBe(1);
+  expect((await app.runtime.sweep({ now })).retired).toBe(1);
   expect(seen).toHaveLength(1);
   expect(seen[0]).toContain("EXPIRED");
-  expect(await app.runtime.sweep(now)).toBe(0);
+  expect((await app.runtime.sweep({ now })).retired).toBe(0);
   expect((await store.get(id))?.state).toBe("expired");
   await expect(app.runtime.resume(id)).rejects.toThrow("RESUME_SETTLED");
   await app.stop();
 });
 
 const gateRoute = (
-  app: Application<readonly [typeof operations, typeof auth]>,
+  app: Application<
+    readonly [typeof operations, typeof principals, typeof auth]
+  >,
 ) =>
   app
     .route("sink")
@@ -366,7 +373,7 @@ const gateRoute = (
  * @preconditions a route gated on a grant, a caller step that writes its own principal into the header
  * @expectedResult the gate refuses, because the written object was never minted */
 test("a step that writes its own principal cannot pass an authorize gate", async () => {
-  const app = application([operations, auth]);
+  const app = application([operations, principals, auth]);
   await app.start([
     gateRoute(app),
     app
@@ -416,13 +423,14 @@ test("a resumed continuation is authorised by its ingress, never by the stored p
       const app = application([
         operations,
         deferral,
+        principals,
         auth,
         sqlite(join(dir, "d.db")),
       ]);
       const specs = [
         gateRoute(
           app as unknown as Application<
-            readonly [typeof operations, typeof auth]
+            readonly [typeof operations, typeof principals, typeof auth]
           >,
         ),
         app
@@ -463,10 +471,12 @@ test("a resumed continuation is authorised by its ingress, never by the stored p
     // The same approval presented again is a duplicate, whatever identity it carries.
     expect(
       (
-        await three.app.runtime.resume(
-          id,
-          withPrincipal({}, { subject: "bob", grants: ["approve"], lent: [] }),
-        )
+        await three.app.runtime.resume(id, {
+          headers: withPrincipal(
+            {},
+            { subject: "bob", grants: ["approve"], lent: [] },
+          ),
+        })
       ).status,
     ).toBe("duplicate");
     await three.app.stop();
@@ -510,7 +520,7 @@ test("an exchange body is arbitrary in flight and plain JSON only when parked", 
     (await app.runtime.deliver("cls", new Invoice(100))).exchanges[0]?.body,
   ).toBe(21);
   await expect(app.runtime.deliver("park", fn)).rejects.toThrow(
-    "NOT_SERIALIZABLE",
+    "NOT_PERSISTABLE",
   );
   await app.stop();
 });
@@ -602,8 +612,11 @@ test("codec and pending are checked against the compiled route", async () => {
   const id = (await app.runtime.deliver("r", 1)).deferrals[0]!;
   const store = app.host.service(CONTINUATIONS);
   const real = (await store.get(id))!.continuation;
-  await store.create("future#1", { ...real, codec: 2 as unknown as 1 });
-  await store.create("unknown#1", { ...real, pending: ["nope"] });
+  await store.create("future#1", { ...real, codec: 3 as unknown as 2 });
+  await store.create("unknown#1", {
+    ...real,
+    frames: [{ list: "nope", from: 0 }],
+  });
   await expect(app.runtime.resume("future#1")).rejects.toThrow("PLAN_MISMATCH");
   await expect(app.runtime.resume("unknown#1")).rejects.toThrow(
     "PLAN_MISMATCH",
@@ -850,7 +863,7 @@ test("a route cannot be compiled after start", async () => {
 
 /**
  * @case an authorization ask cannot fail open
- * @preconditions a route declaring the authority port as a requirement, no auth plugin installed
+ * @preconditions a route declaring the enforcement port as a requirement, no auth gate installed
  * @expectedResult the kernel refuses to compile the route, naming the port, instead of running it unprotected */
 test("a route that requires authority does not boot without a provider of it", async () => {
   const app = new Application([worker]);
@@ -858,7 +871,7 @@ test("a route that requires authority does not boot without a provider of it", a
     app.start([
       {
         ...route("secret", []),
-        requires: [AUTHORITY],
+        requires: [ENFORCEMENT],
         options: { "auth.authorize": ["admin"] },
       },
     ]),

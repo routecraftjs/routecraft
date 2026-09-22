@@ -35,7 +35,7 @@ async function success(child: ReturnType<typeof spawn>) {
 /**
  * @case actual restart
  * @preconditions child parks nested reentrant agent and is killed
- * @expectedResult new PID resumes suffix once under the ingress identity, prefix/tool request once, a repeat is a duplicate, two stores retain conversation */
+ * @expectedResult new PID resumes suffix once as the restored parked identity with the resumer recorded as data, a downstream gate refuses it, prefix/tool request once, a repeat is a duplicate, two stores retain conversation */
 test("defer → SIGKILL → new process → resume named nested instruction across two stores", async () => {
   const dir = mkdtempSync(join(tmpdir(), "routecraft-restart-"));
   const child = spawn("park", dir);
@@ -50,9 +50,12 @@ test("defer → SIGKILL → new process → resume named nested instruction acro
     child.kill("SIGKILL");
     await child.exited;
     await success(spawn("mismatch", dir));
-    expect(readFileSync(join(dir, "mismatch.txt"), "utf8")).toContain(
-      "PLAN_MISMATCH",
-    );
+    const mismatch = read(dir, "mismatch.txt");
+    expect(mismatch.error).toContain("PLAN_MISMATCH");
+    // The edited plan settles the record it was tried on as denied; the real approval is untouched.
+    expect(mismatch.copy.state).toBe("denied");
+    expect(mismatch.original.state).toBe("waiting");
+    expect(mismatch.original.claimedAt).toBeUndefined();
     expect(parked.id).toMatch(/#1$/);
     await success(spawn("resume", dir));
     const resumed = read(dir, "resumed.json");
@@ -68,7 +71,7 @@ test("defer → SIGKILL → new process → resume named nested instruction acro
     ]);
     expect(resumed.waiting).toEqual([]);
     expect(readFileSync(join(dir, "effects.log"), "utf8")).toBe(
-      "prefix\ntool-request\ntool-result\nsuffix\nprincipal:bob:authentic\n",
+      "prefix\ntool-request\ntool-result\nsuffix\nprincipal:alice:restored\nresumedBy:bob:restored\nsink:refused\n",
     );
   } finally {
     child.kill();

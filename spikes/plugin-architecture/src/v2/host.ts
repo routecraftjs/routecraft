@@ -8,7 +8,9 @@ import {
   type Port,
   type Contribution,
   type Ordered,
+  type PointDescriptor,
   namespaceOf,
+  KERNEL_POINTS,
 } from "./contracts.ts";
 import { sort } from "./graph.ts";
 export type Owned<T> = T & { readonly owner: string };
@@ -56,8 +58,13 @@ export class Host {
     | "stopping"
     | "stopped" = "new";
   readonly namespaces: ReadonlySet<string>;
+  /** Every handler point this application knows, kernel and plugin-declared, with the policy the runtime applies. */
+  readonly points: ReadonlyMap<string, PointDescriptor>;
   constructor(plugins: readonly Installation[]) {
     const ids = new Set<string>();
+    const points = new Map<string, PointDescriptor>(
+      KERNEL_POINTS.map((p) => [p.name, p]),
+    );
     const names = new Map<string, symbol>();
     const namespaces = new Map<string, string>();
     for (const p of plugins) {
@@ -84,7 +91,15 @@ export class Host {
       for (const t of p.replaces ?? [])
         if (!p.provides?.some((x) => x.key === t.key))
           throw new Fault(p.id, "INVALID_REPLACEMENT", t.name);
+      for (const d of p.points ?? []) {
+        const prior = points.get(d.name);
+        if (prior && prior.owner !== d.owner)
+          throw new Fault(p.id, "POINT_IDENTITY", d.name);
+        if (prior) throw new Fault(p.id, "DUPLICATE_POINT", d.name);
+        points.set(d.name, d);
+      }
     }
+    this.points = points;
     this.namespaces = new Set(namespaces.keys());
     const candidates = new Map<
       symbol,
@@ -204,9 +219,17 @@ export class Host {
               this.#observers.delete(entry);
             });
           },
+          emit: (name, data) =>
+            this.emit(`${namespaceOf(plugin)}:${name}`, data),
           contribute: (c) => {
             if (this.#phase !== "binding")
               throw new Fault(plugin.id, "FROZEN", c.id);
+            if (c.kind === "handler" && !this.points.has(c.point))
+              throw new Fault(
+                plugin.id,
+                "UNKNOWN_POINT",
+                `${c.id}: ${c.point}`,
+              );
             // Ids are owner-qualified, as ordering already keys them: two plugins may both name a wrapper `audit`.
             if (
               this.#contributions.some(
@@ -214,7 +237,9 @@ export class Host {
               )
             )
               throw new Fault(plugin.id, "DUPLICATE_CONTRIBUTION", c.id);
-            this.#contributions.push(snapshot({ ...c, owner: plugin.id }));
+            this.#contributions.push(
+              snapshot({ ...c, owner: plugin.id }) as Owned<Contribution>,
+            );
           },
         };
         // Register BEFORE acquisition: partial acquisition owns cleanup too.

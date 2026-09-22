@@ -10,6 +10,7 @@ import {
   TIMEOUT,
   deferral,
   sqlite,
+  point,
   type Plugin,
   type Family,
   type Cursor,
@@ -64,6 +65,7 @@ const stranger: Plugin<ChooseFamily, { stranger: () => { label: string } }> = {
         ),
     };
   },
+  points: [point("acme:inspect", CUSTOM, true)],
   bind(ctx) {
     ctx.contribute({
       kind: "handler",
