@@ -10,7 +10,7 @@
  * This route makes that call conditional. A System One model (Jev) answers
  * "was the request met?" as a probability on every dispatch. A confident yes
  * ends there. Anything else falls through to the reasoning judge, which is
- * the only stage that can produce the `reason` prose, because Jev does not
+ * the only stage that can produce the `reason` text, because Jev does not
  * generate text at all.
  *
  * The threshold lives in `.choice(when(...))` rather than inside the
@@ -118,7 +118,7 @@ const judgeRoute = craft()
   .description(
     "Judges whether an agent result fulfilled the request that produced it, screening with a System One model before spending a reasoning call.",
   )
-  .from<JudgeEvidence>(direct({ internal: true }))
+  .from<JudgeEvidence>(direct())
   .enrich(
     async (ex) => screen(ex.body),
     only((r: Screen) => r, "screen"),
