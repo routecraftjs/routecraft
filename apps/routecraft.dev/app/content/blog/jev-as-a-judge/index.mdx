@@ -102,7 +102,9 @@ export const judgeRoute = craft()
         b.enrich(
           llm(REASONING_JUDGE, {
             system: "You judge whether an AI agent fulfilled a request. ...",
-            user: (ex) => JSON.stringify(ex.body),
+            // The evidence only: the screen's score would anchor the judge.
+            user: ({ body: { request, account, toolCalls } }) =>
+              JSON.stringify({ request, account, toolCalls }),
             output: judgement,
             reasoning: "medium",
           }),
@@ -128,7 +130,7 @@ The full file, with the types and tests that run the capability against a stubbe
 
 A judge that gates a mail send wants a different number than a judge that gates a log line. If the threshold is an option on a client somewhere, the person reading the route six months from now has to go and find it before they know what the route will do. If it is in the `.choice()`, they can see what is being traded and change it in place.
 
-Three details of the gate are easy to get backwards.
+A few details of the gate are easy to get backwards.
 
 A confident *no* still escalates. Certainty is not what short-circuits the reasoning call; the need for a sentence is. If Jev says 0.02, the agent almost certainly failed, and you now want the reason more than ever. Only a confident yes skips the LLM, because that is the one outcome where nobody needs an explanation.
 
@@ -138,7 +140,7 @@ The pass-through `otherwise` is not decoration. A `.choice()` whose branches all
 
 A screen that cannot answer at all escalates the same way. If the vendor is down, rate limiting you, or past its timeout, the route catches the failure, logs it, and hands the dispatch to the reasoning judge. The screen is an optimisation, and an optimisation that fails should cost latency, not the verdict.
 
-A noul has no confidence field. Choice and score answers carry `confidence`; a noul carries only the probability. So for yes/no questions the probability is the whole signal, and you gate on distance from 0.5 rather than on a confidence you do not have. This is the first thing we learned from the SDK's types that the docs did not say, and there are two more.
+A noul has no confidence field. Choice and score answers carry `confidence`; a noul carries only the probability. So for yes/no questions the probability of yes is the whole signal, and the gate reads it directly rather than a confidence you do not have. This is the first thing we learned from the SDK's types that the docs did not say, and there are two more.
 
 ## Three things the SDK does that the docs do not say
 
