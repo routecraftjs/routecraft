@@ -1,6 +1,14 @@
 /** Round two protocol. No transport, operation or persistence implementation lives here. */
 export class Fault extends Error {
   readonly secondary: Fault[] = [];
+  /** What a refusal or failure carried beyond its message, as the refusing party described it. Opaque to the kernel. */
+  detail?: unknown;
+  /** Where a step failed, set by the executor so an error handler may park the exchange there. */
+  site?: {
+    readonly step: string;
+    readonly exchange: Exchange;
+    readonly pending: readonly string[];
+  };
   constructor(
     readonly plugin: string,
     readonly code: string,
@@ -65,6 +73,12 @@ export interface DeferRequest {
   /** Milliseconds until the parked exchange comes due. Absent means never. */
   readonly ttl?: number;
   /**
+   * Told the continuation id once the record is durable and before the
+   * deferred event fires, so nobody is handed an id for a park that never
+   * committed and a notification that fails does not announce a park.
+   */
+  readonly notify?: (id: string) => void | Promise<void>;
+  /**
    * State the deferring step owns across the wait, handed back to it as
    * `StepContext.stepState` on the resume and nowhere else: it is runtime
    * context for one re-entrant execution, never exchange state, so a second
@@ -76,14 +90,16 @@ export interface DeferRequest {
 export const DEFERRAL_SEQUENCE = "routecraft.deferral.sequence";
 export const DEFERRAL_RESULT = "routecraft.deferral.result";
 export const DEFERRAL_RESUMED_AT = "routecraft.deferral.resumedAt";
+/** The id of the record a resumed continuation came from. */
+export const DEFERRAL_ID = "routecraft.deferral.id";
 /**
- * The resume ingress, recorded as DATA. The kernel runs the admitted ingress
- * headers through the persistence codec before writing them here, so nothing
- * live (a branded principal, a signal) reaches the continuation: an auth
- * plugin reads who resumed off this header and finds a shape, never a
- * credential. The continuation keeps the headers it parked with.
+ * Who resumed, as DATA the door chose to record: what each admission
+ * handler returned as `record`, keyed by its plugin's namespace, run
+ * through the persistence codec and written into the record by the
+ * compare-and-swap itself, so a continuation that fails still says who
+ * resumed it. Nothing else the ingress carried reaches the continuation.
  */
-export const DEFERRAL_INGRESS = "routecraft.deferral.ingress";
+export const DEFERRAL_RESUMED_BY = "routecraft.deferral.resumedBy";
 export type StepOutcome<B = unknown> =
   | { kind: "continue" | "complete"; exchange: Exchange<B> }
   | { kind: "drop" }
@@ -168,13 +184,17 @@ export interface RunResult {
 export interface Frame {
   readonly list: string | null;
   readonly from: number;
+  /** Absent for a suffix, which is what a step appended later joins. Present for a slice a branch chose, which it does not. */
+  readonly to?: number;
 }
 export interface Continuation {
   readonly codec: 2;
   readonly routeId: string;
-  /** The step that parked the exchange. */
-  readonly site: string;
+  /** The step that parked the exchange, or null for a park raised at admission. */
+  readonly site: string | null;
   readonly frames: readonly Frame[];
+  /** What was refused when the park was raised from a refusal, as the refusing handler described it. The bound a later lend may not exceed. */
+  readonly refusal?: unknown;
   /** Hash of the step definitions after the defer point, callables by source text at any depth. Nothing else. */
   readonly tail: string;
   readonly exchange: SerializedExchange;
@@ -197,6 +217,8 @@ export interface ContinuationRecord {
   /** Epoch millis of an outstanding notification claim. The record stays waiting and is not resumable while it holds. */
   readonly claimedAt?: number;
   readonly resumedAt?: number;
+  /** What the door recorded about the resumer, written by `markResumed`. */
+  readonly by?: unknown;
   /** When the record stopped waiting. Retention measures from here, never from `parkedAt`. */
   readonly settledAt?: number;
   readonly reason?: string;
@@ -232,8 +254,8 @@ export interface ContinuationStore {
   /** Refuses a second continuation under one id. */
   create(id: string, continuation: Continuation): Promise<void>;
   get(id: string): Promise<ContinuationRecord | undefined>;
-  /** Wins only against a waiting, UNCLAIMED record. */
-  markResumed(id: string, at: number): Promise<CasResult>;
+  /** Wins only against a waiting, UNCLAIMED record, recording who resumed it in the same write. */
+  markResumed(id: string, at: number, by?: unknown): Promise<CasResult>;
   recordOutcome(id: string, outcome: SerializedOutcome): Promise<void>;
   claimExpiry(id: string, at: number): Promise<CasResult>;
   /** Settle a claimed record as expired, stamping `settledAt`. */
@@ -301,7 +323,12 @@ export interface Run {
   readonly signal: AbortSignal;
   readonly pending: readonly string[];
   /** On a resume: which step parked, and what it asked to get back. */
-  readonly resumption?: { readonly site: string; readonly stepState?: unknown };
+  readonly resumption?: {
+    readonly site: string | null;
+    readonly stepState?: unknown;
+  };
+  /** Inside `runPath`: a nested path may not park, because nothing could revive it. */
+  readonly nested?: boolean;
 }
 export type Next = (run: Run) => Promise<RunResult>;
 export interface RouteBinding {
@@ -343,10 +370,27 @@ export const EXIT_POINT: unique symbol = Symbol("exit");
  * to a caller the compiler did not see (`REFUSE_UNSUPPORTED`).
  */
 export interface HandlerPoints {
-  admission: { readonly owner: typeof ADMISSION_POINT; readonly refuse: true };
-  entry: { readonly owner: typeof ENTRY_POINT; readonly refuse: true };
-  error: { readonly owner: typeof ERROR_POINT; readonly refuse: false };
-  exit: { readonly owner: typeof EXIT_POINT; readonly refuse: false };
+  admission: {
+    readonly owner: typeof ADMISSION_POINT;
+    readonly refuse: true;
+    readonly defer: false;
+  };
+  entry: {
+    readonly owner: typeof ENTRY_POINT;
+    readonly refuse: true;
+    readonly defer: false;
+  };
+  /** The one point that may answer a failure by parking the exchange where it failed. */
+  error: {
+    readonly owner: typeof ERROR_POINT;
+    readonly refuse: false;
+    readonly defer: true;
+  };
+  exit: {
+    readonly owner: typeof EXIT_POINT;
+    readonly refuse: false;
+    readonly defer: false;
+  };
 }
 export interface PointDescriptor<
   K extends keyof HandlerPoints = keyof HandlerPoints,
@@ -354,6 +398,7 @@ export interface PointDescriptor<
   readonly name: K;
   readonly owner: symbol;
   readonly refuse: boolean;
+  readonly defer: boolean;
 }
 /**
  * The runtime half of a point declaration. The owner identity and the
@@ -364,42 +409,75 @@ export function point<K extends keyof HandlerPoints>(
   name: K,
   owner: HandlerPoints[K]["owner"],
   refuse: HandlerPoints[K]["refuse"],
+  defer: HandlerPoints[K]["defer"],
 ): PointDescriptor<K> {
-  return Object.freeze({ name, owner, refuse });
+  return Object.freeze({ name, owner, refuse, defer });
 }
 export const KERNEL_POINTS: readonly PointDescriptor[] = Object.freeze([
-  point("admission", ADMISSION_POINT, true),
-  point("entry", ENTRY_POINT, true),
-  point("error", ERROR_POINT, false),
-  point("exit", EXIT_POINT, false),
+  point("admission", ADMISSION_POINT, true, false),
+  point("entry", ENTRY_POINT, true, false),
+  point("error", ERROR_POINT, false, true),
+  point("exit", EXIT_POINT, false, false),
 ]);
 type Refusal<K> = K extends keyof HandlerPoints
   ? HandlerPoints[K] extends { readonly refuse: true }
-    ? { readonly kind: "refuse"; readonly reason: string }
+    ? {
+        readonly kind: "refuse";
+        readonly reason: string;
+        /** What was refused, for a park raised from this refusal to carry as its bound. */
+        readonly detail?: unknown;
+      }
+    : never
+  : never;
+type Parking<K> = K extends keyof HandlerPoints
+  ? HandlerPoints[K] extends { readonly defer: true }
+    ? { readonly kind: "defer"; readonly request: DeferRequest }
     : never
   : never;
 export type HandlerDecision<
   K extends keyof HandlerPoints = keyof HandlerPoints,
-> = { readonly kind: "allow"; readonly exchange: Exchange } | Refusal<K>;
+> =
+  | {
+      readonly kind: "allow";
+      readonly exchange: Exchange;
+      /** At admission of a resume: data the kernel writes into the record beside the resume, under this plugin's namespace. Must be persistable. */
+      readonly record?: Readonly<Record<string, unknown>>;
+    }
+  | Refusal<K>
+  | Parking<K>;
 export interface Selector {
   readonly routeId?: string;
   readonly tag?: string;
 }
-/** What a handler learns beside the exchange. `resume` is present at admission of a resume: the exchange is then the INGRESS, and this is what it asks to revive. */
+/**
+ * The record, as the door sees it: never the parked body, which the door
+ * has no business reading before it has decided, and always the parked
+ * headers, where an auth plugin finds who parked it (a shape, restored).
+ */
+export interface ResumeView {
+  readonly id: string;
+  readonly routeId: string;
+  readonly site: string | null;
+  readonly parkedAt: number;
+  readonly expiresAt?: number;
+  readonly refusal?: unknown;
+  readonly headers: Readonly<Record<string, unknown>>;
+  readonly payload: unknown;
+}
+/** What a handler learns beside the exchange. `resume` is present at admission and entry of a resume: at admission the exchange is the INGRESS, at entry the continuation. */
 export interface HandlerInfo {
   readonly kind: RunKind;
   readonly route: RouteSpec;
   readonly error?: Fault;
-  readonly resume?: {
-    readonly id: string;
-    readonly deferred: SerializedExchange;
-  };
+  readonly resume?: ResumeView;
 }
 export interface HandlerAt<K extends keyof HandlerPoints> extends Ordered {
   readonly kind: "handler";
   readonly point: K;
   readonly selector?: Selector;
   readonly survival: Survival;
+  /** A handler that may answer a failure with a park declares it; a park from one that did not is a fault. */
+  readonly mayDefer?: boolean;
   handle(
     exchange: Exchange,
     info: HandlerInfo,

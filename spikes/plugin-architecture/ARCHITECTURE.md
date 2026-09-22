@@ -6,9 +6,9 @@ Everything else in this folder is either input to
 this document or code that tests it. Where a published artifact and this file
 disagree, this file wins: the artifact is a rendering of it.
 
-**Status: round 7e complete (Astra's contract review of the round-seven
-corrections, and the bounded round it asked for); production migration not
-yet approved.** The direction is supported, subject to Jaco's
+**Status: round 7f complete (the clean-room review of round 7e closed, and
+the resume door as `#818` shipped it); production migration not yet
+approved.** The direction is supported, subject to Jaco's
 hands-on review, feature-fit checks and an accepted implementation plan. POC
 implementation is not production implementation approval.
 
@@ -63,7 +63,11 @@ asymmetry is the most useful thing in this document.
   required, the tail hash compared the stored step list rather than the live
   one, and the refusal policy for a plugin-declared point existed only in the
   type. Round 7e closes its five exit criteria: 81 tests, 75 mutants, 15
-  compiler controls over 12 modules.
+  compiler controls over 12 modules. A clean-room review of that round
+  (`reviews/FABLE-ROUND-7E.md`) reproduced it and found the record shape
+  under ruling 12 wrong in both directions, the door over-informed, the codec
+  seven rules short and the sweep untested as wired; round 7f closes it and
+  adds the `#818` door: 97 tests, 121 mutants.
 - **Diagrams:** `DIAGRAMS.md` is the overview: what changes, in two pictures,
   plus the four things a plugin can do. `DIAGRAMS-MECHANISM.md` is one level
   down, and its module graph is checked against the source by
@@ -93,7 +97,9 @@ not see.
 | 7 | Clean-room review of round 6 | Fable 5.1, fresh session | ✅ Done. Everything reproduced; round six's claim-lease correction refuted against `revive.ts`; eight guarantee regressions, thirteen surviving mutants, the encoding measured at 20 and 40 plugins. Verdict: proceed on the kernel half, send the continuation half back. |
 | 7c | Corrections | Fable 5.1 (this session, model switched) | ✅ Done. Shipped continuation shape adopted, identity moved out of core, per-step clone dropped, every surviving mutant killed. Commit `2f5812f8`. |
 | 7d | Rulings 5, 8, 9, 10, 11 | Jaco, with code shown for each | ✅ Done. Principal out of core confirmed and the fail-open ask closed; facets kept and the standard's amendment drafted; strings owner-qualified; routes-file shape deferred to 7a/7b; refusal policy encoded in the type. Commit `ede7ea66`. |
-| 7e | Contract review of 7c and 7d, then the bounded round | ChatGPT Astra (review), Fable 5.1 (this session, corrections) | ✅ Done. Astra reproduced `d6823df6`, then showed the authorization fix still failed open, the tail hash compared the wrong list, and the point policy was type-only, with five exit criteria. All five closed: see post-round-7e. Ruling 12 (authority on resume) implemented on recommendation and awaiting Jaco. |
+| 7e | Contract review of 7c and 7d, then the bounded round | ChatGPT Astra (review), Fable 5.1 (this session, corrections) | ✅ Done. Astra reproduced `d6823df6`, then showed the authorization fix still failed open, the tail hash compared the wrong list, and the point policy was type-only, with five exit criteria. All five closed: see post-round-7e. |
+| 7e review | Clean-room review of round 7e | Fable 5.1, fresh session | ✅ Done. Reproduced `63cfcda6` to the figure; eighteen probes and sixteen mutants (fifteen surviving) showed ruling 12's record persisted too much and too little, the door saw the parked body, the codec was seven rules short, and the sweep as wired was untested. Seven bounded exit criteria. `reviews/FABLE-ROUND-7E.md`. |
+| 7f | The review's seven criteria and the `#818` door | Fable 5.1 (this session) | ✅ Done. Every finding closed or disputed by name; the two-hook door (`authorize`, `elevate`) and the error-path park added, so the step-up flow `#818` describes runs end to end in the spike. See post-round-7f. |
 | 7a | Feature fit, clean room | Claude Opus 5, fresh session | Walk the real framework feature by feature: what fits the model, what does not. |
 | 7b | Feature fit, clean room | ChatGPT Astra | Same brief, independently, from its own round-3 work plus round 6. |
 | 8 | Implementation planning | Fable 5.1 | Given everything: decide sequencing, pull-request shape, and whether to fan out to sub-agents. **Fable decides how, not whether.** |
@@ -736,6 +742,65 @@ one timer per application, and its stop is disposal, not the shipped
 scoped to route-level layers; a compatibility fixture for the shipped filter
 chain is still 7a and 7b work.
 
+### Post-round-7f: the review of 7e, and the door as `#818` shipped it
+
+A clean-room Fable 5.1 reviewed `63cfcda6` (`reviews/FABLE-ROUND-7E.md`;
+its evidence is `validation/round-seven-e-review/` on
+`validation/round-7e-fable` at `41af1af7`). Every figure reproduced. Its
+verdict was one more bounded round before 7a and 7b treat the continuation
+contract as settled, and Jaco ruled that his own review waits until that
+round is done. This is that round, with one addition: the resume door as
+pull request `#818` shipped it, which Jaco confirmed as the plan and which
+the review's F15 had found missing.
+
+| Finding | Status after round 7f |
+|---|---|
+| **F1** `.authorize()` with no grants admitted anyone | **Fixed.** The ask demands an authentic principal whatever its grants |
+| **F2, F3** ruling 12's record persisted the whole ingress header set (a bearer beside the principal reached the cached outcome) and lost the resumer on a failed continuation | **Fixed.** The door records a reference chosen by the selected authority (`Authority.refOf`), the kernel writes what the door recorded into `markResumed` itself, keyed by plugin namespace, and nothing else from the ingress reaches the continuation. The codec refuses a value marked secret |
+| **F4, F5** the door was handed the parked body; the route was resolved before the door | **Fixed.** Admission at a resume gets a `ResumeView` (id, route, site, parked and due times, the recorded refusal, the parked headers, the payload) and never the body; the route is looked up after the door, so a refused caller does not learn whether it exists |
+| **F6** no deadline check after the swap | **Fixed.** Re-checked after `markResumed`; a resume that crossed the deadline at the door records a failed outcome, tells the route once, and does not run |
+| **F7** a defer inside `runPath` was swallowed | **Fixed.** Refused as `DEFER_IN_PATH` before anything is written, as shipped refuses a park inside a split |
+| **F8** a branch returning children out of order could not park | **Fixed.** A frame is the longest run the path takes from one list: a suffix when it reaches the end (an appended step joins it), a bounded slice when a branch chose part of its children (an appended sibling does not). Any declared subset in any order parks and resumes |
+| **F9, F10** the codec was seven rules short of shipped; a corrupt envelope revived as data | **Fixed.** Secret brand, null-prototype accumulation both ways, symbol-keyed and non-enumerable properties, named array properties, `Date` subclasses and `Date` with properties, the reserved envelope, and a corrupt envelope refused on decode, one test and one mutant each |
+| **F11** the boot report read the plugin's own store, not the selected one | **Fixed.** The deferral plugin requires the port it provides and reports from the selected store |
+| **F12** a sweep in flight when `stop()` began was abandoned after its claim | **Fixed.** The sweep is owned work: it ends between records when a stop begins, and the record it claimed may still reach the error channel during the drain |
+| **F13** the boot scan runs after sources subscribe, "opposite of the shipped guarantee" | **Disputed.** The reviewer read the comment in `config.ts`; the call says shipped starts plugins after routes signal readiness (`context.ts`), so a shipped source is live before `scanOnStart` too. What shipped guarantees is that the context is not started until the scan completes, and a `whenStarted` equivalent is already a ledger item. The mechanism diagram's box order was wrong and is corrected. Rule 9 |
+| **F14** no default deadline | **Fixed.** `deferralPlugin({ ttl })` defaults to 72 hours and applies it wherever `.defer()` or the facet names none; `ttl: null` opts out |
+| **F15** the door applied the requester's grants to the resumer and nothing recorded that as a choice | **Fixed as ruling 13**, and completed by the `#818` door: `.resumable({ authorize, elevate })` |
+| **F16** a codec mismatch was denied and nagged | **Fixed.** Refused non-destructively as `CODEC_MISMATCH` |
+| **F17** paging past the first page was untested | **Tested** at the sweep, with orphans ahead of live work, purge and lease healing; and the runtime now refuses a page that does not advance (`SCAN_STALLED`) |
+| **F18** a duplicate during the first run carries no outcome | **Documented** in the draft |
+| Harness: two ambiguous patterns; a kill needs a test to have run; no unchanged-copy control | **Fixed.** A pattern must match exactly once, a kill requires at least one test to have run, and the unchanged copy passes the whole suite (the packed consumer excluded by name) before any mutant runs. Every survivor is reported |
+| Sixteen review mutants, fifteen surviving | **All in `mutants.ts` with the tests they needed, plus thirty of this round's** |
+
+**The door, as `#818` shipped it.** `authorize` decides who may resume, over
+the live ingress principal and the restored parked one, with the record view
+beside them; declared, it is the whole policy, and undeclared the gate asks
+the route's own grants of the resumer (ruling 13). `elevate` decides what
+authority the continuation carries: it returns headers holding a live re-mint
+of the parked identity, lent at most the grants the park recorded as refused;
+a changed subject or grant set, a lend outside the bound, or a principal that
+is not live is refused before the approval is spent. The answer is held at the
+door and applied at entry of the run the claim let through, where the route's
+own gate is asked again and the lend has to satisfy it. Without `elevate` the
+continuation runs as the restored parked principal and any downstream gate
+refuses it. **Parking from the error path** is what raises such a park: an
+`error` handler that declares `mayDefer` may answer a failure with a defer
+request; a refusal at admission parks the whole route with the refused grants
+recorded as the bound, a failure inside a step parks at that step and
+re-enters it, and `notify` is told the id once the record is durable and
+before the deferred event fires. The step-up flow in `#818`'s description
+(refused, parked, lent, run as the requester, resumer recorded) runs end to
+end in `test/round-two/round-seven-f.test.ts`.
+
+**What this round did not do.** Signed resume tokens and payload validation
+against a declared schema stay ledger items. `list` and the action
+fingerprint are companion ports over the existing record. A `whenStarted`
+equivalent, and the shipped `context:stopping` gate for plugins, are ledger
+items; the sweep's own stop is now correct without them. The subject-ring
+versus actor-ring distinction `#818` counts lends against is not in the
+spike's principal, which has one grant ring and one lent ring.
+
 ### Brief for rounds 7a and 7b: the feature-fit migration ledger
 
 Two independent walks of the real framework, `7a` by a fresh Claude Opus 5 and
@@ -910,7 +975,8 @@ been given. The scope and release baseline is now stated in section 1.
 9. **The string surface. Decided by Jaco, 2026-09-21: owner-qualify everything.** Implemented: every plugin has a namespace (declared, or the last segment of its id), unique per application (`DUPLICATE_NAMESPACE`); contribution ids are checked per owner, as ordering already keyed them, so two plugins may both name a wrapper `audit` and one plugin may not name two; a plugin's facet must be its namespace (`FACET_NAMESPACE`); route option keys must be `namespace.key` for an installed plugin or `route` (`OPTION_NAMESPACE`), so `resilience.retry`, `operations.title`, `auth.authorize`. Handler point names stay global by declaration merging and carry an owner identity that makes two declarations of one name with different identities fail to compile. Remaining for 0.8: extend `api-stability.md` so these strings are covered by the version policy alongside TypeScript symbols.
 10. **How a `routes/` file gets its application. Deferred by Jaco to rounds 7a and 7b, 2026-09-21.** The CLI recognises a plugin by a callable `apply` (`project.ts:194`) and loads routes from separate files built with a free `craft()`. Under the spike, a typed chain comes from `app.route()` on an `Application<P>` value. The three shapes to weigh with the CLI, TUI and testing package in view: a project-level `app.ts` that routes import; a `defineRoutes(app => [...])` callback the CLI invokes; or a free `craft()` over a global registry, which is what exists and what encoding E was built to leave.
 11. **Which handler points honour a refusal. Decided by Jaco, 2026-09-21: encode it in the type.** Each `HandlerPoints` entry now carries `refuse: true | false` beside its owner identity; `HandlerDecision<K>` offers `refuse` only where the point honours it, so a refusal at `exit` is a compile error (control in `types.check.ts`). For a caller the compiler did not see, the runtime raises `REFUSE_UNSUPPORTED` naming the handler: a fault at `exit`, a secondary on the primary error at `error`. Nothing is silently ignored any more. **Round 7e completed it:** the runtime had hardcoded the two kernel points, so a plugin-declared point had no policy at all, and the broad `Handler` type had lost the correlation between point and decision. A point is now declared twice, once by merging and once by `point(name, owner, refuse)`, typed so the two halves cannot disagree; the host registers a plugin's points before anything binds, and `Handler` is a distributed union.
-12. **Whose authority a resumed continuation runs under. Implemented on recommendation in round 7e; Jaco to confirm.** The shipped framework keeps the deferred principal restored on the continuation and records the resumer separately (`revive.ts` `rehydrate`, `resumedBy`; `security.md` §3; the resume, defer, filter-chain and durable-agents docs all say so). The round 7c spike overlaid the ingress headers onto the continuation instead, so the approver's live authority flowed into every downstream hop, and the process test asserted it. That is a wider grant than shipped, and it was never decided. The spike now does what shipped does: the continuation runs as the exchange that parked, the admitted ingress headers are recorded on it through the persistence codec under `routecraft.deferral.ingress` (a shape, never a credential, so `ex.auth.resumedBy` is readable and refused), a downstream `.authorize()` refuses the restored principal, and a step that needs live authority after the wait mints it explicitly. The trade is stated: an approval-then-hop flow needs one explicit line where it previously inherited the approver's grants, and that line is the greppable act the lint rule exists for.
+12. **Whose authority a resumed continuation runs under. Confirmed by Jaco, 2026-09-22, as the `#818` door.** The shipped framework keeps the deferred principal restored on the continuation and records the resumer separately (`revive.ts` `rehydrate`, `resumedBy`; `security.md` §3). The round 7c spike overlaid the ingress headers onto the continuation instead, so the approver's live authority flowed into every downstream hop; round 7e replaced that with the shipped default but recorded the whole ingress header set, which the 7e review showed persisted a bearer and lost the resumer on failure. Round 7f settles it as `#818` has it: the continuation runs as the exchange that parked; the door records a reference to the resumer (`Authority.refOf`) and the swap writes it into the record; a downstream `.authorize()` refuses the restored principal; and the door's `elevate` hook, not a step, is where live authority after the wait comes from, bounded by the refusal that parked the exchange and never changing identity. Recorded in `ARCHITECTURE.md` post-round-7f and enforced by the step-up tests and mutants.
+13. **The door's default policy. Decided in round 7f, from the 7e review's F15.** When a route declares no `.resumable({ authorize })`, the gate asks the route's own grants of the resumer: an approver must hold what the requester needed. Declared, the hook is the whole policy and sees both principals and the record view. Shipped separates the two by putting the hook on the ingress route; the spike has no ingress route, so the deferred route carries the door, and the default is stated rather than implied.
 
 ---
 
@@ -932,6 +998,10 @@ habit produced four of them.
 10. **A harness that reports every mutant killed is a harness to distrust first.** Round seven's first run said 16/16; a path error had failed every mutant. The real count was 3/16.
 11. **A selected port proves nothing until its provider is mutated.** Round 7d required the authority port and called it fail-closed; the gate never read the provider. Astra's "authority answers nothing" mutant survived, and that one surviving mutant was the whole finding. For every port a plugin requires, mutate the provider and watch the consumer fail.
 12. **Hash the thing you will run, not the thing you saved.** The tail hash was correct over the wrong input for two rounds: it compared the stored step list against itself and skipped whatever had been appended. A compatibility check must derive its input from the live graph and compare that against the record.
+13. **A survivor under a filter is a survivor; a kill under a full run is not a kill until the unchanged copy passed the same run.** The 7e review manufactured sixteen kills from one script its copy lacked. The harness now runs the unchanged copy first.
+14. **A mutant that only touches an import or a type is a no-op under Bun.** The transpiler elides it. Mutate a value the code reads.
+15. **A pattern must match once.** Two mutants were at the right site by file order. The harness asserts the count.
+16. **A record carries a reference, never the thing it refers to.** The resumer on the record is a subject, not the credential or its grants; a codec with no secret rule persists whatever a header carried.
 
 **And the rule that generates the rest: a green suite is not evidence.** 63
 tests passed in round one; 20 of them asserted defects. 32 passed in round
@@ -952,16 +1022,17 @@ re-ran half-run continuations.
 | `reviews/OPUS-ROUND-SIX.md` | Execution review of round 5; its headline finding was wrong, see its banner |
 | `reviews/FABLE-REVIEW.md` | Clean-room review of round 6 that found the misreading (round 7) |
 | `reviews/ASTRA-ROUND-SEVEN.md` | Astra's contract review of rounds 7c and 7d; its probes and mutants are on `validation/round-six-astra` at `763d26aa` (round 7e) |
+| `reviews/FABLE-ROUND-7E.md` | Clean-room review of round 7e; its probes and mutants are on `validation/round-7e-fable` at `41af1af7` |
 | `DIAGRAMS.md`, `DIAGRAMS-MECHANISM.md`, `DOCS-ARCHITECTURE-DRAFT.md` | Overview, code-derived mechanism, draft public page |
 | `src/v2/` | The proof of concept: 12 modules, `auth.ts` added in 7c, `codec.ts` in 7e |
-| `test/round-two/` | 81 acceptance tests; `corrections.test.ts` holds rounds 6 and 7, `round-seven-e.test.ts` holds Astra's eighteen probes as corrected behaviour |
-| `validation/round-two/` | Mutation harness (75, listed in `mutants.ts`), import gate, packed consumer, type controls (15), diagram check, process-kill harness |
+| `test/round-two/` | 97 acceptance tests; `corrections.test.ts` holds rounds 6 and 7, `round-seven-e.test.ts` Astra's eighteen probes as corrected behaviour, `round-seven-f.test.ts` the 7e review's findings inverted and the `#818` door |
+| `validation/round-two/` | Mutation harness (121, listed in `mutants.ts`), import gate, packed consumer, type controls (15), diagram check, process-kill harness |
 | `validation/round-seven/` | Round seven's probes, kept as evidence of the pre-correction API |
 | `src/`, `test/*.historical.ts`, `docs/`, `README.md` | Round one and its validators, superseded |
 
 ```bash
 cd spikes/plugin-architecture
-bun run verify         # typecheck, 81 tests, 75 mutants, gate, type controls, diagram
+bun run verify         # typecheck, 97 tests, 121 mutants, gate, type controls, diagram
 bun run verify:packed  # external consumer against a real tarball
 bun run demo
 ```

@@ -16,7 +16,7 @@ Mermaid renders inline on GitHub. Nothing here needs a toolchain.
 
 The layering exists so that editors who come and go cannot quietly couple two
 things. Every edge below is permitted by `validation/round-two/boundaries.ts`;
-every edge not drawn is a build failure. The gate is closed over the directory,
+every edge not drawn fails `bun run verify`. The gate is closed over the directory,
 walks dynamic `import()` as well as top-level statements, and refuses a computed
 specifier, so a new file cannot sit outside it.
 
@@ -148,7 +148,7 @@ flowchart TD
     E --> F["FREEZE<br/><i>no contribution after this point</i>"]
     F --> G["Order contributions<br/>by anchor and constraint"]
     G --> H["Compile routes<br/><i>wrapper state binds once per route</i>"]
-    H --> I["start() each plugin<br/><i>sources subscribe</i>"]
+    H --> I["sources subscribe, then<br/>start() each plugin<br/><i>the deferral plugin's boot scan runs here</i>"]
     I -->|"any failure"| R["Roll back<br/><i>release what was acquired</i>"]
     I --> J(["Running"])
     J --> K["stop() in reverse<br/><i>consumers before providers,<br/>failures aggregated</i>"]
@@ -269,12 +269,12 @@ sequenceDiagram
     Note over P1: effects so far: prefix, tool-request
     P1-xP1: SIGKILL
     Note over S: record: waiting
-    P2->>P2: resume(id, ingress): admission over the INGRESS<br/>before the record's state is disclosed
+    P2->>P2: resume(id, ingress): the door, over the INGRESS<br/>handed a view of the record without its body,<br/>before the route is resolved or the record's state disclosed
     Note over P2: a refused resumer learns nothing<br/>and spends nothing
     P2->>S: deadline, then LIVE tail hash against the compiled route
     Note over P2: an edited or appended tail step is refused,<br/>the record denied, the route told through its error channel
-    P2->>S: markResumed: CAS out of waiting, unclaimed only
-    P2->>P2: run the SUFFIX only, as the PARKED identity restored<br/>the ingress recorded on it as data, never merged in
+    P2->>S: markResumed: CAS out of waiting, unclaimed only,<br/>writing what the door recorded about the resumer
+    P2->>P2: deadline checked again, then run the SUFFIX only,<br/>as the PARKED identity restored, or as the door's lend re-minted it<br/>nothing else from the ingress reaches it
     P2->>S: recordOutcome (what is persistable; a completion stays a completion)
     P2->>S: resume(id) again
     S-->>P2: duplicate, with the cached outcome

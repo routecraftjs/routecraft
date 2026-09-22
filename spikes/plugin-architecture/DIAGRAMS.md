@@ -64,7 +64,7 @@ Everything else moves outside, including everything we ship. The two arrows are
 drawn identically because they are identical: our deferral plugin and your
 deferral plugin use the same verbs and get the same access. That is the claim
 the whole spike exists to test, and the test is building a plugin against a
-published tarball rather than against our source.
+locally packed tarball rather than against our source.
 
 ---
 

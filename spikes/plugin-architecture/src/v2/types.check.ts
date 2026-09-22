@@ -114,6 +114,6 @@ const broadRefusalAtExit: Handler = {
 };
 void broadRefusalAtExit;
 // @ts-expect-error a runtime point descriptor cannot declare a policy the merged type does not
-void point("exit", EXIT_POINT, true);
+void point("exit", EXIT_POINT, true, false);
 // @ts-expect-error a runtime point descriptor cannot claim another point's owner identity
-void point("exit", ENTRY_POINT, false);
+void point("exit", ENTRY_POINT, false, false);

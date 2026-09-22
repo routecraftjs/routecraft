@@ -71,7 +71,7 @@ test("defer → SIGKILL → new process → resume named nested instruction acro
     ]);
     expect(resumed.waiting).toEqual([]);
     expect(readFileSync(join(dir, "effects.log"), "utf8")).toBe(
-      "prefix\ntool-request\ntool-result\nsuffix\nprincipal:alice:restored\nresumedBy:bob:restored\nsink:refused\n",
+      "prefix\ntool-request\ntool-result\nsuffix\nprincipal:alice:restored\nresumedBy:bob\nsink:refused\n",
     );
   } finally {
     child.kill();

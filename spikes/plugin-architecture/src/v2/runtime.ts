@@ -20,8 +20,10 @@ import {
   type RouteStatus,
   type Continuation,
   type ContinuationRecord,
+  type DeferRequest,
   type Frame,
   type ResumeIngress,
+  type ResumeView,
   type SerializedExchange,
   type SerializedOutcome,
   type SweepOptions,
@@ -29,7 +31,8 @@ import {
   DEFERRAL_SEQUENCE,
   DEFERRAL_RESULT,
   DEFERRAL_RESUMED_AT,
-  DEFERRAL_INGRESS,
+  DEFERRAL_RESUMED_BY,
+  DEFERRAL_ID,
 } from "./contracts.ts";
 async function abortable<T>(work: Promise<T>, signal: AbortSignal): Promise<T> {
   signal.throwIfAborted();
@@ -52,6 +55,11 @@ const empty = (): RunResult => ({
   exchanges: [],
   deferrals: [],
 });
+const refused = (): RunResult => ({
+  status: "refused",
+  exchanges: [],
+  deferrals: [],
+});
 /** A fresh core envelope so facets attach cleanly. Bodies are not cloned: a stream or a class instance is an ordinary body in flight. */
 export function wireExchange(ex: Exchange): Exchange {
   return { id: ex.id, routeId: ex.routeId, body: ex.body, headers: ex.headers };
@@ -69,8 +77,8 @@ function revive(x: SerializedExchange): Exchange {
   return {
     id: x.id,
     routeId: x.routeId,
-    body: decode(x.body),
-    headers: decode(x.headers) as Record<string, unknown>,
+    body: decode(x.body, "body"),
+    headers: decode(x.headers, "headers") as Record<string, unknown>,
   };
 }
 /**
@@ -157,34 +165,48 @@ interface Compiled {
   status: RouteStatus;
 }
 /**
- * Address the path still to run as suffixes of declared lists, anchored at
- * the defer site even when nothing follows it, so a step appended after the
- * site later is part of the live tail the resume compares.
+ * Address the path still to run as runs over declared lists. Each frame is
+ * the longest run of consecutive ids the remaining path takes from one list:
+ * a suffix when the run reaches the list's end, which is what a step appended
+ * later joins; a bounded slice when a branch chose part of its children,
+ * which an appended child does not join because the branch did not choose
+ * it. The first frame is anchored at the defer site even when nothing follows
+ * it, so a step appended after a trailing site is in the live tail.
  */
 function framesOf(
   route: Compiled,
-  site: string,
+  site: string | null,
   reenter: boolean,
   remaining: readonly string[],
   owner: string,
 ): Frame[] {
-  const at = route.position.get(site);
-  if (!at) throw new Fault(owner, "UNKNOWN_INSTRUCTION", site);
-  const frames: Frame[] = [
-    { list: at.list, from: at.index + (reenter ? 0 : 1) },
-  ];
+  const frames: Frame[] = [];
   let i = 0;
-  for (;;) {
-    const frame = frames[frames.length - 1]!;
-    const suffix = route.lists.get(frame.list)!.slice(frame.from);
-    if (!suffix.every((id, k) => remaining[i + k] === id))
-      throw new Fault(owner, "UNSTRUCTURED_PENDING", remaining.join(","));
-    i += suffix.length;
-    if (i >= remaining.length) return frames;
+  const push = (list: string | null, from: number) => {
+    const ids = route.lists.get(list)!;
+    let run = 0;
+    while (from + run < ids.length && remaining[i + run] === ids[from + run])
+      run++;
+    frames.push(
+      from + run < ids.length ? { list, from, to: from + run } : { list, from },
+    );
+    i += run;
+  };
+  if (site === null) push(null, 0);
+  else {
+    const at = route.position.get(site);
+    if (!at) throw new Fault(owner, "UNKNOWN_INSTRUCTION", site);
+    push(at.list, at.index + (reenter ? 0 : 1));
+  }
+  while (i < remaining.length) {
     const next = route.position.get(remaining[i]!);
     if (!next) throw new Fault(owner, "UNKNOWN_INSTRUCTION", remaining[i]!);
-    frames.push({ list: next.list, from: next.index });
+    const before = i;
+    push(next.list, next.index);
+    if (i === before)
+      throw new Fault(owner, "UNSTRUCTURED_PENDING", remaining.join(","));
   }
+  return frames;
 }
 /** The live path the frames address today, or undefined when the graph no longer has it. */
 function pendingOf(
@@ -198,13 +220,34 @@ function pendingOf(
       !list ||
       !Number.isInteger(f.from) ||
       f.from < 0 ||
-      f.from > list.length
+      f.from > list.length ||
+      (f.to !== undefined &&
+        (!Number.isInteger(f.to) || f.to < f.from || f.to > list.length))
     )
       return undefined;
-    out.push(...list.slice(f.from));
+    out.push(...list.slice(f.from, f.to));
   }
   return out;
 }
+/** What a ring of handlers decided: the exchange as decorated, what they asked to record, or the one that refused or parked. */
+type Ring =
+  | {
+      readonly kind: "allow";
+      readonly exchange: Exchange;
+      readonly recorded: Record<string, unknown>;
+    }
+  | {
+      readonly kind: "refuse";
+      readonly owner: string;
+      readonly handler: string;
+      readonly reason: string;
+      readonly detail?: unknown;
+    }
+  | {
+      readonly kind: "defer";
+      readonly owner: string;
+      readonly request: DeferRequest;
+    };
 /** Execution mechanics only. Contributions provide policy, resources and operation instances. */
 export class Runtime {
   readonly #routes = new Map<string, Compiled>();
@@ -214,6 +257,8 @@ export class Runtime {
     stop: () => void | Promise<void>;
   }[] = [];
   #accept = false;
+  /** Between the last delivery refused and the last owned promise settled: work already in flight may still reach the error channel. */
+  #draining = false;
   #ordered: readonly Owned<Contribution>[] | undefined;
   private get ordered() {
     return (this.#ordered ??= this.host.ordered(this.host.contributions));
@@ -454,11 +499,14 @@ export class Runtime {
   }
   /**
    * The order of checks is the security contract. The door (admission over
-   * the ingress) runs before the record's state is disclosed, so a refused
-   * caller learns nothing and consumes nothing; the deadline and the live
-   * tail are checked next, and only then the compare-and-swap that spends
-   * the approval. The continuation then runs as the exchange that parked:
-   * the ingress is recorded on it as data, never merged into it.
+   * the ingress, handed a view of the record without its body) runs before
+   * the route is even resolved and before the record's state is disclosed,
+   * so a refused caller learns nothing and consumes nothing; the codec, the
+   * deadline and the live tail are checked next, and only then the
+   * compare-and-swap that spends the approval, which writes what the door
+   * recorded about the resumer. The deadline is checked once more after
+   * the swap, because the door may have awaited. The continuation then runs
+   * as the exchange that parked: nothing the ingress carried is merged in.
    */
   async resume(id: string, ingress: ResumeIngress = {}): Promise<RunResult> {
     if (!this.#accept) throw new Fault("kernel", "NOT_RUNNING", "resume");
@@ -471,28 +519,51 @@ export class Runtime {
     }
     if (!record) throw new Fault(provider, "UNKNOWN_CONTINUATION", id);
     const saved = record.continuation;
-    const route = this.route(saved.routeId);
+    const known = this.#routes.get(saved.routeId);
+    // The door judges before the route is resolved: a route this deployment lacks is not disclosed to a caller it refuses.
+    const spec: RouteSpec = known?.spec ?? {
+      id: saved.routeId,
+      owner: "kernel",
+      version: "0",
+      tags: [],
+      steps: [],
+      options: {},
+    };
+    const view: ResumeView = {
+      id,
+      routeId: saved.routeId,
+      site: saved.site,
+      parkedAt: saved.parkedAt,
+      ...(saved.expiresAt !== undefined ? { expiresAt: saved.expiresAt } : {}),
+      ...(saved.refusal !== undefined ? { refusal: saved.refusal } : {}),
+      headers: decode(saved.exchange.headers, "headers") as Record<
+        string,
+        unknown
+      >,
+      payload: ingress.payload,
+    };
     const door: Exchange = {
       id: saved.exchange.id,
-      routeId: route.spec.id,
+      routeId: saved.routeId,
       body: ingress.payload,
       headers: { ...ingress.headers },
     };
-    const admitted = await this.handlers(
-      route,
+    const ring = await this.handlers(
+      spec,
       "admission",
       this.attach(door),
       "resume",
       undefined,
-      { id, deferred: saved.exchange },
+      view,
     );
-    if (!admitted) return { status: "refused", exchanges: [], deferrals: [] };
-    let recorded: unknown;
+    if (ring.kind !== "allow") return refused();
+    let by: unknown;
     try {
-      recorded = encode(admitted.headers, provider, "ingress headers");
+      by = encode(ring.recorded, provider, "resume record");
     } catch (e) {
-      throw fault(provider, "INGRESS_NOT_PERSISTABLE", e);
+      throw fault(provider, "RECORD_NOT_PERSISTABLE", e);
     }
+    const route = this.route(saved.routeId);
     // An approver double-clicks, a webhook is redelivered: the normal case, answered from the cache, after the door.
     if (record.state === "resumed") return this.duplicate(record);
     if (record.state !== "waiting" || record.claimedAt !== undefined)
@@ -500,6 +571,13 @@ export class Runtime {
         provider,
         "RESUME_SETTLED",
         `${id}: ${record.state === "waiting" ? "claimed" : record.state}`,
+      );
+    // A record from another codec is refused, not settled: nothing about this deployment's plan is known to have changed.
+    if (saved.codec !== 2)
+      throw new Fault(
+        provider,
+        "CODEC_MISMATCH",
+        `${id}: codec ${String(saved.codec)}`,
       );
     const now = Date.now();
     if (saved.expiresAt !== undefined && saved.expiresAt <= now)
@@ -512,7 +590,7 @@ export class Runtime {
         "expired",
         "expired before resume",
       );
-    const live = saved.codec === 2 ? pendingOf(route, saved.frames) : undefined;
+    const live = pendingOf(route, saved.frames);
     if (!live || saved.tail !== tailHash(route.steps, live))
       return this.settle(
         route,
@@ -525,7 +603,7 @@ export class Runtime {
       );
     let cas: "won" | "lost";
     try {
-      cas = await store.markResumed(id, now);
+      cas = await store.markResumed(id, now, by);
     } catch (e) {
       throw fault(provider, "MARK_RESUMED", e);
     }
@@ -534,14 +612,36 @@ export class Runtime {
       if (settled?.state === "resumed") return this.duplicate(settled);
       throw new Fault(provider, "RESUME_LOST", id);
     }
+    // Re-checked after the swap: the door awaited, and a resume that arrived in time must not run past the window its route declared.
+    if (saved.expiresAt !== undefined && saved.expiresAt <= Date.now()) {
+      const expiry = new Fault(
+        provider,
+        "EXPIRED",
+        `${id}: expired while at the door`,
+      );
+      await store
+        .recordOutcome(id, {
+          status: "failed",
+          exchanges: [],
+          error: expiry.message,
+        })
+        .catch(() => undefined);
+      await this.errorChannel(
+        route.spec.id,
+        revive(saved.exchange),
+        expiry,
+      ).catch(() => undefined);
+      throw expiry;
+    }
     const parked = revive(saved.exchange);
     const exchange: Exchange = {
       ...parked,
       headers: {
         ...parked.headers,
+        [DEFERRAL_ID]: id,
         [DEFERRAL_RESULT]: ingress.payload,
         [DEFERRAL_RESUMED_AT]: now,
-        [DEFERRAL_INGRESS]: recorded,
+        [DEFERRAL_RESUMED_BY]: by,
       },
     };
     return this.own(
@@ -558,11 +658,11 @@ export class Runtime {
               resumption: {
                 site: saved.site,
                 ...(saved.stepState !== undefined
-                  ? { stepState: decode(saved.stepState) }
+                  ? { stepState: decode(saved.stepState, "stepState") }
                   : {}),
               },
             },
-            true,
+            view,
           );
         } catch (e) {
           // Recording the failure keeps a replay idempotent: a duplicate is told it failed, not re-run.
@@ -606,15 +706,20 @@ export class Runtime {
    * claim another holder took) is behind the cursor, never re-read, so it
    * cannot starve the records after it. Each retirement is claim, deliver
    * to the error channel, settle, which is the at-least-once trade that is
-   * safe for a notification and never for a continuation.
+   * safe for a notification and never for a continuation. A stop arriving
+   * mid-pass ends the pass between records, and the record in flight is
+   * delivered, because a claim taken after that point would notify nobody.
    */
-  async sweep({
+  sweep(options: SweepOptions = {}): Promise<SweepReport> {
+    if (!this.#accept) throw new Fault("kernel", "NOT_RUNNING", "sweep");
+    return this.own(this.runSweep(options));
+  }
+  private async runSweep({
     now = Date.now(),
     lease,
     retention,
     pageSize = 100,
-  }: SweepOptions = {}): Promise<SweepReport> {
-    if (!this.#accept) throw new Fault("kernel", "NOT_RUNNING", "sweep");
+  }: SweepOptions): Promise<SweepReport> {
     const { store, provider } = this.continuations();
     const released =
       lease !== undefined ? await store.releaseClaims(now - lease) : 0;
@@ -623,11 +728,28 @@ export class Runtime {
     const orphans: Record<string, number> = {};
     let visited = 0,
       retired = 0,
-      cursor: { id: string; expiresAt: number } | undefined;
+      cursor: { id: string; expiresAt: number } | undefined,
+      previous: { id: string; expiresAt: number } | undefined;
     for (;;) {
+      if (!this.#accept) break;
       const page = await store.findExpired(now, pageSize, cursor);
       if (!page.length) break;
       for (const entry of page) {
+        if (!this.#accept) break;
+        // The store promised a page strictly after the cursor; one that is not would loop this pass forever.
+        if (
+          previous &&
+          !(
+            entry.expiresAt > previous.expiresAt ||
+            (entry.expiresAt === previous.expiresAt && entry.id > previous.id)
+          )
+        )
+          throw new Fault(
+            provider,
+            "SCAN_STALLED",
+            `${entry.id} is not after ${previous.id}`,
+          );
+        previous = entry;
         cursor = entry;
         visited++;
         const route = this.#routes.get(entry.routeId);
@@ -647,6 +769,8 @@ export class Runtime {
         if ((await store.markExpired(entry.id, now)) === "won") retired++;
       }
       if (page.length < pageSize) break;
+      // A page boundary yields to the event loop, so a long backlog never starves the process.
+      await new Promise((r) => setImmediate(r));
     }
     return { released, purged, visited, retired, orphans };
   }
@@ -655,7 +779,8 @@ export class Runtime {
     exchange: Exchange,
     error: Fault,
   ): Promise<RunResult> {
-    if (!this.#accept)
+    // Owned work already in flight when the stop began may still tell its route; nothing new may start.
+    if (!this.#accept && !this.#draining)
       throw new Fault(error.plugin, "NOT_RUNNING", "errorChannel");
     return this.own(
       this.enter(this.route(routeId), {
@@ -668,30 +793,31 @@ export class Runtime {
     );
   }
   private async handlers(
-    route: Compiled,
+    spec: RouteSpec,
     point: keyof HandlerPoints,
     exchange: Exchange,
     kind: RunKind,
     error?: Fault,
-    resume?: HandlerInfo["resume"],
-  ): Promise<Exchange | null> {
+    resume?: ResumeView,
+  ): Promise<Ring> {
     const descriptor = this.host.points.get(point);
     if (!descriptor) throw new Fault("kernel", "UNKNOWN_POINT", String(point));
     let ex = exchange;
+    const recorded: Record<string, unknown> = {};
     const handlers = this.ordered.filter(
       (x): x is Owned<Handler> => x.kind === "handler" && x.point === point,
     );
     const info: HandlerInfo = {
       kind,
-      route: route.spec,
+      route: spec,
       ...(error ? { error } : {}),
       ...(resume ? { resume } : {}),
     };
     for (const h of handlers) {
       if (
         !h.survival[kind] ||
-        (h.selector?.routeId && h.selector.routeId !== route.spec.id) ||
-        (h.selector?.tag && !route.spec.tags.includes(h.selector.tag))
+        (h.selector?.routeId && h.selector.routeId !== spec.id) ||
+        (h.selector?.tag && !spec.tags.includes(h.selector.tag))
       )
         continue;
       try {
@@ -710,8 +836,31 @@ export class Runtime {
             }
             throw refusal;
           }
-          return null;
+          return {
+            kind: "refuse",
+            owner: h.owner,
+            handler: h.id,
+            reason: result.reason,
+            ...(result.detail !== undefined ? { detail: result.detail } : {}),
+          };
         }
+        if (result.kind === "defer") {
+          if (!descriptor.defer || !h.mayDefer) {
+            const parking = new Fault(
+              h.owner,
+              descriptor.defer ? "DEFER_UNDECLARED" : "DEFER_UNSUPPORTED",
+              `${String(point)}: ${h.id}`,
+            );
+            if (error) {
+              error.secondary.push(parking);
+              continue;
+            }
+            throw parking;
+          }
+          return { kind: "defer", owner: h.owner, request: result.request };
+        }
+        if (result.record !== undefined)
+          recorded[this.host.namespaceFor(h.owner)] = result.record;
         ex = this.attach(wireExchange(result.exchange));
       } catch (e) {
         const failure = fault(h.owner, `HANDLER_${String(point)}`, e);
@@ -722,12 +871,68 @@ export class Runtime {
         throw failure;
       }
     }
-    return ex;
+    return { kind: "allow", exchange: ex, recorded };
+  }
+  /**
+   * Write a continuation: the record and its index in one transaction, the
+   * requester told once it is durable, the event after that. One path for a
+   * step that parks itself and for a failure an error handler parks.
+   */
+  private async park(
+    route: Compiled,
+    exchange: Exchange,
+    site: string | null,
+    reenter: boolean,
+    remaining: readonly string[],
+    request: DeferRequest,
+    owner: string,
+    refusal?: unknown,
+  ): Promise<string> {
+    if (!this.host.has(CONTINUATIONS))
+      throw new Fault(owner, "MISSING_CONTINUATION_STORE", site ?? "admission");
+    const { store, provider } = this.continuations();
+    const sequence = (Number(exchange.headers[DEFERRAL_SEQUENCE]) || 0) + 1;
+    const id = `${exchange.id}#${sequence}`;
+    const parked: Exchange = {
+      ...exchange,
+      headers: { ...exchange.headers, [DEFERRAL_SEQUENCE]: sequence },
+    };
+    const saved: Continuation = {
+      codec: 2,
+      routeId: route.spec.id,
+      site,
+      frames: framesOf(route, site, reenter, remaining, owner),
+      tail: tailHash(route.steps, remaining),
+      exchange: serialize(parked, owner),
+      parkedAt: Date.now(),
+      ...(request.ttl !== undefined
+        ? { expiresAt: Date.now() + request.ttl }
+        : {}),
+      ...(request.state !== undefined
+        ? { stepState: encode(request.state, owner, "stepState") }
+        : {}),
+      ...(refusal !== undefined
+        ? { refusal: encode(refusal, owner, "refusal") }
+        : {}),
+    };
+    try {
+      await store.create(id, saved);
+    } catch (e) {
+      throw fault(provider, "PARK", e);
+    }
+    if (request.notify)
+      try {
+        await request.notify(id);
+      } catch (e) {
+        throw fault(owner, "NOTIFY", e);
+      }
+    this.host.emit("exchange:deferred", { id, route: route.spec.id });
+    return id;
   }
   private async enter(
     route: Compiled,
     run: Run,
-    alreadyAdmitted = false,
+    resume?: ResumeView,
   ): Promise<RunResult> {
     let ex = this.attach(wireExchange(run.exchange));
     this.host.emit("exchange:started", {
@@ -735,24 +940,89 @@ export class Runtime {
       kind: run.kind,
       id: ex.id,
     });
+    const parkFromFailure = async (
+      failure: Fault,
+    ): Promise<RunResult | undefined> => {
+      const ring = await this.handlers(
+        route.spec,
+        "error",
+        ex,
+        run.kind,
+        failure,
+      );
+      if (ring.kind !== "defer") return undefined;
+      // Where the failure was is where the park is: the failing step, re-entered, or the whole route for a refusal at its door.
+      const site = failure.site;
+      const id = site
+        ? await this.park(
+            route,
+            site.exchange,
+            site.step,
+            true,
+            [site.step, ...site.pending],
+            ring.request,
+            ring.owner,
+            failure.detail,
+          )
+        : await this.park(
+            route,
+            ex,
+            null,
+            false,
+            route.initial,
+            ring.request,
+            ring.owner,
+            failure.detail,
+          );
+      return { status: "deferred", exchanges: [], deferrals: [id] };
+    };
     try {
-      if (!alreadyAdmitted) {
-        const admitted = await this.handlers(route, "admission", ex, run.kind);
-        if (!admitted)
-          return { status: "refused", exchanges: [], deferrals: [] };
-        ex = admitted;
+      if (!resume) {
+        const admitted = await this.handlers(
+          route.spec,
+          "admission",
+          ex,
+          run.kind,
+        );
+        if (admitted.kind === "refuse") {
+          // A refusal at the door is a failure the error ring may answer by parking the whole route, which is how a step-up begins. The error channel is that ring: a refusal there is final.
+          if (run.kind === "errorChannel") return refused();
+          const refusal = new Fault(
+            admitted.owner,
+            "REFUSED",
+            `${admitted.handler}: ${admitted.reason}`,
+          );
+          refusal.detail = admitted.detail;
+          return (await parkFromFailure(refusal)) ?? refused();
+        }
+        if (admitted.kind === "defer")
+          throw new Fault(admitted.owner, "DEFER_UNSUPPORTED", "admission");
+        ex = admitted.exchange;
       }
-      const entered = await this.handlers(route, "entry", ex, run.kind);
-      if (!entered) return { status: "refused", exchanges: [], deferrals: [] };
-      ex = entered;
+      const entered = await this.handlers(
+        route.spec,
+        "entry",
+        ex,
+        run.kind,
+        undefined,
+        resume,
+      );
+      if (entered.kind === "refuse") return refused();
+      if (entered.kind === "defer")
+        throw new Fault(entered.owner, "DEFER_UNSUPPORTED", "entry");
+      ex = entered.exchange;
       const ran = await route.invoke({ ...run, exchange: ex });
       // Exit decoration reaches the caller, not only the next exit handler.
       const exchanges: Exchange[] = [];
-      for (const completed of ran.exchanges)
-        exchanges.push(
-          (await this.handlers(route, "exit", completed, run.kind)) ??
-            completed,
+      for (const completed of ran.exchanges) {
+        const exit = await this.handlers(
+          route.spec,
+          "exit",
+          completed,
+          run.kind,
         );
+        exchanges.push(exit.kind === "allow" ? exit.exchange : completed);
+      }
       const result: RunResult = { ...ran, exchanges };
       this.host.emit(`exchange:${result.status}`, {
         id: ex.id,
@@ -761,7 +1031,10 @@ export class Runtime {
       return result;
     } catch (e) {
       const primary = fault(route.spec.owner, "EXECUTION", e);
-      await this.handlers(route, "error", ex, run.kind, primary);
+      if (run.kind !== "errorChannel") {
+        const parked = await parkFromFailure(primary);
+        if (parked) return parked;
+      } else await this.handlers(route.spec, "error", ex, run.kind, primary);
       this.host.emit("exchange:failed", {
         plugin: primary.plugin,
         message: primary.message,
@@ -802,6 +1075,7 @@ export class Runtime {
               ...run,
               exchange: path.exchange,
               pending: this.ids(route, path.steps, step.owner),
+              nested: true,
             });
             return { failed: false, dropped: result.status === "dropped" };
           } catch (e) {
@@ -878,16 +1152,20 @@ export class Runtime {
               }),
             );
           },
-          invoke: (point, exchange) =>
-            this.handlers(route, point, exchange, run.kind),
+          invoke: async (point, exchange) => {
+            const ring = await this.handlers(
+              route.spec,
+              point,
+              exchange,
+              run.kind,
+            );
+            return ring.kind === "allow" ? ring.exchange : null;
+          },
         };
+        const given = this.attach(wireExchange(ex));
         try {
           const outcome = await abortable(
-            this.own(
-              Promise.resolve().then(() =>
-                step.execute(this.attach(wireExchange(ex)), ctx),
-              ),
-            ),
+            this.own(Promise.resolve().then(() => step.execute(given, ctx))),
             run.signal,
           );
           assertActive();
@@ -921,48 +1199,21 @@ export class Runtime {
               pending = [];
               break;
             case "defer": {
-              if (!this.host.has(CONTINUATIONS))
-                throw new Fault(step.owner, "MISSING_CONTINUATION_STORE", id);
-              const { store, provider } = this.continuations();
-              const sequence =
-                (Number(outcome.exchange.headers[DEFERRAL_SEQUENCE]) || 0) + 1;
-              const continuationId = `${outcome.exchange.id}#${sequence}`;
-              const parked: Exchange = {
-                ...outcome.exchange,
-                headers: {
-                  ...outcome.exchange.headers,
-                  [DEFERRAL_SEQUENCE]: sequence,
-                },
-              };
+              // Nothing could revive a path the parent step is still running; refused before anything is written.
+              if (run.nested) throw new Fault(step.owner, "DEFER_IN_PATH", id);
               const reenter = outcome.request.reenter === true;
               const remaining = reenter ? [id, ...pending] : pending;
-              const saved: Continuation = {
-                codec: 2,
-                routeId: route.spec.id,
-                site: id,
-                frames: framesOf(route, id, reenter, remaining, step.owner),
-                tail: tailHash(route.steps, remaining),
-                exchange: serialize(parked, step.owner),
-                parkedAt: Date.now(),
-                ...(outcome.request.ttl !== undefined
-                  ? { expiresAt: Date.now() + outcome.request.ttl }
-                  : {}),
-                ...(outcome.request.state !== undefined
-                  ? {
-                      stepState: encode(
-                        outcome.request.state,
-                        step.owner,
-                        "stepState",
-                      ),
-                    }
-                  : {}),
-              };
-              try {
-                await store.create(continuationId, saved);
-              } catch (e) {
-                throw fault(provider, "PARK", e);
-              }
-              deferrals.push(continuationId);
+              deferrals.push(
+                await this.park(
+                  route,
+                  outcome.exchange,
+                  id,
+                  reenter,
+                  remaining,
+                  outcome.request,
+                  step.owner,
+                ),
+              );
               pending = [];
               break;
             }
@@ -977,7 +1228,11 @@ export class Runtime {
             exchanges.push(wireExchange(ex));
         } catch (e) {
           active = false;
-          throw fault(step.owner, "STEP", e);
+          const f = fault(step.owner, "STEP", e);
+          // The site travels with the failure so an error handler may park the exchange exactly where it failed.
+          if (!run.nested && !f.site)
+            f.site = { step: id, exchange: given, pending: [...pending] };
+          throw f;
         }
       }
       if (item.pending.length === 0) exchanges.push(wireExchange(ex));
@@ -1035,10 +1290,12 @@ export class Runtime {
    * Drain for at most `timeout` milliseconds, then abandon what is still
    * running and dispose. A step that ignores cancellation forever must not
    * hold the process open forever; what it was doing is reported, not waited
-   * for.
+   * for. A sweep in flight ends between records and may still deliver the
+   * one it claimed.
    */
   async stop(timeout = 30_000) {
     this.#accept = false;
+    this.#draining = true;
     const errors: Fault[] = [];
     for (const sub of this.#unsubscribes.splice(0).reverse())
       try {
@@ -1065,6 +1322,7 @@ export class Runtime {
         new Promise((r) => setTimeout(r, left)),
       ]);
     }
+    this.#draining = false;
     errors.push(...(await this.host.dispose()));
     if (errors.length)
       throw new AggregateError(errors, errors.map((e) => e.message).join("\n"));

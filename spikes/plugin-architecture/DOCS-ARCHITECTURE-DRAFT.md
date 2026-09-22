@@ -104,7 +104,8 @@ A route that asks for something only a plugin can give, such as
 is not there to call, and the ask names the plugin's own enforcement contract
 as something the route requires, so if the ask somehow travels to an
 application without the plugin, the route refuses to start. The ask cannot
-fail open by absence. A plugin that provides that contract and then does not
+fail open by absence, and an ask with no grants still demands an authentic
+identity. A plugin that provides that contract and then does not
 enforce it is that plugin's bug, in the same way a store that does not store
 is the store's; the framework makes absence loud, not providers honest.
 
@@ -167,8 +168,9 @@ your plugin keeps working and never learns that anything changed.
 
 It also means ours is not special. Our SQLite store is the default because it is
 installed by default, not because the framework knows its name. Install yours
-and declare that it replaces ours, and yours is the one everyone gets. (Ours
-still starts up unless you leave it out; it just stops being chosen.)
+and declare that it replaces ours, and yours is the one everyone gets, our own
+plugins included. (Ours still starts up unless you leave it out; it just stops
+being chosen.)
 
 ---
 
@@ -190,20 +192,32 @@ provider supplies.
 When it carries on, it carries on **from where it stopped**. The steps before
 the wait do not run again, and the same approval presented twice is answered
 from the first time rather than run twice, including how the first time ended:
-completed, failed, or parked again further on. Who is allowed to carry it on
-is decided when the approval arrives, from the identity that arrives with it,
-never from who parked it. What it carries on **as** is the other way round: the
-work continues as whoever parked it, and that identity is a record of who
-they were, not a credential. The approver's authority does not become the
-run's authority. A step after the wait that needs live authority establishes
-it explicitly, from a credential it checks itself.
+completed, failed, parked again further on, or not yet recorded because the
+first time is still running. Who is allowed to carry it on is decided when the
+approval arrives, from the identity that arrives with it: by default the
+route's own requirements asked of the approver, or by a policy the route
+declares that sees both the approver and whoever parked it. The door decides
+before it learns anything about the record and before the route is even
+looked up, and it sees the record without the parked body. What the work
+carries on **as** is the other way round: it continues as whoever parked it,
+readable, not a credential, so the approver's authority does not become the
+run's authority. When a step-up is what parked it, the same door may lend the
+parked identity exactly the grants it was refused, and no more, minted live;
+the run then passes the gate that refused it, and the record says who lent.
 
 One thing this deliberately does not promise: if the process dies in the middle
 of carrying on, the work is not silently retried. It is reported when the
-application next starts, because the steps after the wait may have half
-happened, and re-running a payment is worse than asking a human. This is what
+application next starts, from whichever store is installed, because the steps
+after the wait may have half happened, and re-running a payment is worse than asking a human. This is what
 makes a capability that waits for a human different from a capability that
 blocks a thread for three days.
+
+A failure can park too. An error handler, on the route or installed for many
+routes, may answer a failure by parking the exchange where it failed, so a
+refusal for a missing grant becomes a request to a human instead of an error,
+and the approval carries the grant back in. A wait inside a fan-out cannot
+park, because nothing could revive the parent that is still waiting on it; the
+attempt is refused before anything is written.
 
 ---
 
