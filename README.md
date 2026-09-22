@@ -146,7 +146,7 @@ Now talk to Claude: *"Send an email to john@company.com thanking him for yesterd
 
 ## Examples
 
-Browse runnable examples in [`examples/src/`](./examples/src/): `hello-world.ts`, `mcp-greet.ts`, `agent.ts`, `find-product.ts`, `mail-noreply-notify.ts`, `programmatic-invocation.ts`, `split.ts`. Each demonstrates a different feature combination.
+Browse runnable examples in [`examples/src/`](./examples/src/): `hello-world.ts`, `mcp-greet.ts`, `agent.ts`, `find-product.ts`, `mail-noreply-notify.ts`, `jev-judge.ts`, `programmatic-invocation.ts`, `split.ts`. Each demonstrates a different feature combination.
 
 Try one:
 
