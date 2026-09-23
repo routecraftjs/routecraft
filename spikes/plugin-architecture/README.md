@@ -1,6 +1,6 @@
 # Plugin architecture: round-five contract spike
 
-Base: `5dac4d97`. Authority: [ARCHITECTURE.md](ARCHITECTURE.md). This is the second proof of concept, not a production framework refactor.
+Base: `5dac4d97`. Authority: [ARCHITECTURE.md](ARCHITECTURE.md). The user-facing account of the direction, with figures, is [docs/direction/](docs/direction/README.md). This is the second proof of concept, not a production framework refactor.
 
 ```sh
 bun install                    # repository root

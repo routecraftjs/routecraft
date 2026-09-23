@@ -75,10 +75,13 @@ asymmetry is the most useful thing in this document.
   architecture and refuses to freeze the continuation contracts: fourteen
   findings, sixteen reproductions, all reproduced here. See post-round-7g,
   the Astra review.
-- **Diagrams:** `DIAGRAMS.md` is the overview: what changes, in two pictures,
-  plus the four things a plugin can do. `DIAGRAMS-MECHANISM.md` is one level
-  down, and its module graph is checked against the source by
-  `bun run verify:diagram`.
+- **Documentation of the direction:** `docs/direction/` is the user-facing
+  account, end to end, with figures drawn in the docs site's own figure
+  system and every behavioural claim labelled demonstrated, intended or a
+  migration decision. It supersedes the earlier `DIAGRAMS.md` and
+  `DOCS-ARCHITECTURE-DRAFT.md`. `DIAGRAMS-MECHANISM.md` is one level down, for
+  an editor of the proof of concept, and its module graph is checked against
+  the source by `bun run verify:diagram`.
 - **Historical round-one evidence:** 63 passing tests included defect
   characterizations. Historical test files remain available but are excluded
   from the new default acceptance run. Counts from different rounds are not
@@ -204,10 +207,10 @@ after it.** If third parties can now contribute handlers, wrappers, steps,
 facets and providers, the documentation that explains those five concepts is
 part of the release rather than a follow-up: an extension point nobody can find
 is not an extension point. That work belongs in the round-8 plan with its own
-tickets, and the concepts it has to explain are the ones drawn in `DIAGRAMS.md`.
-`DOCS-ARCHITECTURE-DRAFT.md` is a first cut of that public page, written in the
-docs site's own vocabulary, so the concepts can be judged for explainability
-before they are committed to.
+tickets, and the concepts it has to explain are the ones `docs/direction/`
+draws and explains, written in the docs site's own vocabulary and figure
+system, so the concepts can be judged for explainability before they are
+committed to.
 
 Existing guarantees must survive. New guarantees for distributed durability,
 exactly-once external effects, arbitrary uncooperative cancellation or sandboxing
@@ -1036,8 +1039,8 @@ mocked bodies are fine, a `Step` that cannot halt is not.
 
 - [ ] Every boot failure and runtime fault **names the plugin responsible**
 - [ ] A route-plan dump: resolved order, selected providers, contribution origins, unmatched constraints
-- [x] Principal propagation across hops with `authorize()` at entry, from a header an auth plugin owns
-- [x] An authorization ask cannot fail open: `.authorize()` is absent from the type without the auth plugin, and a route requiring `AUTHORITY` refuses to compile without a provider
+- [x] Principal propagation across hops with `authorize()` at admission, from a header an auth plugin owns
+- [x] An authorization ask cannot fail open: `.authorize()` is absent from the type without the auth plugin, and a route requiring `ENFORCEMENT`, the gate's own port, refuses to compile without a provider
 - [x] Strings are owner-qualified: one namespace per plugin, contribution ids per owner, one facet per namespace, `namespace.key` option keys
 - [x] A refusal at a point that does not honour it is a compile error and a named runtime fault
 
@@ -1123,7 +1126,8 @@ re-ran half-run continuations.
 | `reviews/FABLE-ROUND-7E.md` | Clean-room review of round 7e; its probes and mutants are on `validation/round-7e-fable` at `41af1af7` |
 | `reviews/OPUS-ROUND-7F.md` | Clean-room review of round 7f by Claude Opus 5.5; its probes, controls and mutants are on `validation/round-7f-opus` at `52a62a49` |
 | `reviews/ASTRA-ROUND-7G.md` | Astra's open-ended design review of round 7g; its sixteen probes and compiler fixture are in `validation/round-seven-g-review/` (on `validation/round-7g-astra` at `de98d680`, folded into this branch) |
-| `DIAGRAMS.md`, `DIAGRAMS-MECHANISM.md`, `DOCS-ARCHITECTURE-DRAFT.md` | Overview, code-derived mechanism, draft public page |
+| `docs/direction/` | The user-facing documentation of the direction: seven pages and eight figures, with the differences from the shipped framework cited by file |
+| `DIAGRAMS-MECHANISM.md` | The mechanism for an editor of the proof of concept; its module graph is code-derived and checked |
 | `src/v2/` | The proof of concept: 12 modules, `auth.ts` added in 7c, `codec.ts` in 7e |
 | `test/round-two/` | 111 acceptance tests; `corrections.test.ts` holds rounds 6 and 7, `round-seven-e.test.ts` Astra's eighteen probes as corrected behaviour, `round-seven-f.test.ts` the 7e review's findings inverted and the `#818` door, `round-seven-g.test.ts` the 7f review's findings inverted |
 | `validation/round-two/` | Mutation harness (141, listed in `mutants.ts`), import gate, packed consumer, type controls (15), diagram check, process-kill harness |

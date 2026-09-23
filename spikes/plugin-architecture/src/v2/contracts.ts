@@ -70,7 +70,7 @@ export interface DeferRequest {
   readonly name: string;
   readonly reason: string;
   readonly reenter?: boolean;
-  /** Milliseconds until the parked exchange comes due. Absent means never. */
+  /** Milliseconds until the parked exchange comes due. Absent means the selected store's default deadline, and no deadline when the store sets none. */
   readonly ttl?: number;
   /**
    * Told the continuation id once the record is durable and before the
@@ -176,7 +176,7 @@ export interface RunResult {
 /**
  * One segment of the path a parked exchange still has to run: a suffix of a
  * declared step list, the route's own (`list: null`) or the children of the
- * named step. A pending path is always a concatenation of such suffixes,
+ * named step, to its end or to a bound. A pending path is a concatenation of such frames,
  * because a branch injects a whole child list ahead of what was already
  * pending. Frames address the LIVE graph, so the resume rebuilds the tail
  * from the route as compiled today and compares that against the hash the
