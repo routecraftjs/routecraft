@@ -1,0 +1,10 @@
+bun install v1.3.11 (af24e281)
+
+$ husky
+(node:17) [UNDICI-EHPA] Warning: EnvHttpProxyAgent is experimental, expect them to change at any time.
+(Use `node --trace-warnings ...` to show where the warning was created)
+
++ eslint@9.39.5
++ vitest@4.1.10
+
+4 packages installed [129.00ms]

@@ -1,0 +1,17 @@
+{
+  "reviewed_commit": "85f7506a158c3e50230a7bf541ddbf66a7e55f3d",
+  "resume_reference": "ce0c38ee57f98ab8eae169525c40e8504f2d8fa5",
+  "bun": "1.3.11",
+  "node": "22.23.2",
+  "verification_exit": 0,
+  "packed_exit": 0,
+  "point_compiler_exit": 0,
+  "evidence": {
+    "verify-final.log": "5dcff8639731f706c889c307def762ea0a44f92689e325fe9cc72073675474d7",
+    "packed-final.log": "dfb181c15c6418bdb79b8755108ab4e9312c9e25d3ea0c6692e8a2dd7e9cc36c",
+    "probes-final.log": "8f16b0e494dae9e48baa851bb16031b50f59913b44995c28c271e2554df27793",
+    "point-types.log": "09f480a949c56f5fc57636e7235219ed8e5aad4943bfe3241689297ab130b823",
+    "install-1.3.11-node22.log": "1e3d2540e0cfff0ff0395a1ed12aedf73b0b9084941a8521dd940e75d80812e8"
+  },
+  "classification": "New probes are defect characterizations, not acceptance tests. Source implementation is unchanged."
+}

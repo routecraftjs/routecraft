@@ -1,0 +1,3 @@
+$ bun run validation/round-two/packed.ts
+PACKED: external branching DSL, open handler, source, facets, replacement, actual resume PASS
+PACKED: private package subpath refused PASS
