@@ -444,7 +444,7 @@ export const proxiedAgentConfig = defineConfig({
 })
 ```
 
-`cors.origin` retains its exact string, string-array, wildcard and resolver forms. When CORS handling is enabled, an Origin refused by that policy is still rejected, even if listed in `browserOrigins`. The framework controls allowed methods (`GET, POST, OPTIONS`), allowed headers (`*`), and exposed headers (`WWW-Authenticate`). The Host and browser-origin gate also covers preflight and the protocol's path-suffixed discovery document.
+`cors.origin` retains its exact string, string-array, wildcard and resolver forms. When CORS handling is enabled, an Origin refused by that policy is still rejected, even if listed in `browserOrigins`. The framework controls allowed methods (`GET, POST, OPTIONS`), allowed headers (`Authorization, *`: the Fetch spec leaves `Authorization` out of the wildcard, so a bearer token is named), and exposed headers (`WWW-Authenticate`). The Host and browser-origin gate also covers preflight and the protocol's path-suffixed discovery document.
 
 **Migration for 0.7.0:** browser clients previously admitted by CORS must add `browserOrigins`, including loopback tools. Proxy-facing ACP mounts must configure their public Host in `allowedHostnames` when the proxy preserves it. Native editor clients using a bound hostname need no changes. Gate rejections return 403 without CORS headers and emit `server:request:rejected` with the server, mount and `host` or `origin` reason.
 

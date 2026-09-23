@@ -249,7 +249,7 @@ describe("MCP CORS helper", () => {
     /**
      * @case Preflight responses include Allow-Methods/Allow-Headers and PNA opt-in but omit Expose-Headers
      * @preconditions Default policy; preflight=true; loopback Origin
-     * @expectedResult Methods header lists GET, POST, OPTIONS; Headers is "*"; Allow-Private-Network is "true" so Chrome PNA preflights succeed for public->loopback crossings; Expose-Headers is absent (browsers ignore it on preflight per the Fetch spec)
+     * @expectedResult Methods header lists GET, POST, OPTIONS; Headers is "Authorization, *" because the Fetch spec leaves Authorization out of the wildcard; Allow-Private-Network is "true" so Chrome PNA preflights succeed for public->loopback crossings; Expose-Headers is absent (browsers ignore it on preflight per the Fetch spec)
      */
     test("preflight emits methods, headers, PNA opt-in; omits expose-headers", () => {
       const cors = resolveCorsOptions(undefined);
@@ -257,7 +257,7 @@ describe("MCP CORS helper", () => {
       expect(headers["Access-Control-Allow-Methods"]).toContain("GET");
       expect(headers["Access-Control-Allow-Methods"]).toContain("POST");
       expect(headers["Access-Control-Allow-Methods"]).toContain("OPTIONS");
-      expect(headers["Access-Control-Allow-Headers"]).toBe("*");
+      expect(headers["Access-Control-Allow-Headers"]).toBe("Authorization, *");
       expect(headers["Access-Control-Allow-Private-Network"]).toBe("true");
       expect(headers["Access-Control-Expose-Headers"]).toBeUndefined();
     });
