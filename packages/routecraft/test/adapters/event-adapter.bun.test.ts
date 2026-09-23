@@ -389,4 +389,78 @@ describe("Event Source Adapter", () => {
     // Should have received context events (context:starting, context:started, etc.)
     expect(events.length).toBeGreaterThanOrEqual(1);
   });
+
+  /**
+   * @case A route watching step events does not receive the step events of its own exchanges
+   * @preconditions One route consumes route:step:completed; a second route runs one exchange through one step
+   * @expectedResult The watcher sees the other route's step and none of its own, and the context stops; without the guard every step it runs would start another exchange and the event loop would never yield
+   */
+  test("ignores step events from its own exchanges", async () => {
+    const seen: string[] = [];
+
+    const watcher = craft()
+      .id("step-watcher")
+      .from(event("route:step:completed"))
+      .to((ex) => {
+        seen.push(
+          (ex.body as { details: { routeId: string } }).details.routeId,
+        );
+      });
+
+    const worker = craft().id("step-worker").from(simple("go")).to(log());
+
+    t = await testContext().routes([watcher, worker]).build();
+    await t.test();
+
+    expect(seen.length).toBeGreaterThan(0);
+    expect(seen.every((routeId) => routeId === "step-worker")).toBe(true);
+  });
+
+  /**
+   * @case A route watching exchange events does not receive the events of its own exchanges
+   * @preconditions One route consumes route:exchange:completed; a second route runs one exchange
+   * @expectedResult The watcher records exactly the other route's exchange, once
+   */
+  test("ignores exchange events from its own exchanges", async () => {
+    const seen: string[] = [];
+
+    const watcher = craft()
+      .id("exchange-watcher")
+      .from(event("route:exchange:completed"))
+      .to((ex) => {
+        seen.push(
+          (ex.body as { details: { routeId: string } }).details.routeId,
+        );
+      });
+
+    const worker = craft().id("exchange-worker").from(simple("go")).to(log());
+
+    t = await testContext().routes([watcher, worker]).build();
+    await t.test();
+
+    expect(seen).toEqual(["exchange-worker"]);
+  });
+
+  /**
+   * @case A route still receives its own lifecycle events
+   * @preconditions A route consumes route:started, which it emits itself when it starts
+   * @expectedResult Its own route:started is delivered, since it carries no exchange and cannot loop
+   */
+  test("still delivers its own lifecycle events", async () => {
+    const seen: string[] = [];
+
+    const watcher = craft()
+      .id("lifecycle-watcher")
+      .from(event("route:started"))
+      .to((ex) => {
+        seen.push(
+          (ex.body as { details: { routeId: string } }).details.routeId,
+        );
+      });
+
+    t = await testContext().routes([watcher]).build();
+    await t.test();
+
+    expect(seen).toContain("lifecycle-watcher");
+  });
 });
