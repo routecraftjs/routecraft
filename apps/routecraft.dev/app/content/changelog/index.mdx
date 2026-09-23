@@ -16,6 +16,8 @@ Routecraft is in active development -- APIs may change between minor versions.
 
 - **`--log-level` and `--log-file` take effect again** -- in 0.7.0 both flags were ignored and every log line went to stdout, which corrupts an MCP server run over stdio. See [basic usage](/docs/next/reference/cli#basic-usage).
 - **A scaffolded project's `start` shows its greeting again** -- `create-routecraft` 0.7.0 ran `craft start` at the default `warn` level, which hides the sample's `info` greeting; the script is now `craft start --log-level info`.
+- **`LOG_LEVEL` and `LOG_FILE` work from env files** -- `.env.<profile>`, a profile's `env:` and `--env <file>` were loaded after the logger was built, so log settings there were ignored; a flag still beats them. See [the environment a profile selects](/docs/next/reference/cli#the-environment-a-profile-selects).
+- **An unwritable log file stops the command** -- `craft` exits `2` naming the path instead of running on with its logs diverted to the temporary directory. See [basic usage](/docs/next/reference/cli#basic-usage).
 
 ### Core
 

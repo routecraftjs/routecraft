@@ -461,7 +461,9 @@ export default {
 };
 ```
 
-When using the CLI, pass `--log-level` or `--log-file` to set the corresponding env var before the logger initializes, so CLI flags override any config file.
+When using the CLI, pass `--log-level` or `--log-file` to set the corresponding env var before the logger initializes, so CLI flags override any config file. The env files the CLI loads are in place before the logger initializes too, and a flag beats them.
+
+A log file that cannot be opened for appending is handled differently by the two entry points. The CLI refuses to start and names the path. An embedding application is never stopped by its logger, so there the logs go to a file of the same name in the system temporary directory, or to stderr when that fails too.
 
 ### Service name
 
@@ -495,7 +497,7 @@ NODE_ENV=development
 
 `.env` is read first, then `.env.<profile>` when a [settings profile](/docs/reference/cli#profiles) is selected, then `.env.local`, each overriding the one before it. A profile can also name one exact file or carry its values inline, and `--env <path>` overrides all of it; the [CLI reference](/docs/reference/cli#the-environment-a-profile-selects) owns that chain in full.
 
-The environment is in place before `craft.config.ts` is imported, which is what lets the config file read `process.env` at module scope.
+The environment is in place before the logger is built and before `craft.config.ts` is imported, which is what lets an env file set `LOG_LEVEL` and `LOG_FILE`, and the config file read `process.env` at module scope.
 
 ---
 

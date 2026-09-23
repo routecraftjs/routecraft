@@ -1,8 +1,21 @@
-import { logger } from "@routecraft/routecraft";
 import { resolve } from "node:path";
 import { config as loadDotenv } from "dotenv";
 
 import type { ProfileEnv } from "./settings.js";
+
+/**
+ * A line the environment loader has to report, held until the logger exists.
+ *
+ * Loading the environment is what configures the logger: core builds it when
+ * it first loads, from `LOG_LEVEL` and `LOG_FILE` as they stand then, and an
+ * env file is one of the places those come from. So nothing here may load
+ * core, and the loader cannot log as it goes. The caller logs these once core
+ * is loaded.
+ */
+export interface EnvironmentNote {
+  level: "debug" | "info";
+  message: string;
+}
 
 /**
  * Loads environment variables from .env files
@@ -13,47 +26,51 @@ import type { ProfileEnv } from "./settings.js";
  * `defaultsFrom`, so `craft start ./apps/eywa` picks up that project's
  * own environment rather than the one beside the shell.
  *
+ * @param notes Collects what the load has to report; see {@link EnvironmentNote}
  * @param path Optional path to .env file. If not specified, loads .env, the selected profile's `.env.<profile>`, and .env.local (each if it exists)
  * @param defaultsFrom Directory the conventional .env files are read from. Defaults to the working directory
  * @param profile The selected profile, which names the middle file of the cascade
- * @returns The parsed dotenv config result
  */
-export function loadEnvFile(
+function loadEnvFile(
+  notes: EnvironmentNote[],
   path?: string,
   defaultsFrom: string = process.cwd(),
   profile?: string,
-) {
+): void {
+  // dotenv reports a missing file as an error beside an empty `parsed`, so
+  // the error is checked first or every absent file reads as "loaded 0".
   const dotenvOpts = { quiet: true };
   if (path) {
-    // Explicit path provided - load that file only
     const envPath = resolve(process.cwd(), path);
     const result = loadDotenv({ path: envPath, ...dotenvOpts });
 
     if (result.error) {
-      logger.info(
-        `Could not load .env file from ${path}: ${result.error.message}`,
-      );
+      notes.push({
+        level: "info",
+        message: `Could not load .env file from ${path}: ${result.error.message}`,
+      });
     } else if (result.parsed) {
-      logger.debug(
-        `Loaded ${Object.keys(result.parsed).length} environment variables from ${path}`,
-      );
+      notes.push({
+        level: "debug",
+        message: `Loaded ${Object.keys(result.parsed).length} environment variables from ${path}`,
+      });
     }
-
-    return result;
+    return;
   }
 
-  // No path provided - load .env, then the profile's own file, then
-  // .env.local (each overriding the one before)
+  // .env, then the profile's own file, then .env.local, each overriding
+  // the one before.
   const envResult = loadDotenv({
     path: resolve(defaultsFrom, ".env"),
     ...dotenvOpts,
   });
-  if (envResult.parsed) {
-    logger.debug(
-      `Loaded ${Object.keys(envResult.parsed).length} environment variables from .env`,
-    );
-  } else if (envResult.error) {
-    logger.debug(`No .env file found`);
+  if (envResult.error) {
+    notes.push({ level: "debug", message: "No .env file found" });
+  } else if (envResult.parsed) {
+    notes.push({
+      level: "debug",
+      message: `Loaded ${Object.keys(envResult.parsed).length} environment variables from .env`,
+    });
   }
 
   // The profile is the mode: `--profile ing` reads `.env.ing` between the
@@ -64,36 +81,25 @@ export function loadEnvFile(
       override: true,
       ...dotenvOpts,
     });
-    if (profileResult.parsed) {
-      logger.debug(
-        `Loaded ${Object.keys(profileResult.parsed).length} environment variables from .env.${profile}`,
-      );
+    if (!profileResult.error && profileResult.parsed) {
+      notes.push({
+        level: "debug",
+        message: `Loaded ${Object.keys(profileResult.parsed).length} environment variables from .env.${profile}`,
+      });
     }
   }
 
-  // Load .env.local next, allowing it to override .env values
   const envLocalResult = loadDotenv({
     path: resolve(defaultsFrom, ".env.local"),
     override: true,
     ...dotenvOpts,
   });
-  if (envLocalResult.parsed) {
-    logger.debug(
-      `Loaded ${Object.keys(envLocalResult.parsed).length} environment variables from .env.local`,
-    );
+  if (!envLocalResult.error && envLocalResult.parsed) {
+    notes.push({
+      level: "debug",
+      message: `Loaded ${Object.keys(envLocalResult.parsed).length} environment variables from .env.local`,
+    });
   }
-
-  // Return the most successful result:
-  // - If .env.local loaded successfully, return it
-  // - If .env loaded successfully but .env.local failed (doesn't exist), return .env result
-  // - If both failed, return the last error (from .env.local)
-  if (envLocalResult.parsed) {
-    return envLocalResult;
-  }
-  if (envResult.parsed) {
-    return envResult;
-  }
-  return envLocalResult;
 }
 
 /**
@@ -140,29 +146,36 @@ export interface EnvironmentSelection {
  * An inline map does not override a variable the process already carries,
  * matching how a `.env` file behaves: what is exported on a server wins
  * over what a settings file suggests.
+ *
+ * @returns What the load has to report, for the caller to log once core is loaded
  */
-export function loadEnvironment(selection: EnvironmentSelection): void {
+export function loadEnvironment(
+  selection: EnvironmentSelection,
+): EnvironmentNote[] {
+  const notes: EnvironmentNote[] = [];
   const defaultsFrom = selection.defaultsFrom ?? process.cwd();
   if (selection.explicit !== undefined) {
-    loadEnvFile(selection.explicit);
-    return;
+    loadEnvFile(notes, selection.explicit);
+    return notes;
   }
   const env = selection.env;
   if (typeof env === "string") {
     // Against the project root rather than the declaring file: an env file
     // is a project artefact, and a path relative to somebody's home
     // directory would name nothing on another machine.
-    loadEnvFile(resolve(defaultsFrom, env), defaultsFrom);
-    return;
+    loadEnvFile(notes, resolve(defaultsFrom, env), defaultsFrom);
+    return notes;
   }
   if (env !== undefined) {
     for (const [name, value] of Object.entries(env)) {
       if (process.env[name] === undefined) process.env[name] = value;
     }
-    logger.debug(
-      `Applied ${Object.keys(env).length} inline environment values from the selected profile`,
-    );
-    return;
+    notes.push({
+      level: "debug",
+      message: `Applied ${Object.keys(env).length} inline environment values from the selected profile`,
+    });
+    return notes;
   }
-  loadEnvFile(undefined, defaultsFrom, selection.profile);
+  loadEnvFile(notes, undefined, defaultsFrom, selection.profile);
+  return notes;
 }
