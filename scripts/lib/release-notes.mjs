@@ -46,12 +46,14 @@ export function releaseNotes(
   const footer =
     "\n\n---\n\nThese notes are cut to fit a GitHub Release. " +
     `The full notes are in the [changelog](${fullChangelogUrl}).`;
-  const budget = limit - footer.length;
+  // Never negative: a negative end counts from the back in `slice`.
+  const budget = Math.max(0, limit - footer.length);
   const head = section.slice(0, budget);
   // A changesets section is a list of `- ` entries under `### ` groups, so
   // cutting before the last entry that starts inside the budget keeps every
   // entry kept whole.
   const entry = Math.max(head.lastIndexOf("\n- "), head.lastIndexOf("\n### "));
   const cut = entry > 0 ? entry : head.lastIndexOf("\n");
-  return `${section.slice(0, cut > 0 ? cut : budget).trimEnd()}${footer}`;
+  const body = `${section.slice(0, cut > 0 ? cut : budget).trimEnd()}${footer}`;
+  return body.slice(0, limit);
 }

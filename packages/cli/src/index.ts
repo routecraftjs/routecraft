@@ -10,26 +10,31 @@
  * its logger when it loads, from the environment as it stands then, so a core
  * import that runs before a command has applied `--log-level` and
  * `--log-file` fixes the logger to the defaults for the life of the process.
- * Every command therefore starts with `prepareCommand()`, which applies the
- * logging flags first and only then runs the Bun gate, the first thing that
- * loads core.
+ * The program's `preAction` hook runs `prepareCommand()` before every
+ * command: it applies the logging flags first and only then runs the Bun
+ * version check, the first thing that loads core. Whether Bun is present at
+ * all is checked here, before anything, without core.
  */
 
 import { version } from "../package.json";
+import { MISSING_BUN_MESSAGE } from "./bun-requirement.js";
+
+if (!process.versions["bun"]) {
+  // eslint-disable-next-line no-console
+  console.error(MISSING_BUN_MESSAGE);
+  process.exit(1);
+}
 
 const { Command } = await import("commander");
 const program = new Command();
 
-program
-  .name("craft")
-  .description("A modern routing framework for TypeScript")
-  .version(version)
-  .enablePositionalOptions()
-  .option(
-    "--log-level <level>",
-    "Log level (e.g. info, warn, error, silent to disable)",
-  )
-  .option("--log-file <path>", "Write logs to a file instead of stdout")
+withLogOptions(
+  program
+    .name("craft")
+    .description("A modern routing framework for TypeScript")
+    .version(version)
+    .enablePositionalOptions(),
+)
   .showSuggestionAfterError()
   .showHelpAfterError()
   .exitOverride((err) => {
@@ -38,6 +43,10 @@ program
     }
   });
 
+program.hook("preAction", async (_program, actionCommand) => {
+  await prepareCommand(actionCommand.opts() as LogOptions);
+});
+
 // Show help by default if no arguments provided
 if (process.argv.length <= 2) {
   program.help({ error: false });
@@ -45,13 +54,14 @@ if (process.argv.length <= 2) {
 
 /**
  * Ready a command to run: push the logging flags onto the environment, then
- * refuse a runtime that is not a supported Bun.
+ * refuse a Bun below the supported floor. Runs from the `preAction` hook, so
+ * no command can skip it.
  *
  * The order is the contract. The gate reads the version with core's parser,
  * and loading core builds the logger, so the flags must be in the
  * environment before the gate is imported.
  */
-async function prepareCommand(local: LogOptions = {}): Promise<void> {
+async function prepareCommand(local: LogOptions): Promise<void> {
   applyLogOptions(local);
   const { checkBunRuntime } = await import("./runtime-gate.js");
   const gate = checkBunRuntime();
@@ -174,8 +184,6 @@ withLogOptions(
 )
   .passThroughOptions()
   .action(async (filePath, args: string[], options) => {
-    await prepareCommand(options as LogOptions);
-
     const selected = await selectEnvironment(options, process.cwd());
     if (selected.error !== undefined) {
       settle({ code: 2, error: selected.error });
@@ -236,8 +244,6 @@ withLogOptions(
       profile?: string;
     } & LogOptions,
   ) => {
-    await prepareCommand(options);
-
     const { resolve: resolvePath } = await import("node:path");
     const projectRoot = resolvePath(process.cwd(), dir ?? ".");
 
@@ -396,7 +402,6 @@ program
         format?: string;
       },
     ) => {
-      await prepareCommand();
       const { execCommand } = await import("./exec.js");
       // Args and stdin are mutually exclusive, so a command that already
       // carries args must not read stdin at all: in `tail -f x | while read
@@ -444,7 +449,6 @@ program
       token?: string;
       agent?: string;
     }) => {
-      await prepareCommand();
       const { acpCommand } = await import("./acp.js");
       // Standard output is the protocol's, and `settle` writes there only
       // for a result carrying `output`, which this one never does. What it
@@ -485,7 +489,6 @@ opsOption(
     .command("health")
     .description("Operational health: every component, whatever its domain"),
 ).action(async (options: Record<string, string>) => {
-  await prepareCommand();
   const { healthCommand } = await import("./ops.js");
   settle(await healthCommand(options));
 });
@@ -495,7 +498,6 @@ opsOption(
     .command("ready")
     .description("Readiness: whether this replica should receive traffic"),
 ).action(async (options: Record<string, string>) => {
-  await prepareCommand();
   const { readyCommand } = await import("./ops.js");
   settle(await readyCommand(options));
 });
@@ -519,7 +521,6 @@ opsOption(
       format?: string;
     },
   ) => {
-    await prepareCommand();
     const { routesCommand, routeCommand } = await import("./ops.js");
     settle(
       id === undefined
@@ -552,7 +553,6 @@ opsOption(
       format?: string;
     },
   ) => {
-    await prepareCommand();
     const { deferralsCommand, deferralCommand } = await import("./ops.js");
     settle(
       id === undefined
@@ -568,7 +568,6 @@ opsOption(
     .description("List indicators, or read one")
     .argument("[name]", "Indicator name; omit to list"),
 ).action(async (name: string | undefined, options: Record<string, string>) => {
-  await prepareCommand();
   const { indicatorsCommand, indicatorCommand } = await import("./ops.js");
   settle(
     name === undefined
@@ -593,7 +592,6 @@ program
     ".routecraft/telemetry.db",
   )
   .action(async (options) => {
-    await prepareCommand();
     const { resolve, isAbsolute } = await import("node:path");
     const dbPath = isAbsolute(options.db)
       ? options.db
@@ -604,4 +602,4 @@ program
   });
 
 // Parse the command line arguments and execute the appropriate command
-program.parse();
+await program.parseAsync();

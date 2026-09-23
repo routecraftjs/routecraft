@@ -466,6 +466,14 @@ jobs:
         with:
           name: build-dist
 
+      # The same child-process cases the test job runs against the CLI source,
+      # here against the bundle that ships: a build change can move core's load
+      # ahead of the logging flags without any change to the source.
+      - name: Check the built CLI honours its logging flags
+        env:
+          CRAFT_CLI_ENTRY: packages/cli/dist/index.js
+        run: bun test packages/cli/test/log-flags.bun.test.ts
+
       - name: Run scaffolder integration tests (bun)
         env:
           TEST_PACKAGE_MANAGER: bun

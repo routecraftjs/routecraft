@@ -17,12 +17,9 @@ import {
   parseRuntimeVersion,
   type RuntimeVersion,
 } from "@routecraft/routecraft";
+import { INSTALL_URL, MISSING_BUN_MESSAGE } from "./bun-requirement.js";
 
 const MIN_BUN_VERSION: RuntimeVersion = { major: 1, minor: 1, patch: 0 };
-
-const INSTALL_URL = "https://bun.com/docs/installation";
-const EMBEDDING_DOC_URL =
-  "https://routecraft.dev/docs/advanced/programmatic-invocation";
 
 export type RuntimeGateResult = { ok: true } | { ok: false; message: string };
 
@@ -38,10 +35,7 @@ export function checkBunRuntime(
   if (!version) {
     return {
       ok: false,
-      message:
-        `[routecraft] The craft CLI requires Bun. ` +
-        `Install Bun from ${INSTALL_URL}, ` +
-        `or embed @routecraft/routecraft programmatically (see ${EMBEDDING_DOC_URL}).`,
+      message: MISSING_BUN_MESSAGE,
     };
   }
 

@@ -88,6 +88,33 @@ describe("releaseNotes", () => {
   });
 
   /**
+   * @case A section exactly at the limit, and one character over it
+   * @preconditions Sections of `limit` and `limit + 1` characters
+   * @expectedResult The first is returned unchanged; the second is cut, fits the limit, and links the full changelog
+   */
+  test("treats the limit as inclusive", () => {
+    const limit = 500;
+    const exact = section(4, 200).slice(0, limit);
+    expect(exact.length).toBe(limit);
+    expect(releaseNotes(exact, LINK, limit)).toBe(exact);
+
+    const over = section(4, 200).slice(0, limit + 1);
+    const notes = releaseNotes(over, LINK, limit);
+    expect(notes.length).toBeLessThanOrEqual(limit);
+    expect(notes.endsWith(`[changelog](${LINK}).`)).toBe(true);
+  });
+
+  /**
+   * @case A limit smaller than the footer itself
+   * @preconditions A long section and a limit shorter than the truncation footer
+   * @expectedResult The body still never exceeds the limit
+   */
+  test("never exceeds a limit shorter than its own footer", () => {
+    const notes = releaseNotes(section(10, 100), LINK, 50);
+    expect(notes.length).toBeLessThanOrEqual(50);
+  });
+
+  /**
    * @case A section with no entry boundary inside the budget
    * @preconditions A single entry, with no line break, longer than the whole limit
    * @expectedResult The body still fits the limit and still links the full changelog

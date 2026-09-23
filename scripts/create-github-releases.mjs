@@ -42,52 +42,58 @@ for (const entry of readdirSync(join(rootDir, "packages"))) {
 
 let failed = 0;
 
+/**
+ * Report a package whose GitHub Release was not created. The title carries
+ * no comma: a workflow command splits its properties on one.
+ *
+ * @param {string} message
+ */
+function notCreated(message) {
+  console.log(`::warning title=GitHub Release not created::${message}`);
+  failed++;
+}
+
 for (const { name, version } of published) {
   const tag = `${name}@${version}`;
   const dir = packageDirs.get(name);
   if (dir === undefined) {
-    console.log(
-      `::warning title=GitHub Release not created::${tag}: no workspace package is named ${name}.`,
-    );
-    failed++;
+    notCreated(`${tag}: no workspace package is named ${name}.`);
     continue;
   }
-  const changelog = readFileSync(join(rootDir, dir, "CHANGELOG.md"), "utf8");
-  const fullChangelogUrl = `https://github.com/${repository}/blob/${encodeURIComponent(tag)}/${dir}/CHANGELOG.md`;
-  const section = changelogSection(changelog, version);
-  const notes = releaseNotes(section, fullChangelogUrl);
-
-  if (dryRun) {
-    const cut = notes === section ? "" : ` (cut from ${section.length})`;
-    console.log(`${tag}: ${notes.length} characters${cut}`);
-    continue;
-  }
-
   try {
-    execFileSync(
-      "gh",
-      [
-        "release",
-        "create",
-        tag,
-        "--repo",
-        repository,
-        "--verify-tag",
-        "--title",
-        tag,
-        "--notes-file",
-        "-",
-      ],
-      { input: notes, stdio: ["pipe", "inherit", "inherit"] },
-    );
+    const changelog = readFileSync(join(rootDir, dir, "CHANGELOG.md"), "utf8");
+    const fullChangelogUrl = `https://github.com/${repository}/blob/${encodeURIComponent(tag)}/${dir}/CHANGELOG.md`;
+    const section = changelogSection(changelog, version);
+    const notes = releaseNotes(section, fullChangelogUrl);
+
+    if (dryRun) {
+      const cut = notes === section ? "" : ` (cut from ${section.length})`;
+      console.log(`${tag}: ${notes.length} characters${cut}`);
+      continue;
+    }
+
+    const args = [
+      "release",
+      "create",
+      tag,
+      "--repo",
+      repository,
+      "--verify-tag",
+      "--title",
+      tag,
+      "--notes-file",
+      "-",
+    ];
+    // What the changesets action did: a version with a prerelease part is a
+    // prerelease, so it never becomes the repository's latest release.
+    if (version.includes("-")) args.push("--prerelease");
+    execFileSync("gh", args, {
+      input: notes,
+      stdio: ["pipe", "inherit", "inherit"],
+    });
     console.log(`Created the GitHub Release for ${tag}`);
   } catch {
-    // The title carries no comma: a workflow command splits its properties
-    // on one, and the title would be truncated at the split.
-    console.log(
-      `::warning title=GitHub Release not created::${tag} is published and tagged but has no GitHub Release.`,
-    );
-    failed++;
+    notCreated(`${tag} is published and tagged but has no GitHub Release.`);
   }
 }
 

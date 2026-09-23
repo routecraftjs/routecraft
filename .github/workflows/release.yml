@@ -86,11 +86,8 @@ jobs:
         with:
           version: bun run version-packages
           publish: bun run release
-          # Created by the "Create GitHub Releases" step below instead. The
-          # action fails this whole step when GitHub rejects one release,
-          # which skipped the core tag, the canary and the docs deploy after
-          # npm had already published (0.7.0: core's notes exceeded the body
-          # limit).
+          # The step below creates them: this action fails the whole publish
+          # step when GitHub rejects any one release.
           createGithubReleases: false
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -114,10 +111,8 @@ jobs:
             echo "Core package was not published in this run; no v* tag."
           fi
 
-      # One GitHub Release per published package, its body cut to fit
-      # GitHub's limit with a link to the full changelog. After the core tag,
-      # and never failing the job: the canary and the docs deploy wait on this
-      # job, and release notes must not hold back a release npm already has.
+      # One GitHub Release per published package (scripts/create-github-releases.mjs).
+      # continue-on-error: the canary and the docs deploy wait on this job.
       - name: Create GitHub Releases
         if: steps.changesets.outputs.published == 'true'
         continue-on-error: true
