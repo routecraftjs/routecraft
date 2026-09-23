@@ -118,7 +118,7 @@ Model providers live on `llmPlugin`; the mail account is configured where you se
 import { llmPlugin } from '@routecraft/ai'
 import type { CraftConfig } from '@routecraft/routecraft'
 
-export default {
+export const craftConfig = {
   plugins: [llmPlugin({ providers: { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY! } } })],
 } satisfies CraftConfig
 ```

@@ -86,7 +86,7 @@ Over stdio nothing else is needed. To serve MCP over HTTP, declare a listener un
 import { defineConfig } from '@routecraft/routecraft';
 import '@routecraft/ai';
 
-export default defineConfig({
+export const craftConfig = defineConfig({
   servers: { public: { host: '0.0.0.0', port: 8080 } },
   mcp: { server: 'public', path: '/mcp' },
 });

@@ -132,11 +132,11 @@ describe("the credential ladder via craft exec", () => {
       const key = "static-ladder-key-please-change-me";
       process.env["CRAFT_API_KEY"] = key;
       const mod = (await import(pathToFileURL(file).href)) as {
-        default: CraftConfig & {
+        craftConfig: CraftConfig & {
           servers: { default: { port: number } };
         };
       };
-      const config = mod.default;
+      const config = mod.craftConfig;
       const url = await boot(
         {
           ...config,

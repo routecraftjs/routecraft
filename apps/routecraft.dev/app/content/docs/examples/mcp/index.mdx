@@ -53,7 +53,7 @@ Register the remote servers on `mcpPlugin({ clients })`, then call any tool with
 import { mcpPlugin } from '@routecraft/ai'
 import type { CraftConfig } from '@routecraft/routecraft'
 
-export default {
+export const craftConfig = {
   plugins: [mcpPlugin({ clients: { search: { url: 'http://127.0.0.1:9000/mcp' } } })],
 } satisfies CraftConfig
 ```

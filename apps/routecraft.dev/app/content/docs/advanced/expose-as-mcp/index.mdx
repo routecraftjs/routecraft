@@ -85,9 +85,10 @@ Use the HTTP transport when you want a long-running server that multiple clients
 
 ```ts
 // craft.config.ts
+import { defineConfig } from '@routecraft/routecraft'
 import { mcpPlugin, jwt } from '@routecraft/ai'
 
-export default {
+export const craftConfig = defineConfig({
   servers: { public: { port: 3001 } },
   plugins: [
     mcpPlugin({
@@ -104,7 +105,7 @@ export default {
       }),
     }),
   ],
-}
+})
 ```
 
 Use the same server name for HTTP and other web surfaces to share one port. Use a separate server name when a surface needs an isolated listener. MCP inherits authentication from that server, accepts its own `auth` override, and takes `auth: false` to remove the wall: the surface never demands credentials, requires no scopes, and issues no challenge, but a valid token for the inherited validator still attaches a principal (which is how a tool's `.authorize()` admits on a public mount) and an invalid one is treated as absent.
@@ -171,9 +172,10 @@ When a client like Claude adds your server, it renders the server's identity fro
 
 ```ts
 // craft.config.ts
+import { defineConfig } from '@routecraft/routecraft'
 import { mcpPlugin } from '@routecraft/ai'
 
-export default {
+export const craftConfig = defineConfig({
   plugins: [
     mcpPlugin({
       name: 'acme-bot',                          // serverInfo.name (machine id)
@@ -188,7 +190,7 @@ export default {
       ],
     }),
   ],
-}
+})
 ```
 
 `instructions` is server-wide guidance the client may add to the model's context (advisory per the spec). It complements each tool's own `.description()`, which is the per-tool equivalent.
@@ -226,9 +228,10 @@ Any MCP client registered under `mcpPlugin({ clients })` can have tools re-expos
 
 ```ts
 // craft.config.ts
+import { defineConfig } from '@routecraft/routecraft'
 import { mcpPlugin } from '@routecraft/ai'
 
-export default {
+export const craftConfig = defineConfig({
   plugins: [
     mcpPlugin({
       clients: {
@@ -242,7 +245,7 @@ export default {
       ],
     }),
   ],
-}
+})
 ```
 
 Proxied tools appear in `tools/list` under their original name (or the `name` override) with the remote input/output schema, description, title, annotations, and icons passed through. Calls dispatch over the client's registered transport and auth, and the remote result (content, `structuredContent`, `isError`) is returned unchanged, save for the protocol-revision projection every result gets: when the remote and the calling client sit on different revisions, the `{ result: ... }` envelope is added or omitted so the result still matches the schema this server advertised for it. Selection is live: wildcard entries follow tool refresh and stdio restarts.
