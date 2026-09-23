@@ -1684,6 +1684,30 @@ describe("McpServer", () => {
       });
 
       /**
+       * @case A resource URL that does not parse
+       * @preconditions NODE_ENV=development; resource.url is a relative path
+       * @expectedResult Construction fails with RC5003 naming the value, rather than a bare TypeError from the URL parser
+       */
+      test("an unparseable resource.url is refused with RC5003", async () => {
+        const prev = process.env["NODE_ENV"];
+        process.env["NODE_ENV"] = "development";
+        try {
+          await expect(
+            startHttpServer([], {
+              auth: { validator: () => validPrincipal },
+              resource: { url: "/mcp" },
+            }),
+          ).rejects.toMatchObject({
+            rc: "RC5003",
+            message: expect.stringMatching(/not an absolute URL: \/mcp/),
+          });
+        } finally {
+          if (prev === undefined) delete process.env["NODE_ENV"];
+          else process.env["NODE_ENV"] = prev;
+        }
+      });
+
+      /**
        * @case An unset environment fails closed like production
        * @preconditions NODE_ENV is absent; HTTP transport has no resource.url
        * @expectedResult Construction rejects instead of advertising a private bind address
