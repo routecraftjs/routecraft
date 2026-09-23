@@ -239,8 +239,9 @@ export interface MailServerOptions {
    * `simpleParser` throwing on malformed input). All modes mark the
    * malformed message as Seen so it does not refetch indefinitely.
    *
-   * - `'fail'` (default): `route:exchange:failed` fires for the bad message; the
-   *   route's `.error()` handler can catch it; the poll loop continues.
+   * - `'fail'` (default): `route:exchange:failed` fires for the bad message,
+   *   or `route:error:caught` when the route's `.error()` handler recovers
+   *   it; the poll loop continues.
    * - `'abort'`: `route:exchange:failed` fires for the bad message, then the
    *   source rejects and `context:error` fires.
    * - `'drop'`: `route:exchange:dropped` fires with `reason: "parse-failed"` and

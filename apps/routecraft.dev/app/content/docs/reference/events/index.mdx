@@ -89,7 +89,7 @@ Fired per exchange, scoped to the capability that owns it. `routeId` is the capa
 
 The `exchangeId` field is the exchange's own ID, not the correlation ID. Use `correlationId` to group related exchanges (e.g. a parent and its split children share the same correlation ID).
 
-**Lifecycle guarantee:** every `route:exchange:started` is eventually followed by exactly one of `completed`, `failed`, `dropped`, or `deferred`.
+**Lifecycle guarantee:** every `route:exchange:started` is eventually followed by exactly one of `route:exchange:completed`, `route:exchange:failed`, `route:exchange:dropped`, or `route:exchange:deferred`.
 
 The one exception is a [forced shutdown](/docs/reference/configuration#shutdown): when `shutdown.timeout` elapses, in-flight exchanges are abandoned mid-step and emit no terminal event at all. A consumer reconciling starts against terminals should treat a forced shutdown as an expected gap rather than a defect; the warn line the forced stage writes names the routes that were still working.
 
@@ -348,7 +348,7 @@ What follows depends on the adapter's `onParseError` mode:
 
 - `'fail'` (default) → `route:exchange:failed` (or `route:error:caught` if a route `.error()` handler recovers).
 - `'abort'` → `route:exchange:failed` for the bad item, then the source aborts and `context:error` fires.
-- `'drop'` → `route:exchange:dropped` with `reason: "parse-failed"` (no `route:step:failed` fires; the parse step catches and drops cleanly).
+- `'drop'` → `route:step:failed` for the parse step, then `route:exchange:dropped` with `reason: "parse-failed"`; `.error()` is not invoked.
 
 Subscribe by exact name and filter on the payload to count source parse failures across all routes:
 

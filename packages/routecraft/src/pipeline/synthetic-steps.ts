@@ -54,10 +54,10 @@ const PARSE_STEP_ADAPTER: Adapter = { adapterId: "routecraft.parse" };
  * raw bytes. Validation failure throws out of `applyValidation` and is
  * handled by the step loop's catch path like any step error.
  *
- * The step manages its own `route:step:started` / `route:step:completed` / `route:step:failed`
- * lifecycle events (`skipStepEvents: true`) so we can emit `route:step:completed`
- * for the drop case (drops are not failures) without the route loop
- * double-emitting.
+ * The step manages its own `route:step:started` / `route:step:completed` /
+ * `route:step:failed` events (`skipStepEvents: true`), so a drop can emit
+ * `route:step:failed` followed by `route:exchange:dropped` without the route
+ * loop double-emitting.
  */
 export function buildParseStep(
   parse: (raw: unknown) => unknown | Promise<unknown>,

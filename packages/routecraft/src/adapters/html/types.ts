@@ -70,8 +70,8 @@ export interface HtmlOptions<T = unknown, R = unknown> {
    * How to handle an `extractHtml` failure on the file content (source role
    * only).
    *
-   * - `'fail'` (default): `route:exchange:failed` fires; the route's `.error()`
-   *   handler can recover.
+   * - `'fail'` (default): `route:exchange:failed` fires, or
+   *   `route:error:caught` when the route's `.error()` handler recovers.
    * - `'abort'`: `route:exchange:failed` fires, then the source dies
    *   (`context:error`).
    * - `'drop'`: `route:exchange:dropped` fires with `reason: "parse-failed"`.
