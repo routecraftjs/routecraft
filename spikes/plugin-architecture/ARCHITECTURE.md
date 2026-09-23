@@ -1122,9 +1122,9 @@ re-ran half-run continuations.
 | `reviews/ASTRA-ROUND-FIVE.md` | The rebuild report (round 5) |
 | `reviews/OPUS-ROUND-SIX.md` | Execution review of round 5; its headline finding was wrong, see its banner |
 | `reviews/FABLE-REVIEW.md` | Clean-room review of round 6 that found the misreading (round 7) |
-| `reviews/ASTRA-ROUND-SEVEN.md` | Astra's contract review of rounds 7c and 7d; its probes and mutants are on `validation/round-six-astra` at `763d26aa` (round 7e) |
-| `reviews/FABLE-ROUND-7E.md` | Clean-room review of round 7e; its probes and mutants are on `validation/round-7e-fable` at `41af1af7` |
-| `reviews/OPUS-ROUND-7F.md` | Clean-room review of round 7f by Claude Opus 5.5; its probes, controls and mutants are on `validation/round-7f-opus` at `52a62a49` |
+| `reviews/ASTRA-ROUND-SEVEN.md` | Astra's contract review of rounds 7c and 7d; its probes and mutants are in `validation/contract-review/` (from `validation/round-six-astra` at `763d26aa`, folded into this branch) |
+| `reviews/FABLE-ROUND-7E.md` | Clean-room review of round 7e; its probes and mutants are in `validation/round-seven-e-review/` (from `validation/round-7e-fable` at `41af1af7`, folded into this branch) |
+| `reviews/OPUS-ROUND-7F.md` | Clean-room review of round 7f by Claude Opus 5.5; its probes, controls and mutants are in `validation/round-seven-f-review/` (from `validation/round-7f-opus` at `52a62a49`, folded into this branch) |
 | `reviews/ASTRA-ROUND-7G.md` | Astra's open-ended design review of round 7g; its sixteen probes and compiler fixture are in `validation/round-seven-g-review/` (on `validation/round-7g-astra` at `de98d680`, folded into this branch) |
 | `docs/direction/` | The user-facing documentation of the direction: seven pages and eight figures, with the differences from the shipped framework cited by file |
 | `DIAGRAMS-MECHANISM.md` | The mechanism for an editor of the proof of concept; its module graph is code-derived and checked |
