@@ -14,9 +14,9 @@ carries unchanged; it is listed so nobody assumes it was dropped.
 | What it can reach | the whole `CraftContext`: events, stores, routes, teardown | the ports it declared, the points that exist, and `observe` |
 | Adding a route method | `registerDsl` patches the base prototype; post-`.from()` only; the base "is not a public extension point" (`index.ts:419`) | a family on the descriptor, typed, before or after `.from()`, present only when installed |
 | Adding a chain position | not possible; positions are internal fields of `RouteDefinition` (`route.ts:202`) | a wrapper contribution placed by anchor |
-| Data on the exchange | augment `RoutecraftHeaders` and export a helper; no prototype patching (`exchange-state-model.md:72`) | a typed facet under the plugin's namespace |
+| Data on the exchange | augment `RoutecraftHeaders` and export a helper; no prototype patching (`exchange-state-model.md:93`) | a typed facet under the plugin's namespace |
 | Declaring a moment | not present | a point on the descriptor, with its honoured decisions |
-| Replacing a store | `deferral: { store }` in config (`deferral/config.ts:62`) | provide the port and declare `replaces` |
+| Replacing a store | `deferral: { store }` in config (`deferral/config.ts:74`) | provide the port and declare `replaces` |
 | First-party wiring | the same `CraftPlugin` shape, plus internal symbols a third party is told not to use (`deferAside`, `reviveDeferral`, `getExchangeContext`, `markAuthentic`) and relative imports into private modules | the same descriptor and the same verbs; no private path exists to reach |
 
 ## The filter chain
@@ -25,7 +25,7 @@ carries unchanged; it is listed so nobody assumes it was dropped.
 |---|---|---|
 | The order | fixed: error, authorize, parse, input, throttle, circuitBreaker, retry, timeout, concurrency, cacheCheck, pipeline, cacheStore (`advanced/filter-chain`) | the same positions, as wrappers and handlers with declared anchors; the framework still owns the default order |
 | Who fills a position | shipped operations only | any plugin, by anchor |
-| Which positions re-run on a resume | a fixed per-position table (`chain-policy.ts:263`) | each contribution's own `survival` |
+| Which positions re-run on a resume | a fixed per-position table (`chain-policy.ts:97`) | each contribution's own `survival` |
 
 **Migration decision:** which shipped positions become wrappers and which
 become handlers, and whether `parse`, `input`, `cacheCheck` and `cacheStore`
@@ -47,7 +47,7 @@ kernel points; the rest is feature-fit work.
 |---|---|---|
 | A resume is won once (CAS) | yes (`revive.ts:334`) | **same** |
 | A duplicate is answered from the record | yes (`revive.ts:559`) | **same** |
-| A notification is leased and re-sent | yes, `claimExpiry` and `releaseClaims` (`sweeper.ts:117`) | **same** |
+| A notification is leased and re-sent | yes, `claimExpiry` (`revive.ts:642`) and `releaseClaims` (`sweeper.ts:121`) | **same** |
 | A winner that dies is reported, never re-run | yes, `resumedWithoutContinuation` at boot (`sweeper.ts:288`) | **same** (`resumedWithoutOutcome`) |
 | Where the continuation resumes | a `position` in a flat list | a `site` plus `frames`, so a park inside a branch resumes inside that branch |
 | What is hashed | the steps from `position + 1` plus the schema | the remaining steps, including a callable source and nested children |
@@ -71,7 +71,7 @@ kernel points; the rest is feature-fit work.
 
 | | Today | After |
 |---|---|---|
-| Where the principal travels | one header, `routecraft.auth.principal` (`exchange.ts:109`) | **same** shape: one header owned by the `principals` plugin |
+| Where the principal travels | one header, `routecraft.auth.principal` (`exchange.ts:114`) | **same** shape: one header owned by the `principals` plugin |
 | Authenticity | a private `WeakSet` (`auth/authentic.ts:21`) | **same** mechanism, owned by a replaceable provider |
 | Restored is not authentic | yes (`auth/restored.ts`), `RC5043` | **same** |
 | The principal shape | `scopes`, `roles`, `actor`, delegation depth, verification fields | `subject`, `grants`, `lent`; roles, actors and delegation rings are a **migration decision** |
