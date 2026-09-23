@@ -7,11 +7,17 @@ import type { CraftConfig } from "@routecraft/routecraft";
 
 /**
  * Identity helper for typing a {@link CraftConfig}. Returns the input
- * unchanged at runtime; the generic parameter preserves the literal type at
- * the call site so users get autocomplete for first-class keys (including
- * keys augmented by ecosystem packages such as `@routecraft/ai`).
+ * unchanged at runtime; at compile time it gives the literal the same
+ * checking a `const config: CraftConfig = {...}` annotation does: autocomplete
+ * for every key (including keys augmented by ecosystem packages such as
+ * `@routecraft/ai`) and an error for any key `CraftConfig` does not declare,
+ * at every nesting level.
  *
- * @template T - Inferred config shape
+ * The parameter is deliberately not generic. TypeScript checks excess
+ * properties only against a concrete target type, so a `<T extends
+ * CraftConfig>` parameter let a stale or misspelled key compile and fail at
+ * boot instead.
+ *
  * @param config - Config object
  * @returns The same config object
  *
@@ -26,6 +32,6 @@ import type { CraftConfig } from "@routecraft/routecraft";
  * });
  * ```
  */
-export function defineConfig<T extends CraftConfig>(config: T): T {
+export function defineConfig(config: CraftConfig): CraftConfig {
   return config;
 }

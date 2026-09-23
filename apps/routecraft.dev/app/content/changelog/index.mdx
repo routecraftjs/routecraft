@@ -33,6 +33,10 @@ Routecraft is in active development -- APIs may change between minor versions.
 - **The 0.6 to 0.7 migration guide covers the Host and Origin checks** -- MCP and ACP mounts refuse a browser `Origin` or an unknown `Host` with 403 until `browserOrigins` or `allowedHostnames` lists them, which the guide did not say. See [servers and mounts](/docs/next/migrating/0.6-to-0.7#2-servers-and-mounts).
 - **The 0.5 to 0.6 migration guide covers the spy logger** -- `t.logger` stopped being `vi.fn()`-based in 0.6, so runner matchers need `testContext({ fn })`.
 
+### Core
+
+- **`defineConfig` rejects keys `CraftConfig` does not declare** -- in 0.7.0 a config still written for 0.6 (`http: { host, port, auth }`, `shutdown.timeoutMs`) or a misspelled key compiled and failed only at boot; it is now a compile error at any depth, the same one a `CraftConfig` annotation reports. The helper returns `CraftConfig` rather than the literal type of its argument. See [configuration](/docs/next/reference/configuration#craftconfig) and the [migration guide](/docs/next/migrating/0.6-to-0.7#2-servers-and-mounts).
+
 ---
 
 ## [v0.7.0](https://github.com/routecraftjs/routecraft/releases/tag/v0.7.0) <Badge color="yellow">Pre-release</Badge>

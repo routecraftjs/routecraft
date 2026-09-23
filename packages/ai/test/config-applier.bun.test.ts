@@ -102,8 +102,9 @@ describe("@routecraft/ai config appliers", () => {
    * @preconditions @routecraft/ai is imported (side-effect registers
    *   appliers and merges the augmentation into CraftConfig)
    * @expectedResult defineConfig accepts each AI key with the matching
-   *   options type. A regression that broke the augmentation, the
-   *   self-reference in define-config.ts, or the import path used by
+   *   options type and rejects a key those options do not declare (the 0.6
+   *   `mcp.host` / `mcp.port`). A regression that broke the augmentation,
+   *   the self-reference in define-config.ts, or the import path used by
    *   registerConfigApplier would fail these assertions.
    */
   test("augments CraftConfig with AI keys typed as plugin options", () => {
@@ -114,9 +115,16 @@ describe("@routecraft/ai config appliers", () => {
       agent: { agents: {} },
     });
 
-    expectTypeOf(cfg.llm).toMatchTypeOf<LlmPluginOptions>();
-    expectTypeOf(cfg.mcp).toMatchTypeOf<McpPluginOptions>();
-    expectTypeOf(cfg.embedding).toMatchTypeOf<EmbeddingPluginOptions>();
-    expectTypeOf(cfg.agent).toMatchTypeOf<AgentPluginOptions>();
+    expectTypeOf(cfg.llm).toEqualTypeOf<LlmPluginOptions | undefined>();
+    expectTypeOf(cfg.mcp).toEqualTypeOf<McpPluginOptions | undefined>();
+    expectTypeOf(cfg.embedding).toEqualTypeOf<
+      EmbeddingPluginOptions | undefined
+    >();
+    expectTypeOf(cfg.agent).toEqualTypeOf<AgentPluginOptions | undefined>();
+
+    defineConfig({
+      // @ts-expect-error 0.6 listener options; 0.7 declares them under servers
+      mcp: { transport: "http", host: "0.0.0.0", port: 8081 },
+    });
   });
 });

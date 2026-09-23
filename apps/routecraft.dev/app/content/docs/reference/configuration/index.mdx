@@ -8,7 +8,7 @@ Full reference for `CraftConfig` fields and logging options.
 
 ## CraftConfig
 
-The main configuration object for context settings. Export it as `craftConfig` (named export) alongside your capabilities when using `craft run`. The recommended pattern is `defineConfig`, an identity helper that preserves literal-type inference (so autocomplete works for first-class keys):
+The main configuration object for context settings. Export it as `craftConfig` (named export) alongside your capabilities when using `craft run`. The recommended pattern is `defineConfig`, an identity helper that types the object as `CraftConfig`, so every key autocompletes (including [ecosystem keys](#ecosystem-keys-added-by)) and a key `CraftConfig` does not declare is a compile error:
 
 ```ts
 import { defineConfig } from '@routecraft/routecraft'
@@ -23,7 +23,7 @@ export const craftConfig = defineConfig({
 })
 ```
 
-`defineConfig` is a no-op at runtime; it returns the input unchanged. The legacy `satisfies CraftConfig` pattern continues to work.
+`defineConfig` is a no-op at runtime; it returns the input unchanged. The checking is the same as annotating `const craftConfig: CraftConfig = {...}` or writing `{...} satisfies CraftConfig`: an unknown or misspelled key is an error at any depth, so a key a release removed (such as the 0.6 `http: { host, port }`, now under [`servers`](#servers-and-http)) fails to compile rather than at boot.
 
 ## Durations
 
@@ -106,7 +106,6 @@ import '@routecraft/ai' // augments CraftConfig with llm/mcp/embedding/agent/ses
 export const craftConfig = defineConfig({
   llm: {
     providers: { openai: { apiKey: process.env.OPENAI_API_KEY! } },
-    defaultProvider: 'openai',
   },
   mcp: { clients: { /* ... */ } },
   agent: { agents: { /* ... */ } },
