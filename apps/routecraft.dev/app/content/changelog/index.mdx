@@ -17,6 +17,20 @@ Routecraft is in active development -- APIs may change between minor versions.
 - **`--log-level` and `--log-file` take effect again** -- in 0.7.0 both flags were ignored and every log line went to stdout, which corrupts an MCP server run over stdio. See [basic usage](/docs/next/reference/cli#basic-usage).
 - **A scaffolded project's `start` shows its greeting again** -- `create-routecraft` 0.7.0 ran `craft start` at the default `warn` level, which hides the sample's `info` greeting; the script is now `craft start --log-level info`.
 
+### Core
+
+- **An `event()` route no longer feeds on its own events** -- a route watching `route:step:*` or `route:exchange:*` received the events its own exchanges emitted, started an exchange for each, and never let the event loop yield, so the process hung. Events from the route's own exchanges are no longer delivered to it; its lifecycle events still are. See the [event adapter](/docs/next/reference/adapters/event).
+- **Browser preflights name `Authorization`** -- `Access-Control-Allow-Headers` is `Authorization, *`. The Fetch spec leaves `Authorization` out of the bare wildcard, so a bearer-token call from a browser (the MCP Inspector's Direct mode) depended on browsers not enforcing that yet.
+
+### AI & MCP
+
+- **A missing or plain-http `resource.url` fails with `RC5003`** -- the refusal was a bare `TypeError`; it now carries a code, a docs link, and the fix (`NODE_ENV=development` for local work, an HTTPS URL behind a proxy).
+
+### Docs site
+
+- **The 0.6 to 0.7 migration guide covers the Host and Origin checks** -- MCP and ACP mounts refuse a browser `Origin` or an unknown `Host` with 403 until `browserOrigins` or `allowedHostnames` lists them, which the guide did not say. See [servers and mounts](/docs/next/migrating/0.6-to-0.7#2-servers-and-mounts).
+- **The 0.5 to 0.6 migration guide covers the spy logger** -- `t.logger` stopped being `vi.fn()`-based in 0.6, so runner matchers need `testContext({ fn })`.
+
 ---
 
 ## [v0.7.0](https://github.com/routecraftjs/routecraft/releases/tag/v0.7.0) <Badge color="yellow">Pre-release</Badge>
