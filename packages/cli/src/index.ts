@@ -6,36 +6,35 @@
  * The CLI runs on Bun. For Node-based usage, embed @routecraft/routecraft
  * programmatically (see https://routecraft.dev/docs/advanced/programmatic-invocation).
  *
- * 1. Bun runtime gate (presence + version floor)
- * 2. Define program and parse; log options are global and applied before
- *    lazy-loading run/util (which load the logger)
+ * Nothing here may import `@routecraft/routecraft` at module scope. Core builds
+ * its logger when it loads, from the environment as it stands then, so a core
+ * import that runs before a command has applied `--log-level` and
+ * `--log-file` fixes the logger to the defaults for the life of the process.
+ * The program's `preAction` hook runs `prepareCommand()` before every
+ * command: it applies the logging flags first and only then runs the Bun
+ * version check, the first thing that loads core. Whether Bun is present at
+ * all is checked here, before anything, without core.
  */
 
-import { checkBunRuntime } from "./runtime-gate.js";
 import { version } from "../package.json";
+import { MISSING_BUN_MESSAGE } from "./bun-requirement.js";
 
-// ── 1. Bun runtime gate ─────────────────────────────────────────────
-const gate = checkBunRuntime();
-if (!gate.ok) {
+if (!process.versions["bun"]) {
   // eslint-disable-next-line no-console
-  console.error(gate.message);
+  console.error(MISSING_BUN_MESSAGE);
   process.exit(1);
 }
 
-// ── 2. CLI definition (only Commander; run/util are lazy-loaded so logger sees env) ─
 const { Command } = await import("commander");
 const program = new Command();
 
-program
-  .name("craft")
-  .description("A modern routing framework for TypeScript")
-  .version(version)
-  .enablePositionalOptions()
-  .option(
-    "--log-level <level>",
-    "Log level (e.g. info, warn, error, silent to disable)",
-  )
-  .option("--log-file <path>", "Write logs to a file instead of stdout")
+withLogOptions(
+  program
+    .name("craft")
+    .description("A modern routing framework for TypeScript")
+    .version(version)
+    .enablePositionalOptions(),
+)
   .showSuggestionAfterError()
   .showHelpAfterError()
   .exitOverride((err) => {
@@ -44,18 +43,37 @@ program
     }
   });
 
+program.hook("preAction", async (_program, actionCommand) => {
+  await prepareCommand(actionCommand.opts() as LogOptions);
+});
+
 // Show help by default if no arguments provided
 if (process.argv.length <= 2) {
   program.help({ error: false });
 }
 
 /**
- * Push the global log options onto the environment before any import
- * that constructs the logger. The logger reads env at module load, so
- * this has to happen inside a command action but ahead of the lazy
- * `run` / `start` imports.
+ * Ready a command to run: push the logging flags onto the environment, then
+ * refuse a Bun below the supported floor. Runs from the `preAction` hook, so
+ * no command can skip it.
+ *
+ * The order is the contract. The gate reads the version with core's parser,
+ * and loading core builds the logger, so the flags must be in the
+ * environment before the gate is imported.
  */
-function applyGlobalLogOptions(local: LogOptions = {}): void {
+async function prepareCommand(local: LogOptions): Promise<void> {
+  applyLogOptions(local);
+  const { checkBunRuntime } = await import("./runtime-gate.js");
+  const gate = checkBunRuntime();
+  if (!gate.ok) {
+    // eslint-disable-next-line no-console
+    console.error(gate.message);
+    process.exit(1);
+  }
+}
+
+/** Push the logging flags onto the environment the logger is built from. */
+function applyLogOptions(local: LogOptions): void {
   const globalOpts = program.opts();
   // The command's own flag wins, so `craft --log-level warn start --log-level
   // debug` reads the way a reader expects: the nearer one.
@@ -166,8 +184,6 @@ withLogOptions(
 )
   .passThroughOptions()
   .action(async (filePath, args: string[], options) => {
-    applyGlobalLogOptions(options as LogOptions);
-
     const selected = await selectEnvironment(options, process.cwd());
     if (selected.error !== undefined) {
       settle({ code: 2, error: selected.error });
@@ -228,8 +244,6 @@ withLogOptions(
       profile?: string;
     } & LogOptions,
   ) => {
-    applyGlobalLogOptions(options);
-
     const { resolve: resolvePath } = await import("node:path");
     const projectRoot = resolvePath(process.cwd(), dir ?? ".");
 
@@ -388,7 +402,6 @@ program
         format?: string;
       },
     ) => {
-      applyGlobalLogOptions();
       const { execCommand } = await import("./exec.js");
       // Args and stdin are mutually exclusive, so a command that already
       // carries args must not read stdin at all: in `tail -f x | while read
@@ -436,7 +449,6 @@ program
       token?: string;
       agent?: string;
     }) => {
-      applyGlobalLogOptions();
       const { acpCommand } = await import("./acp.js");
       // Standard output is the protocol's, and `settle` writes there only
       // for a result carrying `output`, which this one never does. What it
@@ -477,7 +489,6 @@ opsOption(
     .command("health")
     .description("Operational health: every component, whatever its domain"),
 ).action(async (options: Record<string, string>) => {
-  applyGlobalLogOptions();
   const { healthCommand } = await import("./ops.js");
   settle(await healthCommand(options));
 });
@@ -487,7 +498,6 @@ opsOption(
     .command("ready")
     .description("Readiness: whether this replica should receive traffic"),
 ).action(async (options: Record<string, string>) => {
-  applyGlobalLogOptions();
   const { readyCommand } = await import("./ops.js");
   settle(await readyCommand(options));
 });
@@ -511,7 +521,6 @@ opsOption(
       format?: string;
     },
   ) => {
-    applyGlobalLogOptions();
     const { routesCommand, routeCommand } = await import("./ops.js");
     settle(
       id === undefined
@@ -544,7 +553,6 @@ opsOption(
       format?: string;
     },
   ) => {
-    applyGlobalLogOptions();
     const { deferralsCommand, deferralCommand } = await import("./ops.js");
     settle(
       id === undefined
@@ -560,7 +568,6 @@ opsOption(
     .description("List indicators, or read one")
     .argument("[name]", "Indicator name; omit to list"),
 ).action(async (name: string | undefined, options: Record<string, string>) => {
-  applyGlobalLogOptions();
   const { indicatorsCommand, indicatorCommand } = await import("./ops.js");
   settle(
     name === undefined
@@ -595,4 +602,4 @@ program
   });
 
 // Parse the command line arguments and execute the appropriate command
-program.parse();
+await program.parseAsync();

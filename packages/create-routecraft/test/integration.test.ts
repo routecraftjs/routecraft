@@ -17,9 +17,9 @@ interface PackageManagerDef {
   install: string;
   typecheck: string;
   /**
-   * Runs the scaffolded project via `craft run index.ts`. Set to `null` for
-   * package managers that cannot exercise the CLI on their own (the craft
-   * bin requires Bun on the host); the dispatch test is skipped in that case.
+   * Runs the scaffolded project's own `start` script, the command a user
+   * runs first. `null` for package managers that cannot drive the craft bin,
+   * which requires Bun on the host; the dispatch test is skipped in that case.
    */
   start: string | null;
   /** Command running the scaffolded project's own test suite, or null when the host cannot. */
@@ -43,7 +43,7 @@ const PACKAGE_MANAGER_DEFS: Record<PackageManagerId, PackageManagerDef> = {
     pmOption: "bun",
     install: "bun install --ignore-scripts",
     typecheck: "bunx tsc --noEmit",
-    start: "bunx craft start",
+    start: "bun run start",
     unitTests: "bun test",
   },
   npm: {
@@ -70,6 +70,9 @@ function selectedPackageManager(): PackageManagerDef {
 }
 
 const pm = selectedPackageManager();
+
+/** Cleared for the start run, so the greeting is visible only if the scaffold's own script makes it so. */
+const LOG_ENV = ["LOG_LEVEL", "CRAFT_LOG_LEVEL", "LOG_FILE", "CRAFT_LOG_FILE"];
 
 /**
  * Run a shell command, capturing stdout/stderr. On failure the output is
@@ -123,14 +126,14 @@ async function runUntilOutput(
     cwd: string;
     expectedOutput: string;
     timeoutMs: number;
-    env?: NodeJS.ProcessEnv;
+    env: NodeJS.ProcessEnv;
   },
 ): Promise<void> {
   await new Promise<void>((resolve, reject) => {
     const child = spawn("/bin/sh", ["-c", cmd], {
       cwd: opts.cwd,
       stdio: ["ignore", "pipe", "pipe"],
-      env: { ...process.env, ...opts.env },
+      env: opts.env,
     });
     let stdout = "";
     let stderr = "";
@@ -365,7 +368,7 @@ describe(`integration (${pm.id}): scaffolded project compiles`, () => {
   /**
    * @case Scaffolded hello-world project type-checks and dispatches simple -> direct on the selected package manager
    * @preconditions Hello-world project scaffolded, dependencies installed via the selected package manager
-   * @expectedResult tsc --noEmit passes and the greet route logs "Hello, Leanne Graham!" within the timeout
+   * @expectedResult tsc --noEmit passes, and the project's own start script, run with no logging configured in the environment, logs "Hello, Leanne Graham!" within the timeout
    */
   integrationTest.concurrent(
     "hello-world project type-checks and dispatches simple -> direct via craft",
@@ -389,16 +392,15 @@ describe(`integration (${pm.id}): scaffolded project compiles`, () => {
 
         await run(pm.typecheck, { cwd: projectDir });
 
-        // The hello-world caller is finite, but the direct listener keeps the
-        // context alive, so we wait for the greeting in the logs and then
-        // terminate the process rather than wait for natural exit.
-        // CRAFT_LOG_LEVEL=info ensures the greeting reaches the log stream
-        // (default level is warn).
+        // The direct listener keeps the context alive, so the greeting is
+        // awaited and the process killed rather than left to exit.
+        const env = { ...process.env };
+        for (const name of LOG_ENV) delete env[name];
         await runUntilOutput(startCmd, {
           cwd: projectDir,
           expectedOutput: "Hello, Leanne Graham!",
           timeoutMs: 60_000,
-          env: { CRAFT_LOG_LEVEL: "info" },
+          env,
         });
       });
     },
@@ -437,7 +439,7 @@ describe(`integration (${pm.id}): scaffolded project compiles`, () => {
   /**
    * @case The scaffolded package.json boots through the folder convention
    * @preconditions Project scaffolded from the template
-   * @expectedResult `start` is `craft start`. `craft run index.ts` would name a file this layout no longer has, so the first command the scaffolder prints must not be the one that fails
+   * @expectedResult `start` is `craft start --log-level info`. `craft run index.ts` would name a file this layout no longer has, and the sample greeting logs at info, below the default warn
    */
   test.concurrent("scaffolded start script uses craft start", async () => {
     await withProjectDir(async (projectDir) => {
@@ -447,7 +449,7 @@ describe(`integration (${pm.id}): scaffolded project compiles`, () => {
         await readFile(join(projectDir, "package.json"), "utf-8"),
       ) as { scripts: Record<string, string>; name: string };
 
-      expect(manifest.scripts["start"]).toBe("craft start");
+      expect(manifest.scripts["start"]).toBe("craft start --log-level info");
       expect(manifest.name).toBe("test-app");
     });
   });

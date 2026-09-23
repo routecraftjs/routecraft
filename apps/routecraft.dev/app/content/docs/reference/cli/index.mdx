@@ -24,7 +24,7 @@ Global options (must appear **before** the subcommand):
 | --- | --- |
 | -h, --help | Show usage help |
 | -v, --version | Print version and exit |
-| --log-level \<level\> | Log level (info, warn, error, silent). Applied before the logger initializes. |
+| --log-level \<level\> | Any pino level (trace, debug, info, warn, error, fatal) or silent. Default: warn. Applied before the logger initializes. |
 | --log-file \<path\> | Write logs to a file instead of stdout |
 
 `start` and `run` also take `--log-level` and `--log-file` as their own options, and the command's own flag wins over the global one. On `run` they belong before the file, because anything after `run <file>` is pass-through: it is forwarded to the route file's CLI adapter, which is what lets a route own a flag the CLI also defines.

@@ -261,7 +261,7 @@ The `:node` script resolves to `node node_modules/vitest/vitest.mjs run --passWi
 ## 13. What runs in CI
 
 - The main `test` job runs `bun run test:coverage` (which excludes `**/integration.test.ts` and `**/test/cross-runtime/**`, and uploads a `coverage-report` artifact). Locally, `bun run test` runs the same exclusions without the coverage instrumentation.
-- `scaffolder-smoke` runs `bun run test:integration` twice -- once with `TEST_PACKAGE_MANAGER=bun` (full scaffold + `craft run` dispatch) and once with `TEST_PACKAGE_MANAGER=npm` (install + typecheck only; the dispatch test skips because the CLI is Bun-only).
+- `scaffolder-smoke` first runs `packages/cli/test/log-flags.bun.test.ts` against the built CLI (`CRAFT_CLI_ENTRY=packages/cli/dist/index.js`), then runs `bun run test:integration` twice -- once with `TEST_PACKAGE_MANAGER=bun` (full scaffold + `craft run` dispatch) and once with `TEST_PACKAGE_MANAGER=npm` (install + typecheck only; the dispatch test skips because the CLI is Bun-only).
 - `embedding-smoke` runs `node .github/scripts/smoke-test-embedding.mjs` to verify the Node embedding path, including a negative arm asserting `RC5017` fires when `cron()` is used without `croner` installed.
 - `adapter-cross-runtime (bun)` and `adapter-cross-runtime (node)` run the cross-runtime suite under each runtime; both arms must pass for a PR to be mergeable.
 - See [CI/CD](./ci-cd.md) for the full job graph.
