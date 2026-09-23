@@ -66,38 +66,31 @@ if (process.argv.length <= 2) {
  * 1. The environment the command selects, so an env file can configure the
  *    logger like any other setting.
  * 2. The logging flags, over it: a flag is the more specific thing said.
- * 3. The log file, opened once to prove it can be, because core would
- *    otherwise divert the logs somewhere nobody looks and carry on.
- * 4. The Bun version gate, which reads the version with core's parser and
+ * 3. The Bun version gate, which reads the version with core's parser and
  *    so is the first thing that loads core and builds the logger.
+ * 4. The log file core was asked for, which it diverts somewhere nobody
+ *    looks when it cannot open it; the CLI owns the setting, so it refuses.
  */
 async function prepareCommand(command: CommanderCommand): Promise<void> {
   const notes = await selectEnvironment(command);
-  const flagged = applyLogOptions(command.opts() as LogOptions);
-
-  const { logFileProblem, logFileTarget } = await import("./log-file.js");
-  const target =
-    flagged === undefined
-      ? logFileTarget()
-      : { path: flagged, source: "--log-file" };
-  if (target !== undefined) {
-    const problem = logFileProblem(target.path);
-    if (problem !== undefined) {
-      await refuse(
-        2,
-        `Cannot write logs to ${target.path} (from ${target.source}): ${problem}. Point it at a file this process can create or append to.`,
-      );
-    }
-  }
+  const flaggedLogFile = applyLogOptions(command.opts() as LogOptions);
 
   const { checkBunRuntime } = await import("./runtime-gate.js");
   const gate = checkBunRuntime();
   if (!gate.ok) await refuse(1, gate.message);
 
-  if (notes.length > 0) {
-    const { logger } = await import("@routecraft/routecraft");
-    for (const note of notes) logger[note.level](note.message);
+  const { logFileDiversion, logger } = await import("@routecraft/routecraft");
+  const diverted = logFileDiversion();
+  if (diverted !== undefined) {
+    const source =
+      flaggedLogFile === undefined ? diverted.source : "--log-file";
+    await refuse(
+      2,
+      `Cannot write logs to ${diverted.path} (from ${source}): ${diverted.reason}. Point it at a file this process can create or append to.`,
+    );
   }
+
+  for (const note of notes) logger[note.level](note.message);
 }
 
 /**
@@ -107,10 +100,15 @@ async function prepareCommand(command: CommanderCommand): Promise<void> {
  * discards whatever a pipe still holds.
  */
 async function refuse(code: number, message: string): Promise<never> {
-  await new Promise<void>((done) => {
-    process.stderr.write(`${message}\n`, () => done());
-  });
+  await writeLine(process.stderr, message);
   process.exit(code);
+}
+
+/** Write one line and resolve once the stream has taken it. */
+function writeLine(stream: NodeJS.WriteStream, text: string): Promise<void> {
+  return new Promise((done) => {
+    stream.write(`${text}\n`, () => done());
+  });
 }
 
 /**
@@ -264,13 +262,10 @@ withLogOptions(
     const { runCommand } = await import("./run.js");
     const result = await runCommand(filePath, args);
     if (!result.success) {
-      if (result.message) {
-        // eslint-disable-next-line no-console
-        console.error(result.message);
-      }
-      // Defer exit so pino/sonic-boom can finish initializing and avoid "sonic boom is not ready yet"
-      const code = result.code ?? 1;
-      setImmediate(() => process.exit(code));
+      settle({
+        code: result.code ?? 1,
+        ...(result.message ? { error: result.message } : {}),
+      });
       return;
     }
     // Don't call process.exit(); let the event loop drain naturally.
@@ -326,20 +321,18 @@ withLogOptions(
       try {
         timeoutMs = parseDuration(raw, "--timeout");
       } catch {
-        // eslint-disable-next-line no-console
-        console.error(
-          `--timeout must be a number of milliseconds (at least 1) or a duration string like "30s". Received "${String(options.timeout)}".`,
-        );
-        setImmediate(() => process.exit(1));
+        settle({
+          code: 1,
+          error: `--timeout must be a number of milliseconds (at least 1) or a duration string like "30s". Received "${String(options.timeout)}".`,
+        });
         return;
       }
     }
     if (timeoutMs !== undefined && options.once !== true) {
-      // eslint-disable-next-line no-console
-      console.error(
-        `--timeout bounds the wait for the first exchange, which only --once waits for. Add --once, or drop --timeout.`,
-      );
-      setImmediate(() => process.exit(1));
+      settle({
+        code: 1,
+        error: `--timeout bounds the wait for the first exchange, which only --once waits for. Add --once, or drop --timeout.`,
+      });
       return;
     }
     const result = await startCommand(dir, {
@@ -347,14 +340,10 @@ withLogOptions(
       ...(timeoutMs === undefined ? {} : { timeoutMs }),
     });
     if (!result.success) {
-      if (result.message) {
-        // eslint-disable-next-line no-console
-        console.error(result.message);
-      }
-      // Defer exit so pino/sonic-boom can finish initializing and avoid
-      // "sonic boom is not ready yet"
-      const code = result.code ?? 1;
-      setImmediate(() => process.exit(code));
+      settle({
+        code: result.code ?? 1,
+        ...(result.message ? { error: result.message } : {}),
+      });
       return;
     }
     // Don't call process.exit(); let the event loop drain naturally.
@@ -369,7 +358,7 @@ withLogOptions(
  * still queued, so `craft exec --format json | jq` would lose the tail of a
  * large result. Exiting from the write callback is what makes the payload
  * whole; the exit itself stays deferred so pino/sonic-boom can finish
- * initialising, the same reason `run` and `start` defer theirs.
+ * initialising.
  */
 function settle(result: {
   code: number;
@@ -390,13 +379,9 @@ function settle(result: {
   // Set early so a stream that never drains still exits with the right code
   // rather than reporting success on the way out.
   process.exitCode = result.code;
-  let pending = writes.length;
-  for (const [stream, text] of writes) {
-    stream.write(`${text}\n`, () => {
-      pending -= 1;
-      if (pending === 0) finish();
-    });
-  }
+  void Promise.all(
+    writes.map(([stream, text]) => writeLine(stream, text)),
+  ).then(finish);
 }
 
 /**

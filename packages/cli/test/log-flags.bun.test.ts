@@ -59,6 +59,10 @@ const MARKER = join(DIR, "marker-ran");
  * name in the temporary directory.
  */
 const UNWRITABLE_LOG = join(ROUTE, `craft-unwritable-${process.pid}.log`);
+/** An env file naming the unwritable log file. */
+const UNWRITABLE_ENV = join(DIR, "unwritable.env");
+/** A directory whose `craft.log.cjs` names the unwritable log file. */
+const LOG_CONFIGURED = join(DIR, "log-configured");
 
 const ROUTE_SOURCE = [
   'import { craft, log, simple } from "@routecraft/routecraft";',
@@ -185,6 +189,13 @@ beforeAll(async () => {
   );
 
   await writeFile(ENV_FILE, `LOG_LEVEL=info\nLOG_FILE=${ENV_LOG}\n`);
+  await writeFile(UNWRITABLE_ENV, `LOG_FILE=${UNWRITABLE_LOG}\n`);
+
+  await mkdir(LOG_CONFIGURED, { recursive: true });
+  await writeFile(
+    join(LOG_CONFIGURED, "craft.log.cjs"),
+    `module.exports = { file: ${JSON.stringify(UNWRITABLE_LOG)} };\n`,
+  );
 });
 
 afterAll(async () => {
@@ -343,7 +354,7 @@ describe("craft with a log file it cannot write", () => {
   /**
    * @case `--log-file` names a file that cannot be created
    * @preconditions `craft run --log-file <path under a regular file> <route>`, where the route writes a marker file when it runs
-   * @expectedResult A non-zero exit, a message on stderr naming the path and the flag, and no marker, so the route never ran with its logs diverted
+   * @expectedResult Exit 2, a message on stderr naming the path and the flag, nothing on stdout, and no marker, so the route never ran with its logs diverted
    */
   test(
     "an unwritable --log-file refuses to start",
@@ -355,11 +366,72 @@ describe("craft with a log file it cannot write", () => {
         UNWRITABLE_LOG,
         MARKER_ROUTE,
       ]);
-      expect(outcome.code).not.toBe(0);
+      expect(outcome.code).toBe(2);
       expect(outcome.stderr).toMatch(/cannot write logs/i);
       expect(outcome.stderr).toContain(UNWRITABLE_LOG);
       expect(outcome.stderr).toContain("--log-file");
+      expect(outcome.stdout).toBe("");
       expect(existsSync(MARKER)).toBe(false);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  /**
+   * @case An env file names a log file that cannot be created
+   * @preconditions `craft run --env <file> <route>`, where the env file sets `LOG_FILE` to a path under a regular file
+   * @expectedResult Exit 2 with stderr naming the path and `LOG_FILE` as its origin, and no marker
+   */
+  test(
+    "an unwritable LOG_FILE from an env file refuses to start",
+    async () => {
+      await rm(MARKER, { force: true });
+      const outcome = await invoke(DIR, [
+        "run",
+        "--env",
+        UNWRITABLE_ENV,
+        MARKER_ROUTE,
+      ]);
+      expect(outcome.code).toBe(2);
+      expect(outcome.stderr).toContain(`${UNWRITABLE_LOG} (from LOG_FILE)`);
+      expect(existsSync(MARKER)).toBe(false);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  /**
+   * @case A `craft.log.cjs` names a log file that cannot be created
+   * @preconditions `craft run <route>` from a directory whose `craft.log.cjs` sets `file` to a path under a regular file
+   * @expectedResult Exit 2 with stderr naming the path and `craft.log` as its origin, and no marker, because the CLI reads what core resolved rather than a copy of its rules
+   */
+  test(
+    "an unwritable file from craft.log.cjs refuses to start",
+    async () => {
+      await rm(MARKER, { force: true });
+      const outcome = await invoke(LOG_CONFIGURED, ["run", MARKER_ROUTE]);
+      expect(outcome.code).toBe(2);
+      expect(outcome.stderr).toContain(`${UNWRITABLE_LOG} (from craft.log)`);
+      expect(existsSync(MARKER)).toBe(false);
+    },
+    TEST_TIMEOUT_MS,
+  );
+
+  /**
+   * @case An empty `--log-file` asks for standard output
+   * @preconditions `craft --log-level info --log-file "" run <route>`
+   * @expectedResult The command runs and the route's info lines reach stdout, matching how core reads an empty `LOG_FILE`
+   */
+  test(
+    "an empty --log-file keeps logs on stdout",
+    async () => {
+      const stdout = await craft(
+        "--log-level",
+        "info",
+        "--log-file",
+        "",
+        "run",
+        ROUTE,
+      );
+      expect(routeInfoLines(stdout).length).toBeGreaterThan(0);
     },
     TEST_TIMEOUT_MS,
   );

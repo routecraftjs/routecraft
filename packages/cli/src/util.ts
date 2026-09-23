@@ -18,18 +18,41 @@ export interface EnvironmentNote {
 }
 
 /**
- * A named environment file that could not be loaded.
+ * An environment file that could not be loaded.
  *
- * Unlike the conventional `.env` cascade, where every file is optional, a
+ * Unlike the conventional `.env` cascade, where a missing file is skipped, a
  * file somebody named (`--env <path>`, or a profile's `env: "<file>"`) is
  * required: running on without it would start the command against an
  * environment nobody asked for.
  */
 export class EnvFileError extends Error {}
 
-// dotenv reports a missing file as an error beside an empty `parsed`, so the
-// error is checked first or every absent file reads as "loaded 0".
 const dotenvOpts = { quiet: true };
+
+/**
+ * Load one env file and note how many variables it set.
+ *
+ * @param notes Collects what the load has to report; see {@link EnvironmentNote}
+ * @param path The file, absolute
+ * @param label How the file is named in the note
+ * @param override Whether the file wins over a variable the process already carries
+ * @returns Why the file could not be loaded, or undefined when it was
+ */
+function loadEnvFile(
+  notes: EnvironmentNote[],
+  path: string,
+  label: string,
+  override = false,
+): Error | undefined {
+  const result = loadDotenv({ path, override, ...dotenvOpts });
+  // dotenv returns an empty `parsed` beside the error for a missing file.
+  if (result.error) return result.error;
+  notes.push({
+    level: "debug",
+    message: `Loaded ${Object.keys(result.parsed ?? {}).length} environment variables from ${label}`,
+  });
+  return undefined;
+}
 
 /**
  * Load one named env file, refusing when it cannot be read.
@@ -44,24 +67,39 @@ function loadNamedEnvFile(
   path: string,
   origin: string,
 ): void {
-  const result = loadDotenv({
-    path: resolve(process.cwd(), path),
-    ...dotenvOpts,
-  });
-  if (result.error) {
+  const error = loadEnvFile(notes, resolve(process.cwd(), path), path);
+  if (error) {
     throw new EnvFileError(
-      `Cannot load the environment file ${path} (from ${origin}): ${result.error.message}`,
+      `Cannot load the environment file ${path} (from ${origin}): ${error.message}`,
     );
   }
-  notes.push({
-    level: "debug",
-    message: `Loaded ${Object.keys(result.parsed ?? {}).length} environment variables from ${path}`,
-  });
+}
+
+/**
+ * Load one file of the cascade, where absence is normal.
+ *
+ * @returns Whether the file was loaded
+ * @throws {EnvFileError} When the file exists but cannot be read, which is
+ * not absence: running on would silently drop settings somebody wrote
+ */
+function loadCascadeFile(
+  notes: EnvironmentNote[],
+  defaultsFrom: string,
+  name: string,
+  override: boolean,
+): boolean {
+  const error = loadEnvFile(notes, resolve(defaultsFrom, name), name, override);
+  if (error === undefined) return true;
+  if ((error as NodeJS.ErrnoException).code === "ENOENT") return false;
+  throw new EnvFileError(
+    `Cannot load the environment file ${name}: ${error.message}`,
+  );
 }
 
 /**
  * Load the conventional cascade: `.env`, then `.env.<profile>` when a
- * profile is selected, then `.env.local`. Every file is optional.
+ * profile is selected, then `.env.local`, each overriding the one before.
+ * A missing file is skipped; one that exists but cannot be read is not.
  *
  * The files resolve against `defaultsFrom`, so `craft start ./apps/eywa`
  * picks up that project's own environment rather than the one beside the
@@ -70,54 +108,22 @@ function loadNamedEnvFile(
  * @param notes Collects what the load has to report; see {@link EnvironmentNote}
  * @param defaultsFrom Directory the conventional .env files are read from
  * @param profile The selected profile, which names the middle file of the cascade
+ * @throws {EnvFileError} When a file of the cascade exists but cannot be read
  */
 function loadEnvCascade(
   notes: EnvironmentNote[],
   defaultsFrom: string,
   profile?: string,
 ): void {
-  // .env, then the profile's own file, then .env.local, each overriding
-  // the one before.
-  const envResult = loadDotenv({
-    path: resolve(defaultsFrom, ".env"),
-    ...dotenvOpts,
-  });
-  if (envResult.error) {
+  if (!loadCascadeFile(notes, defaultsFrom, ".env", false)) {
     notes.push({ level: "debug", message: "No .env file found" });
-  } else if (envResult.parsed) {
-    notes.push({
-      level: "debug",
-      message: `Loaded ${Object.keys(envResult.parsed).length} environment variables from .env`,
-    });
   }
-
   // The profile is the mode: `--profile ing` reads `.env.ing` between the
   // pair, so one selection picks the instance and its environment together.
   if (profile !== undefined) {
-    const profileResult = loadDotenv({
-      path: resolve(defaultsFrom, `.env.${profile}`),
-      override: true,
-      ...dotenvOpts,
-    });
-    if (!profileResult.error && profileResult.parsed) {
-      notes.push({
-        level: "debug",
-        message: `Loaded ${Object.keys(profileResult.parsed).length} environment variables from .env.${profile}`,
-      });
-    }
+    loadCascadeFile(notes, defaultsFrom, `.env.${profile}`, true);
   }
-
-  const envLocalResult = loadDotenv({
-    path: resolve(defaultsFrom, ".env.local"),
-    override: true,
-    ...dotenvOpts,
-  });
-  if (!envLocalResult.error && envLocalResult.parsed) {
-    notes.push({
-      level: "debug",
-      message: `Loaded ${Object.keys(envLocalResult.parsed).length} environment variables from .env.local`,
-    });
-  }
+  loadCascadeFile(notes, defaultsFrom, ".env.local", true);
 }
 
 /**
@@ -166,7 +172,7 @@ export interface EnvironmentSelection {
  * over what a settings file suggests.
  *
  * @returns What the load has to report, for the caller to log once core is loaded
- * @throws {EnvFileError} When a named file (`--env`, or a profile's `env` path) cannot be loaded
+ * @throws {EnvFileError} When a named file (`--env`, or a profile's `env` path) cannot be loaded, or a cascade file exists but cannot be read
  */
 export function loadEnvironment(
   selection: EnvironmentSelection,

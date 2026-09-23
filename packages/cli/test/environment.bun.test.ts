@@ -196,4 +196,17 @@ describe("environment selection", () => {
       loadEnvironment({ profile: "ing", env: "ing.env", defaultsFrom: root }),
     ).toThrow(/ing\.env \(from the selected profile's env\)/);
   });
+
+  /**
+   * @case A cascade file that exists but cannot be read
+   * @preconditions A project whose .env.local is a directory, so it is present and unreadable as a file
+   * @expectedResult EnvFileError naming the file, because an unreadable file is not an absent one and running on would drop settings somebody wrote
+   */
+  test("an unreadable cascade file is refused", () => {
+    const root = project({ ".env": "RC_BASE=base\n" });
+    mkdirSync(join(root, ".env.local"));
+    expect(() => loadEnvironment({ defaultsFrom: root })).toThrow(
+      /Cannot load the environment file \.env\.local/,
+    );
+  });
 });
