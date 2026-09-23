@@ -6,6 +6,7 @@ import {
   isRoutecraftError,
   isDeferred,
   markAuthentic,
+  rcError,
   requireWebIngress,
   type ProtectedResourceMetadata,
 } from "@routecraft/routecraft";
@@ -391,16 +392,22 @@ export class McpServer {
       this.options.transport === "http" &&
       !relaxed
     ) {
-      throw new TypeError(
-        "mcpPlugin: resource.url is required for HTTP transport outside development or test",
-      );
+      throw rcError("RC5003", undefined, {
+        message:
+          "mcpPlugin: resource.url is required for HTTP transport outside development or test",
+        suggestion:
+          "Set mcpPlugin({ resource: { url } }) to the HTTPS URL clients reach this server at, for example https://mcp.example.com/mcp. For local work over plain http, run with NODE_ENV=development; an unset NODE_ENV counts as production.",
+      });
     }
     if (explicit === undefined) return;
     const parsed = new URL(explicit.toString());
     if (parsed.protocol !== "https:" && !relaxed) {
-      throw new TypeError(
-        "mcpPlugin: resource.url must use HTTPS outside development or test",
-      );
+      throw rcError("RC5003", undefined, {
+        message:
+          "mcpPlugin: resource.url must use HTTPS outside development or test",
+        suggestion:
+          "Set resource.url to the HTTPS URL your TLS-terminating proxy publishes. For local work over plain http, run with NODE_ENV=development; an unset NODE_ENV counts as production.",
+      });
     }
   }
 

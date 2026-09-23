@@ -1639,7 +1639,7 @@ describe("McpServer", () => {
       /**
        * @case HTTPS-in-production guard fires eagerly when `resource.url` is http:// in production
        * @preconditions NODE_ENV=production; resource.url is an http URL; validator auth
-       * @expectedResult `new McpServer(...)` (via startHttpServer) throws TypeError at construction; no request is ever served
+       * @expectedResult `new McpServer(...)` (via startHttpServer) throws RC5003 at construction, naming HTTPS; no request is ever served
        */
       test("HTTPS guard rejects http:// resource.url at construction in production", async () => {
         const prev = process.env["NODE_ENV"];
@@ -1650,7 +1650,10 @@ describe("McpServer", () => {
               auth: { validator: () => validPrincipal },
               resource: { url: "http://insecure.example.com" },
             }),
-          ).rejects.toThrow(/HTTPS/);
+          ).rejects.toMatchObject({
+            rc: "RC5003",
+            message: expect.stringMatching(/HTTPS/),
+          });
         } finally {
           if (prev === undefined) delete process.env["NODE_ENV"];
           else process.env["NODE_ENV"] = prev;
@@ -1670,7 +1673,10 @@ describe("McpServer", () => {
             startHttpServer([], {
               auth: { validator: () => validPrincipal },
             }),
-          ).rejects.toThrow(/resource\.url is required/);
+          ).rejects.toMatchObject({
+            rc: "RC5003",
+            message: expect.stringMatching(/resource\.url is required/),
+          });
         } finally {
           if (prev === undefined) delete process.env["NODE_ENV"];
           else process.env["NODE_ENV"] = prev;
@@ -1690,7 +1696,10 @@ describe("McpServer", () => {
             startHttpServer([], {
               auth: { validator: () => validPrincipal },
             }),
-          ).rejects.toThrow(/resource\.url is required/);
+          ).rejects.toMatchObject({
+            rc: "RC5003",
+            message: expect.stringMatching(/resource\.url is required/),
+          });
         } finally {
           if (previous === undefined) delete process.env["NODE_ENV"];
           else process.env["NODE_ENV"] = previous;

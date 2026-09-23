@@ -215,8 +215,14 @@ export enum McpHeadersKeys {
 export interface McpResourceOptions {
   /**
    * Identifies this MCP server as an OAuth 2.0 Protected Resource (RFC 9728).
-   * Becomes the `resource` field in the metadata document. Must be HTTPS in
-   * production. Defaults to `http://{host}:{port}/mcp` when unset.
+   * Becomes the `resource` field in the metadata document, and its hostname
+   * is admitted by the listener's Host check.
+   *
+   * Required for the HTTP transport, and must be HTTPS, unless `NODE_ENV` is
+   * `development` or `test`; an unset `NODE_ENV` counts as production. The
+   * server refuses to start otherwise (RC5003), because the URL clients
+   * reach through a proxy cannot be inferred from the local bind address.
+   * Outside production an unset value is derived from the bound URL.
    */
   url?: string | URL;
   /**
@@ -362,9 +368,11 @@ export interface McpPluginOptions {
    * adds `resource_metadata="..."` to 401 `WWW-Authenticate` headers. Used by
    * every auth helper; ignored for stdio.
    *
-   * When omitted, baseline metadata is still served (deriving `resource` from
-   * the bound URL and `authorization_servers` from the validator's IdP
-   * issuer when present).
+   * Outside `development` and `test`, `resource.url` is required for the HTTP
+   * transport; see {@link McpResourceOptions.url}. In development and test,
+   * omitting it still serves baseline metadata, deriving `resource` from the
+   * bound URL and `authorization_servers` from the validator's IdP issuer
+   * when present.
    */
   resource?: McpResourceOptions;
 
