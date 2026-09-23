@@ -214,7 +214,7 @@ async function selectEnvironment(
   const projectRoot = projectRoots.get(command)?.(command.args);
   if (projectRoot === undefined) return [];
   const options = command.opts() as { env?: string; profile?: string };
-  const { loadEnvironment } = await import("./util.js");
+  const { EnvFileError, loadEnvironment } = await import("./util.js");
   const { resolveSettings, SettingsError } = await import("./settings.js");
   try {
     // Resolved under the project root, not the shell's directory: the file
@@ -232,7 +232,9 @@ async function selectEnvironment(
       defaultsFrom: projectRoot,
     });
   } catch (error: unknown) {
-    if (error instanceof SettingsError) return refuse(2, error.message);
+    if (error instanceof SettingsError || error instanceof EnvFileError) {
+      return refuse(2, error.message);
+    }
     throw error;
   }
 }

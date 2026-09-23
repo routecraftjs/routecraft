@@ -425,6 +425,8 @@ Two escapes from that cascade, for when the convention is not what you want:
 - **`env:` on the profile.** A string is a path to one env file, resolved against the project root, and that file is read instead of the cascade. A map is values written inline, applied instead of the cascade, and a variable the process already carries is left alone exactly as an env file leaves it alone.
 - **`--env <path>`.** A path typed on the command line is the most specific thing anybody said, so it wins over the profile's own `env:` and over the cascade alike.
 
+A file either escape names is required: if it cannot be read, the command stops before it runs and exits `2` naming the path. The cascade is different, because every file in it is optional.
+
 ```yaml
 profiles:
   ing:

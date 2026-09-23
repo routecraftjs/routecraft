@@ -13,7 +13,7 @@ import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 
-const { loadEnvironment } = await import("../src/util.js");
+const { EnvFileError, loadEnvironment } = await import("../src/util.js");
 
 /** Variables these cases write, restored after each one. */
 const KEYS = ["RC_BASE", "RC_MODE", "RC_LOCAL", "RC_INLINE"] as const;
@@ -166,5 +166,34 @@ describe("environment selection", () => {
 
     loadEnvironment({ profile: settings.profile?.value, defaultsFrom: root });
     expect(process.env["RC_MODE"]).toBe("ing");
+  });
+
+  /**
+   * @case A file named with --env that does not exist
+   * @preconditions An explicit path to a file that is not there
+   * @expectedResult EnvFileError naming the path and --env, because running on would start the command against an environment nobody asked for
+   */
+  test("a missing --env file is refused", () => {
+    const root = project({ ".env": "RC_BASE=base\n" });
+    const missing = join(root, "typo.env");
+    expect(() =>
+      loadEnvironment({ explicit: missing, defaultsFrom: root }),
+    ).toThrow(EnvFileError);
+    expect(() =>
+      loadEnvironment({ explicit: missing, defaultsFrom: root }),
+    ).toThrow(/typo\.env \(from --env\)/);
+    expect(process.env["RC_BASE"]).toBeUndefined();
+  });
+
+  /**
+   * @case A profile whose env names a file that does not exist
+   * @preconditions A selected profile with env: "ing.env" and no such file in the project
+   * @expectedResult EnvFileError naming the profile as the origin, unlike a missing .env.<profile>, which the cascade treats as optional
+   */
+  test("a missing profile env file is refused", () => {
+    const root = project({ ".env": "RC_BASE=base\n" });
+    expect(() =>
+      loadEnvironment({ profile: "ing", env: "ing.env", defaultsFrom: root }),
+    ).toThrow(/ing\.env \(from the selected profile's env\)/);
   });
 });

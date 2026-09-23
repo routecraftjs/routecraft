@@ -18,46 +18,64 @@ export interface EnvironmentNote {
 }
 
 /**
- * Loads environment variables from .env files
+ * A named environment file that could not be loaded.
  *
- * An explicit `path` always resolves against the working directory,
- * because that is what a relative path typed on the command line means.
- * The conventional `.env` / `.env.local` pair resolves against
- * `defaultsFrom`, so `craft start ./apps/eywa` picks up that project's
- * own environment rather than the one beside the shell.
+ * Unlike the conventional `.env` cascade, where every file is optional, a
+ * file somebody named (`--env <path>`, or a profile's `env: "<file>"`) is
+ * required: running on without it would start the command against an
+ * environment nobody asked for.
+ */
+export class EnvFileError extends Error {}
+
+// dotenv reports a missing file as an error beside an empty `parsed`, so the
+// error is checked first or every absent file reads as "loaded 0".
+const dotenvOpts = { quiet: true };
+
+/**
+ * Load one named env file, refusing when it cannot be read.
  *
  * @param notes Collects what the load has to report; see {@link EnvironmentNote}
- * @param path Optional path to .env file. If not specified, loads .env, the selected profile's `.env.<profile>`, and .env.local (each if it exists)
- * @param defaultsFrom Directory the conventional .env files are read from. Defaults to the working directory
+ * @param path The file, resolved against the working directory
+ * @param origin Where the name came from, for the refusal message
+ * @throws {EnvFileError} When the file cannot be loaded
+ */
+function loadNamedEnvFile(
+  notes: EnvironmentNote[],
+  path: string,
+  origin: string,
+): void {
+  const result = loadDotenv({
+    path: resolve(process.cwd(), path),
+    ...dotenvOpts,
+  });
+  if (result.error) {
+    throw new EnvFileError(
+      `Cannot load the environment file ${path} (from ${origin}): ${result.error.message}`,
+    );
+  }
+  notes.push({
+    level: "debug",
+    message: `Loaded ${Object.keys(result.parsed ?? {}).length} environment variables from ${path}`,
+  });
+}
+
+/**
+ * Load the conventional cascade: `.env`, then `.env.<profile>` when a
+ * profile is selected, then `.env.local`. Every file is optional.
+ *
+ * The files resolve against `defaultsFrom`, so `craft start ./apps/eywa`
+ * picks up that project's own environment rather than the one beside the
+ * shell.
+ *
+ * @param notes Collects what the load has to report; see {@link EnvironmentNote}
+ * @param defaultsFrom Directory the conventional .env files are read from
  * @param profile The selected profile, which names the middle file of the cascade
  */
-function loadEnvFile(
+function loadEnvCascade(
   notes: EnvironmentNote[],
-  path?: string,
-  defaultsFrom: string = process.cwd(),
+  defaultsFrom: string,
   profile?: string,
 ): void {
-  // dotenv reports a missing file as an error beside an empty `parsed`, so
-  // the error is checked first or every absent file reads as "loaded 0".
-  const dotenvOpts = { quiet: true };
-  if (path) {
-    const envPath = resolve(process.cwd(), path);
-    const result = loadDotenv({ path: envPath, ...dotenvOpts });
-
-    if (result.error) {
-      notes.push({
-        level: "info",
-        message: `Could not load .env file from ${path}: ${result.error.message}`,
-      });
-    } else if (result.parsed) {
-      notes.push({
-        level: "debug",
-        message: `Loaded ${Object.keys(result.parsed).length} environment variables from ${path}`,
-      });
-    }
-    return;
-  }
-
   // .env, then the profile's own file, then .env.local, each overriding
   // the one before.
   const envResult = loadDotenv({
@@ -148,6 +166,7 @@ export interface EnvironmentSelection {
  * over what a settings file suggests.
  *
  * @returns What the load has to report, for the caller to log once core is loaded
+ * @throws {EnvFileError} When a named file (`--env`, or a profile's `env` path) cannot be loaded
  */
 export function loadEnvironment(
   selection: EnvironmentSelection,
@@ -155,7 +174,7 @@ export function loadEnvironment(
   const notes: EnvironmentNote[] = [];
   const defaultsFrom = selection.defaultsFrom ?? process.cwd();
   if (selection.explicit !== undefined) {
-    loadEnvFile(notes, selection.explicit);
+    loadNamedEnvFile(notes, selection.explicit, "--env");
     return notes;
   }
   const env = selection.env;
@@ -163,7 +182,11 @@ export function loadEnvironment(
     // Against the project root rather than the declaring file: an env file
     // is a project artefact, and a path relative to somebody's home
     // directory would name nothing on another machine.
-    loadEnvFile(notes, resolve(defaultsFrom, env), defaultsFrom);
+    loadNamedEnvFile(
+      notes,
+      resolve(defaultsFrom, env),
+      "the selected profile's env",
+    );
     return notes;
   }
   if (env !== undefined) {
@@ -176,6 +199,6 @@ export function loadEnvironment(
     });
     return notes;
   }
-  loadEnvFile(notes, undefined, defaultsFrom, selection.profile);
+  loadEnvCascade(notes, defaultsFrom, selection.profile);
   return notes;
 }

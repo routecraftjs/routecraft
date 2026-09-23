@@ -19,6 +19,7 @@ Routecraft is in active development -- APIs may change between minor versions.
 - **`LOG_LEVEL` and `LOG_FILE` work from env files** -- `.env.<profile>`, a profile's `env:` and `--env <file>` were loaded after the logger was built, so log settings there were ignored; a flag still beats them. See [the environment a profile selects](/docs/next/reference/cli#the-environment-a-profile-selects).
 - **An unwritable log file stops the command** -- `craft` exits `2` naming the path instead of running on with its logs diverted to the temporary directory. See [basic usage](/docs/next/reference/cli#basic-usage).
 - **A forced `--once` shutdown names the right option** -- its hint said to raise `shutdown.timeoutMs`, which 0.7 refuses; it now says `shutdown.timeout`. See [shutdown](/docs/next/reference/configuration#shutdown).
+- **A named env file that cannot be read stops the command** -- `--env <path>` or a profile's `env: "<file>"` pointing at nothing was skipped with a note hidden at the default log level, and the command ran against an environment nobody chose; it now exits `2` naming the path. See [the environment a profile selects](/docs/next/reference/cli#the-environment-a-profile-selects).
 
 ### Core
 
