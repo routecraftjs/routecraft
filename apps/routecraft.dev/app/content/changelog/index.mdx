@@ -17,24 +17,26 @@ Routecraft is in active development -- APIs may change between minor versions.
 - **`--log-level` and `--log-file` take effect again** -- in 0.7.0 both flags were ignored and every log line went to stdout, which corrupts an MCP server run over stdio. See [basic usage](/docs/next/reference/cli#basic-usage).
 - **A scaffolded project's `start` shows its greeting again** -- `create-routecraft` 0.7.0 ran `craft start` at the default `warn` level, which hides the sample's `info` greeting; the script is now `craft start --log-level info`.
 - **`LOG_LEVEL` and `LOG_FILE` work from env files** -- `.env.<profile>`, a profile's `env:` and `--env <file>` were loaded after the logger was built, so log settings there were ignored; a flag still beats them. See [the environment a profile selects](/docs/next/reference/cli#the-environment-a-profile-selects).
-- **An unwritable log file stops the command** -- `craft` exits `2` naming the path instead of running on with its logs diverted to the temporary directory. See [basic usage](/docs/next/reference/cli#basic-usage).
+- **An unwritable log file stops the command** -- `craft` exits `2` naming the path and where it came from (a flag, `LOG_FILE`, or `craft.log.js`) instead of running on with its logs diverted to the temporary directory. See [basic usage](/docs/next/reference/cli#basic-usage).
 - **A forced `--once` shutdown names the right option** -- its hint said to raise `shutdown.timeoutMs`, which 0.7 refuses; it now says `shutdown.timeout`. See [shutdown](/docs/next/reference/configuration#shutdown).
-- **A named env file that cannot be read stops the command** -- `--env <path>` or a profile's `env: "<file>"` pointing at nothing was skipped with a note hidden at the default log level, and the command ran against an environment nobody chose; it now exits `2` naming the path. See [the environment a profile selects](/docs/next/reference/cli#the-environment-a-profile-selects).
+- **A named env file that cannot be read stops the command** -- `--env <path>` or a profile's `env: "<file>"` pointing at nothing was skipped with a note hidden at the default log level, and the command ran against an environment nobody chose; it now exits `2` naming the path. A `.env` cascade file that exists but cannot be read stops the command the same way. See [the environment a profile selects](/docs/next/reference/cli#the-environment-a-profile-selects).
 
 ### Core
 
 - **`defineConfig` rejects keys `CraftConfig` does not declare** -- in 0.7.0 a config still written for 0.6 (`http: { host, port, auth }`, `shutdown.timeoutMs`) or a misspelled key compiled and failed only at boot; it is now a compile error at any depth, the same one a `CraftConfig` annotation reports. The helper returns `CraftConfig` rather than the literal type of its argument. See [configuration](/docs/next/reference/configuration#craftconfig) and the [migration guide](/docs/next/migrating/0.6-to-0.7#2-servers-and-mounts).
-- **An `event()` route no longer feeds on its own events** -- a route watching `route:step:*` or `route:exchange:*` received the events its own exchanges emitted, started an exchange for each, and never let the event loop yield, so the process hung. Events from the route's own exchanges are no longer delivered to it; its lifecycle events still are. See the [event adapter](/docs/next/reference/adapters/event).
+- **An `event()` route no longer feeds on its own events** -- a route watching `route:step:*` or `route:exchange:*` received the events its own exchanges emitted, started an exchange for each, and never let the event loop yield, so the process hung. Events its own exchanges cause, including their `context:error` and the events of routes they call through `direct()`, are no longer delivered to it; its lifecycle events still are. See the [event adapter](/docs/next/reference/adapters/event).
 - **Browser preflights name `Authorization`** -- `Access-Control-Allow-Headers` is `Authorization, *`. The Fetch spec leaves `Authorization` out of the bare wildcard, so a bearer-token call from a browser (the MCP Inspector's Direct mode) depended on browsers not enforcing that yet.
 
 ### AI & MCP
 
-- **A missing or plain-http `resource.url` fails with `RC5003`** -- the refusal was a bare `TypeError`; it now carries a code, a docs link, and the fix (`NODE_ENV=development` for local work, an HTTPS URL behind a proxy).
+- **A missing, plain-http or unparseable `resource.url` fails with `RC5003`** -- the refusal was a bare `TypeError`; it now carries a code, a docs link, and the fix (`NODE_ENV=development` for local work, an HTTPS URL behind a proxy).
 
 ### Docs site
 
 - **The 0.6 to 0.7 migration guide covers the Host and Origin checks** -- MCP and ACP mounts refuse a browser `Origin` or an unknown `Host` with 403 until `browserOrigins` or `allowedHostnames` lists them, which the guide did not say. See [servers and mounts](/docs/next/migrating/0.6-to-0.7#2-servers-and-mounts).
 - **The 0.5 to 0.6 migration guide covers the spy logger** -- `t.logger` stopped being `vi.fn()`-based in 0.6, so runner matchers need `testContext({ fn })`.
+- **Event names match what the framework emits** -- reference pages, the events namespace map and JSDoc still used bare `exchange:*`, `step:*` and `error:caught` names and route ids inside names, none of which a subscription matches since 0.6. See [events](/docs/next/reference/events).
+- **mcpPlugin documents `resource`** -- the options table had no row for the protected-resource URL that production requires. See [mcpPlugin](/docs/next/reference/plugins/mcpplugin).
 
 ---
 

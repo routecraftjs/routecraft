@@ -68,6 +68,7 @@ export const craftConfig: CraftConfig = {
 | `auth` | `McpHttpAuthOptions \| false` | inherits `servers.<name>.auth` | Auth for the HTTP endpoint (http transport only; see below). `false` removes the wall while keeping the inherited validator reachable. |
 | `cors` | `McpCorsOptions \| false` | loopback-only | Response-header policy and additional Origin refusal. `false` delegates CORS handling to the proxy; Host and browser-admission checks remain enforced. |
 | `browserOrigins` | `readonly string[]` | `[]` | Exact HTTP(S) origins allowed to send requests, including port. Required for local browser tools too; independent of CORS. Ignored for MCP stdio. |
+| `resource` | `{ url?, scopesSupported?, documentationUrl? }` | -- | RFC 9728 protected-resource metadata (http transport only). `url` is the public URL clients reach, which a proxy hides from the bind address, so outside `NODE_ENV=development` or `test` it is required and must be HTTPS; the server refuses to start with `RC5003` otherwise. `scopesSupported` and `documentationUrl` fill `scopes_supported` and `resource_documentation`. |
 | `tools` | `string[] \| (meta) => boolean` | -- | Allowlist of local route tool names to expose, or a filter function. Applies to both `tools/list` and `tools/call`. |
 | `clients` | `Record<string, McpClientHttpConfig \| McpClientStdioConfig>` | -- | Named remote MCP servers (see below) |
 | `proxy` | `Array<string \| McpProxyToolConfig>` | -- | Tools from registered `clients` to re-expose through this server (see below) |

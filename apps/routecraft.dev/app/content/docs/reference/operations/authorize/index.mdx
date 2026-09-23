@@ -103,7 +103,7 @@ Failure modes:
 - **Missing scope:** throws [`RC5038`](/docs/reference/errors#rc-5038). Recoverable: the cause carries `missing.scopes` so a consent flow can request exactly what is absent, and `missing.mode` says how to read it. `"all"` lists required scopes that are absent, every one needed; `"any"` lists the whole accepted set of an `anyScope` check, of which one suffices, so a consent flow offers the choice instead of requesting all of them.
 - **An empty `anyScope`:** throws [`RC2001`](/docs/reference/errors#rc-2001) when the validator is built, before any request. An accepted set naming nobody admits nobody, so it is refused rather than read as no check.
 
-All codes flow through the route's normal error path: `.error()` handles them like any other validation failure; without `.error()`, `exchange:failed` fires.
+All codes flow through the route's normal error path: `.error()` handles them like any other validation failure; without `.error()`, `route:exchange:failed` fires.
 
 <Callout type="warning" title="Breaking change: delegation is opt-in per route">
 

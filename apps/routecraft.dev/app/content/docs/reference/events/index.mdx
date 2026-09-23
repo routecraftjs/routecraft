@@ -20,6 +20,8 @@ All events share the same envelope:
 }
 ```
 
+An [`event()`](/docs/reference/adapters/event) route is not delivered the events its own exchanges cause, so an observability route cannot feed on itself.
+
 ## Context events
 
 | Event | When it fires | Details |
@@ -87,7 +89,7 @@ Fired per exchange, scoped to the capability that owns it. `routeId` is the capa
 
 The `exchangeId` field is the exchange's own ID, not the correlation ID. Use `correlationId` to group related exchanges (e.g. a parent and its split children share the same correlation ID).
 
-**Lifecycle guarantee:** every `exchange:started` is eventually followed by exactly one of `completed`, `failed`, `dropped`, or `deferred`.
+**Lifecycle guarantee:** every `route:exchange:started` is eventually followed by exactly one of `completed`, `failed`, `dropped`, or `deferred`.
 
 The one exception is a [forced shutdown](/docs/reference/configuration#shutdown): when `shutdown.timeout` elapses, in-flight exchanges are abandoned mid-step and emit no terminal event at all. A consumer reconciling starts against terminals should treat a forced shutdown as an expected gap rather than a defect; the warn line the forced stage writes names the routes that were still working.
 
@@ -112,7 +114,7 @@ label, when one is involved, is `adapter`.
 
 Recovery by the route error handler is signaled via `route:error:caught` and the `route:error-handler:*` events below, not a step-level event.
 
-The `metadata` field on `step:completed` is populated by the adapter's `getMetadata()` method. For example, an LLM destination reports `{ model, inputTokens, outputTokens }`.
+The `metadata` field on `route:step:completed` is populated by the adapter's `getMetadata()` method. For example, an LLM destination reports `{ model, inputTokens, outputTokens }`.
 
 ### Batch operations
 
@@ -126,12 +128,12 @@ The `metadata` field on `step:completed` is populated by the adapter's `getMetad
 
 ### Split and aggregate
 
-Split and aggregate use standard `step:started`/`step:completed` events (not dedicated operation events). Operation-specific data is in the `metadata` field:
+Split and aggregate use standard `route:step:started`/`route:step:completed` events (not dedicated operation events). Operation-specific data is in the `metadata` field:
 
-- **Split** `step:completed` includes `metadata.childCount`: the number of child exchanges created
-- **Aggregate** `step:completed` includes `metadata.inputCount`: the number of exchanges merged
+- **Split** `route:step:completed` includes `metadata.childCount`: the number of child exchanges created
+- **Aggregate** `route:step:completed` includes `metadata.inputCount`: the number of exchanges merged
 
-After a split, each child exchange emits its own `exchange:started`. When aggregate consumes children, it emits `exchange:completed` for each child before continuing on the parent exchange.
+After a split, each child exchange emits its own `route:exchange:started`. When aggregate consumes children, it emits `route:exchange:completed` for each child before continuing on the parent exchange.
 
 ### Retry wrapper operations
 
@@ -160,7 +162,7 @@ After a split, each child exchange emits its own `exchange:started`. When aggreg
 | `route:timeout:stopped` | The guarded execution settled within the deadline | Same plus `elapsed` |
 | `route:timeout:expired` | The deadline fired first; an `RC5011` throw follows | Same plus `elapsed` |
 
-A failure of the wrapped operation *inside* the deadline does not emit a timeout event; the error propagates unchanged and is observable via `step:failed` / the error path. The abandoned work after an expiry has its eventual result discarded (promises cannot be cancelled); the step's context `AbortSignal` fires on expiry so cancellation-aware IO can stop instead of running to completion in the background (see the [timeout reference](/docs/reference/operations/timeout)).
+A failure of the wrapped operation *inside* the deadline does not emit a timeout event; the error propagates unchanged and is observable via `route:step:failed` / the error path. The abandoned work after an expiry has its eventual result discarded (promises cannot be cancelled); the step's context `AbortSignal` fires on expiry so cancellation-aware IO can stop instead of running to completion in the background (see the [timeout reference](/docs/reference/operations/timeout)).
 
 ### Throttle wrapper operations
 
@@ -271,12 +273,12 @@ A suppressed duplicate also fires `route:exchange:dropped` with reason `"duplica
 Failure phases:
 - `phase: "key"` - key derivation threw (no `key` field, since none was produced). Raised as `RC5029` (not retryable).
 - `phase: "get"` - the provider read threw before the wrapped step ran. Non-RoutecraftError provider failures are raised as `RC5028` (retryable).
-- `phase: "inner"` - the wrapped step itself threw. The original error is rethrown unchanged so outer wrappers / route-level handlers cascade as usual. This event fires **alongside** the wrapped step's own `step:failed` event for the same exchange; they describe one failure, so do not double-count them.
+- `phase: "inner"` - the wrapped step itself threw. The original error is rethrown unchanged so outer wrappers / route-level handlers cascade as usual. This event fires **alongside** the wrapped step's own `route:step:failed` event for the same exchange; they describe one failure, so do not double-count them.
 - `phase: "set"` - the wrapped step succeeded but the provider write threw. The bundled in-memory provider never fails on write, so this only applies to custom providers. Step-scope rethrows as `RC5028` (retryable); **route-scope does NOT fail the exchange** (the result was already computed and returned to the source), it just emits the event for observability.
 
-At route scope, `cache:hit` is accompanied by an `exchange:restored` event with `source: "cache"` (per the exchange lifecycle).
+At route scope, `route:cache:hit` is accompanied by a `route:exchange:restored` event with `source: "cache"` (per the exchange lifecycle).
 
-Concurrent exchanges that share one computation (stampede dedupe) currently emit `cache:hit` for the waiters at step scope, which can inflate hit-rate metrics. A distinct dedupe signal is planned and needs a provider-interface change. Route scope does not dedupe concurrent same-key callers at all in this release: each runs the pipeline once.
+Concurrent exchanges that share one computation (stampede dedupe) currently emit `route:cache:hit` for the waiters at step scope, which can inflate hit-rate metrics. A distinct dedupe signal is planned and needs a provider-interface change. Route scope does not dedupe concurrent same-key callers at all in this release: each runs the pipeline once.
 
 ### Agent operations
 
@@ -344,11 +346,11 @@ events. The synthetic step appears in the standard `step:*` events with
 
 What follows depends on the adapter's `onParseError` mode:
 
-- `'fail'` (default) → `exchange:failed` (or `error:caught` if a route `.error()` handler recovers).
-- `'abort'` → `exchange:failed` for the bad item, then the source aborts and `context:error` fires.
-- `'drop'` → `exchange:dropped` with `reason: "parse-failed"` (no `step:failed` fires; the parse step catches and drops cleanly).
+- `'fail'` (default) → `route:exchange:failed` (or `route:error:caught` if a route `.error()` handler recovers).
+- `'abort'` → `route:exchange:failed` for the bad item, then the source aborts and `context:error` fires.
+- `'drop'` → `route:exchange:dropped` with `reason: "parse-failed"` (no `route:step:failed` fires; the parse step catches and drops cleanly).
 
-Subscribe with a glob to count source parse failures across all routes:
+Subscribe by exact name and filter on the payload to count source parse failures across all routes:
 
 ```ts skip="fragment: ctx, metrics are illustrative"
 ctx.on('route:step:failed', ({ details }) => {

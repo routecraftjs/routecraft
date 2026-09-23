@@ -33,11 +33,11 @@ Outside in (position 1 wraps everything below):
 | 8.5 | `concurrency` | shipped | `.concurrency({ max })` | `RC5026` (`mode: 'reject'` or full `maxQueue`; default `'queue'` paces) | bulkhead; bounds simultaneous in-flight (innermost resilience, so a slot is held per attempt) |
 | 9 | `cacheCheck` | shipped | `.cache({...})` | `RC5028` / `RC5029` | validated body → cache key |
 | - | **your pipeline** | - | `.transform()`, `.to()`, `.process()`, ... | - | the work |
-| 10 | `cacheStore` | shipped | `.cache({...})` | swallows (`cache:failed phase:"set"`) | terminal body, written best-effort |
+| 10 | `cacheStore` | shipped | `.cache({...})` | swallows (`route:cache:failed phase:"set"`) | terminal body, written best-effort |
 
 <Callout type="note" title="Position #4 (`input`) is a real chain step">
 
-`.input()` validation runs inside the chain at position #4: after auth and parse, before any resilience wrapper, `cacheCheck`, or user step. When the source attaches a parser, the validator runs inside the parse step (input validates the parsed body); otherwise it runs as a standalone synthetic `input` step. Either way a failure throws `RC5002` through the chain's catch boundary, so `.error()` can observe and recover it exactly like an `authorize` or `parse` rejection. An unrecovered failure takes the normal error path (`route:error`, `context:error`, `exchange:failed`); it is not a drop.
+`.input()` validation runs inside the chain at position #4: after auth and parse, before any resilience wrapper, `cacheCheck`, or user step. When the source attaches a parser, the validator runs inside the parse step (input validates the parsed body); otherwise it runs as a standalone synthetic `input` step. Either way a failure throws `RC5002` through the chain's catch boundary, so `.error()` can observe and recover it exactly like an `authorize` or `parse` rejection. An unrecovered failure takes the normal error path (`route:error`, `context:error`, `route:exchange:failed`); it is not a drop.
 
 </Callout>
 
@@ -110,7 +110,7 @@ the outermost catch:
 ```
 
 Without `.error()`, every throw goes to the route's default error
-path (`route:<id>:error` + `context:error` + `exchange:failed`).
+path (`route:error` + `context:error` + `route:exchange:failed`).
 The route is **not** stopped -- the next exchange processes
 normally.
 
@@ -222,7 +222,7 @@ Innermost. The pipeline's surface.
   is a successful zero-cost call from those layers' perspective).
 - **`cacheStore` just below the pipeline.** Runs only on
   miss-success. Cache write errors are swallowed (the result is
-  already computed); they emit `cache:failed phase:"set"` for
+  already computed); they emit `route:cache:failed phase:"set"` for
   observability but don't fail the exchange.
 
 ## Combined scenarios

@@ -16,9 +16,9 @@ All three modes are observable on the events bus, parse failures are never silen
 
 | Value | Lifecycle events | Use case |
 |-------|------------------|----------|
-| `'fail'` (default) | `exchange:started` to `exchange:failed` (or `error:caught` if `.error()` recovers) with `error.rc === 'RC5016'`. Streaming adapters continue to the next item. | Per-item observability with stream continuation. |
-| `'abort'` | `exchange:started` to `exchange:failed` for the bad item, then the source rejects and `context:error` fires. | Atomic-load semantics where partial data is unacceptable. |
-| `'drop'` | `exchange:started` to `exchange:dropped` with `reason: 'parse-failed'`. No `.error()` invocation. Streaming adapters continue. | Lossy upstreams (scraping, public feeds) where malformed items are expected but should still be counted. |
+| `'fail'` (default) | `route:exchange:started` to `route:exchange:failed` (or `route:error:caught` if `.error()` recovers) with `error.rc === 'RC5016'`. Streaming adapters continue to the next item. | Per-item observability with stream continuation. |
+| `'abort'` | `route:exchange:started` to `route:exchange:failed` for the bad item, then the source rejects and `context:error` fires. | Atomic-load semantics where partial data is unacceptable. |
+| `'drop'` | `route:exchange:started` to `route:exchange:dropped` with `reason: 'parse-failed'`. No `.error()` invocation. Streaming adapters continue. | Lossy upstreams (scraping, public feeds) where malformed items are expected but should still be counted. |
 
 ```ts skip="fragment: db, load, ctx are illustrative"
 // Default: route per-line parse errors through .error(), keep streaming.
@@ -43,7 +43,7 @@ ctx.on('route:exchange:dropped', ({ details }) => {
 })
 ```
 
-Internally, all three modes defer parsing to a synthetic first pipeline step injected by the runtime, so `exchange:started` fires before parsing runs. The synthetic step decides per-mode whether to throw (`'fail'`/`'abort'`) or emit `exchange:dropped` (`'drop'`).
+Internally, all three modes defer parsing to a synthetic first pipeline step injected by the runtime, so `route:exchange:started` fires before parsing runs. The synthetic step decides per-mode whether to throw (`'fail'`/`'abort'`) or emit `route:exchange:dropped` (`'drop'`).
 
 ## Related
 

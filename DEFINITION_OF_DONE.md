@@ -32,7 +32,7 @@ The checklists below apply to **packages that ship code**: anything under `packa
 > Event docs are at `apps/routecraft.dev/app/content/docs/reference/events/index.mdx`.
 
 - [ ] New behavior emits events for at least: started, completed/stopped, and failed states
-- [ ] Event names follow the existing hierarchical convention (e.g., `route:{routeId}:operation:{type}:{adapterId}:started`)
+- [ ] Event names are a fixed set that follows the existing hierarchy (e.g., `route:operation:choice:matched`); identity such as the route id lives in the payload, never in the name
 - [ ] Event payloads are type-safe: add a new entry to the `EventDetailsMap` interface in `types.ts` with a typed payload shape (`EventDetailsMapping` is a derived lookup alias and cannot receive entries)
 - [ ] Payloads include enough context for correlation: `contextId`, `routeId`, `exchangeId`, or `correlationId` as appropriate
 - [ ] Duration-sensitive operations include timing information (start timestamp at minimum; duration where practical)

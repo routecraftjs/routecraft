@@ -115,7 +115,7 @@ Passing both `append: true` and `delete: true` throws `RC5003` at construction.
 
 **Behavior:**
 - **Source** (default): Reads file, splits lines, parses each as JSON, emits `T[]` array. Empty lines are skipped.
-- **Source** (`chunked: true`): Emits one `T` exchange per line with `JsonlHeaders.LINE` (1-based) and `JsonlHeaders.PATH` headers. Chunking concerns the source role only; the send/fetch roles are unchanged. With `onParseError: 'fail'` (default) malformed lines are routed through the route's `.error()` handler and the stream continues; `'abort'` aborts on the first bad line; `'drop'` emits `exchange:dropped` with `reason: 'parse-failed'`.
+- **Source** (`chunked: true`): Emits one `T` exchange per line with `JsonlHeaders.LINE` (1-based) and `JsonlHeaders.PATH` headers. Chunking concerns the source role only; the send/fetch roles are unchanged. With `onParseError: 'fail'` (default) malformed lines are routed through the route's `.error()` handler and the stream continues; `'abort'` aborts on the first bad line; `'drop'` emits `route:exchange:dropped` with `reason: 'parse-failed'`.
 - **Destination**: Stringifies body to `JSON.stringify(body) + '\n'`. Array bodies write one line per element. Overwrite by default; `append: true` appends.
 
 **Chunked headers:**
