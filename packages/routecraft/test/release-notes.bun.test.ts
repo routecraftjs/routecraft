@@ -17,6 +17,10 @@ import {
 
 const LINK = "https://example.test/CHANGELOG.md";
 
+const FOOTER =
+  "\n\n---\n\nThese notes are cut to fit a GitHub Release. " +
+  `The full notes are in the [changelog](${LINK}).`;
+
 /** A changesets section of `count` entries, each `size` characters long. */
 function section(count: number, size: number): string {
   const entries = Array.from(
@@ -102,6 +106,51 @@ describe("releaseNotes", () => {
     const notes = releaseNotes(over, LINK, limit);
     expect(notes.length).toBeLessThanOrEqual(limit);
     expect(notes.endsWith(`[changelog](${LINK}).`)).toBe(true);
+  });
+
+  /**
+   * @case The budget ends exactly where an entry ends
+   * @preconditions Three entries, and a limit whose budget stops at the end of the second
+   * @expectedResult The second entry is kept whole and the third is cut
+   */
+  test("keeps an entry that ends exactly on the budget", () => {
+    const body = `- AAA\n- BBB\n- CCC ${"c".repeat(500)}`;
+    const limit = "- AAA\n- BBB".length + FOOTER.length;
+
+    const notes = releaseNotes(body, LINK, limit);
+
+    expect(notes).toBe(`- AAA\n- BBB${FOOTER}`);
+  });
+
+  /**
+   * @case The budget lands in the first entry of a later group
+   * @preconditions Two `### ` groups, and a limit whose budget stops inside the second group's first entry
+   * @expectedResult The first group is kept whole and the second group's heading is dropped rather than left bare
+   */
+  test("drops a group heading left with no entries", () => {
+    const first = "### Minor Changes\n\n- a1\n- a2";
+    const body = `${first}\n\n### Patch Changes\n\n- b1 ${"z".repeat(500)}`;
+    const limit =
+      `${first}\n\n### Patch Changes\n\n- b1`.length + FOOTER.length;
+
+    const notes = releaseNotes(body, LINK, limit);
+
+    expect(notes).toBe(`${first}${FOOTER}`);
+  });
+
+  /**
+   * @case The budget lands inside a group heading
+   * @preconditions Two `### ` groups, and a limit whose budget stops inside the second heading
+   * @expectedResult The body is cut before that heading, keeping the first group whole
+   */
+  test("cuts before a group heading the budget splits", () => {
+    const first = "### Minor Changes\n\n- a1\n- a2";
+    const body = `${first}\n\n### Patch Changes\n\n- b1 ${"z".repeat(500)}`;
+    const limit = `${first}\n\n### Pat`.length + FOOTER.length;
+
+    const notes = releaseNotes(body, LINK, limit);
+
+    expect(notes).toBe(`${first}${FOOTER}`);
   });
 
   /**

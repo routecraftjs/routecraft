@@ -48,12 +48,19 @@ export function releaseNotes(
     `The full notes are in the [changelog](${fullChangelogUrl}).`;
   // Never negative: a negative end counts from the back in `slice`.
   const budget = Math.max(0, limit - footer.length);
-  const head = section.slice(0, budget);
   // A changesets section is a list of `- ` entries under `### ` groups, so
-  // cutting before the last entry that starts inside the budget keeps every
-  // entry kept whole.
-  const entry = Math.max(head.lastIndexOf("\n- "), head.lastIndexOf("\n### "));
-  const cut = entry > 0 ? entry : head.lastIndexOf("\n");
-  const body = `${section.slice(0, cut > 0 ? cut : budget).trimEnd()}${footer}`;
-  return body.slice(0, limit);
+  // cutting where the last entry or group starts, at or before the budget,
+  // keeps every entry whole. Searched in the full section so an entry ending
+  // exactly on the budget is kept.
+  const boundary = Math.max(
+    section.lastIndexOf("\n- ", budget),
+    section.lastIndexOf("\n### ", budget),
+  );
+  const cut = boundary > 0 ? boundary : section.lastIndexOf("\n", budget);
+  const kept = section
+    .slice(0, cut > 0 ? cut : budget)
+    .trimEnd()
+    .replace(/\n### [^\n]*$/, "")
+    .trimEnd();
+  return `${kept}${footer}`.slice(0, limit);
 }

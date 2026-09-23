@@ -20,6 +20,10 @@ import { promisify } from "node:util";
 
 const run = promisify(execFile);
 
+/** How long a `craft` child may run before it counts as hung rather than slow. */
+const CHILD_TIMEOUT_MS = 20_000;
+const TEST_TIMEOUT_MS = CHILD_TIMEOUT_MS + 10_000;
+
 const ENTRY = resolve(
   process.env["CRAFT_CLI_ENTRY"] ??
     join(import.meta.dir, "..", "src", "index.ts"),
@@ -51,8 +55,21 @@ async function craft(...args: string[]): Promise<string> {
   delete env["LOG_FILE"];
   delete env["CRAFT_LOG_FILE"];
   delete env["CRAFT_CLI_ENTRY"];
-  const { stdout } = await run("bun", [ENTRY, ...args], { env, cwd: DIR });
-  return stdout;
+  try {
+    const { stdout } = await run("bun", [ENTRY, ...args], {
+      env,
+      cwd: DIR,
+      timeout: CHILD_TIMEOUT_MS,
+    });
+    return stdout;
+  } catch (error) {
+    if ((error as { killed?: boolean }).killed) {
+      throw new Error(
+        `craft ${args.join(" ")} did not exit within ${CHILD_TIMEOUT_MS}ms: something now holds the process open`,
+      );
+    }
+    throw error;
+  }
 }
 
 /** Info-level log lines the probe route itself produced. */
@@ -92,63 +109,79 @@ describe("craft logging flags", () => {
    * @preconditions No log level in the environment; `craft --log-level info run <route>`
    * @expectedResult The route's own info lines reach stdout
    */
-  test("--log-level before the command raises the level", async () => {
-    const stdout = await craft("--log-level", "info", "run", ROUTE);
-    expect(routeInfoLines(stdout).length).toBeGreaterThan(0);
-  });
+  test(
+    "--log-level before the command raises the level",
+    async () => {
+      const stdout = await craft("--log-level", "info", "run", ROUTE);
+      expect(routeInfoLines(stdout).length).toBeGreaterThan(0);
+    },
+    TEST_TIMEOUT_MS,
+  );
 
   /**
    * @case The command's own `--log-level` flag
    * @preconditions No log level in the environment; `craft run --log-level info <route>`
    * @expectedResult The route's own info lines reach stdout, the same as the global form
    */
-  test("--log-level after the command raises the level", async () => {
-    const stdout = await craft("run", "--log-level", "info", ROUTE);
-    expect(routeInfoLines(stdout).length).toBeGreaterThan(0);
-  });
+  test(
+    "--log-level after the command raises the level",
+    async () => {
+      const stdout = await craft("run", "--log-level", "info", ROUTE);
+      expect(routeInfoLines(stdout).length).toBeGreaterThan(0);
+    },
+    TEST_TIMEOUT_MS,
+  );
 
   /**
    * @case The global `--log-file` flag keeps stdout free of log lines
    * @preconditions No log destination in the environment; `craft --log-level info --log-file <file> run <route>`
    * @expectedResult Every log line lands in the file and none on stdout, which an MCP stdio transport depends on
    */
-  test("--log-file moves every log line off stdout", async () => {
-    await rm(LOG_FILE, { force: true });
-    const stdout = await craft(
-      "--log-level",
-      "info",
-      "--log-file",
-      LOG_FILE,
-      "run",
-      ROUTE,
-    );
-    expect(logLines(stdout)).toEqual([]);
-    const written = await readFile(LOG_FILE, "utf8");
-    expect(routeInfoLines(written).length).toBeGreaterThan(0);
-  });
+  test(
+    "--log-file moves every log line off stdout",
+    async () => {
+      await rm(LOG_FILE, { force: true });
+      const stdout = await craft(
+        "--log-level",
+        "info",
+        "--log-file",
+        LOG_FILE,
+        "run",
+        ROUTE,
+      );
+      expect(logLines(stdout)).toEqual([]);
+      const written = await readFile(LOG_FILE, "utf8");
+      expect(routeInfoLines(written).length).toBeGreaterThan(0);
+    },
+    TEST_TIMEOUT_MS,
+  );
 
   /**
    * @case `start` with its own flags, the way an MCP host launches a project
    * @preconditions No logging in the environment; a global `--log-level warn`, then `start <project> --once --log-level info --log-file <file>`
    * @expectedResult stdout carries no log line, and the file holds the route's info lines, so the command's own flags beat the global one
    */
-  test("start honours its own flags over the global ones", async () => {
-    await rm(LOG_FILE, { force: true });
-    const stdout = await craft(
-      "--log-level",
-      "warn",
-      "start",
-      PROJECT,
-      "--once",
-      "--timeout",
-      "10s",
-      "--log-level",
-      "info",
-      "--log-file",
-      LOG_FILE,
-    );
-    expect(logLines(stdout)).toEqual([]);
-    const written = await readFile(LOG_FILE, "utf8");
-    expect(routeInfoLines(written).length).toBeGreaterThan(0);
-  });
+  test(
+    "start honours its own flags over the global ones",
+    async () => {
+      await rm(LOG_FILE, { force: true });
+      const stdout = await craft(
+        "--log-level",
+        "warn",
+        "start",
+        PROJECT,
+        "--once",
+        "--timeout",
+        "10s",
+        "--log-level",
+        "info",
+        "--log-file",
+        LOG_FILE,
+      );
+      expect(logLines(stdout)).toEqual([]);
+      const written = await readFile(LOG_FILE, "utf8");
+      expect(routeInfoLines(written).length).toBeGreaterThan(0);
+    },
+    TEST_TIMEOUT_MS,
+  );
 });
