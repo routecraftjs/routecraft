@@ -7,7 +7,7 @@ import { FileEnricherAdapter } from "../file/enricher.ts";
  * `fetch` reads the resolved path, `JSON.parse`s it, and returns the parsed
  * value, so `.enrich(json({ path }))` pulls a JSON file into the route
  * mid-flow. Parse failures throw (the route boundary surfaces them as
- * `exchange:failed`); the `onParseError` lifecycle controls apply to the
+ * `route:exchange:failed`); the `onParseError` lifecycle controls apply to the
  * source role only.
  *
  * @template T - Parsed value type (caller-asserted, e.g. `json<Config>(...)`)

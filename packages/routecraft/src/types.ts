@@ -309,7 +309,7 @@ export interface StepContext extends StepSignalContext {
    * Capture the downstream continuation for the currently-executing step:
    * returns a runner that, when later invoked with an exchange, runs it
    * through the steps that FOLLOW this one as a detached, route-tracked
-   * pipeline (with its own `exchange:started` / `:completed` lifecycle).
+   * pipeline (with its own `route:exchange:started` / `:completed` lifecycle).
    *
    * Snapshot it synchronously inside `execute`; the runner stays valid after
    * `execute` resolves. Used by `debounce` to release a held exchange after
@@ -379,13 +379,13 @@ export type ConsumerType<T extends Consumer = Consumer> = (new (
  *   `DefaultExchange.rewrap(exchange, { body: await parse(exchange.body) })`
  *   inside the same try/catch that handles step errors, so a parse
  *   failure flows through the route's `errorHandler` and
- *   `exchange:failed` event path. See `adapters/shared/parse.ts` for
+ *   `route:exchange:failed` event path. See `adapters/shared/parse.ts` for
  *   the `OnParseError` semantics. If `parse` resolves to `undefined`
  *   the body is explicitly set to `undefined` (the rewrap respects an
  *   explicit `body: undefined`), not left as the previous value.
  * @property parseFailureMode - Decides how the synthetic parse step handles
  *   a thrown parse error. `"fail"` (default) and `"abort"` throw `RC5016`
- *   so `exchange:failed` fires; `"drop"` instead emits `exchange:dropped`
+ *   so `route:exchange:failed` fires; `"drop"` instead emits `route:exchange:dropped`
  *   with `reason: "parse-failed"`. Adapters set this from their
  *   `onParseError` option; the source loop additionally rethrows for
  *   `"abort"` so the source dies. See #187.

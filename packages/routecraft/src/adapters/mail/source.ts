@@ -222,7 +222,7 @@ export class MailSourceAdapter implements Source<MailBody> {
     // The MIME parse failure mode is decided per-poll-cycle from
     // resolved options. `'fail'` (default) surfaces malformed messages
     // through the route's `.error()` handler; `'drop'` emits
-    // `exchange:dropped` with `reason: "parse-failed"`; `'abort'` would
+    // `route:exchange:dropped` with `reason: "parse-failed"`; `'abort'` would
     // additionally re-throw out of the source loop.
     const parseFailureMode = resolved.onParseError ?? DEFAULT_ON_PARSE_ERROR;
 
@@ -493,7 +493,7 @@ export class MailSourceAdapter implements Source<MailBody> {
               await markMessagesSeen(client, message.uid, logger);
             }
             // 'abort': rethrow so the source dies (`context:error` fires).
-            // The per-message `exchange:failed` already fired from the
+            // The per-message `route:exchange:failed` already fired from the
             // synthetic parse step.
             if (onParseError === "abort") throw err;
           }

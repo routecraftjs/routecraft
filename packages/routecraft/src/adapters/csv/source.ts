@@ -29,9 +29,9 @@ import { staticSourcePathError } from "../shared/file-role-guards.ts";
  *
  * | `onParseError` | Lifecycle on bad row (chunked)                                  |
  * |----------------|-----------------------------------------------------------------|
- * | `'fail'` (default) | `exchange:failed` (or `error:caught`); next row continues |
- * | `'abort'`      | `exchange:failed` for the bad row, then source dies (`context:error`) |
- * | `'drop'`       | `exchange:dropped` (`reason: "parse-failed"`); next row continues |
+ * | `'fail'` (default) | `route:exchange:failed` (or `error:caught`); next row continues |
+ * | `'abort'`      | `route:exchange:failed` for the bad row, then source dies (`context:error`) |
+ * | `'drop'`       | `route:exchange:dropped` (`reason: "parse-failed"`); next row continues |
  *
  * See #187.
  */

@@ -462,7 +462,7 @@ function resolveLazyTools(
  *
  * The events fire from `start()` rather than inside `apply()` so the
  * telemetry plugin has already subscribed regardless of plugin install
- * order (mirroring how `route:*:registered` fires after plugins are
+ * order (mirroring how `route:registered` fires after plugins are
  * applied). When the context is never started there is nothing running
  * to observe, so emitting nothing is correct.
  *

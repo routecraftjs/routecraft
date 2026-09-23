@@ -317,8 +317,8 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    *
    * If the handler itself throws, the wrapper rethrows so the
    * route-level handler (when set) catches it; otherwise the route's
-   * default error path fires (`route:*:error`, `context:error`,
-   * `exchange:failed`). The route is NOT stopped.
+   * default error path fires (`route:error`, `context:error`,
+   * `route:exchange:failed`). The route is NOT stopped.
    *
    * Stacks left-to-right: `.error(h1).error(h2).to(dest)` produces
    * `h1` outermost wrapping `h2` wrapping `dest`. `h2` runs first; if

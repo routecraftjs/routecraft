@@ -958,17 +958,12 @@ export class CraftContext {
   /**
    * Subscribe to lifecycle and system events.
    *
-   * **Wildcard Patterns:**
+   * Takes an exact event name, or `"*"` for every event. Patterns such as
+   * `route:*` are refused with RC2001: event names are a fixed set and the
+   * route id lives in the payload, so scope to one route with
+   * `forRoute(routeId, handler)`. The `event()` source still accepts patterns.
    *
-   * - `*` (single-level wildcard): Matches exactly one segment
-   *   - Pattern and event must have the same number of colon-separated segments
-   *   - Example: `route:*` matches `route:started` (2 segments), but NOT `route:payment:exchange:started` (4 segments)
-   *
-   * - `**` (globstar wildcard): Matches zero or more segments at any level
-   *   - Example: `route:**` matches `route:started`, `route:payment:exchange:started`, etc.
-   *   - Example: `route:*:operation:**` matches all operations with any adapter depth
-   *
-   * @param event - Event name or wildcard pattern (e.g. `route:started`, `route:*`, `route:**`)
+   * @param event - Exact event name (e.g. `route:started`) or `"*"`
    * @param handler - Callback receiving `{ ts, contextId, details }`
    * @returns Unsubscribe function (call to remove the handler)
    *
@@ -979,19 +974,14 @@ export class CraftContext {
    *   console.log('Route started:', details.route.definition.id);
    * });
    *
-   * // Subscribe to all static route events (2 segments)
-   * ctx.on('route:*', ({ details }) => {
-   *   console.log('Route event:', details);
-   * });
+   * // One route's failed exchanges
+   * ctx.on('route:exchange:failed', forRoute('orders', ({ details }) => {
+   *   console.log('Order failed:', details.error);
+   * }));
    *
-   * // Subscribe to all route events at any depth (globstar)
-   * ctx.on('route:**', ({ details }) => {
-   *   console.log('Route event at any depth:', details);
-   * });
-   *
-   * // Subscribe to all exchange events (4 segments)
-   * ctx.on('route:*:exchange:*', ({ details }) => {
-   *   console.log('Exchange event:', details);
+   * // Every event
+   * ctx.on('*', ({ details }) => {
+   *   console.log('Event:', details);
    * });
    *
    * // later: unsubscribe();
@@ -1007,9 +997,9 @@ export class CraftContext {
    * Subscribe to an event for a single occurrence. The handler is automatically
    * removed after the first time the event is emitted.
    *
-   * Supports the same wildcard patterns as `on()`.
+   * Accepts the same names as `on()`: an exact event name, or `"*"`.
    *
-   * @param event - Event name or wildcard pattern
+   * @param event - Exact event name or `"*"`
    * @param handler - Callback receiving `{ ts, contextId, details }`
    * @returns Unsubscribe function (call to remove the handler before it fires)
    *
@@ -1020,9 +1010,9 @@ export class CraftContext {
    *   console.log('Context started!');
    * });
    *
-   * // Wait for any route to start
-   * ctx.once('route:*', ({ details }) => {
-   *   console.log('First route started:', details);
+   * // Wait for the first route to start
+   * ctx.once('route:started', ({ details }) => {
+   *   console.log('First route started:', details.routeId);
    * });
    * ```
    */

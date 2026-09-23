@@ -139,7 +139,7 @@ export async function runPipeline(
   // a synthetic step that runs it before any user-defined steps. The step
   // throws an `RC5016` error on parse failure, which then flows through
   // the same error-handler path as any other step error: the route's
-  // `.error()` handler is invoked, or `exchange:failed` fires.
+  // `.error()` handler is invoked, or `route:exchange:failed` fires.
   //
   // `.input()` validation (chain position #4) rides the same internals
   // slot: with a parser it runs inside the parse step (input validates
@@ -922,7 +922,7 @@ function nestedDeps(
  *   invocation may be a nested segment whose own `deps.definition` has them
  *   stripped.
  *
- * The released exchange gets its own `exchange:started` / `:completed`
+ * The released exchange gets its own `route:exchange:started` / `:completed`
  * lifecycle pair, and the run is `trackTask`ed so `drain()` waits for it.
  */
 function makeDownstreamRunner(
@@ -949,7 +949,7 @@ function makeDownstreamRunner(
 
 /**
  * Run `steps` against `exchange` as a detached, first-class run of the
- * route: its own `exchange:started` / `:completed` pair, the route-scope
+ * route: its own `route:exchange:started` / `:completed` pair, the route-scope
  * `.error()` handler honoured, and the route's `.output()` schemas enforced
  * before completion.
  *

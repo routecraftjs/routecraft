@@ -14,9 +14,9 @@ import { staticSourcePathError } from "../shared/file-role-guards.ts";
  *
  * | `onParseError` | Lifecycle on bad JSON                                          |
  * |----------------|----------------------------------------------------------------|
- * | `'fail'` (default) | `exchange:failed` (or `error:caught` if `.error()` recovers) |
- * | `'abort'`      | `exchange:failed`, then source rejects and `context:error` fires |
- * | `'drop'`       | `exchange:dropped` with `reason: "parse-failed"`               |
+ * | `'fail'` (default) | `route:exchange:failed` (or `error:caught` if `.error()` recovers) |
+ * | `'abort'`      | `route:exchange:failed`, then source rejects and `context:error` fires |
+ * | `'drop'`       | `route:exchange:dropped` with `reason: "parse-failed"`               |
  *
  * See #187.
  */

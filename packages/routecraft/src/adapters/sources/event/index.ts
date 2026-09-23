@@ -8,22 +8,17 @@ import { tagAdapter, factoryArgs } from "../../shared/factory-tag";
  * Creates a source that produces exchanges from framework events.
  * Use as the first step in a route with `.from(event(...))`.
  *
- * **Wildcard Patterns:**
+ * Event names are a fixed set; the route id and the exchange live in the
+ * payload's `details`, so scope to one route by filtering on
+ * `details.routeId`. Patterns match the emitted name:
  *
- * - `*` (single-level wildcard): Matches exactly one segment
- *   - Pattern and event must have the same number of colon-separated segments
- *   - Example: `route:*` matches `route:started` (2 segments), but NOT `route:payment:exchange:started` (4 segments)
+ * - `*` matches exactly one colon-separated segment: `route:exchange:*`
+ *   matches `route:exchange:failed` but not `route:started`.
+ * - `**` matches zero or more segments: `route:**` matches every route event.
+ * - `*` on its own matches every event.
  *
- * - `**` (globstar wildcard): Matches zero or more segments at any level
- *   - Example: `route:**` matches `route:started`, `route:payment:exchange:started`, etc.
- *   - Example: `route:*:operation:**` matches all operations with any adapter depth
- *
- * **Static vs Dynamic Events:**
- *
- * For static event subscriptions (context:started, route:started, etc.), wildcards
- * expand at initialization time against known event names. For hierarchical events
- * (route:X:exchange:Y, route:X:operation:Y:Z), use explicit patterns or ** globstar
- * to match runtime route IDs.
+ * Events the route's own exchanges emit are not delivered back to it; see
+ * {@link EventSourceAdapter}.
  *
  * @template T - Event payload type
  * @param filter - Event name(s) or wildcard pattern to listen for
@@ -37,17 +32,14 @@ import { tagAdapter, factoryArgs } from "../../shared/factory-tag";
  * // Multiple events
  * .from(event(['route:started', 'route:stopped']))
  *
- * // Single-level wildcard: All static route events (2 segments)
- * .from(event('route:*'))
+ * // Every exchange event: started, completed, failed, dropped, ...
+ * .from(event('route:exchange:*'))
  *
- * // Globstar: All route events at any depth
+ * // Every operation event, at any depth
+ * .from(event('route:operation:**'))
+ *
+ * // Every route event
  * .from(event('route:**'))
- *
- * // Match all route exchange events (4 segments)
- * .from(event('route:*:exchange:*'))
- *
- * // Match all operations with any adapter depth
- * .from(event('route:*:operation:**'))
  *
  * // Match all events
  * .from(event('*'))

@@ -799,7 +799,7 @@ export async function fetchMessages(
           // message lifecycle event fires from the synthetic parse step.
           // For 'abort' the source loop rethrows after the event fires so
           // the source still dies; for 'drop' the route emits
-          // `exchange:dropped`; for 'fail' the route's `.error()` handler
+          // `route:exchange:dropped`; for 'fail' the route's `.error()` handler
           // catches it. See #187.
           parseError = wrapped;
           content = {};

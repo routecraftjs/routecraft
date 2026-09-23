@@ -77,7 +77,7 @@ export type ForwardFn = (
  * Instead of a recovery body the handler may return a branded `Recovery`
  * directive built with the `recovery` helpers (see `recovery.ts`):
  * `recovery.drop(reason?)` discards the exchange (emits
- * `route:exchange:dropped`, no `exchange:completed`), and
+ * `route:exchange:dropped`, no `route:exchange:completed`), and
  * `recovery.rethrow()` propagates the original error exactly as if the
  * handler had thrown it. Plain (unbranded) return values are unaffected.
  *
@@ -479,7 +479,7 @@ export interface Route<T = unknown> {
 
   /**
    * Run `steps` against a revived exchange as a first-class run of this
-   * route: its own `exchange:started` / `:completed` pair, the route-scope
+   * route: its own `route:exchange:started` / `:completed` pair, the route-scope
    * `.error()` handler, and `.output()` validation before completion.
    *
    * The entry point for execution two. The steps handed in are the deferred
@@ -1014,7 +1014,7 @@ export class DefaultRoute implements Route {
           // Stash the source-supplied parser so `runPipeline` applies it
           // as a synthetic first pipeline step. This is what makes parse
           // errors surface as normal pipeline events the route can
-          // observe (`.error()` for `'fail'`, `exchange:dropped` for
+          // observe (`.error()` for `'fail'`, `route:exchange:dropped` for
           // `'drop'`). See #187.
           internals.parse = parse;
           internals.parseFailureMode = parseFailureMode ?? "fail";
@@ -1026,7 +1026,7 @@ export class DefaultRoute implements Route {
         // chain position. The non-emitting variant throws RC5065
         // cleanly into the step loop's catch path (which emits
         // `step:failed` and then the error path), without firing
-        // duplicate `exchange:started` / stray `exchange:dropped`
+        // duplicate `route:exchange:started` / stray `route:exchange:dropped`
         // events (see #187, #447).
         if (hasInputSchema && inputSchemas) {
           internals.applyValidation = (ex: Exchange) =>

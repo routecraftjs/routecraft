@@ -229,7 +229,7 @@ export async function validateInputOrThrow(
 /**
  * Handle an output-validation failure. Delegates to the route's error
  * handler when one is configured (mirroring how step errors recover);
- * otherwise emits `exchange:failed` and returns a failed result so the
+ * otherwise emits `route:exchange:failed` and returns a failed result so the
  * caller can surface the error.
  */
 export async function handleOutputValidationFailure(
@@ -263,9 +263,9 @@ export async function handleOutputValidationFailure(
       // before declaring success. Without this, an `errorHandler` that
       // returns another invalid payload would silently bypass the
       // route's `.output()` contract and flow out via
-      // `exchange:completed`. A second failure here cascades through
+      // `route:exchange:completed`. A second failure here cascades through
       // the existing handlerErr branch so the failure surfaces the
-      // same way (`exchange:failed` plus the failure result).
+      // same way (`route:exchange:failed` plus the failure result).
       const recoveredExchange = await applyOutputValidation(
         deps,
         DefaultExchange.rewrap(exchange, { body: recovered }),

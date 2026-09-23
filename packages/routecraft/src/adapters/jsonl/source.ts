@@ -22,9 +22,9 @@ import { DEFAULT_ON_PARSE_ERROR, isParseError } from "../shared/parse.ts";
  *
  * | `onParseError` | Lifecycle on bad line (chunked)                                  |
  * |----------------|------------------------------------------------------------------|
- * | `'fail'` (default) | `exchange:failed` (or `error:caught`); next line continues  |
- * | `'abort'`      | `exchange:failed` for the bad line, then source dies (`context:error`) |
- * | `'drop'`       | `exchange:dropped` (`reason: "parse-failed"`); next line continues |
+ * | `'fail'` (default) | `route:exchange:failed` (or `error:caught`); next line continues  |
+ * | `'abort'`      | `route:exchange:failed` for the bad line, then source dies (`context:error`) |
+ * | `'drop'`       | `route:exchange:dropped` (`reason: "parse-failed"`); next line continues |
  *
  * See #187.
  */

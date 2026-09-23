@@ -788,7 +788,7 @@ export class RouteBuilder<
   /**
    * Declare input schemas for the next route. The engine validates incoming
    * message bodies and headers against these schemas before any pipeline
-   * step runs; a validation failure emits `exchange:dropped` and the
+   * step runs; a validation failure emits `route:exchange:dropped` and the
    * pipeline never sees the message. Accepts either a bundle
    * (`{ body, headers }`) or a bare Standard Schema as a body-only shorthand.
    *
@@ -933,7 +933,7 @@ export class RouteBuilder<
    * (`(error, exchange, forward) => unknown`). When a step-scope
    * handler itself throws, the wrapper rethrows so a route-scope
    * handler (when set) catches it; otherwise the default error path
-   * fires (`route:*:error`, `context:error`, `exchange:failed`). The
+   * fires (`route:error`, `context:error`, `route:exchange:failed`). The
    * route is NOT stopped.
    *
    * @param handler - Receives the error, the exchange at the point of

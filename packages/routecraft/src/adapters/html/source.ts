@@ -15,9 +15,9 @@ import { DEFAULT_ON_PARSE_ERROR, isParseError } from "../shared/parse.ts";
  *
  * | `onParseError` | Lifecycle on extraction failure                                  |
  * |----------------|------------------------------------------------------------------|
- * | `'fail'` (default) | `exchange:failed` (or `error:caught` if `.error()` recovers) |
- * | `'abort'`      | `exchange:failed`, then source rejects and `context:error` fires |
- * | `'drop'`       | `exchange:dropped` with `reason: "parse-failed"`                 |
+ * | `'fail'` (default) | `route:exchange:failed` (or `error:caught` if `.error()` recovers) |
+ * | `'abort'`      | `route:exchange:failed`, then source rejects and `context:error` fires |
+ * | `'drop'`       | `route:exchange:dropped` with `reason: "parse-failed"`                 |
  *
  * See #187.
  */

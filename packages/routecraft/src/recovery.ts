@@ -14,7 +14,7 @@ const RECOVERY = BRAND.Recovery;
  * Directive returned from an {@link ErrorHandler} to drop the failing
  * exchange instead of recovering with a body. The engine marks the
  * exchange dropped and emits `route:exchange:dropped` with `reason`;
- * `exchange:completed` does not fire and no recovery body is produced.
+ * `route:exchange:completed` does not fire and no recovery body is produced.
  */
 export interface RecoveryDrop {
   readonly [RECOVERY]: true;
@@ -27,7 +27,7 @@ export interface RecoveryDrop {
  * original error, declining recovery. Equivalent to `throw error` inside
  * the handler: the engine follows the handler-threw path
  * (`route:error-handler:failed`, then the route-level cascade for
- * step-scope handlers or the `exchange:failed` path for route scope).
+ * step-scope handlers or the `route:exchange:failed` path for route scope).
  */
 export interface RecoveryRethrow {
   readonly [RECOVERY]: true;
@@ -100,7 +100,7 @@ export function isRecovery(value: unknown): value is Recovery {
  *
  * Marks BEFORE emitting so a subscriber observing the events sees
  * `isDropped(exchange) === true`; the route engine reads the flag to skip
- * `exchange:completed`.
+ * `route:exchange:completed`.
  *
  * @internal
  */

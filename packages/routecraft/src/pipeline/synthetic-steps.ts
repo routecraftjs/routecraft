@@ -42,10 +42,10 @@ const PARSE_STEP_ADAPTER: Adapter = { adapterId: "routecraft.parse" };
  * See #187.
  *
  * Behaviour on parse failure depends on `failureMode`:
- * - `"fail"` / `"abort"`: throw `RC5016` so `exchange:failed` fires (or the
+ * - `"fail"` / `"abort"`: throw `RC5016` so `route:exchange:failed` fires (or the
  *   route's `.error()` handler recovers). The adapter's caller distinguishes
  *   `"abort"` by re-throwing the rejection out of subscribe.
- * - `"drop"`: emit `exchange:dropped` with `reason: "parse-failed"` (matching
+ * - `"drop"`: emit `route:exchange:dropped` with `reason: "parse-failed"` (matching
  *   filter / validate drop semantics) and halt the pipeline cleanly without
  *   invoking `.error()`.
  *
@@ -265,7 +265,7 @@ const CACHE_STORE_STEP_ADAPTER: Adapter = {
  * the user pipeline runs.
  *
  * Manages its own observability: emits `cache:hit` / `cache:miss` /
- * `cache:failed` plus `exchange:restored` on a hit. `skipStepEvents:
+ * `cache:failed` plus `route:exchange:restored` on a hit. `skipStepEvents:
  * true` keeps `runPipeline` from emitting generic `step:started` /
  * `step:completed` for this internal step.
  *

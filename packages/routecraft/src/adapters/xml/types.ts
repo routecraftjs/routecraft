@@ -154,11 +154,11 @@ export interface XmlFileOptions extends XmlParseOptions, XmlBuildOptions {
   /**
    * How to handle a parse failure on the file content (source role only).
    *
-   * - `'fail'` (default): `exchange:failed` fires; the route's `.error()`
+   * - `'fail'` (default): `route:exchange:failed` fires; the route's `.error()`
    *   handler can recover.
-   * - `'abort'`: `exchange:failed` fires, then the source dies
+   * - `'abort'`: `route:exchange:failed` fires, then the source dies
    *   (`context:error`).
-   * - `'drop'`: `exchange:dropped` fires with `reason: "parse-failed"`.
+   * - `'drop'`: `route:exchange:dropped` fires with `reason: "parse-failed"`.
    *
    * See `OnParseError` for full semantics.
    *

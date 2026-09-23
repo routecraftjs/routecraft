@@ -10,16 +10,16 @@
  *
  * | Mode    | Lifecycle events fired                       |
  * |---------|----------------------------------------------|
- * | `fail`  | `exchange:started` -> `exchange:failed` (or `error:caught` if `.error()` recovers) |
- * | `abort` | `exchange:started` -> `exchange:failed`, then `context:error` and the source dies |
- * | `drop`  | `exchange:started` -> `exchange:dropped` (`reason: "parse-failed"`) |
+ * | `fail`  | `route:exchange:started` -> `route:exchange:failed` (or `error:caught` if `.error()` recovers) |
+ * | `abort` | `route:exchange:started` -> `route:exchange:failed`, then `context:error` and the source dies |
+ * | `drop`  | `route:exchange:started` -> `route:exchange:dropped` (`reason: "parse-failed"`) |
  *
  * adopt the contract.
  */
 export type OnParseError =
   /**
    * Default. The exchange fails: the route's `.error()` handler is invoked
-   * with an `RC5016` error, or `exchange:failed` is emitted when no handler
+   * with an `RC5016` error, or `route:exchange:failed` is emitted when no handler
    * is set. Streaming adapters continue to the next item.
    *
    * Use when you want parse failures to be observable per item and the rest
@@ -28,7 +28,7 @@ export type OnParseError =
   | "fail"
   /**
    * The source aborts on the first parse failure. The bad item still emits
-   * `exchange:started` -> `exchange:failed` for per-item observability;
+   * `route:exchange:started` -> `route:exchange:failed` for per-item observability;
    * then the source's subscribe promise rejects and `context:error` fires.
    *
    * Use when partial-data is unacceptable and a malformed item should stop
@@ -37,13 +37,13 @@ export type OnParseError =
   | "abort"
   /**
    * The parse failure is dropped from the pipeline. The synthetic parse
-   * step emits `exchange:started` -> `exchange:dropped` with
+   * step emits `route:exchange:started` -> `route:exchange:dropped` with
    * `reason: "parse-failed"` (matching `filter` / `validate` drop
    * semantics). Streaming adapters continue to the next item; no
-   * `exchange:failed` and no `.error()` handler invocation.
+   * `route:exchange:failed` and no `.error()` handler invocation.
    *
    * Use when malformed items are expected (scraping, lossy upstreams) and
-   * you want them counted in `exchange:dropped` metrics rather than
+   * you want them counted in `route:exchange:dropped` metrics rather than
    * surfaced as route errors.
    */
   | "drop";
@@ -55,11 +55,11 @@ export type OnParseError =
 export const DEFAULT_ON_PARSE_ERROR: OnParseError = "fail";
 
 /**
- * Reason string emitted on `exchange:dropped` when an `onParseError: 'drop'`
+ * Reason string emitted on `route:exchange:dropped` when an `onParseError: 'drop'`
  * source rejects a malformed item. Stable so subscribers can filter:
  *
  * ```ts
- * ctx.on('route:*:exchange:dropped', ({ details }) => {
+ * ctx.on('route:exchange:dropped', ({ details }) => {
  *   if (details.reason === PARSE_DROPPED_REASON) metrics.increment('parse.dropped');
  * });
  * ```

@@ -32,8 +32,8 @@ import { WrapperStep } from "./wrapper.ts";
  *
  * If the handler itself throws, the wrapper rethrows so the route's
  * outer catch in `runPipeline` fires the route-level handler when one is
- * defined, or the default `route:*:error` / `context:error` /
- * `exchange:failed` path otherwise. The route is NOT stopped.
+ * defined, or the default `route:error` / `context:error` /
+ * `route:exchange:failed` path otherwise. The route is NOT stopped.
  *
  * Emits scope-aware lifecycle events:
  * - `route:error-handler:invoked`  ({ scope: "step", stepLabel })
