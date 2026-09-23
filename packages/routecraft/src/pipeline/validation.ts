@@ -182,7 +182,7 @@ export async function applyOutputStage<
  * Validate an exchange against the route's `input` schemas, throwing
  * `RC5065` on failure without emitting any lifecycle events: the caller
  * is a chain step inside `runPipeline`, so the failure becomes a normal
- * step failure (`step:failed` -> the error-handler-or-failed path).
+ * step failure (`route:step:failed` -> the error-handler-or-failed path).
  *
  * On success returns a (possibly new) exchange with validated / coerced
  * values; validated headers are merged over the originals so caller

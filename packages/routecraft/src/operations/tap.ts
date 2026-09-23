@@ -87,7 +87,7 @@ export class TapStep<T = unknown> implements Step<Adapter> {
     const promise = (async () => {
       try {
         // Adapter metadata (getMetadata) is intentionally NOT collected
-        // here: the tap runs detached, so this exchange's step:completed
+        // here: the tap runs detached, so this exchange's route:step:completed
         // event has already been emitted by the time the call resolves and
         // any metadata written now would be misattributed to a later
         // exchange's event.

@@ -29,7 +29,7 @@ import { staticSourcePathError } from "../shared/file-role-guards.ts";
  *
  * | `onParseError` | Lifecycle on bad row (chunked)                                  |
  * |----------------|-----------------------------------------------------------------|
- * | `'fail'` (default) | `route:exchange:failed` (or `error:caught`); next row continues |
+ * | `'fail'` (default) | `route:exchange:failed` (or `route:error:caught`); next row continues |
  * | `'abort'`      | `route:exchange:failed` for the bad row, then source dies (`context:error`) |
  * | `'drop'`       | `route:exchange:dropped` (`reason: "parse-failed"`); next row continues |
  *
@@ -182,7 +182,7 @@ export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
 
           // Only attach a parse callback when the row actually has errors.
           // Clean rows take the normal handler path with no synthetic parse
-          // step so we do not emit a no-op `step:started`/`step:completed`
+          // step so we do not emit a no-op `route:step:started`/`route:step:completed`
           // for every valid row in a 1M-row CSV.
           const hasRowErrors = rowErrors.length > 0;
           const callPromise = hasRowErrors
@@ -207,7 +207,7 @@ export class CsvSourceAdapter implements Source<CsvData | CsvRow> {
               // 'abort' is parse-specific: only RC5016 should tear
               // down the stream. A downstream destination error must
               // NOT abort even when onParseError === 'abort'; the
-              // route boundary has already emitted exchange:failed
+              // route boundary has already emitted route:exchange:failed
               // and we just continue.
               if (onParseError === "abort" && isParseError(err)) {
                 parser.abort();

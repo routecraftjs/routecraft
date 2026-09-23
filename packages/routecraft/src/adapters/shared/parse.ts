@@ -10,7 +10,7 @@
  *
  * | Mode    | Lifecycle events fired                       |
  * |---------|----------------------------------------------|
- * | `fail`  | `route:exchange:started` -> `route:exchange:failed` (or `error:caught` if `.error()` recovers) |
+ * | `fail`  | `route:exchange:started` -> `route:exchange:failed` (or `route:error:caught` if `.error()` recovers) |
  * | `abort` | `route:exchange:started` -> `route:exchange:failed`, then `context:error` and the source dies |
  * | `drop`  | `route:exchange:started` -> `route:exchange:dropped` (`reason: "parse-failed"`) |
  *

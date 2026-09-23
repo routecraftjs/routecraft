@@ -4,7 +4,14 @@ import {
   testSubscription,
   type TestContext,
 } from "@routecraft/testing";
-import { craft, event, log, simple } from "@routecraft/routecraft";
+import {
+  craft,
+  direct,
+  event,
+  log,
+  simple,
+  type EventName,
+} from "@routecraft/routecraft";
 import { EventSourceAdapter } from "../../src/adapters/sources/event/index.ts";
 
 describe("Event Source Adapter", () => {
@@ -397,16 +404,11 @@ describe("Event Source Adapter", () => {
    */
   test("ignores step events from its own exchanges", async () => {
     const seen: string[] = [];
-
-    const watcher = craft()
-      .id("step-watcher")
-      .from(event("route:step:completed"))
-      .to((ex) => {
-        seen.push(
-          (ex.body as { details: { routeId: string } }).details.routeId,
-        );
-      });
-
+    const watcher = routeIdWatcher(
+      "step-watcher",
+      "route:step:completed",
+      seen,
+    );
     const worker = craft().id("step-worker").from(simple("go")).to(log());
 
     t = await testContext().routes([watcher, worker]).build();
@@ -423,16 +425,11 @@ describe("Event Source Adapter", () => {
    */
   test("ignores exchange events from its own exchanges", async () => {
     const seen: string[] = [];
-
-    const watcher = craft()
-      .id("exchange-watcher")
-      .from(event("route:exchange:completed"))
-      .to((ex) => {
-        seen.push(
-          (ex.body as { details: { routeId: string } }).details.routeId,
-        );
-      });
-
+    const watcher = routeIdWatcher(
+      "exchange-watcher",
+      "route:exchange:completed",
+      seen,
+    );
     const worker = craft().id("exchange-worker").from(simple("go")).to(log());
 
     t = await testContext().routes([watcher, worker]).build();
@@ -442,21 +439,67 @@ describe("Event Source Adapter", () => {
   });
 
   /**
+   * @case A route watching exchange events does not receive the events of a route it calls
+   * @preconditions The watcher consumes route:exchange:completed and forwards each event to a sink route through direct(); a third route runs one exchange
+   * @expectedResult The sink receives only the worker's exchange; the sink's own exchange, run on the watcher's behalf, is not delivered back to the watcher
+   */
+  test("ignores exchange events from routes its exchanges call", async () => {
+    const seen: string[] = [];
+    const watcher = craft()
+      .id("forwarding-watcher")
+      .from(event("route:exchange:completed"))
+      .to(direct("event-sink"));
+    const sink = craft()
+      .id("event-sink")
+      .from(direct())
+      .to((ex) => {
+        seen.push(
+          (ex.body as { details: { routeId: string } }).details.routeId,
+        );
+      });
+    const worker = craft().id("forwarded-worker").from(simple("go")).to(log());
+
+    t = await testContext().routes([watcher, sink, worker]).build();
+    await t.test();
+
+    expect(seen).toEqual(["forwarded-worker"]);
+  });
+
+  /**
+   * @case A route watching context:error does not receive the errors of its own exchanges
+   * @preconditions The watcher consumes context:error and its step always throws; a second route fails once
+   * @expectedResult The watcher is delivered the worker's failure once and never its own, which carries the route rather than a routeId
+   */
+  test("ignores context errors from its own exchanges", async () => {
+    let deliveries = 0;
+    const watcher = craft()
+      .id("error-watcher")
+      .from(event("context:error"))
+      .to(() => {
+        deliveries++;
+        throw new Error("alert sink down");
+      });
+    const worker = craft()
+      .id("failing-worker")
+      .from(simple("go"))
+      .to(() => {
+        throw new Error("worker failed");
+      });
+
+    t = await testContext().routes([watcher, worker]).build();
+    await t.test();
+
+    expect(deliveries).toBe(1);
+  });
+
+  /**
    * @case A route still receives its own lifecycle events
    * @preconditions A route consumes route:started, which it emits itself when it starts
    * @expectedResult Its own route:started is delivered, since it carries no exchange and cannot loop
    */
   test("still delivers its own lifecycle events", async () => {
     const seen: string[] = [];
-
-    const watcher = craft()
-      .id("lifecycle-watcher")
-      .from(event("route:started"))
-      .to((ex) => {
-        seen.push(
-          (ex.body as { details: { routeId: string } }).details.routeId,
-        );
-      });
+    const watcher = routeIdWatcher("lifecycle-watcher", "route:started", seen);
 
     t = await testContext().routes([watcher]).build();
     await t.test();
@@ -464,3 +507,13 @@ describe("Event Source Adapter", () => {
     expect(seen).toContain("lifecycle-watcher");
   });
 });
+
+/** A route that records the `routeId` of every `name` event delivered to it. */
+function routeIdWatcher(id: string, name: EventName, seen: string[]) {
+  return craft()
+    .id(id)
+    .from(event(name))
+    .to((ex) => {
+      seen.push((ex.body as { details: { routeId: string } }).details.routeId);
+    });
+}

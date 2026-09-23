@@ -89,7 +89,7 @@ export interface Step<T extends Adapter> {
   label?: string;
 
   /**
-   * When true, runPipeline will not emit generic step:started/step:completed
+   * When true, runPipeline will not emit generic route:step:started/route:step:completed
    * events for this step. The step is responsible for emitting its own
    * lifecycle events with the correct exchange identity.
    */

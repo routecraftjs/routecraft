@@ -22,7 +22,7 @@ import { DEFAULT_ON_PARSE_ERROR, isParseError } from "../shared/parse.ts";
  *
  * | `onParseError` | Lifecycle on bad line (chunked)                                  |
  * |----------------|------------------------------------------------------------------|
- * | `'fail'` (default) | `route:exchange:failed` (or `error:caught`); next line continues  |
+ * | `'fail'` (default) | `route:exchange:failed` (or `route:error:caught`); next line continues  |
  * | `'abort'`      | `route:exchange:failed` for the bad line, then source dies (`context:error`) |
  * | `'drop'`       | `route:exchange:dropped` (`reason: "parse-failed"`); next line continues |
  *
@@ -63,10 +63,10 @@ export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
 
             // Defer parse to the synthetic pipeline step. The mode the
             // runtime uses controls observability:
-            //   'fail'  -> exchange:failed; we .catch() and continue
-            //   'abort' -> exchange:failed; we let the rejection propagate
+            //   'fail'  -> route:exchange:failed; we .catch() and continue
+            //   'abort' -> route:exchange:failed; we let the rejection propagate
             //              out of forEachLine to abort the source
-            //   'drop'  -> exchange:dropped; promise resolves cleanly
+            //   'drop'  -> route:exchange:dropped; promise resolves cleanly
             const promise = sub.emit({
               message: trimmed as unknown as T,
               headers,

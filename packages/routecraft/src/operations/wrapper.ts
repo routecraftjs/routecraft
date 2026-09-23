@@ -70,7 +70,7 @@ const NON_WRAPPABLE_OPERATIONS: ReadonlySet<OperationType> = new Set([
  * error for the pipeline executor to handle).
  *
  * The template `execute()` handles the boilerplate: emitting the
- * inner step's `step:started` / `step:completed` events with the inner
+ * inner step's `route:step:started` / `route:step:completed` events with the inner
  * label (so the wrapper is observationally invisible) around the
  * subclass's `runInner`, and passing the inner's outcome through to the
  * executor, which owns all scheduling.
@@ -92,7 +92,7 @@ export abstract class WrapperStep<
   /** Display label delegated from the inner step. */
   readonly label?: string;
   /**
-   * The wrapper emits its own `step:started` / `step:completed` events
+   * The wrapper emits its own `route:step:started` / `route:step:completed` events
    * with the inner step's label, so the executor must not emit a generic
    * pair around the wrapper.
    */
@@ -208,7 +208,7 @@ export abstract class WrapperStep<
     try {
       outcome = await this.runInner(exchange, ctx);
     } catch (err) {
-      // Emit step:failed before propagating so observers see a
+      // Emit route:step:failed before propagating so observers see a
       // balanced started -> failed pair. This matters for stacked
       // wrappers where an inner wrapper threw and an outer wrapper
       // recovers; without this, the inner wrapper's started event

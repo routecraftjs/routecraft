@@ -1025,7 +1025,7 @@ export class DefaultRoute implements Route {
         // `runPipeline` inserts a standalone input step in the same
         // chain position. The non-emitting variant throws RC5065
         // cleanly into the step loop's catch path (which emits
-        // `step:failed` and then the error path), without firing
+        // `route:step:failed` and then the error path), without firing
         // duplicate `route:exchange:started` / stray `route:exchange:dropped`
         // events (see #187, #447).
         if (hasInputSchema && inputSchemas) {
@@ -1107,7 +1107,7 @@ export class DefaultRoute implements Route {
 
     const startTime = Date.now();
 
-    // Emit exchange:started event
+    // Emit route:exchange:started event
     const correlationId = exchange.headers[
       HeadersKeys.CORRELATION_ID
     ] as string;

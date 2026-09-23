@@ -474,7 +474,7 @@ export class MailSourceAdapter implements Source<MailBody> {
         try {
           // Mark-Seen-on-success covers two parse-failure paths via the
           // handler resolving cleanly:
-          //   1. 'drop': synthetic parse step emits exchange:dropped and
+          //   1. 'drop': synthetic parse step emits route:exchange:dropped and
           //      runPipeline returns without throwing.
           //   2. 'fail' with a route .error() handler that recovers: catch
           //      block sets exchange.body and runPipeline returns cleanly.

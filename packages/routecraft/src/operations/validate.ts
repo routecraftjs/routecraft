@@ -32,7 +32,7 @@ export interface Validator<T = unknown, R = T> extends Adapter {
  * Step that validates the exchange body using a Validator adapter.
  * On success the exchange continues with the (possibly coerced) body.
  * On failure the adapter throws and the normal error path handles it
- * (error handler if configured, otherwise exchange:failed).
+ * (error handler if configured, otherwise route:exchange:failed).
  */
 export class ValidateStep<T = unknown, R = T> implements Step<Validator<T, R>> {
   operation: OperationType = OperationType.VALIDATE;

@@ -1,3 +1,5 @@
+import { randomUUID } from "node:crypto";
+import { HeadersKeys } from "../../../exchange";
 import type { Source, Subscription } from "../../../operations/from";
 import type { EventName, EventPayload } from "../../../types";
 import type { EventFilter } from "./types";
@@ -6,10 +8,11 @@ import type { EventFilter } from "./types";
  * Event source adapter that produces exchanges from framework events.
  * Subscribes to context events and emits them as exchanges.
  *
- * Events a route's own exchanges emit (`route:step:*`, `route:exchange:*`,
+ * Events a route's own exchanges cause (`route:step:*`, `route:exchange:*`,
  * `route:operation:*`, and errors raised while one runs) are not delivered
- * back to it: every step emits step events, so the route would otherwise feed
- * on itself. Its own lifecycle events, such as `route:started`, are delivered.
+ * back to it, including those of the routes it calls through `direct()`:
+ * every step emits step events, so the route would otherwise feed on itself.
+ * Its own lifecycle events, such as `route:started`, are delivered.
  *
  * Two `event()` routes that each watch step or exchange events still feed
  * each other: every exchange one runs emits events the other consumes. Point
@@ -41,6 +44,10 @@ export class EventSourceAdapter implements Source<EventPayload<EventName>> {
     const unsubscribers: Array<() => void> = [];
 
     const ownRouteId = sub.meta.routeId;
+    // Correlation ids of the exchanges this route has in flight. A called
+    // route inherits the caller's correlation id, so this is what recognises
+    // events from further down the call chain.
+    const inFlight = new Set<string>();
 
     // Determine which events to subscribe to
     const eventNames = this.resolveEventNames(filters);
@@ -55,9 +62,14 @@ export class EventSourceAdapter implements Source<EventPayload<EventName>> {
       payload: EventPayload<EventName>,
     ): Promise<void> => {
       if (!sub.signal.aborted) {
-        if (isOwnExchangeEvent(payload, ownRouteId)) return;
+        if (isOwnExchangeEvent(payload, ownRouteId, inFlight)) return;
+        const correlationId = randomUUID();
+        inFlight.add(correlationId);
         try {
-          await sub.emit({ message: payload });
+          await sub.emit({
+            message: payload,
+            headers: { [HeadersKeys.CORRELATION_ID]: correlationId },
+          });
         } catch (err) {
           const metaMessage =
             typeof err === "object" &&
@@ -79,6 +91,8 @@ export class EventSourceAdapter implements Source<EventPayload<EventName>> {
             { adapter: "event", event: eventName, err },
             metaMessage ?? errorMessage ?? "Event handler failed",
           );
+        } finally {
+          inFlight.delete(correlationId);
         }
       }
     };
@@ -152,25 +166,41 @@ export class EventSourceAdapter implements Source<EventPayload<EventName>> {
 }
 
 /**
- * Whether an event was emitted while one of this route's own exchanges ran.
+ * Whether an event was caused by one of this route's own exchanges.
  *
  * Every step emits `route:step:*` and every exchange `route:exchange:*`, so
  * an `event()` route delivered its own events would start an exchange per
  * event it processes, forever, and starve the event loop. The route's own
  * lifecycle events (`route:started` and the like) carry no exchange and are
  * still delivered.
+ *
+ * Exchange events name their exchange in one of two shapes: `routeId` and
+ * `correlationId` beside `exchangeId`, or the `route` and `exchange`
+ * themselves (`route:error`, `context:error`). Both are read.
+ *
+ * @param inFlight Correlation ids of the exchanges this route has in flight
  */
 function isOwnExchangeEvent(
   payload: EventPayload<EventName>,
   ownRouteId: string,
+  inFlight: ReadonlySet<string>,
 ): boolean {
   const details = payload.details as {
     routeId?: unknown;
+    correlationId?: unknown;
     exchangeId?: unknown;
-    exchange?: unknown;
+    route?: { definition?: { id?: unknown } };
+    exchange?: { headers?: Record<string, unknown> };
   };
+  const correlationId =
+    details.correlationId ??
+    details.exchange?.headers?.[HeadersKeys.CORRELATION_ID];
+  if (typeof correlationId === "string" && inFlight.has(correlationId)) {
+    return true;
+  }
+  const routeId = details.routeId ?? details.route?.definition?.id;
   return (
-    details.routeId === ownRouteId &&
+    routeId === ownRouteId &&
     (details.exchangeId !== undefined || details.exchange !== undefined)
   );
 }

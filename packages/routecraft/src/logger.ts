@@ -79,6 +79,37 @@ function loadConfigFile(): PinoOptionsLike {
 }
 
 /**
+ * A log file the logger was asked for and could not open.
+ *
+ * @internal Read by the CLI, which owns the setting and refuses to run
+ * with its logs diverted.
+ */
+export interface LogFileDiversion {
+  /** The file as it was named. */
+  path: string;
+  /** Where the name came from. */
+  source: "LOG_FILE" | "CRAFT_LOG_FILE" | "craft.log";
+  /** Why it could not be opened for appending. */
+  reason: string;
+}
+
+let diversion: LogFileDiversion | undefined;
+
+/**
+ * The log file the logger could not open, if it was asked for one.
+ *
+ * The logger never fails over its destination: an embedding application
+ * cannot be stopped by its logger, so a file that cannot be opened diverts
+ * the logs to a file of the same name in the temporary directory, then to
+ * standard error. A host that owns the setting reads this to refuse instead.
+ *
+ * @internal
+ */
+export function logFileDiversion(): LogFileDiversion | undefined {
+  return diversion;
+}
+
+/**
  * Resolve destination stream. ENV wins, then config file, then stdout.
  * Aligns with pino's default and 12-factor. Adapters that own stdout
  * (e.g. MCP stdio) must redirect logs via --log-file or --log-level silent.
@@ -87,6 +118,12 @@ function getDestination(fileConfig?: string): NodeJS.WritableStream {
   const pinoDest = pino as unknown as {
     destination: (pathOrFd: string | number) => NodeJS.WritableStream;
   };
+  const source =
+    process.env["LOG_FILE"] !== undefined
+      ? "LOG_FILE"
+      : process.env["CRAFT_LOG_FILE"] !== undefined
+        ? "CRAFT_LOG_FILE"
+        : "craft.log";
   const logFile =
     process.env["LOG_FILE"] ?? process.env["CRAFT_LOG_FILE"] ?? fileConfig;
   if (logFile) {
@@ -97,7 +134,12 @@ function getDestination(fileConfig?: string): NodeJS.WritableStream {
       mkdirSync(dirname(resolved), { recursive: true });
       const fd = openSync(resolved, "a");
       return pinoDest.destination(fd);
-    } catch {
+    } catch (error: unknown) {
+      diversion = {
+        path: logFile,
+        source,
+        reason: error instanceof Error ? error.message : String(error),
+      };
       try {
         const pathToUse = resolve(tmpdir(), basename(logFile));
         const fd = openSync(pathToUse, "a");

@@ -617,8 +617,8 @@ export function markDropped(exchange: Exchange): void {
  * skipped when no context is bound, which keeps the drop flag correct
  * for synthetic exchanges in unit tests.
  *
- * Sites that emit additional events before the drop (`step:completed`,
- * `step:failed`, `operation:choice:unmatched`, error-handler events)
+ * Sites that emit additional events before the drop (`route:step:completed`,
+ * `route:step:failed`, `operation:choice:unmatched`, error-handler events)
  * keep those emissions local and call this helper last, so
  * `route:exchange:dropped` stays the final event for the exchange.
  *
