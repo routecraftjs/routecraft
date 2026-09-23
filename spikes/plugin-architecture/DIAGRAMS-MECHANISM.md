@@ -1,6 +1,6 @@
 # The mechanism, one level down
 
-Read `DIAGRAMS.md` first. That file has the idea; this one has how it runs.
+Read `docs/direction/` first. Those pages have the idea, for a reader of the docs site; this file has how the proof of concept runs, for an editor of it.
 
 These are drawn from the code rather than the prose, and `bun run verify:diagram`
 re-derives the module graph from the AST and fails if this file and `src/v2/`
@@ -185,7 +185,7 @@ flowchart TD
     W --> LOOP{"next step<br/>returns StepOutcome"}
     LOOP -->|"continue"| LOOP
     LOOP -->|"complete"| EXIT
-    LOOP -->|"drop"| EXIT
+    LOOP -->|"drop"| DROPPED(["dropped: nothing reaches the caller,<br/>and the exit ring does not run"])
     LOOP -->|"branch"| NEST["splice the chosen children<br/>ahead of what pends"]
     NEST --> LOOP
     LOOP -->|"fanOut"| FAN["schedule every child<br/><i>siblings pend; none may park</i>"]
@@ -206,6 +206,7 @@ flowchart TD
     style DONE fill:#1f5f2f,color:#fff
     style REF fill:#5f1f1f,color:#fff
     style FAIL fill:#5f1f1f,color:#fff
+    style DROPPED fill:#5f1f1f,color:#fff
 ```
 
 A handler declares which run kinds it survives, so a policy can apply on first
