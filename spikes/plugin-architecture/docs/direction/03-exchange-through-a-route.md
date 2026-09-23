@@ -111,12 +111,14 @@ only identity is the recorded one and nothing is asking to execute.
 
 ## Events
 
-The kernel emits what only it can see: `exchange:started`, `exchange:deferred`,
-`exchange:failed`, `path:failed` (a nested path), `continuation:unrecorded`
-(a winner that never recorded its outcome) and `drain:abandoned` (a stop
-that timed out). A plugin emits under its own namespace (`deferral:boot`,
-`deferral:sweep:failed`) and observes everything through `observe` in
-`bind`. **Intended:** a typed payload per event and one owner per terminal
-event. The proof of concept emits the deferred event twice for an ordinary
-park, once by continuation id and once by exchange id, and has no completed
-event; the published contract will have one of each.
+The kernel emits what only it can see: `exchange:started` when a run begins
+and one terminal event per run named after how it ended (`exchange:completed`,
+`exchange:dropped`, `exchange:refused`, `exchange:deferred`,
+`exchange:failed`), plus `path:failed` for a nested path,
+`continuation:unrecorded` for a winner that never recorded its outcome and
+`drain:abandoned` for a stop that timed out. A plugin emits under its own
+namespace (`deferral:boot`, `deferral:sweep:failed`) and observes everything
+through `observe` in `bind`. **Intended:** a typed payload per event and one
+owner per terminal event. The proof of concept emits the deferred event twice
+for an ordinary park, once by continuation id when the record is written and
+once by exchange id when the run ends; the published contract will have one.

@@ -37,12 +37,12 @@ resumes one.
 Everything a plugin reaches the kernel through is one of five contracts. The
 kernel defines them and implements none of them.
 
-**Port.** A named, versioned capability: `port<ContinuationStore>("continuations@2")`.
+**Port.** A named, versioned capability: `port<ContinuationStore>("execution.continuations@2")`.
 A plugin **requires** ports and **provides** ports; the kernel resolves each
 required port to one provider at start and refuses to start otherwise. A plugin
 never names another plugin, which is what lets a stranger replace a first-party
 provider under their own name. The first-party ports today are atomic records,
-continuations, authority, enforcement and resilience.
+agent sessions, continuations, authority, enforcement and resilience.
 
 **Contribution.** Either a **handler** at a point, or a **wrapper** around the
 route. A handler receives the exchange and returns a decision: allow (optionally
