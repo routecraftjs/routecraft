@@ -18,9 +18,11 @@ Routecraft is in active development -- APIs may change between minor versions.
 - **A scaffolded project's `start` shows its greeting again** -- `create-routecraft` 0.7.0 ran `craft start` at the default `warn` level, which hides the sample's `info` greeting; the script is now `craft start --log-level info`.
 - **`LOG_LEVEL` and `LOG_FILE` work from env files** -- `.env.<profile>`, a profile's `env:` and `--env <file>` were loaded after the logger was built, so log settings there were ignored; a flag still beats them. See [the environment a profile selects](/docs/next/reference/cli#the-environment-a-profile-selects).
 - **An unwritable log file stops the command** -- `craft` exits `2` naming the path instead of running on with its logs diverted to the temporary directory. See [basic usage](/docs/next/reference/cli#basic-usage).
+- **A forced `--once` shutdown names the right option** -- its hint said to raise `shutdown.timeoutMs`, which 0.7 refuses; it now says `shutdown.timeout`. See [shutdown](/docs/next/reference/configuration#shutdown).
 
 ### Core
 
+- **`defineConfig` rejects keys `CraftConfig` does not declare** -- in 0.7.0 a config still written for 0.6 (`http: { host, port, auth }`, `shutdown.timeoutMs`) or a misspelled key compiled and failed only at boot; it is now a compile error at any depth, the same one a `CraftConfig` annotation reports. The helper returns `CraftConfig` rather than the literal type of its argument. See [configuration](/docs/next/reference/configuration#craftconfig) and the [migration guide](/docs/next/migrating/0.6-to-0.7#2-servers-and-mounts).
 - **An `event()` route no longer feeds on its own events** -- a route watching `route:step:*` or `route:exchange:*` received the events its own exchanges emitted, started an exchange for each, and never let the event loop yield, so the process hung. Events from the route's own exchanges are no longer delivered to it; its lifecycle events still are. See the [event adapter](/docs/next/reference/adapters/event).
 - **Browser preflights name `Authorization`** -- `Access-Control-Allow-Headers` is `Authorization, *`. The Fetch spec leaves `Authorization` out of the bare wildcard, so a bearer-token call from a browser (the MCP Inspector's Direct mode) depended on browsers not enforcing that yet.
 
@@ -32,10 +34,6 @@ Routecraft is in active development -- APIs may change between minor versions.
 
 - **The 0.6 to 0.7 migration guide covers the Host and Origin checks** -- MCP and ACP mounts refuse a browser `Origin` or an unknown `Host` with 403 until `browserOrigins` or `allowedHostnames` lists them, which the guide did not say. See [servers and mounts](/docs/next/migrating/0.6-to-0.7#2-servers-and-mounts).
 - **The 0.5 to 0.6 migration guide covers the spy logger** -- `t.logger` stopped being `vi.fn()`-based in 0.6, so runner matchers need `testContext({ fn })`.
-
-### Core
-
-- **`defineConfig` rejects keys `CraftConfig` does not declare** -- in 0.7.0 a config still written for 0.6 (`http: { host, port, auth }`, `shutdown.timeoutMs`) or a misspelled key compiled and failed only at boot; it is now a compile error at any depth, the same one a `CraftConfig` annotation reports. The helper returns `CraftConfig` rather than the literal type of its argument. See [configuration](/docs/next/reference/configuration#craftconfig) and the [migration guide](/docs/next/migrating/0.6-to-0.7#2-servers-and-mounts).
 
 ---
 
