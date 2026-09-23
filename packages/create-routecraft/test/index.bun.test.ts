@@ -258,13 +258,13 @@ describe("generateProjectStructure", () => {
   /**
    * @case package.json boots through the folder convention
    * @preconditions Default options
-   * @expectedResult start script is "craft start". The scaffolder prints this command as the first thing to run, so it must not name a file the layout no longer has
+   * @expectedResult start script is "craft start --log-level info". It is the first command the scaffolder prints, so it must not name a file the layout no longer has, and the sample greeting logs at info, below the default warn
    */
   test("package.json start script is craft start", async () => {
     await generateProjectStructure(projectDir, makeOptions());
 
     const pkg = await readJson(join(projectDir, "package.json"));
-    expect(pkg.scripts.start).toBe("craft start");
+    expect(pkg.scripts.start).toBe("craft start --log-level info");
   });
 
   /**

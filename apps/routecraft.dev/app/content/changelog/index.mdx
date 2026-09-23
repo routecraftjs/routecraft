@@ -15,6 +15,7 @@ Routecraft is in active development -- APIs may change between minor versions.
 ### CLI
 
 - **`--log-level` and `--log-file` take effect again** -- in 0.7.0 both flags were ignored and every log line went to stdout, which corrupts an MCP server run over stdio. See [basic usage](/docs/next/reference/cli#basic-usage).
+- **A scaffolded project's `start` shows its greeting again** -- `create-routecraft` 0.7.0 ran `craft start` at the default `warn` level, which hides the sample's `info` greeting; the script is now `craft start --log-level info`.
 
 ---
 
