@@ -1,0 +1,24 @@
+bun test v1.3.11 (af24e281)
+
+validation/round-seven-g-review/probes.test.ts:
+(pass) R1: cancellation during durable create leaves a live ordinary park [14.24ms]
+(pass) R1: cancellation during durable create leaves a live error park [2.56ms]
+(pass) R2: abort does not bound notification after a committed park [22.07ms]
+(pass) R3: grant comparison admits a comma-colliding permanent grant set [7.24ms]
+(pass) R4: retry succeeds but tracked failed attempt turns the route into failure [2.23ms]
+(pass) R5: step-state replacement wins while the door waits but resume executes old state [3.09ms]
+(pass) R6: a cross-route dispatch leaks step state to an unrelated same-id step [1.95ms]
+(pass) R7: stop during the swap permits suffix execution after resources are disposed [9.70ms]
+(pass) R8: reusing one deferral descriptor lets stopping context A cancel context B's timer [3.27ms]
+(pass) R9: decorated admission state is lost when a later admission handler refuses [1.42ms]
+(pass) R10: an open point can advertise defer but invoke discards its request [1.23ms]
+(pass) R11: array holes keep backend-dependent shape unlike the shipped codec [0.60ms]
+(pass) R11: a numeric-looking non-index array property is silently lost [0.52ms]
+(pass) R12: removing the deferred route removes its door policy before disclosure [1.75ms]
+(pass) R13: an ordinary park emits two deferred terminal events [1.29ms]
+(pass) R14: corrupt-body revival after CAS leaves false crash residue [2.38ms]
+
+ 16 pass
+ 0 fail
+ 47 expect() calls
+Ran 16 tests across 1 file. [176.00ms]

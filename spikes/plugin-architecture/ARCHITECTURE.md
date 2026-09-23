@@ -70,7 +70,11 @@ asymmetry is the most useful thing in this document.
   round (`reviews/OPUS-ROUND-7F.md`) found the door admitting a continuation
   that skipped the route's own gate, the error-path park copying `#818`'s
   happy path and none of its refusals, and the elevation held in a plugin
-  map; round 7g closes it: 111 tests, 141 mutants.
+  map; round 7g closes it: 111 tests, 141 mutants. Astra's open-ended
+  design review of that head (`reviews/ASTRA-ROUND-7G.md`) keeps the
+  architecture and refuses to freeze the continuation contracts: fourteen
+  findings, sixteen reproductions, all reproduced here. See post-round-7g,
+  the Astra review.
 - **Diagrams:** `DIAGRAMS.md` is the overview: what changes, in two pictures,
   plus the four things a plugin can do. `DIAGRAMS-MECHANISM.md` is one level
   down, and its module graph is checked against the source by
@@ -105,6 +109,7 @@ not see.
 | 7f | The review's seven criteria and the `#818` door | Fable 5.1 (this session) | ✅ Done. Every finding closed or disputed by name; the two-hook door (`authorize`, `elevate`) and the error-path park added, so the step-up flow `#818` describes runs end to end in the spike. See post-round-7f. |
 | 7f review | Clean-room review of round 7f | Claude Opus 5.5, fresh session | ✅ Done. Reproduced `814748e4` to the figure; F13 adjudicated for 7f against the shipped comments; fourteen probes and thirty mutants (eleven surviving) showed the continuation never re-asked its gate, the bound came from any refusal, the error-path park had none of `#818`'s refusals, and the elevation was held in a plugin map. Eight bounded exit criteria. `reviews/OPUS-ROUND-7F.md`. |
 | 7g | The 7f review's eight criteria | Fable 5.1 (this session) | ✅ Done. Every finding closed by name, two kept as stated differences. See post-round-7g. |
+| 7g review | Open-ended design review of round 7g | Astra, fresh session | ✅ Done. Reproduced `85f7506a` to the figure. Verdict: keep the architecture, proceed with feature fit, do not freeze the continuation contracts or migrate this executor. Fourteen findings (R1 to R14), sixteen executable reproductions, every one reproduced here. `reviews/ASTRA-ROUND-7G.md`; evidence `validation/round-seven-g-review/` on `validation/round-7g-astra` at `de98d680`. |
 | 7a | Feature fit, clean room | Claude Opus 5, fresh session | Walk the real framework feature by feature: what fits the model, what does not. |
 | 7b | Feature fit, clean room | ChatGPT Astra | Same brief, independently, from its own round-3 work plus round 6. |
 | 8 | Implementation planning | Fable 5.1 | Given everything: decide sequencing, pull-request shape, and whether to fan out to sub-agents. **Fable decides how, not whether.** |
@@ -840,6 +845,60 @@ page; the bound is in the port. The two shipped comments the review named
 (`config.ts:354`, `sweeper.ts:268`) need an issue against the main
 repository, which is Jaco's to file or approve.
 
+### Post-round-7g: the Astra review, reproduced
+
+Astra reviewed `85f7506a` with an open brief: the whole design, any method.
+Its verdict: keep the architecture (kernel boundary, one installation
+protocol with several contribution contracts, contract-owned anchors,
+one facet per namespace, the resume and notification asymmetry) and do not
+freeze the continuation contracts or treat this executor as the migration
+target. All sixteen probes and the strict-compiler fixture reproduce here on
+the same head. Positions per finding, to be confirmed by Jaco:
+
+| Finding | Astra's priority | Position |
+|---|---|---|
+| **R1** a cancellation during the store write leaves a live park; the ordinary case still notifies | P1 | **Accepted.** Shipped and `#818` check after `create` and deny claim-first; the spike checks only before. Pass the run's signal into `park` and settle after the write |
+| **R2** notification is not bounded by the ingress signal | P1 | **Accepted.** `#818`'s `runNotify` races the signal and denies on abort; the spike closes only the synchronous throw |
+| **R3** the identity rule compares grant arrays by joined text, so `["admin,read"]` equals `["admin","read"]` and a lend-free elevation widens the permanent grants | P1 | **Accepted.** Compare structurally |
+| **R4** a retried step's failed first attempt stays tracked, so a successful retry is reported as a failure | P1 | **Accepted.** Owned work (drained at stop) and outcome-bearing work (streams) are one set; they must be two |
+| **R5** step state replaced while the door waits is stored but the winning resume runs the earlier snapshot | P1 | **Accepted as a contract gap.** The claim must return the record it claimed, or the resume must re-read after winning. Shipped `revive.ts` shares the pre-claim read; not a migration regression |
+| **R6** `dispatch` keeps the source run's resumption, so a same-named step on another route receives its step state | P1 | **Accepted.** Clear resumption when a dispatch starts a new route |
+| **R7** a store swap released after `stop()` timed out starts the continuation on disposed resources | P1 | **Accepted.** Re-check acceptance after `markResumed` and record the failure without running the route |
+| **R8** `deferralPlugin` holds its sweep timer in the descriptor closure, so two contexts from one exported value share it | P1 | **Accepted.** Per-installation state belongs in `bind`; a descriptor must be reusable |
+| **R9** a refusal after a decorating admission handler parks the undecorated exchange | P2 | **Disputed as a defect, accepted as a documentation gap.** A park raised at admission is re-admitted on resume, so the whole ring re-runs on the parked exchange; persisting the decorated one would decorate twice. The document must say the park stores what admission was given |
+| **R10** an open point may declare `defer` and its handler may return a park, but `invoke` erases it | P1 | **Accepted.** Only the kernel's error point has a site to park at; restrict `defer` to it in the type and add a compiler control |
+| **R11** sparse arrays and numeric-looking non-index properties differ from the shipped codec | P2 | **Accepted.** The migration keeps `serialize.ts`; the spike codec is a stand-in and the `$date` tag a format decision to record |
+| **R12** a deployment without the deferred route answers `UNKNOWN_ROUTE` before the door, disclosing the route and dropping its policy | P1 | **Accepted.** Fail closed now (an unknown route is refused, not disclosed); the door independent of the deferred route stays a ledger blocker |
+| **R13** an ordinary park emits `exchange:deferred` twice, once per id meaning | P2 | **Accepted.** One owner of terminal events |
+| **R14** a decode failure after the claim leaves the record resumed without an outcome, as if the process had crashed | P2 | **Accepted.** Every post-claim step belongs inside the scope that records a failed outcome |
+
+**The design recommendation that matters.** Astra reads the spike's runtime
+as a second continuation subsystem, and reads the pattern of the last three
+rounds (each closes one path and a fresh reviewer finds the neighbouring
+one open) as evidence that translating shipped behaviour into this loop
+does not converge. Its instruction: extract the participation contracts
+around the shipped executor, keep the shipped execution machinery, and use
+the failures above as fixtures for the feature-fit ledger. This matches
+what the record already says at stage 4 ("multiple bounded tickets, not one
+executor rewrite") and in the round-six ruling on migration ("keep the
+existing executor as a reference"); what it adds is that the spike's
+executor is not the migration target and the record should stop reading as
+if a green round made it one. **Adopted:** the spike is a reference for the
+contracts, and the ledger measures the shipped code against them.
+
+Its other asks, carried into the ledger brief: a state-transition ledger
+for every awaited boundary (which snapshot is authoritative, which signal
+applies, what is recorded); the consumer assembly story (a project-typed
+route factory over a side-effect-free definition) fixed before the DSL is
+documented as final; plugin-author effort made visible with helpers over
+the low-level protocol; the non-TypeScript contract (point names, anchors,
+namespaces, option keys, event names and payloads, error codes, codec,
+hash projection) versioned; fixtures derived by crossing mechanisms rather
+than by adding single-path mutants; and one short current-contract section
+in this record so a reader does not reconstruct the API from superseding
+rounds. Its thirteen documentation corrections are the input to the
+documentation round.
+
 ### Brief for rounds 7a and 7b: the feature-fit migration ledger
 
 Two independent walks of the real framework, `7a` by a fresh Claude Opus 5 and
@@ -1063,6 +1122,7 @@ re-ran half-run continuations.
 | `reviews/ASTRA-ROUND-SEVEN.md` | Astra's contract review of rounds 7c and 7d; its probes and mutants are on `validation/round-six-astra` at `763d26aa` (round 7e) |
 | `reviews/FABLE-ROUND-7E.md` | Clean-room review of round 7e; its probes and mutants are on `validation/round-7e-fable` at `41af1af7` |
 | `reviews/OPUS-ROUND-7F.md` | Clean-room review of round 7f by Claude Opus 5.5; its probes, controls and mutants are on `validation/round-7f-opus` at `52a62a49` |
+| `reviews/ASTRA-ROUND-7G.md` | Astra's open-ended design review of round 7g; its sixteen probes and compiler fixture are in `validation/round-seven-g-review/` (on `validation/round-7g-astra` at `de98d680`, folded into this branch) |
 | `DIAGRAMS.md`, `DIAGRAMS-MECHANISM.md`, `DOCS-ARCHITECTURE-DRAFT.md` | Overview, code-derived mechanism, draft public page |
 | `src/v2/` | The proof of concept: 12 modules, `auth.ts` added in 7c, `codec.ts` in 7e |
 | `test/round-two/` | 111 acceptance tests; `corrections.test.ts` holds rounds 6 and 7, `round-seven-e.test.ts` Astra's eighteen probes as corrected behaviour, `round-seven-f.test.ts` the 7e review's findings inverted and the `#818` door, `round-seven-g.test.ts` the 7f review's findings inverted |

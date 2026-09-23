@@ -1,0 +1,299 @@
+$ bun run typecheck && bun run test && bun run verify:mutations && bun run verify:boundaries && bun run verify:types && bun run verify:diagram
+$ tsc --noEmit
+$ bun test test/round-two
+bun test v1.3.11 (af24e281)
+
+test/round-two/round-seven-g.test.ts:
+(pass) G1: a step-up park resumed without a lend is refused by the gate it was refused by [17.14ms]
+(pass) G2: a refusal recorded by another plugin is not a bound the gate lends against [1.80ms]
+(pass) G3: a site-less failure is refused a park rather than resumed from the top [2.77ms]
+(pass) G4, G5: a defer or a failure inside a fan-out cannot park [1.73ms]
+(pass) G6: the elevation applied is the winning call's own [34.69ms]
+(pass) G7: an insufficient lend fails the resume audibly and is not parked twice [2.06ms]
+(pass) G8, G9: hook failures are one refusal, and a late door runs nothing on a stopped application [31.79ms]
+(pass) G10: the store's default deadline applies to parks the DSL did not make [4.57ms]
+(pass) G11: a cancelled run leaves no resume link [9.89ms]
+(pass) G12: a failing notify denies the record instead of leaving a live link [1.88ms]
+(pass) G13, G14: a revived body has an ordinary prototype, and -0 is normalised [0.14ms]
+(pass) survivors: grant widening refused, re-lend accepted, step state scoped, sweep stops between records and pages [68.34ms]
+
+test/round-two/process.test.ts:
+(pass) defer → SIGKILL → new process → resume named nested instruction across two stores [161.07ms]
+(pass) SIGKILL between record and index statements rolls back both [30.83ms]
+(pass) CAS under overlapping processes sharing the same observed version [36.81ms]
+
+test/round-two/packed.test.ts:
+(pass) independently compiled plugin consumes only the packed artifact [3206.52ms]
+
+test/round-two/contracts.test.ts:
+(pass) continue, complete, drop, public branch, fanOut and takePending schedule exact suffixes [2.76ms]
+(pass) source really emits and shutdown unsubscribes [0.57ms]
+(pass) replacement under own identity, duplicate refusal, undeclared access and unique tokens [1.39ms]
+(pass) rollback and teardown aggregate with consumers stopped before providers close [1.06ms]
+(pass) observers cannot abort execution; subscriptions are snapshotted [5.92ms]
+(pass) descriptor mutation cannot bypass freeze and contribution ids are owner-qualified [0.89ms]
+(pass) four handlers use selectors, deterministic order, compositional decoration and refusal [1.21ms]
+(pass) a failing error handler cannot replace primary or skip subsequent handlers [0.62ms]
+(pass) timeout cancels, suppresses late result and rejects a late guarded side effect [12.90ms]
+(pass) concurrency and breaker state persist per route [13.22ms]
+(pass) drain owns streaming response after the step returns [5.68ms]
+(pass) debounce and errorChannel execute the captured suffix with explicit survival [0.88ms]
+(pass) installed DSL executes all four categories and two retry scopes in one route [7.78ms]
+(pass) anchors survive replacement and missing optional contracts are reported [1.56ms]
+(pass) atomic store deletes, copies values, rolls back throwing writes and rejects stale ABA versions [0.54ms]
+(pass) caller cancellation rejects before released work and suppresses outcome [5.86ms]
+(pass) runPaths isolates failures while fan-out schedules all children [0.83ms]
+(pass) resume rechecks admission without consuming a refused claim [1.99ms]
+(pass) boot failure taxonomy and foreign instruction faults name responsible plugins [1.15ms]
+(pass) a stranger owns the disabled reason it sets [0.70ms]
+(pass) an asynchronous provider supports concurrent semantic resume [38.38ms]
+(pass) start hooks see sources ready; concurrent stop awaits hooks [5.60ms]
+(pass) a plugin can enter the error channel through its public lifecycle context [0.94ms]
+(pass) different installed sets coexist in two live contexts [2.52ms]
+(pass) step timeout drains abandoned work before disposing its provider [13.10ms]
+(pass) a source can register cleanup before subscription acquisition fails [0.37ms]
+(pass) steps and lazy facets resolve declared services in their own application [2.60ms]
+(pass) resilience owns both its methods and its runtime wrappers [0.99ms]
+
+test/round-two/round-seven-e.test.ts:
+(pass) a notification claim excludes a resume until the lease releases it [1.95ms]
+(pass) a resume that arrives after the deadline expires the record instead of running it [2.14ms]
+(pass) an authorization refusal at the door does not consume the approval [2.28ms]
+(pass) a duplicate passes admission and exposes how the first resume ended [1.62ms]
+(pass) an independently branded authority replaces what the gate and the facet trust [1.25ms]
+(pass) a provider without the gate satisfies nothing: the route requirement is the enforcement port [0.55ms]
+(pass) a Map cannot park and a Date round-trips as a Date [1.80ms]
+(pass) an unpersistable terminal body does not turn a completion into a failure [1.97ms]
+(pass) a callback nested in a step's declared source is part of the tail hash [2.95ms]
+(pass) findExpired excludes claimed records and pages by keyset cursor [11.54ms]
+(pass) expiry on a protected route reaches its error channel [2.08ms]
+(pass) an external point's refusal policy is enforced at runtime, not only by the compiler [0.71ms]
+(pass) exit decoration reaches the returned result [0.38ms]
+(pass) a step appended after the defer point invalidates the approval [5.35ms]
+(pass) an appended step after a trailing defer point is not silently skipped [2.78ms]
+(pass) boot scans the store: stale claims released, overdue work retired, stranded residue reported [5.89ms]
+(pass) an orphaned record is skipped, unclaimed, and the sweep continues past it [1.27ms]
+(pass) step state is handed back to the step that parked and does not leak into the next deferral [1.91ms]
+(pass) denial, retention, step-state replacement and the pending summary [1.03ms]
+(pass) the deferral plugin's timer retires an expired record on its own [24.27ms]
+(pass) a resumed continuation keeps the parked identity restored and records the resumer as data [5.47ms]
+(pass) admission at a resume is over the ingress, with the parked exchange beside it [1.49ms]
+(pass) a minted principal is immutable, so a step cannot escalate the credential it holds [0.64ms]
+(pass) an edited child of a branching step in the tail invalidates the approval [2.58ms]
+(pass) concurrent sweeps deliver one nag, because the claim is exclusive [1.17ms]
+
+test/round-two/round-seven-f.test.ts:
+(pass) F1: .authorize() with no grants demands an authentic principal [1.59ms]
+(pass) F2, F3: who resumed is on the record from the swap, as a reference, even when the continuation fails [1.78ms]
+(pass) F4, F5: the door gets no body, and an unknown route is disclosed only past the door [0.98ms]
+(pass) F6: a resume that crosses the deadline while at the door does not run [82.87ms]
+(pass) F7: a defer inside runPath is refused, never parked [0.93ms]
+(pass) F8: frames address the chosen children, bounded, and the tail as a suffix [3.75ms]
+(pass) F9, F10: the codec refuses what shipped refuses and revives what shipped revives [0.51ms]
+(pass) F11: with a vendor store selected, the boot scan reports that store [1.06ms]
+(pass) F12: a sweep in flight when stop begins delivers what it claimed [27.44ms]
+(pass) F14: the deferral plugin applies a default ttl, and null opts out [1.58ms]
+(pass) ruling 13: the route's grants are the default door policy, and .resumable({ authorize }) replaces it [3.46ms]
+(pass) step-up: refused, parked from the error ring, lent at the door, run as the requester [5.67ms]
+(pass) error-path park: a failing step is re-entered on resume, and an undeclared park is refused [3.46ms]
+(pass) sweep as wired: pages past the first, past orphans, purges, and heals by the lease [37.29ms]
+(pass) resume path branches: settle after a winning resume, claimed records, lent grants, duplicate routes, resumedAt, the stranded bound [14.39ms]
+(pass) a resumed continuation carries the parked headers plus four of the kernel's, and nothing from the ingress [1.45ms]
+(pass) F12: a record claimed as the stop began is still delivered during the drain [52.98ms]
+(pass) a scan that does not advance past the cursor is refused, not looped [81.98ms]
+
+test/round-two/corrections.test.ts:
+(pass) a tag selector excludes a route that does not carry the tag [0.54ms]
+(pass) a handler declining resume does not run on the resumed continuation [2.73ms]
+(pass) one route parks any number of exchanges, each under its own id [1.59ms]
+(pass) the plan hash covers the tail's step definitions and nothing else [12.37ms]
+(pass) a continuation whose resumer died is reported, never re-run [1.35ms]
+(pass) the lease heals an expiry notification, and the nag is delivered exactly once after it [1.49ms]
+(pass) a step that writes its own principal cannot pass an authorize gate [1.22ms]
+(pass) a resumed continuation is authorised by its ingress, never by the stored principal [5.20ms]
+(pass) an exchange body is arbitrary in flight and plain JSON only when parked [1.34ms]
+(pass) shutdown drains for a bounded time and then abandons uncooperative work [58.97ms]
+(pass) a dispatch from a resumed run enters the target as a normal delivery [1.50ms]
+(pass) codec and pending are checked against the compiled route [1.12ms]
+(pass) an exchange with two defer points parks under #1 then #2 [2.06ms]
+(pass) a failed resume is recorded, so it is neither re-run nor reported as stranded [1.34ms]
+(pass) a second create under one id is refused, never overwritten [0.70ms]
+(pass) observers see their own copy of an event, so one cannot rewrite what the next sees [0.33ms]
+(pass) a branch cannot substitute a different function under a declared child id [0.28ms]
+(pass) two contributions claiming one anchor are refused at boot [0.60ms]
+(pass) a step's require goes through its plugin's declaration, not the application's services [0.85ms]
+(pass) a disposer registered during teardown is refused, not silently dropped [0.19ms]
+(pass) a route cannot be compiled after start [0.30ms]
+(pass) a route that requires authority does not boot without a provider of it [0.18ms]
+(pass) a refusal at exit or error is a named fault, never silently ignored [0.86ms]
+(pass) strings are owner-qualified: ids per plugin, one namespace per plugin, one facet per namespace, namespaced option keys [0.94ms]
+
+ 111 pass
+ 0 fail
+ 481 expect() calls
+Ran 111 tests across 7 files. [4.33s]
+$ bun run validation/round-two/mutations.ts
+CONTROL: unchanged copy passes the whole suite
+KILLED: duplicate provider accepted
+KILLED: installation order breaks ties
+KILLED: concurrency reset per delivery
+KILLED: breaker reset per delivery
+KILLED: changed plan accepted
+KILLED: fanout drops second child
+KILLED: handler decoration discarded
+KILLED: resume repeats prefix
+KILLED: defer fails to halt
+KILLED: reentrant instruction skipped
+KILLED: CAS condition ignored
+KILLED: transaction removed
+KILLED: delete is a read
+KILLED: dependencies disposed first
+KILLED: remaining cleanup skipped
+KILLED: observer failure escapes
+KILLED: secondary error replaces primary
+KILLED: cancelled effect fence removed
+KILLED: resume admission skipped
+KILLED: source never subscribed
+KILLED: stream completion reported early
+KILLED: complete does not halt
+KILLED: tag selector ignored
+KILLED: handler survival ignored
+KILLED: claimExpiry settles the record instead of claiming it
+KILLED: claimExpiry ignores a live claim
+KILLED: releaseClaims ignores the lease deadline
+KILLED: codec version ignored on resume
+KILLED: callable source not folded into the tail hash
+KILLED: continuation id sequence not advanced
+KILLED: resume without the compare-and-swap
+KILLED: duplicate not answered from the cache
+KILLED: failed resume not recorded
+KILLED: duplicate deferral id accepted
+KILLED: sweep skips the expiry claim
+KILLED: defer boundary does not require plain JSON
+KILLED: drain never times out
+KILLED: observers receive the live event payload
+KILLED: branch identity check dropped
+KILLED: duplicate anchors accepted
+KILLED: step context require ignores declaration
+KILLED: late disposer accepted
+KILLED: compile after start accepted
+KILLED: dispatch inherits the caller's run kind
+KILLED: route requirement unchecked (authorization fails open)
+KILLED: refusal at exit silently ignored
+KILLED: option key namespace unchecked
+KILLED: facet may be named anything
+KILLED: duplicate namespace accepted
+KILLED: contribution ids collide across plugins
+KILLED: nested child definitions omitted from the tail hash
+KILLED: minted grant array not frozen
+KILLED: expiry scan ignores the deadline
+KILLED: markExpired settles an unclaimed record
+KILLED: duplicate drops the cached exchanges
+KILLED: ingress headers merged into the continuation
+KILLED: gate ignores the selected authority
+KILLED: facet ignores the selected authority
+KILLED: markResumed ignores a live claim
+KILLED: resume ignores the deadline
+KILLED: lifecycle disclosed before the door
+KILLED: gate runs on the error channel
+KILLED: expiry scan returns claimed records
+KILLED: orphan aborts the sweep
+KILLED: unpersistable terminal body fails the resume
+KILLED: nested source not projected
+KILLED: frame not anchored at the site
+KILLED: exit decoration dropped from the result
+KILLED: point policy ignored for an external point
+KILLED: undeclared point accepted at bind
+KILLED: stranded residue not reported at boot
+KILLED: boot sweep skips healing
+KILLED: step state leaks into the next deferral
+KILLED: mismatch leaves the record resumable
+KILLED: a refused resume spends the approval
+KILLED: empty ask admits anyone
+KILLED: resumer reference not recorded by the door
+KILLED: resumer not written by the swap
+KILLED: secret rule removed
+KILLED: door handed the parked body
+KILLED: route resolved before the door
+KILLED: deadline not rechecked after the swap
+KILLED: nested path may park
+KILLED: frames ignore a bounded slice
+KILLED: codec accumulates on Object.prototype
+KILLED: decode assigns __proto__
+KILLED: symbol-keyed property accepted
+KILLED: non-enumerable property accepted
+KILLED: named array property accepted
+KILLED: Date subclass accepted
+KILLED: Date with properties accepted
+KILLED: reserved envelope accepted as data
+KILLED: corrupt envelope revived
+KILLED: non-finite number accepted
+KILLED: symbol value dropped silently
+KILLED: cycle check removed
+KILLED: boot report reads the plugin's own store
+KILLED: sweep abandoned when stop begins
+KILLED: default ttl not applied
+KILLED: door hook ignored
+KILLED: default door policy skipped
+KILLED: elevation may change identity
+KILLED: lend unbounded
+KILLED: elevation need not be live
+KILLED: carry ignored
+KILLED: park from a refusal loses the bound
+KILLED: notify before the record is durable
+KILLED: event before notify
+KILLED: undeclared park accepted
+KILLED: error-path park restarts the route
+KILLED: sweep stops at the first page
+KILLED: orphan does not advance the cursor
+KILLED: sweep never purges
+KILLED: sweep releases live claims
+KILLED: settle reports expiry after a winning resume
+KILLED: claimed record proceeds
+KILLED: lent grants not honoured
+KILLED: duplicate route id accepted
+KILLED: resumedAt header dropped
+KILLED: stranded report unbounded
+KILLED: scan stall undetected
+KILLED: no re-check after the door
+KILLED: resume not owned work
+KILLED: re-admission skipped for a door park
+KILLED: cancelled run parked
+KILLED: site-less failure parked from the top
+KILLED: repeated park allowed
+KILLED: failed notify leaves a live link
+KILLED: store default ttl ignored
+KILLED: bound not namespaced
+KILLED: hook throw is an oracle
+KILLED: hook not bounded by the ingress signal
+KILLED: -0 kept
+KILLED: defer inside a fan-out parked
+KILLED: fan-out child failure carries a site
+KILLED: elevation's grant ring not compared
+KILLED: parked lent grants dropped from the bound
+KILLED: step state handed to every step
+KILLED: sweep ignores a stop between records
+KILLED: sweep ignores a stop between pages
+KILLED: a step failure records a bound
+141/141 runtime mutations killed by behavioral assertions
+$ bun run validation/round-two/boundaries.ts
+BOUNDARIES: 12 modules (all declared), 27 permitted import edges (0 dynamic), no private/legacy imports
+$ bun run validation/round-two/type-controls.ts
+TYPE REJECTED: headers are explicit, not an ambient global bag
+TYPE REJECTED: pipeline operation requires after-from receiver
+TYPE REJECTED: route-only operation requires before-from receiver
+TYPE REJECTED: omitted plugin removes method
+TYPE REJECTED: omitted plugin removes facet
+TYPE REJECTED: installed family must return its implementation
+TYPE REJECTED: pair is merely possible, not installed with certainty
+TYPE REJECTED: dynamic lists have no statically known DSL
+TYPE REJECTED: a body-preserving step cannot return an incompatible body
+TYPE REJECTED: declining resilience removes its route and step retry method
+TYPE REJECTED: declining auth removes the authorize route method
+TYPE REJECTED: a point that does not honour refusal cannot return one
+TYPE REJECTED: the broad handler type keeps point and decision correlated, so exit still cannot refuse
+TYPE REJECTED: a runtime point descriptor cannot declare a policy the merged type does not
+TYPE REJECTED: a runtime point descriptor cannot claim another point's owner identity
+15/15 compiler negative controls detected; ordinary strict options also pass baseline
+$ bun run validation/round-two/diagram.ts
+DIAGRAM: module graph matches src/v2 (25 edges, 2 example modules omitted by design)
