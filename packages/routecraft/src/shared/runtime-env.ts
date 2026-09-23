@@ -5,10 +5,10 @@
  * unset `NODE_ENV` is the most common production misconfiguration, and
  * under the negated form it would silently relax a production guard on a
  * real deployment. Per `.standards/security.md` section 6a, the relaxed
- * mode is the one that has to be named.
+ * mode is the one that has to be named. Shared with `@routecraft/ai`, whose
+ * MCP resource guard follows the same rule.
  *
- * @internal Shared with `@routecraft/ai`, whose MCP resource guard follows
- * the same rule.
+ * @internal
  */
 export function isDevelopmentRuntime(): boolean {
   const env = process.env["NODE_ENV"];

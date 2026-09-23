@@ -1708,6 +1708,27 @@ describe("McpServer", () => {
       });
 
       /**
+       * @case The stdio transport ignores resource, so it does not validate it
+       * @preconditions NODE_ENV=production; transport stdio; resource.url is a plain-http URL
+       * @expectedResult Construction succeeds, because the option is only read on the HTTP transport
+       */
+      test("stdio transport does not validate resource.url", async () => {
+        const prev = process.env["NODE_ENV"];
+        process.env["NODE_ENV"] = "production";
+        try {
+          await expect(
+            serve([], {
+              transport: "stdio",
+              resource: { url: "http://insecure.example.com" },
+            }),
+          ).resolves.toBeInstanceOf(McpServer);
+        } finally {
+          if (prev === undefined) delete process.env["NODE_ENV"];
+          else process.env["NODE_ENV"] = prev;
+        }
+      });
+
+      /**
        * @case An unset environment fails closed like production
        * @preconditions NODE_ENV is absent; HTTP transport has no resource.url
        * @expectedResult Construction rejects instead of advertising a private bind address

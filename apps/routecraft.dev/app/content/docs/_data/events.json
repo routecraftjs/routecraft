@@ -49,7 +49,7 @@
     "anchor": "step-events"
   },
   {
-    "pattern": "route:{operation}:*",
+    "pattern": "route:{operation}:**",
     "events": [
       "batch",
       "retry",

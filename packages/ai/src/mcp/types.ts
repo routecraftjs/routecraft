@@ -222,7 +222,7 @@ export interface McpResourceOptions {
    * `development` or `test`; an unset `NODE_ENV` counts as production. The
    * server refuses to start otherwise (RC5003), because the URL clients
    * reach through a proxy cannot be inferred from the local bind address.
-   * Outside production an unset value is derived from the bound URL.
+   * In development and test, an unset value is derived from the bound URL.
    */
   url?: string | URL;
   /**

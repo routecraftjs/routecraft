@@ -79,10 +79,10 @@ function loadConfigFile(): PinoOptionsLike {
 }
 
 /**
- * A log file the logger was asked for and could not open.
+ * A log file the logger was asked for and could not open. Read by the CLI,
+ * which owns the setting and refuses to run with its logs diverted.
  *
- * @internal Read by the CLI, which owns the setting and refuses to run
- * with its logs diverted.
+ * @internal
  */
 export interface LogFileDiversion {
   /** The file as it was named. */

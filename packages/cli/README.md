@@ -44,7 +44,7 @@ A personal settings file, `.routecraft/settings.yaml`, holds named profiles with
 --log-file <path>     Write logs to a file instead of stdout
 ```
 
-Both go before the command, or after `start` and `run` as their own options (on `run`, before the file): `craft run --log-level info --log-file craft.log <file>`. `LOG_LEVEL` and `LOG_FILE` in any env file `run` or `start` loads work too, and a flag beats them. A log file that cannot be opened for appending stops the command before it runs, whether the flag, `LOG_FILE` or a `craft.log.js` named it.
+Both go before the command, or after `start` and `run` as their own options (on `run`, before the file): `craft run --log-level info --log-file craft.log <file>`. `LOG_LEVEL` and `LOG_FILE` in any env file `run` or `start` loads work too, and a flag beats them. A log file that cannot be opened for appending stops the command before it runs, whether the flag, `LOG_FILE` or a `craft.log.js` / `craft.log.cjs` named it.
 
 The CLI handles graceful shutdown on `SIGINT` / `SIGTERM` (a repeated one is ignored) and forces an immediate exit on `SIGQUIT` / `SIGBREAK`. TypeScript files are supported directly; Bun strips types natively, so there is no build step.
 

@@ -389,13 +389,11 @@ export class McpServer {
    * external origin cannot be inferred safely from the local bind address.
    */
   private validateResourceConfig(): void {
+    // Resource metadata is served over HTTP only; stdio ignores the option.
+    if (this.options.transport !== "http") return;
     const explicit = this.options.resource?.url;
     const relaxed = isDevelopmentRuntime();
-    if (
-      explicit === undefined &&
-      this.options.transport === "http" &&
-      !relaxed
-    ) {
+    if (explicit === undefined && !relaxed) {
       throw rcError("RC5003", undefined, {
         message:
           "mcpPlugin: resource.url is required for HTTP transport outside development or test",
