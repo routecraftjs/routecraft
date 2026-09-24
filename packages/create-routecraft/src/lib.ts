@@ -883,8 +883,9 @@ function mapFieldOrThrow(
  * against exactly those), except the two fields that belong to this
  * scaffold rather than to the template. The three dependency maps and
  * `scripts` merge key by key instead of being replaced, so the base's
- * `@routecraft/cli` devDependency survives a template that only declares
- * its own additions.
+ * `@routecraft/cli` dependency survives a template that only declares its
+ * own additions. A package both maps name stays in `dependencies` only:
+ * the runtime need wins, and `bun install --production` must keep it.
  *
  * A URL example with no `package.json` is left alone: it is an example
  * fragment rather than a project template, and the base manifest already
@@ -920,6 +921,13 @@ export async function mergeExamplePackageJson(
     const overlay = mapFieldOrThrow(example[field], field, "example");
     if (base === undefined && overlay === undefined) continue;
     merged[field] = pinRoutecraftVersions({ ...base, ...overlay });
+  }
+  const runtime = merged["dependencies"] as Record<string, string> | undefined;
+  const dev = merged["devDependencies"] as Record<string, string> | undefined;
+  if (runtime && dev) {
+    merged["devDependencies"] = Object.fromEntries(
+      Object.entries(dev).filter(([name]) => !(name in runtime)),
+    );
   }
   {
     const base = mapFieldOrThrow(pkg["scripts"], "scripts", "scaffold");

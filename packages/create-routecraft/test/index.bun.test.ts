@@ -307,9 +307,8 @@ describe("generateProjectStructure", () => {
     expect(pkg.dependencies["@routecraft/routecraft"]).not.toBe(
       "ROUTECRAFT_VERSION",
     );
-    expect(pkg.devDependencies["@routecraft/cli"]).not.toBe(
-      "ROUTECRAFT_VERSION",
-    );
+    expect(pkg.dependencies["@routecraft/cli"]).not.toBe("ROUTECRAFT_VERSION");
+    expect(pkg.devDependencies["@routecraft/cli"]).toBeUndefined();
     expect(pkg.devDependencies["@routecraft/testing"]).not.toBe(
       "ROUTECRAFT_VERSION",
     );
@@ -544,6 +543,35 @@ describe("mergeExamplePackageJson", () => {
     // The example's own choices are its own. Only the framework train is
     // taken out of its hands.
     expect(pkg.dependencies["zod"]).toBe("^4.3.6");
+  });
+
+  /**
+   * @case A package the base needs at runtime and the example lists as a dev dependency
+   * @preconditions The base declares @routecraft/cli in dependencies; the example declares it in devDependencies, as craft-harness does
+   * @expectedResult It is declared once, in dependencies, at the scaffolder's version, so a production install still carries the craft binary
+   */
+  test("keeps a runtime dependency out of devDependencies", async () => {
+    await writeFile(
+      join(target, "package.json"),
+      JSON.stringify({
+        name: "my-app",
+        dependencies: { "@routecraft/cli": "^0.7.0" },
+        devDependencies: { typescript: "^5.9.3" },
+      }),
+    );
+    await writeFile(
+      join(source, "package.json"),
+      JSON.stringify({
+        devDependencies: { "@routecraft/cli": "0.7.0", eslint: "^10.0.2" },
+      }),
+    );
+
+    await mergeExamplePackageJson(source, target);
+
+    const pkg = await readJson(join(target, "package.json"));
+    expect(pkg.dependencies["@routecraft/cli"]).toBe(getRoutecraftVersion());
+    expect(pkg.devDependencies["@routecraft/cli"]).toBeUndefined();
+    expect(pkg.devDependencies["eslint"]).toBe("^10.0.2");
   });
 
   /**
