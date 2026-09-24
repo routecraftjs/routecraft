@@ -18,9 +18,9 @@ import { join, relative } from 'node:path'
 import { Glob } from 'bun'
 
 import { htmlToText } from './extract-text'
-import { ROOT } from './paths'
+import { OUTPUT_PUBLIC_DIR, ROOT } from './paths'
 
-const outputDir = process.argv[2] ?? join(ROOT, '.output', 'public')
+const outputDir = process.argv[2] ?? OUTPUT_PUBLIC_DIR
 const baselineDir = join(ROOT, 'baseline', 'text')
 
 interface Row {

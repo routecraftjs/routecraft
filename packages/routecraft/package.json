@@ -54,7 +54,7 @@
     "semver": "^7.8.5",
     "tsdav": "^2.3.3",
     "vitest": "^4.1.11",
-    "zod": "^4.4.3"
+    "zod": "^4.6.1"
   },
   "repository": "https://github.com/routecraftjs/routecraft",
   "keywords": [

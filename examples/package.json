@@ -12,7 +12,7 @@
     "@routecraft/ai": "workspace:*",
     "@routecraft/routecraft": "workspace:*",
     "commander": "^14.0.3",
-    "zod": "^4.4.3"
+    "zod": "^4.6.1"
   },
   "devDependencies": {
     "@routecraft/cli": "workspace:*",

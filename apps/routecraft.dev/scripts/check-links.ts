@@ -17,10 +17,10 @@
  */
 
 import { readFileSync } from 'node:fs'
-import { join, relative } from 'node:path'
+import { relative } from 'node:path'
 import { Glob } from 'bun'
 
-import { PUBLIC_DIR } from './paths'
+import { OUTPUT_PUBLIC_DIR } from './paths'
 
 const args = process.argv.slice(2)
 const tagIndex = args.indexOf('--freeze-tag')
@@ -32,7 +32,7 @@ const freezeTag =
 const positional = args.filter(
   (value, index) => index !== tagIndex && index !== tagIndex + 1,
 )
-const outputDir = positional[0] ?? join(PUBLIC_DIR, '..', '.output', 'public')
+const outputDir = positional[0] ?? OUTPUT_PUBLIC_DIR
 
 /** True for a page published from the frozen tag rather than from main. */
 function isFrozen(url: string): boolean {

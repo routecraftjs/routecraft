@@ -32,9 +32,9 @@ import { $ } from 'bun'
 import { existsSync, readFileSync, readdirSync } from 'node:fs'
 import { dirname, join, resolve } from 'node:path'
 
-const ROOT = resolve(import.meta.dirname, '..')
+import { OUTPUT_PUBLIC_DIR, ROOT } from './paths'
+
 const REPO_ROOT = resolve(ROOT, '..', '..')
-const PUBLIC_DIR = join(ROOT, '.output', 'public')
 
 /** Where the tag keeps its docs pages, newest layout first. */
 const CONTENT_ROOT = {
@@ -55,8 +55,10 @@ if (!freezeTag) {
   process.exit(0)
 }
 
-if (!existsSync(PUBLIC_DIR)) {
-  throw new Error(`No prerender output at ${PUBLIC_DIR}. Run the build first.`)
+if (!existsSync(OUTPUT_PUBLIC_DIR)) {
+  throw new Error(
+    `No prerender output at ${OUTPUT_PUBLIC_DIR}. Run the build first.`,
+  )
 }
 
 // The one deliberate exception. The changelog is published at a top-level
@@ -109,7 +111,7 @@ async function routesAtTag(tag: string): Promise<Set<string>> {
 function routesInBuild(): { latest: Set<string>; next: Set<string> } {
   const latest = new Set<string>()
   const next = new Set<string>()
-  const docsDir = join(PUBLIC_DIR, 'docs')
+  const docsDir = join(OUTPUT_PUBLIC_DIR, 'docs')
 
   if (!existsSync(docsDir)) return { latest, next }
 
@@ -158,7 +160,7 @@ if (next.size === 0) {
   )
 }
 
-const sitemap = join(PUBLIC_DIR, 'sitemap.xml')
+const sitemap = join(OUTPUT_PUBLIC_DIR, 'sitemap.xml')
 if (existsSync(sitemap)) {
   const urls = readFileSync(sitemap, 'utf8').match(/\/docs\/next\//g) ?? []
   if (urls.length > 0) {

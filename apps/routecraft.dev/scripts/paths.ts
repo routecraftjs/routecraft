@@ -11,3 +11,6 @@ export const APP_DIR = path.join(ROOT, 'app')
 export const CONTENT_DIR = path.join(APP_DIR, 'content')
 export const GENERATED_DIR = path.join(APP_DIR, 'lib', 'generated')
 export const PUBLIC_DIR = path.join(ROOT, 'public')
+
+/** The prerendered site `vite build` writes, which every post-build gate inspects. */
+export const OUTPUT_PUBLIC_DIR = path.join(ROOT, '.output', 'public')
