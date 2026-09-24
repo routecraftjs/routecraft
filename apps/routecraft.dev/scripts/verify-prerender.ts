@@ -15,14 +15,12 @@
 import { existsSync } from 'node:fs'
 import { join } from 'node:path'
 
-import { ROOT } from './paths'
+import { OUTPUT_PUBLIC_DIR } from './paths'
 import { prerenderPages } from './prerender-pages'
-
-const outputDir = join(ROOT, '.output', 'public')
 
 const pages = prerenderPages()
 const missing = pages.filter(
-  (page) => !existsSync(join(outputDir, page, 'index.html')),
+  (page) => !existsSync(join(OUTPUT_PUBLIC_DIR, page, 'index.html')),
 )
 
 if (missing.length > 0) {
@@ -32,7 +30,7 @@ if (missing.length > 0) {
   }
   console.error(
     `Prerender incomplete: ${missing.length} of ${pages.length} pages missing ` +
-      `from ${outputDir}. The render errors are in the build log above.\n` +
+      `from ${OUTPUT_PUBLIC_DIR}. The render errors are in the build log above.\n` +
       shown.join('\n'),
   )
   process.exit(1)
