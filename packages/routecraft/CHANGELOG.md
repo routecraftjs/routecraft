@@ -1,5 +1,17 @@
 # @routecraft/routecraft
 
+## 0.7.1
+
+### Patch Changes
+
+- [#832](https://github.com/routecraftjs/routecraft/pull/832) [`e2d6111`](https://github.com/routecraftjs/routecraft/commit/e2d61113b1c34a42a64447b4e3935419ec031a5a) Thanks [@ex0b1t](https://github.com/ex0b1t)! - Browser preflight responses send `Access-Control-Allow-Headers: Authorization, *`. The Fetch spec excludes `Authorization` from the bare `*` wildcard, so a browser client sending a bearer token (the MCP Inspector's Direct mode) relied on browsers not enforcing that yet.
+
+- [#832](https://github.com/routecraftjs/routecraft/pull/832) [`e2d6111`](https://github.com/routecraftjs/routecraft/commit/e2d61113b1c34a42a64447b4e3935419ec031a5a) Thanks [@ex0b1t](https://github.com/ex0b1t)! - `defineConfig` rejects a key `CraftConfig` does not declare, at any depth. Its generic parameter checked an unknown key only when it was the sole key at its level, so a misspelled or 0.6 key beside a valid one (`http: { host, port, auth }`, `shutdown: { timeout, timeoutMs }`) compiled against 0.7 and was ignored or failed at boot. It is now a compile error, the same one `const craftConfig: CraftConfig = {...}` reports; the [0.6 to 0.7 migration guide](https://routecraft.dev/docs/migrating/0.6-to-0.7) lists where each removed key went. The helper now returns `CraftConfig` rather than the literal type of its argument, so code that reads a key off the returned value treats it as optional, as it already is on `CraftConfig`.
+
+  Shipped as a patch by decision, although both changes can stop code compiling: neither changes runtime behaviour, and the keys now rejected were already ignored or refused at boot.
+
+- [#832](https://github.com/routecraftjs/routecraft/pull/832) [`e2d6111`](https://github.com/routecraftjs/routecraft/commit/e2d61113b1c34a42a64447b4e3935419ec031a5a) Thanks [@ex0b1t](https://github.com/ex0b1t)! - An `event()` route no longer receives the events its own exchanges cause. A route watching `route:step:*` or `route:exchange:*` started an exchange for each event its own steps produced, and the process hung with the event loop never yielding. The same held for a route watching `context:error` whose own step failed, and for the events of a route it calls through `direct()`. The route's own lifecycle events, such as `route:started`, are still delivered.
+
 ## 0.7.0
 
 ### Minor Changes

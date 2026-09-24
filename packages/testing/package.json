@@ -1,6 +1,6 @@
 {
   "name": "@routecraft/testing",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Test utilities for Routecraft capabilities",
   "type": "module",
   "main": "./dist/index.cjs",

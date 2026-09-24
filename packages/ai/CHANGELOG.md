@@ -1,5 +1,11 @@
 # @routecraft/ai
 
+## 0.7.1
+
+### Patch Changes
+
+- [#832](https://github.com/routecraftjs/routecraft/pull/832) [`e2d6111`](https://github.com/routecraftjs/routecraft/commit/e2d61113b1c34a42a64447b4e3935419ec031a5a) Thanks [@ex0b1t](https://github.com/ex0b1t)! - A missing or non-HTTPS `resource.url` on the MCP HTTP transport outside `development` and `test`, or one that is not an absolute URL, fails with `RC5003` and a suggestion naming the fix, instead of a bare `TypeError`. The stdio transport, which ignores `resource`, no longer validates it. The `McpResourceOptions.url` and `resource` documentation no longer promises a default that production does not apply.
+
 ## 0.7.0
 
 ### Minor Changes

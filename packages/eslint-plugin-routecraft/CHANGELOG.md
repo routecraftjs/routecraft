@@ -1,5 +1,7 @@
 # @routecraft/eslint-plugin-routecraft
 
+## 0.7.1
+
 ## 0.7.0
 
 ### Minor Changes

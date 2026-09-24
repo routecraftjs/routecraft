@@ -1,5 +1,13 @@
 # create-routecraft
 
+## 0.7.1
+
+### Patch Changes
+
+- [#833](https://github.com/routecraftjs/routecraft/pull/833) [`ea96e05`](https://github.com/routecraftjs/routecraft/commit/ea96e05a00a69a754b9e8257f70fdac43760ebbb) Thanks [@ex0b1t](https://github.com/ex0b1t)! - A scaffolded project lists `@routecraft/cli` under `dependencies` rather than `devDependencies`. `craft start` is how the project runs in production, so `bun install --production` left an image without the `craft` binary it starts with. When an example repository lists the CLI as a dev dependency, the runtime entry wins and it is declared once. A project scaffolded earlier moves the entry itself: `bun remove @routecraft/cli && bun add @routecraft/cli`, or move the line from `devDependencies` to `dependencies` in `package.json` and run `bun install`. A bare `bun add` keeps an entry in the group it is already in.
+
+- [#829](https://github.com/routecraftjs/routecraft/pull/829) [`62503d5`](https://github.com/routecraftjs/routecraft/commit/62503d5db7ad1c6ae8e5d860a6db3541418ad532) Thanks [@ex0b1t](https://github.com/ex0b1t)! - A scaffolded project's `start` script shows its sample greeting again. 0.7.0 moved the script to `craft start` at the default `warn` level, so the greeting the README promises, logged at `info`, never appeared. The script is now `craft start --log-level info`, as it was in 0.6.
+
 ## 0.7.0
 
 ### Minor Changes
