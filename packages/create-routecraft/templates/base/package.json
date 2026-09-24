@@ -15,12 +15,12 @@
     "all": "bun run format:write && bun run typecheck && bun run lint && bun run test"
   },
   "dependencies": {
+    "@routecraft/cli": "ROUTECRAFT_VERSION",
     "@routecraft/routecraft": "ROUTECRAFT_VERSION",
     "zod": "^4.3.6"
   },
   "devDependencies": {
     "@eslint/js": "^10.0.1",
-    "@routecraft/cli": "ROUTECRAFT_VERSION",
     "@routecraft/testing": "ROUTECRAFT_VERSION",
     "@routecraft/eslint-plugin-routecraft": "ROUTECRAFT_VERSION",
     "@types/node": "^25.3.5",

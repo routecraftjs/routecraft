@@ -30,6 +30,10 @@ if (!process.versions["bun"]) {
   process.exit(1);
 }
 
+const { relaunchOutsideProject } = await import("./relaunch.js");
+const relaunched = relaunchOutsideProject(import.meta.url);
+if (relaunched) process.exit(await relaunched);
+
 const { Command } = await import("commander");
 const program = new Command();
 

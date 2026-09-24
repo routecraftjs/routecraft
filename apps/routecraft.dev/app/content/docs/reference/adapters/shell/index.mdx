@@ -13,6 +13,8 @@ import { z } from 'zod'
 
 Run a command and produce its output, isolated by default. The adapter is an enricher: use it with `.enrich()` to merge the result, `.to()` to replace the body with it, or `.tap()` to discard it. Output is always captured, because a command's output is usually why you ran it. Requires `execa` and `shescape` as peer dependencies, and `dockerode` for the `docker` tier.
 
+Requires `@routecraft/os` and its optional peers `execa` and `shescape`, plus `dockerode` for the docker tier: `bun add @routecraft/os execa shescape`. A missing peer raises `RC5017` with an install hint.
+
 ```ts
 import { shell, untrusted } from '@routecraft/os'
 import { z } from 'zod'

@@ -37,12 +37,6 @@ craft --log-level info run ./capabilities/orders.ts
 
 `LOG_LEVEL` and `LOG_FILE` also work from the env files `run` and `start` load, whether [the ones a profile selects](#the-environment-a-profile-selects) or the one `--env` names, and a flag still beats the same setting from a file. A log file that cannot be opened for appending stops the command before it runs, exiting `2` with the path and where it came from (`--log-file`, `LOG_FILE`, `CRAFT_LOG_FILE`, or a `craft.log.js` / `craft.log.cjs` file, reported as `craft.log`); a missing file and missing parent directories are created. An empty `--log-file ""` keeps logs on standard output.
 
-<Callout type="note" title="More commands coming">
-
-`dev` and `build` are planned for future releases.
-
-</Callout>
-
 ## Project scaffolding
 
 New projects are created via `bunx create-routecraft` (or the equivalent for your package manager), a separate scaffolding package -- not a `craft` subcommand:
@@ -142,6 +136,12 @@ Options:
 | `<file>` | TypeScript or JavaScript file (.ts/.mjs/.js/.cjs) to execute |
 | `--env <path>` | Load environment variables from a .env file |
 | `--profile <name>` | [Settings profile](#profiles) to select, and with it [the environment](#the-environment-a-profile-selects) |
+
+<Callout type="note" title="A file outside a project">
+
+The file needs no `package.json`. Where `@routecraft/routecraft` is not installed, it runs on the copy that ships with the CLI. The CLI does not bundle adapter dependencies, so an adapter that needs one names it and stops: install it next to the file (`bun add croner`), or globally with the same tool that installed the CLI (`bun add -g croner`).
+
+</Callout>
 
 ### start
 

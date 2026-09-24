@@ -883,8 +883,9 @@ function mapFieldOrThrow(
  * against exactly those), except the two fields that belong to this
  * scaffold rather than to the template. The three dependency maps and
  * `scripts` merge key by key instead of being replaced, so the base's
- * `@routecraft/cli` devDependency survives a template that only declares
- * its own additions.
+ * `@routecraft/cli` dependency survives a template that only declares its
+ * own additions. A package both maps name stays in `dependencies` only:
+ * the runtime need wins, and `bun install --production` must keep it.
  *
  * A URL example with no `package.json` is left alone: it is an example
  * fragment rather than a project template, and the base manifest already
@@ -921,6 +922,18 @@ export async function mergeExamplePackageJson(
     if (base === undefined && overlay === undefined) continue;
     merged[field] = pinRoutecraftVersions({ ...base, ...overlay });
   }
+  preferRuntimeDependencies(merged, {
+    dependencies: mapFieldOrThrow(
+      example["dependencies"],
+      "dependencies",
+      "example",
+    ),
+    devDependencies: mapFieldOrThrow(
+      example["devDependencies"],
+      "devDependencies",
+      "example",
+    ),
+  });
   {
     const base = mapFieldOrThrow(pkg["scripts"], "scripts", "scaffold");
     const overlay = mapFieldOrThrow(example["scripts"], "scripts", "example");
@@ -958,12 +971,43 @@ function pinRoutecraftVersions(
 }
 
 /**
- * Merge an example's optional `deps.json` (dependencies / devDependencies)
- * into the scaffolded `package.json`. Lets per-example deps (e.g. zod for the
- * hello-world schema) be declared next to the example instead of bloating the
- * base template for users who pick "none".
+ * Keep a package that both dependency maps name in `dependencies` only, so
+ * `bun install --production` still installs it. When only the example put
+ * it under `devDependencies`, the example's range wins, as it does
+ * everywhere else in a merge; `@routecraft/*` stays at the scaffolder's
+ * version either way.
  */
-async function mergeExampleDeps(
+function preferRuntimeDependencies(
+  pkg: Record<string, unknown>,
+  example: {
+    dependencies?: Record<string, string> | undefined;
+    devDependencies?: Record<string, string> | undefined;
+  },
+): void {
+  const runtime = pkg["dependencies"] as Record<string, string> | undefined;
+  const dev = pkg["devDependencies"] as Record<string, string> | undefined;
+  if (!runtime || !dev) return;
+  const version = getRoutecraftVersion();
+  for (const [name, range] of Object.entries(dev)) {
+    if (!Object.hasOwn(runtime, name)) continue;
+    const onlyExampleDev =
+      Object.hasOwn(example.devDependencies ?? {}, name) &&
+      !Object.hasOwn(example.dependencies ?? {}, name);
+    if (onlyExampleDev) {
+      runtime[name] = name.startsWith("@routecraft/") ? version : range;
+    }
+    delete dev[name];
+  }
+}
+
+/**
+ * Merge a URL example's optional `deps.json` (dependencies and
+ * devDependencies) into the scaffolded `package.json`, for an example that
+ * declares its packages there rather than in a `package.json` of its own.
+ *
+ * @internal
+ */
+export async function mergeExampleDeps(
   exampleDir: string,
   projectDir: string,
 ): Promise<void> {
@@ -990,6 +1034,7 @@ async function mergeExampleDeps(
       ...exampleDeps.devDependencies,
     });
   }
+  preferRuntimeDependencies(pkg, exampleDeps);
 
   await writeFile(pkgPath, JSON.stringify(pkg, null, 2) + "\n");
 }

@@ -105,7 +105,11 @@ Tools are an allowlist of capabilities, never a blacklist. An agent can also be 
 
 ```bash
 bunx create-routecraft my-app
+cd my-app
+bun add @routecraft/ai nodemailer
 ```
+
+The capability above uses `mcp()` from `@routecraft/ai` and sends through `mail()`, which needs `nodemailer`. An adapter that is missing its package names it when it runs.
 
 Expose a capability to Claude Desktop by adding it to `~/Library/Application Support/Claude/claude_desktop_config.json`:
 
