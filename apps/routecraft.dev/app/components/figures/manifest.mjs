@@ -65,4 +65,8 @@ export const FIGURE_TEXT = {
     caption:
       'Every team builds its own: a stack per team, a credential per person.',
   },
+  'platform-stack': {
+    alt: 'Six stacked bands, each a layer of the platform with a row of unlabelled blocks: every way in (editors, MCP clients, the CLI, HTTP and the triggers that wake it), agents, skills, capabilities, adapters, and your systems drawn as data stores. A bracket on the left spans the top five, which run on your laptop as a local harness or always on as the team harness; a cobalt strip on the right spans all six, where who asked, which door, which capability and which system are on record.',
+    caption: 'One runtime, six layers, open at any depth.',
+  },
 }

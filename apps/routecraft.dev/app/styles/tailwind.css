@@ -148,6 +148,18 @@
     --cover-accent: #8c98fc;
   }
 
+  /* Accent on a figure's inverted plate. Cobalt 500 fails on ink and on
+     paper alike, so the plate takes a lighter cobalt in light and a deeper
+     one in dark: the one figure token whose dark value is not a re-tone of
+     a brand step, hence literal here rather than in the palette. */
+  :root {
+    --figure-plate-accent: var(--color-cobalt-300);
+  }
+
+  .dark {
+    --figure-plate-accent: #0c39d6;
+  }
+
   /* Smooth the colour flip on theme change and hover-invert. */
   .blog-cover :where(div, span, path, line, rect, circle) {
     transition:
