@@ -35,7 +35,8 @@
     "@types/mailparser": "^3.4.6",
     "@types/nodemailer": "^6.4.24",
     "@types/react": "^18.3.28",
-    "ink-testing-library": "^4.0.0"
+    "ink-testing-library": "^4.0.0",
+    "jose": "^6.2.8"
   },
   "publishConfig": {
     "access": "public"
