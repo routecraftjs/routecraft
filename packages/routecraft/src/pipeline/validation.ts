@@ -182,7 +182,7 @@ export async function applyOutputStage<
  * Validate an exchange against the route's `input` schemas, throwing
  * `RC5065` on failure without emitting any lifecycle events: the caller
  * is a chain step inside `runPipeline`, so the failure becomes a normal
- * step failure (`step:failed` -> the error-handler-or-failed path).
+ * step failure (`route:step:failed` -> the error-handler-or-failed path).
  *
  * On success returns a (possibly new) exchange with validated / coerced
  * values; validated headers are merged over the originals so caller
@@ -229,7 +229,7 @@ export async function validateInputOrThrow(
 /**
  * Handle an output-validation failure. Delegates to the route's error
  * handler when one is configured (mirroring how step errors recover);
- * otherwise emits `exchange:failed` and returns a failed result so the
+ * otherwise emits `route:exchange:failed` and returns a failed result so the
  * caller can surface the error.
  */
 export async function handleOutputValidationFailure(
@@ -263,9 +263,9 @@ export async function handleOutputValidationFailure(
       // before declaring success. Without this, an `errorHandler` that
       // returns another invalid payload would silently bypass the
       // route's `.output()` contract and flow out via
-      // `exchange:completed`. A second failure here cascades through
+      // `route:exchange:completed`. A second failure here cascades through
       // the existing handlerErr branch so the failure surfaces the
-      // same way (`exchange:failed` plus the failure result).
+      // same way (`route:exchange:failed` plus the failure result).
       const recoveredExchange = await applyOutputValidation(
         deps,
         DefaultExchange.rewrap(exchange, { body: recovered }),

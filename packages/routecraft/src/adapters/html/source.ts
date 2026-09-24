@@ -15,9 +15,9 @@ import { DEFAULT_ON_PARSE_ERROR, isParseError } from "../shared/parse.ts";
  *
  * | `onParseError` | Lifecycle on extraction failure                                  |
  * |----------------|------------------------------------------------------------------|
- * | `'fail'` (default) | `exchange:failed` (or `error:caught` if `.error()` recovers) |
- * | `'abort'`      | `exchange:failed`, then source rejects and `context:error` fires |
- * | `'drop'`       | `exchange:dropped` with `reason: "parse-failed"`                 |
+ * | `'fail'` (default) | `route:exchange:failed` (or `route:error:caught` if `.error()` recovers) |
+ * | `'abort'`      | `route:exchange:failed`, then source rejects and `context:error` fires |
+ * | `'drop'`       | `route:exchange:dropped` with `reason: "parse-failed"`                 |
  *
  * See #187.
  */
@@ -61,7 +61,7 @@ export class HtmlSourceAdapter<
           if (onParseError === "abort" && isParseError(err)) throw err;
           // 'fail' / 'drop' / non-parse failures under 'abort': route
           // boundary already emitted the appropriate lifecycle event
-          // (exchange:failed or exchange:dropped). Log at debug for
+          // (route:exchange:failed or route:exchange:dropped). Log at debug for
           // operator parity with jsonl/source.ts and swallow so the
           // file source keeps reading. The file adapter ignores the
           // resolved value, so returning undefined is safe.

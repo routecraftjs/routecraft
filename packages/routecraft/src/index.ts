@@ -16,6 +16,7 @@ export {
 export { authenticate, type PrincipalClaims } from "./auth/authenticate.ts";
 export { delegate, type DelegateOptions } from "./auth/delegate.ts";
 export { isAuthentic, markAuthentic } from "./auth/authentic.ts";
+export { isDevelopmentRuntime } from "./shared/runtime-env.ts";
 export {
   classifyRejectionReason,
   isExpiredTokenError,
@@ -486,7 +487,7 @@ export {
   type RegisteredDirectEndpoint,
 } from "./registry.ts";
 
-export { logger } from "./logger.ts";
+export { logger, logFileDiversion, type LogFileDiversion } from "./logger.ts";
 
 export { shutdownHandler } from "./shutdown.ts";
 

@@ -1639,7 +1639,7 @@ describe("McpServer", () => {
       /**
        * @case HTTPS-in-production guard fires eagerly when `resource.url` is http:// in production
        * @preconditions NODE_ENV=production; resource.url is an http URL; validator auth
-       * @expectedResult `new McpServer(...)` (via startHttpServer) throws TypeError at construction; no request is ever served
+       * @expectedResult `new McpServer(...)` (via startHttpServer) throws RC5003 at construction, naming HTTPS; no request is ever served
        */
       test("HTTPS guard rejects http:// resource.url at construction in production", async () => {
         const prev = process.env["NODE_ENV"];
@@ -1650,7 +1650,10 @@ describe("McpServer", () => {
               auth: { validator: () => validPrincipal },
               resource: { url: "http://insecure.example.com" },
             }),
-          ).rejects.toThrow(/HTTPS/);
+          ).rejects.toMatchObject({
+            rc: "RC5003",
+            message: expect.stringMatching(/HTTPS/),
+          });
         } finally {
           if (prev === undefined) delete process.env["NODE_ENV"];
           else process.env["NODE_ENV"] = prev;
@@ -1670,7 +1673,55 @@ describe("McpServer", () => {
             startHttpServer([], {
               auth: { validator: () => validPrincipal },
             }),
-          ).rejects.toThrow(/resource\.url is required/);
+          ).rejects.toMatchObject({
+            rc: "RC5003",
+            message: expect.stringMatching(/resource\.url is required/),
+          });
+        } finally {
+          if (prev === undefined) delete process.env["NODE_ENV"];
+          else process.env["NODE_ENV"] = prev;
+        }
+      });
+
+      /**
+       * @case A resource URL that does not parse
+       * @preconditions NODE_ENV=development; resource.url is a relative path
+       * @expectedResult Construction fails with RC5003 naming the value, rather than a bare TypeError from the URL parser
+       */
+      test("an unparseable resource.url is refused with RC5003", async () => {
+        const prev = process.env["NODE_ENV"];
+        process.env["NODE_ENV"] = "development";
+        try {
+          await expect(
+            startHttpServer([], {
+              auth: { validator: () => validPrincipal },
+              resource: { url: "/mcp" },
+            }),
+          ).rejects.toMatchObject({
+            rc: "RC5003",
+            message: expect.stringMatching(/not an absolute URL: \/mcp/),
+          });
+        } finally {
+          if (prev === undefined) delete process.env["NODE_ENV"];
+          else process.env["NODE_ENV"] = prev;
+        }
+      });
+
+      /**
+       * @case The stdio transport ignores resource, so it does not validate it
+       * @preconditions NODE_ENV=production; transport stdio; resource.url is a plain-http URL
+       * @expectedResult Construction succeeds, because the option is only read on the HTTP transport
+       */
+      test("stdio transport does not validate resource.url", async () => {
+        const prev = process.env["NODE_ENV"];
+        process.env["NODE_ENV"] = "production";
+        try {
+          await expect(
+            serve([], {
+              transport: "stdio",
+              resource: { url: "http://insecure.example.com" },
+            }),
+          ).resolves.toBeInstanceOf(McpServer);
         } finally {
           if (prev === undefined) delete process.env["NODE_ENV"];
           else process.env["NODE_ENV"] = prev;
@@ -1690,7 +1741,10 @@ describe("McpServer", () => {
             startHttpServer([], {
               auth: { validator: () => validPrincipal },
             }),
-          ).rejects.toThrow(/resource\.url is required/);
+          ).rejects.toMatchObject({
+            rc: "RC5003",
+            message: expect.stringMatching(/resource\.url is required/),
+          });
         } finally {
           if (previous === undefined) delete process.env["NODE_ENV"];
           else process.env["NODE_ENV"] = previous;

@@ -5,7 +5,9 @@ import {
   HeadersKeys,
   isRoutecraftError,
   isDeferred,
+  isDevelopmentRuntime,
   markAuthentic,
+  rcError,
   requireWebIngress,
   type ProtectedResourceMetadata,
 } from "@routecraft/routecraft";
@@ -73,6 +75,10 @@ type SdkAuthInfo = AuthInfo;
  * AbortController per call.
  */
 const NEVER_ABORTED = new AbortController().signal;
+
+/** How to run the HTTP transport over plain http locally, shared by the resource guards. */
+const LOCAL_HTTP_HINT =
+  "For local work over plain http, run with NODE_ENV=development; an unset NODE_ENV counts as production.";
 
 /** True for a plain, non-array, non-null object. */
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -280,6 +286,7 @@ export class McpServer {
       path: "/mcp",
       ...options,
     };
+    this.validateResourceConfig();
     this.stopListeningForServer = context.on(
       "server:listening",
       ({ details }) => {
@@ -287,7 +294,6 @@ export class McpServer {
         this.boundPort = details.port;
       },
     );
-    this.validateResourceConfig();
   }
 
   /** Bound port for the named server after `server:listening` fires. */
@@ -383,24 +389,34 @@ export class McpServer {
    * external origin cannot be inferred safely from the local bind address.
    */
   private validateResourceConfig(): void {
+    // Resource metadata is served over HTTP only; stdio ignores the option.
+    if (this.options.transport !== "http") return;
     const explicit = this.options.resource?.url;
-    const environment = process.env["NODE_ENV"];
-    const relaxed = environment === "development" || environment === "test";
-    if (
-      explicit === undefined &&
-      this.options.transport === "http" &&
-      !relaxed
-    ) {
-      throw new TypeError(
-        "mcpPlugin: resource.url is required for HTTP transport outside development or test",
-      );
+    const relaxed = isDevelopmentRuntime();
+    if (explicit === undefined && !relaxed) {
+      throw rcError("RC5003", undefined, {
+        message:
+          "mcpPlugin: resource.url is required for HTTP transport outside development or test",
+        suggestion: `Set mcpPlugin({ resource: { url } }) to the HTTPS URL clients reach this server at, for example https://mcp.example.com/mcp. ${LOCAL_HTTP_HINT}`,
+      });
     }
     if (explicit === undefined) return;
-    const parsed = new URL(explicit.toString());
+    let parsed: URL;
+    try {
+      parsed = new URL(explicit.toString());
+    } catch {
+      throw rcError("RC5003", undefined, {
+        message: `mcpPlugin: resource.url is not an absolute URL: ${explicit.toString()}`,
+        suggestion:
+          "Set resource.url to the full URL clients reach this server at, scheme included, for example https://mcp.example.com/mcp.",
+      });
+    }
     if (parsed.protocol !== "https:" && !relaxed) {
-      throw new TypeError(
-        "mcpPlugin: resource.url must use HTTPS outside development or test",
-      );
+      throw rcError("RC5003", undefined, {
+        message:
+          "mcpPlugin: resource.url must use HTTPS outside development or test",
+        suggestion: `Set resource.url to the HTTPS URL your TLS-terminating proxy publishes. ${LOCAL_HTTP_HINT}`,
+      });
     }
   }
 

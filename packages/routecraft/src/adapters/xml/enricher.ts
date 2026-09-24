@@ -8,7 +8,7 @@ import { parseXml } from "./shared.ts";
  * `fetch` reads the resolved path, parses it, and returns the parsed object,
  * so `.enrich(xml({ path }))` pulls an XML file into the route mid-flow.
  * Parse failures throw (the route boundary surfaces them as
- * `exchange:failed`); the `onParseError` lifecycle controls apply to the
+ * `route:exchange:failed`); the `onParseError` lifecycle controls apply to the
  * source role only.
  *
  * @template T - Parsed object type (caller-asserted, e.g. `xml<MyDoc>(...)`)

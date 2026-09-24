@@ -24,6 +24,7 @@ import {
   DEFAULT_DEFERRAL_TTL,
   DeferralSweeper,
 } from "./sweeper.ts";
+import { isDevelopmentRuntime } from "../shared/runtime-env.ts";
 
 /**
  * Environment variable naming where deferred exchanges are persisted. Either
@@ -367,19 +368,3 @@ export function deferralPlugin(config: DeferralConfig = {}): CraftPlugin {
 }
 
 registerConfigApplier("deferral", (options) => deferralPlugin(options));
-
-/**
- * Whether the process is running a named development or test environment.
- *
- * Deliberately an allowlist rather than `NODE_ENV !== "production"`: an
- * unset `NODE_ENV` is the most common production misconfiguration, and
- * under the negated form it would silently enable ephemeral signing keys on
- * a real deployment. Per `.standards/security.md` section 6a, the relaxed
- * mode is the one that has to be named.
- *
- * @internal
- */
-function isDevelopmentRuntime(): boolean {
-  const env = process.env["NODE_ENV"];
-  return env === "development" || env === "test";
-}

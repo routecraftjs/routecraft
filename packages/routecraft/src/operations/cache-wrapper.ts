@@ -133,7 +133,7 @@ class CacheLoaderDrop extends Error {
  *
  * Known limitation: concurrent exchanges that share a single
  * `getOrCompute` computation (stampede dedupe) currently report
- * `cache:hit` for the waiters rather than a distinct "deduped" signal,
+ * `route:cache:hit` for the waiters rather than a distinct "deduped" signal,
  * which can inflate hit-rate metrics. Tracked separately; needs a
  * provider-interface change to report whether the current call ran the
  * loader.

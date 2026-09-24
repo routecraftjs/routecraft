@@ -323,9 +323,9 @@ type ExchangeInternals = {
   parse?: (raw: unknown) => unknown | Promise<unknown>;
   /**
    * How the synthetic parse step should handle a parse failure.
-   * - `"fail"` / `"abort"`: throw `RC5016` so `exchange:failed` fires (and
+   * - `"fail"` / `"abort"`: throw `RC5016` so `route:exchange:failed` fires (and
    *   for `"abort"` the adapter rethrows out of subscribe).
-   * - `"drop"`: emit `exchange:dropped` with `reason: "parse-failed"`,
+   * - `"drop"`: emit `route:exchange:dropped` with `reason: "parse-failed"`,
    *   matching filter/validate drop semantics; the pipeline halts cleanly
    *   without invoking `.error()`. See #187.
    *
@@ -358,7 +358,7 @@ type ExchangeInternals = {
   /**
    * When the engine first encounters an exchange in the step loop it
    * records the start timestamp here, used later to compute duration
-   * for `exchange:completed`. Stored on internals (rather than headers)
+   * for `route:exchange:completed`. Stored on internals (rather than headers)
    * so it survives `rewrap` calls without consuming a header slot, and
    * so aggregator code can read child start times without the engine
    * having to thread a side-Map through.
@@ -370,7 +370,7 @@ type ExchangeInternals = {
    * Set when an exchange is dropped (filter, choice halt / unmatched,
    * parse drop, input-validation drop, `recovery.drop()` directives; see
    * {@link emitExchangeDropped}). The runtime engine reads this
-   * after `runPipeline` completes to skip `exchange:completed` emission.
+   * after `runPipeline` completes to skip `route:exchange:completed` emission.
    * Stored on internals so the flag survives `rewrap`: the engine
    * rewraps an exchange before each step (to update the operation
    * header), so an operation that calls `markDropped(exchange)` is
@@ -404,7 +404,7 @@ type ExchangeInternals = {
   /**
    * Set when the exchange deferred at a `.defer()`. Read after
    * `runPipeline` returns to skip `.output()` validation and
-   * `exchange:completed`: execution one ends with the `Deferred`
+   * `route:exchange:completed`: execution one ends with the `Deferred`
    * acknowledgment as its body, which is deliberately NOT the route's
    * declared output, and its terminal event is `route:exchange:deferred`.
    *
@@ -612,13 +612,13 @@ export function markDropped(exchange: Exchange): void {
  * pipeline site. The mark MUST precede the emission so a subscriber that
  * calls `isDropped(event.details.exchange)` observes the correct state;
  * the runtime engine reads the flag after `runPipeline` to skip
- * `exchange:completed` (see `pipeline/executor.ts`). The mark is
+ * `route:exchange:completed` (see `pipeline/executor.ts`). The mark is
  * unconditional ({@link markDropped} is idempotent); the emission is
  * skipped when no context is bound, which keeps the drop flag correct
  * for synthetic exchanges in unit tests.
  *
- * Sites that emit additional events before the drop (`step:completed`,
- * `step:failed`, `operation:choice:unmatched`, error-handler events)
+ * Sites that emit additional events before the drop (`route:step:completed`,
+ * `route:step:failed`, `operation:choice:unmatched`, error-handler events)
  * keep those emissions local and call this helper last, so
  * `route:exchange:dropped` stays the final event for the exchange.
  *

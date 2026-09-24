@@ -8,7 +8,7 @@ Full reference for `CraftConfig` fields and logging options.
 
 ## CraftConfig
 
-The main configuration object for context settings. Export it as `craftConfig` (named export) alongside your capabilities when using `craft run`. The recommended pattern is `defineConfig`, an identity helper that preserves literal-type inference (so autocomplete works for first-class keys):
+The main configuration object for context settings. Export it as `craftConfig` (named export) alongside your capabilities when using `craft run`. The recommended pattern is `defineConfig`, an identity helper that types the object as `CraftConfig`, so every key autocompletes (including [ecosystem keys](#ecosystem-keys-added-by)) and a key `CraftConfig` does not declare is a compile error:
 
 ```ts
 import { defineConfig } from '@routecraft/routecraft'
@@ -23,7 +23,7 @@ export const craftConfig = defineConfig({
 })
 ```
 
-`defineConfig` is a no-op at runtime; it returns the input unchanged. The legacy `satisfies CraftConfig` pattern continues to work.
+`defineConfig` is a no-op at runtime; it returns the input unchanged. The checking is the same as annotating `const craftConfig: CraftConfig = {...}` or writing `{...} satisfies CraftConfig`: an unknown or misspelled key is an error at any depth, so a key a release removed (such as the 0.6 `http: { host, port }`, now under [`servers`](#servers-and-http)) fails to compile rather than at boot.
 
 ## Durations
 
@@ -106,7 +106,6 @@ import '@routecraft/ai' // augments CraftConfig with llm/mcp/embedding/agent/ses
 export const craftConfig = defineConfig({
   llm: {
     providers: { openai: { apiKey: process.env.OPENAI_API_KEY! } },
-    defaultProvider: 'openai',
   },
   mcp: { clients: { /* ... */ } },
   agent: { agents: { /* ... */ } },
@@ -236,7 +235,7 @@ Names other running instances, and every dispatchable route they expose through 
 ```ts
 import { defineConfig } from '@routecraft/routecraft'
 
-export default defineConfig({
+export const craftConfig = defineConfig({
   remotes: {
     default: {
       url: 'https://routecraft.example.internal',
@@ -461,7 +460,9 @@ export default {
 };
 ```
 
-When using the CLI, pass `--log-level` or `--log-file` to set the corresponding env var before the logger initializes, so CLI flags override any config file.
+When using the CLI, pass `--log-level` or `--log-file` to set the corresponding env var before the logger initializes, so CLI flags override any config file. The env files the CLI loads are in place before the logger initializes too, and a flag beats them.
+
+A log file that cannot be opened for appending is handled differently by the two entry points. The CLI refuses to start and names the path. An embedding application is never stopped by its logger, so there the logs go to a file of the same name in the system temporary directory, or to stderr when that fails too.
 
 ### Service name
 
@@ -495,7 +496,7 @@ NODE_ENV=development
 
 `.env` is read first, then `.env.<profile>` when a [settings profile](/docs/reference/cli#profiles) is selected, then `.env.local`, each overriding the one before it. A profile can also name one exact file or carry its values inline, and `--env <path>` overrides all of it; the [CLI reference](/docs/reference/cli#the-environment-a-profile-selects) owns that chain in full.
 
-The environment is in place before `craft.config.ts` is imported, which is what lets the config file read `process.env` at module scope.
+The environment is in place before the logger is built and before `craft.config.ts` is imported, which is what lets an env file set `LOG_LEVEL` and `LOG_FILE`, and the config file read `process.env` at module scope.
 
 ---
 

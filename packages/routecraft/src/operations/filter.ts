@@ -81,7 +81,7 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
     const stepStart = Date.now();
     const stepLabel = this.label ?? this.operation;
 
-    // Emit step:started
+    // Emit route:step:started
     if (context) {
       context.emit("route:step:started", {
         routeId,
@@ -112,7 +112,7 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
           "Filter rejected exchange",
         );
 
-        // Emit step:completed first, then exchange:dropped
+        // Emit route:step:completed first, then route:exchange:dropped
         context?.emit("route:step:completed", {
           routeId,
           exchangeId: exchange.id,
@@ -147,7 +147,7 @@ export class FilterStep<T = unknown> implements Step<Filter<T>> {
       });
     }
 
-    // Emit step:completed for passed exchanges
+    // Emit route:step:completed for passed exchanges
     if (context) {
       context.emit("route:step:completed", {
         routeId,

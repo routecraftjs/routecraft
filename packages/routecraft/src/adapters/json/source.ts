@@ -14,9 +14,9 @@ import { staticSourcePathError } from "../shared/file-role-guards.ts";
  *
  * | `onParseError` | Lifecycle on bad JSON                                          |
  * |----------------|----------------------------------------------------------------|
- * | `'fail'` (default) | `exchange:failed` (or `error:caught` if `.error()` recovers) |
- * | `'abort'`      | `exchange:failed`, then source rejects and `context:error` fires |
- * | `'drop'`       | `exchange:dropped` with `reason: "parse-failed"`               |
+ * | `'fail'` (default) | `route:exchange:failed` (or `route:error:caught` if `.error()` recovers) |
+ * | `'abort'`      | `route:exchange:failed`, then source rejects and `context:error` fires |
+ * | `'drop'`       | `route:exchange:dropped` with `reason: "parse-failed"`               |
  *
  * See #187.
  */
@@ -43,10 +43,10 @@ export class JsonSourceAdapter implements Source<unknown> {
     // attaches the JSON parse to each raw message. All three modes route
     // through the synthetic parse step so the exchange exists, lifecycle
     // events fire, and the route can observe each outcome:
-    //   'fail'  -> exchange:failed (or .error() recovers)
-    //   'abort' -> exchange:failed, then we rethrow to abort the source
+    //   'fail'  -> route:exchange:failed (or .error() recovers)
+    //   'abort' -> route:exchange:failed, then we rethrow to abort the source
     //                (only for RC5016; downstream errors are swallowed)
-    //   'drop'  -> exchange:dropped with reason "parse-failed"
+    //   'drop'  -> route:exchange:dropped with reason "parse-failed"
     return this.fileAdapter.subscribe({
       ...sub,
       emit: async (msg) => {

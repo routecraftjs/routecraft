@@ -26,7 +26,7 @@ Nothing configured, and a route with no `.authorize()`. Right for local developm
 // craft.config.ts
 import { defineConfig } from '@routecraft/routecraft'
 
-export default defineConfig({
+export const craftConfig = defineConfig({
   servers: { default: { port: 8080 } },
   ops: { tiers: { dispatch: true } },
 })
@@ -46,7 +46,7 @@ import {
   type Principal,
 } from '@routecraft/routecraft'
 
-export default defineConfig({
+export const craftConfig = defineConfig({
   servers: {
     default: {
       port: 8080,
@@ -79,7 +79,7 @@ Present the same key from the caller's side: `craft exec <route> --token "$CRAFT
 // craft.config.ts
 import { defineConfig, jwt } from '@routecraft/routecraft'
 
-export default defineConfig({
+export const craftConfig = defineConfig({
   servers: {
     default: {
       port: 8080,
@@ -118,7 +118,7 @@ console.log(token)
 // craft.config.ts
 import { defineConfig, jwks } from '@routecraft/routecraft'
 
-export default defineConfig({
+export const craftConfig = defineConfig({
   servers: {
     default: {
       port: 8080,
@@ -137,9 +137,10 @@ You attach authentication with the `auth` option on `mcpPlugin({ transport: 'htt
 
 ```ts
 // craft.config.ts
+import { defineConfig } from '@routecraft/routecraft'
 import { mcpPlugin, jwt } from '@routecraft/ai'
 
-export default {
+export const craftConfig = defineConfig({
   servers: {
     default: { port: 3001 },
   },
@@ -156,7 +157,7 @@ export default {
       }),
     }),
   ],
-}
+})
 ```
 
 ## Static-key JWT (`jwt()`)
@@ -444,7 +445,7 @@ export const proxiedAgentConfig = defineConfig({
 })
 ```
 
-`cors.origin` retains its exact string, string-array, wildcard and resolver forms. When CORS handling is enabled, an Origin refused by that policy is still rejected, even if listed in `browserOrigins`. The framework controls allowed methods (`GET, POST, OPTIONS`), allowed headers (`*`), and exposed headers (`WWW-Authenticate`). The Host and browser-origin gate also covers preflight and the protocol's path-suffixed discovery document.
+`cors.origin` retains its exact string, string-array, wildcard and resolver forms. When CORS handling is enabled, an Origin refused by that policy is still rejected, even if listed in `browserOrigins`. The framework controls allowed methods (`GET, POST, OPTIONS`), allowed headers (`Authorization, *`: the Fetch spec leaves `Authorization` out of the wildcard, so a bearer token is named), and exposed headers (`WWW-Authenticate`). The Host and browser-origin gate also covers preflight and the protocol's path-suffixed discovery document.
 
 **Migration for 0.7.0:** browser clients previously admitted by CORS must add `browserOrigins`, including loopback tools. Proxy-facing ACP mounts must configure their public Host in `allowedHostnames` when the proxy preserves it. Native editor clients using a bound hostname need no changes. Gate rejections return 403 without CORS headers and emit `server:request:rejected` with the server, mount and `host` or `origin` reason.
 

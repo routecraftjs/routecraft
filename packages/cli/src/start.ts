@@ -195,7 +195,7 @@ export async function startCommand(
       // same event two different ways.
       if (shutdown.forced) {
         return fail(
-          `Shutdown was forced after ${String(shutdown.pending.length)} route(s) failed to drain in time${shutdown.pending.length > 0 ? `: ${shutdown.pending.join(", ")}` : ""}. In-flight work was abandoned; raise shutdown.timeoutMs if the work needs longer.`,
+          `Shutdown was forced after ${String(shutdown.pending.length)} route(s) failed to drain in time${shutdown.pending.length > 0 ? `: ${shutdown.pending.join(", ")}` : ""}. In-flight work was abandoned; raise shutdown.timeout if the work needs longer.`,
         );
       }
       return reportStartup(startupErrors.read());

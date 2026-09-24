@@ -146,6 +146,11 @@ describe("the acp config key", () => {
     const cfg = defineConfig({
       acp: { path: "/acp", toolCallPayloads: false },
     });
-    expectTypeOf(cfg.acp).toMatchTypeOf<AcpPluginOptions>();
+    expectTypeOf(cfg.acp).toEqualTypeOf<AcpPluginOptions | undefined>();
+
+    defineConfig({
+      // @ts-expect-error port belongs to servers, not to the acp options
+      acp: { path: "/acp", port: 8080 },
+    });
   });
 });

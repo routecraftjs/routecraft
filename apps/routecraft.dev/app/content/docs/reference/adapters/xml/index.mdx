@@ -111,7 +111,7 @@ There is no `append` option: appending a serialized fragment to an XML file prod
 | `onParseError` | `'fail' \| 'abort' \| 'drop'` | `'fail'` | No | How to handle a parse failure (source role only). See [parse error handling](/docs/reference/adapters#parse-error-handling). |
 
 **Behavior:**
-- **Source**: Reads the file and emits the parsed object. Malformed XML is routed through the route's `.error()` handler by default (`onParseError: 'fail'`); `'abort'` fails the source; `'drop'` emits `exchange:dropped` with `reason: 'parse-failed'`.
+- **Source**: Reads the file and emits the parsed object. Malformed XML is routed through the route's `.error()` handler by default (`onParseError: 'fail'`); `'abort'` fails the source; `'drop'` emits `route:exchange:dropped` with `reason: 'parse-failed'`.
 - **Destination** (default): Builds the object body into an XML document and writes it; the body flows through unchanged. The body must be a plain object with exactly one root element (an optional `?xml` declaration key is allowed alongside it); arrays and multi-root objects are rejected because they would serialise to an invalid multiple-root document.
 - **Destination** (`delete: true`): Deletes the file (idempotent) and passes the body through unchanged.
 - **Enricher**: Reads, parses, and returns the object for `.enrich()`.

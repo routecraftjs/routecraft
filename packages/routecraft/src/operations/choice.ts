@@ -248,11 +248,11 @@ export interface HaltAdapter extends Adapter {
 /**
  * Step that short-circuits the pipeline for the current exchange. Used by
  * `b.halt()` inside a path to signal "this path should not continue past the
- * choice / multicast." Emits `exchange:dropped` with reason `"halted"`.
+ * choice / multicast." Emits `route:exchange:dropped` with reason `"halted"`.
  *
  * Halt is an explicit stop. It is distinct from filter (predicate rejection)
  * and from choice-unmatched (no branch matched); callers can distinguish the
- * three via the `reason` field on the `exchange:dropped` event.
+ * three via the `reason` field on the `route:exchange:dropped` event.
  */
 export class HaltStep implements Step<HaltAdapter> {
   operation: OperationType = OperationType.HALT;
@@ -308,7 +308,7 @@ export class PathBuilder<
    * Short-circuit the pipeline for this exchange. Once `halt()` executes, no
    * further steps run -- neither the remaining path steps nor (for a choice
    * branch) the steps after the enclosing `.choice()` on the main pipeline.
-   * The exchange emits `exchange:dropped` with `reason: "halted"`.
+   * The exchange emits `route:exchange:dropped` with `reason: "halted"`.
    *
    * Useful for branches that handle error cases and do not want the rest of
    * the main pipeline to run, e.g.

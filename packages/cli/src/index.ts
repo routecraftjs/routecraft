@@ -6,18 +6,23 @@
  * The CLI runs on Bun. For Node-based usage, embed @routecraft/routecraft
  * programmatically (see https://routecraft.dev/docs/advanced/programmatic-invocation).
  *
- * Nothing here may import `@routecraft/routecraft` at module scope. Core builds
- * its logger when it loads, from the environment as it stands then, so a core
- * import that runs before a command has applied `--log-level` and
- * `--log-file` fixes the logger to the defaults for the life of the process.
- * The program's `preAction` hook runs `prepareCommand()` before every
- * command: it applies the logging flags first and only then runs the Bun
- * version check, the first thing that loads core. Whether Bun is present at
- * all is checked here, before anything, without core.
+ * Nothing here may import `@routecraft/routecraft` at module scope, and
+ * nothing `prepareCommand()` imports before the runtime gate may either.
+ * Core builds its logger when it loads, from the environment as it stands
+ * then, so a core import that runs before a command has settled its
+ * environment fixes the logger for the life of the process. The program's
+ * `preAction` hook runs `prepareCommand()` before every command: it loads
+ * the environment the command selects, applies the logging flags over it,
+ * checks the log file can be written, and only then runs the Bun version
+ * check, the first thing that loads core. Whether Bun is present at all is
+ * checked here, before anything, without core.
  */
+
+import { resolve } from "node:path";
 
 import { version } from "../package.json";
 import { MISSING_BUN_MESSAGE } from "./bun-requirement.js";
+import type { EnvironmentNote } from "./util.js";
 
 if (!process.versions["bun"]) {
   // eslint-disable-next-line no-console
@@ -44,7 +49,7 @@ withLogOptions(
   });
 
 program.hook("preAction", async (_program, actionCommand) => {
-  await prepareCommand(actionCommand.opts() as LogOptions);
+  await prepareCommand(actionCommand);
 });
 
 // Show help by default if no arguments provided
@@ -53,27 +58,65 @@ if (process.argv.length <= 2) {
 }
 
 /**
- * Ready a command to run: push the logging flags onto the environment, then
- * refuse a Bun below the supported floor. Runs from the `preAction` hook, so
- * no command can skip it.
+ * Ready a command to run. Runs from the `preAction` hook, so no command can
+ * skip it, and a refusal here stops the command before its action starts.
  *
- * The order is the contract. The gate reads the version with core's parser,
- * and loading core builds the logger, so the flags must be in the
- * environment before the gate is imported.
+ * The order is the contract:
+ *
+ * 1. The environment the command selects, so an env file can configure the
+ *    logger like any other setting.
+ * 2. The logging flags, over it: a flag is the more specific thing said.
+ * 3. The Bun version gate, which reads the version with core's parser and
+ *    so is the first thing that loads core and builds the logger.
+ * 4. The log file core was asked for, which it diverts somewhere nobody
+ *    looks when it cannot open it; the CLI owns the setting, so it refuses.
  */
-async function prepareCommand(local: LogOptions): Promise<void> {
-  applyLogOptions(local);
+async function prepareCommand(command: CommanderCommand): Promise<void> {
+  const notes = await selectEnvironment(command);
+  const flaggedLogFile = applyLogOptions(command.opts() as LogOptions);
+
   const { checkBunRuntime } = await import("./runtime-gate.js");
   const gate = checkBunRuntime();
-  if (!gate.ok) {
-    // eslint-disable-next-line no-console
-    console.error(gate.message);
-    process.exit(1);
+  if (!gate.ok) await refuse(1, gate.message);
+
+  const { logFileDiversion, logger } = await import("@routecraft/routecraft");
+  const diverted = logFileDiversion();
+  if (diverted !== undefined) {
+    const source =
+      flaggedLogFile === undefined ? diverted.source : "--log-file";
+    await refuse(
+      2,
+      `Cannot write logs to ${diverted.path} (from ${source}): ${diverted.reason}. Point it at a file this process can create or append to.`,
+    );
   }
+
+  for (const note of notes) logger[note.level](note.message);
 }
 
-/** Push the logging flags onto the environment the logger is built from. */
-function applyLogOptions(local: LogOptions): void {
+/**
+ * Stop the command with a message on standard error.
+ *
+ * The write is awaited before exiting for the reason `settle` gives: an exit
+ * discards whatever a pipe still holds.
+ */
+async function refuse(code: number, message: string): Promise<never> {
+  await writeLine(process.stderr, message);
+  process.exit(code);
+}
+
+/** Write one line and resolve once the stream has taken it. */
+function writeLine(stream: NodeJS.WriteStream, text: string): Promise<void> {
+  return new Promise((done) => {
+    stream.write(`${text}\n`, () => done());
+  });
+}
+
+/**
+ * Push the logging flags onto the environment the logger is built from.
+ *
+ * @returns The log file the flags named, if they named one
+ */
+function applyLogOptions(local: LogOptions): string | undefined {
   const globalOpts = program.opts();
   // The command's own flag wins, so `craft --log-level warn start --log-level
   // debug` reads the way a reader expects: the nearer one.
@@ -87,6 +130,7 @@ function applyLogOptions(local: LogOptions): void {
     process.env["LOG_FILE"] = file;
     process.env["CRAFT_LOG_FILE"] = file;
   }
+  return file;
 }
 
 /**
@@ -121,22 +165,54 @@ function withLogOptions(command: CommanderCommand): CommanderCommand {
 }
 
 /**
- * Resolve the selected profile and load the environment it names, before
- * anything imports the project's configuration.
+ * The commands that load a project's environment, each with how it finds
+ * the project root from its own arguments.
+ */
+const projectRoots = new WeakMap<
+  CommanderCommand,
+  (args: readonly string[]) => string
+>();
+
+/**
+ * Give a command `--env` and `--profile`, and have `prepareCommand()` load
+ * the environment they select before anything else runs.
+ *
+ * The project root has to be knowable from the arguments alone, because the
+ * environment is loaded before the action and so before core exists.
+ */
+function withEnvironment(
+  command: CommanderCommand,
+  projectRoot: (args: readonly string[]) => string,
+): CommanderCommand {
+  projectRoots.set(command, projectRoot);
+  return command
+    .option(
+      "--env <path>",
+      "Load environment variables from a .env file (default: .env)",
+    )
+    .option("--profile <name>", "Settings profile to select");
+}
+
+/**
+ * Resolve the selected profile and load the environment it names, when the
+ * command is one that loads a project.
  *
  * Ordering is the whole point: a config file reads `process.env` at module
- * scope, so the environment has to be in place before the import, and the
- * profile is what says which environment that is.
+ * scope, and core reads its log settings from it when it loads, so the
+ * environment has to be in place before either, and the profile is what
+ * says which environment that is.
  *
  * A settings file that cannot be used stops the command rather than
  * falling back to the defaults, because an operator who wrote a profile
  * and silently got the loopback default would have no way to tell.
  */
 async function selectEnvironment(
-  options: { env?: string; profile?: string },
-  projectRoot: string,
-): Promise<{ error?: string }> {
-  const { loadEnvironment } = await import("./util.js");
+  command: CommanderCommand,
+): Promise<EnvironmentNote[]> {
+  const projectRoot = projectRoots.get(command)?.(command.args);
+  if (projectRoot === undefined) return [];
+  const options = command.opts() as { env?: string; profile?: string };
+  const { EnvFileError, loadEnvironment } = await import("./util.js");
   const { resolveSettings, SettingsError } = await import("./settings.js");
   try {
     // Resolved under the project root, not the shell's directory: the file
@@ -147,15 +223,16 @@ async function selectEnvironment(
       cwd: projectRoot,
       ...(options.profile === undefined ? {} : { profile: options.profile }),
     });
-    loadEnvironment({
+    return loadEnvironment({
       explicit: options.env,
       profile: settings.profile?.value,
       env: settings.env?.value,
       defaultsFrom: projectRoot,
     });
-    return {};
   } catch (error: unknown) {
-    if (error instanceof SettingsError) return { error: error.message };
+    if (error instanceof SettingsError || error instanceof EnvFileError) {
+      return refuse(2, error.message);
+    }
     throw error;
   }
 }
@@ -168,38 +245,27 @@ async function selectEnvironment(
  * craft run ./my-cli.ts greet --name World
  */
 withLogOptions(
-  program
-    .command("run")
-    .description("Run routes from a single TypeScript/JavaScript file")
-    .argument("<file>", "Path to a file containing routes")
-    .argument(
-      "[args...]",
-      "CLI command and flags to pass through to CLI adapter routes",
-    )
-    .option(
-      "--env <path>",
-      "Load environment variables from a .env file (default: .env)",
-    )
-    .option("--profile <name>", "Settings profile to select"),
+  withEnvironment(
+    program
+      .command("run")
+      .description("Run routes from a single TypeScript/JavaScript file")
+      .argument("<file>", "Path to a file containing routes")
+      .argument(
+        "[args...]",
+        "CLI command and flags to pass through to CLI adapter routes",
+      ),
+    () => process.cwd(),
+  ),
 )
   .passThroughOptions()
-  .action(async (filePath, args: string[], options) => {
-    const selected = await selectEnvironment(options, process.cwd());
-    if (selected.error !== undefined) {
-      settle({ code: 2, error: selected.error });
-      return;
-    }
-
+  .action(async (filePath, args: string[]) => {
     const { runCommand } = await import("./run.js");
     const result = await runCommand(filePath, args);
     if (!result.success) {
-      if (result.message) {
-        // eslint-disable-next-line no-console
-        console.error(result.message);
-      }
-      // Defer exit so pino/sonic-boom can finish initializing and avoid "sonic boom is not ready yet"
-      const code = result.code ?? 1;
-      setImmediate(() => process.exit(code));
+      settle({
+        code: result.code ?? 1,
+        ...(result.message ? { error: result.message } : {}),
+      });
       return;
     }
     // Don't call process.exit(); let the event loop drain naturally.
@@ -215,16 +281,17 @@ withLogOptions(
  * craft start ./apps/acme --once
  */
 withLogOptions(
-  program
-    .command("start")
-    .description(
-      "Start a project from its folder convention (capabilities, plugins, agents, skills)",
-    )
-    .argument("[dir]", "Project root (default: current directory)")
-    .option(
-      "--env <path>",
-      "Load environment variables from a .env file (default: .env)",
-    )
+  withEnvironment(
+    program
+      .command("start")
+      .description(
+        "Start a project from its folder convention (capabilities, plugins, agents, skills)",
+      )
+      .argument("[dir]", "Project root (default: current directory)"),
+    // The conventional files belong to the project being started, not to
+    // whatever directory the shell happens to sit in.
+    (args) => resolve(process.cwd(), args[0] ?? "."),
+  )
     .option(
       "--once",
       "Shut down after the first exchange reaches a terminal outcome",
@@ -232,31 +299,15 @@ withLogOptions(
     .option(
       "--timeout <duration>",
       'With --once, give up and exit non-zero after this long (milliseconds, or a duration string like "30s")',
-    )
-    .option("--profile <name>", "Settings profile to select"),
+    ),
 ).action(
   async (
     dir: string | undefined,
     options: {
-      env?: string;
       once?: boolean;
       timeout?: string;
-      profile?: string;
-    } & LogOptions,
+    },
   ) => {
-    const { resolve: resolvePath } = await import("node:path");
-    const projectRoot = resolvePath(process.cwd(), dir ?? ".");
-
-    // The conventional files belong to the project being started, not to
-    // whatever directory the shell happens to sit in. Resolved and
-    // loaded before `craft.config.ts` is imported, because config files
-    // read `process.env` at module scope.
-    const selected = await selectEnvironment(options, projectRoot);
-    if (selected.error !== undefined) {
-      settle({ code: 2, error: selected.error });
-      return;
-    }
-
     const { startCommand } = await import("./start.js");
     // A bare number stays milliseconds, so every existing invocation keeps
     // working; anything else goes through the framework's duration grammar
@@ -270,20 +321,18 @@ withLogOptions(
       try {
         timeoutMs = parseDuration(raw, "--timeout");
       } catch {
-        // eslint-disable-next-line no-console
-        console.error(
-          `--timeout must be a number of milliseconds (at least 1) or a duration string like "30s". Received "${String(options.timeout)}".`,
-        );
-        setImmediate(() => process.exit(1));
+        settle({
+          code: 1,
+          error: `--timeout must be a number of milliseconds (at least 1) or a duration string like "30s". Received "${String(options.timeout)}".`,
+        });
         return;
       }
     }
     if (timeoutMs !== undefined && options.once !== true) {
-      // eslint-disable-next-line no-console
-      console.error(
-        `--timeout bounds the wait for the first exchange, which only --once waits for. Add --once, or drop --timeout.`,
-      );
-      setImmediate(() => process.exit(1));
+      settle({
+        code: 1,
+        error: `--timeout bounds the wait for the first exchange, which only --once waits for. Add --once, or drop --timeout.`,
+      });
       return;
     }
     const result = await startCommand(dir, {
@@ -291,14 +340,10 @@ withLogOptions(
       ...(timeoutMs === undefined ? {} : { timeoutMs }),
     });
     if (!result.success) {
-      if (result.message) {
-        // eslint-disable-next-line no-console
-        console.error(result.message);
-      }
-      // Defer exit so pino/sonic-boom can finish initializing and avoid
-      // "sonic boom is not ready yet"
-      const code = result.code ?? 1;
-      setImmediate(() => process.exit(code));
+      settle({
+        code: result.code ?? 1,
+        ...(result.message ? { error: result.message } : {}),
+      });
       return;
     }
     // Don't call process.exit(); let the event loop drain naturally.
@@ -313,7 +358,7 @@ withLogOptions(
  * still queued, so `craft exec --format json | jq` would lose the tail of a
  * large result. Exiting from the write callback is what makes the payload
  * whole; the exit itself stays deferred so pino/sonic-boom can finish
- * initialising, the same reason `run` and `start` defer theirs.
+ * initialising.
  */
 function settle(result: {
   code: number;
@@ -334,13 +379,9 @@ function settle(result: {
   // Set early so a stream that never drains still exits with the right code
   // rather than reporting success on the way out.
   process.exitCode = result.code;
-  let pending = writes.length;
-  for (const [stream, text] of writes) {
-    stream.write(`${text}\n`, () => {
-      pending -= 1;
-      if (pending === 0) finish();
-    });
-  }
+  void Promise.all(
+    writes.map(([stream, text]) => writeLine(stream, text)),
+  ).then(finish);
 }
 
 /**

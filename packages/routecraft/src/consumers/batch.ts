@@ -148,7 +148,7 @@ export class BatchConsumer implements Consumer<Required<BatchOptions>> {
       // own per-item exchange (handler invoked with the raw message and the
       // captured parse function so the synthetic parse step throws RC5016).
       // This preserves `onParseError: 'fail'` semantics: the route's
-      // `.error()` handler fires, `exchange:failed` fires when no handler
+      // `.error()` handler fires, `route:exchange:failed` fires when no handler
       // is set, and the source's per-item `.catch()` continues. The bad
       // item is NOT added to the in-progress batch.
       if (message.parse) {
@@ -160,7 +160,7 @@ export class BatchConsumer implements Consumer<Required<BatchOptions>> {
         } catch (parseErr) {
           // Route the failed item as a per-item exchange so the synthetic
           // parse step fires the correct lifecycle event for the mode
-          // (fail/abort -> exchange:failed, drop -> exchange:dropped).
+          // (fail/abort -> route:exchange:failed, drop -> route:exchange:dropped).
           // Pass a closure that throws the captured error rather than
           // re-invoking `itemParse` on the same input, since user-supplied
           // parsers may have side effects (logging, metrics, prefetch).

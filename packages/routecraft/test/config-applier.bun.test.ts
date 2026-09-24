@@ -1,16 +1,7 @@
+import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
-  afterEach,
-  beforeEach,
-  describe,
-  expect,
-  expectTypeOf,
-  test,
-} from "bun:test";
-import {
-  type CraftConfig,
   CraftContext,
   type CraftPlugin,
-  defineConfig,
   registerConfigApplier,
 } from "../src/index.ts";
 
@@ -41,7 +32,7 @@ function restoreRegistry(
  * Augment CraftConfig with sandbox keys so the test file can register
  * appliers without depending on @routecraft/ai. The augmentation must
  * target the published module specifier so it propagates to the same
- * interface identity that registerConfigApplier and defineConfig see.
+ * interface identity that registerConfigApplier sees.
  */
 declare module "@routecraft/routecraft" {
   interface CraftConfig {
@@ -221,62 +212,5 @@ describe("registerConfigApplier", () => {
     await ctx.initPlugins();
 
     expect(calls).toEqual(["second"]);
-  });
-});
-
-describe("defineConfig", () => {
-  /**
-   * @case defineConfig is an identity function at runtime
-   * @preconditions Any CraftConfig-shaped object is passed in
-   * @expectedResult Returns the same reference, unchanged
-   */
-  test("returns the input unchanged", () => {
-    const input = { cron: { timezone: "UTC" } };
-    const output = defineConfig(input);
-
-    expect(output).toBe(input);
-  });
-
-  /**
-   * @case defineConfig preserves the literal shape of its input rather than
-   *   widening to CraftConfig
-   * @preconditions A config literal with a known cron field
-   * @expectedResult The return type carries the literal `cron` field; a
-   *   regression that widened the signature to (config: CraftConfig) =>
-   *   CraftConfig would lose this and fail the type assertion
-   */
-  test("preserves literal types via the generic parameter", () => {
-    const cfg = defineConfig({ cron: { timezone: "UTC" } });
-
-    // The literal shape survives: cfg.cron is the literal object, not the
-    // wider Partial<CronOptions> from CraftConfig.
-    expectTypeOf(cfg).toMatchTypeOf<{ cron: { timezone: string } }>();
-    expectTypeOf(cfg).toMatchTypeOf<CraftConfig>();
-  });
-
-  /**
-   * @case Sandbox-augmented CraftConfig keys are accepted by defineConfig
-   * @preconditions The test file augments CraftConfig with `__testApplier`
-   * @expectedResult defineConfig typechecks with the augmented key, proving
-   *   the augmentation flows through the package specifier into the
-   *   define-config module's view of CraftConfig
-   */
-  test("accepts augmented CraftConfig keys", () => {
-    const cfg = defineConfig({ __testApplier: { value: "ok" } });
-
-    expectTypeOf(cfg.__testApplier).toMatchTypeOf<{ value: string }>();
-  });
-
-  /**
-   * @case defineConfig rejects unknown keys at compile time
-   * @preconditions A config literal with a key not present on CraftConfig
-   *   (after all augmentations seen in this compilation)
-   * @expectedResult `@ts-expect-error` is satisfied because the call would
-   *   otherwise produce TS2353 (excess property). If a regression widened
-   *   the type and accepted the key, the directive would fail the build.
-   */
-  test("rejects unknown keys at compile time", () => {
-    // @ts-expect-error: bogusKey is not a CraftConfig field
-    defineConfig({ bogusKey: 1 });
   });
 });

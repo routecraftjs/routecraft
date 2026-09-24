@@ -65,7 +65,7 @@ export class DirectorySourceAdapter implements Source<
           await sub.emit({ message: entry });
         } catch {
           // Pipeline failure for one entry, not a scan error: the route
-          // boundary already emitted exchange:failed; keep emitting the rest
+          // boundary already emitted route:exchange:failed; keep emitting the rest
           // (matching the file/csv/jsonl chunked semantics).
           if (sub.signal.aborted) return;
           sub.context.logger.debug(

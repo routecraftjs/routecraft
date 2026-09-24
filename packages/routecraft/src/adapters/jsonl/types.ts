@@ -65,11 +65,12 @@ export interface JsonlFileOptions {
    * How to handle a `JSON.parse` failure on a line (chunked mode) or any
    * line of the file (non-chunked mode). Source mode only.
    *
-   * - `'fail'` (default): `exchange:failed` fires for the bad line; the
-   *   route's `.error()` handler can recover; chunked mode continues.
-   * - `'abort'`: `exchange:failed` fires, then the source dies
+   * - `'fail'` (default): `route:exchange:failed` fires for the bad line, or
+   *   `route:error:caught` when the route's `.error()` handler recovers it;
+   *   chunked mode continues.
+   * - `'abort'`: `route:exchange:failed` fires, then the source dies
    *   (`context:error`).
-   * - `'drop'`: `exchange:dropped` fires with `reason: "parse-failed"`;
+   * - `'drop'`: `route:exchange:dropped` fires with `reason: "parse-failed"`;
    *   chunked mode continues.
    *
    * See `OnParseError` for full semantics.

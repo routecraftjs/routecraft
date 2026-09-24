@@ -85,7 +85,7 @@ export async function deferExchange(
   // just-created deferral is denied (claim-first, so a replayed token
   // reads RC5050 from the settled path) and the run fails with RC5054
   // without ever emitting `route:exchange:deferred`. Announcing first
-  // would give one `exchange:started` two terminals, breaking the events
+  // would give one `route:exchange:started` two terminals, breaking the events
   // page's exactly-one lifecycle guarantee.
   if (abortSignal?.aborted) {
     const settled = await denyDeferredOnCancellation(
@@ -230,7 +230,7 @@ function describeRecord(
  * and the route's downstream steps.
  *
  * No `route:exchange:deferred` is emitted and the exchange is not marked
- * deferred, because it is not: it completes, and one `exchange:started`
+ * deferred, because it is not: it completes, and one `route:exchange:started`
  * must reach exactly one terminal. Revival is a first-class run of the
  * route with its own pair. The record carries no deadline, since what it
  * waits on has none the framework knows.

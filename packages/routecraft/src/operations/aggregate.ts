@@ -207,7 +207,7 @@ export class AggregateStep<T = unknown, R = unknown> implements Step<
       }),
     ];
 
-    // Emit exchange:completed for each child being aggregated
+    // Emit route:exchange:completed for each child being aggregated
     if (context) {
       for (const child of aggregationGroup) {
         const childStart = getStartedAt(child) ?? Date.now();

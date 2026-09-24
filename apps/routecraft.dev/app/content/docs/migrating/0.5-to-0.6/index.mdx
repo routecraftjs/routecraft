@@ -881,6 +881,7 @@ This is additive: every call that compiled before still compiles and behaves ide
 - **Mail receipt arrays are `readonly`.** `routecraft.mail.accepted` / `.rejected` are typed `readonly string[]`, matching the frozen `ExchangeHeaders`. Code that pushed onto them compiled and then threw at runtime; it is now a compile error.
 - **Peer floor raised.** `@routecraft/ai`, `@routecraft/os`, and `@routecraft/testing` require `@routecraft/routecraft >=0.6.0`, because their declarations reference the role-model types. Upgrade core together with them.
 - **`@routecraft/testing`.** `spy()` gains a `fetch` face (recording into `calls.enrich` and returning the current body), and a `mockAdapter` `send` handler's return value now follows the step's slot resolution: used by a fetch-resolved step, discarded by a send-resolved `.to()`.
+- **The spy logger no longer uses Vitest.** `t.logger` was built from `vi.fn()` and is now a runner-agnostic spy that records into `mock.calls` without importing any test runner. Assertions that read `mock.calls` keep working; runner matchers such as `expect(t.logger.info).toHaveBeenCalled()` fail with "must be a mock function". Pass your runner's factory to get native mocks back: `testContext({ fn: mock })` with `mock` from `bun:test`, or `testContext({ fn: vi.fn })` under Vitest.
 
 ## 17. MCP: the stateless revision, and `oauth()` becomes a resource server \{#17-mcp-stateless}
 

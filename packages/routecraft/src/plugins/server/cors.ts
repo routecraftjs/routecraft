@@ -78,9 +78,10 @@ interface ResolvedHttpCors {
  * satisfy the RFC 9728 discovery contract and the MCP JSON-RPC handshake.
  *
  * - `Access-Control-Allow-Methods`: the verbs the consuming transports accept.
- * - `Access-Control-Allow-Headers`: `*` is the right default; `Authorization`,
- *   `Content-Type`, and `MCP-Protocol-Version` are the headers MCP clients
- *   send today, but the spec permits more and we do not want to gate.
+ * - `Access-Control-Allow-Headers`: `Authorization, *`. The wildcard admits
+ *   whatever headers MCP clients add without gating them, but the Fetch spec
+ *   excludes `Authorization` from it, so a bearer token has to be named.
+ *   Firefox already warns on a preflight that relies on the wildcard for it.
  * - `Access-Control-Expose-Headers` (non-preflight only): the response headers
  *   browser clients must be able to read. Only `WWW-Authenticate` (the
  *   RFC 9728 `resource_metadata` hint on a 401) qualifies: MCP protocol
@@ -92,7 +93,7 @@ interface ResolvedHttpCors {
  * @internal
  */
 const ALLOW_METHODS = "GET, POST, OPTIONS";
-const ALLOW_HEADERS = "*";
+const ALLOW_HEADERS = "Authorization, *";
 const EXPOSE_HEADERS = "WWW-Authenticate";
 
 /**

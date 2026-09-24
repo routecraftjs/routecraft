@@ -11,7 +11,7 @@ import { extractHtml } from "./shared.ts";
  * extraction into the route mid-flow. The transformer-role `to` mapping is
  * not applied (the raw `HtmlResult` is returned and placement is left to
  * the aggregator). Extraction failures throw (the route boundary surfaces
- * them as `exchange:failed`); the `onParseError` lifecycle controls apply to
+ * them as `route:exchange:failed`); the `onParseError` lifecycle controls apply to
  * the source role only.
  */
 export class HtmlEnricherAdapter<

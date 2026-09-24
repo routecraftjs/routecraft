@@ -169,7 +169,7 @@ export interface DebounceAdapter extends Adapter {
  * immediately" model: it holds an exchange OUTSIDE the pipeline queue and
  * re-runs it later via the executor's captured downstream continuation, so a
  * released exchange runs the post-debounce steps as a fresh exchange (new id,
- * preserved correlation id) with its own `exchange:started` / `:completed`
+ * preserved correlation id) with its own `route:exchange:started` / `:completed`
  * lifecycle. Because the hold lives outside the queue, a pending exchange is
  * flushed on `drain()` / shutdown rather than being lost.
  *
@@ -221,7 +221,7 @@ export class DebounceStep<In = unknown> implements Step<DebounceAdapter> {
     const keyField = this.#options.key ? { key } : {};
 
     // The arrival is absorbed into the hold, so mark it dropped now to
-    // suppress its own `exchange:completed`; the released exchange (built at
+    // suppress its own `route:exchange:completed`; the released exchange (built at
     // release time) carries the downstream lifecycle instead.
     markDropped(exchange);
 
@@ -361,7 +361,7 @@ export class DebounceStep<In = unknown> implements Step<DebounceAdapter> {
     );
 
     // Clone FIRST, before any terminal event for the held arrival, so a
-    // clone failure produces a single coherent terminal (`exchange:failed`)
+    // clone failure produces a single coherent terminal (`route:exchange:failed`)
     // instead of a drop followed by a crash. cloneExchange gives fresh
     // internals (a new id, preserved correlation id) and binds the route so
     // the released exchange is executor-ready; the held one was marked
@@ -386,7 +386,7 @@ export class DebounceStep<In = unknown> implements Step<DebounceAdapter> {
       return;
     }
 
-    // Balance the absorbed arrival's lifecycle: it emitted `exchange:started`
+    // Balance the absorbed arrival's lifecycle: it emitted `route:exchange:started`
     // on entry and was only MARKED dropped at hold time, so without this
     // emission its id would have a `started` with no terminal event, reading
     // as permanently in-flight to observers that pair them, and leaking any

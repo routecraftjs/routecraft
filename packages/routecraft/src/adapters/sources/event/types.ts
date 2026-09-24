@@ -15,7 +15,7 @@ export interface EventSourceOptions {
    * Supports:
    * - Single event name: 'route:started'
    * - Array of event names: ['route:started', 'route:stopped']
-   * - Wildcard patterns: 'route:*', 'exchange:*', 'route:myroute:*', '*'
+   * - Wildcard patterns: 'route:exchange:*', 'route:operation:**', 'route:**', '*'
    */
   filter: EventFilter;
 }

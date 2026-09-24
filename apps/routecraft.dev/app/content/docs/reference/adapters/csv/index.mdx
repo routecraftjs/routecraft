@@ -126,7 +126,7 @@ Passing both `append: true` and `delete: true` throws `RC5003` at construction.
 
 **Behavior:**
 - **Source** (default): Emits entire CSV as array of records (objects if `header: true`, arrays if `header: false`)
-- **Source** (`chunked: true`): Emits one exchange per row with `CsvHeaders.ROW` (1-based row number) and `CsvHeaders.PATH` headers. Chunking concerns the source role only; the send/fetch roles are unchanged. With `onParseError: 'fail'` (default) malformed rows are routed through the route's `.error()` handler and the stream continues; `'abort'` reverts to fail-fast on the first bad row; `'drop'` emits `exchange:dropped` with `reason: 'parse-failed'`.
+- **Source** (`chunked: true`): Emits one exchange per row with `CsvHeaders.ROW` (1-based row number) and `CsvHeaders.PATH` headers. Chunking concerns the source role only; the send/fetch roles are unchanged. With `onParseError: 'fail'` (default) malformed rows are routed through the route's `.error()` handler and the stream continues; `'abort'` reverts to fail-fast on the first bad row; `'drop'` emits `route:exchange:dropped` with `reason: 'parse-failed'`.
 - **Destination**: Writes exchange body (array of objects/arrays) as CSV; overwrite by default. With `append: true`, the header row is only written when the file does not exist yet
 
 ```ts skip="fragment: not a complete statement on its own"

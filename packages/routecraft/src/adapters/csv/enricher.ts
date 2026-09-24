@@ -7,7 +7,7 @@ import { parseCsv } from "./shared.ts";
  * CsvEnricherAdapter implements the Enricher (fetch) role for CSV files:
  * `fetch` reads the resolved path, parses it, and returns the rows, so
  * `.enrich(csv({ path }))` pulls a CSV into the route mid-flow. Parse
- * failures throw (the route boundary surfaces them as `exchange:failed`);
+ * failures throw (the route boundary surfaces them as `route:exchange:failed`);
  * the `onParseError` lifecycle controls apply to the source role only.
  */
 export class CsvEnricherAdapter implements Enricher<unknown, CsvData> {

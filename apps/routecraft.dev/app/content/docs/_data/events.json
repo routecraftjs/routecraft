@@ -25,7 +25,7 @@
     "anchor": "route-events"
   },
   {
-    "pattern": "route:{routeId}:exchange:*",
+    "pattern": "route:exchange:*",
     "events": [
       "started",
       "completed",
@@ -39,23 +39,35 @@
     "anchor": "exchange-events"
   },
   {
-    "pattern": "route:{routeId}:op:*",
+    "pattern": "route:step:*",
     "events": [
-      "adapter",
-      "batch",
-      "split",
-      "aggregate",
-      "retry",
-      "choice",
-      "error",
-      "agent",
-      "source:parse"
+      "started",
+      "completed",
+      "failed",
+      "error"
     ],
-    "anchor": "operation-events",
-    "note": "Each operation emits its own started / completed / failed."
+    "anchor": "step-events"
   },
   {
-    "pattern": "plugin:{pluginId}:*",
+    "pattern": "route:{operation}:**",
+    "events": [
+      "batch",
+      "retry",
+      "delay",
+      "timeout",
+      "throttle",
+      "circuitBreaker",
+      "concurrency",
+      "operation",
+      "error-handler",
+      "cache",
+      "agent"
+    ],
+    "anchor": "operation-events",
+    "note": "Each operation has its own prefix and events, such as route:retry:attempt or route:operation:choice:matched."
+  },
+  {
+    "pattern": "plugin:*",
     "events": [
       "applying",
       "applied",

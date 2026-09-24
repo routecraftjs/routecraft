@@ -92,7 +92,7 @@ craft()
   .to(noop())
 ```
 
-On a hit, **the whole pipeline is skipped** (no `.enrich`, no `.transform`, no `.to`) and the cached body is returned to the caller as the route's result. On a miss, the pipeline runs and the terminal body is stored for next time. An additional `route:<id>:exchange:restored` event fires alongside `cache:hit` so dashboards can count restores separately.
+On a hit, **the whole pipeline is skipped** (no `.enrich`, no `.transform`, no `.to`) and the cached body is returned to the caller as the route's result. On a miss, the pipeline runs and the terminal body is stored for next time. An additional `route:exchange:restored` event fires alongside `route:cache:hit` so dashboards can count restores separately.
 
 **Side effects do not replay on a hit.** This is a much larger surface than step-scope: every `.to()`, `.tap()`, and `.header()` in the route is bypassed. If the route has destinations whose side effects must run on every input, use step-scope `.cache()` to wrap the expensive step instead.
 
@@ -127,4 +127,4 @@ This is the same pattern any application-level cache follows: the key reflects t
 
 **Stampede protection:** route scope does NOT dedupe concurrent same-key callers in this release. Each concurrent caller runs the pipeline once before the cache is populated. Use step-scope `.cache()` around the expensive step if stampede dedupe matters.
 
-**Failure mode:** provider read failures throw `RC5028` (retryable). Key derivation failures throw `RC5029` (not retryable). Provider write failures emit `cache:failed phase:"set"` but do NOT fail the exchange (the result was already computed and returned).
+**Failure mode:** provider read failures throw `RC5028` (retryable). Key derivation failures throw `RC5029` (not retryable). Provider write failures emit `route:cache:failed phase:"set"` but do NOT fail the exchange (the result was already computed and returned).

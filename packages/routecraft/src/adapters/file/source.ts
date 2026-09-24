@@ -54,7 +54,7 @@ export class FileSourceAdapter implements Source<string> {
               await sub.emit({ message: line, headers });
             } catch (err) {
               // Pipeline failure for one line, not a file error: the route
-              // boundary already emitted exchange:failed; keep reading
+              // boundary already emitted route:exchange:failed; keep reading
               // (matching json/jsonl/csv chunked semantics).
               if (sub.signal.aborted) return;
               sub.context.logger.debug(

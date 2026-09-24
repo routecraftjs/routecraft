@@ -139,7 +139,7 @@ export async function runPipeline(
   // a synthetic step that runs it before any user-defined steps. The step
   // throws an `RC5016` error on parse failure, which then flows through
   // the same error-handler path as any other step error: the route's
-  // `.error()` handler is invoked, or `exchange:failed` fires.
+  // `.error()` handler is invoked, or `route:exchange:failed` fires.
   //
   // `.input()` validation (chain position #4) rides the same internals
   // slot: with a parser it runs inside the parse step (input validates
@@ -269,7 +269,7 @@ export async function runPipeline(
   let failed = false;
   let dropped = false;
   let stepError: unknown;
-  // Track child exchanges so we can emit exchange:started/completed for them.
+  // Track child exchanges so we can emit route:exchange:started/completed for them.
   // The parent exchange (first one) is handled by handler().
   const parentExchangeId = exchange.id;
   const seenChildExchanges = new Set<string>();
@@ -386,7 +386,7 @@ export async function runPipeline(
     // wrapper. Subsequent reads in this iteration use the rewrapped value.
     let exchange = popped.exchange;
     if (steps.length === 0) {
-      // Emit exchange:completed for child exchanges when their steps are done
+      // Emit route:exchange:completed for child exchanges when their steps are done
       if (
         exchange.id !== parentExchangeId &&
         seenChildExchanges.has(exchange.id) &&
@@ -408,7 +408,7 @@ export async function runPipeline(
       continue;
     }
 
-    // Emit exchange:started for child exchanges on first encounter
+    // Emit route:exchange:started for child exchanges on first encounter
     if (
       exchange.id !== parentExchangeId &&
       !seenChildExchanges.has(exchange.id)
@@ -461,7 +461,7 @@ export async function runPipeline(
       HeadersKeys.CORRELATION_ID
     ] as string;
 
-    // Emit step:started event unless the step manages its own events
+    // Emit route:step:started event unless the step manages its own events
     if (!step.skipStepEvents) {
       deps.context.emit("route:step:started", {
         routeId: deps.routeId,
@@ -543,7 +543,7 @@ export async function runPipeline(
         }
       }
 
-      // Emit step:completed event unless the step manages its own events
+      // Emit route:step:completed event unless the step manages its own events
       if (!step.skipStepEvents) {
         const stepDuration = Date.now() - stepStartTime;
         const correlationId = exchange.headers[
@@ -630,7 +630,7 @@ export async function runPipeline(
               route: deps.route,
             });
             // Only a drop of the PARENT exchange marks the run dropped
-            // (suppressing the parent's exchange:completed). A dropped
+            // (suppressing the parent's route:exchange:completed). A dropped
             // split CHILD resolves that child alone, mirroring the
             // handler-threw path's failedChildExchanges accounting.
             if (exchange.id === parentExchangeId) {
@@ -922,7 +922,7 @@ function nestedDeps(
  *   invocation may be a nested segment whose own `deps.definition` has them
  *   stripped.
  *
- * The released exchange gets its own `exchange:started` / `:completed`
+ * The released exchange gets its own `route:exchange:started` / `:completed`
  * lifecycle pair, and the run is `trackTask`ed so `drain()` waits for it.
  */
 function makeDownstreamRunner(
@@ -949,7 +949,7 @@ function makeDownstreamRunner(
 
 /**
  * Run `steps` against `exchange` as a detached, first-class run of the
- * route: its own `exchange:started` / `:completed` pair, the route-scope
+ * route: its own `route:exchange:started` / `:completed` pair, the route-scope
  * `.error()` handler honoured, and the route's `.output()` schemas enforced
  * before completion.
  *

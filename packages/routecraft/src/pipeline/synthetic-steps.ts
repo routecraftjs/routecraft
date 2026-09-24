@@ -42,10 +42,10 @@ const PARSE_STEP_ADAPTER: Adapter = { adapterId: "routecraft.parse" };
  * See #187.
  *
  * Behaviour on parse failure depends on `failureMode`:
- * - `"fail"` / `"abort"`: throw `RC5016` so `exchange:failed` fires (or the
+ * - `"fail"` / `"abort"`: throw `RC5016` so `route:exchange:failed` fires (or the
  *   route's `.error()` handler recovers). The adapter's caller distinguishes
  *   `"abort"` by re-throwing the rejection out of subscribe.
- * - `"drop"`: emit `exchange:dropped` with `reason: "parse-failed"` (matching
+ * - `"drop"`: emit `route:exchange:dropped` with `reason: "parse-failed"` (matching
  *   filter / validate drop semantics) and halt the pipeline cleanly without
  *   invoking `.error()`.
  *
@@ -54,10 +54,10 @@ const PARSE_STEP_ADAPTER: Adapter = { adapterId: "routecraft.parse" };
  * raw bytes. Validation failure throws out of `applyValidation` and is
  * handled by the step loop's catch path like any step error.
  *
- * The step manages its own `step:started` / `step:completed` / `step:failed`
- * lifecycle events (`skipStepEvents: true`) so we can emit `step:completed`
- * for the drop case (drops are not failures) without the route loop
- * double-emitting.
+ * The step manages its own `route:step:started` / `route:step:completed` /
+ * `route:step:failed` events (`skipStepEvents: true`), so a drop can emit
+ * `route:step:failed` followed by `route:exchange:dropped` without the route
+ * loop double-emitting.
  */
 export function buildParseStep(
   parse: (raw: unknown) => unknown | Promise<unknown>,
@@ -120,11 +120,11 @@ export function buildParseStep(
         parsed = DefaultExchange.rewrap(exchange, { body: parsedBody });
       } catch (cause) {
         if (failureMode === "drop") {
-          // The parse threw, so the step itself failed: emit step:failed
-          // (honest about what happened), then exchange:dropped with a
+          // The parse threw, so the step itself failed: emit route:step:failed
+          // (honest about what happened), then route:exchange:dropped with a
           // stable reason (carries the policy decision). Subscribers
-          // counting parse failures see step:failed; subscribers
-          // tracking drop policy see exchange:dropped.
+          // counting parse failures see route:step:failed; subscribers
+          // tracking drop policy see route:exchange:dropped.
           emitStepFailed(cause);
           emitExchangeDropped(context, {
             routeId,
@@ -135,7 +135,7 @@ export function buildParseStep(
           return { kind: "drop" } as const;
         }
         // 'fail' / 'abort': throw RC5016 so the step loop's catch path
-        // emits exchange:failed (or invokes the route's `.error()`).
+        // emits route:exchange:failed (or invokes the route's `.error()`).
         emitStepFailed(cause);
         const causeMessage =
           cause instanceof Error ? cause.message : String(cause);
@@ -264,10 +264,10 @@ const CACHE_STORE_STEP_ADAPTER: Adapter = {
  * On a miss pushes the exchange with the unchanged `remainingSteps` so
  * the user pipeline runs.
  *
- * Manages its own observability: emits `cache:hit` / `cache:miss` /
- * `cache:failed` plus `exchange:restored` on a hit. `skipStepEvents:
- * true` keeps `runPipeline` from emitting generic `step:started` /
- * `step:completed` for this internal step.
+ * Manages its own observability: emits `route:cache:hit` / `route:cache:miss` /
+ * `route:cache:failed` plus `route:exchange:restored` on a hit. `skipStepEvents:
+ * true` keeps `runPipeline` from emitting generic `route:step:started` /
+ * `route:step:completed` for this internal step.
  *
  * @internal Exported only so `RouteBuilder.from()` can assemble it into
  * `RouteDefinition.postParseFilters`. Not part of the public API; the
@@ -392,7 +392,7 @@ export function buildCacheCheckStep(
  * everything including this step). Writes the terminal body using the
  * key captured by the matching check step.
  *
- * Provider write failures emit `cache:failed phase:"set"` for
+ * Provider write failures emit `route:cache:failed phase:"set"` for
  * observability but do NOT fail the exchange: the result was already
  * computed by the user pipeline. This diverges from step-scope, where
  * a write failure throws RC5028; the divergence is intentional and

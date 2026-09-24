@@ -20,7 +20,7 @@ import type { AcpPluginOptions } from "./acp/types.ts";
  * import { defineConfig } from "@routecraft/routecraft";
  * import "@routecraft/ai";
  *
- * export default defineConfig({
+ * export const craftConfig = defineConfig({
  *   llm: { providers: { openai: { apiKey: "..." } } },
  *   mcp: { clients: { ... } },
  *   embedding: { providers: { ... } },

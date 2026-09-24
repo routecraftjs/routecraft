@@ -8,7 +8,7 @@ import { parseJsonl } from "./shared.ts";
  * files: `fetch` reads the resolved path, parses every line, and returns the
  * array, so `.enrich(jsonl({ path }))` pulls a JSONL file into the route
  * mid-flow. Parse failures throw (the route boundary surfaces them as
- * `exchange:failed`); the `onParseError` lifecycle controls apply to the
+ * `route:exchange:failed`); the `onParseError` lifecycle controls apply to the
  * source role only.
  *
  * @template T - Element type of the parsed array (caller-asserted)
