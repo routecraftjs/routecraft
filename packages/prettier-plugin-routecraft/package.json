@@ -17,10 +17,10 @@
     "prettier": ">=3"
   },
   "devDependencies": {
-    "prettier": "^3.9.6",
+    "prettier": "^3.9.7",
     "tsup": "^8.5.1",
     "typescript": "^5.9.3",
-    "vitest": "^4.1.10"
+    "vitest": "^4.1.11"
   },
   "publishConfig": {
     "access": "public"
