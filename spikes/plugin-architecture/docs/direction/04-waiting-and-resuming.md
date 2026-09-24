@@ -107,6 +107,10 @@ craft()
 **`authorize`** sees the approver, the parked headers, the raw payload and the
 record without its body, and answers whether this approver may resume this
 record. Without it, the door asks the route's own grants of the approver. A
+route that declares no grants and no `.resumable()` has no door policy at
+all: any holder of the continuation id, an installed plugin included, can
+resume it. **Demonstrated** (probe D5). That is the shipped bearer default;
+whether 0.8 fails closed instead is a **migration decision**. A
 `false`, a throw and an abort are one refusal, "the door refused the
 resumer", bounded by the approval's own cancellation signal, so a hook that
 consults a slow directory cannot hold the door open past a stop.

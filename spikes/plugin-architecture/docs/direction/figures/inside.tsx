@@ -688,12 +688,28 @@ function Figure({ palette }: FigureProps) {
           </marker>
         </defs>
 
+        {/* Every plugin reaches the whole strip, so the drops meet one bus: a straight drop would read as "this plugin uses the socket below it". */}
         {PLUGINS.map((p, i) => (
           <Line
             key={p.id}
             palette={palette}
             kind="contract"
-            d={`M${pluginX(i) + pluginW / 2},318 V368`}
+            head={false}
+            d={`M${pluginX(i) + pluginW / 2},318 V342`}
+          />
+        ))}
+        <Line
+          palette={palette}
+          kind="contract"
+          head={false}
+          d={`M${pluginX(0) + pluginW / 2},342 H${pluginX(7) + pluginW / 2}`}
+        />
+        {SOCKETS.map((s, i) => (
+          <Line
+            key={`bus-${s.name}`}
+            palette={palette}
+            kind="contract"
+            d={`M${socketX(i) + socketW / 2},342 V368`}
           />
         ))}
         {SOCKETS.slice(0, 5).map((s, i) => (
