@@ -62,7 +62,7 @@ kernel points; the rest is feature-fit work.
 | | Today | After |
 |---|---|---|
 | Declared where | on the ingress route: `.resume(mapper, { authorize })`; `elevate` on the parked branch | on the deferred route: `.resumable({ authorize, elevate })`; an ingress-route door is a **migration decision** |
-| Default policy | bearer: whoever holds the token (`resume.ts:62`) | the route's own grants asked of the approver |
+| Default policy | bearer: whoever holds the token (`resume.ts:62`) | the route's own grants asked of the approver; a route with no grants is still bearer, and failing closed is a **migration decision** |
 | Refusal | `RC5056`, before the claim | one refusal, before disclosure and the claim, bounded by the approval's signal |
 | Elevation | re-mints within `errorPath.refusedScopes`, structural identity comparison | re-mints within the recorded refusal; structural comparison is **intended** |
 | More than one door per record | yes, one per ingress route | **migration decision** |
