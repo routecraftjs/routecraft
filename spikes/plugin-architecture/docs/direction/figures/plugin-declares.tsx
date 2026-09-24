@@ -12,7 +12,7 @@ import type { FigurePalette } from "./palette.ts";
 import type { FigureDrawing, FigureProps, MotifProps } from "./types.ts";
 
 const WIDTH = 1600;
-const HEIGHT = 900;
+const HEIGHT = 1120;
 
 function Row({
   palette,

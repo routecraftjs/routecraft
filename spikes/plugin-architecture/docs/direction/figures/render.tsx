@@ -16,11 +16,6 @@
  */
 import { existsSync, mkdirSync, symlinkSync, writeFileSync } from "node:fs";
 import path from "node:path";
-import { renderToStaticMarkup } from "react-dom/server";
-import { chromium } from "playwright";
-
-import { DRAWINGS, FIGURE_TEXT } from "./index.ts";
-import { FIGURE_PALETTE_THEMED } from "./palette.ts";
 
 const here = path.dirname(new URL(import.meta.url).pathname);
 const site = path.resolve(
@@ -85,6 +80,12 @@ html, body { margin: 0; padding: 0; background: var(--color-paper); }
 
 async function main() {
   link();
+  // Imported after link(): on a fresh clone React and Playwright resolve only through the symlinks it creates.
+  const { createElement } = await import("react");
+  const { renderToStaticMarkup } = await import("react-dom/server");
+  const { chromium } = await import("playwright");
+  const { DRAWINGS, FIGURE_TEXT } = await import("./index.ts");
+  const { FIGURE_PALETTE_THEMED } = await import("./palette.ts");
   mkdirSync(scratch, { recursive: true });
   const wanted = new Set(process.argv.slice(2));
   const drawings = DRAWINGS.filter(
@@ -107,7 +108,9 @@ async function main() {
       for (const theme of ["light", "dark"] as const) {
         const html = page(
           theme,
-          renderToStaticMarkup(<d.Figure palette={FIGURE_PALETTE_THEMED} />),
+          renderToStaticMarkup(
+            createElement(d.Figure, { palette: FIGURE_PALETTE_THEMED }),
+          ),
           d.width,
           d.height,
         );

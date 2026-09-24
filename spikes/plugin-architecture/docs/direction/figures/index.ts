@@ -7,6 +7,7 @@
 import { continuationStates } from "./continuation-states.tsx";
 import { exchangePath } from "./exchange-path.tsx";
 import { fourSockets } from "./four-sockets.tsx";
+import { inside } from "./inside.tsx";
 import { installation } from "./installation.tsx";
 import { kernelBoundary } from "./kernel-boundary.tsx";
 import { pluginDeclares } from "./plugin-declares.tsx";
@@ -20,6 +21,7 @@ export const DRAWINGS: FigureDrawing[] = [
   kernelBoundary,
   pluginDeclares,
   installation,
+  inside,
   exchangePath,
   continuationStates,
   resumeDoor,
@@ -47,6 +49,11 @@ export const FIGURE_TEXT: Record<string, FigureText> = {
   installation: {
     alt: "A vertical flow from plugin descriptors through identity validation, port resolution, dependency ordering, bind, freeze, contribution ordering, route compilation and start, to running and then stop in reverse; fault codes beside the stages that can refuse.",
     caption: "Installation, and where it can refuse.",
+  },
+  inside: {
+    alt: "Eight plugins across the top, six first-party and two third-party, each reaching one strip of six sockets (port, contribution, step, facet, point, execution) through identical contract arrows. Below the strip, the kernel in three columns: the host's lifecycle stages joined by implementation arrows; the runtime's path of one run from admission through entry, the wrapper chain with a third-party wrapper between retry and timeout, the step loop and exit to completed, with refused, the error ring and failed beside it; and the continuation protocol, where a resume passes the door, the deadline and live-tail checks and the compare-and-swap before re-entering the run at entry, the sweep retires due records, and a park writes its record and ends deferred. Beneath the kernel, the continuation port it calls out through, provided by the deferral plugin over a third-party records store. A legend distinguishes contract edges, the exchange's path, and kernel-internal implementation.",
+    caption:
+      "Inside: plugins reach the kernel through one strip of sockets; every run takes one path through the rings, and a park comes back through the door.",
   },
   "exchange-path": {
     alt: "A central spine from delivery through the admission ring, entry ring, wrapper chain and step loop to the exit ring and completed. Left: the six step outcomes ending in deferred. Right: refused, and a thrown step reaching the error ring, which may park or end failed.",
