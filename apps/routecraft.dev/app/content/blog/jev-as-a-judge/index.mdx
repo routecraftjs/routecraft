@@ -1,6 +1,6 @@
 ---
 title: Jev as a judge
-description: TypeSafe's Jev returns typed decisions with probabilities instead of text, which makes it look like the obvious LLM-as-a-judge replacement. It is half of one. Here is the route that uses the half that works, with no adapter, and the three things the SDK does that its docs do not mention.
+description: TypeSafe AI's Jev returns typed decisions with probabilities instead of text, which makes it look like the obvious LLM-as-a-judge replacement. It is half of one. Here is the route that uses the half that works, with no adapter, and the three things the SDK does that its docs do not mention.
 date: 2026-09-22
 author: Jaco Botha
 authorRole: Founder, DevOptix
@@ -18,7 +18,7 @@ related:
 layout: blog-post
 ---
 
-TypeSafe released Jev in September, and if you build agents you have probably already read the pitch. Jev is not a language model. You send it your program state and a map of typed questions, and it answers every question in one pass with a typed value and the probabilities behind it. No text. Software branches on the answer directly.
+TypeSafe AI released Jev in September, and if you build agents you have probably already read the pitch. Jev is not a language model. You send it your program state and a map of typed questions, and it answers every question in one pass with a typed value and the probabilities behind it. No text. Software branches on the answer directly.
 
 The first use anyone reaches for is the judge. Every agent pipeline that acts on a result needs something independent to decide whether the agent actually did the job, and today that something is usually a second LLM call with a structured output schema. Jev returns structured output natively, faster and cheaper than a reasoning model by the vendor's own numbers. Swap it in, keep the schema, done.
 
@@ -43,7 +43,7 @@ Jev can answer `met`. It cannot answer `reason`, because it does not generate te
 
 So Jev is not a replacement for the judge. It is a screen in front of it. Jev answers "was the request met?" as a probability on every dispatch. When the probability is high enough to act on, the route acts on it and the reasoning model is never called. Every other outcome still goes to the LLM judge, which is the only stage that can explain itself.
 
-That is a cascade, and TypeSafe documents it themselves under the name SDE cascade. The saving comes from the common case, the one where the agent plainly did the job and nobody needs a sentence about it. The interesting cases keep the interesting model. The harness post warns against paying AI rates for a scheduler's job; this is the same rule one level down. Do not pay reasoning-model rates for a yes.
+That is a cascade, and TypeSafe AI documents it themselves under the name SDE cascade. The saving comes from the common case, the one where the agent plainly did the job and nobody needs a sentence about it. The interesting cases keep the interesting model. The harness post warns against paying AI rates for a scheduler's job; this is the same rule one level down. Do not pay reasoning-model rates for a yes.
 
 ## The route
 
@@ -161,7 +161,7 @@ const typesafe = (): TypeSafeClient =>
 
 ## Do not put it on a trust boundary
 
-TypeSafe's cookbook includes a recipe for using Jev as a guardrail: screen LLM inputs and outputs for jailbreaks and policy violations, with a review threshold and a block threshold. Read that recipe next to the vendor's own page on what the model is bad at: "State is data, and jev-1.13 does not treat it as hostile by default. Content written to adversarially steer the model, whether that is an injected instruction, a deliberately misleading framing, or text that argues for its own classification, can move the answer."
+TypeSafe AI's cookbook includes a recipe for using Jev as a guardrail: screen LLM inputs and outputs for jailbreaks and policy violations, with a review threshold and a block threshold. Read that recipe next to the vendor's own page on what the model is bad at: "State is data, and jev-1.13 does not treat it as hostile by default. Content written to adversarially steer the model, whether that is an injected instruction, a deliberately misleading framing, or text that argues for its own classification, can move the answer."
 
 Those two documents describe an injectable model guarding against injection. And an agent's account of its own work is text that argues for its own classification, which is the exact input the vendor says can move the answer.
 
@@ -173,7 +173,7 @@ Use Jev to grade the work. Keep the code on the door.
 
 ## What it is bad at, in the vendor's words
 
-TypeSafe publishes a page called model jaggedness for each release, and it is the most useful page on the site. For jev-1.13, in short:
+TypeSafe AI publishes a page called model jaggedness for each release, and it is the most useful page on the site. For jev-1.13, in short:
 
 - It reads the question literally. Scoping words, negations and implied conditions are taken at face value.
 - It does not count reliably: characters, occurrences, items in a long list.
@@ -185,9 +185,9 @@ None of these hurt "was the request met?" as long as the answer does not turn on
 
 ## Getting a key
 
-Create one at [console.typesafe.ai](https://console.typesafe.ai/keys) and export it as `TYPESAFE_API_KEY`; the client reads it with no arguments. TypeSafe describes Jev as early access at the time of writing, so there may be a wait, and several model gateways list it if you already have an account with one. The wire format also has open-source implementations already: semif-serve, for one, says an existing Jev client needs only a changed base URL. We have not run them. `TYPESAFE_BASE_URL` is where the example would point at either.
+Create one at [console.typesafe.ai](https://console.typesafe.ai/keys) and export it as `TYPESAFE_API_KEY`; the client reads it with no arguments. TypeSafe AI describes Jev as early access at the time of writing, so there may be a wait, and several model gateways list it if you already have an account with one. The wire format also has open-source implementations already: semif-serve, for one, says an existing Jev client needs only a changed base URL. We have not run them. `TYPESAFE_BASE_URL` is where the example would point at either.
 
-One rule worth stating plainly, because the search results for "Jev API key" already include sites that will issue you one. The only place that creates a Jev key is TypeSafe's console. A site that hands you a key from another domain is sitting between you and the vendor with your key and every payload you send, and your judge evidence is the last thing you want proxied.
+One rule worth stating plainly, because the search results for "Jev API key" already include sites that will issue you one. The only place that creates a Jev key is TypeSafe AI's console. A site that hands you a key from another domain is sitting between you and the vendor with your key and every payload you send, and your judge evidence is the last thing you want proxied.
 
 ## Try it
 
