@@ -377,6 +377,6 @@ The site ships as a server (Nitro under Bun in the image), so a moved URL can be
 the app itself and no longer needs host coordination. Still prefer repurposing a page in place
 over moving or deleting its URL: inbound links and LLM-cached URLs outlive our routing. When a
 URL must change, ship the redirect in the same change, and remember that the prerender list is
-derived from the content tree (`contentRoutes` in `apps/routecraft.dev/vite.config.ts`), so a
+derived from the content tree (`prerenderPages` in `apps/routecraft.dev/scripts/prerender-pages.ts`), so a
 redirect that is not backed by a content file has to be a route. Deep links are pinned outside
 this repository in the trailing-slash form, which is part of the contract.
