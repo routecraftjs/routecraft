@@ -19,10 +19,15 @@
 
 import { spawn } from "node:child_process";
 import { existsSync } from "node:fs";
+import { constants } from "node:os";
 import { basename, delimiter, dirname, join, parse } from "node:path";
 import { fileURLToPath } from "node:url";
 
-/** Set on the relaunched process so it never relaunches again. */
+/**
+ * Set on the relaunched process so it never relaunches again.
+ *
+ * @internal
+ */
 export const RELAUNCHED_ENV = "CRAFT_CLI_RELAUNCHED";
 
 const FORWARDED_SIGNALS = ["SIGINT", "SIGTERM", "SIGHUP", "SIGQUIT"] as const;
@@ -84,20 +89,34 @@ export function nodeModulesAbove(dir: string): string[] {
  * Resolves to the child's exit code, or to `undefined` when no relaunch is
  * needed and the caller should carry on in this process.
  *
+ * The child keeps the parent's runtime flags except the inspector's, whose
+ * port the parent already holds. When the parent dies without forwarding a
+ * signal (`SIGKILL`, an OOM kill), the child notices it has been reparented
+ * and shuts itself down the way a `SIGTERM` would.
+ *
  * @param entry - URL of the CLI entry module, for the child to run.
+ * @internal
  */
 export function relaunchOutsideProject(
   entry: string,
 ): Promise<number> | undefined {
-  if (process.env[RELAUNCHED_ENV] === "1") return undefined;
+  if (process.env[RELAUNCHED_ENV] === "1") {
+    // Consumed here so a `craft` a route starts decides for itself.
+    delete process.env[RELAUNCHED_ENV];
+    followParent();
+    return undefined;
+  }
   if (!isOutsideProject(process.cwd())) return undefined;
 
   const entryPath = fileURLToPath(entry);
   const packageRoot = dirname(dirname(entryPath));
+  const runtimeFlags = process.execArgv.filter(
+    (flag) => !flag.startsWith("--inspect"),
+  );
 
   const child = spawn(
     process.execPath,
-    ["--no-install", entryPath, ...process.argv.slice(2)],
+    [...runtimeFlags, "--no-install", entryPath, ...process.argv.slice(2)],
     {
       stdio: "inherit",
       env: {
@@ -113,26 +132,46 @@ export function relaunchOutsideProject(
   );
 
   // A terminal Ctrl-C reaches both processes; the child ignores a repeated
-  // signal during shutdown, so forwarding every one is safe.
+  // signal during shutdown, so forwarding every one is safe. On Windows
+  // kill() is TerminateProcess and the console already signals the child,
+  // so the parent only listens, to outlive the console event.
   for (const signal of FORWARDED_SIGNALS) {
-    process.on(signal, () => child.kill(signal));
+    process.on(signal, () => {
+      if (process.platform !== "win32") child.kill(signal);
+    });
   }
 
   return new Promise((resolveExit) => {
     child.on("exit", (code, signal) => {
-      resolveExit(code ?? (signal ? 128 + signalNumber(signal) : 1));
+      resolveExit(
+        code ?? (signal ? 128 + (constants.signals[signal] ?? 0) : 1),
+      );
     });
-    child.on("error", () => resolveExit(1));
+    child.on("error", (error) => {
+      // eslint-disable-next-line no-console
+      console.error(
+        `[routecraft] craft could not restart itself outside a project: ${error.message}`,
+      );
+      resolveExit(1);
+    });
   });
 }
 
-function signalNumber(signal: NodeJS.Signals): number {
-  const numbers: Partial<Record<NodeJS.Signals, number>> = {
-    SIGHUP: 1,
-    SIGINT: 2,
-    SIGQUIT: 3,
-    SIGKILL: 9,
-    SIGTERM: 15,
-  };
-  return numbers[signal] ?? 1;
+/**
+ * Shut the relaunched child down when the parent that started it is gone,
+ * so a supervisor that kills only the PID it started leaves nothing behind.
+ */
+function followParent(): void {
+  const parent = process.ppid;
+  const watch = setInterval(() => {
+    // Bun caches process.ppid, so ask whether the parent still exists.
+    try {
+      process.kill(parent, 0);
+      return;
+    } catch {
+      clearInterval(watch);
+      process.kill(process.pid, "SIGTERM");
+    }
+  }, 1000);
+  watch.unref();
 }

@@ -23,6 +23,7 @@ import {
   isSymbolicLink,
   generateProjectStructure,
   isExcludedExamplePath,
+  mergeExampleDeps,
   mergeExamplePackageJson,
   getRoutecraftVersion,
   parseGitHubExampleUrl,
@@ -572,6 +573,58 @@ describe("mergeExamplePackageJson", () => {
     expect(pkg.dependencies["@routecraft/cli"]).toBe(getRoutecraftVersion());
     expect(pkg.devDependencies["@routecraft/cli"]).toBeUndefined();
     expect(pkg.devDependencies["eslint"]).toBe("^10.0.2");
+  });
+
+  /**
+   * @case An example lists a package as a dev dependency that the base needs at runtime, at another range
+   * @preconditions The base declares zod ^4.3.6 in dependencies; the example declares zod ^3.25.0 in devDependencies only
+   * @expectedResult zod is declared once, in dependencies, at the example's range: the example wins a merge, and the runtime section keeps it in a production install
+   */
+  test("keeps the example's range when it moves a dev dependency to runtime", async () => {
+    await writeFile(
+      join(target, "package.json"),
+      JSON.stringify({
+        name: "my-app",
+        dependencies: { zod: "^4.3.6" },
+        devDependencies: { typescript: "^5.9.3" },
+      }),
+    );
+    await writeFile(
+      join(source, "package.json"),
+      JSON.stringify({ devDependencies: { zod: "^3.25.0" } }),
+    );
+
+    await mergeExamplePackageJson(source, target);
+
+    const pkg = await readJson(join(target, "package.json"));
+    expect(pkg.dependencies["zod"]).toBe("^3.25.0");
+    expect(pkg.devDependencies["zod"]).toBeUndefined();
+  });
+
+  /**
+   * @case A legacy deps.json lists the CLI under devDependencies
+   * @preconditions The scaffolded manifest declares @routecraft/cli in dependencies; the example ships a deps.json declaring it in devDependencies
+   * @expectedResult The deps.json merge applies the same rule as the package.json merge: the CLI stays in dependencies only, at the scaffolder's version
+   */
+  test("applies the runtime rule to a deps.json merge too", async () => {
+    await writeFile(
+      join(target, "package.json"),
+      JSON.stringify({
+        name: "my-app",
+        dependencies: { "@routecraft/cli": "^0.7.0" },
+        devDependencies: { typescript: "^5.9.3" },
+      }),
+    );
+    await writeFile(
+      join(source, "deps.json"),
+      JSON.stringify({ devDependencies: { "@routecraft/cli": "0.6.0" } }),
+    );
+
+    await mergeExampleDeps(source, target);
+
+    const pkg = await readJson(join(target, "package.json"));
+    expect(pkg.dependencies["@routecraft/cli"]).toBe(getRoutecraftVersion());
+    expect(pkg.devDependencies["@routecraft/cli"]).toBeUndefined();
   });
 
   /**

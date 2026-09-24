@@ -14,6 +14,17 @@ const LOADED_BY_NAME = new Set(["pino-pretty"]);
 
 const SPECIFIER = /(?:from\s+|import\s*\(\s*)["']([^"'./][^"']*)["']/g;
 
+/**
+ * The source as it runs: comments and type-only imports removed, so a JSDoc
+ * example or an `import type` cannot vouch for a runtime dependency.
+ */
+function runtimeSource(source: string): string {
+  return source
+    .replace(/\/\*[\s\S]*?\*\//g, "")
+    .replace(/^\s*\/\/.*$/gm, "")
+    .replace(/\b(?:import|export)\s+type\s[^;]*?;/g, "");
+}
+
 function packageOf(specifier: string): string {
   const parts = specifier.split("/");
   return specifier.startsWith("@") ? parts.slice(0, 2).join("/") : parts[0]!;
@@ -33,7 +44,7 @@ describe("@routecraft/cli dependencies", () => {
     const files = await readdir(join(ROOT, "src"), { recursive: true });
     for (const file of files.filter((name) => /\.tsx?$/.test(name))) {
       const source = await readFile(join(ROOT, "src", file), "utf-8");
-      for (const [, specifier] of source.matchAll(SPECIFIER)) {
+      for (const [, specifier] of runtimeSource(source).matchAll(SPECIFIER)) {
         if (!specifier!.startsWith("node:") && !specifier!.startsWith("bun:")) {
           imported.add(packageOf(specifier!));
         }

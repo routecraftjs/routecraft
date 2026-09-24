@@ -68,7 +68,8 @@ The checklists below apply to **packages that ship code**: anything under `packa
 > and both load one.
 
 - [ ] The package is an optional `peerDependency` (with `peerDependenciesMeta.<name>.optional = true`) in the package that loads it
-- [ ] The package is a regular `dependency` in `@routecraft/cli` so the CLI bundles it, **unless the CLI's runtime can never need it**. `better-sqlite3` is the standing exception: `packages/cli/src/runtime-gate.ts` refuses to start under Node, so `bun:sqlite` is always the arm the CLI takes and bundling the Node driver would ship weight nothing can reach.
+- [ ] The package is **not** added to `@routecraft/cli`'s dependencies. The CLI declares only what it imports, because its dependencies are what every deployed image carries; a project that uses the adapter declares the peer itself (`.standards/ci-cd.md` § 6, enforced by `packages/cli/test/dependencies.bun.test.ts`)
+- [ ] The adapter's reference page says which package to install, with the `bun add` line, and whether `RC5017` fires when the route starts or when the adapter is first used
 - [ ] The peer loads via `loadOptionalPeer` (`packages/routecraft/src/adapters/shared/optional-peer.ts`), not a bespoke `try/catch`. The missing-peer error is `RC5017` with an install hint naming the subsystem that wanted it. See `.standards/ci-cd.md` § 6 for the contract; cron and html are the canonical references.
 - [ ] A runtime-specific code path (e.g. `bun:sqlite` under Bun + `better-sqlite3` under Node) carries a `packages/<pkg>/test/cross-runtime/<name>.cross.test.ts` exercising the same observable contract on both runtimes
 

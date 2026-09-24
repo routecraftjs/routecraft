@@ -12,6 +12,8 @@ import { agentBrowser } from '@routecraft/os'
 
 Automate a browser session using the [agent-browser](https://www.npmjs.com/package/agent-browser) library. Each exchange gets an isolated session (derived from `exchange.id`), so `split()`/`aggregate()` flows work correctly. The adapter is an enricher: use with `.to()` or bare `.enrich()` (the `AgentBrowserResult` replaces the body; pass an aggregator such as `only()` to merge), or `.tap()` (result discarded). Requires `agent-browser` as a peer dependency.
 
+Requires `@routecraft/os` and the optional peer `agent-browser` at 0.17: `bun add @routecraft/os agent-browser@^0.17`. A missing peer raises `RC5017` with an install hint.
+
 **Navigate and take a snapshot:**
 
 ```ts
