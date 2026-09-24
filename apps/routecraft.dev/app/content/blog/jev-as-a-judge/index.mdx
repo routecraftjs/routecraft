@@ -47,7 +47,7 @@ That is a cascade, and TypeSafe documents it themselves under the name SDE casca
 
 ## The route
 
-Here is the route. The reasoning judge's system prompt is cut short in this excerpt and the full text is in the file. There is no Jev adapter in Routecraft and this post does not need one: the client goes inside an `.enrich()` step and the threshold goes in `.choice()`, where the framework already has a place for both.
+Here is the route. The reasoning judge's system prompt is cut short in this excerpt and the full text is in the file. There is no Jev adapter in Routecraft and this post does not need one: the client goes inside an `.enrich()` step and the threshold goes in `.choice()`, where the platform already has a place for both.
 
 ```ts skip="excerpt of examples/src/jev-judge.ts"
 import { craft, direct, only, otherwise, when } from "@routecraft/routecraft";
@@ -206,6 +206,6 @@ Or scaffold a project of your own and paste the route in:
 bunx create-routecraft my-app
 ```
 
-The reasoning judge this route escalates to is the pattern in the docs under [Judging agent results](/docs/next/advanced/judging-agent-results), on the next channel until 0.7.0 ships. Start there if you want the pattern without the vendor.
+The reasoning judge this route escalates to is the pattern in the docs under [Judging agent results](/docs/advanced/judging-agent-results). Start there if you want the pattern without the vendor.
 
 Jev is a judge that cannot write the verdict. Put it in front of the one that can, keep the threshold where you can see it, and let the reasoning model spend its time on the cases that were worth a sentence.
