@@ -17,6 +17,11 @@ export interface FigurePalette {
   paper: string
   /** Card and panel fill, one step off the paper. */
   paperDeep: string
+  /**
+   * The same step at full strength, for a card that must hide what is drawn
+   * beneath it: wiring that has to look as if it leaves the card's edge.
+   */
+  paperDeepSolid: string
   /** Primary type and marks. */
   ink: string
   /** Ink at 60%: secondary labels inside panels. */
@@ -50,6 +55,7 @@ export interface FigurePalette {
 export const FIGURE_PALETTE_THEMED: FigurePalette = {
   paper: 'var(--color-paper)',
   paperDeep: 'color-mix(in srgb, var(--color-paper-deep) 40%, transparent)',
+  paperDeepSolid: 'var(--color-paper-deep)',
   ink: 'var(--color-ink)',
   ink60: 'color-mix(in srgb, var(--color-ink) 60%, transparent)',
   ink55: 'color-mix(in srgb, var(--color-ink) 55%, transparent)',
