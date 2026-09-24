@@ -2,10 +2,14 @@
  * `craft` outside a project: a lone file given to `craft run` runs on the
  * CLI's own install rather than on whatever Bun's auto-install fetches.
  *
- * The end-to-end case runs the CLI in a child process from a directory with
+ * The end-to-end cases run the CLI in a child process from a directory with
  * no `node_modules` above it, because Bun decides auto-install once, at
- * process start, from the working directory. `CRAFT_CLI_ENTRY` points it at
- * the built bundle the same way `log-flags.bun.test.ts` does.
+ * process start, from the working directory. A file there reaches core
+ * through the package's entry, which is `dist/`: inside the repository the
+ * root tsconfig maps `@routecraft/*` to source, but a lone file has no
+ * tsconfig. So these cases need a built core and skip without one; the
+ * `scaffolder-smoke` job runs them against the bundle that ships, with
+ * `CRAFT_CLI_ENTRY` pointing at it the same way `log-flags.bun.test.ts` does.
  */
 
 import { afterAll, beforeAll, describe, expect, test } from "bun:test";
@@ -33,6 +37,12 @@ const REPO_ROOT = resolve(import.meta.dir, "..", "..", "..");
 
 /** A temporary directory with a node_modules above it cannot host these cases. */
 const TMP_OUTSIDE = isOutsideProject(tmpdir());
+
+/** A lone file resolves core through its package entry, which only a build provides. */
+const CORE_BUILT = existsSync(
+  join(REPO_ROOT, "packages", "routecraft", "dist", "index.js"),
+);
+const LONE_FILE_CASES = TMP_OUTSIDE && CORE_BUILT;
 
 /** The environment a person's shell would give `craft`, with no relaunch state. */
 function cleanEnv(): Record<string, string | undefined> {
@@ -178,7 +188,7 @@ describe("craft run on a lone file", () => {
    * @preconditions The CLI runs from that directory, so Bun would switch the process to auto-install
    * @expectedResult The route runs, and its import of core resolves inside the CLI's own install rather than Bun's download cache
    */
-  test.skipIf(!TMP_OUTSIDE)(
+  test.skipIf(!LONE_FILE_CASES)(
     "runs on the CLI's own core",
     async () => {
       const marker = join(lone, "resolved-core");
@@ -209,7 +219,7 @@ describe("craft run on a lone file", () => {
    * @preconditions A lone file with a timer route runs outside a project, so the route runs in a relaunched child
    * @expectedResult The parent forwards the signal, the child drains gracefully, and the caller sees exit 0
    */
-  test.skipIf(!TMP_OUTSIDE || process.platform === "win32")(
+  test.skipIf(!LONE_FILE_CASES || process.platform === "win32")(
     "a SIGTERM to the parent shuts the child down gracefully",
     async () => {
       const { parent } = await startLongRunning("graceful");
@@ -227,7 +237,7 @@ describe("craft run on a lone file", () => {
    * @preconditions A lone file runs in a relaunched child; the child is sent SIGABRT directly, as a native crash would
    * @expectedResult The caller sees 128 + SIGABRT (134), not a code that names another signal
    */
-  test.skipIf(!TMP_OUTSIDE || process.platform === "win32")(
+  test.skipIf(!LONE_FILE_CASES || process.platform === "win32")(
     "reports the child's own signal in the exit code",
     async () => {
       const { parent, childPid } = await startLongRunning("aborted");
@@ -245,7 +255,7 @@ describe("craft run on a lone file", () => {
    * @preconditions A lone file with a timer route runs in a relaunched child
    * @expectedResult The child notices its parent is gone and stops on its own, rather than running on as an orphan
    */
-  test.skipIf(!TMP_OUTSIDE || process.platform === "win32")(
+  test.skipIf(!LONE_FILE_CASES || process.platform === "win32")(
     "the child stops when the parent is killed outright",
     async () => {
       const { parent, childPid } = await startLongRunning("orphaned");
