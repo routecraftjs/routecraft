@@ -13,10 +13,11 @@
  * judge, which is the only stage that can produce the `reason` text, because
  * Jev does not generate text at all.
  *
- * The threshold lives in `.choice(when(...))` rather than inside the
- * enricher so a reader of the route can see what is being traded and change
- * it. A judge that gates a mail send wants a different number than one that
- * gates a log line.
+ * How sure the screen must be is the caller's call, because the caller knows
+ * what it does with the verdict: a judge that gates a mail send wants a
+ * different number than one that gates a log line. So `passAt` is part of the
+ * input, with a default, and the route reads it in `.choice(when(...))` where
+ * a reader can see what is being traded.
  *
  * Needs `TYPESAFE_API_KEY` in the environment for the screening stage, and
  * the `gemini` provider configured in craft.config.ts for the escalation.
@@ -70,13 +71,25 @@ export const evidence = z.object({
 export type JudgeEvidence = z.infer<typeof evidence>;
 
 /**
- * Probability above which a yes is taken at face value and the reasoning
- * judge is skipped. One number, deliberately high: the saving comes from the
- * common case where the agent plainly did the job, and every other outcome
- * (a fail, or any real doubt) is worth a second opinion that can explain
- * itself.
+ * The default `passAt`. Deliberately high: the saving comes from the common
+ * case where the agent plainly did the job, and every other outcome (a fail,
+ * or any real doubt) is worth a second opinion that can explain itself.
  */
-const CONFIDENT_PASS = 0.85;
+const DEFAULT_PASS_AT = 0.85;
+
+/** What a caller sends: the evidence, and optionally how sure the screen must be. */
+export const judgeRequest = evidence.extend({
+  passAt: z
+    .number()
+    .min(0)
+    .max(1)
+    .default(DEFAULT_PASS_AT)
+    .describe(
+      "Screen probability at or above which a yes passes without the reasoning judge.",
+    ),
+});
+
+export type JudgeRequest = z.input<typeof judgeRequest>;
 
 const REASONING_JUDGE = "gemini:gemini-3.7-flash";
 
@@ -102,7 +115,7 @@ export type Screen = { met: number };
  *
  * A noul answer carries no `confidence` field (unlike choice and score), so
  * the probability itself is the only signal there is, and the threshold that
- * reads it belongs in the route rather than here.
+ * reads it belongs to the caller rather than here.
  */
 export const screen = async (
   input: JudgeEvidence,
@@ -131,11 +144,12 @@ export const screen = async (
  * verdict happens to be present.
  */
 export const judgementFrom = (body: {
+  passAt: number;
   screen: Screen;
   verdict?: Judgement | undefined;
 }): Judgement => {
   if (body.verdict) return body.verdict;
-  if (body.screen.met >= CONFIDENT_PASS) {
+  if (body.screen.met >= body.passAt) {
     return {
       met: true,
       reason: `Screened as met with probability ${body.screen.met.toFixed(2)}; no reasoning call made.`,
@@ -149,23 +163,26 @@ export const judgeRoute = craft()
   .description(
     "Judges whether an agent result fulfilled the request that produced it, screening with a System One model before spending a reasoning call.",
   )
-  .input({ body: evidence })
+  .input({ body: judgeRequest })
   .from(direct())
   .enrich(
-    async (ex) =>
-      screen(ex.body).catch((error: unknown) => {
+    async (ex) => {
+      const { request, account, toolCalls } = ex.body;
+      // The evidence only: anything else in the state is a distractor to Jev.
+      return screen({ request, account, toolCalls }).catch((error: unknown) => {
         ex.logger.warn(
           { err: error },
           "Screen unavailable; escalating to the reasoning judge",
         );
         return { met: Number.NaN };
-      }),
+      });
+    },
     only((r: Screen) => r, "screen"),
   )
   .choice(
     when(
       // Written so an unanswered screen (NaN) escalates as well.
-      (ex) => !(ex.body.screen.met >= CONFIDENT_PASS),
+      (ex) => !(ex.body.screen.met >= ex.body.passAt),
       (b) => b.enrich(
         llm(REASONING_JUDGE, {
           system:
@@ -201,16 +218,18 @@ export const judgeRoute = craft()
 const callerRoute = craft()
   .id("jev-judge-demo")
   .from(
-    simple<JudgeEvidence>({
+    simple<JudgeRequest>({
       request: { subject: "Please archive the invoices in the finance inbox" },
       account: "I listed the invoices in the finance inbox and archived them.",
       toolCalls: [
         { toolName: "list-invoices", failed: false, error: null },
         { toolName: "archive-invoice", failed: false, error: null },
       ],
+      // Archiving moves real mail, so this caller asks for more than the default.
+      passAt: 0.9,
     }),
   )
-  .to(direct<JudgeEvidence>("judge-agent-result"))
+  .to(direct<JudgeRequest>("judge-agent-result"))
   .log();
 
 export default [judgeRoute, callerRoute];
