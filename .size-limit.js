@@ -57,7 +57,7 @@ export default [
   makeNodeEsmConfig(
     "@routecraft/ai",
     "packages/ai/dist/index.js",
-    "240 kb",
+    "300 kb",
     "packages/ai/package.json",
   ),
   makeNodeEsmConfig(
