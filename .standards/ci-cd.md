@@ -132,6 +132,8 @@ External SDKs that a package only needs when a specific feature is used (Vercel 
 
 The pre-existing migration backlog tracked in [#287](https://github.com/routecraftjs/routecraft/issues/287) is closed: every dynamic-import optional-peer site now goes through `loadOptionalPeer`. `loadOptionalPeer` is exported from `@routecraft/routecraft` so cross-package adapters (`@routecraft/ai`'s mcp suite, `@routecraft/cli`) reuse the same helper. New code MUST follow the same shape and is reviewed against this contract. A repo-wide contract test (`packages/routecraft/test/optional-peer-contract.bun.test.ts`) enforces it across core, ai, os, and cli: any bare dynamic import of an optional peer fails the suite (regular dependencies and required peers are exempt).
 
+**`@routecraft/cli` declares only what it imports, so it never re-declares an adapter's optional peer.** `craft start` is the production runtime, so the CLI's dependencies are what every deployed image carries; a re-declared peer ships an adapter's runtime to projects that never use the adapter. It also does not serve the case it looks like it serves: routes run on the project's copy of core, which resolves peers from the project, and a lone file under `craft run` runs on the CLI's core and finds peers beside the file or beside the CLI (`packages/cli/src/relaunch.ts`). The one exception is `pino-pretty`, which core's logger loads by name as a transport for the CLI's own output. `packages/cli/test/dependencies.bun.test.ts` enforces it.
+
 ## 7. Bun command conventions
 
 - Use `bun run <script>` for any `package.json` script (root or workspace). E.g. `bun run lint`, `bun run --filter routecraft.dev dev`.
