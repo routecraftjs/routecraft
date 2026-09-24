@@ -1,3 +1,4 @@
+import { everyTeamBuildsItsOwn } from '@/components/figures/every-team-builds-its-own'
 import { fourGates } from '@/components/figures/four-gates'
 import { handsNotKeys } from '@/components/figures/hands-not-keys'
 import { FIGURE_TEXT } from '@/components/figures/manifest.mjs'
@@ -18,6 +19,7 @@ const DRAWINGS: FigureDrawing[] = [
   fourGates,
   serverVsDoorway,
   teamAgentHarness,
+  everyTeamBuildsItsOwn,
 ]
 
 /**
