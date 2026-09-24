@@ -25,7 +25,7 @@
   "dependencies": {
     "@standard-schema/spec": "^1.1.0",
     "ai": "^6.0.283",
-    "zod": "^4.4.3"
+    "zod": "^4.6.1"
   },
   "devDependencies": {
     "@agentclientprotocol/sdk": "^1.4.0",

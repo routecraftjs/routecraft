@@ -52,10 +52,12 @@ export default [
     "200 kb",
     "packages/routecraft/package.json",
   ),
+  // Most of this budget is the Vercel `ai` SDK and the zod it requires, not
+  // framework code: zod 4.6 alone added 22 kB over 4.4.
   makeNodeEsmConfig(
     "@routecraft/ai",
     "packages/ai/dist/index.js",
-    "200 kb",
+    "240 kb",
     "packages/ai/package.json",
   ),
   makeNodeEsmConfig(
