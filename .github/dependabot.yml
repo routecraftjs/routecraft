@@ -34,7 +34,8 @@ updates:
         update-types: ["version-update:semver-major"]
       # Held with the bun runtime: react-dom 19.3's server build fails to load
       # on bun 1.3.11, so every prerendered page 500s, and no later bun passes
-      # the suite yet. Lift together with the `packageManager` bump.
+      # the suite yet. The `~19.2` ranges in apps/routecraft.dev/package.json
+      # hold it for every install; lift both with the `packageManager` bump.
       - dependency-name: "react"
         versions: [">=19.3.0"]
       - dependency-name: "react-dom"
