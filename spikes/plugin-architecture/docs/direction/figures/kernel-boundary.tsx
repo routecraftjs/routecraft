@@ -148,7 +148,7 @@ function Figure({ palette }: FigureProps) {
                   palette={palette}
                   style={{ ...chip, padding: "13px 20px" }}
                 >
-                  acme.store · provides CONTINUATIONS, replacing ours
+                  acme.store · provides RECORDS, replacing sqlite
                 </Block>
                 <Block
                   palette={palette}

@@ -25,7 +25,7 @@ and the contracts are extracted around it.
 | Page | What it answers |
 |---|---|
 | [What changes](01-what-changes.md) | The one move, in two pictures, and what it buys |
-| [Anatomy](02-anatomy.md) | Kernel, plugins, ports, points, contributions, steps, facets, namespaces, installation |
+| [Anatomy](02-anatomy.md) | Kernel, plugins, ports, points, contributions, steps, facets, execution, namespaces, installation, and the inside at runtime |
 | [One exchange through a route](03-exchange-through-a-route.md) | Rings, wrappers, the step loop and its six outcomes, refusals and failures, run kinds |
 | [Waiting and resuming](04-waiting-and-resuming.md) | Parking, the record, the store, the door, the resume protocol, expiry, the sweep, what is not promised |
 | [Identity](05-identity.md) | Principals, the gate, grants, what a continuation runs as, lending at the door |

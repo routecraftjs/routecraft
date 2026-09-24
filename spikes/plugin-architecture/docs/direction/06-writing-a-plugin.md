@@ -103,8 +103,9 @@ const spec = app
 Three things to notice. `.choose()` and `ex.stranger` are typed because the
 plugin is in the array; in an application built without it, both are compile
 errors. The wrapper names the anchors it sits between and does not know or
-care what else is in the chain. And the store beside it is a replacement for
-ours, selected by declaration, which the plugin never learns about.
+care what else is in the chain. And the store beside it replaces the atomic records port our deferral
+plugin keeps its continuations in, selected by declaration, which neither
+the plugin nor our deferral plugin learns about.
 
 ## What you get for free
 

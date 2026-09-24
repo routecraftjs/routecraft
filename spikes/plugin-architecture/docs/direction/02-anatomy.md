@@ -72,6 +72,18 @@ would resume. **Intended:** the proof of concept's type lets a plugin-declared
 point claim `defer: true` and then discards the decision at the call site; the
 public type will restrict parking to the error point.
 
+**Execution.** Not a contract you implement but a set of verbs every plugin is
+handed in `bind`: `deliver`, `resume`, `sweep` and `errorChannel`. It is how
+the deferral plugin's timer drives the sweep and how an ingress hands an
+approval to a parked exchange. It is a socket in the same sense as the other
+five, with the same reach for ours and yours, which is why the door (see
+[Waiting and resuming](04-waiting-and-resuming.md)) is the only thing that
+stands between a plugin holding a continuation id and its resume.
+
+The four sockets on the [first page](01-what-changes.md) are the four you
+build with. A point is a moment you declare, and execution is a set of verbs
+you call; the figure below draws all six, because all six reach the kernel.
+
 ## Where the five things you build land
 
 | You build | It is | You deliver it as |
@@ -120,7 +132,10 @@ responsible and refuses before any traffic runs.
 3. **Order.** A topological sort over what plugins require and provide. A
    cycle is a fault whose detail is the edges.
 4. **Bind.** Each plugin's `bind` runs in that order, and this is where it
-   requires, provides, contributes and observes. Its DSL family, its facets
+   requires, provides, contributes and observes. `requires` on the
+   descriptor declares a port; `c.require(port)` in `bind` fetches the
+   provider resolved for it, and refuses a port the descriptor did not
+   declare. Its DSL family, its facets
    and the points it declares are static declarations on the descriptor, read
    before anything binds; `bind` is for what needs a live context.
 5. **Freeze.** After the last `bind`, no contribution is accepted. A
@@ -140,6 +155,43 @@ responsible and refuses before any traffic runs.
 `application.runtime.dump()` shows the phase, the plugin order, which plugin
 provides each port and whether it is a replacement, and every contribution in
 its effective order. **Demonstrated.**
+
+## Inside
+
+The pictures so far show the parts. This one shows them working: the kernel's
+three columns, the plugins above it, and the ports it calls out through below.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="figures/inside-dark.png">
+  <img alt="Eight plugins across the top, six first-party and two third-party, each reaching one strip of six sockets (port, contribution, step, facet, point, execution) through identical contract arrows. Below the strip, the kernel in three columns: the host's lifecycle stages joined by implementation arrows; the runtime's path of one run from admission through entry, the wrapper chain with a third-party wrapper between retry and timeout, the step loop and exit to completed, with refused, the error ring and failed beside it; and the continuation protocol, where a resume passes the door, the deadline and live-tail checks and the compare-and-swap before re-entering the run at entry, the sweep retires due records, and a park writes its record and ends deferred. Beneath the kernel, the continuation port it calls out through, provided by the deferral plugin over a third-party records store. A legend distinguishes contract edges, the exchange's path, and kernel-internal implementation." src="figures/inside.png">
+</picture>
+
+Five things the figure says that the pages around it only imply:
+
+- **The error ring sits outside the wrappers.** A failure the retry wrapper
+  absorbs never reaches it; the ring hears only what escapes the whole
+  chain. A handler that wants to park a transient failure for a human
+  therefore sees it after the retries are spent, not before.
+- **The door is the admission ring.** On a resume the kernel runs admission
+  over the arriving approval, with a view of the record that leaves out its
+  body, before it discloses or claims anything. The door is whatever the
+  installed admission handlers decide; ours is the `auth` plugin's gate.
+- **The kernel owns the sweep; the deferral plugin owns its cadence.**
+  Claiming a due record, telling its route through the error channel and
+  settling it are kernel code behind `execution.sweep()`. The deferral plugin
+  decides when to call it, provides the store, and sets the default deadline.
+- **Every record transition goes through one port.** The kernel never touches
+  storage; it calls `CONTINUATIONS`, which ours provides over `RECORDS`. In
+  the drawing a third party has replaced the records store underneath and
+  nothing above it changed.
+- **Anchors belong to a port.** `RETRY` and `TIMEOUT` are part of the
+  resilience contract, so a replacement for our resilience plugin keeps them
+  and every wrapper placed against them still lands where it did.
+
+**Demonstrated:** the first two by probes D3 and D5 in
+`validation/direction-docs-review/`, the fourth by D7, the third and fifth by
+the proof of concept's `Runtime.sweep` and `Host.ordered`
+(`ANCHOR_OWNER`).
 
 ## Replacing something we ship
 

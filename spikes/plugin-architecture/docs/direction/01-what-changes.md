@@ -42,8 +42,10 @@ plugin and your deferral plugin use the same verbs and get the same access.
 That is the claim the whole design rests on, and the test of it is a plugin
 built against a packed tarball of the framework rather than against its
 source, contributing a route method, a handler point, a wrapper in the chain,
-a facet on the exchange, a source, and a replacement for our store.
-**Demonstrated.**
+a facet on the exchange, a source, and a replacement for the records store
+ours keeps continuations in. **Demonstrated.** Replacing the continuation
+store itself is demonstrated in the repository's own tests, not yet from a
+packed tarball.
 
 ## The only new thing to learn
 

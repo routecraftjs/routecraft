@@ -24,12 +24,13 @@ const STAGES: Stage[] = [
       "DUPLICATE_NAMESPACE",
       "PORT_IDENTITY",
       "INVALID_REPLACEMENT",
+      "DUPLICATE_POINT",
     ],
   },
   {
     title: "resolve every port",
     body: "one provider, or one plus a declared replacement",
-    refuses: ["UNAVAILABLE_PORT", "DUPLICATE_PROVIDER"],
+    refuses: ["MISSING_PORT", "DUPLICATE_PROVIDER"],
   },
   {
     title: "order by dependency",
@@ -38,8 +39,8 @@ const STAGES: Stage[] = [
   },
   {
     title: "bind() each plugin",
-    body: "require · provide · contribute · observe · declare points",
-    refuses: ["UNKNOWN_POINT", "DUPLICATE_POINT"],
+    body: "require · provide · contribute · observe",
+    refuses: ["UNKNOWN_POINT", "UNPROVIDED_PORT"],
   },
   { title: "FREEZE", body: "no contribution after this line", accent: true },
   {

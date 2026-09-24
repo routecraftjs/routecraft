@@ -24,9 +24,11 @@ runs, in the order the anchors put them in, and each one returns a decision.
 | **exit** | when the path is done | decorate; what it adds is what the caller gets back |
 
 Decoration composes: what one handler adds, the next one sees. A refusal
-ends the run as **refused**, with nothing executed; on a first delivery the
-error ring is told, so a route can answer a refusal (by parking it, for
-instance). A handler that throws does not replace the failure it was handling:
+ends the run as **refused**, with nothing executed. A refusal at admission on
+a first delivery is also told to the error ring, so a route can answer it (by
+parking it, for instance); a refusal at entry is not. The exit ring runs only
+over exchanges that completed: a run that dropped, parked, was refused or
+failed has nothing to hand the caller, so exit never sees it. A handler that throws does not replace the failure it was handling:
 the primary error is kept and the handler's fault is recorded beside it.
 
 The authorization gate is an admission handler. The door of a resume is an
@@ -44,7 +46,9 @@ the kernel. The order is declared, not positional, and it is the same on every
 route, which is why reading one route tells you how all of them behave.
 
 When you call `.retry()` on a route you are not inserting a step into your
-pipeline; you are configuring a wrapper that already surrounds it. A retry or
+pipeline; you are configuring a wrapper that already surrounds it. The error
+ring sits outside the whole chain: a failure a retry absorbs is never heard
+there, and one it gives up on is heard once. A retry or
 timeout you put on one step wraps that step alone, in the order you wrote
 them.
 
@@ -121,4 +125,6 @@ namespace (`deferral:boot`, `deferral:sweep:failed`) and observes everything
 through `observe` in `bind`. **Intended:** a typed payload per event and one
 owner per terminal event. The proof of concept emits the deferred event twice
 for an ordinary park, once by continuation id when the record is written and
-once by exchange id when the run ends; the published contract will have one.
+once by exchange id when the run ends, and emits no `exchange:refused` at all:
+a refused run returns before the terminal event. The published contract will
+have exactly one terminal event per run.

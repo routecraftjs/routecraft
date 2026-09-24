@@ -10,7 +10,7 @@ import type { FigurePalette } from "./palette.ts";
 import type { FigureDrawing, FigureProps, MotifProps } from "./types.ts";
 
 const WIDTH = 1600;
-const HEIGHT = 1120;
+const HEIGHT = 1190;
 
 function Column({
   children,
@@ -176,7 +176,7 @@ function Figure({ palette }: FigureProps) {
               palette={palette}
               style={{ fontSize: "1.05rem", padding: "12px 22px" }}
             >
-              deliver · resume · errorChannel
+              deliver · resume · debounce · errorChannel
             </Chip>
             <Edge
               palette={palette}
@@ -246,8 +246,8 @@ function Figure({ palette }: FigureProps) {
               size="0.85rem"
               style={{ alignSelf: "flex-start", lineHeight: 1.5 }}
             >
-              a refusal at admission or entry; on a first delivery the error
-              ring is told
+              a refusal at admission or entry; on a first delivery an admission
+              refusal is told to the error ring
             </MonoNote>
             <div style={{ height: 150 }} />
             <Side
@@ -265,7 +265,7 @@ function Figure({ palette }: FigureProps) {
                 ],
                 [
                   "declined",
-                  "before anything is written, when the run was cancelled, the failure has no step, it is inside a fan-out, or the same refusal was parked before",
+                  "before anything is written, when the run was cancelled, the failure has no step, it is inside a fan-out or a nested path, or the same refusal was parked before",
                 ],
               ]}
             />
@@ -274,6 +274,7 @@ function Figure({ palette }: FigureProps) {
                 "DEFER_CANCELLED",
                 "DEFER_UNSITED",
                 "DEFER_IN_FANOUT",
+                "DEFER_IN_PATH",
                 "DEFER_REPEATED",
               ].map((c) => (
                 <Tag key={c} palette={palette} accent>
@@ -289,8 +290,8 @@ function Figure({ palette }: FigureProps) {
         </div>
         <MonoNote palette={palette} size="1rem" style={{ marginTop: "auto" }}>
           a handler or wrapper declares the run kinds it applies to; the breaker
-          does not re-arm on a resume, nothing in the chain runs on the error
-          channel
+          does not re-arm on a resume, and no first-party wrapper runs on the
+          error channel
         </MonoNote>
       </div>
     </FigureCanvas>
