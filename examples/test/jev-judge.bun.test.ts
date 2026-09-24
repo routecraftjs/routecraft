@@ -20,6 +20,7 @@ import {
   judgementFrom,
   screen,
   type JudgeEvidence,
+  type JudgeRequest,
   type Judgement,
 } from "../src/jev-judge";
 
@@ -102,7 +103,9 @@ describe("judgementFrom()", () => {
    * @expectedResult The verdict wins regardless of the probability
    */
   test("returns the reasoning verdict when there is one", () => {
-    expect(judgementFrom({ screen: { met: 0.1 }, verdict })).toEqual(verdict);
+    expect(
+      judgementFrom({ passAt: 0.85, screen: { met: 0.1 }, verdict }),
+    ).toEqual(verdict);
   });
 
   /**
@@ -112,7 +115,7 @@ describe("judgementFrom()", () => {
    *   that no reasoning call was made
    */
   test("synthesises a pass only above the threshold", () => {
-    expect(judgementFrom({ screen: { met: 0.94 } })).toEqual({
+    expect(judgementFrom({ passAt: 0.85, screen: { met: 0.94 } })).toEqual({
       met: true,
       reason: "Screened as met with probability 0.94; no reasoning call made.",
     });
@@ -126,9 +129,9 @@ describe("judgementFrom()", () => {
    *   escalation must fail closed
    */
   test("fails closed when an escalation produced no verdict", () => {
-    expect(() => judgementFrom({ screen: { met: 0.02 } })).toThrow(
-      "Reasoning judge returned no usable verdict",
-    );
+    expect(() =>
+      judgementFrom({ passAt: 0.85, screen: { met: 0.02 } }),
+    ).toThrow("Reasoning judge returned no usable verdict");
   });
 
   /**
@@ -138,13 +141,30 @@ describe("judgementFrom()", () => {
    * @expectedResult An error, since NaN never satisfies the threshold
    */
   test("treats an unanswered screen as below the threshold", () => {
-    expect(() => judgementFrom({ screen: { met: Number.NaN } })).toThrow();
+    expect(() =>
+      judgementFrom({ passAt: 0.85, screen: { met: Number.NaN } }),
+    ).toThrow();
+  });
+
+  /**
+   * @case The screen scored 0.94, but the caller asked for 0.97, and the
+   *   escalation produced no verdict.
+   * @preconditions No verdict on the body; probability above the default but
+   *   below the caller's `passAt`
+   * @expectedResult An error, not a pass: the caller's threshold is the one
+   *   that decides, not the default
+   */
+  test("holds a screen to the caller's threshold", () => {
+    expect(() =>
+      judgementFrom({ passAt: 0.97, screen: { met: 0.94 } }),
+    ).toThrow("Reasoning judge returned no usable verdict");
   });
 });
 
 describe("judge-agent-result capability", () => {
   let server: Server;
   let probability = 0.94;
+  let lastState: unknown;
   let t: TestContext;
   const previousEnv = {
     key: process.env["TYPESAFE_API_KEY"],
@@ -152,9 +172,14 @@ describe("judge-agent-result capability", () => {
   };
 
   beforeAll(async () => {
-    server = createServer((_req, res) => {
-      res.writeHead(200, { "content-type": "application/json" });
-      res.end(answer(probability));
+    server = createServer((req, res) => {
+      let raw = "";
+      req.on("data", (chunk: Buffer) => (raw += chunk));
+      req.on("end", () => {
+        lastState = (JSON.parse(raw) as { state: unknown }).state;
+        res.writeHead(200, { "content-type": "application/json" });
+        res.end(answer(probability));
+      });
     });
     await new Promise<void>((resolve) =>
       server.listen(0, "127.0.0.1", resolve),
@@ -254,5 +279,34 @@ describe("judge-agent-result capability", () => {
 
     expect(result).toEqual(verdict);
     expect(judge.calls.send).toHaveLength(1);
+  });
+
+  /**
+   * @case Dispatch evidence the screen scores 0.94 from a caller that asks for
+   *   `passAt: 0.97`, with the reasoning judge mocked.
+   * @preconditions Stub server answering as Jev and recording the state it
+   *   receives; the llm() adapter overridden to return a verdict
+   * @expectedResult The reasoning judge is asked and its verdict returned,
+   *   although the default threshold would have passed the screen; and the
+   *   state Jev received is the evidence alone, without the threshold
+   */
+  test("a caller's stricter threshold escalates a screen the default would pass", async () => {
+    probability = 0.94;
+    const verdict: Judgement = {
+      met: true,
+      reason: "Both invoice tools ran and the account matches the record.",
+    };
+    const judge = mockAdapter(llm, { send: async () => ({ output: verdict }) });
+    t = await testContext().override(judge).routes([judgeRoute]).build();
+    await t.startAndWaitReady();
+
+    const result = await t.client.sendDirect<JudgeRequest, Judgement>(
+      "judge-agent-result",
+      { ...evidence, passAt: 0.97 },
+    );
+
+    expect(result).toEqual(verdict);
+    expect(judge.calls.send).toHaveLength(1);
+    expect(lastState).toEqual(evidence);
   });
 });
