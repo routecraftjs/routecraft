@@ -26,6 +26,10 @@ updates:
       semver-minor-days: 14
       semver-patch-days: 7
     ignore:
+      # agent-browser dropped its JavaScript library in 0.20.0 (the package is a
+      # Rust binary since); the agentBrowser adapter imports dist/browser.js and
+      # dist/actions.js. Lift this once the adapter drives the CLI or daemon.
+      - dependency-name: "agent-browser"
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
     groups:
