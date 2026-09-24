@@ -46,6 +46,8 @@ export interface FigurePalette {
   inverseBg: string
   /** Type on an inverted plate. */
   inverseFg: string
+  /** Accent on an inverted plate, where the one accent does not read. */
+  inverseAccent: string
 }
 
 /**
@@ -68,4 +70,5 @@ export const FIGURE_PALETTE_THEMED: FigurePalette = {
   accent06: 'color-mix(in srgb, var(--color-cobalt-500) 6%, transparent)',
   inverseBg: 'var(--color-ink)',
   inverseFg: 'var(--color-paper)',
+  inverseAccent: 'var(--figure-plate-accent)',
 }
