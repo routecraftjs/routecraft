@@ -1,7 +1,7 @@
 ---
 title: Jev as a judge
-description: TypeSafe AI's Jev returns typed decisions with probabilities instead of text, which makes it look like the obvious LLM-as-a-judge replacement. It is half of one. Here is the route that uses the half that works, with no adapter, and the three things the SDK does that its docs do not mention.
-date: 2026-09-22
+description: TypeSafe AI's Jev answers typed questions with probabilities instead of text, which makes it a fast first judge for agent results and a reason to call the slow one far less often. Here is the route, the three things to know before you call the SDK, and what Jev is built for beyond judging.
+date: 2026-09-24
 author: Jaco Botha
 authorRole: Founder, DevOptix
 version: '0.6.0+'
@@ -18,15 +18,23 @@ related:
 layout: blog-post
 ---
 
-TypeSafe AI released Jev in September, and if you build agents you have probably already read the pitch. Jev is not a language model. You send it your program state and a map of typed questions, and it answers every question in one pass with a typed value and the probabilities behind it. No text. Software branches on the answer directly.
+TypeSafe AI released Jev in September. Jev is not a language model. You send it your program state and a set of typed questions, and it answers all of them in one pass with a typed value and the probabilities behind it. It writes no text, so your code uses the answer directly in an `if` or a route, with nothing to parse.
 
-The first use anyone reaches for is the judge. Every agent pipeline that acts on a result needs something independent to decide whether the agent actually did the job, and today that something is usually a second LLM call with a structured output schema. Jev returns structured output natively, faster and cheaper than a reasoning model by the vendor's own numbers. Swap it in, keep the schema, done.
+Jev asks three kinds of question:
 
-We build agents on Routecraft at [DevOptix](https://devoptix.nl). The back-office harness from [Anatomy of a team agent harness](/blog/anatomy-of-a-team-agent-harness) judges every agent dispatch before anything acts on it, and that judge sits on the latency path of every dispatch it gates. So we wired Jev into it. It does not work as a swap, and you can see why from the SDK's types before you make a single call. It works as something better, and the difference is the point of this post.
+- **Noul:** is this statement true? The answer is the probability that it is.
+- **Choice:** which of these options fits? The answer is the option, a probability for each option, and a confidence.
+- **Score:** where does this sit on a rubric? The answer is the level, a probability for each level, and a confidence.
 
-## A judge that cannot write the verdict
+Any instruction, option or rubric level can also be a structured object instead of a sentence, and a chain of choices can walk a nested taxonomy. The docs call this the advanced structure.
 
-Our judge, like most, returns two fields. A boolean the calling capability branches on, and one sentence saying why, for the log and for the human who reads the log at two in the morning.
+Judging agent results fits that shape well. A judge asks one yes or no question on every dispatch, whether the agent did what it was asked, and it sits on the latency path of everything it gates. Today that usually means a second LLM call with a structured output schema. Jev answers the same yes or no natively, faster and cheaper than a reasoning model by the vendor's own numbers.
+
+We build agents on Routecraft at [DevOptix](https://devoptix.nl). The DevOptix team harness from [Anatomy of a team agent harness](/blog/anatomy-of-a-team-agent-harness) judges every agent dispatch before anything acts on it, so we put Jev in front of that judge. Jev cannot replace the judge outright, and the SDK's types show why before you make a single call. What it can do is settle most dispatches on its own and pass only the hard ones on.
+
+## What Jev can answer, and what it cannot
+
+Our judge returns two fields. `met` is the yes or no the caller acts on. `reason` is one sentence explaining the verdict, for the log.
 
 ```ts
 import { z } from "zod";
@@ -39,23 +47,32 @@ const judgement = z.object({
 
 `judgement` is a Zod schema here; `output` takes any Standard Schema library.
 
-Jev can answer `met`. It cannot answer `reason`, because it does not generate text, and its own documentation says so in as many words: "jev-1.13 is not trained to generate text". There is no field on the response that a sentence could go in.
+Jev can answer `met`. It cannot answer `reason`, because it does not generate text, and its documentation says so plainly: "jev-1.13 is not trained to generate text".
 
-So Jev is not a replacement for the judge. It is a screen in front of it. Jev answers "was the request met?" as a probability on every dispatch. When the probability is high enough to act on, the route acts on it and the reasoning model is never called. Every other outcome still goes to the LLM judge, which is the only stage that can explain itself.
+So Jev screens in front of the judge rather than replacing it. On every dispatch it answers "was the request met?" as a probability. When that probability is high enough, the route accepts the yes and never calls the reasoning model. Everything else goes to the LLM judge, the only stage that can explain itself.
 
-That is a cascade, and TypeSafe AI documents it themselves under the name SDE cascade. The saving comes from the common case, the one where the agent plainly did the job and nobody needs a sentence about it. The interesting cases keep the interesting model. The harness post warns against paying AI rates for a scheduler's job; this is the same rule one level down. Do not pay reasoning-model rates for a yes.
+TypeSafe AI's cookbook calls this pattern an SDE cascade. It pays off because most dispatches are easy: the agent did the job, and nobody needs a sentence saying so. Jev settles those in a fraction of the time, and the reasoning model is left with the few that need an explanation.
 
 ## The route
 
-Here is the route. The reasoning judge's system prompt is cut short in this excerpt and the full text is in the file. There is no Jev adapter in Routecraft and this post does not need one: the client goes inside an `.enrich()` step and the threshold goes in `.choice()`, where the platform already has a place for both.
+The reasoning judge's system prompt is cut short in this excerpt; the full text is in the file. The Jev client runs inside an `.enrich()` step and the threshold is read in `.choice()`, so the whole cascade is ordinary Routecraft operations.
 
 ```ts skip="excerpt of examples/src/jev-judge.ts"
 import { craft, direct, only, otherwise, when } from "@routecraft/routecraft";
 import { llm } from "@routecraft/ai";
 import { noul, TypeSafeClient } from "@typesafe-ai/sdk";
 
-const CONFIDENT_PASS = 0.85;
+const DEFAULT_PASS_AT = 0.85;
 const REASONING_JUDGE = "gemini:gemini-3.7-flash";
+
+export const judgeRequest = evidence.extend({
+  passAt: z
+    .number()
+    .min(0)
+    .max(1)
+    .default(DEFAULT_PASS_AT)
+    .describe("Screen probability at or above which a yes passes without the reasoning judge."),
+});
 
 export type Screen = { met: number };
 
@@ -71,9 +88,13 @@ export const screen = async (input: JudgeEvidence, client = typesafe()): Promise
   return { met: answers.met.noul };
 };
 
-export const judgementFrom = (body: { screen: Screen; verdict?: Judgement | undefined }): Judgement => {
+export const judgementFrom = (body: {
+  passAt: number;
+  screen: Screen;
+  verdict?: Judgement | undefined;
+}): Judgement => {
   if (body.verdict) return body.verdict;
-  if (body.screen.met >= CONFIDENT_PASS) {
+  if (body.screen.met >= body.passAt) {
     return {
       met: true,
       reason: `Screened as met with probability ${body.screen.met.toFixed(2)}; no reasoning call made.`,
@@ -84,20 +105,23 @@ export const judgementFrom = (body: { screen: Screen; verdict?: Judgement | unde
 
 export const judgeRoute = craft()
   .id("judge-agent-result")
-  .input({ body: evidence })
+  .input({ body: judgeRequest })
   .from(direct())
   .enrich(
-    async (ex) =>
-      screen(ex.body).catch((error: unknown) => {
+    async (ex) => {
+      const { request, account, toolCalls } = ex.body;
+      // The evidence only: anything else in the state is a distractor to Jev.
+      return screen({ request, account, toolCalls }).catch((error: unknown) => {
         ex.logger.warn({ err: error }, "Screen unavailable; escalating to the reasoning judge");
         return { met: Number.NaN };
-      }),
+      });
+    },
     only((r: Screen) => r, "screen"),
   )
   .choice(
     when(
       // Written so an unanswered screen (NaN) escalates as well.
-      (ex) => !(ex.body.screen.met >= CONFIDENT_PASS),
+      (ex) => !(ex.body.screen.met >= ex.body.passAt),
       (b) =>
         b.enrich(
           llm(REASONING_JUDGE, {
@@ -124,27 +148,27 @@ The evidence the judge sees is the same shape we used before Jev: the original r
 
 The full file, with the types and tests that run the capability against a stubbed transport so they need no key, is [`examples/src/jev-judge.ts`](https://github.com/routecraftjs/routecraft/blob/main/examples/src/jev-judge.ts) in the Routecraft repository.
 
-## Put the threshold where a reader can see it
+## Let the caller set the bar
 
-`CONFIDENT_PASS` is in the route, not inside `screen()`. That is deliberate, and it is the part of the design worth stealing even if you never use Routecraft.
+`passAt` is part of the route's input, with a default of 0.85. A judge that gates a mail send wants a different number than one that gates a log line, and only the caller knows which one it is. The demo caller in the example archives real mail, so it asks for 0.9. This is the part worth copying even if you never use Routecraft.
 
-A judge that gates a mail send wants a different number than a judge that gates a log line. If the threshold is an option on a client somewhere, the person reading the route six months from now has to go and find it before they know what the route will do. If it is in the `.choice()`, they can see what is being traded and change it in place.
+The route reads the number in `.choice()`, so anyone reading the route sees what is being traded. Jev never sees it. The screen sends the evidence alone as state, because the vendor's own notes say unrelated content in the state costs accuracy.
 
 A few details of the gate are easy to get backwards.
 
-A confident *no* still escalates. Certainty is not what short-circuits the reasoning call; the need for a sentence is. If Jev says 0.02, the agent almost certainly failed, and you now want the reason more than ever. Only a confident yes skips the LLM, because that is the one outcome where nobody needs an explanation.
+A confident *no* still escalates. What skips the reasoning call is not certainty but the lack of anything to explain. If Jev says 0.02, the agent almost certainly failed, and you want the reason more than ever. Only a confident yes skips the LLM, because that is the one outcome where nobody needs an explanation.
 
-A missing verdict is not a pass. `verdict` is absent in two cases and only one of them is a pass: the screen was confident, so nobody asked the reasoning judge; or the judge was asked and returned nothing the schema accepts. So the final step decides on the probability again, not on whether a verdict happens to be present, and it throws on the second case. The first draft of this route checked for the verdict, and review caught it. It is the easiest way to build a gate that opens when its checker fails.
+A missing verdict is not a pass. `verdict` is absent in two cases and only one of them is a pass: the screen was confident, so nobody asked the reasoning judge; or the judge was asked and returned nothing the schema accepts. So the final step decides on the probability again, not on whether a verdict happens to be present, and it throws on the second case. Checking for the verdict instead is the easiest way to build a gate that opens when its checker fails.
 
-The pass-through `otherwise` is not decoration. A `.choice()` whose branches all decline drops the exchange, so without it a confident pass, the common case this whole route exists for, never reaches the final step and a request/reply caller gets an error instead of a verdict. The capability-level test in the example is there because that is exactly the mistake the first draft made.
+The pass-through `otherwise` is not decoration. A `.choice()` whose branches all decline drops the exchange, so without it a confident pass, the common case this route exists for, never reaches the final step, and the caller gets an error instead of a verdict. The capability-level test in the example guards exactly that.
 
-A screen that cannot answer at all escalates the same way. If the vendor is down, rate limiting you, or past its timeout, the route catches the failure, logs it, and hands the dispatch to the reasoning judge. The screen is an optimisation, and an optimisation that fails should cost latency, not the verdict.
+If Jev cannot answer at all, the dispatch escalates too. When the vendor is down, rate limiting you, or past its timeout, the route logs the failure and hands the dispatch to the reasoning judge. The screen only saves time, so when it fails the dispatch should get slower, not lose its verdict.
 
-A noul has no confidence field. Choice and score answers carry `confidence`; a noul carries only the probability. So for yes/no questions the probability of yes is the whole signal, and the gate reads it directly rather than a confidence you do not have. This is the first thing we learned from the SDK's types that the docs did not say, and there are two more.
+A noul has no confidence score. Choice and score answers carry one; a noul carries only the probability, so the gate reads the probability directly.
 
-## Three things the SDK does that the docs do not say
+## Three things to know before you call the SDK
 
-We built this against `@typesafe-ai/sdk` 0.6.0, ten days old at the time. Reading its `.d.ts` was more useful than reading the documentation, and all three of these will cost you an hour if you find them the other way.
+We built this against `@typesafe-ai/sdk` 0.6.0, ten days old at the time. Reading its `.d.ts` was more useful than reading the documentation, and each of these will cost you an hour if you find it the other way.
 
 **`state` will not accept an `interface`.** The SDK types `state` as structurally JSON. A TypeScript `interface` never satisfies that, because interfaces get no implicit index signature. `type JudgeEvidence = { ... }` compiles; `interface JudgeEvidence { ... }` does not, with an error that does not mention interfaces.
 
@@ -165,11 +189,7 @@ TypeSafe AI's cookbook includes a recipe for using Jev as a guardrail: screen LL
 
 Those two documents describe an injectable model guarding against injection. And an agent's account of its own work is text that argues for its own classification, which is the exact input the vendor says can move the answer.
 
-[Stop trusting your LLM to behave](/blog/stop-trusting-your-llm-to-behave) already makes the case for what follows from that, and its line for the judge holds unchanged here: judge the envelope, not the letter. What Jev changes is the budget. That post says of classifiers and judges, "Use them. All of them, if the budget stretches." Jev stretches it. A screen this cheap can sit in front of every dispatch, which makes the probabilistic layer affordable everywhere. It does not make it a boundary.
-
-Notice what Jev takes away from the LLM judge's own defence. Our reasoning judge has no tools, which Jev also has not. And its system prompt tells it to treat everything in the evidence as content to weigh and never as commands. Jev has no system prompt. The instruction text on the noul question is the only place that sentence can go, so we put it there, and we do not pretend it is a wall. The wall is the input validation, the policy check and the identity check that run before any model sees the exchange, and those do not change because the judge got faster.
-
-Use Jev to grade the work. Keep the code on the door.
+[Stop trusting your LLM to behave](/blog/stop-trusting-your-llm-to-behave) already makes the case for what follows from that, and its line for the judge holds unchanged here: judge the envelope, not the letter. What Jev changes is the cost and the speed. That post says of classifiers and judges, "Use them. All of them, if the budget stretches." Jev stretches it. A screen this cheap and this fast can sit in front of every dispatch. It still does not make the check a boundary.
 
 ## What it is bad at, in the vendor's words
 
@@ -181,13 +201,34 @@ TypeSafe AI publishes a page called model jaggedness for each release, and it is
 - Accuracy falls as the state grows with content unrelated to the decision. Irrelevant detail is a distractor, which is one more reason the judge evidence carries tool names and not tool payloads.
 - Multi-hop reasoning and double negatives degrade it.
 
-None of these hurt "was the request met?" as long as the answer does not turn on one of them. The judge evidence carries tool names and failure flags, not a count of invoices or a date, and a count or a date belongs in code before the question is asked, never inside it. That is why the judge is a good first use. Several of them would hurt "is this invoice total consistent with its line items", which is why it is not a general extraction engine, whatever the launch coverage implied. The vendor's own extraction recipe has code find candidate values with a regex and Jev pick between them. It chooses. It does not read.
+None of these hurt "was the request met?" as long as the answer does not turn on one of them. The judge evidence carries tool names and failure flags, not a count of invoices or a date, and a count or a date belongs in code before the question is asked, never inside it. Several of them would hurt "is this invoice total consistent with its line items", which is why Jev is not a general extraction engine, whatever the launch coverage implied. The vendor's own extraction recipe has code find candidate values with a regex and Jev pick between them. It chooses. It does not read.
+
+## What Jev is built for
+
+A judge is a good fit, but not Jev's most natural one: every verdict that needs a reason still falls back to a generative model. The vendor's own use-case map is built around decisions that need no sentence at all:
+
+- **Routing:** send a request to the right model, queue, team or agent.
+- **Triage and classification:** support tickets, insurance claims, inbound mail, spam.
+- **Scoring and ranking:** leads, candidates, search results, and retrieved passages before they reach a model.
+- **Verification:** does this citation support the claim, does this extracted value mean what the text means.
+- **Decisions over large datasets:** one decision per row, at a price that makes the whole dataset affordable.
+- **Real-time agents:** a browser agent, a game agent or a voice assistant choosing its next action.
+
+The community keeps a catalogue of what people have built at [madewithjev.com](https://madewithjev.com/), each entry with the cost and speed its author reported.
 
 ## Getting a key
 
-Create one at [console.typesafe.ai](https://console.typesafe.ai/keys) and export it as `TYPESAFE_API_KEY`; the client reads it with no arguments. TypeSafe AI describes Jev as early access at the time of writing, so there may be a wait, and several model gateways list it if you already have an account with one. The wire format also has open-source implementations already: semif-serve, for one, says an existing Jev client needs only a changed base URL. We have not run them. `TYPESAFE_BASE_URL` is where the example would point at either.
+Create one at [console.typesafe.ai](https://console.typesafe.ai/keys) and export it as `TYPESAFE_API_KEY`; the client reads it with no arguments. TypeSafe AI describes Jev as early access at the time of writing, so there may be a wait, and several model gateways list it if you already have an account with one.
 
 One rule worth stating plainly, because the search results for "Jev API key" already include sites that will issue you one. The only place that creates a Jev key is TypeSafe AI's console. A site that hands you a key from another domain is sitting between you and the vendor with your key and every payload you send, and your judge evidence is the last thing you want proxied.
+
+## An open alternative, and the next post
+
+Convai Innovations released Laya on 18 September: an open-weights System One model under Apache 2.0 that answers the same noul, choice and score questions on your own GPU or CPU. Its server exposes the same `POST /v1/systemone` endpoint as Jev, so the route in this post runs against it by changing `TYPESAFE_BASE_URL`, with no code change.
+
+Laya's model card reports 33 to 40 milliseconds per question on a T4 GPU, and a higher score than Jev on a typed-decisions benchmark. The same card gives the caveats: that score comes from a checkpoint fine-tuned on the benchmark's own training split, the base checkpoints are near chance on it without that tuning, and the Jev figures are third-party numbers the Laya team did not measure.
+
+We have not run it yet. That is the next post: the same judge, the same evidence, both models, and the numbers we measure ourselves.
 
 ## Try it
 
@@ -208,4 +249,4 @@ bunx create-routecraft my-app
 
 The reasoning judge this route escalates to is the pattern in the docs under [Judging agent results](/docs/advanced/judging-agent-results). Start there if you want the pattern without the vendor.
 
-Jev is a judge that cannot write the verdict. Put it in front of the one that can, keep the threshold where you can see it, and let the reasoning model spend its time on the cases that were worth a sentence.
+Jev is a judge that cannot write the verdict. Put it in front of the one that can, let each caller set how sure it must be, and let the reasoning model spend its time on the cases that need a sentence.
