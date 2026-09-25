@@ -42,7 +42,7 @@ The image is built to pass the container scans a bank or an enterprise registry 
 - **Distroless runtime.** Production dependencies install on the full Bun image, and only `node_modules` is copied into `oven/bun:<version>-distroless`: no shell and no package manager, so a scanner finds almost nothing to flag.
 - **Not root.** The process runs as the unprivileged `nonroot` user. The project files are read-only to it; `.routecraft/` (telemetry and other local state) is the one directory it can write.
 - **Pinned.** The base images use the Bun version the project pins in `packageManager`, never a floating tag.
-- **No secrets in the build context.** `.dockerignore` keeps `.env` files, `node_modules` and local state out.
+- **No secrets in the build context.** `.dockerignore` keeps `.env` files, `.npmrc`, `node_modules` and local state out. A private registry token belongs in a build secret, never in the context.
 
 The runtime stage, excerpted from the [scaffolded Dockerfile](https://github.com/routecraftjs/routecraft/blob/main/packages/create-routecraft/templates/base/Dockerfile):
 
@@ -60,6 +60,12 @@ CMD ["node_modules/.bin/craft", "start", "--log-level", "info"]
 
 The runtime has no shell, so the image calls `craft` directly rather than through `bun run start`. Every change to Routecraft builds this image from a freshly scaffolded project and scans it with Trivy; a fixable HIGH or CRITICAL finding fails the change, and each build publishes the image's SBOM.
 
+Three things change once the project runs in a container:
+
+- **Listen on every interface.** A server binds `127.0.0.1` unless its `host` says otherwise, which nothing outside the container can reach. Set `host: '0.0.0.0'` on the servers you publish (see [servers and http](/docs/reference/configuration#servers-and-http)).
+- **Keep state on a volume.** Deferred exchanges, agent sessions and telemetry are stored under `.routecraft/`, which a redeploy replaces. Mount a named volume there (`docker run -v my-app-state:/app/.routecraft my-app`) so pending work survives; a named volume keeps the `nonroot` ownership.
+- **No host binaries.** `shell()` and `agentBrowser()` from `@routecraft/os` run programs the distroless runtime does not contain. A project that uses them needs a runtime stage that ships those programs, and is scanned as such.
+
 A project on npm, pnpm or yarn gets no `Dockerfile`, because the scaffolded one installs from `bun.lock`. Install its production dependencies with its own package manager in the first stage (`npm ci --omit=dev`, `pnpm install --frozen-lockfile --prod`), and keep the distroless Bun runtime stage as it is: the runtime requirement is unchanged.
 
 ## Node embedding on a server
@@ -69,13 +75,15 @@ When you embed `@routecraft/routecraft` inside a Node service, deploy it the sam
 ```dockerfile
 FROM node:22-alpine
 WORKDIR /app
+ENV NODE_ENV=production
 COPY package.json package-lock.json ./
 RUN npm ci --omit=dev
 COPY . .
+USER node
 CMD ["node", "--experimental-strip-types", "src/server.ts"]
 ```
 
-The Node 23.6+ image enables type stripping by default; drop the flag in that case.
+The Node 23.6+ image enables type stripping by default; drop the flag in that case. For a production image, pin the exact Node version (or digest) you scanned rather than the `22-alpine` line, and keep `.env` and `.npmrc` out of the build context with a `.dockerignore`.
 
 See the [Programmatic Invocation guide](/docs/advanced/programmatic-invocation) for the embedding API and runnable examples.
 

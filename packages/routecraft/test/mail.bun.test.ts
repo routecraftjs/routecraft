@@ -1282,6 +1282,44 @@ describe("Mail Adapter", () => {
     });
 
     /**
+     * @case An appended draft smuggling nodemailer's file and URL fields is composed content-only
+     * @preconditions The body is untrusted input: one attachment carries `path` and `href` beside its declared fields
+     * @expectedResult MailComposer receives the attachment with filename and content only, and file and URL access disabled, the same as the SMTP send path
+     */
+    test("append strips attachment fields that make nodemailer read files or URLs", async () => {
+      const adapter = mail({ action: "append", folder: "Drafts" });
+      const context = await buildMailContext();
+      const exchange = {
+        id: "test",
+        headers: {},
+        body: {
+          to: "recipient@test.com",
+          subject: "Draft",
+          text: "Draft body",
+          attachments: [
+            {
+              filename: "notes.txt",
+              content: "draft notes",
+              path: "/etc/passwd",
+              href: "http://169.254.169.254/latest/meta-data/",
+            },
+          ],
+        },
+        logger: console,
+      } as any;
+      attachContext(exchange, context.ctx);
+
+      await (adapter as any).send(exchange);
+
+      const composed = mockMailComposerOptions.mock.calls.at(-1)![0];
+      expect(composed.attachments).toEqual([
+        { filename: "notes.txt", content: "draft notes" },
+      ]);
+      expect(composed.disableFileAccess).toBe(true);
+      expect(composed.disableUrlAccess).toBe(true);
+    });
+
+    /**
      * @case Batch operation: array body resolves all UIDs
      * @preconditions Exchange body is MailMessage[] (from enrich)
      * @expectedResult messageMove called with comma-separated UIDs
