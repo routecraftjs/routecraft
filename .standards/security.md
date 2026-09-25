@@ -1,6 +1,6 @@
 # Security Standard
 
-Authoritative rules for authentication, authorization, principal propagation, and the handling of secrets in Routecraft. Anchors the `packages/routecraft/src/auth/` directory and the `@routecraft/ai` OAuth surface.
+Authoritative rules for authentication, authorization, principal propagation, the handling of secrets, and vulnerability management of what Routecraft ships. Anchors the `packages/routecraft/src/auth/` directory and the `@routecraft/ai` OAuth surface.
 
 ---
 
@@ -276,3 +276,16 @@ surface of `authorize()`. Grounded in RFC 8693 (`act` / `may_act`), RFC 9068
 - **Scopes gate the verb; guards gate the object.** A scope string cannot
   express "to whom" or "which record". Parameter-level authorization belongs
   in `ToolGuard`, not in the scope vocabulary.
+
+## 13. Vulnerabilities and the supply chain
+
+What a user deploys is scanned before it can merge, and what the scan cannot fix is decided on, in writing, with a date.
+
+- **The scanned artefact is the shipped artefact.** The `security` CI job builds the project `create-routecraft` scaffolds, with the Dockerfile the scaffolder writes, from the checkout's own packages (`.github/scripts/security-reference-project.ts`). The only departure is one line letting the install stage see the packed tarballs. A second profile adds every optional peer of core, `@routecraft/ai` and `@routecraft/os` at the newest version its declared range allows, because an adapter's library is where most CVEs arrive. The docs site's image is scanned the same way, on the pull request and again in the release before it is pushed.
+- **The gate.** A fixable HIGH or CRITICAL vulnerability, or a secret in an image, fails the job. Unfixed findings are reported to code scanning but cannot fail it, since no pull request can fix them. Trivy runs from its official image pinned by digest (`.github/scripts/trivy.sh`), never through a third-party action holding the job's token.
+- **Accepted findings.** An entry in `.trivyignore.yaml` MUST say why the fix cannot land from this repository (a peer range that needs a major the adapter has not adopted, a transitive dependency with no fixed release) and MUST expire within 30 days. An expired entry fails the gate again, which is the point: the decision is taken afresh, not forgotten. A finding is fixed rather than waived whenever the fix is ours to make.
+- **A peer range is part of the fix.** A library ships no lockfile, so a fixed transitive release reaches users on their next install without a Routecraft release. It does not when our declared range excludes the fixed version; widening that range is then a security fix and is released as one.
+- **Images.** A Dockerfile this repository ships, to users or to production, uses a pinned `-distroless` Bun runtime, runs as `nonroot`, writes only where it must, and keeps `.env` files out of the build context. The runtime has no shell, so its commands are in exec form.
+- **Untrusted payloads reach libraries with dangerous options.** An adapter passes an exchange body to a library only through the fields it declares, and disables the library's file and network access where the library offers the switch. The mail adapter's attachment handling (`path`, `href`, `raw`, and `disableFileAccess` / `disableUrlAccess`) is the reference case.
+- **SBOM.** Every run of the `security` job writes a CycloneDX SBOM for the starter image and for the adapter dependency tree (the `sbom` artifact). Released images carry SBOM and build-provenance attestations.
+- **Response times.** A fixable CRITICAL reaching users is released within 7 days of the gate or an advisory reporting it, a fixable HIGH within 30. Reporting is private, through `SECURITY.md`.
