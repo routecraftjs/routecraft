@@ -477,11 +477,17 @@ jobs:
         with:
           name: build-dist
 
+      # Only db/: Trivy writes its layer cache as root-only files the cache
+      # step cannot read back.
+      - name: Date the Trivy database
+        id: trivy-db
+        run: echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+
       - name: Restore the Trivy database
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ~/.cache/trivy
-          key: trivy-db-${{ github.run_id }}
+          path: ~/.cache/trivy/db
+          key: trivy-db-${{ steps.trivy-db.outputs.day }}
           restore-keys: trivy-db-
 
       - name: Build the reference projects
@@ -534,22 +540,18 @@ jobs:
 
       - name: "Gate: the starter image"
         run: |
-          .github/scripts/trivy.sh image --quiet --scanners vuln,secret \
-            --severity HIGH,CRITICAL --ignore-unfixed \
-            --ignorefile .trivyignore.yaml --table-mode detailed \
-            --exit-code 1 routecraft-starter:scan
+          .github/scripts/trivy.sh gate image --scanners vuln,secret \
+            routecraft-starter:scan
 
       - name: "Gate: the adapters' dependency tree"
         run: |
-          .github/scripts/trivy.sh fs --quiet --scanners vuln \
-            --severity HIGH,CRITICAL --ignore-unfixed \
-            --ignorefile .trivyignore.yaml --table-mode detailed \
-            --exit-code 1 /scan/ref-adapters/bun.lock
+          .github/scripts/trivy.sh gate fs --scanners vuln \
+            /scan/ref-adapters/bun.lock
 
       - name: "Gate: the Dockerfile the scaffolder writes"
         run: |
           .github/scripts/trivy.sh config --quiet --severity HIGH,CRITICAL \
-            --exit-code 1 packages/create-routecraft/templates/base
+            --exit-code 1 /scan/ref-starter/Dockerfile
 
   # The docs site's image, scanned the way the release scans it before the
   # push, so a base-image or dependency change is caught on the pull request
@@ -562,11 +564,17 @@ jobs:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
+      # Only db/: Trivy writes its layer cache as root-only files the cache
+      # step cannot read back.
+      - name: Date the Trivy database
+        id: trivy-db
+        run: echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+
       - name: Restore the Trivy database
         uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
-          path: ~/.cache/trivy
-          key: trivy-db-${{ github.run_id }}
+          path: ~/.cache/trivy/db
+          key: trivy-db-${{ steps.trivy-db.outputs.day }}
           restore-keys: trivy-db-
 
       - name: Build the site image
@@ -574,10 +582,8 @@ jobs:
 
       - name: "Gate: the site image"
         run: |
-          .github/scripts/trivy.sh image --quiet --scanners vuln,secret \
-            --severity HIGH,CRITICAL --ignore-unfixed \
-            --ignorefile .trivyignore.yaml --table-mode detailed \
-            --exit-code 1 routecraft-site:scan
+          .github/scripts/trivy.sh gate image --scanners vuln,secret \
+            routecraft-site:scan
 
       - name: "Gate: the site Dockerfile"
         run: |

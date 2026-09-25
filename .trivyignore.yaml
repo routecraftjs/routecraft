@@ -1,7 +1,8 @@
 # Advisories the security gate accepts for now. Every entry names why it cannot
 # be fixed from this repository today and expires, so the gate fails again and
 # the decision is taken afresh rather than forgotten. Add an entry only with a
-# reason and an expiry of 30 days or less; see .standards/security.md.
+# reason, an expiry of 30 days or less, and the package it applies to (so
+# the same advisory in another package still fails); see .standards/security.md.
 vulnerabilities:
   # nodemailer: fixed only in 7.0.11 and later, and the mail adapter's peer
   # range is ^6.0.0, so users cannot pick the fix up until the adapter is
@@ -9,18 +10,23 @@ vulnerabilities:
   # attachment `path`/`href`/`raw` and disables file and URL access.
   - id: CVE-2025-14874
     statement: nodemailer fix needs a peer-range major the mail adapter has not adopted yet
+    purls: ["pkg:npm/nodemailer"]
     expired_at: 2026-10-25
   - id: CVE-2026-82659
     statement: nodemailer fix needs a peer-range major the mail adapter has not adopted yet
+    purls: ["pkg:npm/nodemailer"]
     expired_at: 2026-10-25
   - id: GHSA-2x7j-588g-ccc2
     statement: nodemailer fix needs a peer-range major the mail adapter has not adopted yet
+    purls: ["pkg:npm/nodemailer"]
     expired_at: 2026-10-25
   # sharp: pulled in by @huggingface/transformers 3.x; fixed only through
   # transformers 4.3, a major the embedding adapter has not adopted yet.
   - id: GHSA-f88m-g3jw-g9cj
     statement: sharp fix arrives with @huggingface/transformers 4, not yet adopted by the embedding adapter
+    purls: ["pkg:npm/sharp"]
     expired_at: 2026-10-25
   - id: GHSA-rgj7-g3m4-5g8c
     statement: sharp fix arrives with @huggingface/transformers 4, not yet adopted by the embedding adapter
+    purls: ["pkg:npm/sharp"]
     expired_at: 2026-10-25

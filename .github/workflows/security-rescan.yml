@@ -3,8 +3,8 @@ name: Security rescan
 # A release is scanned when it is built, but CVEs are published afterwards.
 # This rescans what users run today (the latest published packages, scaffolded
 # the way `create-routecraft` scaffolds them, and the live docs-site image)
-# against the current vulnerability database, and opens one tracking issue
-# when a fixable HIGH or CRITICAL finding appears. The pull-request gate lives
+# against the current vulnerability database. A fixable HIGH or CRITICAL
+# finding opens one tracking issue, which the first clean run closes. The pull-request gate lives
 # in ci.yml; the rules are in .standards/security.md.
 on:
   schedule:
@@ -58,51 +58,71 @@ jobs:
           docker tag "ghcr.io/$OWNER/routecraft.dev:latest" routecraft-site:rescan
 
       # Each scan records its verdict instead of stopping the job, so one
-      # failure does not hide the others from the report.
+      # failure does not hide the others. A scanner error is not a finding: it
+      # fails the run but never opens the tracking issue.
       - name: Scan
         id: scan
         run: |
           set -uo pipefail
           FAILED=""
-          REPORT="$RUNNER_TEMP/report.md"
-          : > "$REPORT"
+          ERRORED=""
+          mkdir -p "$RUNNER_TEMP/reports"
+          VERDICTS="$RUNNER_TEMP/verdicts.md"
+          : > "$VERDICTS"
           scan() {
             local label="$1"; shift
-            local out="$RUNNER_TEMP/$label.txt"
-            if .github/scripts/trivy.sh "$@" --quiet --severity HIGH,CRITICAL \
-              --ignore-unfixed --ignorefile .trivyignore.yaml \
-              --table-mode detailed --exit-code 1 > "$out" 2>&1; then
-              echo "- **$label**: clean" >> "$REPORT"
-            else
-              FAILED="$FAILED $label"
-              { echo "- **$label**: fixable HIGH or CRITICAL findings"; echo; echo '```'; cat "$out"; echo '```'; echo; } >> "$REPORT"
-            fi
+            local out="$RUNNER_TEMP/reports/$label.txt"
+            .github/scripts/trivy.sh gate "$@" > "$out" 2>&1
+            case "$?" in
+              0) echo "- **$label**: clean" >> "$VERDICTS" ;;
+              3) FAILED="$FAILED $label"
+                 echo "- **$label**: fixable HIGH or CRITICAL findings" >> "$VERDICTS" ;;
+              *) ERRORED="$ERRORED $label"
+                 echo "- **$label**: the scan itself failed" >> "$VERDICTS" ;;
+            esac
+            { echo "### $label"; echo; echo '```'; cat "$out"; echo '```'; echo; } >> "$GITHUB_STEP_SUMMARY"
           }
           scan starter-image image --scanners vuln,secret routecraft-starter:rescan
           scan adapters fs --scanners vuln /scan/ref-adapters/bun.lock
           scan site-image image --scanners vuln,secret routecraft-site:rescan
-          cat "$REPORT" >> "$GITHUB_STEP_SUMMARY"
           echo "failed=${FAILED# }" >> "$GITHUB_OUTPUT"
+          echo "errored=${ERRORED# }" >> "$GITHUB_OUTPUT"
 
-      - name: Open or update the tracking issue
-        if: steps.scan.outputs.failed != ''
+      - name: Upload the scan reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: rescan-reports
+          path: ${{ runner.temp }}/reports
+
+      # The issue carries the verdicts and a link; the tables stay in the run,
+      # since a few hundred detailed rows pass GitHub's issue body limit.
+      - name: Update the tracking issue
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           FAILED: ${{ steps.scan.outputs.failed }}
+          ERRORED: ${{ steps.scan.outputs.errored }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           set -eo pipefail
           TITLE="Security rescan: fixable HIGH or CRITICAL findings in released artefacts"
+          NUMBER="$(gh issue list --state open --search "\"$TITLE\" in:title" --json number,title \
+            --jq ".[] | select(.title == \"$TITLE\") | .number" | head -n1)"
+          if [ -z "$FAILED" ]; then
+            # A scan that failed to run proves nothing, so the issue stays open.
+            if [ -n "$NUMBER" ] && [ -z "$ERRORED" ]; then
+              gh issue close "$NUMBER" --comment "The rescan is clean again: $RUN_URL"
+            fi
+            exit 0
+          fi
           BODY="$RUNNER_TEMP/body.md"
           {
             echo "The scheduled rescan found fixable HIGH or CRITICAL vulnerabilities in: $FAILED."
             echo
-            echo "Fix it, or record why it cannot be fixed yet in \`.trivyignore.yaml\` with an expiry (see \`.standards/security.md\` § 13). Run: $RUN_URL"
+            echo "Fix it, or record why it cannot be fixed yet in \`.trivyignore.yaml\` with an expiry (see \`.standards/security.md\` § 13). The findings are in the run's summary and its \`rescan-reports\` artifact: $RUN_URL"
             echo
-            cat "$RUNNER_TEMP/report.md"
+            cat "$RUNNER_TEMP/verdicts.md"
           } > "$BODY"
-          NUMBER="$(gh issue list --state open --search "\"$TITLE\" in:title" --json number,title \
-            --jq ".[] | select(.title == \"$TITLE\") | .number" | head -n1)"
           if [ -n "$NUMBER" ]; then
             gh issue comment "$NUMBER" --body-file "$BODY"
           else
@@ -110,9 +130,11 @@ jobs:
           fi
 
       - name: Fail the run
-        if: steps.scan.outputs.failed != ''
+        if: steps.scan.outputs.failed != '' || steps.scan.outputs.errored != ''
         env:
           FAILED: ${{ steps.scan.outputs.failed }}
+          ERRORED: ${{ steps.scan.outputs.errored }}
         run: |
-          echo "::error title=Security rescan::Fixable HIGH or CRITICAL findings in: $FAILED"
+          [ -z "$FAILED" ] || echo "::error title=Security rescan::Fixable HIGH or CRITICAL findings in: $FAILED"
+          [ -z "$ERRORED" ] || echo "::error title=Security rescan::The scan failed for: $ERRORED"
           exit 1
