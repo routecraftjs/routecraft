@@ -5,7 +5,8 @@
 # package.json `packageManager`, which setup-bun reads in CI), and `oven/bun:1`
 # drifted to 1.3.14, whose `bun install` hangs in "Resolving dependencies"
 # here: the same install, same lockfile and same .npmrc completes on the CI
-# runner in under two minutes. Keep this in step with `packageManager`.
+# runner in under two minutes. Keep this, and the production stage's
+# `-distroless` tag, in step with `packageManager`.
 FROM oven/bun:1.3.11 AS base
 WORKDIR /repo
 
@@ -49,22 +50,21 @@ RUN bun run build
 
 # --- Production ---
 # The server bundle carries everything it needs, so the image ships .output and
-# nothing else: no source, no node_modules, no build toolchain.
-FROM base AS production
+# nothing else: no source, no node_modules, no build toolchain. Distroless adds
+# no shell and no package manager, and runs as the unprivileged `nonroot` user.
+FROM oven/bun:1.3.11-distroless AS production
 ENV NODE_ENV=production
 WORKDIR /app
 
-RUN groupadd -g 1001 appgroup && useradd -u 1001 -g appgroup -s /bin/sh appuser
-
 COPY --from=build /repo/apps/routecraft.dev/.output ./.output
 
-RUN chown -R appuser:appgroup /app
-
-USER appuser
+USER nonroot
 
 EXPOSE 3000
 
+# Exec form: the shell form needs a /bin/sh this image does not have.
 HEALTHCHECK --interval=30s --timeout=3s --start-period=5s \
-  CMD bun -e "fetch('http://localhost:3000/').then(r => {if(!r.ok) process.exit(1)}).catch(() => process.exit(1))"
+  CMD ["/usr/local/bin/bun", "-e", "fetch('http://localhost:3000/').then(r => {if(!r.ok) process.exit(1)}).catch(() => process.exit(1))"]
 
-CMD ["bun", "run", ".output/server/index.mjs"]
+ENTRYPOINT ["/usr/local/bin/bun"]
+CMD ["run", ".output/server/index.mjs"]
