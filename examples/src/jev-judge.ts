@@ -14,8 +14,9 @@
  * Jev does not generate text at all.
  *
  * How sure the screen must be is the caller's call, because the caller knows
- * what it does with the verdict: a judge that gates a mail send wants a
- * different number than one that gates a log line. So `passAt` is part of the
+ * what it does with the verdict: a judge whose pass closes a customer's
+ * ticket wants a different number than one whose pass marks an internal
+ * report done. So `passAt` is part of the
  * input, with a default, and the route reads it in `.choice(when(...))` where
  * a reader can see what is being traded.
  *
@@ -225,7 +226,7 @@ const callerRoute = craft()
         { toolName: "list-invoices", failed: false, error: null },
         { toolName: "archive-invoice", failed: false, error: null },
       ],
-      // Archiving moves real mail, so this caller asks for more than the default.
+      // A wrong pass here would hide a mistake with real mail, so this caller asks for more than the default.
       passAt: 0.9,
     }),
   )
