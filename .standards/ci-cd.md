@@ -1,6 +1,6 @@
 # CI/CD
 
-What `.github/workflows/ci.yml` and `.github/workflows/release.yml` enforce and the policies contributors must know to work with them.
+What `.github/workflows/ci.yml` and `.github/workflows/release.yml` enforce, what the scheduled security workflows watch, and the policies contributors must know to work with them.
 
 ---
 
@@ -14,12 +14,17 @@ What `.github/workflows/ci.yml` and `.github/workflows/release.yml` enforce and 
    setup ───┼─►  test  ────┤
             │              ├─►  embedding-smoke
             └─►  build ────┤
-                           └─►  adapter-cross-runtime (bun + node)
+                           ├─►  adapter-cross-runtime (bun + node)
+                           └─►  security
+
+  changes  ──►  site-image-security
 
   release.yml (workflow_run: CI succeeded on a main push):
 
   release (changesets: Version Packages PR  ─┬─►  publish-canary
            / stable publish + v* tag)        └─►  build-and-deploy-docs
+
+  scheduled: codeql.yml (also on PRs), scorecard.yml, security-rescan.yml
 ```
 
 Every ci.yml job that installs workspace dependencies restores bun's package cache (`~/.bun/install/cache`, key: `hashFiles('**/bun.lock')`) and then runs `bun install --frozen-lockfile`, which is seconds against a warm cache. `changes` installs nothing and `embedding-smoke` is deliberately node + npm (see the § 2 table), so neither restores it; release.yml's install steps are cold by design, since a publish is rare and correctness there outranks a minute. The linked `**/node_modules` tree is deliberately **not** cached: several dependencies ship a nested `node_modules` inside their own `dist` or test fixtures, nitro vendors `defu` there and imports it without declaring it, and a `**/node_modules` glob matches those nested trees separately from the tree containing them, so the archive carries overlapping paths and the restore silently drops files. Cache the packages, link them fresh. Build output is passed differently: `build` uploads `packages/*/dist` and `examples/dist` as a run artifact (`build-dist`) that the smoke and cross-runtime jobs download. Artifacts are guaranteed within the run that produced them, which a cache key is not. `changes` skips downstream jobs when the diff doesn't touch package or workflow paths.
@@ -43,6 +48,9 @@ Every PR must pass these jobs before merge. The first column matches the GitHub 
 | `embedding-smoke` | `node .github/scripts/smoke-test-embedding.mjs` | Library embeds into a plain Node app: `npm pack` + `npm install` + `node --experimental-strip-types runner.ts`. Includes a negative arm asserting `RC5017` fires when `cron()` is used without `croner` installed. Catches Node compatibility regressions in the core library and the optional-peer contract. |
 | `adapter-cross-runtime (bun)` | `bun run test:cross-runtime` (matches `**/test/cross-runtime/**/*.test.ts`) | Adapter tests that must produce identical observable behaviour under Bun and Node. Bun arm runs the suite under Bun. |
 | `adapter-cross-runtime (node)` | `npm run test:cross-runtime:node` (resolves to `node node_modules/vitest/vitest.mjs run --passWithNoTests test/cross-runtime/`) | Same suite as above, run under Node. New adapters with a runtime-specific code path (`Bun.sql` vs `pg`, `Bun.s3` vs `@aws-sdk/client-s3`, etc.) drop a sibling test in `packages/<pkg>/test/cross-runtime/*.test.ts` and both arms must pass. |
+| `security` | Builds the reference projects (`.github/scripts/security-reference-project.ts`), the starter image from the Dockerfile `create-routecraft` scaffolds, the SBOMs and SARIF, then gates with Trivy (`.github/scripts/trivy.sh`): the image, the adapters lockfile and the rendered Dockerfile | A fixable HIGH or CRITICAL vulnerability or a secret in what a user ships, and a Dockerfile misconfiguration. Accepted findings live in `.trivyignore.yaml`; the rules are in [security.md § 13](./security.md#13-vulnerabilities-and-the-supply-chain). The gate reads a live vulnerability database, so a CVE published today fails a PR that did not cause it: fix it or waive it in that PR or a separate one, as § 13 describes. |
+| `site-image-security` | Builds the docs-site image and gates it and its Dockerfile with the same Trivy flags | The same, for the image release.yml deploys. Runs on the `docs` filter. |
+| `CodeQL` | `codeql.yml`, `security-extended` queries over the TypeScript | Security-relevant code patterns; results land in code scanning. |
 | `cubic · AI code reviewer` | External AI reviewer | Dual-use review signal; informational on PR but does not gate merge. |
 
 The `validate` job is the cheapest signal: if it's red, fix that first. The `test` job uploads `coverage-report` as an artifact; reviewers can download to inspect uncovered lines.
@@ -59,7 +67,7 @@ If a pre-commit hook fails, the commit didn't happen. `--amend` would modify the
 
 ### 3.3. The `changes` filter governs whether package jobs run
 
-`changes` checks paths against the `packages` filter: `packages/**`, `examples/**`, `bun.lock`, `tsconfig*.json`, `.github/workflows/**`, `.github/scripts/**`, `.changeset/**`.
+`changes` checks paths against the `packages` filter: `packages/**`, `examples/**`, `bun.lock`, `tsconfig*.json`, `.github/workflows/**`, `.github/scripts/**`, `.changeset/**`, `.trivyignore.yaml`. The `docs` filter also carries `.trivyignore.yaml` and `.github/scripts/trivy.sh`, so a waiver change re-runs `site-image-security`.
 
 Docs-only PRs skip the smoke jobs. If you add a new code path that should gate on CI, add it to the filter.
 
@@ -227,8 +235,9 @@ Two things are part of every release and are not owned by the pipeline, so they 
 
 ## References
 
-- Workflow sources: `.github/workflows/ci.yml`, `.github/workflows/release.yml`
-- Scripts: `scripts/sync-derived-versions.mjs`, `scripts/finalise-changelog.mjs`, `scripts/prepare-canary-snapshot.mjs`, `scripts/create-github-releases.mjs`, `.github/scripts/smoke-test-embedding.mjs`, `packages/routecraft/scripts/verify-dist.mjs`
+- Workflow sources: `.github/workflows/ci.yml`, `.github/workflows/release.yml`, `.github/workflows/codeql.yml`, `.github/workflows/scorecard.yml`, `.github/workflows/security-rescan.yml`
+- Scripts: `scripts/sync-derived-versions.mjs`, `scripts/finalise-changelog.mjs`, `scripts/prepare-canary-snapshot.mjs`, `scripts/create-github-releases.mjs`, `.github/scripts/smoke-test-embedding.mjs`, `.github/scripts/security-reference-project.ts`, `.github/scripts/trivy.sh`, `packages/routecraft/scripts/verify-dist.mjs`
 - Changesets config: `.changeset/config.json`
 - Definition of Done: `DEFINITION_OF_DONE.md`
 - Testing standards: `./testing.md`
+- Security standard (the vulnerability gate and waivers): `./security.md`, `.trivyignore.yaml`

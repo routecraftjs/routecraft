@@ -462,10 +462,8 @@ jobs:
         env:
           IMAGE_REFERENCE: ${{ steps.image.outputs.reference }}
         run: |
-          .github/scripts/trivy.sh image --quiet --scanners vuln,secret \
-            --severity HIGH,CRITICAL --ignore-unfixed \
-            --ignorefile .trivyignore.yaml --table-mode detailed \
-            --exit-code 1 "$IMAGE_REFERENCE"
+          .github/scripts/trivy.sh gate image --scanners vuln,secret \
+            "$IMAGE_REFERENCE"
 
       - name: Write the site image SBOM
         env:
@@ -474,15 +472,15 @@ jobs:
           .github/scripts/trivy.sh image --quiet --format cyclonedx \
             --output /scan/site-image.cdx.json "$IMAGE_REFERENCE"
 
+      # `latest` moves only after the attestations, so the tag Dokploy deploys
+      # never points at an image without them.
       - name: Push the site image
         id: push
         env:
-          IMAGE_NAME: ${{ steps.image.outputs.name }}
           IMAGE_REFERENCE: ${{ steps.image.outputs.reference }}
         run: |
           set -eo pipefail
           docker push "$IMAGE_REFERENCE"
-          docker push "$IMAGE_NAME:latest"
           DIGEST="$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE_REFERENCE" | cut -d@ -f2)"
           echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
 
@@ -503,6 +501,11 @@ jobs:
           subject-digest: ${{ steps.push.outputs.digest }}
           sbom-path: ${{ runner.temp }}/site-image.cdx.json
           push-to-registry: true
+
+      - name: Move latest to the site image
+        env:
+          IMAGE_NAME: ${{ steps.image.outputs.name }}
+        run: docker push "$IMAGE_NAME:latest"
 
       # MAINTAINER SETUP: deploying is Dokploy pulling the tag pushed above. Its
       # webhook URL is per-application and issued by the Dokploy instance, so it

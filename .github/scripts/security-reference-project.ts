@@ -45,9 +45,6 @@ const profile: Profile = profileArg;
 const outDir = resolve(outArg);
 const repoRoot = resolve(import.meta.dir, "..", "..");
 
-/** Packages whose native build needs a toolchain the scan does not: Bun uses `bun:sqlite`. */
-const SKIPPED_PEERS = new Set(["better-sqlite3"]);
-
 const packages =
   profile === "starter"
     ? ["routecraft", "cli"]
@@ -57,6 +54,7 @@ type Manifest = {
   name: string;
   version: string;
   dependencies?: Record<string, string>;
+  devDependencies?: Record<string, string>;
   overrides?: Record<string, string>;
   peerDependencies?: Record<string, string>;
   peerDependenciesMeta?: Record<string, { optional?: boolean }>;
@@ -79,7 +77,7 @@ const optionalPeers = (manifest: Manifest): Record<string, string> => {
     manifest.peerDependenciesMeta ?? {},
   )) {
     const range = manifest.peerDependencies?.[name];
-    if (!meta.optional || !range || SKIPPED_PEERS.has(name)) continue;
+    if (!meta.optional || !range) continue;
     if (name.startsWith("@routecraft/")) continue;
     peers[name] = range;
   }
@@ -102,6 +100,10 @@ await generateProjectStructure(outDir, {
 const projectManifestPath = join(outDir, "package.json");
 const project = readManifest(projectManifestPath);
 project.dependencies = { ...project.dependencies };
+// The image installs with --production, so devDependencies are never shipped.
+// They also pin the scaffold's own @routecraft version, which is unpublished
+// on the version-bump commit and would fail the install that releases hang on.
+delete project.devDependencies;
 
 if (fromNpm) {
   for (const dir of packages) {
