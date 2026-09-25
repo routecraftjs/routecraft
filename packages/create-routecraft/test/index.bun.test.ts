@@ -219,6 +219,53 @@ describe("generateProjectStructure", () => {
     expect(existsSync(join(projectDir, "plugins"))).toBe(false);
   });
 
+  // ── Production image ─────────────────────────────────────────────────────
+
+  /**
+   * @case A Bun project gets a production Dockerfile and .dockerignore
+   * @preconditions packageManager = "bun", projectName = "billing"
+   * @expectedResult Both files are written with no placeholder left; the image pins the Bun the project pins, runs distroless as nonroot, and the ignore file keeps .env and node_modules out of the build context
+   */
+  test("writes a hardened Dockerfile for a Bun project", async () => {
+    await generateProjectStructure(
+      projectDir,
+      makeOptions({ packageManager: "bun", projectName: "billing" }),
+    );
+
+    const dockerfile = await readFile(join(projectDir, "Dockerfile"), "utf-8");
+    const pinned = JSON.parse(
+      await readFile(join(projectDir, "package.json"), "utf-8"),
+    ).packageManager.replace("bun@", "");
+    expect(dockerfile).not.toContain("BUN_VERSION");
+    expect(dockerfile).not.toContain("PROJECT_NAME");
+    expect(dockerfile).toContain(`FROM oven/bun:${pinned} AS deps`);
+    expect(dockerfile).toContain(`FROM oven/bun:${pinned}-distroless`);
+    expect(dockerfile).toContain("USER nonroot");
+    expect(dockerfile).toContain("docker build -t billing .");
+
+    const ignored = (
+      await readFile(join(projectDir, ".dockerignore"), "utf-8")
+    ).split("\n");
+    expect(ignored).toContain(".env");
+    expect(ignored).toContain(".env.*");
+    expect(ignored).toContain("node_modules");
+  });
+
+  /**
+   * @case A project on another package manager gets no Dockerfile
+   * @preconditions packageManager = "npm"
+   * @expectedResult Neither Dockerfile nor .dockerignore is written, because the image installs from bun.lock
+   */
+  test("writes no Dockerfile for a non-Bun project", async () => {
+    await generateProjectStructure(
+      projectDir,
+      makeOptions({ packageManager: "npm" }),
+    );
+
+    expect(existsSync(join(projectDir, "Dockerfile"))).toBe(false);
+    expect(existsSync(join(projectDir, ".dockerignore"))).toBe(false);
+  });
+
   // ── README ───────────────────────────────────────────────────────────────
 
   /**

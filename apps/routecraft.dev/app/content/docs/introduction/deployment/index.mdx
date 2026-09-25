@@ -17,41 +17,50 @@ The two paths can be mixed within the same project. See the [Runtime reference](
 
 ## Bun CLI on a server
 
-Routecraft's `craft` bin requires Bun on the host. Add a `start` script:
+Routecraft's `craft` bin requires Bun on the host. A project scaffolded by `create-routecraft` already has the script that boots it:
 
 ```json
 {
   "scripts": {
-    "start": "craft run ./capabilities/index.ts"
+    "start": "craft start --log-level info"
   }
 }
 ```
 
 Then run `bun run start`. Any provider that lets you install Bun (a long-running container, a VM, or a Bun-native runtime) will work.
 
-### Docker (Bun base image)
+### Docker
 
-Use a two-stage image with the official Bun base:
+A Bun project scaffolded by `create-routecraft` ships a `Dockerfile` and a `.dockerignore`, so the image is one command:
+
+```bash
+docker build -t my-app .
+```
+
+The image is built to pass the container scans a bank or an enterprise registry runs:
+
+- **Distroless runtime.** Production dependencies install on the full Bun image, and only `node_modules` is copied into `oven/bun:<version>-distroless`: no shell and no package manager, so a scanner finds almost nothing to flag.
+- **Not root.** The process runs as the unprivileged `nonroot` user. The project files are read-only to it; `.routecraft/` (telemetry and other local state) is the one directory it can write.
+- **Pinned.** The base images use the Bun version the project pins in `packageManager`, never a floating tag.
+- **No secrets in the build context.** `.dockerignore` keeps `.env` files, `node_modules` and local state out.
+
+The runtime stage, excerpted from the [scaffolded Dockerfile](https://github.com/routecraftjs/routecraft/blob/main/packages/create-routecraft/templates/base/Dockerfile):
 
 ```dockerfile
-# 1) Dependencies
-FROM oven/bun:1 AS deps
-WORKDIR /app
-COPY package.json bun.lock ./
-RUN bun install --frozen-lockfile --production
-
-# 2) Production runtime
-FROM oven/bun:1-slim
+FROM oven/bun:1.3.9-distroless
 WORKDIR /app
 ENV NODE_ENV=production
 COPY --from=deps /app/node_modules ./node_modules
-COPY package.json ./
-COPY capabilities ./capabilities
-
-CMD ["bun", "run", "start"]
+COPY --from=deps --chown=nonroot:nonroot /app/.routecraft ./.routecraft
+COPY . .
+USER nonroot
+ENTRYPOINT ["/usr/local/bin/bun"]
+CMD ["node_modules/.bin/craft", "start", "--log-level", "info"]
 ```
 
-If your project uses `pnpm` or `npm` for dependency management, swap the install command in the `deps` stage (`pnpm install --frozen-lockfile --prod` or `npm ci --omit=dev`) but keep the `CMD ["bun", "run", "start"]` line — the runtime requirement is unchanged.
+The runtime has no shell, so the image calls `craft` directly rather than through `bun run start`. Every change to Routecraft builds this image from a freshly scaffolded project and scans it with Trivy; a fixable HIGH or CRITICAL finding fails the change, and each build publishes the image's SBOM.
+
+A project on npm, pnpm or yarn gets no `Dockerfile`, because the scaffolded one installs from `bun.lock`. Install its production dependencies with its own package manager in the first stage (`npm ci --omit=dev`, `pnpm install --frozen-lockfile --prod`), and keep the distroless Bun runtime stage as it is: the runtime requirement is unchanged.
 
 ## Node embedding on a server
 

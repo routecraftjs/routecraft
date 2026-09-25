@@ -13,11 +13,11 @@ DigitalOcean App Platform does not yet ship a first-class Bun runtime, so the `c
 ### Option A — Bun CLI via Dockerfile
 
 1) Repository
-- Push your app to GitHub/GitLab including `craft.config.ts` and the Bun Dockerfile from the [Deployment guide](/docs/introduction/deployment).
+- Push your app to GitHub/GitLab including `craft.config.ts` and the `Dockerfile` `create-routecraft` scaffolds (see the [Deployment guide](/docs/introduction/deployment#docker)).
 
 2) App creation
 - Create App → connect repo → pick root directory.
-- App Platform auto-detects the Dockerfile. No build/run command needed; the image's `CMD` runs `bun run start`.
+- App Platform auto-detects the Dockerfile. No build/run command needed; the image's `CMD` runs `craft start`.
 
 3) Environment
 - Set `NODE_ENV=production` and any adapter secrets (e.g., API keys).

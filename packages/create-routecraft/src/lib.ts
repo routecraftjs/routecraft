@@ -64,6 +64,12 @@ export function getRoutecraftVersion(): string {
 }
 
 /**
+ * The Bun a scaffolded project pins, both in `packageManager` and in its
+ * Dockerfile's base images, so the two cannot drift apart.
+ */
+const BUN_VERSION = "1.3.9";
+
+/**
  * Get package manager with version
  */
 function getPackageManagerVersion(packageManager: PackageManager): string {
@@ -71,7 +77,7 @@ function getPackageManagerVersion(packageManager: PackageManager): string {
     pnpm: "pnpm@10.17.1",
     npm: "npm@10.0.0",
     yarn: "yarn@4.0.0",
-    bun: "bun@1.3.9",
+    bun: `bun@${BUN_VERSION}`,
   };
   return versions[packageManager];
 }
@@ -723,6 +729,15 @@ const TEMPLATE_FILES: Record<string, string> = {
 };
 
 /**
+ * The production image, written for a Bun project only. `dockerignore` is
+ * stored without its dot to match `gitignore`.
+ */
+const DOCKER_FILES: Record<string, string> = {
+  Dockerfile: "Dockerfile",
+  dockerignore: ".dockerignore",
+};
+
+/**
  * Write the template into the project directory.
  *
  * One template, laid out for the folder convention: `craft start` discovers
@@ -744,6 +759,7 @@ export async function generateProjectStructure(
     ROUTECRAFT_VERSION: getRoutecraftVersion(),
     PACKAGE_MANAGER: getPackageManagerVersion(options.packageManager),
     PACKAGE_MANAGER_RUN: `${getPackageManagerCommand(options.packageManager)} run`,
+    BUN_VERSION,
   };
 
   for (const [sourceFile, destFile] of Object.entries(TEMPLATE_FILES)) {
@@ -764,6 +780,18 @@ export async function generateProjectStructure(
   );
   await writeFile(join(projectDir, "package.json"), packageJson);
   console.log("Created file: package.json");
+
+  // The image installs from `bun.lock`, so only a Bun project gets one.
+  if (options.packageManager === "bun") {
+    for (const [sourceFile, destFile] of Object.entries(DOCKER_FILES)) {
+      const content = processTemplate(
+        await readFile(join(TEMPLATES_DIR, "base", sourceFile), "utf-8"),
+        replacements,
+      );
+      await writeFile(join(projectDir, destFile), content);
+      console.log(`Created file: ${destFile}`);
+    }
+  }
 
   // A URL example is a whole project rather than an addition to one, so the
   // sample capability must not be left standing inside it and a README
