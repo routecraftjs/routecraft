@@ -8,7 +8,7 @@ arrives.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="figures/exchange-path-dark.png">
-  <img alt="A central spine from delivery through the admission ring, entry ring, wrapper chain and step loop to the exit ring and completed. Left: the six step outcomes ending in deferred. Right: refused, and a thrown step reaching the error ring, which may park or end failed." src="figures/exchange-path.png">
+  <img alt="An inverted strip with one run in its fixed order, from admission through entry, the wrappers, the step loop and exit to completed; below it the six outcomes, what a refusal does, what happens when a step throws with the five declined parks, and the four run kinds." src="figures/exchange-path.png">
 </picture>
 
 ## Rings

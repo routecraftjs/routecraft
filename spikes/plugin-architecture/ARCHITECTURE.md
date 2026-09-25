@@ -1128,7 +1128,7 @@ re-ran half-run continuations.
 | `reviews/OPUS-ROUND-7F.md` | Clean-room review of round 7f by Claude Opus 5.5; its probes, controls and mutants are in `validation/round-seven-f-review/` (from `validation/round-7f-opus` at `52a62a49`, folded into this branch) |
 | `reviews/ASTRA-ROUND-7G.md` | Astra's open-ended design review of round 7g; its sixteen probes and compiler fixture are in `validation/round-seven-g-review/` (on `validation/round-7g-astra` at `de98d680`, folded into this branch) |
 | `reviews/OPUS-DIRECTION-DOCS.md` | Claude Opus 5.5 review of `docs/direction/` as a consumer reads it, then of the direction; its ten probes are in `validation/direction-docs-review/` |
-| `docs/direction/` | The user-facing documentation of the direction: seven pages and eight figures, with the differences from the shipped framework cited by file |
+| `docs/direction/` | The user-facing documentation of the direction: seven pages and nine figures in one visual identity (the outward harness, the internals, and seven mechanism figures), with the differences from the shipped framework cited by file |
 | `DIAGRAMS-MECHANISM.md` | The mechanism for an editor of the proof of concept; its module graph is code-derived and checked |
 | `src/v2/` | The proof of concept: 12 modules, `auth.ts` added in 7c, `codec.ts` in 7e |
 | `test/round-two/` | 111 acceptance tests; `corrections.test.ts` holds rounds 6 and 7, `round-seven-e.test.ts` Astra's eighteen probes as corrected behaviour, `round-seven-f.test.ts` the 7e review's findings inverted and the `#818` door, `round-seven-g.test.ts` the 7f review's findings inverted |

@@ -6,7 +6,7 @@ so. You never wire it up and you never decide when it starts.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="figures/plugin-declares-dark.png">
-  <img alt="A plugin card listing its id, what it requires and provides, the points it declares, what it does in bind, and its start and stop; an arrow to Routecraft, which orders, namespaces, freezes, starts and stops it." src="figures/plugin-declares.png">
+  <img alt="Left, your plugin: what it declares (id, requires, provides, replaces, points, facets, methods), what it does in bind, and its start and stop. Right, an inverted Routecraft panel: it orders, namespaces, freezes, starts and stops it." src="figures/plugin-declares.png">
 </picture>
 
 ## The descriptor

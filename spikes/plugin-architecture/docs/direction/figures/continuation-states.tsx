@@ -1,212 +1,167 @@
+import { FigureCanvas } from "./primitives.tsx";
 import {
-  Body,
-  Eyebrow,
-  FigureCanvas,
-  MonoNote,
-  Subhead,
-} from "./primitives.tsx";
-import { Edge, Node, Terminal } from "./flow.tsx";
-import type { FigurePalette } from "./palette.ts";
+  Band,
+  Chip,
+  Chips,
+  Conclusion,
+  Note,
+  Row,
+  Seq,
+  Title,
+} from "./harness.tsx";
 import type { FigureDrawing, FigureProps, MotifProps } from "./types.ts";
 
+/** A parked exchange over its life: one waiting record, a resume won once, a notification leased. */
 const WIDTH = 1600;
-const HEIGHT = 760;
-
-function State({
-  palette,
-  name,
-  note,
-  accent = false,
-  style,
-}: {
-  palette: FigurePalette;
-  name: string;
-  note: string;
-  accent?: boolean;
-  style?: React.CSSProperties;
-}) {
-  return (
-    <div
-      style={{
-        border: `${accent ? 2 : 1}px solid ${accent ? palette.accent : palette.ink35}`,
-        padding: "18px 22px",
-        display: "flex",
-        flexDirection: "column",
-        gap: 6,
-        background: palette.paper,
-        ...style,
-      }}
-    >
-      <span
-        style={{
-          fontFamily: "var(--font-mono)",
-          fontSize: "1.15rem",
-          letterSpacing: "0.14em",
-          textTransform: "uppercase",
-          color: accent ? palette.accent : palette.ink,
-        }}
-      >
-        {name}
-      </span>
-      <span
-        style={{
-          fontFamily: "var(--font-sans)",
-          fontSize: "0.98rem",
-          lineHeight: 1.4,
-          color: palette.ink60,
-        }}
-      >
-        {note}
-      </span>
-    </div>
-  );
-}
+const HEIGHT = 860;
 
 function Figure({ palette }: FigureProps) {
   return (
     <FigureCanvas palette={palette} width={WIDTH} height={HEIGHT}>
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          display: "flex",
-          flexDirection: "column",
-          padding: "72px 80px 56px",
-          gap: 18,
-        }}
-      >
-        <Eyebrow palette={palette} accent>
-          A parked exchange, over its life
-        </Eyebrow>
-        <Subhead palette={palette} size="1.9rem">
-          Two mechanisms, deliberately different: a resume is won once, a
-          notification is leased and may be re-sent.
-        </Subhead>
-        <div
-          style={{
-            display: "grid",
-            gridTemplateColumns: "520px 230px 1fr",
-            gridTemplateRows: "auto auto",
-            columnGap: 0,
-            rowGap: 28,
-            marginTop: 16,
-            alignItems: "center",
-          }}
-        >
-          <div
-            style={{
-              gridRow: "1 / span 2",
-              border: `1px dashed ${palette.ink40}`,
-              padding: "18px 20px",
-              display: "flex",
-              flexDirection: "column",
-              gap: 12,
-            }}
-          >
-            <span
-              style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: "1.15rem",
-                letterSpacing: "0.14em",
-                color: palette.ink,
-              }}
-            >
-              WAITING
-            </span>
-            <Node
-              palette={palette}
-              title="unclaimed"
-              body="written with its index in one transaction when the exchange parked; claimExpiry claims it once it is due or its plan has changed"
-            />
-            <div style={{ display: "flex", justifyContent: "center", gap: 40 }}>
-              <Edge palette={palette} length={26} label="claimExpiry" />
-              <Edge
-                palette={palette}
-                direction="up"
-                length={26}
-                label="releaseClaims"
-              />
-            </div>
-            <Node
-              palette={palette}
-              title="claimed"
-              body="a notification holds a lease and excludes a resume; releaseClaims returns it when the lease elapses, and the nag is re-sent"
-            />
-          </div>
-          <Edge
-            palette={palette}
-            direction="right"
-            accent
-            length={130}
-            label="markResumed, from unclaimed only"
-          />
-          <div style={{ display: "flex", flexDirection: "column", gap: 12 }}>
-            <State
-              palette={palette}
-              accent
-              name="resumed"
-              note="a compare-and-swap out of unclaimed: exactly one caller wins, and the record says who"
-            />
-            <Body palette={palette} size="0.95rem">
-              A second resume is answered from the record with how the first one
-              ended, and runs nothing. A winner that dies before recording its
-              outcome is reported at the next start and never re-run: the steps
-              after the park may have half happened.
-            </Body>
-          </div>
-          <Edge
-            palette={palette}
-            direction="right"
-            length={130}
-            label="from claimed, once delivered"
-          />
-          <div
-            style={{
-              display: "grid",
-              gridTemplateColumns: "1fr 1fr",
-              gap: 12,
-              alignItems: "stretch",
-            }}
-          >
-            <State
-              palette={palette}
-              name="expired"
-              note="markExpired, after the nag was delivered"
-            />
-            <State
-              palette={palette}
-              name="denied"
-              note="markDenied, after a changed plan or a failed notification was reported"
-            />
-            <div
-              style={{
-                gridColumn: "1 / span 2",
-                display: "flex",
-                alignItems: "center",
-                gap: 16,
-              }}
-            >
-              <Edge
-                palette={palette}
-                direction="right"
-                length={80}
-                label="purgeSettled, past retention"
-              />
-              <Terminal palette={palette} style={{ flex: 1 }}>
-                gone, with resumed
-              </Terminal>
-            </div>
-          </div>
-        </div>
-        <MonoNote
+      <Band palette={palette} at={{ x: 150, y: 80, w: 1300, h: 150 }}>
+        <Title
           palette={palette}
-          size="1rem"
-          style={{ marginTop: "auto", lineHeight: 1.6 }}
-        >
-          from claimed, only expired or denied; from unclaimed, only resumed. a
-          resume is never the lease.
-        </MonoNote>
-      </div>
+          inline
+          title="Waiting"
+          subtitle="written with its index in one transaction when the exchange parked"
+        />
+        <Chips style={{ marginTop: 18 }}>
+          <Chip palette={palette} sub="a resume may take it">
+            unclaimed
+          </Chip>
+          <Note palette={palette}>⇄</Note>
+          <Chip
+            palette={palette}
+            sub="a notification holds a lease; a resume is excluded"
+          >
+            claimed
+          </Chip>
+          <Note palette={palette} style={{ marginLeft: 10 }}>
+            the record stays waiting either way; only the transitions below
+            leave it
+          </Note>
+        </Chips>
+      </Band>
+
+      <Band palette={palette} inverse at={{ x: 150, y: 256, w: 640, h: 380 }}>
+        <Title
+          palette={palette}
+          inverse
+          title="A resume is won once"
+          subtitle="a compare-and-swap out of unclaimed"
+        />
+        <div style={{ marginTop: 12 }}>
+          <Row
+            palette={palette}
+            inverse
+            label="The winner"
+            divider={false}
+            labelWidth={92}
+          >
+            <Seq
+              palette={palette}
+              inverse
+              items={[
+                "markResumed",
+                <Chip key="r" palette={palette} tone="accent">
+                  resumed
+                </Chip>,
+                "suffix runs",
+                "outcome recorded",
+              ]}
+            />
+            <Note palette={palette} inverse>
+              the record says who resumed it
+            </Note>
+          </Row>
+          <Row palette={palette} inverse label="A second" labelWidth={92}>
+            <Note
+              palette={palette}
+              inverse
+              style={{ fontSize: "0.8rem", paddingTop: 7 }}
+            >
+              answered from the record with how the first one ended; nothing
+              runs twice
+            </Note>
+          </Row>
+          <Row palette={palette} inverse label="A crash" labelWidth={92}>
+            <Note
+              palette={palette}
+              inverse
+              style={{ fontSize: "0.8rem", paddingTop: 7 }}
+            >
+              a winner that dies before recording its outcome is reported at the
+              next start, and never re-run: the steps after the park may have
+              half happened
+            </Note>
+          </Row>
+        </div>
+      </Band>
+
+      <Band palette={palette} at={{ x: 810, y: 256, w: 640, h: 380 }}>
+        <Title
+          palette={palette}
+          title="A notification is leased"
+          subtitle="an expiry or a denial, delivered at least once"
+        />
+        <div style={{ marginTop: 12 }}>
+          <Row palette={palette} label="Due" divider={false} labelWidth={92}>
+            <Seq
+              palette={palette}
+              items={[
+                "claimExpiry",
+                "route told",
+                "markExpired",
+                <Chip key="e" palette={palette} tone="strong">
+                  expired
+                </Chip>,
+              ]}
+            />
+          </Row>
+          <Row palette={palette} label="Changed" labelWidth={92}>
+            <Seq
+              palette={palette}
+              items={[
+                "claim",
+                "route told",
+                "markDenied",
+                <Chip key="d" palette={palette} tone="strong">
+                  denied
+                </Chip>,
+              ]}
+            />
+            <Note palette={palette}>so is a park whose notify failed</Note>
+          </Row>
+          <Row palette={palette} label="A crash" labelWidth={92}>
+            <Seq
+              palette={palette}
+              items={["lease elapses", "releaseClaims", "nag re-sent"]}
+            />
+          </Row>
+        </div>
+      </Band>
+
+      <Band
+        palette={palette}
+        at={{ x: 150, y: 662, w: 1300, h: 62 }}
+        style={{ padding: "12px 24px" }}
+      >
+        <Chips>
+          <Note palette={palette}>past retention</Note>
+          <Seq
+            palette={palette}
+            items={["resumed, expired or denied", "purgeSettled", "gone"]}
+          />
+        </Chips>
+      </Band>
+
+      <Conclusion
+        palette={palette}
+        y={760}
+        width={WIDTH}
+        plain="Re-sending a nag is safe;"
+        accent="re-running half a payment is not."
+      />
     </FigureCanvas>
   );
 }
@@ -236,11 +191,7 @@ function Motif({ palette, size }: MotifProps) {
         style={{ width: u * 10, height: s, backgroundColor: palette.muted40 }}
       />
       <div
-        style={{
-          width: u * 24,
-          height: u * 24,
-          border: `${s * 1.5}px solid ${palette.accent}`,
-        }}
+        style={{ width: u * 24, height: u * 24, backgroundColor: palette.fg }}
       />
     </div>
   );
