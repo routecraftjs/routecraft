@@ -212,7 +212,7 @@ When multiple accounts are configured, select one per adapter call with the `acc
 | `body` | `string \| string[]` | | Filter by body text (IMAP TEXT search). Array = OR |
 | `header` | `Record<string, string \| string[]>` | | Filter by arbitrary IMAP headers. Array values = OR |
 | `includeHeaders` | `true \| string[]` | | Raw headers to include on fetched messages. `true` = all |
-| `verify` | `'off' \| 'headers' \| 'strict'` | `'headers'` | Sender analysis. `'headers'` reads `Authentication-Results`/`ARC`/`List-Id` the receiving server wrote (no network). `'strict'` additionally runs cryptographic verification via optional `mailauth` (DNS lookups). `'off'` skips analysis. |
+| `verify` | `'off' \| 'headers' \| 'strict'` | `'headers'` | Sender analysis. `'headers'` reads `Authentication-Results`/`ARC`/`List-Id` the receiving server wrote (no network). `'strict'` additionally runs cryptographic verification via optional `mailauth` 4 or 5 (DNS lookups); use 5, which needs Node 22.19 or later, since every 4.x release pins a vulnerable `undici`. `'off'` skips analysis. |
 | `limit` | `number` | | Maximum messages per fetch |
 | `pollInterval` | `Duration` | | Poll interval (default: IMAP IDLE) |
 | `account` | `string` | | Named account from context config (uses default if omitted) |

@@ -260,6 +260,8 @@ export interface MailMessageOptions {
   inReplyTo?: string | undefined;
   references?: string | string[] | undefined;
   attachments?: MailSendPayload["attachments"] | undefined;
+  disableFileAccess: true;
+  disableUrlAccess: true;
 }
 
 /**
@@ -267,6 +269,12 @@ export interface MailMessageOptions {
  * option-level defaults (from, replyTo, cc, bcc) and deriving the
  * threading headers. Shared by the SMTP send destination and the IMAP
  * append flow so the threading contract lives in one place.
+ *
+ * The payload is often untrusted (an HTTP body, an MCP tool call), and
+ * nodemailer reads a local file for an attachment's `path` and fetches a URL
+ * for its `href`. Attachments are therefore rebuilt from their declared
+ * fields only, and file and URL access are disabled for the whole message, so
+ * a crafted payload cannot attach `/etc/passwd` or reach an internal address.
  */
 export function buildMessageOptions(
   payload: MailSendPayload,
@@ -293,7 +301,15 @@ export function buildMessageOptions(
     headers: payload.headers,
     inReplyTo: payload.inReplyTo,
     references,
-    attachments: payload.attachments,
+    attachments: payload.attachments?.map(
+      ({ filename, content, contentType }) => ({
+        filename,
+        content,
+        ...(contentType !== undefined ? { contentType } : {}),
+      }),
+    ),
+    disableFileAccess: true,
+    disableUrlAccess: true,
   };
 }
 

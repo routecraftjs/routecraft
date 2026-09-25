@@ -254,6 +254,9 @@ jobs:
       contents: read
       # Push the site image to GHCR with the job's GITHUB_TOKEN.
       packages: write
+      # Sign the image's provenance and SBOM attestations (Sigstore, keyless).
+      id-token: write
+      attestations: write
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -412,7 +415,7 @@ jobs:
       # The image is the rollback unit: every deploy is a pull of an immutable
       # <docs-version>-<short-sha> tag, so rolling back is redeploying the
       # previous one. `latest` is the moving tag Dokploy is configured to pull.
-      - name: Build and push the site image
+      - name: Build the site image
         id: image
         env:
           DOC_VERSION: ${{ steps.docver.outputs.label }}
@@ -450,9 +453,59 @@ jobs:
             --tag "$IMAGE:latest" \
             .
 
-          docker push "$IMAGE:$VERSION-$SHORT_SHA"
-          docker push "$IMAGE:latest"
+          echo "name=$IMAGE" >> "$GITHUB_OUTPUT"
           echo "reference=$IMAGE:$VERSION-$SHORT_SHA" >> "$GITHUB_OUTPUT"
+
+      # Before the push, so an image with a fixable HIGH or CRITICAL finding
+      # never reaches the registry Dokploy deploys from.
+      - name: "Gate: scan the site image"
+        env:
+          IMAGE_REFERENCE: ${{ steps.image.outputs.reference }}
+        run: |
+          .github/scripts/trivy.sh gate image --scanners vuln,secret \
+            "$IMAGE_REFERENCE"
+
+      - name: Write the site image SBOM
+        env:
+          IMAGE_REFERENCE: ${{ steps.image.outputs.reference }}
+        run: |
+          .github/scripts/trivy.sh image --quiet --format cyclonedx \
+            --output /scan/site-image.cdx.json "$IMAGE_REFERENCE"
+
+      # `latest` moves only after the attestations, so the tag Dokploy deploys
+      # never points at an image without them.
+      - name: Push the site image
+        id: push
+        env:
+          IMAGE_REFERENCE: ${{ steps.image.outputs.reference }}
+        run: |
+          set -eo pipefail
+          docker push "$IMAGE_REFERENCE"
+          DIGEST="$(docker inspect --format '{{index .RepoDigests 0}}' "$IMAGE_REFERENCE" | cut -d@ -f2)"
+          echo "digest=$DIGEST" >> "$GITHUB_OUTPUT"
+
+      # Who built the image, from which commit and workflow, and what is in
+      # it, signed and stored beside the image in GHCR. Verify with
+      # `gh attestation verify oci://<image> --repo routecraftjs/routecraft`.
+      - name: Attest the site image's build provenance
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4.2.2
+        with:
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          push-to-registry: true
+
+      - name: Attest the site image's SBOM
+        uses: actions/attest-sbom@c604332985a26aa8cf1bdc465b92731239ec6b9e # v4.1.0
+        with:
+          subject-name: ${{ steps.image.outputs.name }}
+          subject-digest: ${{ steps.push.outputs.digest }}
+          sbom-path: ${{ runner.temp }}/site-image.cdx.json
+          push-to-registry: true
+
+      - name: Move latest to the site image
+        env:
+          IMAGE_NAME: ${{ steps.image.outputs.name }}
+        run: docker push "$IMAGE_NAME:latest"
 
       # MAINTAINER SETUP: deploying is Dokploy pulling the tag pushed above. Its
       # webhook URL is per-application and issued by the Dokploy instance, so it

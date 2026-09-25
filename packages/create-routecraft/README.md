@@ -27,6 +27,7 @@ capabilities/hello-world/   route.ts, its test, and a README explaining it
 craft.config.ts             what discovery cannot work out on its own
 README.md                   the project's own, naming what was scaffolded
 package.json  tsconfig.json  eslint.config.mjs  .prettierrc  .gitignore
+Dockerfile  .dockerignore   the production image (Bun projects only)
 ```
 
 There is no entry file. `craft start` reads `capabilities/` from disk, so nothing is
