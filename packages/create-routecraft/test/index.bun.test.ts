@@ -224,7 +224,7 @@ describe("generateProjectStructure", () => {
   /**
    * @case A Bun project gets a production Dockerfile and .dockerignore
    * @preconditions packageManager = "bun", projectName = "billing"
-   * @expectedResult Both files are written with no placeholder left; the image pins the Bun the project pins, runs distroless as nonroot, and the ignore file keeps .env and node_modules out of the build context
+   * @expectedResult Both files are written with no placeholder left; the image pins the Bun the project pins, runs distroless as nonroot, runs the same command as the start script, and the ignore file keeps credentials and node_modules out of the build context
    */
   test("writes a hardened Dockerfile for a Bun project", async () => {
     await generateProjectStructure(
@@ -233,9 +233,8 @@ describe("generateProjectStructure", () => {
     );
 
     const dockerfile = await readFile(join(projectDir, "Dockerfile"), "utf-8");
-    const pinned = JSON.parse(
-      await readFile(join(projectDir, "package.json"), "utf-8"),
-    ).packageManager.replace("bun@", "");
+    const pkg = await readJson(join(projectDir, "package.json"));
+    const pinned = pkg.packageManager.replace("bun@", "");
     expect(dockerfile).not.toContain("BUN_VERSION");
     expect(dockerfile).not.toContain("PROJECT_NAME");
     expect(dockerfile).toContain(`FROM oven/bun:${pinned} AS deps`);
@@ -243,11 +242,20 @@ describe("generateProjectStructure", () => {
     expect(dockerfile).toContain("USER nonroot");
     expect(dockerfile).toContain("docker build -t billing .");
 
+    // The image cannot run `bun run start` (no shell), so its CMD repeats the
+    // start script and must not drift from it.
+    const cmd = dockerfile.match(/^CMD (\[.*\])$/m)?.[1];
+    expect(cmd).toBeDefined();
+    const [bin, ...cmdArgs] = JSON.parse(cmd!) as string[];
+    expect(bin).toBe("node_modules/.bin/craft");
+    expect(["craft", ...cmdArgs].join(" ")).toBe(pkg.scripts.start);
+
     const ignored = (
       await readFile(join(projectDir, ".dockerignore"), "utf-8")
     ).split("\n");
     expect(ignored).toContain(".env");
     expect(ignored).toContain(".env.*");
+    expect(ignored).toContain(".npmrc");
     expect(ignored).toContain("node_modules");
   });
 
