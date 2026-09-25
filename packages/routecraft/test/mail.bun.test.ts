@@ -705,6 +705,64 @@ describe("Mail Adapter", () => {
     });
 
     /**
+     * @case An attachment smuggling nodemailer's file and URL fields is sent content-only
+     * @preconditions The body is untrusted input: one attachment carries `path: "/etc/passwd"`, `href` to an internal address and `raw`, beside its declared fields
+     * @expectedResult sendMail receives the attachment with filename, content and contentType only, and the message disables nodemailer's file and URL access, so neither the file nor the URL is read
+     */
+    test("strips attachment fields that make nodemailer read files or URLs", async () => {
+      mockSendMail.mockResolvedValue({
+        messageId: "<sent@example.com>",
+        accepted: ["recipient@example.com"],
+        rejected: [],
+        response: "250 OK",
+      });
+
+      t = await testContext()
+        .routes(
+          craft()
+            .id("test-send-attachment")
+            .from(
+              simple({
+                to: "recipient@example.com",
+                subject: "Invoice",
+                text: "Attached",
+                attachments: [
+                  {
+                    filename: "invoice.txt",
+                    content: "total: 42",
+                    contentType: "text/plain",
+                    path: "/etc/passwd",
+                    href: "http://169.254.169.254/latest/meta-data/",
+                    raw: "Content-Type: text/plain\r\n\r\nsecret",
+                  },
+                ],
+              }),
+            )
+            .to(
+              mail({
+                host: "smtp.test.com",
+                auth: { user: "u", pass: "p" },
+                from: "me@test.com",
+              }) as any,
+            ),
+        )
+        .build();
+
+      await t.ctx.start();
+
+      const sent = mockSendMail.mock.calls.at(-1)![0];
+      expect(sent.attachments).toEqual([
+        {
+          filename: "invoice.txt",
+          content: "total: 42",
+          contentType: "text/plain",
+        },
+      ]);
+      expect(sent.disableFileAccess).toBe(true);
+      expect(sent.disableUrlAccess).toBe(true);
+    });
+
+    /**
      * @case Threading fields and custom headers are forwarded to nodemailer
      * @preconditions Payload sets inReplyTo and headers but no references
      * @expectedResult sendMail receives inReplyTo, headers, and a References
