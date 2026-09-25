@@ -6,9 +6,20 @@ from outside, ours and yours through the same holes.**
 
 Everything else in this folder is a consequence of that sentence.
 
+From outside, the move is invisible. The picture below is Routecraft as a
+consumer meets it: every way in, a harness on your laptop and one for the
+team, and the systems they reach with your credentials or the team's. None
+of that changes. What changes is the band in the middle, inside every
+harness, and every page after this one opens that band up.
+
+<picture>
+  <source media="(prefers-color-scheme: dark)" srcset="figures/every-way-in-dark.png">
+  <img alt="Top: every way in, the doors when someone asks (editor over ACP, any MCP client, the CLI, HTTP) and the triggers when nobody asks (cron, webhooks, mail, runtime events, files, a parked task resuming), and you, approving by mail or chat. Middle: a local harness per person with personal credentials, and an always-on team harness with service credentials, sharing capabilities, skills and agents as npm packages. Below: inside every harness, the gate in a fixed order, agents and skills, capabilities, adapters and the runtime stores. Bottom: your systems and model providers, reached with personal or service credentials." src="figures/every-way-in.png">
+</picture>
+
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="figures/today-and-after-dark.png">
-  <img alt="Left: a solid Routecraft block with routes, deferral, resilience, auth, agents and stores inside it, and a plugin outside reaching in through one call. Right: those same features drawn as equal blocks beside a third-party store and step, each plugged into a small kernel through an identical arrow." src="figures/today-and-after.png">
+  <img alt="Two bands. Today: your plugin outside with one verb, apply(ctx), beside an inverted Routecraft panel holding routes, deferral, resilience, auth, agents, stores and HTTP, and the private paths our own packages use. After: our plugins and yours in one row over an inverted kernel panel of lifecycle, contracts and the continuation protocol." src="figures/today-and-after.png">
 </picture>
 
 ## Today
@@ -53,7 +64,7 @@ A plugin does exactly four things. Not forty.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="figures/four-sockets-dark.png">
-  <img alt="A plugin on the left with one arrow to four columns: port, contribution, step and facet, each with what it is and what you build with it." src="figures/four-sockets.png">
+  <img alt="One band of four panels, port, contribution, step and facet, each with what it is and what you build with it, and a row naming the two more sockets that reach the kernel, point and execution." src="figures/four-sockets.png">
 </picture>
 
 - **Port.** A named capability, not a named plugin. You ask for "somewhere to

@@ -5,68 +5,69 @@
  * the raw markdown gets, `caption` is the line under the picture.
  */
 import { continuationStates } from "./continuation-states.tsx";
+import { everyWayIn } from "./every-way-in.tsx";
+import { insideTheHarness } from "./inside-the-harness.tsx";
 import { exchangePath } from "./exchange-path.tsx";
 import { fourSockets } from "./four-sockets.tsx";
-import { inside } from "./inside.tsx";
 import { installation } from "./installation.tsx";
-import { kernelBoundary } from "./kernel-boundary.tsx";
 import { pluginDeclares } from "./plugin-declares.tsx";
 import { resumeDoor } from "./resume-door.tsx";
 import { todayAndAfter } from "./today-and-after.tsx";
 import type { FigureDrawing, FigureText } from "./types.ts";
 
 export const DRAWINGS: FigureDrawing[] = [
+  everyWayIn,
+  insideTheHarness,
   todayAndAfter,
   fourSockets,
-  kernelBoundary,
   pluginDeclares,
   installation,
-  inside,
   exchangePath,
   continuationStates,
   resumeDoor,
 ];
 
 export const FIGURE_TEXT: Record<string, FigureText> = {
+  "inside-the-harness": {
+    alt: "The inside of every harness. Top: every plugin, ours (operations, resilience, deferral, sqlite, principals, auth) and yours (a store, a wrapper, an adapter, a moment) in the same rows, each declaring id, requires, provides, replaces, points, facets and methods. Below: six sockets, port, contribution, step, facet, point and execution. Then the kernel, an inverted panel: its lifecycle, one run in a fixed order through admission, entry, the wrappers, the step loop and exit with the six outcomes, the run kinds, and the park, resume and sweep sequences. Bottom: the ports it calls out through, each provided by a plugin.",
+    caption:
+      "Inside every harness: every feature a plugin, six sockets, and a kernel that decides when things run.",
+  },
+  "every-way-in": {
+    alt: "Top: every way in, the doors when someone asks (editor over ACP, any MCP client, the CLI, HTTP) and the triggers when nobody asks (cron, webhooks, mail, runtime events, files, a parked task resuming), and you, approving by mail or chat. Middle: a local harness per person with personal credentials, and an always-on team harness with service credentials, sharing capabilities, skills and agents as npm packages. Below: inside every harness, the gate in a fixed order, agents and skills, capabilities, adapters and the runtime stores. Bottom: your systems and model providers, reached with personal or service credentials.",
+    caption:
+      "Every way in: the harness as a consumer meets it. The rest of these pages open up the band in the middle.",
+  },
   "today-and-after": {
-    alt: "Left: a solid Routecraft block with routes, deferral, resilience, auth, agents and stores inside it, and a plugin outside reaching in through one call. Right: those same features drawn as equal blocks beside a third-party store and step, each plugged into a small kernel through an identical arrow.",
+    alt: "Two bands. Today: your plugin outside with one verb, apply(ctx), beside an inverted Routecraft panel holding routes, deferral, resilience, auth, agents, stores and HTTP, and the private paths our own packages use. After: our plugins and yours in one row over an inverted kernel panel of lifecycle, contracts and the continuation protocol.",
     caption:
       "Today our features are inside and yours are at the window. After, every feature plugs into the kernel through the same sockets.",
   },
   "four-sockets": {
-    alt: "A plugin on the left with one arrow to four columns: port, contribution, step and facet, each with what it is and what you build with it.",
-    caption: "The four sockets, and the five things you build with them.",
-  },
-  "kernel-boundary": {
-    alt: "Four bands. First-party plugins and third-party plugins each reach a row of contracts (port, contribution, step, facet, point) through identical arrows; below the contracts sits the kernel: lifecycle, resolution, ordering, execution, continuation.",
+    alt: "One band of four panels, port, contribution, step and facet, each with what it is and what you build with it, and a row naming the two more sockets that reach the kernel, point and execution.",
     caption:
-      "What the kernel owns, what it defines, and the two identical arrows into it.",
+      "The four sockets you build with, and the two more that reach the kernel.",
   },
   "plugin-declares": {
-    alt: "A plugin card listing its id, what it requires and provides, the points it declares, what it does in bind, and its start and stop; an arrow to Routecraft, which orders, namespaces, freezes, starts and stops it.",
+    alt: "Left, your plugin: what it declares (id, requires, provides, replaces, points, facets, methods), what it does in bind, and its start and stop. Right, an inverted Routecraft panel: it orders, namespaces, freezes, starts and stops it.",
     caption: "A plugin declares and binds. Routecraft does the wiring.",
   },
   installation: {
-    alt: "A vertical flow from plugin descriptors through identity validation, port resolution, dependency ordering, bind, freeze, contribution ordering, route compilation and start, to running and then stop in reverse; fault codes beside the stages that can refuse.",
-    caption: "Installation, and where it can refuse.",
-  },
-  inside: {
-    alt: "Eight plugins across the top, six first-party and two third-party, each reaching one strip of six sockets (port, contribution, step, facet, point, execution) through identical contract arrows. Below the strip, the kernel in three columns: the host's lifecycle stages joined by implementation arrows; the runtime's path of one run from admission through entry, the wrapper chain with a third-party wrapper between retry and timeout, the step loop and exit to completed, with refused, the error ring and failed beside it; and the continuation protocol, where a resume passes the door, the deadline and live-tail checks and the compare-and-swap before re-entering the run at entry, the sweep retires due records, and a park writes its record and ends deferred. Beneath the kernel, the continuation port it calls out through, provided by the deferral plugin over a third-party records store. A legend distinguishes contract edges, the exchange's path, and kernel-internal implementation.",
-    caption:
-      "Inside: plugins reach the kernel through one strip of sockets; every run takes one path through the rings, and a park comes back through the door.",
+    alt: "One band, a row per stage: descriptors, identity, resolution, order, bind, freeze, compile, start and stop, each with what happens there and the fault codes it can refuse with.",
+    caption: "Installation, stage by stage, and where it can refuse.",
   },
   "exchange-path": {
-    alt: "A central spine from delivery through the admission ring, entry ring, wrapper chain and step loop to the exit ring and completed. Left: the six step outcomes ending in deferred. Right: refused, and a thrown step reaching the error ring, which may park or end failed.",
+    alt: "An inverted strip with one run in its fixed order, from admission through entry, the wrappers, the step loop and exit to completed; below it the six outcomes, what a refusal does, what happens when a step throws with the five declined parks, and the four run kinds.",
     caption:
-      "One exchange through a route: rings, the step loop, and where it can leave.",
+      "One exchange through a route: the fixed order, the six outcomes, and every way a run can leave.",
   },
   "continuation-states": {
-    alt: "A waiting box holding unclaimed and claimed with a lease between them; an accented arrow to resumed, won once by compare-and-swap; claimed leading to expired or denied; every settled state purged after retention.",
+    alt: "A waiting band with unclaimed and claimed; beneath it an inverted panel, a resume is won once, and a light panel, a notification is leased, with the winner, a second resume and a crash on one side and the due, changed and crash paths on the other; a retention strip ends in gone.",
     caption:
       "A parked exchange over its life: a resume is won once, a notification is leased.",
   },
   "resume-door": {
-    alt: "Nine numbered beats across three lanes, approver, runtime and store: resume, read the record, the door, the deadline and live tail check, the claim, re-admission, the suffix, the recorded outcome, and a duplicate resume answered from the record.",
+    alt: "Nine numbered beats, each with the actor (the approver, the runtime or the store), the step and what it does: resume, read the record, the door, the deadline and live tail, the compare-and-swap, re-admission, the suffix, the recorded outcome, and a second resume answered as a duplicate.",
     caption:
       "The door of a resume: decided before disclosure, applied after the claim.",
   },

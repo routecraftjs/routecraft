@@ -63,7 +63,7 @@ them is atomic with respect to the others:
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="figures/continuation-states-dark.png">
-  <img alt="A waiting box holding unclaimed and claimed with a lease between them; an accented arrow to resumed, won once by compare-and-swap; claimed leading to expired or denied; every settled state purged after retention." src="figures/continuation-states.png">
+  <img alt="A waiting band with unclaimed and claimed; beneath it an inverted panel, a resume is won once, and a light panel, a notification is leased, with the winner, a second resume and a crash on one side and the due, changed and crash paths on the other; a retention strip ends in gone." src="figures/continuation-states.png">
 </picture>
 
 Two mechanisms, deliberately different. A **resume** is a compare-and-swap out
@@ -88,7 +88,7 @@ disclosed and before its claim is spent.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="figures/resume-door-dark.png">
-  <img alt="Nine numbered beats across three lanes, approver, runtime and store: resume, read the record, the door, the deadline and live tail check, the claim, re-admission, the suffix, the recorded outcome, and a duplicate resume answered from the record." src="figures/resume-door.png">
+  <img alt="Nine numbered beats, each with the actor (the approver, the runtime or the store), the step and what it does: resume, read the record, the door, the deadline and live tail, the compare-and-swap, re-admission, the suffix, the recorded outcome, and a second resume answered as a duplicate." src="figures/resume-door.png">
 </picture>
 
 A route declares its door:

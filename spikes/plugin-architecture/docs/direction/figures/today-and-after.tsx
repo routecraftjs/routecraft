@@ -1,207 +1,158 @@
+import { FigureCanvas } from "./primitives.tsx";
 import {
-  Arrow,
-  Block,
+  Band,
   Chip,
-  Eyebrow,
-  FigureCanvas,
-  MonoNote,
-  Plate,
-  Subhead,
-} from "./primitives.tsx";
-import type { FigurePalette } from "./palette.ts";
+  Chips,
+  Conclusion,
+  Inset,
+  Label,
+  Note,
+  Title,
+} from "./harness.tsx";
 import type { FigureDrawing, FigureProps, MotifProps } from "./types.ts";
 
+/** Today against after: our features inside a block with private paths, then every feature a plugin on one kernel. */
 const WIDTH = 1600;
-const HEIGHT = 720;
-
-const FEATURES = [
-  "routes · DSL",
-  "deferral · resilience · auth",
-  "agents · stores · HTTP",
-];
-
-function Today({ palette }: { palette: FigurePalette }) {
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
-      <Eyebrow palette={palette}>Today</Eyebrow>
-      <Subhead palette={palette} size="2rem">
-        Our features are inside. Yours are at the window.
-      </Subhead>
-      <div
-        style={{
-          display: "flex",
-          alignItems: "center",
-          gap: 26,
-          marginTop: 12,
-        }}
-      >
-        <div
-          style={{
-            border: `1px dashed ${palette.ink40}`,
-            padding: "18px 22px",
-            fontFamily: "var(--font-mono)",
-            fontSize: "1.15rem",
-            color: palette.ink60,
-            textAlign: "center",
-            lineHeight: 1.5,
-          }}
-        >
-          your plugin
-          <br />
-          <span style={{ color: palette.ink40, fontSize: "0.95rem" }}>
-            apply(ctx)
-          </span>
-        </div>
-        <Arrow palette={palette} size="2rem">
-          ⇢
-        </Arrow>
-        <div
-          style={{
-            flex: 1,
-            background: palette.inverseBg,
-            color: palette.inverseFg,
-            padding: "30px 34px",
-            display: "flex",
-            flexDirection: "column",
-            gap: 14,
-          }}
-        >
-          <span
-            style={{
-              fontFamily: "var(--font-mono)",
-              fontSize: "1.1rem",
-              letterSpacing: "0.22em",
-              opacity: 0.7,
-            }}
-          >
-            ROUTECRAFT
-          </span>
-          {FEATURES.map((f) => (
-            <span
-              key={f}
-              style={{
-                fontFamily: "var(--font-mono)",
-                fontSize: "1.2rem",
-                border: `1px solid ${palette.inverseFg}`,
-                opacity: 0.9,
-                padding: "12px 18px",
-              }}
-            >
-              {f}
-            </span>
-          ))}
-        </div>
-      </div>
-      <MonoNote
-        palette={palette}
-        size="1.15rem"
-        style={{ marginTop: 8, lineHeight: 1.6 }}
-      >
-        one verb, the whole context, private paths for us
-      </MonoNote>
-    </div>
-  );
-}
-
-function After({ palette }: { palette: FigurePalette }) {
-  const blocks = [
-    { label: "deferral", ours: true },
-    { label: "resilience", ours: true },
-    { label: "auth", ours: true },
-    { label: "your store", ours: false },
-    { label: "your steps", ours: false },
-  ];
-  return (
-    <div style={{ display: "flex", flexDirection: "column", gap: 28 }}>
-      <Eyebrow palette={palette} accent>
-        After
-      </Eyebrow>
-      <Subhead palette={palette} size="2rem">
-        Every feature is a plugin. Ours and yours, the same sockets.
-      </Subhead>
-      <div style={{ display: "flex", gap: 14, marginTop: 12 }}>
-        {blocks.map((b) => (
-          <div
-            key={b.label}
-            style={{
-              flex: 1,
-              display: "flex",
-              flexDirection: "column",
-              alignItems: "center",
-              gap: 10,
-            }}
-          >
-            {b.ours ? (
-              <Chip
-                palette={palette}
-                style={{
-                  width: "100%",
-                  height: 88,
-                  fontSize: "1.1rem",
-                  padding: "0 10px",
-                }}
-              >
-                {b.label}
-              </Chip>
-            ) : (
-              <Block
-                palette={palette}
-                style={{
-                  width: "100%",
-                  height: 88,
-                  fontSize: "1.1rem",
-                  padding: "0 10px",
-                }}
-              >
-                {b.label}
-              </Block>
-            )}
-            <Arrow palette={palette} size="1.6rem">
-              ↓
-            </Arrow>
-          </div>
-        ))}
-      </div>
-      <Plate
-        palette={palette}
-        style={{ padding: "26px 20px", fontSize: "1.2rem" }}
-      >
-        KERNEL · lifecycle · contracts · the continuation protocol
-      </Plate>
-      <MonoNote
-        palette={palette}
-        accent
-        size="1.15rem"
-        style={{ marginTop: 8, lineHeight: 1.6 }}
-      >
-        five identical arrows; the kernel cannot tell whose they are
-      </MonoNote>
-    </div>
-  );
-}
+const HEIGHT = 690;
 
 function Figure({ palette }: FigureProps) {
   return (
     <FigureCanvas palette={palette} width={WIDTH} height={HEIGHT}>
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          display: "grid",
-          gridTemplateColumns: "1fr 1px 1fr",
-          gap: 56,
-          padding: "80px 80px 64px",
-        }}
-      >
-        <Today palette={palette} />
-        <div style={{ background: palette.ink15 }} />
-        <After palette={palette} />
-      </div>
+      <Band palette={palette} at={{ x: 150, y: 80, w: 640, h: 450 }}>
+        <Title
+          palette={palette}
+          title="Today"
+          subtitle="our features are inside; yours are at the window"
+        />
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 14,
+            marginTop: 22,
+          }}
+        >
+          <Chips>
+            <Chip palette={palette} tone="quiet">
+              your plugin · apply(ctx)
+            </Chip>
+            <Note palette={palette}>
+              one verb, the whole context, reach in and hope
+            </Note>
+          </Chips>
+          <Inset palette={palette} inverse>
+            <Label palette={palette} inverse>
+              Routecraft
+            </Label>
+            <Chips style={{ marginTop: 10 }}>
+              {[
+                "routes · DSL",
+                "deferral",
+                "resilience",
+                "auth",
+                "agents",
+                "stores",
+                "HTTP",
+              ].map((t) => (
+                <Chip key={t} palette={palette}>
+                  {t}
+                </Chip>
+              ))}
+            </Chips>
+            <Label
+              palette={palette}
+              inverse
+              style={{ display: "block", marginTop: 16 }}
+            >
+              Private paths our own packages use
+            </Label>
+            <Chips style={{ marginTop: 10 }}>
+              {[
+                "deferAside",
+                "reviveDeferral",
+                "getExchangeContext",
+                "markAuthentic",
+              ].map((t) => (
+                <Chip key={t} palette={palette}>
+                  {t}
+                </Chip>
+              ))}
+            </Chips>
+          </Inset>
+          <Note palette={palette}>
+            dependsOn is declared on the interface and never enforced; no chain
+            position, store or route method is open to you
+          </Note>
+        </div>
+      </Band>
+
+      <Band palette={palette} at={{ x: 810, y: 80, w: 640, h: 450 }}>
+        <Title
+          palette={palette}
+          title="After"
+          subtitle="every feature a plugin; ours and yours through the same sockets"
+        />
+        <div
+          style={{
+            display: "flex",
+            flexDirection: "column",
+            gap: 14,
+            marginTop: 22,
+          }}
+        >
+          <Chips>
+            {["deferral", "resilience", "auth", "agents", "HTTP"].map((t) => (
+              <Chip key={t} palette={palette}>
+                {t}
+              </Chip>
+            ))}
+            <Chip palette={palette} tone="accent">
+              your store
+            </Chip>
+            <Chip palette={palette} tone="accent">
+              your steps
+            </Chip>
+          </Chips>
+          <Note palette={palette}>
+            the same six sockets for every one: port, contribution, step, facet,
+            point, execution
+          </Note>
+          <Inset palette={palette} inverse>
+            <Label palette={palette} inverse accent>
+              The kernel
+            </Label>
+            <Chips style={{ marginTop: 10 }}>
+              {["lifecycle", "contracts", "the continuation protocol"].map(
+                (t) => (
+                  <Chip key={t} palette={palette}>
+                    {t}
+                  </Chip>
+                ),
+              )}
+            </Chips>
+            <Note
+              palette={palette}
+              inverse
+              style={{ display: "block", marginTop: 12 }}
+            >
+              it cannot import a plugin; the dependency direction is checked
+            </Note>
+          </Inset>
+        </div>
+      </Band>
+
+      <Conclusion
+        palette={palette}
+        y={570}
+        width={WIDTH}
+        plain="Our features move out of the room,"
+        accent="and yours come in through the same door."
+      />
     </FigureCanvas>
   );
 }
 
-/** Motif: a wall with one thing outside it, beside five equal posts on one bar. */
+/** Motif: a solid block beside a bar with equal posts on it. */
 function Motif({ palette, size }: MotifProps) {
   const u = size / 100;
   return (

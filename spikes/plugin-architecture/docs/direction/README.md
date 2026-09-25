@@ -36,7 +36,12 @@ and the contracts are extracted around it.
 
 The figures under `figures/` are drawn in the docs site's own figure system
 (`apps/routecraft.dev/app/components/figures/`): the same primitives, palette
-and fonts, exported light and dark at 2x. `bun docs/direction/figures/render.tsx`
+and fonts, exported light and dark at 2x. All nine share one visual identity,
+taken from the "every way in" figure that opens page 01 and kept in
+`figures/harness.tsx`: bands with a serif title, a mono label on the left of
+each row, chips joined by arrows where order matters, and one inverted panel
+for the thing that matters. The first figure is the harness as a consumer
+meets it; the second, `inside-the-harness`, opens its middle band. `bun docs/direction/figures/render.tsx`
 re-renders them. They are drawn by hand from the code and checked by eye; the
 only mechanically checked diagram in this spike is the module graph in
 `../../DIAGRAMS-MECHANISM.md`, which `bun run verify:diagram` derives from the

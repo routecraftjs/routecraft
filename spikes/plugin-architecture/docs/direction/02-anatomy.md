@@ -2,11 +2,14 @@
 
 Routecraft is a kernel and a set of plugins. This page names every part, says
 which side of the line it sits on, and shows how a set of plugin descriptors
-becomes a running application.
+becomes a running application. The figure is the whole of it: every plugin,
+ours and yours in the same rows; the six sockets they reach the kernel
+through; the kernel, with what it does for one run, a park, a resume and a
+sweep; and the ports it calls out through.
 
 <picture>
-  <source media="(prefers-color-scheme: dark)" srcset="figures/kernel-boundary-dark.png">
-  <img alt="Four bands. First-party plugins and third-party plugins each reach a row of contracts (port, contribution, step, facet, point) through identical arrows; below the contracts sits the kernel: lifecycle, resolution, ordering, execution, continuation." src="figures/kernel-boundary.png">
+  <source media="(prefers-color-scheme: dark)" srcset="figures/inside-the-harness-dark.png">
+  <img alt="The inside of every harness. Top: every plugin, ours (operations, resilience, deferral, sqlite, principals, auth) and yours (a store, a wrapper, an adapter, a moment) in the same rows, each declaring id, requires, provides, replaces, points, facets and methods. Below: six sockets, port, contribution, step, facet, point and execution. Then the kernel, an inverted panel: its lifecycle, one run in a fixed order through admission, entry, the wrappers, the step loop and exit with the six outcomes, the run kinds, and the park, resume and sweep sequences. Bottom: the ports it calls out through, each provided by a plugin." src="figures/inside-the-harness.png">
 </picture>
 
 ## The kernel
@@ -115,7 +118,7 @@ checked for collision rather than silently merged. **Demonstrated.**
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="figures/installation-dark.png">
-  <img alt="A vertical flow from plugin descriptors through identity validation, port resolution, dependency ordering, bind, freeze, contribution ordering, route compilation and start, to running and then stop in reverse; fault codes beside the stages that can refuse." src="figures/installation.png">
+  <img alt="One band, a row per stage: descriptors, identity, resolution, order, bind, freeze, compile, start and stop, each with what happens there and the fault codes it can refuse with." src="figures/installation.png">
 </picture>
 
 An application is an ordinary array of plugin descriptors, in any order.
@@ -158,15 +161,8 @@ its effective order. **Demonstrated.**
 
 ## Inside
 
-The pictures so far show the parts. This one shows them working: the kernel's
-three columns, the plugins above it, and the ports it calls out through below.
-
-<picture>
-  <source media="(prefers-color-scheme: dark)" srcset="figures/inside-dark.png">
-  <img alt="Eight plugins across the top, six first-party and two third-party, each reaching one strip of six sockets (port, contribution, step, facet, point, execution) through identical contract arrows. Below the strip, the kernel in three columns: the host's lifecycle stages joined by implementation arrows; the runtime's path of one run from admission through entry, the wrapper chain with a third-party wrapper between retry and timeout, the step loop and exit to completed, with refused, the error ring and failed beside it; and the continuation protocol, where a resume passes the door, the deadline and live-tail checks and the compare-and-swap before re-entering the run at entry, the sweep retires due records, and a park writes its record and ends deferred. Beneath the kernel, the continuation port it calls out through, provided by the deferral plugin over a third-party records store. A legend distinguishes contract edges, the exchange's path, and kernel-internal implementation." src="figures/inside.png">
-</picture>
-
-Five things the figure says that the pages around it only imply:
+The figure at the top of this page shows the parts working together. Five
+things it says that the pages around it only imply:
 
 - **The error ring sits outside the wrappers.** A failure the retry wrapper
   absorbs never reaches it; the ring hears only what escapes the whole
@@ -182,8 +178,8 @@ Five things the figure says that the pages around it only imply:
   decides when to call it, provides the store, and sets the default deadline.
 - **Every record transition goes through one port.** The kernel never touches
   storage; it calls `CONTINUATIONS`, which ours provides over `RECORDS`. In
-  the drawing a third party has replaced the records store underneath and
-  nothing above it changed.
+  the figure your store can replace the records store underneath, and
+  nothing above it changes.
 - **Anchors belong to a port.** `RETRY` and `TIMEOUT` are part of the
   resilience contract, so a replacement for our resilience plugin keeps them
   and every wrapper placed against them still lands where it did.

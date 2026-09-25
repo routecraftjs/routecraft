@@ -1,135 +1,148 @@
+import { FigureCanvas } from "./primitives.tsx";
 import {
-  Arrow,
-  Block,
-  Body,
+  Band,
   Chip,
-  Eyebrow,
-  FigureCanvas,
-  MonoNote,
-  Subhead,
-} from "./primitives.tsx";
+  Chips,
+  Conclusion,
+  Inset,
+  Label,
+  Note,
+  Row,
+  SANS,
+  SERIF,
+  Title,
+} from "./harness.tsx";
 import type { FigurePalette } from "./palette.ts";
 import type { FigureDrawing, FigureProps, MotifProps } from "./types.ts";
 
+/** The four sockets you build with, what each builds, and the two more that reach the kernel. */
 const WIDTH = 1600;
-const HEIGHT = 640;
+const HEIGHT = 660;
 
-interface Socket {
+function Socket({
+  palette,
+  name,
+  what,
+  builds,
+}: {
+  palette: FigurePalette;
   name: string;
   what: string;
-  builds: string;
-}
-
-const SOCKETS: Socket[] = [
-  {
-    name: "PORT",
-    what: "offer a capability, or ask for one, by contract rather than by plugin name",
-    builds: "a provider: a store, an authority, an HTTP server",
-  },
-  {
-    name: "CONTRIBUTION",
-    what: "a handler at a named moment, or a wrapper around the route, placed by anchor",
-    builds: "a layer such as retry; a handler such as an audit log",
-  },
-  {
-    name: "STEP",
-    what: "an instruction a route can run, returning an outcome rather than nothing",
-    builds: "an adapter in .from() or .to(); an operation such as .transform()",
-  },
-  {
-    name: "FACET",
-    what: "typed data under your own name on the exchange, gone from the types when you are not installed",
-    builds: "ex.auth.principal, ex.deferral.id",
-  },
-];
-
-function SocketCard({ s, palette }: { s: Socket; palette: FigurePalette }) {
+  builds: readonly string[];
+}) {
   return (
-    <div style={{ flex: 1, display: "flex", flexDirection: "column", gap: 14 }}>
-      <Block
-        palette={palette}
-        style={{ height: 72, fontSize: "1.15rem", letterSpacing: "0.16em" }}
+    <Inset
+      palette={palette}
+      style={{ display: "flex", flexDirection: "column", gap: 10 }}
+    >
+      <span
+        style={{
+          fontFamily: SERIF,
+          fontSize: "1.6rem",
+          lineHeight: 1.05,
+          letterSpacing: "-0.02em",
+        }}
       >
-        {s.name}
-      </Block>
-      <Body palette={palette} size="1.12rem" style={{ minHeight: 96 }}>
-        {s.what}
-      </Body>
-      <div style={{ height: 1, background: palette.ink15 }} />
-      <MonoNote palette={palette} size="0.95rem" style={{ lineHeight: 1.5 }}>
-        <span style={{ color: palette.ink40 }}>you build </span>
-        {s.builds}
-      </MonoNote>
-    </div>
+        {name}
+      </span>
+      <span
+        style={{
+          fontFamily: SANS,
+          fontSize: "0.9rem",
+          lineHeight: 1.4,
+          color: palette.ink60,
+          minHeight: 50,
+        }}
+      >
+        {what}
+      </span>
+      <Label palette={palette}>You build</Label>
+      <Chips gap={6}>
+        {builds.map((b) => (
+          <Chip key={b} palette={palette} tone="accent">
+            {b}
+          </Chip>
+        ))}
+      </Chips>
+    </Inset>
   );
 }
 
 function Figure({ palette }: FigureProps) {
   return (
     <FigureCanvas palette={palette} width={WIDTH} height={HEIGHT}>
-      <div
-        style={{
-          position: "absolute",
-          inset: 0,
-          display: "flex",
-          flexDirection: "column",
-          padding: "72px 80px 60px",
-          gap: 26,
-        }}
-      >
-        <Eyebrow palette={palette} accent>
-          A plugin does exactly four things
-        </Eyebrow>
-        <Subhead palette={palette} size="2rem">
-          Four sockets. Everything we ship is built from them, and so is
-          everything you ship.
-        </Subhead>
+      <Band palette={palette} at={{ x: 150, y: 80, w: 1300, h: 420 }}>
+        <Title
+          palette={palette}
+          inline
+          title="Four sockets"
+          subtitle="everything we ship is built from them, and so is everything you ship"
+        />
         <div
           style={{
-            display: "flex",
-            alignItems: "center",
-            gap: 22,
-            marginTop: 10,
+            display: "grid",
+            gridTemplateColumns: "repeat(4, 1fr)",
+            gap: 12,
+            marginTop: 20,
           }}
         >
-          <Chip
+          <Socket
             palette={palette}
-            style={{
-              fontSize: "1.2rem",
-              padding: "22px 30px",
-              flexDirection: "column",
-              gap: 4,
-            }}
-          >
-            a plugin
-            <span
-              style={{
-                fontSize: "0.9rem",
-                color: palette.ink55,
-                letterSpacing: "0.1em",
-              }}
-            >
-              ours or yours
-            </span>
-          </Chip>
-          <Arrow palette={palette} size="2rem">
-            →
-          </Arrow>
-          <div style={{ flex: 1, display: "flex", gap: 28 }}>
-            {SOCKETS.map((s) => (
-              <SocketCard key={s.name} s={s} palette={palette} />
-            ))}
-          </div>
+            name="Port"
+            what="Offer a capability, or ask for one, by contract rather than by plugin name."
+            builds={["a store", "an authority", "an HTTP server"]}
+          />
+          <Socket
+            palette={palette}
+            name="Contribution"
+            what="A handler at a named moment, or a wrapper around the route, placed by anchor."
+            builds={["a layer like retry", "an audit handler"]}
+          />
+          <Socket
+            palette={palette}
+            name="Step"
+            what="An instruction a route runs, returning an outcome rather than nothing."
+            builds={["an adapter", "an operation"]}
+          />
+          <Socket
+            palette={palette}
+            name="Facet"
+            what="Typed data under your own name on the exchange, absent from the types when you are not installed."
+            builds={["ex.approvals"]}
+          />
         </div>
-        <MonoNote
+        <Row
           palette={palette}
-          accent
-          size="1.05rem"
-          style={{ marginTop: "auto" }}
+          label="Also reaching the kernel"
+          labelWidth={230}
+          style={{ marginTop: 16 }}
         >
-          there is no fifth socket that only we may use
-        </MonoNote>
-      </div>
+          <Chips>
+            <Chip
+              palette={palette}
+              sub="a moment you declare, with the decisions it honours"
+            >
+              POINT
+            </Chip>
+            <Chip
+              palette={palette}
+              sub="deliver · resume · sweep: verbs every plugin is handed"
+            >
+              EXECUTION
+            </Chip>
+            <Note palette={palette} style={{ marginLeft: 8 }}>
+              six in all; none of them is ours alone
+            </Note>
+          </Chips>
+        </Row>
+      </Band>
+      <Conclusion
+        palette={palette}
+        y={540}
+        width={WIDTH}
+        plain="There is no socket"
+        accent="that only we may use."
+      />
     </FigureCanvas>
   );
 }
