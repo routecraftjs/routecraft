@@ -1,0 +1,118 @@
+name: Security rescan
+
+# A release is scanned when it is built, but CVEs are published afterwards.
+# This rescans what users run today (the latest published packages, scaffolded
+# the way `create-routecraft` scaffolds them, and the live docs-site image)
+# against the current vulnerability database, and opens one tracking issue
+# when a fixable HIGH or CRITICAL finding appears. The pull-request gate lives
+# in ci.yml; the rules are in .standards/security.md.
+on:
+  schedule:
+    - cron: "23 5 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}
+  cancel-in-progress: false
+
+jobs:
+  rescan:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      # Pull the live site image from GHCR.
+      packages: read
+      # Open or update the tracking issue.
+      issues: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Install bun
+        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+        with:
+          bun-version-file: "package.json"
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Build the reference projects from the published packages
+        run: |
+          bun .github/scripts/security-reference-project.ts starter "$RUNNER_TEMP/ref-starter" --from-npm
+          bun .github/scripts/security-reference-project.ts adapters "$RUNNER_TEMP/ref-adapters" --from-npm
+
+      - name: Build the starter image
+        run: docker build -t routecraft-starter:rescan "$RUNNER_TEMP/ref-starter"
+
+      - name: Pull the live site image
+        env:
+          REGISTRY_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -eo pipefail
+          printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          OWNER="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          docker pull --platform linux/arm64 "ghcr.io/$OWNER/routecraft.dev:latest"
+          docker tag "ghcr.io/$OWNER/routecraft.dev:latest" routecraft-site:rescan
+
+      # Each scan records its verdict instead of stopping the job, so one
+      # failure does not hide the others from the report.
+      - name: Scan
+        id: scan
+        run: |
+          set -uo pipefail
+          FAILED=""
+          REPORT="$RUNNER_TEMP/report.md"
+          : > "$REPORT"
+          scan() {
+            local label="$1"; shift
+            local out="$RUNNER_TEMP/$label.txt"
+            if .github/scripts/trivy.sh "$@" --quiet --severity HIGH,CRITICAL \
+              --ignore-unfixed --ignorefile .trivyignore.yaml \
+              --table-mode detailed --exit-code 1 > "$out" 2>&1; then
+              echo "- **$label**: clean" >> "$REPORT"
+            else
+              FAILED="$FAILED $label"
+              { echo "- **$label**: fixable HIGH or CRITICAL findings"; echo; echo '```'; cat "$out"; echo '```'; echo; } >> "$REPORT"
+            fi
+          }
+          scan starter-image image --scanners vuln,secret routecraft-starter:rescan
+          scan adapters fs --scanners vuln /scan/ref-adapters/bun.lock
+          scan site-image image --scanners vuln,secret routecraft-site:rescan
+          cat "$REPORT" >> "$GITHUB_STEP_SUMMARY"
+          echo "failed=${FAILED# }" >> "$GITHUB_OUTPUT"
+
+      - name: Open or update the tracking issue
+        if: steps.scan.outputs.failed != ''
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          FAILED: ${{ steps.scan.outputs.failed }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -eo pipefail
+          TITLE="Security rescan: fixable HIGH or CRITICAL findings in released artefacts"
+          BODY="$RUNNER_TEMP/body.md"
+          {
+            echo "The scheduled rescan found fixable HIGH or CRITICAL vulnerabilities in: $FAILED."
+            echo
+            echo "Fix it, or record why it cannot be fixed yet in \`.trivyignore.yaml\` with an expiry (see \`.standards/security.md\` § 13). Run: $RUN_URL"
+            echo
+            cat "$RUNNER_TEMP/report.md"
+          } > "$BODY"
+          NUMBER="$(gh issue list --state open --search "\"$TITLE\" in:title" --json number,title \
+            --jq ".[] | select(.title == \"$TITLE\") | .number" | head -n1)"
+          if [ -n "$NUMBER" ]; then
+            gh issue comment "$NUMBER" --body-file "$BODY"
+          else
+            gh issue create --title "$TITLE" --body-file "$BODY"
+          fi
+
+      - name: Fail the run
+        if: steps.scan.outputs.failed != ''
+        env:
+          FAILED: ${{ steps.scan.outputs.failed }}
+        run: |
+          echo "::error title=Security rescan::Fixable HIGH or CRITICAL findings in: $FAILED"
+          exit 1
