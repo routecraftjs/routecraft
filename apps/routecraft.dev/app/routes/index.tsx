@@ -7,6 +7,7 @@ import { BlogMark } from '@/components/BlogMark'
 import { BlogMeta } from '@/components/BlogMeta'
 import { BuiltWithRoutecraft } from '@/components/BuiltWithRoutecraft'
 import { CodeMorph } from '@/components/CodeMorph'
+import { PlatformFilm } from '@/components/film/PlatformFilm'
 import { Guardrails } from '@/components/Guardrails'
 import { HomeAdapters } from '@/components/HomeAdapters'
 import { type BlogPostMeta, getAllBlogPosts, getFeaturedPost } from '@/lib/blog'
@@ -86,21 +87,23 @@ function LandingPage() {
     <main className="relative w-full bg-paper text-ink">
       <PaperGrain />
       <Hero />
-      <SectionRule numeral="I" label="Bounded by design" />
+      <SectionRule numeral="I" label="The platform in seventy seconds" />
+      <Film />
+      <SectionRule numeral="II" label="Bounded by design" />
       <Guardrails />
-      <SectionRule numeral="II" label="Two ways to ship agents" />
+      <SectionRule numeral="III" label="Two ways to ship agents" />
       <TwoModes />
-      <SectionRule numeral="III" label="What you can wire up" />
+      <SectionRule numeral="IV" label="What you can wire up" />
       <HomeAdapters />
-      <SectionRule numeral="IV" label="Why Routecraft" />
+      <SectionRule numeral="V" label="Why Routecraft" />
       <Thesis />
       {featuredPost && (
         <>
-          <SectionRule numeral="V" label="From the blog" />
+          <SectionRule numeral="VI" label="From the blog" />
           <Reading post={featuredPost} />
         </>
       )}
-      <SectionRule numeral="VI" label="Try it" />
+      <SectionRule numeral="VII" label="Try it" />
       <Finale />
       <BuiltWithRoutecraft />
     </main>
@@ -207,6 +210,16 @@ function Hero() {
         <div className="lg:col-span-6">
           <CodeMorph />
         </div>
+      </div>
+    </section>
+  )
+}
+
+function Film() {
+  return (
+    <section>
+      <div className="container-page pt-10 pb-20 lg:pt-12 lg:pb-24">
+        <PlatformFilm />
       </div>
     </section>
   )
