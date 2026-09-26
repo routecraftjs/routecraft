@@ -65,6 +65,9 @@ export default defineConfig({
       '@': appDirectory,
     },
   },
+  // Prerender crawls the preview server. On Linux, Bun binds `localhost` to ::1
+  // but fetches it on 127.0.0.1, so every page is refused inside Docker.
+  preview: { host: '127.0.0.1' },
   plugins: [
     tanstackStart({
       srcDirectory: 'app',
