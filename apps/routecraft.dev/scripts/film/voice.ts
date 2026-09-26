@@ -45,15 +45,20 @@ for (const line of NARRATION) {
   let speech = await tts.generate(spoken(line.text), { voice: VOICE })
   let seconds = speech.audio.length / speech.sampling_rate
   let speed = 1
-  if (seconds > window) {
-    speed = Math.min(MAX_SPEED + 0.01, (seconds / window) * 1.03)
-    if (speed > MAX_SPEED)
-      throw new Error(
-        `"${line.text}" needs ${seconds.toFixed(1)}s of a ${window.toFixed(1)}s window: shorten it`,
-      )
+  // Speed does not shorten speech exactly in proportion, so fit, then retry at the limit.
+  for (const next of [
+    Math.min(MAX_SPEED, (seconds / window) * 1.03),
+    MAX_SPEED,
+  ]) {
+    if (seconds <= window || next <= speed) continue
+    speed = next
     speech = await tts.generate(spoken(line.text), { voice: VOICE, speed })
     seconds = speech.audio.length / speech.sampling_rate
   }
+  if (seconds > window)
+    throw new Error(
+      `"${line.text}" needs ${seconds.toFixed(1)}s of a ${window.toFixed(1)}s window even at x${speed.toFixed(2)}: shorten it`,
+    )
   rate = speech.sampling_rate
   track ??= new Float32Array(Math.ceil(FILM_DURATION * rate))
   track.set(

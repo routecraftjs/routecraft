@@ -71,7 +71,9 @@ export function PlatformFilm() {
       audio.current?.pause()
       return
     }
-    if (sound) void audio.current?.play()
+    let cancelled = false
+    // A refused resume would leave the button claiming sound while the film plays silently.
+    if (sound) audio.current?.play().catch(() => !cancelled && setSound(false))
     const start = performance.now()
     const from = time.current
     let request = 0
@@ -86,7 +88,10 @@ export function PlatformFilm() {
       request = requestAnimationFrame(tick)
     }
     request = requestAnimationFrame(tick)
-    return () => cancelAnimationFrame(request)
+    return () => {
+      cancelled = true
+      cancelAnimationFrame(request)
+    }
   }, [playing, sound])
 
   const togglePlay = () => {
