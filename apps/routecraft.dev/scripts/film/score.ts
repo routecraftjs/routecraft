@@ -1,5 +1,5 @@
 /**
- * Writes the platform film's score to `public/film/score.mp3`.
+ * Writes the platform film's music to `scripts/film/audio/music.mp3`.
  *
  * The music is synthesised here rather than licensed, so it can be regenerated
  * whenever the picture changes and carries no rights question. It follows the
@@ -7,20 +7,16 @@
  * the harness forms, a lift into C major when tools become capabilities, an
  * arpeggio while the platform draws itself, and a soft note on every card and
  * block landing, taken from `SCORE_EVENTS` so sound and picture share one
- * timeline. Swap in a licensed track by replacing the MP3 at the same path.
+ * timeline. A licensed track can replace the MP3 instead; either way,
+ * `mix.ts` then lays the voice over it.
  *
- * Needs ffmpeg on PATH (or FFMPEG pointing at one) to encode the MP3.
- *
- * Usage: bun scripts/film/score.ts
+ * Usage: bun scripts/film/score.ts && bun scripts/film/mix.ts
  */
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
-import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
 import { FILM_DURATION, SCORE_EVENTS } from '../../app/components/film/timeline'
-import { ROOT } from '../paths'
+import { RATE, encode } from './ffmpeg'
 
-const RATE = 48000
 const LENGTH = FILM_DURATION * RATE
 const left = new Float32Array(LENGTH)
 const right = new Float32Array(LENGTH)
@@ -187,46 +183,20 @@ for (let i = 0; i < LENGTH; i++) {
   peak = Math.max(peak, Math.abs(left[i]), Math.abs(right[i]))
 }
 
-const wav = Buffer.alloc(44 + LENGTH * 4)
-wav.write('RIFF', 0)
-wav.writeUInt32LE(36 + LENGTH * 4, 4)
-wav.write('WAVEfmt ', 8)
-wav.writeUInt32LE(16, 16)
-wav.writeUInt16LE(1, 20)
-wav.writeUInt16LE(2, 22)
-wav.writeUInt32LE(RATE, 24)
-wav.writeUInt32LE(RATE * 4, 28)
-wav.writeUInt16LE(4, 32)
-wav.writeUInt16LE(16, 34)
-wav.write('data', 36)
-wav.writeUInt32LE(LENGTH * 4, 40)
 const scale = 0.89 / peak
+const stereo = new Float32Array(LENGTH * 2)
 for (let i = 0; i < LENGTH; i++) {
-  wav.writeInt16LE(Math.round(left[i] * scale * 32767), 44 + i * 4)
-  wav.writeInt16LE(Math.round(right[i] * scale * 32767), 46 + i * 4)
+  stereo[i * 2] = left[i] * scale
+  stereo[i * 2 + 1] = right[i] * scale
 }
 
-const work = mkdtempSync(join(tmpdir(), 'routecraft-score-'))
-const raw = join(work, 'score.wav')
-writeFileSync(raw, wav)
-const out = join(ROOT, 'public', 'film', 'score.mp3')
-const ffmpeg = Bun.spawnSync([
-  process.env.FFMPEG ?? 'ffmpeg',
-  '-v',
-  'error',
-  '-y',
-  '-i',
-  raw,
-  '-af',
-  'loudnorm=I=-18:TP=-1.5:LRA=11',
+const out = join(import.meta.dir, 'audio', 'music.mp3')
+encode(stereo, 2, RATE, out, [
   '-ar',
   '44100',
   '-c:a',
   'libmp3lame',
   '-b:a',
-  '128k',
-  out,
+  '160k',
 ])
-rmSync(work, { recursive: true, force: true })
-if (ffmpeg.exitCode !== 0) throw new Error(ffmpeg.stderr.toString())
 console.log(`✓ ${out}`)

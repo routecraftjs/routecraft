@@ -501,13 +501,44 @@ export const SCORE_EVENTS: { at: number; weight: number }[] = [
   ...TRIGGERS.map((_, i) => ({ at: TRIGGER_AT(i), weight: 0.6 })),
 ]
 
-/** Every caption, in order, as plain sentences: the film's transcript. */
-export const TRANSCRIPT: string[] = [
-  ...CAPTIONS.map((c) =>
-    c.parts
-      .map((p) => `${p.text}${p.accent ?? ''}${p.after ?? ''}`)
-      .join('')
-      .trim(),
-  ),
-  'Routecraft. Give AI access, not control.',
+/**
+ * The voice-over. Each line starts at `at` and must be spoken by `end`;
+ * `scripts/film/voice.ts` speeds a line up slightly when the voice runs long,
+ * and refuses one that would need more than that.
+ */
+export const NARRATION: { at: number; end: number; text: string }[] = [
+  {
+    at: 0.4,
+    end: 5.5,
+    text: 'Right now, every team in your company is building its own AI tools.',
+  },
+  {
+    at: 5.8,
+    end: 15.1,
+    text: 'A script in a SharePoint folder. A prompt in a markdown file. A token copied out of a browser.',
+  },
+  { at: 15.5, end: 20.3, text: 'Shared like it’s 1985. On a memory stick.' },
+  { at: 20.8, end: 24.5, text: 'But a markdown file is only an instruction.' },
+  { at: 24.8, end: 27.5, text: 'An instruction needs a harness.' },
+  { at: 27.8, end: 30.8, text: 'And a harness needs tools.' },
+  {
+    at: 31.1,
+    end: 38.4,
+    text: 'In Routecraft, those tools are capabilities. And the harness comes with them.',
+  },
+  {
+    at: 38.8,
+    end: 50.1,
+    text: 'Build it on your laptop. When it works, promote it to the team harness. Every other team installs it, instead of building it again.',
+  },
+  {
+    at: 50.5,
+    end: 60.1,
+    text: 'Reach it from any editor or agent, or let it run on a schedule. Service credentials. Every call on record.',
+  },
+  { at: 60.5, end: 66.4, text: 'Harnesses that work together are a platform.' },
+  { at: 67.4, end: 71.8, text: 'Routecraft. Give AI access, not control.' },
 ]
+
+/** What the voice says, in order: the film's transcript. */
+export const TRANSCRIPT: string[] = NARRATION.map((line) => line.text)

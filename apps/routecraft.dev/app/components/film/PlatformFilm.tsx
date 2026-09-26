@@ -11,7 +11,7 @@ import {
   TRANSCRIPT,
 } from './timeline'
 
-const SCORE_SRC = '/film/score.mp3'
+const SCORE_SRC = '/film/soundtrack.mp3'
 const MP4_SRC = '/film/routecraft-platform.mp4'
 
 /**

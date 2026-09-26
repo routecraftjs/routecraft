@@ -1,0 +1,75 @@
+/**
+ * Speaks the film's narration into `scripts/film/audio/voice.mp3`.
+ *
+ * Each line of `NARRATION` is synthesised with Kokoro, an open (Apache 2.0)
+ * text-to-speech model that runs locally, and placed at its start time. A line
+ * that runs past its window is spoken up to 15% faster; one that needs more
+ * than that fails, and the line should be shortened instead.
+ *
+ * The model runtime is not a site dependency. Install it for the run only:
+ *
+ *   bun add --no-save kokoro-js
+ *   bun scripts/film/voice.ts            VOICE=bf_emma picks another voice
+ *   bun scripts/film/mix.ts              then remix the soundtrack
+ */
+import { KokoroTTS } from 'kokoro-js'
+import { join } from 'node:path'
+
+import { FILM_DURATION, NARRATION } from '../../app/components/film/timeline'
+import { encode } from './ffmpeg'
+
+const VOICE = process.env.VOICE ?? 'bm_george'
+const MAX_SPEED = 1.15
+
+/** Spellings the model reads wrongly as written: "Routecraft" gains a syllable, "SharePoint" blurs under music. */
+const SPOKEN: Record<string, string> = {
+  Routecraft: 'Route craft',
+  SharePoint: 'Share Point',
+}
+const spoken = (text: string) =>
+  Object.entries(SPOKEN).reduce(
+    (out, [word, say]) => out.replaceAll(word, say),
+    text,
+  )
+
+const tts = await KokoroTTS.from_pretrained(
+  'onnx-community/Kokoro-82M-v1.0-ONNX',
+  { dtype: 'fp32', device: 'cpu' },
+)
+if (!(VOICE in tts.voices)) throw new Error(`unknown voice ${VOICE}`)
+
+let track: Float32Array | undefined
+let rate = 0
+for (const line of NARRATION) {
+  const window = line.end - line.at
+  let speech = await tts.generate(spoken(line.text), { voice: VOICE })
+  let seconds = speech.audio.length / speech.sampling_rate
+  let speed = 1
+  if (seconds > window) {
+    speed = Math.min(MAX_SPEED + 0.01, (seconds / window) * 1.03)
+    if (speed > MAX_SPEED)
+      throw new Error(
+        `"${line.text}" needs ${seconds.toFixed(1)}s of a ${window.toFixed(1)}s window: shorten it`,
+      )
+    speech = await tts.generate(spoken(line.text), { voice: VOICE, speed })
+    seconds = speech.audio.length / speech.sampling_rate
+  }
+  rate = speech.sampling_rate
+  track ??= new Float32Array(Math.ceil(FILM_DURATION * rate))
+  track.set(
+    speech.audio.subarray(0, track.length - Math.floor(line.at * rate)),
+    Math.floor(line.at * rate),
+  )
+  console.log(
+    `${line.at.toFixed(1)}s  ${seconds.toFixed(2)}s of ${window.toFixed(1)}s${speed > 1 ? `  x${speed.toFixed(2)}` : ''}  ${line.text}`,
+  )
+}
+
+const out = join(import.meta.dir, 'audio', 'voice.mp3')
+encode(track as Float32Array, 1, rate, out, [
+  '-c:a',
+  'libmp3lame',
+  '-b:a',
+  '96k',
+])
+console.log(`✓ ${out} (${VOICE})`)

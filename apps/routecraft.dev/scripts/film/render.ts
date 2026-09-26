@@ -7,8 +7,8 @@
  * real time, so a slow machine produces the same file as a fast one.
  *
  * Needs ffmpeg on PATH (or FFMPEG pointing at one) and a Playwright Chromium
- * (CHROMIUM overrides the browser). Run `bun scripts/film/score.ts` first when
- * the timeline changes, so the music matches.
+ * (CHROMIUM overrides the browser). When the timeline changes, regenerate the
+ * music (`score.ts`) and the voice (`voice.ts`), then `mix.ts`, before this.
  *
  * Usage:
  *   bun scripts/film/render.ts                  full film at 30 fps
@@ -35,7 +35,7 @@ import { ROOT } from '../paths'
 
 const FPS = 30
 const OUT = join(ROOT, 'public', 'film', 'routecraft-platform.mp4')
-const SCORE = join(ROOT, 'public', 'film', 'score.mp3')
+const SCORE = join(ROOT, 'public', 'film', 'soundtrack.mp3')
 const FFMPEG = process.env.FFMPEG ?? 'ffmpeg'
 
 const stillsArg = process.argv.indexOf('--stills')
