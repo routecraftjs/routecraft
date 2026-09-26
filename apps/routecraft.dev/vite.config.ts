@@ -65,6 +65,9 @@ export default defineConfig({
       '@': appDirectory,
     },
   },
+  // Prerender fetches this server by its resolved URL; as `localhost` it was refused
+  // in Dokploy's build container while the server listened on 127.0.0.1 only.
+  preview: { host: '127.0.0.1' },
   plugins: [
     tanstackStart({
       srcDirectory: 'app',
