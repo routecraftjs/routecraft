@@ -1,3 +1,4 @@
+import "./env-placeholders";
 import { describe, it, expect, afterEach } from "bun:test";
 import type { Mock } from "bun:test";
 import { mcp } from "@routecraft/ai";
@@ -6,13 +7,6 @@ import {
   testContext,
   type TestContext,
 } from "@routecraft/testing";
-
-// env.ts validates with Zod at module load; provide placeholders.
-process.env["JWT_SECRET"] ??= "test-jwt-secret";
-process.env["MAIL_USER"] ??= "test@example.test";
-process.env["MAIL_APP_PASSWORD"] ??= "test-pw";
-process.env["GEMINI_API_KEY"] ??= "test-gemini";
-process.env["OPENROUTER_API_KEY"] ??= "test-openrouter";
 
 const route = (await import("../src/mcp-greet")).default;
 
