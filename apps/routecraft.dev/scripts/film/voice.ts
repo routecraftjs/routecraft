@@ -9,7 +9,7 @@
  * The model runtime is not a site dependency. Install it for the run only:
  *
  *   bun add --no-save kokoro-js
- *   bun scripts/film/voice.ts            VOICE=bf_emma picks another voice
+ *   bun scripts/film/voice.ts            VOICE=bm_george picks another voice
  *   bun scripts/film/mix.ts              then remix the soundtrack
  */
 import { KokoroTTS } from 'kokoro-js'
@@ -18,7 +18,7 @@ import { join } from 'node:path'
 import { FILM_DURATION, NARRATION } from '../../app/components/film/timeline'
 import { encode } from './ffmpeg'
 
-const VOICE = process.env.VOICE ?? 'bm_george'
+const VOICE = process.env.VOICE ?? 'bf_emma'
 const MAX_SPEED = 1.15
 
 /** Spellings the model reads wrongly as written: "Routecraft" gains a syllable, "SharePoint" blurs under music. */
