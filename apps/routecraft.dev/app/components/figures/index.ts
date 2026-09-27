@@ -2,6 +2,7 @@ import { everyTeamBuildsItsOwn } from '@/components/figures/every-team-builds-it
 import { fourGates } from '@/components/figures/four-gates'
 import { handsNotKeys } from '@/components/figures/hands-not-keys'
 import { FIGURE_TEXT } from '@/components/figures/manifest.mjs'
+import { platform } from '@/components/figures/platform'
 import { maturityLadder } from '@/components/figures/maturity-ladder'
 import { platformStack } from '@/components/figures/platform-stack'
 import { serverVsDoorway } from '@/components/figures/server-vs-doorway'
@@ -21,6 +22,7 @@ const DRAWINGS: FigureDrawing[] = [
   serverVsDoorway,
   teamAgentHarness,
   everyTeamBuildsItsOwn,
+  platform,
   platformStack,
 ]
 
