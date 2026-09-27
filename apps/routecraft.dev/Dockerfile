@@ -15,9 +15,7 @@ WORKDIR /repo
 # the toolchain. Every workspace member listed in the lockfile has to be present
 # for a frozen install to resolve, which is why examples and packages come too.
 #
-# Lifecycle scripts are skipped: the core package pulls in better-sqlite3, whose
-# install script compiles native bindings through node-gyp, and this image has
-# no toolchain for that. The docs site never loads it.
+# Lifecycle scripts are skipped: the site's build needs none of them.
 FROM base AS deps
 COPY package.json bun.lock bunfig.toml ./
 COPY apps/routecraft.dev/package.json apps/routecraft.dev/
