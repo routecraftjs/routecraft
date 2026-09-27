@@ -120,6 +120,8 @@ export function PlatformFilm() {
     track.currentTime = time.current
     try {
       await track.play()
+      // The picture kept running while play() was pending.
+      track.currentTime = time.current
       setSound(true)
       pausedByViewer.current = false
       setPlaying(true)
