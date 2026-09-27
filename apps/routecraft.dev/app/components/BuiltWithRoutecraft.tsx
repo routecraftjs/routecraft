@@ -8,17 +8,17 @@ export function BuiltWithRoutecraft() {
               className="font-editorial text-[clamp(1.6rem,3vw,2.1rem)] leading-[1.2] tracking-[-0.01em] text-ink"
               style={{ fontVariationSettings: '"opsz" 96, "SOFT" 50' }}
             >
-              Routecraft is the framework.{' '}
+              Routecraft is the platform.{' '}
               <span
                 className="text-cobalt-500 italic"
                 style={{ fontVariationSettings: '"opsz" 96, "SOFT" 100' }}
               >
-                DevOptix is the team that ships with it.
+                DevOptix is the team that builds and runs it with you.
               </span>
             </h2>
             <p className="mt-4 max-w-2xl text-[1rem] leading-[1.65] text-ink/65">
               AI automation built and operated for SMBs and consultancies, by
-              the people who wrote the framework.
+              the people who build the platform.
             </p>
           </div>
           <a
