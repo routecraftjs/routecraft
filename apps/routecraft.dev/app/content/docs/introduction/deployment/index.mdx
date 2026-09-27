@@ -37,7 +37,7 @@ A Bun project scaffolded by `create-routecraft` ships a `Dockerfile` and a `.doc
 docker build -t my-app .
 ```
 
-The image is built to pass the container scans a bank or an enterprise registry runs:
+The image is built to pass the container scan an enterprise registry runs before it admits an image:
 
 - **Distroless runtime.** Production dependencies install on the full Bun image, and only `node_modules` is copied into `oven/bun:<version>-distroless`: no shell and no package manager, so a scanner finds almost nothing to flag.
 - **Not root.** The process runs as the unprivileged `nonroot` user. The project files are read-only to it; `.routecraft/` (telemetry and other local state) is the one directory it can write.
