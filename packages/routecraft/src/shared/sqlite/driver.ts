@@ -1,5 +1,7 @@
 /// <reference types="bun-types" />
+import { createRequire } from "node:module";
 import { loadOptionalPeer } from "../../adapters/shared/optional-peer.ts";
+import { rcError } from "../../error.ts";
 import type { SqliteDatabaseConstructor } from "./types.ts";
 
 export type {
@@ -112,10 +114,52 @@ export function defaultLoaders(consumer: string): SqliteDriverLoaders {
         consumer,
         packageName: "better-sqlite3",
       });
+      assertBetterSqliteRuns(
+        consumer,
+        installedBetterSqliteVersion(),
+        process.versions["napi"],
+      );
       const ctor = (mod as { default?: unknown }).default ?? mod;
       return ctor as SqliteDatabaseConstructor;
     },
   };
+}
+
+/**
+ * Refuse a `better-sqlite3` the running Node cannot load.
+ *
+ * From 13 its binaries target Node-API 10, which Node ships from 22.14.
+ * Core's floor is Node 22.0, and below 22.14 constructing a database does
+ * not throw: the addon segfaults the process past every catch. The pairing
+ * is therefore refused before the first database opens, with the same
+ * RC5017 a missing driver raises, so the stores fall back or fail at start
+ * exactly as they do without the peer.
+ *
+ * @param consumer - The subsystem asking, named in the error.
+ * @param version - The installed `better-sqlite3` version.
+ * @param nodeApi - The runtime's Node-API version (`process.versions.napi`).
+ * @throws RC5017 when `better-sqlite3` is 13 or later and Node-API is below 10.
+ * @internal
+ */
+export function assertBetterSqliteRuns(
+  consumer: string,
+  version: string,
+  nodeApi: string | undefined,
+): void {
+  const major = Number.parseInt(version, 10);
+  if (major < 13 || Number(nodeApi ?? 0) >= 10) return;
+  throw rcError("RC5017", undefined, {
+    message:
+      `${consumer} cannot use better-sqlite3 ${version} on Node ${process.versions.node}: ` +
+      "it needs Node 22.14 or later. Upgrade Node, or install better-sqlite3 12: " +
+      "bun add better-sqlite3@12 (or npm install better-sqlite3@12).",
+  });
+}
+
+function installedBetterSqliteVersion(): string {
+  const require = createRequire(import.meta.url);
+  return (require("better-sqlite3/package.json") as { version: string })
+    .version;
 }
 
 /** @internal */
