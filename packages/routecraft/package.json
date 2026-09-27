@@ -25,7 +25,7 @@
   "dependencies": {
     "@opentelemetry/api": "^1.9.1",
     "@standard-schema/spec": "^1.1.0",
-    "lru-cache": "^11.5.2",
+    "lru-cache": "^11.5.3",
     "pino": "^10.3.1"
   },
   "publishConfig": {
