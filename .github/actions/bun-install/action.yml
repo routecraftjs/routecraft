@@ -1,0 +1,21 @@
+name: Install workspace dependencies
+description: >-
+  Installs the pinned bun, restores its package cache read-only and runs a
+  frozen install. The setup job is the one writer of that cache; see
+  .standards/ci-cd.md § 1.
+runs:
+  using: composite
+  steps:
+    - uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
+      with:
+        bun-version-file: "package.json"
+
+    # Must stay the key setup saves under, or every job misses the cache.
+    - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.bun/install/cache
+        key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lock') }}
+        restore-keys: ${{ runner.os }}-bun-
+
+    - run: bun install --frozen-lockfile
+      shell: bash

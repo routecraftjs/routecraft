@@ -1,7 +1,9 @@
 version: 2
 updates:
   - package-ecosystem: "github-actions"
-    directory: "/"
+    # The composite actions pin actions too, and "/" alone scans only
+    # .github/workflows.
+    directories: ["/", "/.github/actions/*"]
     schedule:
       interval: "weekly"
     open-pull-requests-limit: 10
