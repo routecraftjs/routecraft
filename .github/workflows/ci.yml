@@ -93,9 +93,6 @@ jobs:
         with:
           bun-version-file: "package.json"
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
       # The package cache, not node_modules. Several dependencies ship a nested
       # node_modules inside their own dist or test fixtures: nitro vendors defu
       # under dist/node_modules, and its vite entry imports it without declaring
@@ -110,6 +107,9 @@ jobs:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lock') }}
           restore-keys: ${{ runner.os }}-bun-
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
 
   validate:
     runs-on: ubuntu-latest
