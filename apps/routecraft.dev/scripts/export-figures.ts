@@ -41,7 +41,7 @@ import {
 } from '../app/lib/figure-image'
 
 const appRoot = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..')
-const outDir = path.join(appRoot, 'out')
+const outDir = path.join(appRoot, '.output', 'public')
 const imageDir = path.join(appRoot, 'public', FIGURE_IMAGE_DIR)
 
 const CONTENT_TYPES: Record<string, string> = {
@@ -160,7 +160,12 @@ async function main() {
         for (const id of ids) {
           const page = await context.newPage()
           try {
-            const response = await page.goto(`${server.origin}/figures/${id}/`)
+            const response = await page.goto(
+              `${server.origin}/figures/${id}/`,
+              {
+                waitUntil: 'networkidle',
+              },
+            )
             if (!response?.ok()) {
               throw new Error(
                 `/figures/${id}/ returned ${response?.status() ?? 'no response'}`,

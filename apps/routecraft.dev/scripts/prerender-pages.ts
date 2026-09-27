@@ -1,6 +1,7 @@
 import { readdirSync } from 'node:fs'
 import { join } from 'node:path'
 
+import { FIGURE_TEXT } from '../app/components/figures/manifest.mjs'
 // Extension included: vite.config.ts imports this module, and Vite's native
 // config loader does not resolve extensionless relative imports.
 import { CONTENT_DIR } from './paths.ts'
@@ -47,5 +48,6 @@ export function prerenderPages(): string[] {
     ...contentRoutes('docs', '/docs'),
     ...contentRoutes('docs-next', '/docs/next'),
     ...contentRoutes('blog', '/blog'),
+    ...Object.keys(FIGURE_TEXT).map((id) => `/figures/${id}/`),
   ]
 }
