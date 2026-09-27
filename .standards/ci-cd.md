@@ -9,15 +9,18 @@ What `.github/workflows/ci.yml` and `.github/workflows/release.yml` enforce, wha
 ```
   ci.yml (push + pull_request):
 
-  changes  ─┬─►  validate ─┐
-            │              ├─►  scaffolder-smoke
-   setup ───┼─►  test  ────┤
-            │              ├─►  embedding-smoke
-            └─►  build ────┤
-                           ├─►  adapter-cross-runtime (bun + node)
-                           └─►  security
+  validate ─┐
+            ├─►  scaffolder-smoke
+  test  ────┤
+            ├─►  embedding-smoke
+  build ────┤
+            ├─►  adapter-cross-runtime (bun + node)
+            └─►  security
 
-  changes  ──►  site-image-security
+  changes  ──►  docs-site, docs-release-shape, site-image-security
+               (and the `if` of every job above except validate, test, build)
+
+  setup     saves the package cache; no job waits on it
 
   release.yml (workflow_run: CI succeeded on a main push):
 
@@ -27,7 +30,7 @@ What `.github/workflows/ci.yml` and `.github/workflows/release.yml` enforce, wha
   scheduled: codeql.yml (also on PRs), scorecard.yml, security-rescan.yml
 ```
 
-Every ci.yml job that installs workspace dependencies restores bun's package cache (`~/.bun/install/cache`, key: `hashFiles('**/bun.lock')`) and then runs `bun install --frozen-lockfile`, which is seconds against a warm cache. `changes` installs nothing and `embedding-smoke` is deliberately node + npm (see the § 2 table), so neither restores it; release.yml's install steps are cold by design, since a publish is rare and correctness there outranks a minute. The linked `**/node_modules` tree is deliberately **not** cached: several dependencies ship a nested `node_modules` inside their own `dist` or test fixtures, nitro vendors `defu` there and imports it without declaring it, and a `**/node_modules` glob matches those nested trees separately from the tree containing them, so the archive carries overlapping paths and the restore silently drops files. Cache the packages, link them fresh. Build output is passed differently: `build` uploads `packages/*/dist` and `examples/dist` as a run artifact (`build-dist`) that the smoke and cross-runtime jobs download. Artifacts are guaranteed within the run that produced them, which a cache key is not. `changes` skips downstream jobs when the diff doesn't touch package or workflow paths.
+Every ci.yml job that installs workspace dependencies restores bun's package cache (`~/.bun/install/cache`, key: `hashFiles('**/bun.lock')`) and then runs `bun install --frozen-lockfile`, which is seconds against a warm cache. `setup` is the one job that saves that cache; every other job restores it read-only and starts without waiting for `setup`, so a lockfile change costs each job a download of the difference rather than a queue behind one install. The install stays seconds only while no dependency compiles on it: `better-sqlite3` 11 had no prebuilt binary for Node 24 and cost every job with Node set up over a minute of node-gyp, which is why the workspace is on 13, whose Node-API binaries ship inside the package. `changes` installs nothing and `embedding-smoke` is deliberately node + npm (see the § 2 table), so neither restores it; release.yml's install steps are cold by design, since a publish is rare and correctness there outranks a minute. The linked `**/node_modules` tree is deliberately **not** cached: several dependencies ship a nested `node_modules` inside their own `dist` or test fixtures, nitro vendors `defu` there and imports it without declaring it, and a `**/node_modules` glob matches those nested trees separately from the tree containing them, so the archive carries overlapping paths and the restore silently drops files. Cache the packages, link them fresh. Build output is passed differently: `build` uploads `packages/*/dist` and `examples/dist` as a run artifact (`build-dist`) that the smoke and cross-runtime jobs download. Artifacts are guaranteed within the run that produced them, which a cache key is not. `changes` skips downstream jobs when the diff doesn't touch package or workflow paths.
 
 The split between the two files is exact: **ci.yml validates and never publishes to npm; release.yml owns every npm publish** (stable releases AND canary snapshots). This is forced by npm Trusted Publishing, which allows one trusted publisher per package, pinned to a single workflow filename, so all publishes must originate from one file. release.yml triggers on `workflow_run` when CI completes successfully for a push to `main`, which also guarantees nothing is published from a commit whose tests or smokes failed. ci.yml's only involvement is uploading a `push-base` artifact (the push's `before` sha, unavailable in `workflow_run` payloads) that the canary job diffs against.
 
@@ -39,7 +42,7 @@ Every PR must pass these jobs before merge. The first column matches the GitHub 
 
 | Job | Runs | Catches |
 |-----|------|---------|
-| `setup` | `bun install --frozen-lockfile` | Lockfile drift, install failures, dependabot lockfile updates. |
+| `setup` | `bun install --frozen-lockfile`, then saves the package cache | Lockfile drift, install failures, dependabot lockfile updates. Runs beside the other jobs, not before them. |
 | `validate` | `bun run format && bun run typecheck && bun run lint && bunx madge --circular .` | Prettier drift, TS errors, ESLint violations, circular imports. |
 | `test` | `bun run test:coverage` (runs `bun:test` for `*.bun.test.{ts,tsx}` then vitest for the rest, both excluding `**/integration.test.ts` and `**/test/cross-runtime/**`) | Unit-test regressions, coverage report uploaded as artifact. |
 | `build` | `bun run build` and `bun run limit:size` | Build failures, bundle size regressions (size-limit). |

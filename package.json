@@ -9,7 +9,6 @@
     "examples"
   ],
   "trustedDependencies": [
-    "better-sqlite3",
     "esbuild"
   ],
   "overrides": {

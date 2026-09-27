@@ -112,7 +112,6 @@ jobs:
           restore-keys: ${{ runner.os }}-bun-
 
   validate:
-    needs: setup
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -129,7 +128,7 @@ jobs:
           bun-version-file: "package.json"
 
       - name: Restore the bun package cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lock') }}
@@ -146,7 +145,6 @@ jobs:
           bunx madge --circular .
 
   test:
-    needs: setup
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -163,7 +161,7 @@ jobs:
           bun-version-file: "package.json"
 
       - name: Restore the bun package cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lock') }}
@@ -183,7 +181,6 @@ jobs:
           if-no-files-found: error
 
   build:
-    needs: [setup]
     runs-on: ubuntu-latest
     steps:
       - name: Checkout
@@ -200,7 +197,7 @@ jobs:
           bun-version-file: "package.json"
 
       - name: Restore the bun package cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lock') }}
@@ -239,7 +236,7 @@ jobs:
   # space, anchors and metadata ran only by hand. A broken app typecheck and a
   # metadata regression both reached main under a green build because of it.
   docs-site:
-    needs: [changes, setup]
+    needs: [changes]
     if: needs.changes.outputs.docs == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -257,7 +254,7 @@ jobs:
           bun-version-file: "package.json"
 
       - name: Restore the bun package cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lock') }}
@@ -331,7 +328,7 @@ jobs:
   # on docs-site because the freeze rewrites the content tree in place, and the
   # acceptance suite has to keep running against the working-tree site.
   docs-release-shape:
-    needs: [changes, setup]
+    needs: [changes]
     if: needs.changes.outputs.docs == 'true'
     runs-on: ubuntu-latest
     steps:
@@ -355,7 +352,7 @@ jobs:
           bun-version-file: "package.json"
 
       - name: Restore the bun package cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lock') }}
@@ -463,7 +460,7 @@ jobs:
           bun-version-file: "package.json"
 
       - name: Restore the bun package cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lock') }}
@@ -610,7 +607,7 @@ jobs:
           bun-version-file: "package.json"
 
       - name: Restore the bun package cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lock') }}
@@ -692,7 +689,7 @@ jobs:
           bun-version-file: "package.json"
 
       - name: Restore the bun package cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lock') }}
@@ -770,7 +767,7 @@ jobs:
           bun-version-file: "package.json"
 
       - name: Restore the bun package cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: ~/.bun/install/cache
           key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lock') }}
