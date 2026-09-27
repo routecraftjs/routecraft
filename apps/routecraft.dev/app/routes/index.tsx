@@ -1,22 +1,20 @@
 import { createFileRoute } from '@tanstack/react-router'
-
-import { AppLink } from '@/components/AppLink'
 import type { ReactNode } from 'react'
 
+import { AppLink } from '@/components/AppLink'
 import { BlogMark } from '@/components/BlogMark'
 import { BlogMeta } from '@/components/BlogMeta'
 import { BuiltWithRoutecraft } from '@/components/BuiltWithRoutecraft'
 import { Diagram } from '@/components/figures/Diagram'
 import { Guardrails } from '@/components/Guardrails'
 import { PlatformMedia } from '@/components/PlatformMedia'
+import {
+  HEADLINE_ITALIC,
+  HEADLINE_SOFT,
+  SectionHeading,
+} from '@/components/SectionHeading'
 import { type BlogPostMeta, getAllBlogPosts, getFeaturedPost } from '@/lib/blog'
-import { absoluteUrl, docVersion } from '@/lib/site'
-
-const HEADLINE_SOFT = '"opsz" 144, "SOFT" 30'
-const HEADLINE_ITALIC = '"opsz" 144, "SOFT" 100'
-
-const description =
-  "Routecraft is where your organisation's AI tools are built, shared, governed and run. Prove a capability on your laptop, promote it to a team harness, and every agent, editor and team can call it."
+import { absoluteUrl, docVersion, siteDescription } from '@/lib/site'
 
 const CONSEQUENCES = [
   "Nobody can tell a person's call from an agent's.",
@@ -39,7 +37,7 @@ const PILLARS: Pillar[] = [
   {
     number: '02',
     title: 'Team harness',
-    body: 'Always on, on service credentials the platform holds and no person does. Every call carries who asked, and is on record.',
+    body: 'Always on, on service credentials the platform holds and no person does. Every call carries who asked, and telemetry keeps the record.',
   },
   {
     number: '03',
@@ -123,7 +121,7 @@ function Hero() {
             className="paper-rise mt-8 max-w-2xl text-[1.15rem] leading-[1.75] text-ink/75"
             style={{ animationDelay: '260ms' }}
           >
-            {description}
+            {siteDescription}
           </p>
 
           <div
@@ -162,38 +160,6 @@ function Hero() {
         </div>
       </div>
     </section>
-  )
-}
-
-function SectionHeading({
-  plain,
-  accent,
-  children,
-}: {
-  plain: string
-  accent: string
-  children?: ReactNode
-}) {
-  return (
-    <header className="max-w-3xl">
-      <h2
-        className="font-editorial text-[2.5rem] leading-[1.05] tracking-[-0.02em] text-ink"
-        style={{ fontVariationSettings: HEADLINE_SOFT }}
-      >
-        {plain}{' '}
-        <span
-          className="text-cobalt-500 italic"
-          style={{ fontVariationSettings: HEADLINE_ITALIC }}
-        >
-          {accent}
-        </span>
-      </h2>
-      {children ? (
-        <p className="mt-5 max-w-2xl text-[1.05rem] leading-[1.75] text-ink/70">
-          {children}
-        </p>
-      ) : null}
-    </header>
   )
 }
 
@@ -565,10 +531,6 @@ function Reading({ post }: { post: BlogPostMeta }) {
 
 export const Route = createFileRoute('/')({
   head: () => ({
-    meta: [
-      { title: 'Routecraft - One team builds it. Every team runs it.' },
-      { name: 'description', content: description },
-    ],
     // Every other route carries its own canonical; without this one the home
     // page is the single URL left to consolidate on its own.
     links: [{ rel: 'canonical', href: absoluteUrl('/') }],

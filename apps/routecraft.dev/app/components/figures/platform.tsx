@@ -1,6 +1,12 @@
 import type { CSSProperties, ReactNode } from 'react'
 
-import { FigureCanvas } from '@/components/figures/primitives'
+import {
+  BlockRow,
+  FigureCanvas,
+  LayerName,
+  LayerSub,
+  StoreMark,
+} from '@/components/figures/primitives'
 import type { FigurePalette } from '@/components/figures/palette'
 import type {
   FigureDrawing,
@@ -13,8 +19,6 @@ const WIDTH = 1600
 const HEIGHT = 900
 
 const MONO = 'var(--font-mono)'
-const SANS = 'var(--font-sans)'
-const EDITORIAL = 'var(--font-editorial)'
 
 /** The board is laid out in its own coordinates and centred on the canvas. */
 const BOARD_X = 72
@@ -36,32 +40,6 @@ const SYSTEMS = [
   'chat',
   'source control',
 ]
-
-function Name({ color, children }: { color?: string; children: ReactNode }) {
-  return (
-    <span
-      style={{
-        fontFamily: EDITORIAL,
-        fontSize: 30,
-        lineHeight: 1.1,
-        fontWeight: 500,
-        letterSpacing: '-0.01em',
-        fontVariationSettings: '"opsz" 72, "SOFT" 30',
-        color,
-      }}
-    >
-      {children}
-    </span>
-  )
-}
-
-function Sub({ color, children }: { color: string; children: ReactNode }) {
-  return (
-    <span style={{ fontFamily: SANS, fontSize: 14, lineHeight: 1.35, color }}>
-      {children}
-    </span>
-  )
-}
 
 function Tag({
   palette,
@@ -98,53 +76,6 @@ function Tag({
     >
       {children}
     </span>
-  )
-}
-
-function Blocks({
-  count,
-  fill,
-  gapAfter,
-}: {
-  count: number
-  fill: string
-  gapAfter?: number
-}) {
-  return (
-    <div style={{ display: 'flex', alignItems: 'center', gap: 34 }}>
-      {Array.from({ length: count }, (_, i) => (
-        <span
-          key={i}
-          style={{
-            width: 44,
-            height: 44,
-            flex: 'none',
-            background: fill,
-            marginRight: i === gapAfter ? 24 : 0,
-          }}
-        />
-      ))}
-    </div>
-  )
-}
-
-function Store({ palette }: { palette: FigurePalette }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      style={{
-        width: 14,
-        height: 14,
-        flex: 'none',
-        fill: 'none',
-        stroke: palette.ink60,
-        strokeWidth: 1.6,
-      }}
-    >
-      <ellipse cx="12" cy="6" rx="8" ry="3" />
-      <path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6" />
-      <path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" />
-    </svg>
   )
 }
 
@@ -213,13 +144,13 @@ function PlatformFigure({ palette }: FigureProps) {
     <FigureCanvas palette={palette} width={WIDTH} height={HEIGHT}>
       <div style={{ ...band, top: BOARD_Y + 16, height: 110 }}>
         <div style={{ ...lab, width: 340 }}>
-          <Name>Every way in</Name>
-          <Sub color={palette.ink60}>
+          <LayerName>Every way in</LayerName>
+          <LayerSub colour={palette.ink60}>
             people in their editor, any agent over MCP, the CLI, HTTP, and
             triggers that need nobody
-          </Sub>
+          </LayerSub>
         </div>
-        <Blocks count={9} fill={palette.ink25} gapAfter={3} />
+        <BlockRow count={9} fill={palette.ink25} gapAfter={3} />
       </div>
 
       <Tag palette={palette} left={94} top={148}>
@@ -228,23 +159,23 @@ function PlatformFigure({ palette }: FigureProps) {
       <div style={{ ...at(94, 170), ...ghost }} />
       <div style={{ ...at(86, 178), ...ghost }} />
       <Pane left={78} background={palette.paperDeepSolid}>
-        <Name>Local harness</Name>
-        <Sub color={palette.ink60}>
+        <LayerName>Local harness</LayerName>
+        <LayerSub colour={palette.ink60}>
           on your laptop, on your own access. Try anything first.
-        </Sub>
+        </LayerSub>
         <div style={{ marginTop: 'auto' }}>
-          <Blocks count={6} fill={palette.ink25} />
+          <BlockRow count={6} fill={palette.ink25} />
         </div>
       </Pane>
       <Pane left={808} background={palette.inverseBg}>
-        <Name color={palette.inverseAccent}>Team harness</Name>
-        <Sub color={palette.inverseFg}>
+        <LayerName colour={palette.inverseAccent}>Team harness</LayerName>
+        <LayerSub colour={palette.inverseFg}>
           <span style={{ opacity: 0.7 }}>
             always on, on service credentials, every call on record
           </span>
-        </Sub>
+        </LayerSub>
         <div style={{ marginTop: 'auto' }}>
-          <Blocks count={6} fill={palette.inverseFg} />
+          <BlockRow count={6} fill={palette.inverseFg} />
         </div>
       </Pane>
 
@@ -292,8 +223,10 @@ function PlatformFigure({ palette }: FigureProps) {
 
       <div style={{ ...band, top: BOARD_Y + 536, height: 130 }}>
         <div style={{ ...lab, width: 200 }}>
-          <Name>Your systems</Name>
-          <Sub color={palette.ink60}>as they are, where they are</Sub>
+          <LayerName>Your systems</LayerName>
+          <LayerSub colour={palette.ink60}>
+            as they are, where they are
+          </LayerSub>
         </div>
         <div
           style={{
@@ -321,7 +254,7 @@ function PlatformFigure({ palette }: FigureProps) {
                 whiteSpace: 'nowrap',
               }}
             >
-              <Store palette={palette} />
+              <StoreMark colour={palette.ink60} size={14} />
               {system}
             </span>
           ))}

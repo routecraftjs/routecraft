@@ -1,6 +1,13 @@
 import type { CSSProperties } from 'react'
 
-import { FigureCanvas } from '@/components/figures/primitives'
+import {
+  BlockRow,
+  Conclusion,
+  FigureCanvas,
+  LayerName,
+  LayerSub,
+  StoreMark,
+} from '@/components/figures/primitives'
 import type { FigurePalette } from '@/components/figures/palette'
 import type {
   FigureDrawing,
@@ -13,7 +20,7 @@ const HEIGHT = 1000
 
 const MONO = 'var(--font-mono)'
 
-export type PlatformStackLayer =
+type PlatformStackLayer =
   'every-way-in' | 'agents' | 'skills' | 'capabilities' | 'adapters' | 'systems'
 
 interface Layer {
@@ -69,38 +76,14 @@ const LAYERS: Layer[] = [
   },
 ]
 
-/** A data store: the systems layer is the one that already exists. */
-function StoreMark({ colour }: { colour: string }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      style={{ width: 22, height: 22, stroke: colour, fill: 'none' }}
-      strokeWidth={1.6}
-    >
-      <ellipse cx="12" cy="6" rx="8" ry="3" />
-      <path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6" />
-      <path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" />
-    </svg>
-  )
-}
-
-function Band({
-  layer,
-  lifted,
-  palette,
-}: {
-  layer: Layer
-  lifted: boolean
-  palette: FigurePalette
-}) {
+function Band({ layer, palette }: { layer: Layer; palette: FigurePalette }) {
   return (
     <div
       style={{
         gridColumn: 2,
         height: 110,
         padding: '0 24px',
-        background: lifted ? palette.inverseBg : palette.paperDeepSolid,
-        color: lifted ? palette.inverseFg : palette.ink,
+        background: palette.paperDeepSolid,
         display: 'flex',
         alignItems: 'center',
         gap: 24,
@@ -115,52 +98,16 @@ function Band({
           gap: 4,
         }}
       >
-        <span
-          style={{
-            fontFamily: 'var(--font-editorial)',
-            fontSize: 30,
-            lineHeight: 1.1,
-            fontWeight: 500,
-            letterSpacing: '-0.01em',
-            fontVariationSettings: '"opsz" 72, "SOFT" 30',
-            color: lifted ? palette.inverseAccent : undefined,
-          }}
-        >
-          {layer.name}
-        </span>
-        <span
-          style={{
-            fontFamily: 'var(--font-sans)',
-            fontSize: 14,
-            lineHeight: 1.3,
-            color: lifted ? palette.inverseFg : palette.ink60,
-            opacity: lifted ? 0.7 : undefined,
-          }}
-        >
-          {layer.sub}
-        </span>
+        <LayerName>{layer.name}</LayerName>
+        <LayerSub colour={palette.ink60}>{layer.sub}</LayerSub>
       </div>
-      <div style={{ flex: 1, display: 'flex', alignItems: 'center', gap: 34 }}>
-        {Array.from({ length: layer.blocks }, (_, i) => (
-          <span
-            key={i}
-            style={{
-              width: 44,
-              height: 44,
-              flex: 'none',
-              background: lifted ? palette.paper : palette.ink25,
-              display: 'inline-flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              marginRight: i === layer.gapAfter ? 24 : undefined,
-            }}
-          >
-            {layer.cylinders && (
-              <StoreMark colour={lifted ? palette.ink : palette.paper} />
-            )}
-          </span>
-        ))}
-      </div>
+      <BlockRow
+        count={layer.blocks}
+        fill={palette.ink25}
+        gapAfter={layer.gapAfter}
+      >
+        {layer.cylinders && <StoreMark colour={palette.paper} />}
+      </BlockRow>
     </div>
   )
 }
@@ -198,15 +145,8 @@ function RailLabel({
   )
 }
 
-/**
- * The platform as six bands. `highlight` lifts one band to the inverted
- * plate, for a post that walks the stack one layer at a time; left unset, the
- * stack is shown whole.
- */
-export function PlatformStackFigure({
-  palette,
-  highlight,
-}: FigureProps & { highlight?: PlatformStackLayer }) {
+/** The platform as six bands, from every way in down to your systems. */
+function PlatformStackFigure({ palette }: FigureProps) {
   return (
     <FigureCanvas palette={palette} width={WIDTH} height={HEIGHT}>
       <div
@@ -261,12 +201,7 @@ export function PlatformStackFigure({
           />
 
           {LAYERS.map((layer) => (
-            <Band
-              key={layer.id}
-              layer={layer}
-              lifted={layer.id === highlight}
-              palette={palette}
-            />
+            <Band key={layer.id} layer={layer} palette={palette} />
           ))}
 
           <div
@@ -297,24 +232,13 @@ export function PlatformStackFigure({
           </div>
         </div>
 
-        <p
-          style={{
-            margin: 0,
-            marginTop: 24,
-            textAlign: 'center',
-            fontFamily: 'var(--font-editorial)',
-            fontStyle: 'italic',
-            fontSize: '1.8rem',
-            lineHeight: 1.45,
-            color: palette.ink60,
-            borderTop: `1px solid ${palette.ink15}`,
-            paddingTop: 32,
-            fontVariationSettings: '"opsz" 96, "SOFT" 60',
-          }}
+        <Conclusion
+          palette={palette}
+          accent="open at any depth."
+          style={{ marginTop: 24 }}
         >
-          One runtime, six layers,{' '}
-          <span style={{ color: palette.accent }}>open at any depth.</span>
-        </p>
+          One runtime, six layers,
+        </Conclusion>
       </div>
     </FigureCanvas>
   )

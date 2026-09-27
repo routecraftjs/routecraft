@@ -1,6 +1,12 @@
 import type { CSSProperties } from 'react'
 
-import { Chip, Eyebrow, FigureCanvas } from '@/components/figures/primitives'
+import {
+  Chip,
+  Conclusion,
+  Eyebrow,
+  FigureCanvas,
+  StoreMark,
+} from '@/components/figures/primitives'
 import type { FigurePalette } from '@/components/figures/palette'
 import type {
   FigureDrawing,
@@ -155,27 +161,6 @@ const WIRES: Wire[] = [
   { from: [896, 610], to: [334], faint: true },
   { from: [516, 698], to: [724], faint: true },
 ]
-
-/** A data store: the cylinder every team wires itself straight into. */
-function StoreMark({ palette }: { palette: FigurePalette }) {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      style={{
-        width: 22,
-        height: 22,
-        flex: 'none',
-        stroke: palette.ink60,
-        fill: 'none',
-      }}
-      strokeWidth={1.5}
-    >
-      <ellipse cx="12" cy="6" rx="8" ry="3" />
-      <path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6" />
-      <path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" />
-    </svg>
-  )
-}
 
 function Card({ card, palette }: { card: TeamCard; palette: FigurePalette }) {
   const ghost = card.ghost === true
@@ -373,33 +358,20 @@ function Figure({ palette }: FigureProps) {
                   letterSpacing: '0.04em',
                 }}
               >
-                <StoreMark palette={palette} />
+                <StoreMark colour={palette.ink60} />
                 {backend}
               </div>
             ))}
           </div>
         </div>
 
-        <p
-          style={{
-            margin: 0,
-            marginTop: 24,
-            textAlign: 'center',
-            fontFamily: 'var(--font-editorial)',
-            fontStyle: 'italic',
-            fontSize: '1.8rem',
-            lineHeight: 1.45,
-            color: palette.ink60,
-            borderTop: `1px solid ${palette.ink15}`,
-            paddingTop: 32,
-            fontVariationSettings: '"opsz" 96, "SOFT" 60',
-          }}
+        <Conclusion
+          palette={palette}
+          accent="nothing another team can install."
+          style={{ marginTop: 24 }}
         >
-          Same problem, a stack per team, a credential per person, and{' '}
-          <span style={{ color: palette.accent }}>
-            nothing another team can install.
-          </span>
-        </p>
+          Same problem, a stack per team, a credential per person, and
+        </Conclusion>
       </div>
     </FigureCanvas>
   )

@@ -1,8 +1,9 @@
-import { AppLink } from '@/components/AppLink'
-import { Fragment } from 'react'
 import { Highlight } from 'prism-react-renderer'
+import { Fragment } from 'react'
 
+import { AppLink } from '@/components/AppLink'
 import { Diagram } from '@/components/figures/Diagram'
+import { SectionHeading } from '@/components/SectionHeading'
 
 const CAPABILITY = `// One of the hands the agent can reach for.
 craft()
@@ -22,26 +23,13 @@ export function Guardrails() {
   return (
     <section>
       <div className="container-page pt-12 pb-20 lg:pt-14 lg:pb-24">
-        <header className="max-w-3xl">
-          <h2
-            className="font-editorial text-[2.5rem] leading-[1.05] tracking-[-0.02em] text-ink"
-            style={{ fontVariationSettings: '"opsz" 144, "SOFT" 30' }}
-          >
-            Hands,{' '}
-            <span
-              className="text-cobalt-500 italic"
-              style={{ fontVariationSettings: '"opsz" 144, "SOFT" 100' }}
-            >
-              not keys.
-            </span>
-          </h2>
-          <p className="mt-5 max-w-2xl text-[1.05rem] leading-[1.75] text-ink/70">
-            Agents have deleted production databases trying to do their job. On
-            Routecraft an agent never holds a credential: it calls named
-            capabilities, each with typed input, an authorisation check and a
-            record of who asked. The capability runs where the agent is not.
-          </p>
-        </header>
+        <SectionHeading plain="Hands," accent="not keys.">
+          Agents have deleted production databases trying to do their job. On
+          Routecraft an agent never holds a credential: it calls named
+          capabilities, each declaring its typed input and who may call it, and
+          each call carries who asked. The capability runs where the agent is
+          not.
+        </SectionHeading>
 
         <div className="mt-6 grid grid-cols-1 gap-x-12 lg:grid-cols-2 lg:items-center">
           <Diagram id="hands-not-keys" />

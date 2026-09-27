@@ -48,6 +48,7 @@ export function prerenderPages(): string[] {
     ...contentRoutes('docs', '/docs'),
     ...contentRoutes('docs-next', '/docs/next'),
     ...contentRoutes('blog', '/blog'),
+    '/figures/',
     ...Object.keys(FIGURE_TEXT).map((id) => `/figures/${id}/`),
   ]
 }
