@@ -8,12 +8,10 @@ on:
       - "**/README.md"
       - ".github/ISSUE_TEMPLATE/**"
       - ".cursor/**"
+  # No paths-ignore: a PR the workflow never runs on never reports ci-passed,
+  # and the required check then waits forever. `changes` skips the heavy jobs.
   pull_request:
     branches: ["main"]
-    paths-ignore:
-      - "**/README.md"
-      - ".github/ISSUE_TEMPLATE/**"
-      - ".cursor/**"
 
 permissions:
   contents: read
@@ -92,6 +90,14 @@ jobs:
 
       - name: Install dependencies
         uses: ./.github/actions/bun-install
+        with:
+          save: "true"
+
+      - name: Check ci-passed needs every other job
+        run: |
+          diff <(yq '.jobs | keys | .[]' .github/workflows/ci.yml | grep -vx ci-passed | sort) \
+               <(yq '.jobs["ci-passed"].needs[]' .github/workflows/ci.yml | sort) \
+            || { echo "::error::ci-passed must need every job in ci.yml"; exit 1; }
 
       - name: Run checks
         run: |
@@ -137,8 +143,6 @@ jobs:
 
       - name: Install dependencies
         uses: ./.github/actions/bun-install
-        with:
-          save: "true"
 
       - name: Build packages
         run: bun run build
