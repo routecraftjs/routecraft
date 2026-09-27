@@ -1,0 +1,9 @@
+node_modules
+.git
+.env
+.env.*
+.npmrc
+.routecraft
+*.log
+Dockerfile
+.dockerignore

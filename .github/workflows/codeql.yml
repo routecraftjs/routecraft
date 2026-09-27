@@ -1,0 +1,48 @@
+name: CodeQL
+
+# Static analysis of the TypeScript the packages ship. Findings go to the
+# repository's code scanning alerts; a pull request shows the ones it
+# introduces. Weekly, because new queries find old code.
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+  schedule:
+    - cron: "17 4 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      security-events: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      # TypeScript needs no build for CodeQL to read it.
+      - name: Initialise CodeQL
+        uses: github/codeql-action/init@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          languages: javascript-typescript
+          build-mode: none
+          queries: security-extended
+          config: |
+            paths-ignore:
+              - "**/dist/**"
+              - "**/test/**"
+              - "**/*.test.ts"
+              - "apps/routecraft.dev/baseline/**"
+
+      - name: Analyse
+        uses: github/codeql-action/analyze@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          category: "/language:javascript-typescript"

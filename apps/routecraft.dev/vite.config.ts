@@ -76,4 +76,8 @@ export default defineConfig({
     tailwindcss(),
     rawAwareMdx(),
   ],
+  // The prerender crawls the preview server by the URL Vite reports. Named
+  // `localhost`, a container that also maps it to ::1 sends Bun's fetch there
+  // while the server listens on 127.0.0.1, and every page is refused.
+  preview: { host: '127.0.0.1' },
 })
