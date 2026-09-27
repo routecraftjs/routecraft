@@ -9,19 +9,17 @@ What `.github/workflows/ci.yml` and `.github/workflows/release.yml` enforce, wha
 ```
   ci.yml (push + pull_request):
 
-  validate ─┐
-            ├─►  scaffolder-smoke
-  test  ────┤
-            ├─►  embedding-smoke
-            ├─►  isolation-smoke (after validate and test only)
-  build ────┤
-            ├─►  adapter-cross-runtime (bun + node)
-            └─►  security
+  validate, test, isolation-smoke
+
+  build  ─┬─►  scaffolder-smoke
+          ├─►  embedding-smoke
+          ├─►  adapter-cross-runtime (bun + node)
+          └─►  security
 
   changes  ──►  docs-site, docs-release-shape, site-image-security
                (and the `if` of every job above except validate, test, build)
 
-  setup     saves the package cache; no job waits on it
+  every job  ──►  ci-passed (the one required check)
 
   release.yml (workflow_run: CI succeeded on a main push):
 
@@ -31,7 +29,7 @@ What `.github/workflows/ci.yml` and `.github/workflows/release.yml` enforce, wha
   scheduled: codeql.yml (also on PRs), scorecard.yml, security-rescan.yml
 ```
 
-Every ci.yml job that installs workspace dependencies restores bun's package cache (`~/.bun/install/cache`, key: `hashFiles('**/bun.lock')`) and then runs `bun install --frozen-lockfile`, which is seconds against a warm cache. `setup` is the one job that saves that cache, keyed on the exact lockfile so an archive holds only its packages; every other job restores it read-only through `.github/actions/bun-install`, which also pins bun and runs the install, and starts without waiting for `setup`, so a lockfile change costs each job a download of the difference rather than a queue behind one install. The install stays seconds only while nothing compiles during it, so `trustedDependencies` stays minimal: a package goes in only when its lifecycle script is required, and a native dependency the workspace installs must ship a binary for the CI runner (linux-x64, glibc) under the `.nvmrc` Node rather than build one. One that compiles costs every job with Node set up a minute or more. `changes` installs nothing and `embedding-smoke` is deliberately node + npm (see the § 2 table), so neither restores it; release.yml's install steps are cold by design, since a publish is rare and correctness there outranks a minute. The linked `**/node_modules` tree is deliberately **not** cached: several dependencies ship a nested `node_modules` inside their own `dist` or test fixtures, nitro vendors `defu` there and imports it without declaring it, and a `**/node_modules` glob matches those nested trees separately from the tree containing them, so the archive carries overlapping paths and the restore silently drops files. Cache the packages, link them fresh. Build output is passed differently: `build` uploads `packages/*/dist` and `examples/dist` as a run artifact (`build-dist`) that the smoke and cross-runtime jobs download. Artifacts are guaranteed within the run that produced them, which a cache key is not. `changes` skips downstream jobs when the diff doesn't touch package or workflow paths.
+Every ci.yml job that installs workspace dependencies restores bun's package cache (`~/.bun/install/cache`, key: `hashFiles('**/bun.lock')`) and then runs `bun install --frozen-lockfile`, which is seconds against a warm cache. Every such job goes through `.github/actions/bun-install`, which pins bun, restores the cache and installs. `build` passes `save: true` and is the one job that saves it, keyed on the exact lockfile and restoring on that exact key only, so an archive holds only its packages; every other job restores read-only with a prefix fallback, so a lockfile change costs each job a download of the difference rather than a queue behind one install. The install stays seconds only while nothing compiles during it, so `trustedDependencies` stays minimal: a package goes in only when its lifecycle script is required, and a native dependency the workspace installs must ship a binary for the CI runner (linux-x64, glibc) under the `.nvmrc` Node rather than build one. One that compiles costs every job with Node set up a minute or more. `changes` installs nothing and `embedding-smoke` is deliberately node + npm (see the § 2 table), so neither restores it; release.yml's install steps are cold by design, since a publish is rare and correctness there outranks a minute. The linked `**/node_modules` tree is deliberately **not** cached: several dependencies ship a nested `node_modules` inside their own `dist` or test fixtures, nitro vendors `defu` there and imports it without declaring it, and a `**/node_modules` glob matches those nested trees separately from the tree containing them, so the archive carries overlapping paths and the restore silently drops files. Cache the packages, link them fresh. Build output is passed differently: `build` uploads `packages/*/dist` and `examples/dist` as a run artifact (`build-dist`) that the smoke and cross-runtime jobs download. Artifacts are guaranteed within the run that produced them, which a cache key is not. `changes` skips downstream jobs when the diff doesn't touch package or workflow paths.
 
 The split between the two files is exact: **ci.yml validates and never publishes to npm; release.yml owns every npm publish** (stable releases AND canary snapshots). This is forced by npm Trusted Publishing, which allows one trusted publisher per package, pinned to a single workflow filename, so all publishes must originate from one file. release.yml triggers on `workflow_run` when CI completes successfully for a push to `main`, which also guarantees nothing is published from a commit whose tests or smokes failed. ci.yml's only involvement is uploading a `push-base` artifact (the push's `before` sha, unavailable in `workflow_run` payloads) that the canary job diffs against.
 
@@ -39,14 +37,13 @@ Docs deployment (`build-and-deploy-docs`) is the LAST job of release.yml, after 
 
 ## 2. The PR gates
 
-Every PR must pass these jobs before merge. The first column matches the GitHub status check name shown in the PR.
+Every PR must pass these jobs before merge. The first column matches the GitHub status check name shown in the PR. Branch protection requires one check, `ci-passed`, which needs every ci.yml job and fails when any of them failed or was cancelled. Requiring the jobs themselves does not work: GitHub counts a skipped check as passing, and a job whose dependency failed is skipped. A new ci.yml job goes into `ci-passed`'s `needs`, never into the ruleset.
 
 | Job | Runs | Catches |
 |-----|------|---------|
-| `setup` | `bun install --frozen-lockfile`, then saves the package cache | Lockfile drift, install failures, dependabot lockfile updates. Runs beside the other jobs, not before them. |
 | `validate` | `bun run format && bun run typecheck && bun run lint && bunx madge --circular .` | Prettier drift, TS errors, ESLint violations, circular imports. |
 | `test` | `bun run test:coverage` (runs `bun:test` for `*.bun.test.{ts,tsx}` then vitest for the rest, both excluding `**/integration.test.ts` and `**/test/cross-runtime/**`) | Unit-test regressions, coverage report uploaded as artifact. |
-| `build` | `bun run build` and `bun run limit:size` | Build failures, bundle size regressions (size-limit). |
+| `build` | `bun install --frozen-lockfile`, saving the package cache on a new lockfile, then `bun run build` and `bun run limit:size` | Lockfile drift, install failures, build failures, bundle size regressions (size-limit). |
 | `docs-site` | The site's own `typecheck` and `lint`, `check-examples`, a build, `check-links`, then the Playwright acceptance suite against that build | The site's checks are not in the root `validate` job, which typechecks the packages only. Catches broken app types, an example naming an option, symbol or literal that does not exist, dead internal links and anchors, and the URL space, channel, metadata and rendering contracts the migration was held to. `check-examples` runs before the build because it needs neither the build nor the browser. Runs on the `docs` paths filter in ci.yml: `apps/routecraft.dev/**`, `packages/**` (the reference catalogues are generated from them), `bun.lock` and `.github/workflows/**`. |
 | `scaffolder-smoke` | `log-flags.bun.test.ts` and `relaunch.bun.test.ts` against the built CLI (`CRAFT_CLI_ENTRY=packages/cli/dist/index.js`), then `bun run test:integration` twice (`TEST_PACKAGE_MANAGER=bun`, then `=npm`) | The built CLI honours `--log-level` and `--log-file` (the bundle can load core ahead of the flags with no source change; 0.7.0 shipped that way), and `craft run` on a file outside any project runs on the CLI's own core (the lone-file cases need core's `dist/`, which the `test` job never builds, so they skip there). End-to-end scaffolder flow: `create-routecraft` -> install -> `bunx tsc --noEmit` -> `bunx craft run` (npm arm skips the run since `craft` is Bun-only). Catches CLI binary regressions, scaffolder template drift, package-manager-specific install failures. |
 | `embedding-smoke` | `node .github/scripts/smoke-test-embedding.mjs` | Library embeds into a plain Node app: `npm pack` + `npm install` + `node --experimental-strip-types runner.ts`. Includes a negative arm asserting `RC5017` fires when `cron()` is used without `croner` installed. Catches Node compatibility regressions in the core library and the optional-peer contract. |
