@@ -133,8 +133,9 @@ function Hero() {
               You bought everyone AI licences. The tools your people built with
               them live on their laptops, on their own logins, and nobody else
               can use them. Your competitors ship capabilities in an afternoon.
-              Routecraft is the open source platform where one team builds it
-              and every team runs it.
+              You are still arguing about where to run them. Routecraft is the
+              open source platform where one team builds it and every team runs
+              it.
             </p>
 
             <div
