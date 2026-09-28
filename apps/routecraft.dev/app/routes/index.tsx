@@ -14,7 +14,7 @@ import {
   SectionHeading,
 } from '@/components/SectionHeading'
 import { type BlogPostMeta, getAllBlogPosts, getFeaturedPost } from '@/lib/blog'
-import { absoluteUrl, docVersion, siteDescription } from '@/lib/site'
+import { absoluteUrl, docVersion } from '@/lib/site'
 
 const CONSEQUENCES = [
   "Nobody can tell a person's call from an agent's.",
@@ -95,24 +95,24 @@ function Hero() {
             className="paper-rise font-mono text-[0.7rem] tracking-[0.22em] text-cobalt-500 uppercase"
             style={{ animationDelay: '60ms' }}
           >
-            Open source AI capability platform &nbsp;·&nbsp;{' '}
+            Open source AI automation platform &nbsp;·&nbsp;{' '}
             <AppLink href="/changelog" className="hover:text-cobalt-600">
               v{docVersion}
             </AppLink>
           </p>
           <h1
-            className="paper-rise mt-6 font-editorial text-[clamp(2.5rem,5.5vw,4.5rem)] leading-[1.02] tracking-[-0.025em] text-ink"
+            className="paper-rise mt-6 font-editorial text-[clamp(3rem,7vw,5.75rem)] leading-[0.98] tracking-[-0.025em] text-ink"
             style={{
               animationDelay: '140ms',
               fontVariationSettings: HEADLINE_SOFT,
             }}
           >
-            Every team is rebuilding the same capabilities.{' '}
+            Where your AI{' '}
             <span
               className="font-editorial text-cobalt-500 italic"
               style={{ fontVariationSettings: HEADLINE_ITALIC }}
             >
-              Each on its own scraped credentials.
+              gets to work.
             </span>
           </h1>
 
@@ -120,35 +120,38 @@ function Hero() {
             className="paper-rise mt-8 max-w-2xl text-[1.15rem] leading-[1.75] text-ink/75"
             style={{ animationDelay: '260ms' }}
           >
-            {siteDescription}
+            You bought everyone AI licences. Nobody can name one thing they
+            shipped. Your competitors ship capabilities in an afternoon.
+            You&apos;re still arguing about which tools to use and where to run
+            them. Routecraft is the platform you&apos;ve been looking for.
           </p>
 
           <div
             className="paper-rise mt-10 flex flex-wrap items-center gap-x-8 gap-y-4"
             style={{ animationDelay: '360ms' }}
           >
-            <a
-              href="#platform"
+            <AppLink
+              href="/docs/introduction/installation"
               className="group inline-flex items-center gap-3 bg-cobalt-500 px-6 py-3 text-paper transition hover:bg-cobalt-600"
             >
               <span className="font-mono text-[0.7rem] tracking-[0.22em] uppercase">
-                See how it works
+                Put your AI to work
               </span>
               <span
                 aria-hidden="true"
-                className="transition group-hover:translate-y-0.5"
+                className="transition group-hover:translate-x-0.5"
               >
-                ↓
+                →
               </span>
-            </a>
-            <AppLink
-              href="/docs/introduction/installation"
+            </AppLink>
+            <a
+              href="#platform"
               className="group relative font-editorial text-[1.05rem] text-ink italic hover:text-cobalt-500"
             >
               <span className="border-b border-current pb-px transition group-hover:border-cobalt-500">
-                Get started
+                See it in one minute
               </span>
-            </AppLink>
+            </a>
             <a
               href="https://github.com/routecraftjs/routecraft"
               className="group font-mono text-[0.75rem] tracking-[0.18em] text-ink/65 uppercase hover:text-ink"

@@ -39,10 +39,10 @@ export const siteUrl = (
 
 export const siteName = 'Routecraft'
 
-export const siteTagline = 'One team builds it. Every team runs it.'
+export const siteTagline = 'Where your AI gets to work.'
 
 export const siteDescription =
-  'Routecraft is the open source platform where one team builds a capability and every team runs it. Prove it on your laptop, promote it to a team harness, and every agent, editor and team calls it on service credentials instead of their own.'
+  'Routecraft is the open source AI automation platform where one team builds a capability and every team runs it. Prove it on your laptop, promote it to a team harness, and every agent, editor and team calls it on service credentials instead of their own.'
 
 export const organization = {
   name: siteName,
