@@ -4,12 +4,12 @@ The homepage film is code, not a video file. `app/components/film/FilmFrame.tsx`
 draws any moment of the film as a pure function of time on a 1920x1080 canvas,
 and everything else reads the same clock.
 
-| Piece    | Where                                  | What it does                                                                                                      |
-| -------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
-| Timeline | `app/components/film/timeline.ts`      | The film as data: captions, narration windows, card positions, score events, and the easing and blending helpers. |
-| Frame    | `app/components/film/FilmFrame.tsx`    | Draws one moment. Every position, size and fade is computed from `t`.                                             |
-| Player   | `app/components/film/HeroFilm.tsx`     | Plays it in the homepage hero; a click opens it in a lightbox. Silent for now: the stems and the mix come back with the reworked cut. |
-| Scripts  | `scripts/film/`                        | Music, voice, mix and the MP4 export. Run by hand, never by the build.                                            |
+| Piece    | Where                               | What it does                                                                                                                          |
+| -------- | ----------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------- |
+| Timeline | `app/components/film/timeline.ts`   | The film as data: captions, narration windows, card positions, score events, and the easing and blending helpers.                     |
+| Frame    | `app/components/film/FilmFrame.tsx` | Draws one moment. Every position, size and fade is computed from `t`.                                                                 |
+| Player   | `app/components/film/HeroFilm.tsx`  | Plays it in the homepage hero; a click opens it in a lightbox. Silent for now: the stems and the mix come back with the reworked cut. |
+| Scripts  | `scripts/film/`                     | Music, voice, mix and the MP4 export. Run by hand, never by the build.                                                                |
 
 ## How a move works
 
@@ -29,10 +29,15 @@ the reference for the next.
 
 ffmpeg must be on `PATH` or set in `FFMPEG`.
 
+`eleven.ts` reads `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID` from the
+environment, and `ELEVENLABS_MODEL` when set (default `eleven_v4`). It never
+speeds a line up: when a read runs past a line's window, retime the timeline.
+
 ```
 bun scripts/film/score.ts                 # music stem
 bun add --no-save kokoro-js               # the voice model runtime, 427 MB, not a dependency
 bun scripts/film/voice.ts                 # voice stem, VOICE=bm_george for another voice
+bun scripts/film/eleven.ts                # or the voice stem from ElevenLabs, read as one take (--lines: per line)
 bun scripts/film/mix.ts                   # public/film/soundtrack.mp3
 bun scripts/film/render.ts                # public/film/routecraft-platform.mp4
 bun scripts/film/render.ts --stills 12,44 # review PNGs instead of the MP4
