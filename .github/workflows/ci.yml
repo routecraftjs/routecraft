@@ -8,12 +8,10 @@ on:
       - "**/README.md"
       - ".github/ISSUE_TEMPLATE/**"
       - ".cursor/**"
+  # No paths-ignore: a PR the workflow never runs on never reports ci-passed,
+  # and the required check then waits forever. `changes` skips the heavy jobs.
   pull_request:
     branches: ["main"]
-    paths-ignore:
-      - "**/README.md"
-      - ".github/ISSUE_TEMPLATE/**"
-      - ".cursor/**"
 
 permissions:
   contents: read
@@ -79,41 +77,6 @@ jobs:
           path: push-base.txt
           retention-days: 1
 
-  setup:
-    runs-on: ubuntu-latest
-    steps:
-      - name: Checkout
-        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-
-      - name: Use Node.js from .nvmrc
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
-        with:
-          node-version-file: ".nvmrc"
-
-      - name: Install bun
-        uses: oven-sh/setup-bun@0c5077e51419868618aeaa5fe8019c62421857d6 # v2.2.0
-        with:
-          bun-version-file: "package.json"
-
-      # The package cache, not node_modules. Several dependencies ship a nested
-      # node_modules inside their own dist or test fixtures: nitro vendors defu
-      # under dist/node_modules, and its vite entry imports it without declaring
-      # it, so nothing else can supply it. Archiving `**/node_modules` matches
-      # those nested trees separately from the tree containing them, and the
-      # restore came back missing them, which failed the site build and nothing
-      # else. Installing from a warm package cache takes seconds and always
-      # produces a correct tree. No restore-keys here: bun never prunes its
-      # cache, so saving on a partial hit would carry every superseded package
-      # into every later archive.
-      - name: Cache the bun package cache
-        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
-        with:
-          path: ~/.bun/install/cache
-          key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lock') }}
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
   validate:
     runs-on: ubuntu-latest
     steps:
@@ -127,6 +90,14 @@ jobs:
 
       - name: Install dependencies
         uses: ./.github/actions/bun-install
+        with:
+          save: "true"
+
+      - name: Check ci-passed needs every other job
+        run: |
+          diff <(yq '.jobs | keys | .[]' .github/workflows/ci.yml | grep -vx ci-passed | sort) \
+               <(yq '.jobs["ci-passed"].needs[]' .github/workflows/ci.yml | sort) \
+            || { echo "::error::ci-passed must need every job in ci.yml"; exit 1; }
 
       - name: Run checks
         run: |
@@ -519,7 +490,7 @@ jobs:
             --exit-code 1 apps/routecraft.dev/Dockerfile
 
   scaffolder-smoke:
-    needs: [changes, validate, test, build]
+    needs: [changes, build]
     if: needs.changes.outputs.packages == 'true'
     runs-on: ubuntu-latest
     name: scaffolder-smoke
@@ -561,7 +532,7 @@ jobs:
         run: bun run test:integration
 
   embedding-smoke:
-    needs: [changes, validate, test, build]
+    needs: [changes, build]
     if: needs.changes.outputs.packages == 'true'
     runs-on: ubuntu-latest
     name: embedding-smoke
@@ -589,7 +560,7 @@ jobs:
   # failure reads as "isolation broke" rather than being buried in a job
   # named for something else.
   isolation-smoke:
-    needs: [changes, validate, test]
+    needs: [changes]
     if: needs.changes.outputs.packages == 'true'
     runs-on: ubuntu-latest
     name: isolation-smoke
@@ -648,7 +619,7 @@ jobs:
         run: bun run test:isolation
 
   adapter-cross-runtime:
-    needs: [changes, validate, test, build]
+    needs: [changes, build]
     if: needs.changes.outputs.packages == 'true'
     runs-on: ubuntu-latest
     strategy:
@@ -682,3 +653,28 @@ jobs:
       - name: Run cross-runtime adapter tests (node)
         if: matrix.runtime == 'node'
         run: npm run test:cross-runtime:node
+
+  # The one check branch protection requires. GitHub counts a skipped check as
+  # passing, and a job whose dependency failed is skipped, so requiring the
+  # jobs themselves lets a red test merge; this job fails on any failed or
+  # cancelled job instead, and a job skipped by the paths filter still passes.
+  ci-passed:
+    needs:
+      - changes
+      - validate
+      - test
+      - build
+      - docs-site
+      - docs-release-shape
+      - security
+      - site-image-security
+      - scaffolder-smoke
+      - embedding-smoke
+      - isolation-smoke
+      - adapter-cross-runtime
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - name: Fail when a job failed or was cancelled
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1

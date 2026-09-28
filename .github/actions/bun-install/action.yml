@@ -1,8 +1,16 @@
 name: Install workspace dependencies
 description: >-
-  Installs the pinned bun, restores its package cache read-only and runs a
-  frozen install. The setup job is the one writer of that cache; see
+  Installs the pinned bun, restores its package cache and runs a frozen
+  install. Exactly one job passes `save: true` and writes that cache; see
   .standards/ci-cd.md § 1.
+inputs:
+  save:
+    description: >-
+      Save the package cache after installing when the lockfile's key missed.
+      The saving job restores on an exact key only: bun never prunes its
+      cache, so saving on a partial hit would carry every superseded package
+      into every later archive.
+    default: "false"
 runs:
   using: composite
   steps:
@@ -10,12 +18,20 @@ runs:
       with:
         bun-version-file: "package.json"
 
-    # Must stay the key setup saves under, or every job misses the cache.
-    - uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+    # The package cache, not node_modules: an archive of `**/node_modules`
+    # restores without nested trees such as nitro's dist/node_modules.
+    - id: restore
+      uses: actions/cache/restore@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
       with:
         path: ~/.bun/install/cache
         key: ${{ runner.os }}-bun-${{ hashFiles('**/bun.lock') }}
-        restore-keys: ${{ runner.os }}-bun-
+        restore-keys: ${{ inputs.save != 'true' && format('{0}-bun-', runner.os) || '' }}
 
     - run: bun install --frozen-lockfile
       shell: bash
+
+    - if: inputs.save == 'true' && steps.restore.outputs.cache-hit != 'true'
+      uses: actions/cache/save@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+      with:
+        path: ~/.bun/install/cache
+        key: ${{ steps.restore.outputs.cache-primary-key }}
