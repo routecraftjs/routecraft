@@ -83,3 +83,6 @@ app/routeTree.gen.ts
 
 # Review stills from `bun scripts/film/render.ts --stills`
 /scripts/film/stills/
+
+# Film stems written by `scripts/film/score.ts` and `voice.ts`; generated, never committed
+/scripts/film/audio/

@@ -50,6 +50,7 @@ frame-exact export and sync to narration harder.
 ## Shipping state
 
 The site ships the film silent and draws it live, so nothing under
-`public/film/` is committed. Regenerating the soundtrack and the MP4 is for the
+`public/film/` or `scripts/film/audio/` is committed; the stems are generated
+output and are ignored. Regenerating the soundtrack and the MP4 is for the
 reworked cut; when it lands, the player takes the audio element back as its
 clock and the download link returns.

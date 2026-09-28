@@ -3,9 +3,9 @@
  * from `FFMPEG`. Audio moves between the scripts as raw float samples, so the
  * synthesis and the mix stay in TypeScript and ffmpeg only decodes and encodes.
  */
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
 import { tmpdir } from 'node:os'
-import { join } from 'node:path'
+import { dirname, join } from 'node:path'
 
 export const FFMPEG = process.env.FFMPEG ?? 'ffmpeg'
 export const RATE = 48000
@@ -45,6 +45,7 @@ export function encode(
   out: string,
   args: string[],
 ) {
+  mkdirSync(dirname(out), { recursive: true })
   const work = mkdtempSync(join(tmpdir(), 'routecraft-film-audio-'))
   const raw = join(work, 'samples.f32')
   try {
