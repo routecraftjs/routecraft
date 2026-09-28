@@ -54,11 +54,11 @@ interface TeamCard {
 
 const CARDS: TeamCard[] = [
   {
-    name: 'team-atlas-agent',
+    name: 'invoice-chaser',
     lang: 'Python',
     line: 'one VM, one shared key for everyone',
     left: 358,
-    top: 50,
+    top: 40,
     tilt: -1.5,
   },
   {
@@ -66,23 +66,23 @@ const CARDS: TeamCard[] = [
     lang: 'Node',
     line: "a laptop, a person's token, off on Fridays",
     left: 724,
-    top: 112,
+    top: 102,
     tilt: 1.8,
   },
   {
-    name: 'playwright-token-extractor',
+    name: 'expense-approvals',
     lang: 'Node',
     line: 'logs in as you, copies the session cookie',
     left: 376,
-    top: 200,
+    top: 185,
     tilt: 1.2,
   },
   {
-    name: 'python-harness',
+    name: 'support-replies',
     lang: 'Python',
     line: 'its own prompts, its own model key',
     left: 742,
-    top: 262,
+    top: 247,
     tilt: -2,
   },
   {
@@ -90,15 +90,15 @@ const CARDS: TeamCard[] = [
     lang: 'TypeScript',
     line: 'works on one machine, nobody can install it',
     left: 362,
-    top: 350,
+    top: 330,
     tilt: -0.8,
   },
   {
-    name: 'ops-scripts',
-    lang: 'Java',
-    line: 'scripts in a bigger repo, run by hand',
+    name: 'payroll-checks',
+    lang: 'PowerShell',
+    line: 'run by hand every Friday, on one login',
     left: 728,
-    top: 412,
+    top: 392,
     tilt: 1.5,
   },
   {
@@ -106,36 +106,45 @@ const CARDS: TeamCard[] = [
     lang: 'Markdown',
     line: 'the same GitHub skill, written four times',
     left: 380,
-    top: 500,
+    top: 475,
     tilt: -1.2,
   },
   {
-    name: 'the one in your area',
-    line: 'not on any list yet',
+    name: 'sales-followups',
+    lang: 'Node',
+    line: "reads the CRM on the rep's own login",
     left: 746,
-    top: 562,
+    top: 537,
     tilt: 1.6,
-    ghost: true,
   },
   {
     name: 'the next one',
     line: 'being written this week',
     left: 366,
-    top: 650,
+    top: 620,
     tilt: -1,
+    ghost: true,
+  },
+  {
+    name: 'the one in your area',
+    line: 'not on any list yet',
+    left: 734,
+    top: 682,
+    tilt: 1.3,
     ghost: true,
   },
 ]
 
+/** The same business systems the platform figure and the film draw. */
 const BACKENDS = [
-  'search index',
+  'CRM',
+  'ERP',
+  'HR and payroll',
   'ticketing',
-  'observability',
+  'knowledge base',
+  'mail and calendar',
   'chat',
-  'wiki',
   'source control',
-  'graph database',
-  'data store',
 ]
 
 /** Left edge of the backend column, where every wire lands. */
@@ -151,15 +160,16 @@ interface Wire {
 }
 
 const WIRES: Wire[] = [
-  { from: [508, 98], to: [178, 256, 412, 89] },
-  { from: [874, 160], to: [490, 724, 89] },
-  { from: [526, 248], to: [256, 334, 412] },
-  { from: [892, 310], to: [89, 178, 646] },
-  { from: [512, 398], to: [568, 490, 334] },
-  { from: [878, 460], to: [568, 724, 256] },
-  { from: [530, 548], to: [568, 412] },
-  { from: [896, 610], to: [334], faint: true },
-  { from: [516, 698], to: [724], faint: true },
+  { from: [508, 88], to: [178, 256, 412, 89] },
+  { from: [874, 150], to: [334, 568, 89] },
+  { from: [526, 233], to: [256, 334, 412] },
+  { from: [892, 295], to: [89, 178, 646] },
+  { from: [512, 378], to: [568, 490, 334] },
+  { from: [878, 440], to: [334, 256, 568] },
+  { from: [530, 523], to: [724, 490] },
+  { from: [896, 585], to: [178, 568, 646] },
+  { from: [516, 668], to: [412], faint: true },
+  { from: [884, 730], to: [490], faint: true },
 ]
 
 function Card({ card, palette }: { card: TeamCard; palette: FigurePalette }) {

@@ -224,7 +224,7 @@ export const BOARD: BoardCard[] = [
   {
     kind: 'py',
     name: 'sync_crm.py',
-    line: 'SharePoint › Ops › scripts',
+    line: 'SharePoint › Finance › scripts',
     note: 'runs when someone remembers',
     x: 140,
     y: 280,

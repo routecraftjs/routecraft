@@ -61,7 +61,7 @@ export const FIGURE_TEXT = {
       'The four primitives of a team agent harness, and the model in the middle.',
   },
   'every-team-builds-its-own': {
-    alt: 'Nine tilted team cards (a Python agent on one VM, a Node agent on a laptop, a token extractor, a Python harness, an MCP tools repo, ops scripts, Copilot skills and two ghosts not yet on any list), each wired by dashed lines straight into the same column of backends: search index, ticketing, observability, chat, wiki, source control, graph database and data store. A list of ten patterns seen across them, from a token pasted into a .env to nothing another team can install.',
+    alt: "Ten tilted team cards (an invoice chaser on one VM, a recruitment agent on a laptop, expense approvals on a copied session cookie, support replies with their own model key, an MCP tools repo, payroll checks run by hand, Copilot skills, sales follow-ups on a rep's own login, and two ghosts not yet on any list), each wired by dashed lines straight into the same column of business systems: CRM, ERP, HR and payroll, ticketing, knowledge base, mail and calendar, chat and source control. A list of ten patterns seen across them, from a token pasted into a .env to nothing another team can install.",
     caption:
       'Every team builds its own: a stack per team, a credential per person.',
   },
