@@ -76,7 +76,6 @@ function LandingPage() {
       <Hero />
       <SectionRule numeral="I" label="The problem" />
       <Problem />
-      <SectionRule numeral="II" label="The cost" />
       <Cost />
       <SectionRule numeral="III" label="The platform" />
       <Platform />
@@ -198,7 +197,7 @@ function Problem() {
 
         <Diagram id="every-team-builds-its-own" />
 
-        <Statements lines={CONSEQUENCES} escalate />
+        <Escalation lines={CONSEQUENCES} />
 
         <p
           className="mt-16 max-w-4xl font-editorial text-[clamp(2rem,3.6vw,3rem)] leading-[1.1] tracking-[-0.02em] text-ink lg:mt-20"
@@ -217,15 +216,49 @@ function Problem() {
   )
 }
 
+/**
+ * The one full-bleed colour band on the page, set between the two figures so
+ * the argument turns from what it costs to what the platform does. Its colours
+ * are fixed rather than themed: the deep cobalt reads the same in light and
+ * dark, so the text on it never swaps to dark ink.
+ */
 function Cost() {
   return (
-    <section>
-      <div className="container-page pt-12 pb-20 lg:pt-14 lg:pb-24">
-        <SectionHeading
-          plain="You are paying for the licences."
-          accent="You are not getting the results."
-        />
-        <Statements lines={COSTS} size="body" className="mt-10" />
+    <section className="mb-16 bg-cobalt-700 text-white lg:mb-20">
+      <div className="container-page py-16 lg:py-20">
+        <div className="flex items-center gap-4">
+          <span aria-hidden="true" className="h-1.5 w-1.5 bg-cobalt-200" />
+          <span className="font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-200 uppercase tabular-nums">
+            II
+          </span>
+          <span className="font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-100/80 uppercase">
+            The cost
+          </span>
+          <span className="h-px flex-1 bg-cobalt-400/60" />
+        </div>
+        <h2
+          className="mt-12 max-w-4xl font-editorial text-[clamp(2.2rem,4vw,3.25rem)] leading-[1.05] tracking-[-0.02em]"
+          style={{ fontVariationSettings: HEADLINE_SOFT }}
+        >
+          You are paying for the licences.{' '}
+          <span
+            className="text-cobalt-200 italic"
+            style={{ fontVariationSettings: HEADLINE_ITALIC }}
+          >
+            You are not getting the results.
+          </span>
+        </h2>
+        <ul className="mt-12 grid grid-cols-1 gap-x-12 gap-y-8 md:grid-cols-3">
+          {COSTS.map((line) => (
+            <li
+              key={line}
+              className="border-t border-cobalt-400/60 pt-5 font-editorial text-[1.2rem] leading-[1.45] text-cobalt-50"
+              style={{ fontVariationSettings: '"opsz" 72, "SOFT" 50' }}
+            >
+              {line}
+            </li>
+          ))}
+        </ul>
       </div>
     </section>
   )
@@ -353,41 +386,22 @@ function Path() {
 
 /**
  * Short claims set as statements: large type, one under the other, no markers
- * or rules, so they read as an argument rather than a feature list. With
- * `escalate` each line is darker than the one before, so the last lands hardest.
+ * or rules, so they read as an argument rather than a feature list. Each line
+ * is darker than the one before, so the last lands hardest.
  */
-function Statements({
-  lines,
-  escalate = false,
-  size = 'display',
-  className,
-}: {
-  lines: string[]
-  escalate?: boolean
-  /** `display` stands on its own; `body` sits under a section heading. */
-  size?: 'display' | 'body'
-  className?: string
-}) {
+function Escalation({ lines }: { lines: string[] }) {
   const tone = (i: number) =>
-    size === 'body'
-      ? 'text-ink/75'
-      : !escalate || i === lines.length - 1
-        ? 'text-ink'
-        : i === 0
-          ? 'text-ink/40'
-          : 'text-ink/60'
-  const scale =
-    size === 'body'
-      ? 'text-[clamp(1.25rem,1.8vw,1.55rem)] leading-[1.4]'
-      : 'text-[clamp(1.5rem,2.6vw,2.2rem)] leading-[1.25]'
+    i === lines.length - 1
+      ? 'text-ink'
+      : i === 0
+        ? 'text-ink/40'
+        : 'text-ink/60'
   return (
-    <ul
-      className={`flex flex-col ${size === 'body' ? 'max-w-3xl gap-4' : 'max-w-5xl gap-5'} ${className ?? ''}`}
-    >
+    <ul className="flex max-w-5xl flex-col gap-5">
       {lines.map((line, i) => (
         <li
           key={line}
-          className={`font-editorial tracking-[-0.01em] ${scale} ${tone(i)}`}
+          className={`font-editorial text-[clamp(1.5rem,2.6vw,2.2rem)] leading-[1.25] tracking-[-0.01em] ${tone(i)}`}
           style={{ fontVariationSettings: '"opsz" 96, "SOFT" 50' }}
         >
           {line}
