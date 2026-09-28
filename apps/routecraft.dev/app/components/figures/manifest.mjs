@@ -55,6 +55,15 @@ export const FIGURE_TEXT = {
     alt: 'Left: an agent calling an MCP server that holds three tools. Right: MCP, cron and HTTP all entering one Routecraft capability, which in turn calls other MCP servers and hosts the agent.',
     caption: 'Is the MCP server the product, or one doorway into the product?',
   },
+  'function-to-mcp-tool': {
+    alt: 'A capability of six lines, from craft() to .from(mcp()) and a transform, runs through craft run into an MCP server that Routecraft frames, validates, types, logs and shuts down for you. Claude Desktop, Cursor and the MCP Inspector call it over stdio.',
+    caption: 'One TypeScript function in, one MCP tool out.',
+  },
+  'jev-screen-cascade': {
+    alt: 'An agent result, made of the request, the account and the tool record, enters a Jev screen that answers one noul question with a probability. At or above passAt the result passes with no reasoning call; below it, or with no answer, it goes to an LLM judge for a verdict and a reason.',
+    caption:
+      'One question, two paths: the screen passes, or the judge explains.',
+  },
   'team-agent-harness': {
     alt: 'A harness boundary holding four primitives (delegation, shared memory, capability gaps, channels) around a central model doing judgement only, sitting on three platform rules.',
     caption:
@@ -74,3 +83,6 @@ export const FIGURE_TEXT = {
     caption: 'One runtime, six layers, open at any depth.',
   },
 }
+
+/** Every figure id, in manifest order, for the prerender list. */
+export const FIGURE_IDS = Object.keys(FIGURE_TEXT)

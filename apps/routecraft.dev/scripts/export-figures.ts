@@ -36,6 +36,7 @@ import {
   FIGURE_EXPORT_ATTRIBUTE,
   FIGURE_EXPORT_SCALE,
   FIGURE_IMAGE_DIR,
+  FIGURE_READY_ATTRIBUTE,
   FIGURE_THEMES,
   figureImagePath,
 } from '../app/lib/figure-image'
@@ -171,6 +172,10 @@ async function main() {
                 `/figures/${id}/ returned ${response?.status() ?? 'no response'}`,
               )
             }
+
+            await page.waitForSelector(
+              `[${FIGURE_EXPORT_ATTRIBUTE}][${FIGURE_READY_ATTRIBUTE}]`,
+            )
 
             // Dark is applied by next-themes after hydration, so the served
             // HTML is light until the class lands: capturing early would write

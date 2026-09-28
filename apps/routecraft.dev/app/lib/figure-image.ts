@@ -26,6 +26,13 @@ export { FIGURE_DARK_SUFFIX, FIGURE_IMAGE_DIR }
  */
 export const FIGURE_EXPORT_ATTRIBUTE = 'data-figure-export'
 
+/**
+ * Set on the same element once the page has hydrated. The export waits for it
+ * before lifting the figure out of the document; lifted earlier, the client
+ * render that follows hydration restores the page around it.
+ */
+export const FIGURE_READY_ATTRIBUTE = 'data-figure-ready'
+
 /** Pixel ratio the PNGs are rendered at, so type survives a retina screen. */
 export const FIGURE_EXPORT_SCALE = 2
 
