@@ -19,12 +19,6 @@ import {
 import { type BlogPostMeta, getAllBlogPosts, getFeaturedPost } from '@/lib/blog'
 import { absoluteUrl, docVersion } from '@/lib/site'
 
-const CONSEQUENCES = [
-  'Built again in every team. Reviewed in none.',
-  "Every one of them on somebody's personal login.",
-  'The day that person leaves, the tool leaves with them.',
-]
-
 const COSTS = [
   'Build it once, and every licence you already pay for can call it.',
   'Your AI burns tokens sifting through content instead of solving the problem. A capability answers in one call, the same way every time.',
@@ -185,8 +179,8 @@ function Problem() {
     <section>
       <div className="container-page pt-12 pb-20 lg:pt-14 lg:pb-24">
         <SectionHeading
-          plain="Your people already built the tools."
-          accent="Nobody else can use them."
+          plain="Your people are not short of ideas."
+          accent="They are short of a place to run them."
         >
           Somewhere in your organisation a script already calls the CRM. Down
           the hall another team is writing it again, on a session token copied
@@ -202,74 +196,42 @@ function Problem() {
 }
 
 /**
- * The reckoning: what the scattered builds cost and what the licences are
- * failing to buy, on one tinted band between the two figures. Both halves
- * share a shape, a headline beside its three claims, so the page turns from
- * problem to platform in a single panel rather than two runs of paper.
+ * The cost, on the page's one tinted band between the two figures: the licence
+ * line beside its three claims, so the page turns from problem to platform in
+ * a single panel.
  */
 function Cost() {
   return (
     <section className="mb-16 border-y border-ink/15 bg-paper-deep lg:mb-20">
       <div className="container-page py-16 lg:py-20">
-        <Reckoning
-          plain="Your people are not short of ideas."
-          accent="They are short of a place to run them."
-          lines={CONSEQUENCES}
-        />
-        <div className="mt-16 lg:mt-20">
-          <SectionLabel numeral="II" label="The cost" />
+        <SectionLabel numeral="II" label="The cost" />
+        <div className="mt-12 grid grid-cols-1 gap-x-16 gap-y-10 lg:grid-cols-12">
+          <h2
+            className="font-editorial text-[clamp(2rem,3.4vw,2.9rem)] leading-[1.08] tracking-[-0.02em] text-balance text-ink lg:col-span-5"
+            style={{ fontVariationSettings: HEADLINE_SOFT }}
+          >
+            You are paying for the licences.{' '}
+            <span
+              className="text-cobalt-500 italic"
+              style={{ fontVariationSettings: HEADLINE_ITALIC }}
+            >
+              You are not getting the results.
+            </span>
+          </h2>
+          <ul className="flex flex-col lg:col-span-7">
+            {COSTS.map((line) => (
+              <li
+                key={line}
+                className="border-t border-ink/20 py-5 font-editorial text-[clamp(1.25rem,1.9vw,1.55rem)] leading-[1.35] text-ink last:border-b"
+                style={{ fontVariationSettings: '"opsz" 72, "SOFT" 50' }}
+              >
+                {line}
+              </li>
+            ))}
+          </ul>
         </div>
-        <Reckoning
-          plain="You are paying for the licences."
-          accent="You are not getting the results."
-          lines={COSTS}
-          className="mt-12"
-        />
       </div>
     </section>
-  )
-}
-
-/** One half of the reckoning band: a headline on the left, its claims on the right. */
-function Reckoning({
-  plain,
-  accent,
-  lines,
-  className,
-}: {
-  plain: string
-  accent: string
-  lines: string[]
-  className?: string
-}) {
-  return (
-    <div
-      className={`grid grid-cols-1 gap-x-16 gap-y-10 lg:grid-cols-12 ${className ?? ''}`}
-    >
-      <h2
-        className="font-editorial text-[clamp(2rem,3.4vw,2.9rem)] leading-[1.08] tracking-[-0.02em] text-balance text-ink lg:col-span-5"
-        style={{ fontVariationSettings: HEADLINE_SOFT }}
-      >
-        {plain}{' '}
-        <span
-          className="text-cobalt-500 italic"
-          style={{ fontVariationSettings: HEADLINE_ITALIC }}
-        >
-          {accent}
-        </span>
-      </h2>
-      <ul className="flex flex-col lg:col-span-7">
-        {lines.map((line) => (
-          <li
-            key={line}
-            className="border-t border-ink/20 py-5 font-editorial text-[clamp(1.25rem,1.9vw,1.55rem)] leading-[1.35] text-ink last:border-b"
-            style={{ fontVariationSettings: '"opsz" 72, "SOFT" 50' }}
-          >
-            {line}
-          </li>
-        ))}
-      </ul>
-    </div>
   )
 }
 
