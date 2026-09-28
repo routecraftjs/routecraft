@@ -20,13 +20,15 @@ layout: blog-post
 
 An agent finishes a task. Does every result need another LLM call to check it?
 
-We built a Routecraft example that puts [TypeSafe AI's Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) first. Jev returns a probability that the request was met. Results above a configurable threshold skip the LLM judge; everything else goes to it for a verdict and explanation.
+[Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) is TypeSafe AI's model for making decisions. Give it context and a typed question: is this true, which option fits, or how does this score? It returns an answer with probabilities instead of generated text, so your code can act on the result directly.
+
+We built a Routecraft example that puts Jev first. Jev returns a probability that the request was met. Results above a configurable threshold skip the LLM judge; everything else goes to it for a verdict and explanation.
 
 The useful part: **your application decides when to spend the reasoning call.**
 
 ## One question, two paths
 
-Jev answers typed questions with probabilities instead of generating text. Here we use a `noul`, its yes/no question type, to ask whether an agent fulfilled a request.
+Here we use a `noul`, Jev's yes/no question type, to ask whether an agent fulfilled a request.
 
 The example receives three things: the original request, the agent's account of its work, and a record of tool calls and failures. Jev screens that evidence, then Routecraft chooses the next step:
 
