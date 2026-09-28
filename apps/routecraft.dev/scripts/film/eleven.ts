@@ -13,7 +13,8 @@
  * A line that runs past its window is reported, never sped up: retime the
  * timeline to the read instead.
  *
- * Needs ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID; ELEVENLABS_MODEL defaults
+ * Needs ELEVENLABS_API_KEY; ELEVENLABS_VOICE_ID overrides the narrator and
+ * ELEVENLABS_MODEL defaults
  * to `eleven_v4`.
  *
  * Usage: bun scripts/film/eleven.ts [--lines] && bun scripts/film/mix.ts
@@ -26,10 +27,10 @@ import { FILM_DURATION, NARRATION } from '../../app/components/film/timeline'
 import { RATE, decodeStereo, encode } from './ffmpeg'
 
 const KEY = process.env.ELEVENLABS_API_KEY
-const VOICE = process.env.ELEVENLABS_VOICE_ID
+/** The film's narrator; ELEVENLABS_VOICE_ID overrides it for a voice test. */
+const VOICE = process.env.ELEVENLABS_VOICE_ID ?? 'C9fbwSpEaejywLWx722Z'
 const MODEL = process.env.ELEVENLABS_MODEL ?? 'eleven_v4'
-if (!KEY || !VOICE)
-  throw new Error('set ELEVENLABS_API_KEY and ELEVENLABS_VOICE_ID')
+if (!KEY) throw new Error('set ELEVENLABS_API_KEY')
 
 const AUDIO = join(import.meta.dir, 'audio')
 /** Short fades at every cut, so a line never starts or ends on a click. */
