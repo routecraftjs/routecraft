@@ -21,10 +21,9 @@ import { encode } from './ffmpeg'
 const VOICE = process.env.VOICE ?? 'bf_emma'
 const MAX_SPEED = 1.15
 
-/** Spellings the model reads wrongly as written: "Routecraft" gains a syllable, "SharePoint" blurs under music. */
+/** Spellings the model reads wrongly as written: "Routecraft" gains a syllable. */
 const SPOKEN: Record<string, string> = {
   Routecraft: 'Route craft',
-  SharePoint: 'Share Point',
 }
 const spoken = (text: string) =>
   Object.entries(SPOKEN).reduce(

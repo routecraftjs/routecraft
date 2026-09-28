@@ -19,12 +19,6 @@ import {
 import { type BlogPostMeta, getAllBlogPosts, getFeaturedPost } from '@/lib/blog'
 import { absoluteUrl, docVersion } from '@/lib/site'
 
-const CONSEQUENCES = [
-  'Built again in every team. Reviewed in none.',
-  "Every one of them on somebody's personal login.",
-  'The day that person leaves, the tool leaves with them.',
-]
-
 const COSTS = [
   'Build it once, and every licence you already pay for can call it.',
   'Your AI burns tokens sifting through content instead of solving the problem. A capability answers in one call, the same way every time.',
@@ -76,7 +70,6 @@ function LandingPage() {
       <Hero />
       <SectionRule numeral="I" label="The problem" />
       <Problem />
-      <SectionRule numeral="II" label="The cost" />
       <Cost />
       <SectionRule numeral="III" label="The platform" />
       <Platform />
@@ -186,8 +179,8 @@ function Problem() {
     <section>
       <div className="container-page pt-12 pb-20 lg:pt-14 lg:pb-24">
         <SectionHeading
-          plain="Your people already built the tools."
-          accent="Nobody else can use them."
+          plain="Your people are not short of ideas."
+          accent="They are short of a place to run them."
         >
           Somewhere in your organisation a script already calls the CRM. Down
           the hall another team is writing it again, on a session token copied
@@ -197,34 +190,45 @@ function Problem() {
         </SectionHeading>
 
         <Diagram id="every-team-builds-its-own" />
-
-        <div className="grid grid-cols-1 gap-x-16 gap-y-10 lg:grid-cols-12 lg:items-end">
-          <Ledger lines={CONSEQUENCES} className="lg:col-span-7" />
-          <p
-            className="max-w-md font-editorial text-[1.5rem] leading-[1.35] tracking-[-0.01em] text-ink italic lg:col-span-5 lg:pb-6"
-            style={{ fontVariationSettings: '"opsz" 96, "SOFT" 100' }}
-          >
-            Your people are not short of ideas. They are short of a place to run
-            them.
-          </p>
-        </div>
       </div>
     </section>
   )
 }
 
+/**
+ * The cost, on the page's one tinted band between the two figures: the licence
+ * line beside its three claims, so the page turns from problem to platform in
+ * a single panel.
+ */
 function Cost() {
   return (
-    <section>
-      <div className="container-page pt-12 pb-20 lg:pt-14 lg:pb-24">
-        <div className="grid grid-cols-1 gap-x-16 gap-y-10 lg:grid-cols-12">
-          <div className="lg:col-span-5">
-            <SectionHeading
-              plain="You are paying for the licences."
-              accent="You are not getting the results."
-            />
-          </div>
-          <Ledger lines={COSTS} className="lg:col-span-7" />
+    <section className="mb-16 border-y border-ink/15 bg-paper-deep lg:mb-20">
+      <div className="container-page py-16 lg:py-20">
+        <SectionLabel numeral="II" label="The cost" />
+        <div className="mt-12 grid grid-cols-1 gap-x-16 gap-y-10 lg:grid-cols-12">
+          <h2
+            className="font-editorial text-[clamp(2rem,3.4vw,2.9rem)] leading-[1.08] tracking-[-0.02em] text-balance text-ink lg:col-span-5"
+            style={{ fontVariationSettings: HEADLINE_SOFT }}
+          >
+            You are paying for the licences.{' '}
+            <span
+              className="text-cobalt-500 italic"
+              style={{ fontVariationSettings: HEADLINE_ITALIC }}
+            >
+              You are not getting the results.
+            </span>
+          </h2>
+          <ul className="flex flex-col lg:col-span-7">
+            {COSTS.map((line) => (
+              <li
+                key={line}
+                className="border-t border-ink/20 py-5 font-editorial text-[clamp(1.25rem,1.9vw,1.55rem)] leading-[1.35] text-ink last:border-b"
+                style={{ fontVariationSettings: '"opsz" 72, "SOFT" 50' }}
+              >
+                {line}
+              </li>
+            ))}
+          </ul>
         </div>
       </div>
     </section>
@@ -351,34 +355,6 @@ function Path() {
   )
 }
 
-/**
- * Short claims read one under the other, at the size of a heading and ruled
- * apart like entries in a ledger. Three boxes in a row read as a feature grid;
- * three lines down the page read as the cost adding up.
- */
-function Ledger({ lines, className }: { lines: string[]; className?: string }) {
-  return (
-    <ul
-      className={`divide-y divide-ink/15 border-y border-ink/15 ${className ?? ''}`}
-    >
-      {lines.map((line) => (
-        <li key={line} className="grid grid-cols-[auto_1fr] gap-5 py-6">
-          <span
-            aria-hidden="true"
-            className="mt-[0.7em] h-1.5 w-1.5 bg-cobalt-500"
-          />
-          <p
-            className="font-editorial text-[clamp(1.3rem,2vw,1.6rem)] leading-[1.3] tracking-[-0.01em] text-ink"
-            style={{ fontVariationSettings: '"opsz" 72, "SOFT" 50' }}
-          >
-            {line}
-          </p>
-        </li>
-      ))}
-    </ul>
-  )
-}
-
 function PaperGrain() {
   return (
     <div
@@ -396,19 +372,25 @@ function SectionRule({ numeral, label }: { numeral?: string; label: string }) {
   return (
     <div className="relative">
       <div className="container-page">
-        <div className="flex items-center gap-4">
-          <span aria-hidden="true" className="h-1.5 w-1.5 bg-cobalt-500" />
-          {numeral && (
-            <span className="font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase tabular-nums">
-              {numeral}
-            </span>
-          )}
-          <span className="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase">
-            {label}
-          </span>
-          <span className="h-px flex-1 bg-ink/15" />
-        </div>
+        <SectionLabel numeral={numeral} label={label} />
       </div>
+    </div>
+  )
+}
+
+function SectionLabel({ numeral, label }: { numeral?: string; label: string }) {
+  return (
+    <div className="flex items-center gap-4">
+      <span aria-hidden="true" className="h-1.5 w-1.5 bg-cobalt-500" />
+      {numeral && (
+        <span className="font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase tabular-nums">
+          {numeral}
+        </span>
+      )}
+      <span className="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase">
+        {label}
+      </span>
+      <span className="h-px flex-1 bg-ink/15" />
     </div>
   )
 }
