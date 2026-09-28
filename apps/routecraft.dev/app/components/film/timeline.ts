@@ -235,7 +235,7 @@ export const BOARD: BoardCard[] = [
   },
   {
     kind: 'md',
-    name: 'copilot-instructions.md',
+    name: 'AGENTS.md',
     line: 'twelve steps, no tools',
     note: 'works on one laptop',
     x: 470,

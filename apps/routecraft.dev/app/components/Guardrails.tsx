@@ -25,10 +25,10 @@ export function Guardrails() {
       <div className="container-page pt-12 pb-20 lg:pt-14 lg:pb-24">
         <SectionHeading plain="Hands," accent="not keys.">
           Agents have deleted production databases trying to be helpful. On
-          Routecraft an agent never holds a credential. It gets hands:
-          capabilities that each do one thing, say who may call them, and run
-          where the agent is not. It cannot reach past them, because there is
-          nothing past them to reach.
+          Routecraft the agent is given capabilities, not credentials. Each one
+          does one thing, says who may call it, and runs where the agent is not,
+          on credentials the platform holds. The agent reaches exactly the
+          capabilities your team exposes to it, and nothing else.
         </SectionHeading>
 
         <div className="mt-6 grid grid-cols-1 gap-x-12 lg:grid-cols-2 lg:items-center">
@@ -38,7 +38,8 @@ export function Guardrails() {
           <div className="min-w-0">
             <CodeBlock code={CAPABILITY} />
             <p className="mt-4 font-editorial text-[0.92rem] text-ink/60 italic">
-              The capability is the boundary. The agent has no other surface.
+              The capability is the boundary. What you expose is all the agent
+              can reach.
             </p>
           </div>
         </div>

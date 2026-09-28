@@ -102,9 +102,9 @@ const CARDS: TeamCard[] = [
     tilt: 1.5,
   },
   {
-    name: 'copilot-skills',
+    name: 'agent-skills',
     lang: 'Markdown',
-    line: 'the same GitHub skill, written four times',
+    line: 'the same skill, written four times',
     left: 380,
     top: 475,
     tilt: -1.2,

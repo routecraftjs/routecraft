@@ -46,7 +46,7 @@ const PILLARS: Pillar[] = [
   {
     number: '02',
     title: 'Run it for everyone',
-    body: 'Promote it and it runs always on, on service credentials the platform holds and no person does. Every call carries who asked, and the record keeps it.',
+    body: 'Promote it and it runs always on, on your own infrastructure, on service credentials the platform holds and no person does. Every call carries who asked. Switch telemetry on and every call is on record.',
   },
   {
     number: '03',
@@ -84,13 +84,13 @@ function LandingPage() {
       <Guardrails />
       <SectionRule numeral="V" label="The path" />
       <Path />
+      <BuiltWithRoutecraft />
       {featuredPost && (
         <>
           <SectionRule numeral="VI" label="From the blog" />
           <Reading post={featuredPost} />
         </>
       )}
-      <BuiltWithRoutecraft />
     </main>
   )
 }
@@ -130,10 +130,11 @@ function Hero() {
               className="paper-rise mt-8 max-w-2xl text-[1.15rem] leading-[1.75] text-ink/75"
               style={{ animationDelay: '260ms' }}
             >
-              You bought everyone AI licences. Nobody can name one thing they
-              shipped. Your competitors ship capabilities in an afternoon.
-              You&apos;re still arguing about which tools to use and where to
-              run them. Routecraft is the platform you&apos;ve been looking for.
+              You bought everyone AI licences. The tools your people built with
+              them live on their laptops, on their own logins, and nobody else
+              can use them. Your competitors ship capabilities in an afternoon.
+              Routecraft is the open source platform where one team builds it
+              and every team runs it.
             </p>
 
             <div
@@ -261,30 +262,33 @@ function Platform() {
           ))}
         </ul>
 
-        <Diagram id="platform" />
+        {/* On a phone the four lines come before the dense picture they explain. */}
+        <div className="flex flex-col gap-10">
+          <Diagram id="platform" />
 
-        <div className="grid grid-cols-1 gap-px border border-ink/15 bg-ink/15 sm:grid-cols-2 lg:grid-cols-4">
-          {PILLARS.map((pillar) => (
-            <article
-              key={pillar.number}
-              className="flex flex-col gap-3 bg-paper px-6 py-8"
-            >
-              <header className="flex items-baseline gap-4">
-                <span className="font-editorial text-[1.5rem] text-cobalt-500 italic tabular-nums">
-                  {pillar.number}
-                </span>
-                <h3
-                  className="font-editorial text-[1.25rem] leading-tight tracking-[-0.005em] text-ink"
-                  style={{ fontVariationSettings: '"opsz" 72, "SOFT" 50' }}
-                >
-                  {pillar.title}
-                </h3>
-              </header>
-              <p className="text-[0.95rem] leading-[1.7] text-ink/70">
-                {pillar.body}
-              </p>
-            </article>
-          ))}
+          <div className="order-first grid grid-cols-1 gap-px border border-ink/15 bg-ink/15 sm:grid-cols-2 lg:order-none lg:grid-cols-4">
+            {PILLARS.map((pillar) => (
+              <article
+                key={pillar.number}
+                className="flex flex-col gap-3 bg-paper px-6 py-8"
+              >
+                <header className="flex items-baseline gap-4">
+                  <span className="font-editorial text-[1.5rem] text-cobalt-500 italic tabular-nums">
+                    {pillar.number}
+                  </span>
+                  <h3
+                    className="font-editorial text-[1.25rem] leading-tight tracking-[-0.005em] text-ink"
+                    style={{ fontVariationSettings: '"opsz" 72, "SOFT" 50' }}
+                  >
+                    {pillar.title}
+                  </h3>
+                </header>
+                <p className="text-[0.95rem] leading-[1.7] text-ink/70">
+                  {pillar.body}
+                </p>
+              </article>
+            ))}
+          </div>
         </div>
       </div>
     </section>
