@@ -86,3 +86,6 @@ app/routeTree.gen.ts
 
 # Film stems written by `scripts/film/score.ts` and `voice.ts`; generated, never committed
 /scripts/film/audio/
+
+# Soundtrack and MP4 written by `scripts/film/mix.ts` and `render.ts`; generated, never committed
+/public/film/

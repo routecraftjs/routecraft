@@ -3,18 +3,38 @@
  *
  * The music is synthesised here rather than licensed, so it can be regenerated
  * whenever the picture changes and carries no rights question. It follows the
- * film's arc: a dark A minor drone under the board filling up, a swell while
- * the harness forms, a lift into C major when tools become capabilities, an
- * arpeggio while the platform draws itself, and a soft note on every card and
- * block landing, taken from `SCORE_EVENTS` so sound and picture share one
- * timeline. A licensed track can replace the MP3 instead; either way,
- * `mix.ts` then lays the voice over it.
+ * film's arc and turns where the film turns: a dark A minor drone under the
+ * board filling up, a low pulse that builds while nobody else can use any of
+ * it, a swell while the harness forms, and then, on the beat where the tools
+ * become capabilities, the pulse stops, the key lifts into C major and an
+ * arpeggio carries the platform drawing itself. A soft note marks every card
+ * and block landing, taken from `SCORE_EVENTS` so sound and picture share one
+ * timeline. A licensed track can replace the MP3 instead; either way, `mix.ts`
+ * then lays the voice over it.
  *
  * Usage: bun scripts/film/score.ts && bun scripts/film/mix.ts
  */
 import { join } from 'node:path'
 
-import { FILM_DURATION, SCORE_EVENTS } from '../../app/components/film/timeline'
+import {
+  BECOME_CAPABILITIES,
+  CREDENTIALS,
+  FILM_DURATION,
+  HARNESS_DRAW,
+  NARRATION,
+  PROMOTE,
+  RECORD_LINES,
+  REMOTE,
+  SCENE_OUT,
+  SCORE_EVENTS,
+  SETTLE,
+  TEAM_BLOCK_AT,
+  TOOL_AT,
+  TOP_BAND_IN,
+  TO_PLATFORM,
+  TRIGGER_AT,
+  ZOOM_MOVE,
+} from '../../app/components/film/timeline'
 import { RATE, encode } from './ffmpeg'
 
 const LENGTH = FILM_DURATION * RATE
@@ -23,23 +43,30 @@ const right = new Float32Array(LENGTH)
 const TAU = Math.PI * 2
 const hz = (midi: number) => 440 * Math.pow(2, (midi - 69) / 12)
 
+/** The moment the problem is answered; everything before it tightens, everything after it opens. */
+const TURN = BECOME_CAPABILITIES.from
+const NOBODY_ELSE = NARRATION[2].at
+const NOT_SHORT_OF_IDEAS = NARRATION[3].at
+
 /** Chords as MIDI notes, each held from its start until the next one. */
 const CHORDS: [number, number[]][] = [
   [0, [33, 45, 52, 57, 60]],
-  [20.4, [41, 48, 53, 57, 64]],
-  [24.6, [38, 50, 53, 57, 62]],
-  [27.6, [40, 47, 52, 57, 59]],
-  [31, [36, 48, 55, 60, 64]],
-  [38.8, [36, 48, 55, 60, 64, 67]],
-  [42.4, [35, 47, 55, 59, 62]],
-  [45.6, [33, 45, 57, 60, 64]],
-  [48, [29, 41, 53, 57, 60, 65]],
-  [50.4, [29, 41, 53, 57, 60]],
-  [53, [36, 48, 55, 60, 64]],
-  [55.6, [31, 43, 55, 59, 62]],
-  [58, [36, 48, 55, 60, 64, 67]],
-  [60.2, [36, 48, 55, 62, 64, 67]],
-  [66, [36, 48, 60, 64, 67]],
+  [NOBODY_ELSE, [33, 45, 52, 56, 60]],
+  [NOT_SHORT_OF_IDEAS, [41, 48, 53, 57, 64]],
+  [ZOOM_MOVE.from, [38, 50, 53, 57, 62]],
+  [HARNESS_DRAW.from, [40, 47, 52, 57, 59]],
+  [TOOL_AT[0], [40, 47, 52, 56, 62]],
+  [TURN, [36, 48, 55, 60, 64]],
+  [TO_PLATFORM.from, [36, 48, 55, 60, 64, 67]],
+  [PROMOTE.from, [35, 47, 55, 59, 62]],
+  [TEAM_BLOCK_AT[0], [33, 45, 57, 60, 64]],
+  [REMOTE.from, [29, 41, 53, 57, 60, 65]],
+  [TOP_BAND_IN.from, [29, 41, 53, 57, 60]],
+  [TRIGGER_AT(0), [36, 48, 55, 60, 64]],
+  [CREDENTIALS.from, [31, 43, 55, 59, 62]],
+  [RECORD_LINES[0].at, [36, 48, 55, 60, 64, 67]],
+  [SETTLE.from, [36, 48, 55, 62, 64, 67]],
+  [SCENE_OUT.from, [36, 48, 60, 64, 67]],
 ]
 
 function add(i: number, l: number, r: number) {
@@ -109,10 +136,26 @@ const noise = () => {
   return seed / 0xffffffff - 0.5
 }
 
+// The pulse under the chaos: a low thump every three quarters of a second,
+// growing from "nobody else can use them" and cut off dead on the turn.
+for (let at = NOBODY_ELSE; at < TURN - 0.4; at += 0.75) {
+  const gain =
+    0.05 + 0.16 * Math.pow((at - NOBODY_ELSE) / (TURN - NOBODY_ELSE), 1.5)
+  const start = Math.floor(at * RATE)
+  for (let i = start; i < start + Math.floor(0.5 * RATE); i++) {
+    const t = (i - start) / RATE
+    const s =
+      gain *
+      Math.exp(-t / 0.12) *
+      Math.sin(TAU * (38 + 30 * Math.exp(-t / 0.05)) * t)
+    add(i, s, s)
+  }
+}
+
 // The swell while the harness forms: noise through a lowpass that opens up.
 {
-  const from = 24.6
-  const to = 31
+  const from = HARNESS_DRAW.from
+  const to = TURN
   let low = 0
   for (let i = Math.floor(from * RATE); i < Math.floor(to * RATE); i++) {
     const p = (i / RATE - from) / (to - from)
@@ -125,7 +168,7 @@ const noise = () => {
 
 // A low hit where the tools become capabilities.
 {
-  const start = Math.floor(31 * RATE)
+  const start = Math.floor(TURN * RATE)
   for (let i = start; i < start + 3 * RATE; i++) {
     const t = (i - start) / RATE
     const s =
@@ -140,16 +183,16 @@ const chordAt = (t: number) =>
   CHORDS.reduce((current, chord) => (chord[0] <= t ? chord : current))[1]
 
 // The arpeggio under the platform building itself.
-for (let step = 0, t = 38.8; t < 66; step++, t += 0.3) {
+for (let step = 0, t = TURN; t < SCENE_OUT.from; step++, t += 0.3) {
   const upper = chordAt(t).filter((n) => n >= 52)
   const note = upper[step % upper.length] + 12
-  const lift = Math.min(1, (t - 38.8) / 4)
+  const lift = Math.min(1, (t - TURN) / 4)
   pluck(note, t, 0.028 * lift, step % 2 ? 0.35 : 0.65, 0.45)
 }
 
 // A note for every card and block that lands.
 SCORE_EVENTS.forEach((event, i) => {
-  const scale = event.at < 31 ? [69, 72, 74, 76, 79] : [72, 74, 76, 79, 81]
+  const scale = event.at < TURN ? [69, 72, 74, 76, 79] : [72, 74, 76, 79, 81]
   const note = scale[(i * 3) % scale.length]
   pluck(note, event.at, 0.075 * event.weight, 0.25 + (0.5 * ((i * 7) % 5)) / 4)
 })
