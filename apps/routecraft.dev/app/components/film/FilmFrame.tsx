@@ -1063,7 +1063,7 @@ function EndCard({ t }: { t: number }) {
           opacity: ramp(t, END_CARD.from + 0.6, 0.8),
         }}
       >
-        Give AI access, <Accent>not control</Accent>.
+        Built to be <Accent>used</Accent>.
       </p>
       <p
         style={{
@@ -1076,7 +1076,7 @@ function EndCard({ t }: { t: number }) {
           opacity: ramp(t, END_CARD.from + 1.2, 0.8),
         }}
       >
-        routecraft.dev · open source
+        open source AI automation platform · routecraft.dev
       </p>
     </div>
   )

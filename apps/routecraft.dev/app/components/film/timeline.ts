@@ -537,7 +537,7 @@ export const NARRATION: { at: number; end: number; text: string }[] = [
     text: 'Reach it from any editor or agent, or let it run on a schedule. Service credentials. Every call on record.',
   },
   { at: 60.5, end: 66.4, text: 'Harnesses that work together are a platform.' },
-  { at: 67.4, end: 71.8, text: 'Routecraft. Give AI access, not control.' },
+  { at: 67.4, end: 71.8, text: 'Routecraft. Built to be used.' },
 ]
 
 /** What the voice says, in order: the film's transcript. */
