@@ -42,7 +42,7 @@ export const siteName = 'Routecraft'
 export const siteTagline = 'One team builds it. Every team runs it.'
 
 export const siteDescription =
-  "Routecraft is where your organisation's AI tools are built, shared, governed and run. Prove a capability on your laptop, promote it to a team harness, and every agent, editor and team can call it."
+  'Routecraft is the open source platform where one team builds a capability and every team runs it. Prove it on your laptop, promote it to a team harness, and every agent, editor and team calls it on service credentials instead of their own.'
 
 export const organization = {
   name: siteName,

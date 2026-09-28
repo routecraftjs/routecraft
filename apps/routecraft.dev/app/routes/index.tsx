@@ -101,19 +101,18 @@ function Hero() {
             </AppLink>
           </p>
           <h1
-            className="paper-rise mt-6 font-editorial text-[clamp(3rem,7vw,5.75rem)] leading-[0.98] tracking-[-0.025em] text-ink"
+            className="paper-rise mt-6 font-editorial text-[clamp(2.5rem,5.5vw,4.5rem)] leading-[1.02] tracking-[-0.025em] text-ink"
             style={{
               animationDelay: '140ms',
               fontVariationSettings: HEADLINE_SOFT,
             }}
           >
-            One team builds it.
-            <br />
+            Every team is rebuilding the same capabilities.{' '}
             <span
               className="font-editorial text-cobalt-500 italic"
               style={{ fontVariationSettings: HEADLINE_ITALIC }}
             >
-              Every team runs it.
+              Each on its own scraped credentials.
             </span>
           </h1>
 
@@ -168,12 +167,12 @@ function Problem() {
     <section>
       <div className="container-page pt-12 pb-20 lg:pt-14 lg:pb-24">
         <SectionHeading
-          plain="Every team is building AI tools."
-          accent="Alone."
+          plain="Three teams,"
+          accent="three versions of the same lookup."
         >
           A script that calls the CRM. A tool that copies a session token out of
-          a browser. Skills that work on one laptop. Three teams, three versions
-          of the same lookup, each on somebody&apos;s own key.
+          a browser. Skills that work on one laptop. Each on somebody&apos;s own
+          key.
         </SectionHeading>
 
         <Diagram id="every-team-builds-its-own" />
