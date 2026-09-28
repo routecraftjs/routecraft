@@ -18,7 +18,7 @@ import { join } from 'node:path'
 import { FILM_DURATION, NARRATION } from '../../app/components/film/timeline'
 import { encode } from './ffmpeg'
 
-const VOICE = process.env.VOICE ?? 'bf_emma'
+const VOICE = process.env.VOICE ?? 'bm_george'
 const MAX_SPEED = 1.15
 
 /** Spellings the model reads wrongly as written: "Routecraft" gains a syllable. */

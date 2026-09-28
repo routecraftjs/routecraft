@@ -2,11 +2,12 @@ import type { CSSProperties, ReactNode } from 'react'
 
 import {
   ASKS_YOU,
-  BECOME_CAPABILITIES,
   BECOME_LOCAL,
   BOARD,
   BOARD_EXIT,
   type BoardCard,
+  CAPABILITIES,
+  CAPABILITY_AT,
   CAPTIONS,
   CARD_H,
   CREDENTIALS,
@@ -14,13 +15,14 @@ import {
   clamp01,
   DOOR_AT,
   DOORS,
+  DUPLICATE_PULSE,
   END_CARD,
   ENTRY_ARROWS,
   FILM_HEIGHT,
   FILM_WIDTH,
-  HARNESS_BOX,
-  HARNESS_DRAW,
+  LEAVES,
   LOCAL_PANEL,
+  LOCAL_PANEL_IN,
   mix,
   mixRect,
   PROMOTE,
@@ -44,16 +46,10 @@ import {
   TEAM_IN,
   TEAM_PANEL,
   TO_PLATFORM,
-  TOOL_AT,
-  TOOL_RECTS,
-  TOOLS,
   TOP_BAND,
   TOP_BAND_IN,
-  SUBJECT_STEPS,
   TRIGGER_AT,
   TRIGGERS,
-  ZOOM_CARD,
-  ZOOM_MOVE,
   blockRect,
 } from './timeline'
 
@@ -88,11 +84,11 @@ export function FilmFrame({ t }: { t: number }) {
         )}
         <TopBand t={t} />
         <SecondLocal t={t} />
-        <HarnessBox t={t} />
+        <LocalPanel t={t} />
         <TeamPanel t={t} />
         <Subject t={t} />
-        {TOOLS.map((name, i) => (
-          <Tool key={name} name={name} i={i} t={t} />
+        {CAPABILITIES.map((name, i) => (
+          <Capability key={name} name={name} i={i} t={t} />
         ))}
         <Crossing t={t} />
         <Arrows t={t} />
@@ -204,7 +200,7 @@ function Captions({ t }: { t: number }) {
 }
 
 function SystemsBand({ t }: { t: number }) {
-  const shown = ramp(t, 4.9, 0.9) * (1 - 0.6 * span(t, 20.6, 38.9, 0.9))
+  const shown = ramp(t, BOARD[0].at - 0.9, 0.9)
   if (shown <= 0) return null
   return (
     <div
@@ -305,7 +301,21 @@ function PanelTitle({
 
 /** How far a board card has left the stage. */
 const boardExit = (t: number, i: number) =>
-  ramp(t, BOARD_EXIT.from + (i % 5) * 0.08, BOARD_EXIT.duration)
+  Math.max(
+    ramp(t, BOARD_EXIT.from + (i % 5) * 0.08, BOARD_EXIT.duration),
+    BOARD[i].leaves ? ramp(t, LEAVES.from, LEAVES.duration) : 0,
+  )
+
+/** The duplicates light up together while the line says the next team builds it again. */
+const duplicatePulse = (t: number, card: BoardCard) =>
+  card.duplicate
+    ? span(
+        t,
+        DUPLICATE_PULSE.from,
+        DUPLICATE_PULSE.from + DUPLICATE_PULSE.duration,
+        0.5,
+      )
+    : 0
 
 function BoardWires({ t }: { t: number }) {
   if (t < BOARD[0].at || t > BOARD_EXIT.from + BOARD_EXIT.duration + 0.5)
@@ -402,13 +412,15 @@ function BoardTile({ card, t, i }: { card: BoardCard; t: number; i: number }) {
   const gone = boardExit(t, i)
   const opacity = shown * (1 - gone)
   if (opacity <= 0) return null
+  const pulse = duplicatePulse(t, card)
   return (
     <div
       style={{
         ...at({ x: card.x, y: card.y, w: card.w, h: CARD_H }),
         ...cardBox,
+        border: `1px solid color-mix(in srgb, ${COBALT} ${Math.round(pulse * 100)}%, ${ink(20)})`,
         opacity,
-        transform: `translateY(${(1 - shown) * 16 - gone * 24}px) rotate(${card.tilt}deg) scale(${0.96 + 0.04 * shown})`,
+        transform: `translateY(${(1 - shown) * 16 - gone * 24}px) rotate(${card.tilt}deg) scale(${0.96 + 0.04 * shown + 0.03 * pulse})`,
       }}
     >
       <CardFace card={card} />
@@ -416,22 +428,16 @@ function BoardTile({ card, t, i }: { card: BoardCard; t: number; i: number }) {
   )
 }
 
-/** The subject: a card on the board, then the instruction up close, then a skill in the harness. */
+/** The subject: a card on the board, then a skill in the local harness. */
 function Subject({ t }: { t: number }) {
   const card = BOARD[SUBJECT]
   const shown = ramp(t, card.at, 0.45)
   if (shown <= 0) return null
-  const zoom = ramp(t, ZOOM_MOVE.from, ZOOM_MOVE.duration)
   const dock = ramp(t, TO_PLATFORM.from, TO_PLATFORM.duration)
   const board = { x: card.x, y: card.y, w: card.w, h: CARD_H }
-  const rect = mixRect(
-    mixRect(board, ZOOM_CARD, zoom),
-    blockRect(LOCAL_PANEL, 0),
-    dock,
-  )
-  const boardFace = 1 - clamp01(zoom * 2.5)
-  const zoomFace = clamp01((zoom - 0.6) / 0.4) * (1 - clamp01(dock * 4))
-  const blockFace = clamp01((dock - 0.3) / 0.4) * labels(t)
+  const rect = mixRect(board, blockRect(LOCAL_PANEL, 0), dock)
+  const boardFace = 1 - clamp01(dock * 2.5)
+  const blockFace = clamp01((dock - 0.5) / 0.4) * labels(t)
   const skill = ramp(t, BECOME_LOCAL.from, BECOME_LOCAL.duration)
   return (
     <div
@@ -440,9 +446,9 @@ function Subject({ t }: { t: number }) {
         ...cardBox,
         padding: 0,
         background: dock > 0.5 ? PAPER_DEEP : PAPER,
-        border: `1px solid ${ink(dock > 0.5 ? 18 : 24)}`,
+        border: `1px solid ${dock > 0.5 ? ink(18) : dock > 0 ? COBALT : ink(20)}`,
         opacity: shown,
-        transform: `translateY(${(1 - shown) * 16}px) rotate(${card.tilt * (1 - zoom)}deg)`,
+        transform: `translateY(${(1 - shown) * 16}px) rotate(${card.tilt * (1 - dock)}deg)`,
       }}
     >
       {boardFace > 0 && (
@@ -457,65 +463,19 @@ function Subject({ t }: { t: number }) {
           <CardFace card={card} />
         </div>
       )}
-      {zoomFace > 0 && (
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            padding: '22px 28px',
-            opacity: zoomFace,
-          }}
-        >
-          <div
-            style={{
-              display: 'flex',
-              justifyContent: 'space-between',
-              fontFamily: MONO,
-              fontSize: 18,
-              color: ink(60),
-            }}
-          >
-            <span>overdue.md</span>
-            <span
-              style={{
-                color: COBALT,
-                opacity: skill,
-                letterSpacing: '0.14em',
-                fontSize: 14,
-                textTransform: 'uppercase',
-              }}
-            >
-              skill
-            </span>
-          </div>
-          <div
-            style={{
-              marginTop: 18,
-              fontFamily: EDITORIAL,
-              fontVariationSettings: DISPLAY,
-              fontSize: 36,
-              lineHeight: 1,
-            }}
-          >
-            Chase an overdue invoice
-          </div>
-          <ol
-            style={{
-              margin: '18px 0 0',
-              padding: '0 0 0 26px',
-              fontSize: 21,
-              lineHeight: 1.5,
-              color: ink(78),
-            }}
-          >
-            {SUBJECT_STEPS.map((step) => (
-              <li key={step}>{step}</li>
-            ))}
-          </ol>
-        </div>
-      )}
       {blockFace > 0 && (
-        <BlockLabel eyebrow="skill" name="overdue.md" opacity={blockFace} />
+        <>
+          <BlockLabel
+            eyebrow="instruction"
+            name="overdue.md"
+            opacity={blockFace * (1 - skill)}
+          />
+          <BlockLabel
+            eyebrow="skill"
+            name="overdue.md"
+            opacity={blockFace * skill}
+          />
+        </>
       )}
     </div>
   )
@@ -564,97 +524,46 @@ function BlockLabel({
   )
 }
 
-/** A tool the instruction needs, which becomes a capability, then a block in the local harness. */
-function Tool({ name, i, t }: { name: string; i: number; t: number }) {
-  const shown = ramp(t, TOOL_AT[i], 0.5)
+/** A capability built in the local harness, beside the skill that needs it. */
+function Capability({ name, i, t }: { name: string; i: number; t: number }) {
+  const shown = ramp(t, CAPABILITY_AT[i], 0.5)
   if (shown <= 0) return null
-  const capability = ramp(
-    t,
-    BECOME_CAPABILITIES.from + i * BECOME_CAPABILITIES.stagger,
-    BECOME_CAPABILITIES.duration,
-  )
-  const dock = ramp(t, TO_PLATFORM.from, TO_PLATFORM.duration)
-  const rect = mixRect(TOOL_RECTS[i], blockRect(LOCAL_PANEL, i + 1), dock)
-  const border = `color-mix(in srgb, ${COBALT} ${Math.round(capability * (1 - dock) * 100)}%, ${ink(26)})`
+  const settled = ramp(t, CAPABILITY_AT[i] + 1.4, 1)
+  const border = `color-mix(in srgb, ${COBALT} ${Math.round((1 - settled) * 100)}%, ${ink(26)})`
   return (
     <div
       style={{
-        ...at(rect),
+        ...at(blockRect(LOCAL_PANEL, i + 1)),
         boxSizing: 'border-box',
-        background: dock > 0.5 ? PAPER_DEEP : PAPER,
-        border: `${mix(1.5, 1, dock)}px solid ${border}`,
+        background: PAPER_DEEP,
+        border: `1px solid ${border}`,
         opacity: shown,
         transform: `translateY(${(1 - shown) * 18}px)`,
       }}
     >
       <BlockLabel
-        eyebrow="tool"
-        name={name}
-        opacity={(1 - capability) * labels(t)}
-      />
-      <BlockLabel
         eyebrow="capability"
         name={name}
-        opacity={capability * labels(t)}
-        accent={dock < 0.5}
+        opacity={labels(t)}
+        accent={settled < 1}
       />
     </div>
   )
 }
 
-function HarnessBox({ t }: { t: number }) {
-  const drawn = ramp(t, HARNESS_DRAW.from, HARNESS_DRAW.duration)
-  if (drawn <= 0) return null
-  const dock = ramp(t, TO_PLATFORM.from, TO_PLATFORM.duration)
-  const rect = mixRect(HARNESS_BOX, LOCAL_PANEL, dock)
-  const local = ramp(t, BECOME_LOCAL.from, BECOME_LOCAL.duration)
+/** The local harness panel, drawn around the skill as it lands. */
+function LocalPanel({ t }: { t: number }) {
+  const shown = ramp(t, LOCAL_PANEL_IN.from, LOCAL_PANEL_IN.duration)
+  if (shown <= 0) return null
   return (
-    <>
-      <div style={{ ...at(rect), background: PAPER_DEEP, opacity: dock }} />
-      <svg
-        width={FILM_WIDTH}
-        height={FILM_HEIGHT}
-        style={{ position: 'absolute', inset: 0 }}
-        fill="none"
-      >
-        <rect
-          x={rect.x}
-          y={rect.y}
-          width={rect.w}
-          height={rect.h}
-          pathLength={1}
-          stroke={ink(mix(45, 0, dock))}
-          strokeWidth={1.5}
-          strokeDasharray="1 1"
-          strokeDashoffset={1 - drawn}
-        />
-      </svg>
-      <div
-        style={{
-          position: 'absolute',
-          left: rect.x + 22,
-          top: rect.y + 18,
-          fontFamily: MONO,
-          fontSize: 14,
-          letterSpacing: '0.14em',
-          textTransform: 'uppercase',
-          color: ink(60),
-          opacity: drawn * (1 - local),
-        }}
-      >
-        harness
-      </div>
-      <div style={{ ...at(rect), opacity: local }}>
-        <PanelTitle
-          name="Local harness"
-          sub={
-            dock > 0.5 ? 'on your laptop, on your own access' : 'on your laptop'
-          }
-          x={30}
-          y={28}
-        />
-      </div>
-    </>
+    <div style={{ ...at(LOCAL_PANEL), background: PAPER_DEEP, opacity: shown }}>
+      <PanelTitle
+        name="Local harness"
+        sub="on your own machine, on your own access"
+        x={30}
+        y={28}
+      />
+    </div>
   )
 }
 
@@ -682,7 +591,7 @@ function SecondLocal({ t }: { t: number }) {
           opacity: shown * labels(t),
         }}
       >
-        one per person
+        the next team
       </div>
     </>
   )
@@ -781,7 +690,7 @@ function Crossing({ t }: { t: number }) {
     >
       <BlockLabel
         eyebrow="capability"
-        name={TOOLS[CROSSING.capability]}
+        name={CAPABILITIES[CROSSING.capability]}
         opacity={1}
         accent
       />

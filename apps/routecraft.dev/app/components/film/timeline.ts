@@ -9,10 +9,10 @@
 
 export const FILM_WIDTH = 1920
 export const FILM_HEIGHT = 1080
-export const FILM_DURATION = 74
+export const FILM_DURATION = 71
 
 /** A frame worth showing when the film is not playing: the settled platform. */
-export const FILM_POSTER_TIME = 65
+export const FILM_POSTER_TIME = 63
 
 export const clamp01 = (x: number) => Math.min(1, Math.max(0, x))
 
@@ -63,47 +63,53 @@ export interface Caption {
 export const CAPTIONS: Caption[] = [
   {
     from: 0.6,
-    to: 5.2,
+    to: 6.2,
     centred: true,
     parts: [
       {
         at: 0.6,
-        text: 'Somewhere in your company, a script ',
-        accent: 'already',
-        after: ' calls the CRM.',
+        text: 'Right now, every team in your company is building its ',
+        accent: 'own',
+        after: ' AI tools.',
       },
     ],
   },
   {
-    from: 5.5,
-    to: 16.4,
+    from: 6.4,
+    to: 17.3,
     parts: [
-      { at: 5.5, text: 'Down the hall, another team writes it again. ' },
-      { at: 8.7, text: 'A prompt in markdown. ' },
-      { at: 10.8, text: 'A token from a browser. ' },
+      { at: 6.4, text: 'A script on a shared drive. ' },
+      { at: 8.5, text: 'A prompt in markdown. ' },
+      { at: 10.9, text: 'A token from a browser. ' },
       { at: 13.3, text: 'All on ', accent: 'personal logins', after: '.' },
     ],
   },
   {
-    from: 16.5,
-    to: 22.4,
+    from: 17,
+    to: 24.9,
     parts: [
-      { at: 16.5, text: 'Nobody else can use them. ' },
+      { at: 17, text: 'Nobody else can use them. ' },
       {
-        at: 18.4,
-        text: 'When they leave, the tool ',
+        at: 18.8,
+        text: 'The next team builds it ',
+        accent: 'again',
+        after: '. ',
+      },
+      {
+        at: 21,
+        text: 'When someone leaves, the tool ',
         accent: 'leaves with them',
         after: '.',
       },
     ],
   },
   {
-    from: 22.5,
-    to: 27.6,
+    from: 24.9,
+    to: 30.8,
     parts: [
-      { at: 22.5, text: 'Your people are not short of ideas. ' },
+      { at: 24.9, text: 'Your engineers are not short of ideas. ' },
       {
-        at: 24.9,
+        at: 27.5,
         text: 'They are short of a ',
         accent: 'place to run them',
         after: '.',
@@ -111,84 +117,61 @@ export const CAPTIONS: Caption[] = [
     ],
   },
   {
-    from: 27.7,
-    to: 31.2,
-    parts: [
-      {
-        at: 27.7,
-        text: 'A markdown file is only an ',
-        accent: 'instruction',
-        after: '.',
-      },
-    ],
-  },
-  {
-    from: 31.3,
-    to: 34.3,
-    parts: [
-      {
-        at: 31.3,
-        text: 'An instruction needs a ',
-        accent: 'harness',
-        after: '.',
-      },
-    ],
-  },
-  {
-    from: 34.4,
+    from: 31,
     to: 37.4,
     parts: [
-      { at: 34.4, text: 'A harness needs ', accent: 'tools', after: '.' },
+      { at: 31, text: '', accent: 'Routecraft', after: ' is that place. ' },
+      {
+        at: 33.2,
+        text: 'An open source platform your teams build on together.',
+      },
     ],
   },
   {
     from: 37.5,
-    to: 43.2,
+    to: 47,
     parts: [
       {
         at: 37.5,
-        text: 'In Routecraft, those tools are ',
-        accent: 'capabilities',
+        text: 'Build a capability on a ',
+        accent: 'local harness',
         after: '. ',
       },
-      { at: 40.1, text: 'The harness comes with them.' },
+      { at: 40.3, text: '', accent: 'Promote', after: ' it when it works. ' },
+      { at: 42.3, text: 'Every other team can use it.' },
     ],
   },
   {
-    from: 43.3,
-    to: 51,
+    from: 46.9,
+    to: 59.4,
     parts: [
-      { at: 43.3, text: 'Build it on your laptop. ' },
-      { at: 45, text: '', accent: 'Promote', after: ' it when it works. ' },
-      { at: 46.7, text: 'Every other team can use it.' },
+      { at: 46.9, text: 'Every way in. ' },
+      { at: 52.6, text: 'Service credentials. ' },
+      { at: 54.8, text: 'Every call ', accent: 'on record', after: '. ' },
+      {
+        at: 56.5,
+        text: 'One ',
+        accent: 'standard',
+        after: ', for every team.',
+      },
     ],
   },
   {
-    from: 51.3,
-    to: 60.6,
-    parts: [
-      { at: 51.3, text: 'Every way in. ' },
-      { at: 56.3, text: 'Service credentials. ' },
-      { at: 58.2, text: 'Every call ', accent: 'on record', after: '.' },
-    ],
-  },
-  {
-    from: 61,
-    to: 67.2,
+    from: 59.5,
+    to: 64.4,
     parts: [
       {
-        at: 61,
-        text: 'Harnesses that work together are a ',
-        accent: 'platform',
-        after: '. ',
+        at: 59.5,
+        text: 'What one team ',
+        accent: 'proves',
+        after: ', every team can use.',
       },
-      { at: 63.7, text: 'The one your teams build on together.' },
     ],
   },
 ]
 
 /** The closing card: logo, name and tagline. */
-export const END_CARD = { from: 68.4, to: FILM_DURATION + 1 }
+export const END_CARD = { from: 65.6, to: FILM_DURATION + 1 }
 
 export const SYSTEMS = [
   { label: 'CRM', w: 96 },
@@ -237,6 +220,10 @@ export interface BoardCard {
   tilt: number
   at: number
   to?: SystemLabel
+  /** Calls a system another card already calls: the same thing, built again. */
+  duplicate?: boolean
+  /** Goes when its owner does. */
+  leaves?: boolean
 }
 
 export const CARD_H = 118
@@ -251,8 +238,9 @@ export const BOARD: BoardCard[] = [
     y: 280,
     w: 270,
     tilt: -2,
-    at: 5.7,
+    at: 6.6,
     to: 'CRM',
+    duplicate: true,
   },
   {
     kind: 'md',
@@ -263,7 +251,7 @@ export const BOARD: BoardCard[] = [
     y: 250,
     w: 320,
     tilt: 1.5,
-    at: 6.5,
+    at: 7.4,
     to: 'knowledge base',
   },
   {
@@ -275,7 +263,7 @@ export const BOARD: BoardCard[] = [
     y: 290,
     w: 280,
     tilt: -1,
-    at: 7.4,
+    at: 8.3,
     to: 'support desk',
   },
   {
@@ -287,7 +275,7 @@ export const BOARD: BoardCard[] = [
     y: 255,
     w: 280,
     tilt: 2.5,
-    at: 8.2,
+    at: 9.1,
     to: 'ERP',
   },
   {
@@ -299,8 +287,9 @@ export const BOARD: BoardCard[] = [
     y: 300,
     w: 260,
     tilt: -2,
-    at: 9,
+    at: 9.9,
     to: 'source control',
+    duplicate: true,
   },
   {
     kind: 'md',
@@ -311,7 +300,7 @@ export const BOARD: BoardCard[] = [
     y: 450,
     w: 320,
     tilt: 1,
-    at: 9.9,
+    at: 10.8,
     to: 'ERP',
   },
   {
@@ -323,7 +312,7 @@ export const BOARD: BoardCard[] = [
     y: 470,
     w: 290,
     tilt: -3,
-    at: 10.7,
+    at: 11.6,
     to: 'HR and payroll',
   },
   {
@@ -335,7 +324,7 @@ export const BOARD: BoardCard[] = [
     y: 470,
     w: 270,
     tilt: 2,
-    at: 11.55,
+    at: 12.45,
     to: 'mail and calendar',
   },
   {
@@ -347,8 +336,9 @@ export const BOARD: BoardCard[] = [
     y: 440,
     w: 250,
     tilt: 3,
-    at: 13,
+    at: 13.9,
     to: 'source control',
+    duplicate: true,
   },
   {
     kind: 'java',
@@ -359,8 +349,9 @@ export const BOARD: BoardCard[] = [
     y: 360,
     w: 290,
     tilt: -3.5,
-    at: 13.4,
+    at: 14.3,
     to: 'CRM',
+    duplicate: true,
   },
   {
     kind: 'sh',
@@ -371,7 +362,7 @@ export const BOARD: BoardCard[] = [
     y: 640,
     w: 270,
     tilt: 2,
-    at: 13.8,
+    at: 14.7,
     to: 'mail and calendar',
   },
   {
@@ -383,8 +374,9 @@ export const BOARD: BoardCard[] = [
     y: 570,
     w: 230,
     tilt: -1.5,
-    at: 14.25,
+    at: 15.15,
     to: 'source control',
+    duplicate: true,
   },
   {
     kind: 'py',
@@ -395,7 +387,7 @@ export const BOARD: BoardCard[] = [
     y: 650,
     w: 250,
     tilt: -2.5,
-    at: 14.7,
+    at: 15.6,
     to: 'knowledge base',
   },
   {
@@ -407,7 +399,7 @@ export const BOARD: BoardCard[] = [
     y: 620,
     w: 310,
     tilt: 1.5,
-    at: 15.1,
+    at: 16,
   },
   {
     kind: 'dir',
@@ -418,8 +410,9 @@ export const BOARD: BoardCard[] = [
     y: 650,
     w: 250,
     tilt: -1,
-    at: 15.5,
+    at: 16.4,
     to: 'chat',
+    leaves: true,
   },
   {
     kind: 'dir',
@@ -430,51 +423,38 @@ export const BOARD: BoardCard[] = [
     y: 690,
     w: 230,
     tilt: 2,
-    at: 15.9,
+    at: 16.8,
     to: 'source control',
+    duplicate: true,
   },
 ]
 
 /** The board card that becomes the film's subject. */
 export const SUBJECT = BOARD.findIndex((c) => c.name === 'overdue.md')
 
-/** The full board holds under the third and fourth lines, then clears into the zoom. */
-export const BOARD_EXIT = { from: 26.4, duration: 1.2 }
-
-/** The subject card, read up close. */
-export const ZOOM_CARD: Rect = { x: 700, y: 330, w: 520, h: 250 }
-export const ZOOM_MOVE = { from: 27.6, duration: 1.8 }
-export const SUBJECT_STEPS = [
-  'Look up the customer in the CRM.',
-  'Check the invoice in the ERP.',
-  'Send the reminder from the shared mailbox.',
-]
-
-export const HARNESS_BOX: Rect = { x: 560, y: 270, w: 800, h: 530 }
-export const HARNESS_DRAW = { from: 31.4, duration: 1.4 }
-
-export const TOOLS = ['query CRM', 'read invoice', 'send mail'] as const
-export const TOOL_RECTS: Rect[] = TOOLS.map((_, i) => ({
-  x: 610 + i * 240,
-  y: 650,
-  w: 220,
-  h: 100,
-}))
-export const TOOL_AT = [34.5, 35, 35.5]
-
-/**
- * Tools turn into capabilities, the instruction becomes a skill. This is the
- * film's turn: the problem is answered here, and the score changes key on it.
- */
-export const BECOME_CAPABILITIES = { from: 37.7, stagger: 0.35, duration: 0.8 }
-export const BECOME_LOCAL = { from: 40.2, duration: 0.8 }
+/** The full board holds under the third and fourth lines, then clears. */
+export const BOARD_EXIT = { from: 30.2, duration: 1.2 }
+/** The cards that call the same system light up together: the same thing, built again. */
+export const DUPLICATE_PULSE = { from: 18.9, duration: 1.8 }
+/** The card whose owner leaves goes with them. */
+export const LEAVES = { from: 21.8, duration: 1 }
 
 export const LOCAL_PANEL: Rect = { x: 120, y: 430, w: 780, h: 330 }
 export const TEAM_PANEL: Rect = { x: 1020, y: 430, w: 780, h: 330 }
 export const TOP_BAND: Rect = { x: 120, y: 250, w: 1680, h: 110 }
 
-/** The harness shrinks into the local panel. */
-export const TO_PLATFORM = { from: 43.4, duration: 2.4 }
+/**
+ * The subject card lifts out of the board into its slot in the local harness.
+ * This is the film's turn: the problem is answered here, and the score changes
+ * key on it.
+ */
+export const TO_PLATFORM = { from: 31, duration: 2 }
+export const LOCAL_PANEL_IN = { from: 31.3, duration: 1.2 }
+/** The instruction is labelled a skill once it sits in the harness. */
+export const BECOME_LOCAL = { from: 33.2, duration: 0.8 }
+
+export const CAPABILITIES = ['query CRM', 'read invoice', 'send mail'] as const
+export const CAPABILITY_AT = [37.8, 38.2, 38.6]
 
 const BLOCK_W = 168
 const BLOCK_H = 72
@@ -486,33 +466,35 @@ export const blockRect = (panel: Rect, i: number): Rect => ({
   h: BLOCK_H,
 })
 
-export const TEAM_IN = { from: 45, duration: 1 }
-export const PROMOTE = { from: 45.9, duration: 1 }
+export const TEAM_IN = { from: 40.2, duration: 1 }
+export const PROMOTE = { from: 41, duration: 1 }
 /** The promoted capability crossing from local to team. */
-export const CROSSING = { from: 46.5, duration: 1.6, capability: 0 }
+export const CROSSING = { from: 41.8, duration: 1.6, capability: 0 }
 export const TEAM_BLOCKS = ['query CRM', 'read invoice', 'send mail', 'payroll']
-export const TEAM_BLOCK_AT = [48, 48.5, 48.9, 49.3]
-export const SECOND_LOCAL = { from: 49.4, duration: 0.8 }
-export const REMOTE = { from: 50.2, duration: 1 }
+export const TEAM_BLOCK_AT = [43.4, 43.9, 44.3, 44.7]
+export const REMOTE = { from: 45.4, duration: 1 }
 
-export const TOP_BAND_IN = { from: 51.3, duration: 0.8 }
+export const TOP_BAND_IN = { from: 46.9, duration: 0.8 }
 export const DOORS = ['editor', 'MCP', 'CLI', 'HTTP']
 export const TRIGGERS = ['cron', 'webhook', 'mail', 'events', 'files']
-export const DOOR_AT = (i: number) => 52.1 + i * 0.35
-export const TRIGGER_AT = (i: number) => 54 + i * 0.3
-export const ENTRY_ARROWS = { from: 55.6, duration: 0.8 }
-export const ASKS_YOU = { from: 56, duration: 0.8 }
-export const CREDENTIALS = { from: 56.4, duration: 1 }
+export const DOOR_AT = (i: number) => 47.7 + i * 0.35
+export const TRIGGER_AT = (i: number) => 49.6 + i * 0.3
+export const ENTRY_ARROWS = { from: 51.2, duration: 0.8 }
+export const ASKS_YOU = { from: 51.7, duration: 0.8 }
+export const CREDENTIALS = { from: 52.7, duration: 1 }
 
 export const RECORD_LINES = [
-  { at: 58.3, text: '09:14:02  crm:read       ana via agent   ok' },
-  { at: 58.9, text: '09:14:05  mail:send      ana via agent   ok' },
-  { at: 59.5, text: '09:15:40  cron           digest           ok' },
+  { at: 54.9, text: '09:14:02  crm:read       ana via agent   ok' },
+  { at: 55.5, text: '09:14:05  mail:send      ana via agent   ok' },
+  { at: 56.1, text: '09:15:40  cron           digest           ok' },
 ]
 
+/** The next team's local harness appears behind the first: one standard, every team. */
+export const SECOND_LOCAL = { from: 56.7, duration: 0.8 }
+
 /** Labels fade out and the drawing settles into the platform picture. */
-export const SETTLE = { from: 60.8, duration: 1.4 }
-export const SCENE_OUT = { from: 67.4, duration: 1 }
+export const SETTLE = { from: 59.3, duration: 1.4 }
+export const SCENE_OUT = { from: 64.6, duration: 1 }
 
 /**
  * Moments that get a note in the score: each card landing, each block
@@ -520,7 +502,7 @@ export const SCENE_OUT = { from: 67.4, duration: 1 }
  */
 export const SCORE_EVENTS: { at: number; weight: number }[] = [
   ...BOARD.map((c) => ({ at: c.at, weight: 0.7 })),
-  ...TOOL_AT.map((at) => ({ at, weight: 1 })),
+  ...CAPABILITY_AT.map((at) => ({ at, weight: 1 })),
   ...TEAM_BLOCK_AT.map((at) => ({ at, weight: 1 })),
   ...DOORS.map((_, i) => ({ at: DOOR_AT(i), weight: 0.8 })),
   ...TRIGGERS.map((_, i) => ({ at: TRIGGER_AT(i), weight: 0.6 })),
@@ -534,48 +516,41 @@ export const SCORE_EVENTS: { at: number; weight: number }[] = [
 export const NARRATION: { at: number; end: number; text: string }[] = [
   {
     at: 0.4,
-    end: 5.3,
-    text: 'Somewhere in your company, a script already calls the CRM.',
+    end: 6.3,
+    text: 'Right now, every team in your company is building its own AI tools.',
   },
   {
-    at: 5.6,
-    end: 16.3,
-    text: 'Down the hall, another team is writing it again. A prompt in a markdown file. A token copied out of a browser. Every one of them on somebody’s personal login.',
+    at: 6.5,
+    end: 16.9,
+    text: 'A script on a shared drive. A prompt in a markdown file. A token copied out of a browser. Every one of them on somebody’s personal login.',
   },
   {
-    at: 16.6,
-    end: 22.3,
-    text: 'Nobody else can use them. And the day that person leaves, the tool leaves with them.',
+    at: 17.1,
+    end: 24.6,
+    text: 'Nobody else can use them. The next team builds it again. And when someone leaves, the tool leaves with them.',
   },
   {
-    at: 22.6,
-    end: 27.5,
-    text: 'Your people are not short of ideas. They are short of a place to run them.',
+    at: 24.9,
+    end: 30.7,
+    text: 'Your engineers are not short of ideas. They are short of a place to run them.',
   },
-  { at: 27.7, end: 31.2, text: 'A markdown file is only an instruction.' },
-  { at: 31.4, end: 34.3, text: 'An instruction needs a harness.' },
-  { at: 34.5, end: 37.3, text: 'And a harness needs tools.' },
+  {
+    at: 31,
+    end: 37.3,
+    text: 'Routecraft is that place. An open source platform your teams build on together.',
+  },
   {
     at: 37.6,
-    end: 43.1,
-    text: 'In Routecraft, those tools are capabilities. And the harness comes with them.',
+    end: 46.7,
+    text: 'Build a capability on a local harness. When it works, promote it. Every other team can use it, instead of building it again.',
   },
   {
-    at: 43.4,
-    end: 50.7,
-    text: 'Build it on your laptop. When it works, promote it. Every other team can use it, instead of building it again.',
+    at: 47,
+    end: 59.2,
+    text: 'Reach it from any editor or agent, or let it run on a schedule. Service credentials, not personal logins. Every call on record. One standard, for every team.',
   },
-  {
-    at: 51.4,
-    end: 60.5,
-    text: 'Reach it from any editor or agent, or let it run on a schedule. Service credentials, not personal logins. Every call on record.',
-  },
-  {
-    at: 61,
-    end: 66.8,
-    text: 'Harnesses that work together are a platform. The one your teams build on together.',
-  },
-  { at: 69, end: 72.4, text: 'Routecraft. Built to be used.' },
+  { at: 59.5, end: 63.5, text: 'What one team proves, every team can use.' },
+  { at: 66.2, end: 69.6, text: 'Routecraft. Built to be used.' },
 ]
 
 /** What the voice says, in order: the film's transcript. */
