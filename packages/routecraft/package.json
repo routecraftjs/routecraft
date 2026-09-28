@@ -1,7 +1,7 @@
 {
   "name": "@routecraft/routecraft",
   "version": "0.7.0",
-  "description": "Type-safe framework for AI automation: build the tools an agent uses, or the agent itself, in TypeScript",
+  "description": "Open source AI automation platform: build the capabilities your agents use, or the agent itself, in TypeScript",
   "type": "module",
   "main": "./dist/index.cjs",
   "module": "./dist/index.js",

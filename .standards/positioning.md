@@ -8,11 +8,11 @@ What Routecraft is for, and what it is not. This is the first test any addition 
 
 Routecraft is the connective layer. Its job is to move work between things that already exist: agents, MCP servers, HTTP APIs, message brokers, mail, files and the systems a business already runs. The value is in the connection, and in what the route makes visible around it. It is never in reimplementing the thing on either end.
 
-That reaches past the traditional integration case. Wiring a legacy system to a REST endpoint is one use, and the least interesting one. What this framework is built for is connecting agents: an agent reaching a capability, a capability reaching a model, an MCP server exposing a route, a harness composing all three with the guardrails written where a reader can see them. Routecraft is where those meet.
+That reaches past the traditional integration case. Wiring a legacy system to a REST endpoint is one use, and the least interesting one. What this platform is built for is connecting agents: an agent reaching a capability, a capability reaching a model, an MCP server exposing a route, a harness composing all three with the guardrails written where a reader can see them. Routecraft is where those meet.
 
-## 2. A product feature is not a framework feature
+## 2. A product feature is not a platform feature
 
-When a capable product or library already does a job, Routecraft's contribution is the adapter, an example, and the routes that compose it. Building the job itself inside the framework is a defect, whatever the quality of the code.
+When a capable product or library already does a job, Routecraft's contribution is the adapter, an example, and the routes that compose it. Building the job itself inside the platform is a defect, whatever the quality of the code.
 
 The reason is not purity. Anything rebuilt here is a worse version of the product it copies, and it is a version we then maintain forever, against a competitor whose whole company works on it. This holds for storage, search and retrieval, memory, browser rendering, message delivery, scheduling at scale, and anything else with a market.
 
@@ -20,28 +20,28 @@ The practical form of the rule: **if a capability could plausibly be bought, ren
 
 ## 3. Enable it, never own it
 
-The framework's job is to make hard things easy to build. It is not the thing that does them.
+The platform's job is to make hard things easy to build. It is not the thing that does them.
 
-The distinction is about where code lives, not about ambition. Routecraft must **enable** a route to drive a remote execution environment. It must never **own** the fleet, the provisioning policy, the quota or the bill. The same sentence holds for browser automation, memory, message delivery and every other capability some vendor already sells: the framework carries the seam, and the seam is measured by how much effort it removes from the person building on it.
+The distinction is about where code lives, not about ambition. Routecraft must **enable** a route to drive a remote execution environment. It must never **own** the fleet, the provisioning policy, the quota or the bill. The same sentence holds for browser automation, memory, message delivery and every other capability some vendor already sells: the platform carries the seam, and the seam is measured by how much effort it removes from the person building on it.
 
 Two cases fix the bar.
 
-- **Docker in the built-in sandbox clears it.** Writing a custom isolation adapter from scratch was always possible, and still is. Adding Docker to the shipped sandbox removed a large amount of effort from everyone who builds an agent on the framework. That is the shape a framework addition should have.
-- **A helper that saves ten lines does not.** It is defensible in isolation every time, and the accumulation of such helpers is what turns a framework into the thing that does things. The answer to it is an example, a documentation page and a blog post: readers copy it, learn how it is done, and the framework does not carry it.
+- **Docker in the built-in sandbox clears it.** Writing a custom isolation adapter from scratch was always possible, and still is. Adding Docker to the shipped sandbox removed a large amount of effort from everyone who builds an agent on the platform. That is the shape a platform addition should have.
+- **A helper that saves ten lines does not.** It is defensible in isolation every time, and the accumulation of such helpers is what turns a platform into the thing that does things. The answer to it is an example, a documentation page and a blog post: readers copy it, learn how it is done, and the platform does not carry it.
 
-When a bought service eventually costs more than building would, the answer is a product built and sold beside the framework. It still does not go into a `@routecraft/*` package. From the framework's side that product is home 1 in section 6: a service reached with `mcp()` or `http()`, whoever happens to run it.
+When a bought service eventually costs more than building would, the answer is a product built and sold beside the platform. It still does not go into a `@routecraft/*` package. From the platform's side that product is home 1 in section 6: a service reached with `mcp()` or `http()`, whoever happens to run it.
 
 ## 4. Protocol, operation, or product
 
 The fast classification test, applied once section 3 is cleared. Everything falls into one of three kinds, and the kind decides the answer before any further reasoning:
 
-- **A protocol** (HTTP, MCP, WebSocket, AMQP, MQTT, SSE, OAuth, a codec). **Build it.** A protocol reaches every system that speaks it, so the work pays off across every integration that will ever exist. This is why protocol-level work outranks everything else in the framework.
-- **A cross-cutting operation** (retry, cache, throttle, timeout, circuit breaker, split, dedupe, error handling). **Build it.** Every connector benefits from it, and the framework is the only place it can sit where an author reading a route can see it and change it.
+- **A protocol** (HTTP, MCP, WebSocket, AMQP, MQTT, SSE, OAuth, a codec). **Build it.** A protocol reaches every system that speaks it, so the work pays off across every integration that will ever exist. This is why protocol-level work outranks everything else in the platform.
+- **A cross-cutting operation** (retry, cache, throttle, timeout, circuit breaker, split, dedupe, error handling). **Build it.** Every connector benefits from it, and the platform is the only place it can sit where an author reading a route can see it and change it.
 - **A product or a vendor** (a chat platform, a memory store, a mail provider, a search API, a CRM, a sandbox provider). **Connect it.** Somebody sells it, maintains it, and employs people to make it better than we can. Our contribution is the adapter or the MCP pointer, an example, and the routes that compose it.
 
 The default when a thing does not obviously sort: **if it has an HTTP API or an MCP server, the answer is connect.**
 
-A worked non-example. A Telegram connector looks like framework work and is not: Telegram publishes an API, anyone can integrate with it in an afternoon, and building it here buys reach with one vendor's users at the cost of maintaining their surface forever. It is legitimate work, and it is low priority next to any protocol or operation. The same reasoning retires most requests of the form "Routecraft should support X".
+A worked non-example. A Telegram connector looks like platform work and is not: Telegram publishes an API, anyone can integrate with it in an afternoon, and building it here buys reach with one vendor's users at the cost of maintaining their surface forever. It is legitimate work, and it is low priority next to any protocol or operation. The same reasoning retires most requests of the form "Routecraft should support X".
 
 ## 5. The three questions
 
@@ -61,16 +61,16 @@ Four homes, in order of preference:
 
 1. **Somebody else's service**, reached with `mcp()` or `http()`. Nothing ships, and nothing is maintained.
 2. **The author's own app**, as composed routes. The guardrails are visible and the author owns them. The `craft-harness` template is one such app: a local personal agent, which is its whole job, and not the place a remote or fleet-shaped capability grows.
-3. **A route library shared across apps**, published as an ordinary package and included by configuration. Anything a second app or a second customer would otherwise rewrite belongs here rather than in the framework.
+3. **A route library shared across apps**, published as an ordinary package and included by configuration. Anything a second app or a second customer would otherwise rewrite belongs here rather than in the platform.
 4. **A `@routecraft/*` package**, only when all three questions pass and the addition clears the bar in section 3.
 
-Preferring the first is not modesty. A framework that reaches more systems is worth more than one that owns more code.
+Preferring the first is not modesty. A platform that reaches more systems is worth more than one that owns more code.
 
 A design that cannot be split across these four, piece by piece, is not finished.
 
 ## 7. Who counts as demand
 
-The bar in section 3 asks how much effort an addition removes, and effort is removed from somebody. That somebody is a named consumer with a concrete need: an app being built on the framework today, or a workshop that has to run next week. It is never a headcount. A young framework has few users, and a headcount test would reject every addition ever made, the Docker sandbox included on the day it was proposed.
+The bar in section 3 asks how much effort an addition removes, and effort is removed from somebody. That somebody is a named consumer with a concrete need: an app being built on the platform today, or a workshop that has to run next week. It is never a headcount. A young platform has few users, and a headcount test would reject every addition ever made, the Docker sandbox included on the day it was proposed.
 
 So a proposal names its consumer. "Nobody is asking for this" is a valid reason to decline. "Only one app is asking for this" is not, when that app is real and the effort is real.
 
@@ -80,10 +80,10 @@ This is a live check rather than a document to cite afterwards. A contributor or
 
 The check is a challenge, not a veto. Whoever holds this standard says "this crosses the line" out loud, every time, and is answered. The consumer may overrule with a stated reason; the overrule stands, the reason is recorded with the change, and what the standard's holder watches is the pattern of overrules rather than the single case. A crossing let through silently is the failure. The crossing itself is not.
 
-Two cases are already on the record, and both began as proposed framework features:
+Two cases are already on the record, and both began as proposed platform features:
 
 - **WebFetch and WebSearch.** Proposed as built-in agent tools, then as a web content adapter carrying an egress guard. Both framings were rejected. What shipped is two ordinary `http()` client options (#579) with the routes in the `craft-harness` template (#588).
-- **The agent tool names themselves.** `WebFetch`, `WebSearch` and `Bash` are Claude Code's names. The agent loader tolerates them so a borrowed `.claude/agents/` tree still boots; the framework provides none of them.
+- **The agent tool names themselves.** `WebFetch`, `WebSearch` and `Bash` are Claude Code's names. The agent loader tolerates them so a borrowed `.claude/agents/` tree still boots; the platform provides none of them.
 
 ## 9. The editor surface is a transport seam, not an SDK
 
@@ -96,7 +96,7 @@ The rules that keep it that shape:
 - **A capability the protocol does not define gets an adapter of its own.** That is section 6's four homes, applied here. It does not get bolted onto the surface because the surface happens to be a convenient pipe to the editor.
 - **Client-side consent is an additional boundary, never a substitute.** Editors prompt their user before honouring a filesystem write or a terminal spawn, and that is real. It is not Routecraft's authorization, and capability advertisement is not authorization at all: it says a client *can* do a thing, not that anyone decided it *may*. A higher-level Routecraft capability built on the seam is responsible for its own authorization exactly as any other adapter is.
 
-The failure this guards against is not the current method set. It is the commit after next, which adds one convenience, then another, until the framework carries an editor SDK it never decided to own and cannot stop maintaining.
+The failure this guards against is not the current method set. It is the commit after next, which adds one convenience, then another, until the platform carries an editor SDK it never decided to own and cannot stop maintaining.
 
 ## Related
 

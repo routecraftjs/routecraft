@@ -16,7 +16,7 @@
 
 ## About
 
-Routecraft is a TypeScript framework for AI automation. A capability is a route: a typed pipeline from a source, through operations, to a destination. The same route is an MCP tool for Claude or Cursor, a tool for an agent you run yourself, an HTTP endpoint, or a scheduled job, depending only on its source. Agents are routes too, with the same guardrails around a model call as around any other step. Nothing is reachable until you write a route for it.
+Routecraft is the open source AI automation platform your teams build on together. A capability is a route: a typed pipeline from a source, through operations, to a destination. The same route is an MCP tool for any agent or editor, a tool for an agent you run yourself, an HTTP endpoint, or a scheduled job, depending only on its source. Prove it on your laptop, promote it to a team harness, and every team can use it on service credentials instead of their own. Agents are routes too, with the same guardrails around a model call as around any other step. Nothing is reachable until you write a route for it.
 
 ## Five minutes: an agent you own
 
