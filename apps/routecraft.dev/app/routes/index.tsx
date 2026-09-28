@@ -179,12 +179,12 @@ function Problem() {
     <section>
       <div className="container-page pt-12 pb-20 lg:pt-14 lg:pb-24">
         <SectionHeading
-          plain="Three teams,"
-          accent="three versions of the same lookup."
+          plain="Every team is building AI tools."
+          accent="Alone."
         >
           A script that calls the CRM. A tool that copies a session token out of
-          a browser. Skills that work on one laptop. Each on somebody&apos;s own
-          key.
+          a browser. Skills that work on one laptop. Every team its own version
+          of the same lookup, each on somebody&apos;s own key.
         </SectionHeading>
 
         <Diagram id="every-team-builds-its-own" />
