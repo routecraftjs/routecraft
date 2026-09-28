@@ -198,21 +198,16 @@ function Problem() {
 
         <Diagram id="every-team-builds-its-own" />
 
-        <ul className="grid grid-cols-1 gap-px border border-ink/15 bg-ink/15 md:grid-cols-3">
-          {CONSEQUENCES.map((line) => (
-            <li
-              key={line}
-              className="bg-paper px-6 py-6 font-editorial text-[1.2rem] leading-[1.35] text-ink"
-              style={{ fontVariationSettings: '"opsz" 72, "SOFT" 50' }}
-            >
-              {line}
-            </li>
-          ))}
-        </ul>
-        <p className="mt-8 max-w-2xl text-[1.05rem] leading-[1.75] text-ink/70">
-          Your people are not short of ideas. They are short of a place to run
-          them.
-        </p>
+        <div className="grid grid-cols-1 gap-x-16 gap-y-10 lg:grid-cols-12 lg:items-end">
+          <Ledger lines={CONSEQUENCES} className="lg:col-span-7" />
+          <p
+            className="max-w-md font-editorial text-[1.5rem] leading-[1.35] tracking-[-0.01em] text-ink italic lg:col-span-5 lg:pb-6"
+            style={{ fontVariationSettings: '"opsz" 96, "SOFT" 100' }}
+          >
+            Your people are not short of ideas. They are short of a place to run
+            them.
+          </p>
+        </div>
       </div>
     </section>
   )
@@ -222,21 +217,15 @@ function Cost() {
   return (
     <section>
       <div className="container-page pt-12 pb-20 lg:pt-14 lg:pb-24">
-        <SectionHeading
-          plain="You are paying for the licences."
-          accent="You are not getting the work."
-        />
-        <ul className="mt-10 grid grid-cols-1 gap-px border border-ink/15 bg-ink/15 md:grid-cols-3">
-          {COSTS.map((line) => (
-            <li
-              key={line}
-              className="bg-paper px-6 py-6 font-editorial text-[1.2rem] leading-[1.35] text-ink"
-              style={{ fontVariationSettings: '"opsz" 72, "SOFT" 50' }}
-            >
-              {line}
-            </li>
-          ))}
-        </ul>
+        <div className="grid grid-cols-1 gap-x-16 gap-y-10 lg:grid-cols-12">
+          <div className="lg:col-span-5">
+            <SectionHeading
+              plain="You are paying for the licences."
+              accent="You are not getting the work."
+            />
+          </div>
+          <Ledger lines={COSTS} className="lg:col-span-7" />
+        </div>
       </div>
     </section>
   )
@@ -359,6 +348,34 @@ function Path() {
         </div>
       </div>
     </section>
+  )
+}
+
+/**
+ * Short claims read one under the other, at the size of a heading and ruled
+ * apart like entries in a ledger. Three boxes in a row read as a feature grid;
+ * three lines down the page read as the cost adding up.
+ */
+function Ledger({ lines, className }: { lines: string[]; className?: string }) {
+  return (
+    <ul
+      className={`divide-y divide-ink/15 border-y border-ink/15 ${className ?? ''}`}
+    >
+      {lines.map((line) => (
+        <li key={line} className="grid grid-cols-[auto_1fr] gap-5 py-6">
+          <span
+            aria-hidden="true"
+            className="mt-[0.7em] h-1.5 w-1.5 bg-cobalt-500"
+          />
+          <p
+            className="font-editorial text-[clamp(1.3rem,2vw,1.6rem)] leading-[1.3] tracking-[-0.01em] text-ink"
+            style={{ fontVariationSettings: '"opsz" 72, "SOFT" 50' }}
+          >
+            {line}
+          </p>
+        </li>
+      ))}
+    </ul>
   )
 }
 
