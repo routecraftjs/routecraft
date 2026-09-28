@@ -8,7 +8,7 @@ and everything else reads the same clock.
 | -------- | -------------------------------------- | ----------------------------------------------------------------------------------------------------------------- |
 | Timeline | `app/components/film/timeline.ts`      | The film as data: captions, narration windows, card positions, score events, and the easing and blending helpers. |
 | Frame    | `app/components/film/FilmFrame.tsx`    | Draws one moment. Every position, size and fade is computed from `t`.                                             |
-| Player   | `app/components/film/HeroFilm.tsx`     | Plays it muted in the homepage hero; a click opens it in a lightbox with voice and music. With sound on, the audio element is the clock. |
+| Player   | `app/components/film/HeroFilm.tsx`     | Plays it in the homepage hero; a click opens it in a lightbox. Silent for now: the stems and the mix come back with the reworked cut. |
 | Scripts  | `scripts/film/`                        | Music, voice, mix and the MP4 export. Run by hand, never by the build.                                            |
 
 ## How a move works
@@ -46,3 +46,10 @@ if films start coming in batches from one design. Until then it would replace a
 few hundred working lines with a dependency and, above a small company size, a paid licence.
 GSAP, Framer Motion and CSS animations run on their own clocks, which makes
 frame-exact export and sync to narration harder.
+
+## Shipping state
+
+The site ships the film silent and draws it live, so nothing under
+`public/film/` is committed. Regenerating the soundtrack and the MP4 is for the
+reworked cut; when it lands, the player takes the audio element back as its
+clock and the download link returns.
