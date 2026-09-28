@@ -1,6 +1,8 @@
 import { everyTeamBuildsItsOwn } from '@/components/figures/every-team-builds-its-own'
 import { fourGates } from '@/components/figures/four-gates'
+import { functionToMcpTool } from '@/components/figures/function-to-mcp-tool'
 import { handsNotKeys } from '@/components/figures/hands-not-keys'
+import { jevScreenCascade } from '@/components/figures/jev-screen-cascade'
 import { FIGURE_TEXT } from '@/components/figures/manifest.mjs'
 import { maturityLadder } from '@/components/figures/maturity-ladder'
 import { platform } from '@/components/figures/platform'
@@ -24,6 +26,8 @@ const DRAWINGS: FigureDrawing[] = [
   everyTeamBuildsItsOwn,
   platform,
   platformStack,
+  functionToMcpTool,
+  jevScreenCascade,
 ]
 
 /**
