@@ -59,6 +59,8 @@ export function FilmProvider({ children }: { children: ReactNode }) {
   const [t, setT] = useState(FILM_POSTER_TIME)
   const [open, setOpen] = useState(false)
   const [playing, setPlaying] = useState(false)
+  // Bumped on every seek, so a running clock restarts from the new time instead of overwriting it.
+  const [epoch, setEpoch] = useState(0)
   const time = useRef(FILM_POSTER_TIME)
   const started = useRef(false)
   const inView = useRef(false)
@@ -68,6 +70,7 @@ export function FilmProvider({ children }: { children: ReactNode }) {
   const seek = (next: number) => {
     time.current = next
     setT(next)
+    setEpoch((now) => now + 1)
   }
 
   // Stable, or React would rebuild the observer on every animation frame.
@@ -114,7 +117,7 @@ export function FilmProvider({ children }: { children: ReactNode }) {
     }
     request = requestAnimationFrame(tick)
     return () => cancelAnimationFrame(request)
-  }, [playing])
+  }, [playing, epoch])
 
   const watch = () => {
     isOpen.current = true
