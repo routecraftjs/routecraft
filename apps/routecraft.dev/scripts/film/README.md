@@ -54,3 +54,17 @@ The site ships the film silent and draws it live, so nothing under
 output and are ignored. Regenerating the soundtrack and the MP4 is for the
 reworked cut; when it lands, the player takes the audio element back as its
 clock and the download link returns.
+
+## One-minute review cut
+
+The revised cut is 60 seconds. Routecraft appears at 12 seconds; one named
+capability, **Find overdue invoices**, then moves from a tested local workflow
+to a shared runtime. Finance, Sales and a scheduled job visibly reuse it.
+Service credentials and access rules precede the reuse scene. Recording is
+explicitly enabled through telemetry, rather than presented as unconditional.
+The example results are illustrative, not a recording of a live deployment.
+
+`BEATS` and `NARRATION` in `timeline.ts` govern the animation and the score.
+The renderer and voice synthesis commands above are unchanged. The homepage
+player remains silent as on the source branch; this review generates the
+narrated MP4 for approval without publishing the website.

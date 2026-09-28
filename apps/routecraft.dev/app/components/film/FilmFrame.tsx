@@ -1,69 +1,655 @@
 import type { CSSProperties, ReactNode } from 'react'
 
 import {
-  ASKS_YOU,
-  BECOME_LOCAL,
-  BOARD,
-  BOARD_EXIT,
-  type BoardCard,
-  CAPABILITIES,
-  CAPABILITY_AT,
-  CAPTIONS,
-  CARD_H,
-  CREDENTIALS,
-  CROSSING,
-  clamp01,
-  DOOR_AT,
-  DOORS,
-  DUPLICATE_PULSE,
-  END_CARD,
-  ENTRY_ARROWS,
-  FILM_HEIGHT,
+  BEATS,
   FILM_WIDTH,
-  LEAVES,
-  LOCAL_PANEL,
-  LOCAL_PANEL_IN,
+  FILM_HEIGHT,
+  clamp01,
   mix,
-  mixRect,
-  PROMOTE,
-  RECORD_LINES,
-  type Rect,
   ramp,
-  REMOTE,
-  SCENE_OUT,
-  SECOND_LOCAL,
-  SETTLE,
-  SUBJECT,
-  SYSTEM_TILE_H,
-  SYSTEM_TILE_X,
-  SYSTEM_TILE_Y,
-  SYSTEMS,
-  SYSTEMS_BAND,
   span,
-  systemCentre,
-  TEAM_BLOCK_AT,
-  TEAM_BLOCKS,
-  TEAM_IN,
-  TEAM_PANEL,
-  TO_PLATFORM,
-  TOP_BAND,
-  TOP_BAND_IN,
-  TRIGGER_AT,
-  TRIGGERS,
-  blockRect,
 } from './timeline'
 
-/**
- * One frame of the platform film, as a pure function of time: the same `t`
- * always draws the same picture, which is what lets the player run it live and
- * the render script record it frame by frame.
- *
- * Every colour and face comes from the site's tokens through CSS variables, so
- * the film re-tones with the theme; the fallbacks are the light values, for
- * the render harness. Styles are inline because every value moves.
- */
+const PAPER = 'var(--color-paper, #f5f1e8)'
+const DEEP = 'var(--color-paper-deep, #ebe5da)'
+const INK = 'var(--color-ink, #22232c)'
+const BLUE = 'var(--color-cobalt-500, #1247ff)'
+const SERIF = 'var(--font-fraunces, Georgia, serif)'
+const SANS = 'var(--font-ibm-plex-sans, system-ui, sans-serif)'
+const MONO = 'var(--font-jetbrains-mono, ui-monospace, monospace)'
+const ink = (n: number) => `color-mix(in srgb, ${INK} ${n}%, transparent)`
+const paper = (n: number) => `color-mix(in srgb, ${PAPER} ${n}%, transparent)`
+const rect = (x: number, y: number, w: number, h?: number): CSSProperties => ({
+  position: 'absolute',
+  left: x,
+  top: y,
+  width: w,
+  ...(h ? { height: h } : {}),
+})
+const display: CSSProperties = {
+  fontFamily: SERIF,
+  fontVariationSettings: '"opsz" 144, "SOFT" 30',
+  letterSpacing: '-0.025em',
+  lineHeight: 1.12,
+}
+
+function Accent({ children }: { children: ReactNode }) {
+  return (
+    <span
+      style={{
+        color: BLUE,
+        fontStyle: 'italic',
+        fontVariationSettings: '"opsz" 144, "SOFT" 100',
+      }}
+    >
+      {children}
+    </span>
+  )
+}
+
+function Mark({ size = 42 }: { size?: number }) {
+  return (
+    <svg
+      viewBox="0 0 200 200"
+      width={size}
+      height={size}
+      fill="currentColor"
+      aria-hidden="true"
+    >
+      <path d="M125 175H75V125L125 175ZM175 175H125V125L175 175ZM125 25C152.614 25 175 47.3858 175 75C175 102.614 152.614 125 125 125V75H75L125 125H75L25 75V25H125Z" />
+    </svg>
+  )
+}
+
+function Eyebrow({
+  children,
+  style,
+}: {
+  children: ReactNode
+  style?: CSSProperties
+}) {
+  return (
+    <div
+      style={{
+        fontFamily: MONO,
+        fontSize: 26,
+        letterSpacing: '0.08em',
+        textTransform: 'uppercase',
+        ...style,
+      }}
+    >
+      {children}
+    </div>
+  )
+}
+
+function Headline({ children, sub }: { children: ReactNode; sub?: string }) {
+  return (
+    <div style={rect(120, 148, 1680)}>
+      <div style={{ ...display, fontSize: 82 }}>{children}</div>
+      {sub && (
+        <div style={{ marginTop: 24, fontSize: 34, color: ink(75) }}>{sub}</div>
+      )}
+    </div>
+  )
+}
+
+function Chip({
+  children,
+  dark = false,
+  active = false,
+}: {
+  children: ReactNode
+  dark?: boolean
+  active?: boolean
+}) {
+  return (
+    <span
+      style={{
+        display: 'inline-flex',
+        alignItems: 'center',
+        gap: 12,
+        padding: '14px 22px',
+        background: active ? BLUE : dark ? paper(10) : DEEP,
+        color: active || dark ? PAPER : INK,
+        fontSize: 28,
+        border: `1px solid ${dark ? paper(25) : ink(15)}`,
+      }}
+    >
+      {children}
+    </span>
+  )
+}
+
+/** One named object follows the entire journey. Its identity never changes. */
+function Capability({
+  x,
+  y,
+  w,
+  success = false,
+  opacity = 1,
+}: {
+  x: number
+  y: number
+  w: number
+  success?: boolean
+  opacity?: number
+}) {
+  return (
+    <div
+      style={{
+        ...rect(x, y, w, 228),
+        boxSizing: 'border-box',
+        padding: '30px 34px',
+        background: PAPER,
+        color: INK,
+        border: `2px solid ${BLUE}`,
+        boxShadow: '0 12px 40px #22232c0c',
+        opacity,
+      }}
+    >
+      <Eyebrow style={{ color: BLUE, fontSize: 24 }}>
+        Capability <span style={{ float: 'right' }}>v1</span>
+      </Eyebrow>
+      <div style={{ ...display, fontSize: 51, marginTop: 20 }}>
+        Find overdue invoices
+      </div>
+      <div style={{ marginTop: 22, fontSize: 28, color: ink(75) }}>
+        {success
+          ? '✓ 12 overdue invoices returned'
+          : 'Read invoices → Filter → Return results'}
+      </div>
+    </div>
+  )
+}
+
+function Connector({
+  x1,
+  y1,
+  x2,
+  y2,
+  p,
+  back = false,
+}: {
+  x1: number
+  y1: number
+  x2: number
+  y2: number
+  p: number
+  back?: boolean
+}) {
+  const progress = clamp01(p)
+  if (!progress) return null
+  const x = mix(x1, x2, progress)
+  const y = mix(y1, y2, progress)
+  const a = Math.atan2(y2 - y1, x2 - x1)
+  return (
+    <svg
+      width={FILM_WIDTH}
+      height={FILM_HEIGHT}
+      style={{ position: 'absolute', inset: 0 }}
+    >
+      <path
+        d={`M${x1} ${y1} L${x} ${y}`}
+        fill="none"
+        stroke={back ? ink(45) : BLUE}
+        strokeWidth={3}
+        strokeDasharray={back ? '9 9' : undefined}
+      />
+      <path
+        d={`M${x - 16 * Math.cos(a - 0.5)} ${y - 16 * Math.sin(a - 0.5)} L${x} ${y} L${x - 16 * Math.cos(a + 0.5)} ${y - 16 * Math.sin(a + 0.5)}`}
+        fill="none"
+        stroke={back ? ink(45) : BLUE}
+        strokeWidth={3}
+      />
+      {!back && <circle cx={x} cy={y} r={6} fill={BLUE} />}
+    </svg>
+  )
+}
+
+function Problem({ t }: { t: number }) {
+  const opacity = span(t, 0, 12.15, 0.45)
+  if (!opacity) return null
+  const duplicated = ramp(t, 6.2, 0.7)
+  return (
+    <div style={{ opacity }}>
+      <Headline sub="Scripts on laptops. Access tied to people.">
+        Useful AI tools. <Accent>Fragmented work.</Accent>
+      </Headline>
+      {[
+        { team: 'Finance', file: 'overdue.py', note: 'On one laptop', at: 1.2 },
+        {
+          team: 'Sales',
+          file: 'invoices.ts',
+          note: 'A personal login',
+          at: 2.2,
+        },
+        {
+          team: 'Operations',
+          file: 'invoice-prompt.md',
+          note: 'Another copy',
+          at: 3.2,
+        },
+      ].map((card, i) => {
+        const p = ramp(t, card.at, 0.6)
+        return (
+          <div
+            key={card.team}
+            style={{
+              ...rect(120 + i * 580, 416 + (i % 2) * 24, 520, 304),
+              padding: 34,
+              boxSizing: 'border-box',
+              background: DEEP,
+              border: `1px solid ${ink(20)}`,
+              opacity: p,
+              transform: `translateY(${24 * (1 - p)}px) rotate(${(i - 1) * 1.2}deg)`,
+            }}
+          >
+            <Eyebrow style={{ color: ink(70) }}>{card.team}</Eyebrow>
+            <div style={{ fontFamily: MONO, fontSize: 32, marginTop: 35 }}>
+              {card.file}
+            </div>
+            <div style={{ fontSize: 29, marginTop: 25, color: ink(65) }}>
+              {card.note}
+            </div>
+            <div
+              style={{
+                fontSize: 28,
+                color: BLUE,
+                marginTop: 23,
+                opacity: duplicated,
+              }}
+            >
+              Find overdue invoices
+            </div>
+          </div>
+        )
+      })}
+      <div
+        style={{
+          ...rect(120, 817, 1680),
+          borderTop: `2px solid ${ink(20)}`,
+          paddingTop: 34,
+          opacity: duplicated,
+        }}
+      >
+        <span style={{ ...display, fontSize: 51 }}>
+          The same job. <Accent>Built three times.</Accent>
+        </span>
+      </div>
+    </div>
+  )
+}
+
+function Introduction({ t }: { t: number }) {
+  const opacity = span(t, 12, 19.55, 0.45)
+  if (!opacity) return null
+  return (
+    <div
+      style={{
+        opacity,
+        transform: `translateY(${20 * (1 - ramp(t, 12, 0.7))}px)`,
+      }}
+    >
+      <div
+        style={{
+          ...rect(120, 252, 1600),
+          display: 'flex',
+          alignItems: 'center',
+          gap: 28,
+        }}
+      >
+        <Mark size={130} />
+        <span style={{ ...display, fontSize: 132 }}>Routecraft</span>
+      </div>
+      <div style={{ ...rect(130, 450, 1600), ...display, fontSize: 91 }}>
+        Build AI capabilities.
+        <br />
+        <Accent>Run them. Reuse them.</Accent>
+      </div>
+      <div style={{ ...rect(132, 735, 1500), fontSize: 36, color: ink(75) }}>
+        Open source framework · TypeScript · Your infrastructure
+      </div>
+    </div>
+  )
+}
+
+function Build({ t }: { t: number }) {
+  const opacity = span(t, BEATS.build, 27, 0.35)
+  if (!opacity) return null
+  const ready = ramp(t, 24.3, 0.5)
+  return (
+    <div style={{ opacity }}>
+      <Headline sub="Start with one useful action.">
+        Build it locally. <Accent>Prove it works.</Accent>
+      </Headline>
+      <div
+        style={{
+          ...rect(120, 376, 865, 440),
+          background: DEEP,
+          border: `1px solid ${ink(20)}`,
+        }}
+      >
+        <Eyebrow style={{ position: 'absolute', left: 38, top: 35 }}>
+          Your laptop
+        </Eyebrow>
+        <Capability x={38} y={113} w={789} success={ready > 0.5} />
+        <div
+          style={{
+            ...rect(38, 361, 790),
+            fontSize: 28,
+            color: BLUE,
+            opacity: ready,
+          }}
+        >
+          ✓ Tested with sample invoices
+        </div>
+      </div>
+      <div
+        style={{
+          ...rect(1060, 376, 740, 440),
+          background: INK,
+          color: PAPER,
+          boxSizing: 'border-box',
+          padding: 35,
+        }}
+      >
+        <Eyebrow style={{ fontSize: 24, color: paper(70) }}>
+          Your TypeScript
+        </Eyebrow>
+        <pre
+          style={{
+            fontFamily: MONO,
+            fontSize: 29,
+            lineHeight: 1.65,
+            margin: '30px 0 0',
+            whiteSpace: 'pre-wrap',
+          }}
+        >{`craft()\n  .id('find-overdue-invoices')\n  .from(direct())\n  .to(http({ url: invoicesApi }))\n  .transform(findOverdue)`}</pre>
+      </div>
+      <div style={{ ...rect(120, 882, 1680), fontSize: 31, color: ink(70) }}>
+        One named capability. Inputs, logic and access rules in code.
+      </div>
+    </div>
+  )
+}
+
+function Deploy({ t }: { t: number }) {
+  const opacity = span(t, BEATS.deploy, 33.8, 0.35)
+  if (!opacity) return null
+  const p = ramp(t, 27.6, 1.5)
+  return (
+    <div style={{ opacity }}>
+      <Headline sub="Deploy the capability with the controls your teams need.">
+        Ready for <Accent>shared use.</Accent>
+      </Headline>
+      <div
+        style={{
+          ...rect(120, 411, 490, 350),
+          boxSizing: 'border-box',
+          border: `2px solid ${ink(25)}`,
+          padding: 36,
+        }}
+      >
+        <Eyebrow>Your laptop</Eyebrow>
+        <div style={{ ...display, fontSize: 44, marginTop: 48 }}>
+          Built.
+          <br />
+          Tested.
+          <br />
+          <span style={{ color: BLUE }}>Ready to deploy.</span>
+        </div>
+      </div>
+      <Connector x1={634} y1={573} x2={865} y2={573} p={p} />
+      <div
+        style={{
+          ...rect(890, 361, 910, 450),
+          background: INK,
+          color: PAPER,
+          padding: 36,
+          boxSizing: 'border-box',
+        }}
+      >
+        <Eyebrow>Shared Routecraft runtime</Eyebrow>
+        <div style={{ marginTop: 15, color: paper(70), fontSize: 30 }}>
+          On your infrastructure
+        </div>
+      </div>
+      <Capability
+        x={mix(153, 928, p)}
+        y={mix(487, 519, p)}
+        w={mix(760, 834, p)}
+        opacity={p}
+      />
+      <div
+        style={{
+          ...rect(120, 866, 1680),
+          display: 'flex',
+          gap: 24,
+          opacity: ramp(t, 29.8, 0.6),
+        }}
+      >
+        <Chip>Service account</Chip>
+        <Chip>Access: Finance + Sales</Chip>
+        <Chip>Rules you control</Chip>
+      </div>
+    </div>
+  )
+}
+
+function Reuse({ t }: { t: number }) {
+  const opacity = span(t, BEATS.finance, 50.6, 0.35)
+  if (!opacity) return null
+  const audit = ramp(t, BEATS.telemetry, 0.5)
+  const runtimeY = 371
+  const runtimeH = mix(430, 318, audit)
+  const capabilityY = mix(496, 448, audit)
+  const callers = [
+    { name: 'Finance', via: 'Agent · MCP', at: BEATS.finance, y: 371 },
+    { name: 'Sales', via: 'Editor · MCP', at: BEATS.sales, y: 554 },
+    {
+      name: 'Daily report',
+      via: 'Schedule · 09:00',
+      at: BEATS.schedule,
+      y: 737,
+    },
+  ]
+  return (
+    <div style={{ opacity }}>
+      <Headline
+        sub={
+          audit > 0.5
+            ? 'Telemetry enabled. Each invocation carries its caller.'
+            : 'Different ways in. One shared capability.'
+        }
+      >
+        {audit > 0.5 ? (
+          <>
+            See who called it. <Accent>See what happened.</Accent>
+          </>
+        ) : (
+          <>
+            Build once. <Accent>Use it across teams.</Accent>
+          </>
+        )}
+      </Headline>
+      {callers.map((c) => {
+        const p = ramp(t, c.at + 0.15, 0.5)
+        const flow = ramp(t, c.at + 0.7, 0.8)
+        return (
+          <div key={c.name} style={{ opacity: p }}>
+            <div
+              style={{
+                ...rect(120, c.y, 440, 139),
+                background: DEEP,
+                boxSizing: 'border-box',
+                padding: '23px 30px',
+                border: `1px solid ${ink(20)}`,
+              }}
+            >
+              <div style={{ ...display, fontSize: 41 }}>{c.name}</div>
+              <div style={{ fontSize: 28, marginTop: 11, color: ink(70) }}>
+                {c.via}
+              </div>
+            </div>
+            <Connector
+              x1={578}
+              y1={c.y + 53}
+              x2={784}
+              y2={runtimeY + 190}
+              p={flow}
+            />
+          </div>
+        )
+      })}
+      <div
+        style={{
+          ...rect(808, runtimeY, 992, runtimeH),
+          background: INK,
+          color: PAPER,
+        }}
+      >
+        <div style={{ ...rect(35, 26, 920), fontSize: 29 }}>
+          Shared Routecraft runtime{' '}
+          <span style={{ float: 'right', color: paper(65) }}>v1</span>
+        </div>
+      </div>
+      <Capability x={842} y={capabilityY} w={924} success={t > 35} />
+      <div
+        style={{
+          ...rect(846, 761, 910),
+          fontSize: 28,
+          color: PAPER,
+          opacity: 1 - audit,
+        }}
+      >
+        Same code · Same rules · Service account
+      </div>
+      <div
+        style={{
+          ...rect(808, 716, 992, 239),
+          background: DEEP,
+          border: `1px solid ${ink(20)}`,
+          boxSizing: 'border-box',
+          padding: 28,
+          opacity: audit,
+        }}
+      >
+        <Eyebrow style={{ color: BLUE, fontSize: 23 }}>
+          Telemetry on · Invocation record
+        </Eyebrow>
+        {[
+          '09:14  Finance / Ana     12 invoices · OK',
+          '09:16  Sales / Sam       12 invoices · OK',
+          '09:00  Daily report      12 invoices · OK',
+        ].map((line, i) => (
+          <div
+            key={line}
+            style={{
+              fontFamily: MONO,
+              fontSize: 27,
+              marginTop: 20,
+              whiteSpace: 'pre',
+              opacity: ramp(t, 46 + i * 0.7, 0.4),
+            }}
+          >
+            {line}
+          </div>
+        ))}
+      </div>
+      <div style={{ ...rect(120, 950, 620), fontSize: 23, color: ink(55) }}>
+        Illustrative workflow and results
+      </div>
+    </div>
+  )
+}
+
+function Payoff({ t }: { t: number }) {
+  const opacity = span(t, BEATS.payoff, 55.5, 0.45)
+  if (!opacity) return null
+  return (
+    <div style={{ opacity }}>
+      <div
+        style={{
+          ...rect(120, 172, 1680),
+          ...display,
+          fontSize: 88,
+          textAlign: 'center',
+        }}
+      >
+        What one team <Accent>proves,</Accent>
+        <br />
+        every team can use.
+      </div>
+      <Capability x={533} y={466} w={854} />
+      <div
+        style={{
+          ...rect(360, 798, 1200),
+          display: 'flex',
+          gap: 28,
+          justifyContent: 'center',
+        }}
+      >
+        <Chip active>Finance</Chip>
+        <Chip active>Sales</Chip>
+        <Chip active>Scheduled work</Chip>
+      </div>
+      <div
+        style={{
+          ...rect(120, 913, 1680),
+          textAlign: 'center',
+          fontSize: 32,
+          color: ink(70),
+        }}
+      >
+        Shared capability. Controlled access. No duplicated integration.
+      </div>
+    </div>
+  )
+}
+
+function EndCard({ t }: { t: number }) {
+  const opacity = ramp(t, BEATS.end, 0.6)
+  if (!opacity) return null
+  return (
+    <div
+      style={{
+        position: 'absolute',
+        inset: 0,
+        opacity,
+        display: 'flex',
+        flexDirection: 'column',
+        alignItems: 'center',
+        justifyContent: 'center',
+      }}
+    >
+      <div style={{ display: 'flex', alignItems: 'center', gap: 30 }}>
+        <Mark size={140} />
+        <span style={{ ...display, fontSize: 140 }}>Routecraft</span>
+      </div>
+      <div style={{ ...display, marginTop: 36, fontSize: 69 }}>
+        Built to be <Accent>used.</Accent>
+      </div>
+      <div style={{ fontSize: 35, color: ink(70), marginTop: 42 }}>
+        Open source AI automation framework
+      </div>
+      <div
+        style={{
+          marginTop: 72,
+          fontSize: 38,
+          color: BLUE,
+          borderBottom: `2px solid ${BLUE}`,
+          paddingBottom: 12,
+        }}
+      >
+        Try your first capability at routecraft.dev →
+      </div>
+    </div>
+  )
+}
+
+/** Pure rendering keeps export and the homepage player on the same timeline. */
 export function FilmFrame({ t }: { t: number }) {
-  const scene = 1 - ramp(t, SCENE_OUT.from, SCENE_OUT.duration)
   return (
     <div
       style={{
@@ -72,921 +658,59 @@ export function FilmFrame({ t }: { t: number }) {
         height: FILM_HEIGHT,
         overflow: 'hidden',
         background: PAPER,
-        color: INK_SOLID,
+        color: INK,
         fontFamily: SANS,
       }}
     >
-      <div style={{ position: 'absolute', inset: 0, opacity: scene }}>
-        <SystemsBand t={t} />
-        <BoardWires t={t} />
-        {BOARD.map((card, i) =>
-          i === SUBJECT ? null : <BoardTile key={i} card={card} t={t} i={i} />,
-        )}
-        <TopBand t={t} />
-        <SecondLocal t={t} />
-        <LocalPanel t={t} />
-        <TeamPanel t={t} />
-        <Subject t={t} />
-        {CAPABILITIES.map((name, i) => (
-          <Capability key={name} name={name} i={i} t={t} />
-        ))}
-        <Crossing t={t} />
-        <Arrows t={t} />
-      </div>
-      <Captions t={t} />
-      <EndCard t={t} />
-    </div>
-  )
-}
-
-const PAPER = 'var(--color-paper, #f5f1e8)'
-const PAPER_DEEP = 'var(--color-paper-deep, #ebe5da)'
-const INK_SOLID = 'var(--color-ink, #22232c)'
-const COBALT = 'var(--color-cobalt-500, #1247ff)'
-const EDITORIAL = 'var(--font-fraunces, Georgia, serif)'
-const SANS = 'var(--font-ibm-plex-sans, system-ui, sans-serif)'
-const MONO = 'var(--font-jetbrains-mono, ui-monospace, monospace)'
-const ink = (percent: number) =>
-  `color-mix(in srgb, ${INK_SOLID} ${percent}%, transparent)`
-const paper = (percent: number) =>
-  `color-mix(in srgb, ${PAPER} ${percent}%, transparent)`
-const DISPLAY = '"opsz" 144, "SOFT" 30'
-const DISPLAY_ITALIC = '"opsz" 144, "SOFT" 100'
-
-const at = (r: Rect): CSSProperties => ({
-  position: 'absolute',
-  left: r.x,
-  top: r.y,
-  width: r.w,
-  height: r.h,
-})
-
-/** Labels on blocks and wires fade once the drawing settles. */
-const labels = (t: number) => 1 - ramp(t, SETTLE.from, SETTLE.duration)
-
-function Accent({ children }: { children: ReactNode }) {
-  return (
-    <span
-      style={{
-        color: COBALT,
-        fontStyle: 'italic',
-        fontVariationSettings: DISPLAY_ITALIC,
-      }}
-    >
-      {children}
-    </span>
-  )
-}
-
-function Captions({ t }: { t: number }) {
-  return CAPTIONS.map((caption, ci) => {
-    const shown = span(t, caption.from, caption.to, 0.5)
-    if (shown <= 0) return null
-    const box: CSSProperties = caption.centred
-      ? {
-          position: 'absolute',
-          inset: 0,
+      <div
+        style={{
+          ...rect(120, 58, 1680),
           display: 'flex',
           alignItems: 'center',
-          justifyContent: 'center',
-          padding: '0 200px',
-          fontSize: 96,
-          lineHeight: 1.04,
-          textAlign: 'center',
-        }
-      : {
+          gap: 12,
+          opacity: 1 - ramp(t, 55, 0.3),
+        }}
+      >
+        <Mark size={36} />
+        <span style={{ ...display, fontSize: 33 }}>Routecraft</span>
+        <span
+          style={{
+            marginLeft: 'auto',
+            fontFamily: MONO,
+            fontSize: 21,
+            letterSpacing: '0.08em',
+            color: ink(55),
+          }}
+        >
+          BUILD · RUN · REUSE
+        </span>
+      </div>
+      <Problem t={t} />
+      <Introduction t={t} />
+      <Build t={t} />
+      <Deploy t={t} />
+      <Reuse t={t} />
+      <Payoff t={t} />
+      <EndCard t={t} />
+      <div
+        style={{
           position: 'absolute',
           left: 120,
-          top: 72,
-          width: 1560,
-          fontSize: 58,
-          lineHeight: 1.12,
-        }
-    return (
-      <p
-        key={ci}
-        style={{
-          ...box,
-          margin: 0,
-          opacity: shown,
-          fontFamily: EDITORIAL,
-          fontVariationSettings: DISPLAY,
-          letterSpacing: '-0.02em',
+          right: 120,
+          bottom: 39,
+          height: 2,
+          background: ink(12),
+          opacity: 1 - ramp(t, 55, 0.3),
         }}
       >
-        <span>
-          {caption.parts.map((part, pi) => {
-            const p = ramp(t, part.at, 0.55)
-            return (
-              <span
-                key={pi}
-                style={{
-                  opacity: p,
-                  display: 'inline',
-                  position: 'relative',
-                  top: (1 - p) * 10,
-                }}
-              >
-                {part.text}
-                {part.accent && <Accent>{part.accent}</Accent>}
-                {part.after}
-              </span>
-            )
-          })}
-        </span>
-      </p>
-    )
-  })
-}
-
-function SystemsBand({ t }: { t: number }) {
-  const shown = ramp(t, BOARD[0].at - 0.9, 0.9)
-  if (shown <= 0) return null
-  return (
-    <div
-      style={{ ...at(SYSTEMS_BAND), background: PAPER_DEEP, opacity: shown }}
-    >
-      <PanelTitle
-        name="Your systems"
-        sub="as they are, where they are"
-        x={30}
-        y={26}
-      />
-      {SYSTEMS.map((system, i) => (
-        <span
-          key={system.label}
-          style={{
-            ...at({
-              x: SYSTEM_TILE_X[i] - SYSTEMS_BAND.x,
-              y: SYSTEM_TILE_Y - SYSTEMS_BAND.y,
-              w: system.w,
-              h: SYSTEM_TILE_H,
-            }),
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            gap: 8,
-            border: `1px solid ${ink(22)}`,
-            background: PAPER,
-            fontFamily: MONO,
-            fontSize: 16,
-            whiteSpace: 'nowrap',
-          }}
-        >
-          <Cylinder />
-          {system.label}
-        </span>
-      ))}
-    </div>
-  )
-}
-
-function Cylinder() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      width={15}
-      height={15}
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={1.6}
-      style={{ opacity: 0.55 }}
-    >
-      <ellipse cx="12" cy="6" rx="8" ry="3" />
-      <path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6" />
-      <path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" />
-    </svg>
-  )
-}
-
-function PanelTitle({
-  name,
-  sub,
-  x,
-  y,
-  onPlate = false,
-}: {
-  name: string
-  sub: string
-  x: number
-  y: number
-  onPlate?: boolean
-}) {
-  return (
-    <div style={{ position: 'absolute', left: x, top: y }}>
-      <div
-        style={{
-          fontFamily: EDITORIAL,
-          fontVariationSettings: DISPLAY,
-          fontSize: 36,
-          lineHeight: 1,
-          letterSpacing: '-0.015em',
-          color: onPlate ? PAPER : INK_SOLID,
-        }}
-      >
-        {name}
-      </div>
-      <div
-        style={{
-          marginTop: 10,
-          fontSize: 17,
-          color: onPlate ? paper(70) : ink(65),
-        }}
-      >
-        {sub}
-      </div>
-    </div>
-  )
-}
-
-/** How far a board card has left the stage. */
-const boardExit = (t: number, i: number) =>
-  Math.max(
-    ramp(t, BOARD_EXIT.from + (i % 5) * 0.08, BOARD_EXIT.duration),
-    BOARD[i].leaves ? ramp(t, LEAVES.from, LEAVES.duration) : 0,
-  )
-
-/** The duplicates light up together while the line says the next team builds it again. */
-const duplicatePulse = (t: number, card: BoardCard) =>
-  card.duplicate
-    ? span(
-        t,
-        DUPLICATE_PULSE.from,
-        DUPLICATE_PULSE.from + DUPLICATE_PULSE.duration,
-        0.5,
-      )
-    : 0
-
-function BoardWires({ t }: { t: number }) {
-  if (t < BOARD[0].at || t > BOARD_EXIT.from + BOARD_EXIT.duration + 0.5)
-    return null
-  return (
-    <svg
-      width={FILM_WIDTH}
-      height={FILM_HEIGHT}
-      style={{ position: 'absolute', inset: 0 }}
-      fill="none"
-    >
-      {BOARD.map((card, i) => {
-        if (!card.to) return null
-        const drawn = ramp(t, card.at + 0.25, 0.9)
-        if (drawn <= 0) return null
-        const sx = card.x + card.w / 2
-        const sy = card.y + CARD_H
-        const ex = systemCentre(card.to)
-        const ey = SYSTEM_TILE_Y
-        return (
-          <path
-            key={i}
-            d={`M${sx} ${sy} C${sx} ${sy + 90} ${ex} ${ey - 110} ${ex} ${ey}`}
-            pathLength={1}
-            stroke={ink(32)}
-            strokeWidth={1.5}
-            strokeDasharray="1 1"
-            strokeDashoffset={1 - drawn}
-            opacity={1 - boardExit(t, i)}
-          />
-        )
-      })}
-    </svg>
-  )
-}
-
-function CardFace({ card }: { card: BoardCard }) {
-  return (
-    <>
-      <div
-        style={{
-          display: 'flex',
-          alignItems: 'center',
-          gap: 10,
-          fontFamily: MONO,
-          fontSize: 17,
-          whiteSpace: 'nowrap',
-        }}
-      >
-        <span
-          style={{
-            fontSize: 11,
-            letterSpacing: '0.12em',
-            textTransform: 'uppercase',
-            border: `1px solid ${ink(30)}`,
-            padding: '2px 6px',
-            color: ink(70),
-          }}
-        >
-          {card.kind}
-        </span>
-        {card.name}
-      </div>
-      <div style={{ marginTop: 12, fontSize: 17, color: ink(75) }}>
-        {card.line}
-      </div>
-      <div
-        style={{
-          marginTop: 6,
-          fontFamily: EDITORIAL,
-          fontStyle: 'italic',
-          fontVariationSettings: DISPLAY_ITALIC,
-          fontSize: 18,
-          color: ink(55),
-        }}
-      >
-        {card.note}
-      </div>
-    </>
-  )
-}
-
-const cardBox: CSSProperties = {
-  background: PAPER,
-  border: `1px solid ${ink(20)}`,
-  boxShadow: 'none',
-  padding: '16px 18px',
-  boxSizing: 'border-box',
-  overflow: 'hidden',
-}
-
-function BoardTile({ card, t, i }: { card: BoardCard; t: number; i: number }) {
-  const shown = ramp(t, card.at, 0.45)
-  const gone = boardExit(t, i)
-  const opacity = shown * (1 - gone)
-  if (opacity <= 0) return null
-  const pulse = duplicatePulse(t, card)
-  return (
-    <div
-      style={{
-        ...at({ x: card.x, y: card.y, w: card.w, h: CARD_H }),
-        ...cardBox,
-        border: `1px solid color-mix(in srgb, ${COBALT} ${Math.round(pulse * 100)}%, ${ink(20)})`,
-        opacity,
-        transform: `translateY(${(1 - shown) * 16 - gone * 24}px) rotate(${card.tilt}deg) scale(${0.96 + 0.04 * shown + 0.03 * pulse})`,
-      }}
-    >
-      <CardFace card={card} />
-    </div>
-  )
-}
-
-/** The subject: a card on the board, then a skill in the local harness. */
-function Subject({ t }: { t: number }) {
-  const card = BOARD[SUBJECT]
-  const shown = ramp(t, card.at, 0.45)
-  if (shown <= 0) return null
-  const dock = ramp(t, TO_PLATFORM.from, TO_PLATFORM.duration)
-  const board = { x: card.x, y: card.y, w: card.w, h: CARD_H }
-  const rect = mixRect(board, blockRect(LOCAL_PANEL, 0), dock)
-  const boardFace = 1 - clamp01(dock * 2.5)
-  const blockFace = clamp01((dock - 0.5) / 0.4) * labels(t)
-  const skill = ramp(t, BECOME_LOCAL.from, BECOME_LOCAL.duration)
-  return (
-    <div
-      style={{
-        ...at(rect),
-        ...cardBox,
-        padding: 0,
-        background: dock > 0.5 ? PAPER_DEEP : PAPER,
-        border: `1px solid ${dock > 0.5 ? ink(18) : dock > 0 ? COBALT : ink(20)}`,
-        opacity: shown,
-        transform: `translateY(${(1 - shown) * 16}px) rotate(${card.tilt * (1 - dock)}deg)`,
-      }}
-    >
-      {boardFace > 0 && (
         <div
           style={{
-            position: 'absolute',
-            inset: 0,
-            padding: '16px 18px',
-            opacity: boardFace,
+            height: 2,
+            width: `${Math.min(100, (t / 55) * 100)}%`,
+            background: BLUE,
           }}
-        >
-          <CardFace card={card} />
-        </div>
-      )}
-      {blockFace > 0 && (
-        <>
-          <BlockLabel
-            eyebrow="instruction"
-            name="overdue.md"
-            opacity={blockFace * (1 - skill)}
-          />
-          <BlockLabel
-            eyebrow="skill"
-            name="overdue.md"
-            opacity={blockFace * skill}
-          />
-        </>
-      )}
-    </div>
-  )
-}
-
-function BlockLabel({
-  eyebrow,
-  name,
-  opacity,
-  onPlate = false,
-  accent = false,
-}: {
-  eyebrow: string
-  name: string
-  opacity: number
-  onPlate?: boolean
-  accent?: boolean
-}) {
-  return (
-    <div
-      style={{ position: 'absolute', inset: 0, padding: '12px 14px', opacity }}
-    >
-      <div
-        style={{
-          fontFamily: MONO,
-          fontSize: 11,
-          letterSpacing: '0.14em',
-          textTransform: 'uppercase',
-          color: accent ? COBALT : onPlate ? paper(60) : ink(55),
-        }}
-      >
-        {eyebrow}
+        />
       </div>
-      <div
-        style={{
-          marginTop: 8,
-          fontFamily: MONO,
-          fontSize: 17,
-          whiteSpace: 'nowrap',
-          color: onPlate ? PAPER : INK_SOLID,
-        }}
-      >
-        {name}
-      </div>
-    </div>
-  )
-}
-
-/** A capability built in the local harness, beside the skill that needs it. */
-function Capability({ name, i, t }: { name: string; i: number; t: number }) {
-  const shown = ramp(t, CAPABILITY_AT[i], 0.5)
-  if (shown <= 0) return null
-  const settled = ramp(t, CAPABILITY_AT[i] + 1.4, 1)
-  const border = `color-mix(in srgb, ${COBALT} ${Math.round((1 - settled) * 100)}%, ${ink(26)})`
-  return (
-    <div
-      style={{
-        ...at(blockRect(LOCAL_PANEL, i + 1)),
-        boxSizing: 'border-box',
-        background: PAPER_DEEP,
-        border: `1px solid ${border}`,
-        opacity: shown,
-        transform: `translateY(${(1 - shown) * 18}px)`,
-      }}
-    >
-      <BlockLabel
-        eyebrow="capability"
-        name={name}
-        opacity={labels(t)}
-        accent={settled < 1}
-      />
-    </div>
-  )
-}
-
-/** The local harness panel, drawn around the skill as it lands. */
-function LocalPanel({ t }: { t: number }) {
-  const shown = ramp(t, LOCAL_PANEL_IN.from, LOCAL_PANEL_IN.duration)
-  if (shown <= 0) return null
-  return (
-    <div style={{ ...at(LOCAL_PANEL), background: PAPER_DEEP, opacity: shown }}>
-      <PanelTitle
-        name="Local harness"
-        sub="on your own machine, on your own access"
-        x={30}
-        y={28}
-      />
-    </div>
-  )
-}
-
-function SecondLocal({ t }: { t: number }) {
-  const shown = ramp(t, SECOND_LOCAL.from, SECOND_LOCAL.duration)
-  if (shown <= 0) return null
-  const r = LOCAL_PANEL
-  return (
-    <>
-      <div
-        style={{
-          ...at({ x: r.x - 16, y: r.y - 16, w: r.w, h: r.h }),
-          border: `1.5px dashed ${ink(35)}`,
-          opacity: shown,
-        }}
-      />
-      <div
-        style={{
-          position: 'absolute',
-          left: r.x - 16,
-          top: r.y - 44,
-          fontFamily: MONO,
-          fontSize: 13,
-          color: ink(60),
-          opacity: shown * labels(t),
-        }}
-      >
-        the next team
-      </div>
-    </>
-  )
-}
-
-function TeamPanel({ t }: { t: number }) {
-  const shown = ramp(t, TEAM_IN.from, TEAM_IN.duration)
-  if (shown <= 0) return null
-  return (
-    <div
-      style={{
-        ...at(TEAM_PANEL),
-        background: INK_SOLID,
-        opacity: shown,
-        transform: `translateX(${(1 - shown) * 40}px)`,
-      }}
-    >
-      <PanelTitle
-        name="Team harness"
-        sub="always on, on service credentials, every call on record"
-        x={30}
-        y={28}
-        onPlate
-      />
-      {RECORD_LINES.map((line) => {
-        const typed = clamp01((t - line.at) / 0.5)
-        if (typed <= 0) return null
-        return (
-          <div
-            key={line.text}
-            style={{
-              position: 'absolute',
-              left: 30,
-              top: 120 + RECORD_LINES.indexOf(line) * 26,
-              fontFamily: MONO,
-              fontSize: 15,
-              whiteSpace: 'pre',
-              color: paper(78),
-              opacity: labels(t),
-            }}
-          >
-            {line.text.slice(0, Math.round(line.text.length * typed))}
-          </div>
-        )
-      })}
-      {TEAM_BLOCKS.map((name, i) => {
-        const block = ramp(t, TEAM_BLOCK_AT[i], 0.45)
-        if (block <= 0) return null
-        const r = blockRect(TEAM_PANEL, i)
-        return (
-          <div
-            key={name}
-            style={{
-              ...at({
-                x: r.x - TEAM_PANEL.x,
-                y: r.y - TEAM_PANEL.y,
-                w: r.w,
-                h: r.h,
-              }),
-              boxSizing: 'border-box',
-              background: paper(12),
-              border: `1px solid ${paper(28)}`,
-              opacity: block,
-            }}
-          >
-            <BlockLabel
-              eyebrow="capability"
-              name={name}
-              opacity={labels(t)}
-              onPlate
-            />
-          </div>
-        )
-      })}
-    </div>
-  )
-}
-
-/** The promoted capability travelling from the laptop to the team harness. */
-function Crossing({ t }: { t: number }) {
-  const p = ramp(t, CROSSING.from, CROSSING.duration)
-  if (p <= 0 || t > CROSSING.from + CROSSING.duration + 0.3) return null
-  const from = blockRect(LOCAL_PANEL, CROSSING.capability + 1)
-  const to = blockRect(TEAM_PANEL, 0)
-  const rect = mixRect(from, to, p)
-  const lift = Math.sin(p * Math.PI) * 60
-  return (
-    <div
-      style={{
-        ...at({ ...rect, y: rect.y - lift }),
-        boxSizing: 'border-box',
-        background: PAPER,
-        border: `1.5px solid ${COBALT}`,
-        opacity: 1 - ramp(t, CROSSING.from + CROSSING.duration, 0.3),
-      }}
-    >
-      <BlockLabel
-        eyebrow="capability"
-        name={CAPABILITIES[CROSSING.capability]}
-        opacity={1}
-        accent
-      />
-    </div>
-  )
-}
-
-function TopBand({ t }: { t: number }) {
-  const shown = ramp(t, TOP_BAND_IN.from, TOP_BAND_IN.duration)
-  if (shown <= 0) return null
-  const blocks = [
-    ...DOORS.map((name, i) => ({
-      name,
-      at: DOOR_AT(i),
-      x: 640 + i * 124,
-      door: true,
-    })),
-    ...TRIGGERS.map((name, i) => ({
-      name,
-      at: TRIGGER_AT(i),
-      x: 1162 + i * 124,
-      door: false,
-    })),
-  ]
-  return (
-    <div style={{ ...at(TOP_BAND), background: PAPER_DEEP, opacity: shown }}>
-      <PanelTitle
-        name="Every way in"
-        sub="when someone asks, and when nobody does"
-        x={30}
-        y={22}
-      />
-      {blocks.map((b) => {
-        const p = ramp(t, b.at, 0.4)
-        if (p <= 0) return null
-        return (
-          <span
-            key={b.name}
-            style={{
-              ...at({ x: b.x - TOP_BAND.x, y: 27, w: 110, h: 56 }),
-              boxSizing: 'border-box',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              background: PAPER,
-              border: `1.5px ${b.door ? 'solid' : 'dashed'} ${ink(b.door ? 30 : 38)}`,
-              fontFamily: MONO,
-              fontSize: 16,
-              opacity: p,
-              transform: `translateY(${(1 - p) * -10}px)`,
-            }}
-          >
-            <span style={{ opacity: labels(t) }}>{b.name}</span>
-          </span>
-        )
-      })}
-    </div>
-  )
-}
-
-function Arrow({
-  x1,
-  y1,
-  x2,
-  y2,
-  drawn,
-  colour,
-  dashed = false,
-}: {
-  x1: number
-  y1: number
-  x2: number
-  y2: number
-  drawn: number
-  colour: string
-  dashed?: boolean
-}) {
-  if (drawn <= 0) return null
-  const x = mix(x1, x2, drawn)
-  const y = mix(y1, y2, drawn)
-  const angle = Math.atan2(y2 - y1, x2 - x1)
-  const head = (a: number) =>
-    `${x - 11 * Math.cos(angle + a)},${y - 11 * Math.sin(angle + a)}`
-  return (
-    <g stroke={colour} strokeWidth={1.6} fill="none">
-      <line
-        x1={x1}
-        y1={y1}
-        x2={x}
-        y2={y}
-        strokeDasharray={dashed ? '6 6' : undefined}
-      />
-      <polyline points={`${head(0.5)} ${x},${y} ${head(-0.5)}`} />
-    </g>
-  )
-}
-
-function ArrowLabel({
-  x,
-  y,
-  children,
-  opacity,
-  colour,
-}: {
-  x: number
-  y: number
-  children: ReactNode
-  opacity: number
-  colour?: string
-}) {
-  if (opacity <= 0) return null
-  return (
-    <div
-      style={{
-        position: 'absolute',
-        left: x,
-        top: y,
-        fontFamily: MONO,
-        fontSize: 14,
-        whiteSpace: 'nowrap',
-        color: colour ?? ink(62),
-        opacity,
-      }}
-    >
-      {children}
-    </div>
-  )
-}
-
-function Arrows({ t }: { t: number }) {
-  const promote = ramp(t, PROMOTE.from, PROMOTE.duration)
-  const remote = ramp(t, REMOTE.from, REMOTE.duration)
-  const entry = ramp(t, ENTRY_ARROWS.from, ENTRY_ARROWS.duration)
-  const asks = ramp(t, ASKS_YOU.from, ASKS_YOU.duration)
-  const credentials = ramp(t, CREDENTIALS.from, CREDENTIALS.duration)
-  const l = labels(t)
-  const localX = LOCAL_PANEL.x + 390
-  const teamX = TEAM_PANEL.x + 390
-  const bottom = LOCAL_PANEL.y + LOCAL_PANEL.h
-  return (
-    <>
-      <svg
-        width={FILM_WIDTH}
-        height={FILM_HEIGHT}
-        style={{ position: 'absolute', inset: 0 }}
-      >
-        <Arrow
-          x1={904}
-          y1={540}
-          x2={1014}
-          y2={540}
-          drawn={promote}
-          colour={ink(70)}
-        />
-        <Arrow
-          x1={1014}
-          y1={620}
-          x2={906}
-          y2={620}
-          drawn={remote}
-          colour={ink(60)}
-          dashed
-        />
-        <Arrow
-          x1={localX}
-          y1={TOP_BAND.y + TOP_BAND.h + 4}
-          x2={localX}
-          y2={LOCAL_PANEL.y - 22}
-          drawn={entry}
-          colour={ink(60)}
-        />
-        <Arrow
-          x1={teamX}
-          y1={TOP_BAND.y + TOP_BAND.h + 4}
-          x2={teamX}
-          y2={TEAM_PANEL.y - 6}
-          drawn={entry}
-          colour={ink(60)}
-        />
-        <Arrow
-          x1={TEAM_PANEL.x + 740}
-          y1={TEAM_PANEL.y - 6}
-          x2={TEAM_PANEL.x + 740}
-          y2={TOP_BAND.y + TOP_BAND.h + 4}
-          drawn={asks}
-          colour={COBALT}
-        />
-        <Arrow
-          x1={localX}
-          y1={bottom + 4}
-          x2={localX}
-          y2={SYSTEMS_BAND.y - 6}
-          drawn={credentials}
-          colour={ink(55)}
-          dashed
-        />
-        <Arrow
-          x1={teamX}
-          y1={bottom + 4}
-          x2={teamX}
-          y2={SYSTEMS_BAND.y - 6}
-          drawn={credentials}
-          colour={COBALT}
-        />
-      </svg>
-      <ArrowLabel x={906} y={508} opacity={promote * l}>
-        promote
-      </ArrowLabel>
-      <ArrowLabel x={920} y={632} opacity={remote * l}>
-        remote
-      </ArrowLabel>
-      <ArrowLabel
-        x={teamX + 16}
-        y={TOP_BAND.y + TOP_BAND.h + 22}
-        opacity={asks * l}
-        colour={COBALT}
-      >
-        asks you when it needs a decision
-      </ArrowLabel>
-      <ArrowLabel x={localX + 14} y={bottom + 34} opacity={credentials * l}>
-        personal credentials
-      </ArrowLabel>
-      <ArrowLabel
-        x={teamX + 14}
-        y={bottom + 34}
-        opacity={credentials * l}
-        colour={COBALT}
-      >
-        service credentials
-      </ArrowLabel>
-    </>
-  )
-}
-
-function EndCard({ t }: { t: number }) {
-  const shown = ramp(t, END_CARD.from, 1)
-  if (shown <= 0) return null
-  return (
-    <div
-      style={{
-        position: 'absolute',
-        inset: 0,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        opacity: shown,
-      }}
-    >
-      <div style={{ display: 'flex', alignItems: 'center', gap: 34 }}>
-        <svg
-          viewBox="0 0 200 200"
-          width={132}
-          height={132}
-          fill="currentColor"
-          aria-hidden="true"
-        >
-          <path d="M125 175H75V125L125 175ZM175 175H125V125L175 175ZM125 25C152.614 25 175 47.3858 175 75C175 102.614 152.614 125 125 125V75H75L125 125H75L25 75V25H125Z" />
-        </svg>
-        <span
-          style={{
-            fontFamily: EDITORIAL,
-            fontVariationSettings: DISPLAY,
-            fontSize: 132,
-            letterSpacing: '-0.03em',
-            lineHeight: 1,
-          }}
-        >
-          Routecraft
-        </span>
-      </div>
-      <p
-        style={{
-          margin: '46px 0 0',
-          fontFamily: EDITORIAL,
-          fontVariationSettings: DISPLAY,
-          fontSize: 54,
-          letterSpacing: '-0.02em',
-          opacity: ramp(t, END_CARD.from + 0.6, 0.8),
-        }}
-      >
-        Built to be <Accent>used</Accent>.
-      </p>
-      <p
-        style={{
-          margin: '40px 0 0',
-          fontFamily: MONO,
-          fontSize: 20,
-          letterSpacing: '0.18em',
-          textTransform: 'uppercase',
-          color: ink(60),
-          opacity: ramp(t, END_CARD.from + 1.2, 0.8),
-        }}
-      >
-        open source AI automation platform · routecraft.dev
-      </p>
     </div>
   )
 }

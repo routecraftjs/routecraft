@@ -1,38 +1,16 @@
 /**
- * Writes the platform film's music to `scripts/film/audio/music.mp3`.
- *
- * The music is synthesised here rather than licensed, so it can be regenerated
- * whenever the picture changes and carries no rights question. It follows the
- * film's arc and turns where the film turns: a dark A minor drone under the
- * board filling up, a low pulse that builds while nobody else can use any of
- * it, a swell under the line that names the problem, and then, on the beat
- * where Routecraft is named as the place to run it, the pulse stops, the key
- * lifts into C major and an arpeggio carries the platform drawing itself. A soft note marks every card
- * and block landing, taken from `SCORE_EVENTS` so sound and picture share one
- * timeline. A licensed track can replace the MP3 instead; either way, `mix.ts`
- * then lays the voice over it.
+ * Synthesises the platform film's score. The opening A minor tension resolves
+ * to C major when Routecraft appears at 12 seconds. Named timeline beats then
+ * carry the build, deployment and reuse sequence. No licensed audio is used.
  *
  * Usage: bun scripts/film/score.ts && bun scripts/film/mix.ts
  */
 import { join } from 'node:path'
 
 import {
-  BOARD_EXIT,
-  CAPABILITY_AT,
-  CREDENTIALS,
+  BEATS,
   FILM_DURATION,
-  LEAVES,
-  NARRATION,
-  PROMOTE,
-  RECORD_LINES,
-  REMOTE,
-  SCENE_OUT,
   SCORE_EVENTS,
-  SETTLE,
-  TEAM_BLOCK_AT,
-  TOP_BAND_IN,
-  TO_PLATFORM,
-  TRIGGER_AT,
 } from '../../app/components/film/timeline'
 import { RATE, encode } from './ffmpeg'
 
@@ -43,28 +21,24 @@ const TAU = Math.PI * 2
 const hz = (midi: number) => 440 * Math.pow(2, (midi - 69) / 12)
 
 /** The moment the problem is answered; everything before it tightens, everything after it opens. */
-const TURN = TO_PLATFORM.from
-const NOBODY_ELSE = NARRATION[2].at
-const NOT_SHORT_OF_IDEAS = NARRATION[3].at
+const TURN = BEATS.introduction
+const NOBODY_ELSE = BEATS.duplication
+const SWELL_FROM = 9
 
-/** Chords as MIDI notes, each held from its start until the next one. */
+/** The harmony resolves when the framework appears, then follows its use. */
 const CHORDS: [number, number[]][] = [
   [0, [33, 45, 52, 57, 60]],
-  [NOBODY_ELSE, [33, 45, 52, 56, 60]],
-  [LEAVES.from, [38, 50, 53, 57, 62]],
-  [NOT_SHORT_OF_IDEAS, [41, 48, 53, 57, 64]],
-  [BOARD_EXIT.from - 1.6, [40, 47, 52, 56, 62]],
+  [6, [33, 45, 52, 56, 60]],
+  [9, [40, 47, 52, 56, 62]],
   [TURN, [36, 48, 55, 60, 64]],
-  [CAPABILITY_AT[0], [36, 48, 55, 60, 64, 67]],
-  [PROMOTE.from, [35, 47, 55, 59, 62]],
-  [TEAM_BLOCK_AT[0], [33, 45, 57, 60, 64]],
-  [REMOTE.from, [29, 41, 53, 57, 60, 65]],
-  [TOP_BAND_IN.from, [29, 41, 53, 57, 60]],
-  [TRIGGER_AT(0), [36, 48, 55, 60, 64]],
-  [CREDENTIALS.from, [31, 43, 55, 59, 62]],
-  [RECORD_LINES[0].at, [36, 48, 55, 60, 64, 67]],
-  [SETTLE.from, [36, 48, 55, 62, 64, 67]],
-  [SCENE_OUT.from, [36, 48, 60, 64, 67]],
+  [BEATS.build, [36, 48, 55, 60, 64, 67]],
+  [BEATS.deploy, [35, 47, 55, 59, 62]],
+  [BEATS.finance, [33, 45, 57, 60, 64]],
+  [BEATS.sales, [29, 41, 53, 57, 60, 65]],
+  [BEATS.schedule, [36, 48, 55, 60, 64]],
+  [BEATS.telemetry, [31, 43, 55, 59, 62]],
+  [BEATS.payoff, [36, 48, 55, 62, 64, 67]],
+  [BEATS.end, [36, 48, 60, 64, 67]],
 ]
 
 function add(i: number, l: number, r: number) {
@@ -150,9 +124,9 @@ for (let at = NOBODY_ELSE; at < TURN - 0.4; at += 0.75) {
   }
 }
 
-// The swell while the harness forms: noise through a lowpass that opens up.
+// The swell before the framework appears: noise through an opening lowpass.
 {
-  const from = NOT_SHORT_OF_IDEAS
+  const from = SWELL_FROM
   const to = TURN
   let low = 0
   for (let i = Math.floor(from * RATE); i < Math.floor(to * RATE); i++) {
@@ -181,7 +155,7 @@ const chordAt = (t: number) =>
   CHORDS.reduce((current, chord) => (chord[0] <= t ? chord : current))[1]
 
 // The arpeggio under the platform building itself.
-for (let step = 0, t = TURN; t < SCENE_OUT.from; step++, t += 0.3) {
+for (let step = 0, t = TURN; t < BEATS.end; step++, t += 0.3) {
   const upper = chordAt(t).filter((n) => n >= 52)
   const note = upper[step % upper.length] + 12
   const lift = Math.min(1, (t - TURN) / 4)
