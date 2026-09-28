@@ -23,7 +23,7 @@ An agent finishes a task. Does every result need another LLM call to check it?
 
 [Jev](https://typesafe.ai/blog/introducing-system-one-models-and-jev) is TypeSafe AI's model for making decisions. Give it context and a typed question: is this true, which option fits, or how does this score? It returns an answer with probabilities instead of generated text, so your code can act on the result directly. TypeSafe AI prices it at $0.042 per million input tokens, output free, and quotes 70 to 500 ms end to end.
 
-We build Routecraft at [DevOptix](https://devoptix.nl) and run our own agents on it, so the example is a Routecraft capability with Jev in front of the judge. The goal: keep the reasoning judge for the results that need an explanation, and stop paying for it on the ones that do not. Jev returns a probability that the request was met. Results above a configurable threshold skip the LLM judge; everything else goes to it for a verdict and explanation.
+We build Routecraft at [DevOptix](https://devoptix.nl) and run our own agents on it, so the example is a Routecraft capability with Jev in front of the judge. The goal: keep the reasoning judge for the results that need an explanation, and stop paying for it on the ones that do not. Jev returns a probability that the request was met. Results at or above a configurable threshold skip the LLM judge; everything else goes to it for a verdict and explanation.
 
 **Your application decides when to spend the reasoning call.**
 
@@ -39,7 +39,7 @@ The example receives three things: the original request, the agent's account of 
 
 <Diagram id="jev-screen-cascade" />
 
-This example explicitly allows screened passes without an explanation. Their log message records the probability and that the LLM was skipped. A likely failure still goes to the LLM, because the caller wants an explanation. If every verdict needs one, keep the LLM in every path.
+This example explicitly allows screened passes without an explanation. Their `reason` records the probability and that no reasoning call was made; the log line records that the result was screened. A likely failure still goes to the LLM, because the caller wants an explanation. If every verdict needs one, keep the LLM in every path.
 
 ## The decision in code
 
@@ -92,10 +92,10 @@ A failed Jev call becomes `NaN`, which takes the fallback branch. If that judge 
 
 This is the Routecraft integration: an SDK call, a condition, and a structured LLM response in one capability, callable from another through `direct("judge-agent-result")`.
 
-Three things in `@typesafe-ai/sdk` 0.6.0 are only visible in its types, and each one changes how you wire it:
+Three things about `@typesafe-ai/sdk` 0.6.0 are in its API reference and absent from its quickstart, and each one changes how you wire it:
 
 - The client throws at construction when `TYPESAFE_API_KEY` is unset, not at first call. Build it lazily, or a missing key takes every capability in the same file down on import.
-- It retries on its own, about 31 seconds worst case with the default timeout. We set `maxRetries: 0`: a failed screen already has a fallback, and a retry only delays it.
+- It retries on its own: with the defaults, three attempts at a 10 second timeout each is about 31 seconds, and a server `Retry-After` header can hold each retry for up to a minute on top. We set `maxRetries: 0`: a failed screen already has a fallback, and a retry only delays it.
 - `state` is typed as JSON, which a TypeScript `interface` never satisfies. Declare the evidence with `type`.
 
 ## See the branch change
