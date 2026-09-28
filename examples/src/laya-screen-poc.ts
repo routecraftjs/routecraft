@@ -75,40 +75,95 @@ const run = async (checkpoint: string): Promise<Scored[]> => {
   return scored;
 };
 
-const report = (checkpoint: string, scored: Scored[]): void => {
-  const brier =
-    scored.reduce((sum, s) => sum + (s.p - (s.met ? 1 : 0)) ** 2, 0) /
-    scored.length;
-  const correctAtHalf = scored.filter((s) => s.p >= 0.5 === s.met).length;
+type Summary = {
+  checkpoint: string;
+  correct: number;
+  brier: number;
+  p50: number;
+  worstFail: number;
+  safePasses: number;
+  /** Per threshold: the cases passed, and the failures among them. */
+  atThreshold: { t: number; passed: Scored[]; wrong: Scored[] }[];
+  byCase: Map<string, number>;
+};
 
-  out(`\n## ${checkpoint}\n`);
-  out("| case | label | p(met) | ms |");
-  out("|---|---|---|---|");
-  for (const s of scored) {
+const summarise = (checkpoint: string, scored: Scored[]): Summary => {
+  const worstFail = Math.max(...scored.filter((s) => !s.met).map((s) => s.p));
+  return {
+    checkpoint,
+    correct: scored.filter((s) => s.p >= 0.5 === s.met).length,
+    brier:
+      scored.reduce((sum, s) => sum + (s.p - (s.met ? 1 : 0)) ** 2, 0) /
+      scored.length,
+    p50: median(scored.map((s) => s.ms)),
+    worstFail,
+    safePasses: scored.filter((s) => s.met && s.p > worstFail).length,
+    atThreshold: THRESHOLDS.map((t) => {
+      const passed = scored.filter((s) => s.p >= t);
+      return { t, passed, wrong: passed.filter((s) => !s.met) };
+    }),
+    byCase: new Map(scored.map((s) => [s.id, s.p])),
+  };
+};
+
+const report = (summaries: Summary[]): void => {
+  const met = cases.filter((c) => c.met).length;
+  out(`# Laya as the judge screen\n`);
+  out(
+    `${cases.length} labelled cases (${met} met, ${cases.length - met} not met), server ${baseURL}.\n`,
+  );
+
+  const thresholdHeads = THRESHOLDS.map((t) => `passes at ${t} (wrong)`);
+  out(
+    `| checkpoint | accuracy | Brier | p50 | safe passes | ${thresholdHeads.join(" | ")} |`,
+  );
+  out(`|---|---|---|---|---|${THRESHOLDS.map(() => "---").join("|")}|`);
+  for (const s of summaries) {
+    const cells = s.atThreshold.map(
+      (a) => `${a.passed.length} (${a.wrong.length})`,
+    );
     out(
-      `| ${s.id} | ${s.met ? "met" : "not met"} | ${s.p.toFixed(3)} | ${s.ms.toFixed(0)} |`,
+      `| ${s.checkpoint} | ${s.correct}/${cases.length} | ${s.brier.toFixed(3)} | ${s.p50.toFixed(0)} ms | ${s.safePasses} of ${met} | ${cells.join(" | ")} |`,
     );
   }
+  out();
   out(
-    `\nAccuracy at 0.5: ${correctAtHalf}/${scored.length}. Brier: ${brier.toFixed(3)}. Median latency: ${median(scored.map((s) => s.ms)).toFixed(0)} ms.`,
+    "Accuracy: cases on the right side of 0.5. Brier: mean squared distance of p(met) from the truth, 0 is perfect and 0.25 is a coin flip. Safe passes: met cases scoring above the highest-scored failure, the most any threshold could skip the reasoning judge on without letting a failure through. Passes at a threshold: cases the route would pass without the reasoning judge, and how many of those were failures.",
   );
-  const worstFail = Math.max(...scored.filter((s) => !s.met).map((s) => s.p));
-  const safePasses = scored.filter((s) => s.met && s.p > worstFail).length;
-  out(
-    `Highest-scored failure: ${worstFail.toFixed(3)}. A threshold above it passes ${safePasses} of ${scored.filter((s) => s.met).length} met cases with no wrong pass.`,
-  );
-  for (const t of THRESHOLDS) {
-    const passed = scored.filter((s) => s.p >= t);
-    const wrong = passed.filter((s) => !s.met);
+
+  for (const s of summaries) {
+    out(`\n## ${s.checkpoint}\n`);
     out(
-      `passAt ${t}: ${passed.length} passed without the reasoning judge, ${wrong.length} of them wrongly${wrong.length ? ` (${wrong.map((w) => w.id).join(", ")})` : ""}; ${scored.length - passed.length} escalated.`,
+      `Highest-scored failure ${s.worstFail.toFixed(2)}, so a threshold above it passes ${s.safePasses} of ${met} met cases with no wrong pass.`,
     );
+    const wrong = s.atThreshold.filter((a) => a.wrong.length);
+    if (wrong.length === 0) {
+      out("No wrong passes at any threshold.");
+      continue;
+    }
+    out("Wrong passes:");
+    for (const a of wrong) {
+      out(
+        `- at ${a.t}: ${a.wrong.map((w) => `${w.id} (${w.p.toFixed(2)})`).join(", ")}`,
+      );
+    }
+  }
+
+  out(`\n## Per case\n`);
+  out("p(met) per checkpoint; ✗ marks an answer on the wrong side of 0.5.\n");
+  out(`| case | label | ${summaries.map((s) => s.checkpoint).join(" | ")} |`);
+  out(`|---|---|${summaries.map(() => "---").join("|")}|`);
+  for (const c of cases) {
+    const cells = summaries.map((s) => {
+      const p = s.byCase.get(c.id)!;
+      return `${p.toFixed(2)}${p >= 0.5 !== c.met ? " ✗" : ""}`;
+    });
+    out(`| ${c.id} | ${c.met ? "met" : "not met"} | ${cells.join(" | ")} |`);
   }
 };
 
-out(
-  `# Laya as the judge screen\n\n${cases.length} labelled cases (${cases.filter((c) => c.met).length} met), server ${baseURL}.`,
-);
+const summaries: Summary[] = [];
 for (const checkpoint of checkpoints) {
-  report(checkpoint, await run(checkpoint));
+  summaries.push(summarise(checkpoint, await run(checkpoint)));
 }
+report(summaries);

@@ -14,9 +14,9 @@
  *   checkpoint; the default lets the server route by language.
  *
  * Run as a script, it sends every item in `data/sensitivity-items.json` to
- * each backend `BENCH_RUNS` times (default 3), prints accuracy, calibration,
- * latency and run-to-run stability per backend, and writes every answer to
- * `results/` so runs can be compared later:
+ * each backend `BENCH_RUNS` times (default 3), prints one comparison table,
+ * what each backend got wrong, and a per-item matrix, and writes every answer
+ * to `results/` so runs can be compared later:
  *
  *   bun examples/src/sensitivity-bench.ts
  *
@@ -113,6 +113,8 @@ type Answer = {
   error: string | null;
 };
 
+type Ok = Answer & { p: number; ms: number };
+
 const out = (line = ""): void => {
   process.stdout.write(`${line}\n`);
 };
@@ -122,48 +124,122 @@ const percentile = (xs: number[], q: number): number => {
   return s[Math.min(s.length - 1, Math.floor(q * s.length))] ?? Number.NaN;
 };
 
-const summarise = (b: Backend, answers: Answer[]): void => {
-  const ok = answers.filter(
-    (a): a is Answer & { p: number; ms: number } => a.p !== null,
-  );
-  out(`\n## ${b}${ok[0]?.model ? ` (${ok[0].model})` : ""}\n`);
-  if (ok.length === 0) {
-    out(`No answers. First error: ${answers[0]?.error ?? "none recorded"}`);
-    return;
-  }
+const mean = (xs: number[]): number =>
+  xs.reduce((a, b) => a + b, 0) / xs.length;
+
+const pct = (n: number): string => `${(n * 100).toFixed(0)}%`;
+
+type Summary = {
+  backend: Backend;
+  model: string;
+  answers: number;
+  errors: number;
+  accuracy: number;
+  precision: number;
+  recall: number;
+  brier: number;
+  p50: number;
+  p95: number;
+  spread: number;
+  /** Mean probability per item across runs. */
+  means: Map<string, number>;
+};
+
+const summarise = (b: Backend, answers: Answer[]): Summary | null => {
+  const ok = answers.filter((a): a is Ok => a.p !== null);
+  if (ok.length === 0) return null;
   const tp = ok.filter((a) => a.label && a.p >= 0.5).length;
   const fp = ok.filter((a) => !a.label && a.p >= 0.5).length;
   const fn = ok.filter((a) => a.label && a.p < 0.5).length;
-  const correct = ok.filter((a) => a.p >= 0.5 === a.label).length;
-  const brier =
-    ok.reduce((sum, a) => sum + (a.p - (a.label ? 1 : 0)) ** 2, 0) / ok.length;
-  const byItem = new Map<string, number[]>();
-  for (const a of ok) byItem.set(a.id, [...(byItem.get(a.id) ?? []), a.p]);
-  const spread = Math.max(
-    ...[...byItem.values()].map((ps) => Math.max(...ps) - Math.min(...ps)),
-  );
+  const grouped = new Map<string, number[]>();
+  for (const a of ok) grouped.set(a.id, [...(grouped.get(a.id) ?? []), a.p]);
   const ms = ok.map((a) => a.ms);
+  return {
+    backend: b,
+    model: ok[0]!.model ?? "unknown",
+    answers: ok.length,
+    errors: answers.length - ok.length,
+    accuracy: ok.filter((a) => a.p >= 0.5 === a.label).length / ok.length,
+    precision: tp / (tp + fp) || 0,
+    recall: tp / (tp + fn) || 0,
+    brier: mean(ok.map((a) => (a.p - (a.label ? 1 : 0)) ** 2)),
+    p50: percentile(ms, 0.5),
+    p95: percentile(ms, 0.95),
+    spread: Math.max(
+      ...[...grouped.values()].map((ps) => Math.max(...ps) - Math.min(...ps)),
+    ),
+    means: new Map([...grouped].map(([id, ps]) => [id, mean(ps)])),
+  };
+};
+
+const report = (
+  items: Item[],
+  runs: number,
+  summaries: Summary[],
+  skipped: string[],
+): void => {
+  const sensitive = items.filter((i) => i.sensitive).length;
+  out(`# Sensitivity screen\n`);
+  out(
+    `${items.length} items (${sensitive} sensitive, ${items.length - sensitive} not), ${runs} run(s) each, ${summaries.length} backend(s).${skipped.length ? ` Skipped: ${skipped.join("; ")}.` : ""}\n`,
+  );
 
   out(
-    `Answers: ${ok.length}, errors: ${answers.length - ok.length}. Accuracy at 0.5: ${((correct / ok.length) * 100).toFixed(1)}%. Precision: ${(tp / (tp + fp) || 0).toFixed(2)}. Recall: ${(tp / (tp + fn) || 0).toFixed(2)}. Brier: ${brier.toFixed(3)}.`,
+    "| backend | model | accuracy | precision | recall | Brier | p50 | p95 | run-to-run |",
   );
+  out("|---|---|---|---|---|---|---|---|---|");
+  for (const s of summaries) {
+    out(
+      `| ${s.backend} | ${s.model} | ${pct(s.accuracy)} | ${s.precision.toFixed(2)} | ${s.recall.toFixed(2)} | ${s.brier.toFixed(3)} | ${s.p50.toFixed(0)} ms | ${s.p95.toFixed(0)} ms | ±${s.spread.toFixed(2)} |`,
+    );
+  }
+  out();
   out(
-    `Latency p50 ${percentile(ms, 0.5).toFixed(0)} ms, p95 ${percentile(ms, 0.95).toFixed(0)} ms. Largest run-to-run spread on one item: ${spread.toFixed(3)}.`,
+    "Accuracy: answers on the right side of 0.5. Precision: of the items flagged sensitive, how many were. Recall: of the sensitive items, how many were flagged. Brier: mean squared distance of the probability from the truth, 0 is perfect and 0.25 is a coin flip. Run-to-run: the largest change in one item's probability between runs.",
   );
-  const wrong = [...byItem.entries()]
-    .map(([id, ps]) => {
-      const label = ok.find((a) => a.id === id)!.label;
-      const mean = ps.reduce((x, y) => x + y, 0) / ps.length;
-      return { id, label, mean };
-    })
-    .filter((w) => w.mean >= 0.5 !== w.label);
-  if (wrong.length) {
-    out(`\nWrong on average (mean p(sensitive)):`);
-    for (const w of wrong) {
-      out(
-        `- ${w.id}: labelled ${w.label ? "sensitive" : "not sensitive"}, ${w.mean.toFixed(3)}`,
-      );
+
+  for (const s of summaries) {
+    const wrong = items.filter(
+      (i) => (s.means.get(i.id) ?? 0) >= 0.5 !== i.sensitive,
+    );
+    const missed = wrong.filter((i) => i.sensitive);
+    const flagged = wrong.filter((i) => !i.sensitive);
+    out(`\n## ${s.backend}\n`);
+    if (s.errors) out(`${s.errors} of ${s.answers + s.errors} calls failed.`);
+    if (wrong.length === 0) {
+      out("Right on every item.");
+      continue;
     }
+    if (missed.length) {
+      out(`Missed ${missed.length} of ${sensitive} sensitive items:`);
+      for (const i of missed) {
+        out(`- ${i.id} (${s.means.get(i.id)!.toFixed(2)}): ${i.text}`);
+      }
+    }
+    if (flagged.length) {
+      if (missed.length) out();
+      out(`Flagged ${flagged.length} item(s) that are not sensitive:`);
+      for (const i of flagged) {
+        out(`- ${i.id} (${s.means.get(i.id)!.toFixed(2)}): ${i.text}`);
+      }
+    }
+  }
+
+  out(`\n## Per item\n`);
+  out(
+    "Mean p(sensitive) per backend; ✗ marks an answer on the wrong side of 0.5.\n",
+  );
+  out(`| item | label | ${summaries.map((s) => s.backend).join(" | ")} |`);
+  out(`|---|---|${summaries.map(() => "---").join("|")}|`);
+  for (const i of items) {
+    const cells = summaries.map((s) => {
+      const p = s.means.get(i.id);
+      if (p === undefined) return "n/a";
+      return `${p.toFixed(2)}${p >= 0.5 !== i.sensitive ? " ✗" : ""}`;
+    });
+    out(
+      `| ${i.id} | ${i.sensitive ? "sensitive" : "not"} | ${cells.join(" | ")} |`,
+    );
   }
 };
 
@@ -177,12 +253,13 @@ const main = async (): Promise<void> => {
   const runs = Number(process.env["BENCH_RUNS"] ?? 3);
   const noJevKey =
     !process.env["TYPESAFE_API_KEY"] && !process.env["OPENROUTER_API_KEY"];
+  const skipped: string[] = [];
   const backends = (process.env["BENCH_BACKENDS"] ?? "jev,laya")
     .split(",")
     .map((b) => backend.parse(b.trim()))
     .filter((b) => {
       if (b === "jev" && noJevKey) {
-        out("Skipping jev: set TYPESAFE_API_KEY or OPENROUTER_API_KEY.");
+        skipped.push("jev (set TYPESAFE_API_KEY or OPENROUTER_API_KEY)");
         return false;
       }
       return true;
@@ -233,15 +310,19 @@ const main = async (): Promise<void> => {
     await started.catch(() => undefined);
   }
 
-  out(
-    `# Sensitivity screen: ${items.length} items (${items.filter((i) => i.sensitive).length} sensitive), ${runs} run(s)`,
-  );
+  const summaries: Summary[] = [];
   for (const b of backends) {
-    summarise(
+    const s = summarise(
       b,
       answers.filter((a) => a.backend === b),
     );
+    if (s) summaries.push(s);
+    else {
+      const first = answers.find((a) => a.backend === b)?.error;
+      skipped.push(`${b} (no answers${first ? `: ${first}` : ""})`);
+    }
   }
+  report(items, runs, summaries, skipped);
 
   const dir = new URL("../results/", import.meta.url);
   mkdirSync(dir, { recursive: true });
