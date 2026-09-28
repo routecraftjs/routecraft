@@ -78,7 +78,7 @@ export const CAPTIONS: Caption[] = [
     from: 5.5,
     to: 14.8,
     parts: [
-      { at: 5.5, text: 'Scripts on SharePoint. ' },
+      { at: 5.5, text: 'Scripts on a shared drive. ' },
       { at: 8.3, text: 'Prompts in markdown. ' },
       { at: 11.1, text: 'Tokens copied from a browser.' },
     ],
@@ -224,7 +224,7 @@ export const BOARD: BoardCard[] = [
   {
     kind: 'py',
     name: 'sync_crm.py',
-    line: 'SharePoint › Finance › scripts',
+    line: 'shared drive › Finance › scripts',
     note: 'runs when someone remembers',
     x: 140,
     y: 280,
@@ -271,7 +271,7 @@ export const BOARD: BoardCard[] = [
   },
   {
     kind: 'dir',
-    name: 'github-skill/',
+    name: 'repo-skill/',
     line: 'the same skill',
     note: 'copy 1 of 4',
     x: 1510,
@@ -319,7 +319,7 @@ export const BOARD: BoardCard[] = [
   },
   {
     kind: 'dir',
-    name: 'github-skill/',
+    name: 'repo-skill/',
     line: 'the same skill',
     note: 'copy 2 of 4',
     x: 1380,
@@ -355,7 +355,7 @@ export const BOARD: BoardCard[] = [
   },
   {
     kind: 'dir',
-    name: 'github-skill/',
+    name: 'repo-skill/',
     line: 'the same skill',
     note: 'copy 3 of 4',
     x: 1560,
@@ -390,7 +390,7 @@ export const BOARD: BoardCard[] = [
   },
   {
     kind: 'dir',
-    name: 'slack-bot/',
+    name: 'chat-bot/',
     line: 'a personal token',
     note: 'leaves with its owner',
     x: 1100,
@@ -402,7 +402,7 @@ export const BOARD: BoardCard[] = [
   },
   {
     kind: 'dir',
-    name: 'github-skill/',
+    name: 'repo-skill/',
     line: 'the same skill',
     note: 'copy 4 of 4',
     x: 1360,
@@ -515,7 +515,7 @@ export const NARRATION: { at: number; end: number; text: string }[] = [
   {
     at: 5.8,
     end: 15.1,
-    text: 'A script in a SharePoint folder. A prompt in a markdown file. A token copied out of a browser.',
+    text: 'A script in a shared folder. A prompt in a markdown file. A token copied out of a browser.',
   },
   { at: 15.5, end: 20.3, text: 'Shared like it’s 1985. On a memory stick.' },
   { at: 20.8, end: 24.5, text: 'But a markdown file is only an instruction.' },
