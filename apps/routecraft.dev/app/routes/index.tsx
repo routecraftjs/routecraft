@@ -41,7 +41,7 @@ const PILLARS: Pillar[] = [
   {
     number: '01',
     title: 'Ship it this afternoon',
-    body: 'Build and prove a capability on your own machine, on your own access. No ticket, no approval, nothing to ask for before you try it.',
+    body: 'Build and prove a capability on your own machine, on your own access. No approval, no waiting, nothing to ask for before you try it.',
   },
   {
     number: '02',

@@ -140,7 +140,7 @@ const BACKENDS = [
   'CRM',
   'ERP',
   'HR and payroll',
-  'ticketing',
+  'support desk',
   'knowledge base',
   'mail and calendar',
   'chat',

@@ -173,7 +173,7 @@ export const SYSTEMS = [
   { label: 'CRM', w: 96 },
   { label: 'ERP', w: 96 },
   { label: 'HR and payroll', w: 200 },
-  { label: 'ticketing', w: 150 },
+  { label: 'support desk', w: 180 },
   { label: 'knowledge base', w: 200 },
   { label: 'mail and calendar', w: 232 },
   { label: 'chat', w: 96 },
@@ -255,7 +255,7 @@ export const BOARD: BoardCard[] = [
     w: 280,
     tilt: -1,
     at: 7.8,
-    to: 'ticketing',
+    to: 'support desk',
   },
   {
     kind: 'xlsm',
@@ -283,7 +283,7 @@ export const BOARD: BoardCard[] = [
   },
   {
     kind: 'md',
-    name: 'triage.md',
+    name: 'overdue.md',
     line: 'customer data in the prompt',
     note: 'sent to a model nobody approved',
     x: 620,
@@ -291,7 +291,7 @@ export const BOARD: BoardCard[] = [
     w: 320,
     tilt: 1,
     at: 11.1,
-    to: 'ticketing',
+    to: 'ERP',
   },
   {
     kind: 'ps1',
@@ -415,23 +415,23 @@ export const BOARD: BoardCard[] = [
 ]
 
 /** The board card that becomes the film's subject. */
-export const SUBJECT = BOARD.findIndex((c) => c.name === 'triage.md')
+export const SUBJECT = BOARD.findIndex((c) => c.name === 'overdue.md')
 
 export const BOARD_EXIT = { from: 20.2, duration: 1.2 }
 
 /** The subject card, read up close. */
 export const ZOOM_CARD: Rect = { x: 700, y: 330, w: 520, h: 250 }
 export const ZOOM_MOVE = { from: 20.4, duration: 1.8 }
-export const TRIAGE_STEPS = [
-  'Search the logs for the service.',
-  'Open a ticket with what you found.',
+export const SUBJECT_STEPS = [
   'Look up the customer in the CRM.',
+  'Check the invoice in the ERP.',
+  'Send the reminder from the shared mailbox.',
 ]
 
 export const HARNESS_BOX: Rect = { x: 560, y: 270, w: 800, h: 530 }
 export const HARNESS_DRAW = { from: 24.8, duration: 1.4 }
 
-export const TOOLS = ['read logs', 'open ticket', 'query CRM'] as const
+export const TOOLS = ['query CRM', 'read invoice', 'send mail'] as const
 export const TOOL_RECTS: Rect[] = TOOLS.map((_, i) => ({
   x: 610 + i * 240,
   y: 650,
@@ -465,7 +465,7 @@ export const TEAM_IN = { from: 41.4, duration: 1 }
 export const PROMOTE = { from: 42.6, duration: 1 }
 /** The promoted capability crossing from local to team. */
 export const CROSSING = { from: 43.4, duration: 1.6, capability: 0 }
-export const TEAM_BLOCKS = ['read logs', 'open ticket', 'query CRM', 'health']
+export const TEAM_BLOCKS = ['query CRM', 'read invoice', 'send mail', 'payroll']
 export const TEAM_BLOCK_AT = [45, 45.5, 45.9, 46.3]
 export const SECOND_LOCAL = { from: 46.4, duration: 0.8 }
 export const REMOTE = { from: 47.2, duration: 1 }
@@ -480,8 +480,8 @@ export const ASKS_YOU = { from: 55.2, duration: 0.8 }
 export const CREDENTIALS = { from: 55.8, duration: 1 }
 
 export const RECORD_LINES = [
-  { at: 57.3, text: '09:14:02  logs:read      ana via agent   ok' },
-  { at: 57.9, text: '09:14:05  tickets:write  ana via agent   ok' },
+  { at: 57.3, text: '09:14:02  crm:read       ana via agent   ok' },
+  { at: 57.9, text: '09:14:05  mail:send      ana via agent   ok' },
   { at: 58.5, text: '09:15:40  cron           digest           ok' },
 ]
 

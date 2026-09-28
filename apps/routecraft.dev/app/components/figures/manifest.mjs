@@ -61,12 +61,12 @@ export const FIGURE_TEXT = {
       'The four primitives of a team agent harness, and the model in the middle.',
   },
   'every-team-builds-its-own': {
-    alt: "Ten tilted team cards (an invoice chaser on one VM, a recruitment agent on a laptop, expense approvals on a copied session cookie, support replies with their own model key, an MCP tools repo, payroll checks run by hand, Copilot skills, sales follow-ups on a rep's own login, and two ghosts not yet on any list), each wired by dashed lines straight into the same column of business systems: CRM, ERP, HR and payroll, ticketing, knowledge base, mail and calendar, chat and source control. A list of ten patterns seen across them, from a token pasted into a .env to nothing another team can install.",
+    alt: "Ten tilted team cards (an invoice chaser on one VM, a recruitment agent on a laptop, expense approvals on a copied session cookie, support replies with their own model key, an MCP tools repo, payroll checks run by hand, Copilot skills, sales follow-ups on a rep's own login, and two ghosts not yet on any list), each wired by dashed lines straight into the same column of business systems: CRM, ERP, HR and payroll, support desk, knowledge base, mail and calendar, chat and source control. A list of ten patterns seen across them, from a token pasted into a .env to nothing another team can install.",
     caption:
       'Every team builds its own: a stack per team, a credential per person.',
   },
   platform: {
-    alt: "The platform at its highest level. Across the top, every way in: people in their editor, agents over MCP, the CLI, HTTP and triggers. In the middle, a local harness per person on their own access, and an always-on team harness on service credentials, joined by promote when proven, remote, and capabilities, skills and agents shared as packages. The team harness asks a person when it needs a decision. Along the bottom, the organisation's systems as they are: CRM, ERP, HR and payroll, ticketing, knowledge base, mail and calendar, chat and source control.",
+    alt: "The platform at its highest level. Across the top, every way in: people in their editor, agents over MCP, the CLI, HTTP and triggers. In the middle, a local harness per person on their own access, and an always-on team harness on service credentials, joined by promote when proven, remote, and capabilities, skills and agents shared as packages. The team harness asks a person when it needs a decision. Along the bottom, the organisation's systems as they are: CRM, ERP, HR and payroll, support desk, knowledge base, mail and calendar, chat and source control.",
     caption: 'One runtime, every way in, the same capabilities everywhere.',
   },
   'platform-stack': {

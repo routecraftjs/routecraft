@@ -49,7 +49,7 @@ import {
   TOOLS,
   TOP_BAND,
   TOP_BAND_IN,
-  TRIAGE_STEPS,
+  SUBJECT_STEPS,
   TRIGGER_AT,
   TRIGGERS,
   ZOOM_CARD,
@@ -416,7 +416,7 @@ function BoardTile({ card, t, i }: { card: BoardCard; t: number; i: number }) {
   )
 }
 
-/** triage.md: a card on the board, then the instruction up close, then a skill in the harness. */
+/** The subject: a card on the board, then the instruction up close, then a skill in the harness. */
 function Subject({ t }: { t: number }) {
   const card = BOARD[SUBJECT]
   const shown = ramp(t, card.at, 0.45)
@@ -475,7 +475,7 @@ function Subject({ t }: { t: number }) {
               color: ink(60),
             }}
           >
-            <span>triage.md</span>
+            <span>overdue.md</span>
             <span
               style={{
                 color: COBALT,
@@ -497,7 +497,7 @@ function Subject({ t }: { t: number }) {
               lineHeight: 1,
             }}
           >
-            Triage an incident
+            Chase an overdue invoice
           </div>
           <ol
             style={{
@@ -508,14 +508,14 @@ function Subject({ t }: { t: number }) {
               color: ink(78),
             }}
           >
-            {TRIAGE_STEPS.map((step) => (
+            {SUBJECT_STEPS.map((step) => (
               <li key={step}>{step}</li>
             ))}
           </ol>
         </div>
       )}
       {blockFace > 0 && (
-        <BlockLabel eyebrow="skill" name="triage.md" opacity={blockFace} />
+        <BlockLabel eyebrow="skill" name="overdue.md" opacity={blockFace} />
       )}
     </div>
   )
