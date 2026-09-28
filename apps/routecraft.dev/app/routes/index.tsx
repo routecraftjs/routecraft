@@ -221,7 +221,7 @@ function Cost() {
           <div className="lg:col-span-5">
             <SectionHeading
               plain="You are paying for the licences."
-              accent="You are not getting the work."
+              accent="You are not getting the results."
             />
           </div>
           <Ledger lines={COSTS} className="lg:col-span-7" />
