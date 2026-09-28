@@ -234,8 +234,8 @@ describe("craft run on a lone file", () => {
 
   /**
    * @case The relaunched child dies of a signal the parent never sent
-   * @preconditions A lone file runs in a relaunched child; the child is sent SIGABRT directly, as a native crash would
-   * @expectedResult The caller sees 128 + SIGABRT (134), not a code that names another signal
+   * @preconditions A lone file runs in a relaunched child; the child is sent SIGALRM directly, a signal the parent does not forward
+   * @expectedResult The caller sees 128 + SIGALRM (142), not a code that names another signal
    */
   test.skipIf(!LONE_FILE_CASES || process.platform === "win32")(
     "reports the child's own signal in the exit code",
@@ -243,9 +243,11 @@ describe("craft run on a lone file", () => {
       const { parent, childPid } = await startLongRunning("aborted");
       const exited = exitOf(parent);
 
-      process.kill(childPid, "SIGABRT");
+      // Not SIGABRT: a core-dumping signal hands the child to the runner's crash
+      // handler, which on CI outlasts the timeout.
+      process.kill(childPid, "SIGALRM");
 
-      expect(await exited).toBe(134);
+      expect(await exited).toBe(142);
     },
     30_000,
   );
