@@ -164,6 +164,7 @@ describe("judgementFrom()", () => {
 describe("judge-agent-result capability", () => {
   let server: Server;
   let probability = 0.94;
+  let unavailable = false;
   let lastState: unknown;
   let t: TestContext;
   const previousEnv = {
@@ -177,6 +178,11 @@ describe("judge-agent-result capability", () => {
       req.on("data", (chunk: Buffer) => (raw += chunk));
       req.on("end", () => {
         lastState = (JSON.parse(raw) as { state: unknown }).state;
+        if (unavailable) {
+          res.writeHead(503, { "content-type": "application/json" });
+          res.end(JSON.stringify({ error: "unavailable" }));
+          return;
+        }
         res.writeHead(200, { "content-type": "application/json" });
         res.end(answer(probability));
       });
@@ -203,6 +209,7 @@ describe("judge-agent-result capability", () => {
   });
 
   afterEach(async () => {
+    unavailable = false;
     if (t) await t.stop();
   });
 
@@ -308,5 +315,32 @@ describe("judge-agent-result capability", () => {
     expect(result).toEqual(verdict);
     expect(judge.calls.send).toHaveLength(1);
     expect(lastState).toEqual(evidence);
+  });
+
+  /**
+   * @case Dispatch evidence while the screening service answers 503, with the
+   *   reasoning judge mocked.
+   * @preconditions Stub server answering every screen with a 503; the llm()
+   *   adapter overridden to return a verdict
+   * @expectedResult The failed screen escalates instead of failing the
+   *   dispatch: the reasoning judge is asked once and its verdict returned
+   */
+  test("an unavailable screen escalates to the reasoning judge", async () => {
+    unavailable = true;
+    const verdict: Judgement = {
+      met: true,
+      reason: "The archive tool ran and the account matches the record.",
+    };
+    const judge = mockAdapter(llm, { send: async () => ({ output: verdict }) });
+    t = await testContext().override(judge).routes([judgeRoute]).build();
+    await t.startAndWaitReady();
+
+    const result = await t.client.sendDirect<JudgeEvidence, Judgement>(
+      "judge-agent-result",
+      evidence,
+    );
+
+    expect(result).toEqual(verdict);
+    expect(judge.calls.send).toHaveLength(1);
   });
 });

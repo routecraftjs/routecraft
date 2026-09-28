@@ -103,8 +103,8 @@ let shared: TypeSafeClient | undefined;
 
 const typesafe = (): TypeSafeClient =>
   (shared ??= new TypeSafeClient({
-    // No retries: a screen that fails escalates to the reasoning judge, so a
-    // retry would only add latency to a path that already has a fallback.
+    // No retries: a screen that fails escalates to the reasoning judge, so we
+    // pay for one judge call rather than hold the dispatch for a retry.
     retry: { maxRetries: 0 },
   }));
 
