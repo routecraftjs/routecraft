@@ -60,4 +60,17 @@ export const FIGURE_TEXT = {
     caption:
       'The four primitives of a team agent harness, and the model in the middle.',
   },
+  'every-team-builds-its-own': {
+    alt: "Ten tilted team cards (an invoice chaser on one VM, a recruitment agent on a laptop, expense approvals on a copied session cookie, support replies with their own model key, an MCP tools repo, payroll checks run by hand, agent skills, sales follow-ups on a rep's own login, and two ghosts not yet on any list), each wired by dashed lines straight into the same column of business systems: CRM, ERP, HR and payroll, support desk, knowledge base, mail and calendar, chat and source control. A list of ten patterns seen across them, from a token pasted into a .env to nothing another team can install.",
+    caption:
+      'Every team builds its own: a stack per team, a credential per person.',
+  },
+  platform: {
+    alt: "The platform at its highest level. Across the top, every way in: people in their editor, agents over MCP, the CLI, HTTP and triggers. In the middle, a local harness per person on their own access, and an always-on team harness on service credentials, joined by promote when proven, remote, and capabilities, skills and agents shared as packages. The team harness asks a person when it needs a decision. Along the bottom, the organisation's systems as they are: CRM, ERP, HR and payroll, support desk, knowledge base, mail and calendar, chat and source control.",
+    caption: 'One runtime, every way in, the same capabilities everywhere.',
+  },
+  'platform-stack': {
+    alt: 'Six stacked bands, each a layer of the platform with a row of unlabelled blocks: every way in (editors, MCP clients, the CLI, HTTP and the triggers that wake it), agents, skills, capabilities, adapters, and your systems drawn as data stores. A bracket on the left spans the top five, which run on your laptop as a local harness or always on as the team harness; a cobalt strip on the right spans all six, where who asked, which door, which capability and which system are on record.',
+    caption: 'One runtime, six layers, open at any depth.',
+  },
 }

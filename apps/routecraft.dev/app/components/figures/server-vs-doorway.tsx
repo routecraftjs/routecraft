@@ -4,6 +4,7 @@ import {
   Arrow,
   Block,
   Chip,
+  Conclusion,
   Divider,
   Eyebrow,
   FigureCanvas,
@@ -157,25 +158,9 @@ function Figure({ palette }: FigureProps) {
           </div>
         </div>
 
-        <p
-          style={{
-            margin: 0,
-            textAlign: 'center',
-            fontFamily: 'var(--font-editorial)',
-            fontStyle: 'italic',
-            fontSize: '1.8rem',
-            lineHeight: 1.45,
-            color: palette.ink60,
-            borderTop: `1px solid ${palette.ink15}`,
-            paddingTop: 32,
-            fontVariationSettings: '"opsz" 96, "SOFT" 60',
-          }}
-        >
-          Is the MCP server the product, or{' '}
-          <span style={{ color: palette.accent }}>
-            one doorway into the product?
-          </span>
-        </p>
+        <Conclusion palette={palette} accent="one doorway into the product?">
+          Is the MCP server the product, or
+        </Conclusion>
       </div>
     </FigureCanvas>
   )

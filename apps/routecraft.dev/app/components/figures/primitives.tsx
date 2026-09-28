@@ -373,3 +373,147 @@ export function Divider({
     />
   )
 }
+
+/** A data store: the cylinder that stands for a system the organisation already has. */
+export function StoreMark({
+  colour,
+  size = 22,
+}: {
+  colour: string
+  size?: number
+}) {
+  return (
+    <svg
+      viewBox="0 0 24 24"
+      style={{
+        width: size,
+        height: size,
+        flex: 'none',
+        stroke: colour,
+        fill: 'none',
+      }}
+      strokeWidth={1.6}
+    >
+      <ellipse cx="12" cy="6" rx="8" ry="3" />
+      <path d="M4 6v12c0 1.7 3.6 3 8 3s8-1.3 8-3V6" />
+      <path d="M4 12c0 1.7 3.6 3 8 3s8-1.3 8-3" />
+    </svg>
+  )
+}
+
+/** The figure's closing line under a hairline, its last clause in the accent. */
+export function Conclusion({
+  palette,
+  accent,
+  children,
+  style,
+}: {
+  palette: FigurePalette
+  accent: ReactNode
+  children: ReactNode
+  style?: CSSProperties
+}) {
+  return (
+    <p
+      style={{
+        margin: 0,
+        textAlign: 'center',
+        fontFamily: EDITORIAL,
+        fontStyle: 'italic',
+        fontSize: '1.8rem',
+        lineHeight: 1.45,
+        color: palette.ink60,
+        borderTop: `1px solid ${palette.ink15}`,
+        paddingTop: 32,
+        fontVariationSettings: '"opsz" 96, "SOFT" 60',
+        ...style,
+      }}
+    >
+      {children} <span style={{ color: palette.accent }}>{accent}</span>
+    </p>
+  )
+}
+
+/** A platform layer's name, as the platform figures label their bands and panes. */
+export function LayerName({
+  colour,
+  children,
+}: {
+  colour?: string
+  children: ReactNode
+}) {
+  return (
+    <span
+      style={{
+        fontFamily: EDITORIAL,
+        fontSize: 30,
+        lineHeight: 1.1,
+        fontWeight: 500,
+        letterSpacing: '-0.01em',
+        fontVariationSettings: '"opsz" 72, "SOFT" 30',
+        color: colour,
+      }}
+    >
+      {children}
+    </span>
+  )
+}
+
+export function LayerSub({
+  colour,
+  children,
+}: {
+  colour: string
+  children: ReactNode
+}) {
+  return (
+    <span
+      style={{
+        fontFamily: 'var(--font-sans)',
+        fontSize: 14,
+        lineHeight: 1.35,
+        color: colour,
+      }}
+    >
+      {children}
+    </span>
+  )
+}
+
+/**
+ * A layer's unlabelled blocks: how much of the layer there is, not what it
+ * is. `gapAfter` sets one block apart from the ones after it.
+ */
+export function BlockRow({
+  count,
+  fill,
+  gapAfter,
+  children,
+}: {
+  count: number
+  fill: string
+  gapAfter?: number
+  children?: ReactNode
+}) {
+  return (
+    <div style={{ display: 'flex', alignItems: 'center', gap: 34 }}>
+      {Array.from({ length: count }, (_, i) => (
+        <span
+          key={i}
+          style={{
+            width: 44,
+            height: 44,
+            flex: 'none',
+            background: fill,
+            display: 'inline-flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            marginRight: i === gapAfter ? 24 : 0,
+          }}
+        >
+          {children}
+        </span>
+      ))}
+    </div>
+  )
+}

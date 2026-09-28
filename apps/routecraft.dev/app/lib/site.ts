@@ -39,10 +39,10 @@ export const siteUrl = (
 
 export const siteName = 'Routecraft'
 
-export const siteTagline = 'AI Automation as Code'
+export const siteTagline = 'Where your AI gets to work.'
 
 export const siteDescription =
-  'Write TypeScript capabilities that send emails, manage calendars, and automate work. Expose them to any AI agent via MCP. The code-first alternative to Make.com.'
+  'Routecraft is the open source AI automation platform your teams build on together. Prove a capability on your laptop, promote it to a team harness, and every agent, editor and team can use it on service credentials instead of their own.'
 
 export const organization = {
   name: siteName,

@@ -1,82 +1,70 @@
 import { createFileRoute } from '@tanstack/react-router'
 
 import { AppLink } from '@/components/AppLink'
-import type { ReactNode } from 'react'
-
 import { BlogMark } from '@/components/BlogMark'
 import { BlogMeta } from '@/components/BlogMeta'
 import { BuiltWithRoutecraft } from '@/components/BuiltWithRoutecraft'
-import { CodeMorph } from '@/components/CodeMorph'
+import {
+  FilmPreview,
+  FilmProvider,
+  WatchFilmButton,
+} from '@/components/film/HeroFilm'
+import { Diagram } from '@/components/figures/Diagram'
 import { Guardrails } from '@/components/Guardrails'
-import { HomeAdapters } from '@/components/HomeAdapters'
+import {
+  HEADLINE_ITALIC,
+  HEADLINE_SOFT,
+  SectionHeading,
+} from '@/components/SectionHeading'
 import { type BlogPostMeta, getAllBlogPosts, getFeaturedPost } from '@/lib/blog'
-import { absoluteUrl, docVersion, siteTagline } from '@/lib/site'
+import { absoluteUrl, docVersion } from '@/lib/site'
 
-const changelogHighlight = {
-  href: '/changelog',
-}
+const CONSEQUENCES = [
+  'Built again in every team. Reviewed in none.',
+  "Every one of them on somebody's personal login.",
+  'The day that person leaves, the tool leaves with them.',
+]
 
-interface Feature {
+const COSTS = [
+  'Build it once, and every licence you already pay for can call it.',
+  'Your AI burns tokens sifting through content instead of solving the problem. A capability answers in one call, the same way every time.',
+  'Nothing to replace. Your assistants keep working, with hands.',
+]
+
+interface Pillar {
   number: string
   title: string
-  description: string
+  body: string
 }
 
-const features: Feature[] = [
+const PILLARS: Pillar[] = [
   {
     number: '01',
-    title: 'Type-safe end to end',
-    description:
-      'Types flow through every operation. The body shape at .to() is inferred from .from() and every transform in between.',
+    title: 'Ship it this afternoon',
+    body: 'Build and prove a capability on your own machine, on your own access. No approval, no waiting, nothing to ask for before you try it.',
   },
   {
     number: '02',
-    title: 'One DSL, every trigger',
-    description:
-      'Cron, webhook, MCP, IMAP, channel, file. Swap one line to change how a capability is invoked. The business logic is unchanged.',
+    title: 'Run it for everyone',
+    body: 'Promote it and it runs always on, on your own infrastructure, on service credentials the platform holds and no person does. Every call carries who asked. Switch telemetry on and every call is on record.',
   },
   {
     number: '03',
-    title: 'Native MCP integration',
-    description:
-      'Set the source to mcp() and the capability becomes an MCP tool that Claude Desktop, Cursor, and any MCP client can call.',
+    title: 'Never build it twice',
+    body: 'Capabilities, skills and agents ship as packages. The next team installs yours instead of writing their own.',
   },
   {
     number: '04',
-    title: 'Standard Schema validation',
-    description:
-      'Bring Zod, Valibot, ArkType, or anything that speaks Standard Schema. Inputs validate before your code runs.',
+    title: 'Where your people already work',
+    body: 'Your editor, any MCP client, the CLI or plain HTTP. Or on its own, from a schedule, a webhook or an email. When it needs a decision, it asks a person.',
   },
-  {
-    number: '05',
-    title: 'Auth as a primitive',
-    description:
-      'jwks() verifies bearer tokens. .authorize({ roles }) gates capabilities. userinfo hydrates the principal from your IdP.',
-  },
-  {
-    number: '06',
-    title: 'Compose capabilities',
-    description:
-      'direct() lets one capability call another with full type safety. Build a graph, test each node in isolation.',
-  },
-  {
-    number: '07',
-    title: 'Structured logging',
-    description:
-      'Every step emits structured events. Pipe them to your log aggregator, or watch them live in the built-in TUI.',
-  },
-  {
-    number: '08',
-    title: 'Plugin system',
-    description:
-      'Telemetry, AI, mail, custom adapters. Plugins extend the runtime without forking it.',
-  },
-  {
-    number: '09',
-    title: 'Runs on Bun or Node',
-    description:
-      'The CLI runs TypeScript directly on Bun. Embed in any Node 22+ app via ContextBuilder.',
-  },
+]
+
+const OUTCOMES = [
+  'One place your AI tools run',
+  'One record of every call',
+  'Nothing built twice',
+  'People keep the decisions',
 ]
 
 function LandingPage() {
@@ -86,24 +74,308 @@ function LandingPage() {
     <main className="relative w-full bg-paper text-ink">
       <PaperGrain />
       <Hero />
-      <SectionRule numeral="I" label="Bounded by design" />
+      <SectionRule numeral="I" label="The problem" />
+      <Problem />
+      <SectionRule numeral="II" label="The cost" />
+      <Cost />
+      <SectionRule numeral="III" label="The platform" />
+      <Platform />
+      <SectionRule numeral="IV" label="Bounded by design" />
       <Guardrails />
-      <SectionRule numeral="II" label="Two ways to ship agents" />
-      <TwoModes />
-      <SectionRule numeral="III" label="What you can wire up" />
-      <HomeAdapters />
-      <SectionRule numeral="IV" label="Why Routecraft" />
-      <Thesis />
+      <SectionRule numeral="V" label="The path" />
+      <Path />
       {featuredPost && (
         <>
-          <SectionRule numeral="V" label="From the blog" />
+          <SectionRule numeral="VI" label="From the blog" />
           <Reading post={featuredPost} />
         </>
       )}
-      <SectionRule numeral="VI" label="Try it" />
-      <Finale />
       <BuiltWithRoutecraft />
     </main>
+  )
+}
+
+function Hero() {
+  return (
+    <FilmProvider>
+      <section className="relative">
+        <div className="container-page grid grid-cols-1 items-center gap-x-12 gap-y-12 pt-16 pb-20 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:pt-20 lg:pb-24">
+          <div>
+            <p
+              className="paper-rise font-mono text-[0.7rem] tracking-[0.22em] text-cobalt-500 uppercase"
+              style={{ animationDelay: '60ms' }}
+            >
+              Open source AI automation platform &nbsp;·&nbsp;{' '}
+              <AppLink href="/changelog" className="hover:text-cobalt-600">
+                v{docVersion}
+              </AppLink>
+            </p>
+            <h1
+              className="paper-rise mt-6 font-editorial text-[clamp(3rem,5.2vw,4.75rem)] leading-[0.98] tracking-[-0.025em] text-ink"
+              style={{
+                animationDelay: '140ms',
+                fontVariationSettings: HEADLINE_SOFT,
+              }}
+            >
+              Where your AI{' '}
+              <span
+                className="font-editorial text-cobalt-500 italic"
+                style={{ fontVariationSettings: HEADLINE_ITALIC }}
+              >
+                gets to work.
+              </span>
+            </h1>
+
+            <p
+              className="paper-rise mt-8 max-w-2xl text-[1.15rem] leading-[1.75] text-ink/75"
+              style={{ animationDelay: '260ms' }}
+            >
+              You bought everyone AI licences. The tools your people built with
+              them live on their laptops, on their own logins, and nobody else
+              can use them. Your competitors ship capabilities in an afternoon.
+              You are still arguing about where to run them. Routecraft is the
+              open source platform your teams build on together. What one team
+              proves, every team can use.
+            </p>
+
+            <div
+              className="paper-rise mt-10 flex flex-wrap items-center gap-x-8 gap-y-4"
+              style={{ animationDelay: '360ms' }}
+            >
+              <AppLink
+                href="/docs/introduction/installation"
+                className="group inline-flex items-center gap-3 bg-cobalt-500 px-6 py-3 text-paper transition hover:bg-cobalt-600"
+              >
+                <span className="font-mono text-[0.7rem] tracking-[0.22em] uppercase">
+                  Put your AI to work
+                </span>
+                <span
+                  aria-hidden="true"
+                  className="transition group-hover:translate-x-0.5"
+                >
+                  →
+                </span>
+              </AppLink>
+              <WatchFilmButton className="group relative cursor-pointer font-editorial text-[1.05rem] text-ink italic hover:text-cobalt-500">
+                <span className="border-b border-current pb-px transition group-hover:border-cobalt-500">
+                  See it in one minute
+                </span>
+              </WatchFilmButton>
+              <a
+                href="https://github.com/routecraftjs/routecraft"
+                className="group font-mono text-[0.75rem] tracking-[0.18em] text-ink/65 uppercase hover:text-ink"
+              >
+                GitHub <span aria-hidden="true">↗</span>
+              </a>
+            </div>
+          </div>
+          <div
+            className="paper-rise min-w-0"
+            style={{ animationDelay: '200ms' }}
+          >
+            <FilmPreview />
+          </div>
+        </div>
+      </section>
+    </FilmProvider>
+  )
+}
+
+function Problem() {
+  return (
+    <section>
+      <div className="container-page pt-12 pb-20 lg:pt-14 lg:pb-24">
+        <SectionHeading
+          plain="Your people already built the tools."
+          accent="Nobody else can use them."
+        >
+          Somewhere in your organisation a script already calls the CRM. Down
+          the hall another team is writing it again, on a session token copied
+          out of a browser. Neither knows the other exists. Both run on
+          somebody&apos;s personal login, and both stop the day that person is
+          on holiday.
+        </SectionHeading>
+
+        <Diagram id="every-team-builds-its-own" />
+
+        <div className="grid grid-cols-1 gap-x-16 gap-y-10 lg:grid-cols-12 lg:items-end">
+          <Ledger lines={CONSEQUENCES} className="lg:col-span-7" />
+          <p
+            className="max-w-md font-editorial text-[1.5rem] leading-[1.35] tracking-[-0.01em] text-ink italic lg:col-span-5 lg:pb-6"
+            style={{ fontVariationSettings: '"opsz" 96, "SOFT" 100' }}
+          >
+            Your people are not short of ideas. They are short of a place to run
+            them.
+          </p>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function Cost() {
+  return (
+    <section>
+      <div className="container-page pt-12 pb-20 lg:pt-14 lg:pb-24">
+        <div className="grid grid-cols-1 gap-x-16 gap-y-10 lg:grid-cols-12">
+          <div className="lg:col-span-5">
+            <SectionHeading
+              plain="You are paying for the licences."
+              accent="You are not getting the results."
+            />
+          </div>
+          <Ledger lines={COSTS} className="lg:col-span-7" />
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function Platform() {
+  return (
+    <section id="platform" className="scroll-mt-20">
+      <div className="container-page pt-12 pb-20 lg:pt-14 lg:pb-24">
+        <SectionHeading
+          plain="One runtime,"
+          accent="every way in, the same capabilities everywhere."
+        >
+          Prove it on a laptop this afternoon. Promote it, and from tomorrow
+          every team, editor and agent in the company calls the same one.
+        </SectionHeading>
+
+        <ul className="mt-8 mb-10 flex flex-wrap gap-x-8 gap-y-3 font-mono text-[0.7rem] tracking-[0.18em] text-ink/65 uppercase">
+          {OUTCOMES.map((outcome) => (
+            <li key={outcome} className="flex items-center gap-3">
+              <span aria-hidden="true" className="h-1.5 w-1.5 bg-cobalt-500" />
+              {outcome}
+            </li>
+          ))}
+        </ul>
+
+        {/* On a phone the four lines come before the dense picture they explain. */}
+        <div className="flex flex-col gap-10">
+          <Diagram id="platform" />
+
+          <div className="order-first grid grid-cols-1 gap-px border border-ink/15 bg-ink/15 sm:grid-cols-2 lg:order-none lg:grid-cols-4">
+            {PILLARS.map((pillar) => (
+              <article
+                key={pillar.number}
+                className="flex flex-col gap-3 bg-paper px-6 py-8"
+              >
+                <header className="flex items-baseline gap-4">
+                  <span className="font-editorial text-[1.5rem] text-cobalt-500 italic tabular-nums">
+                    {pillar.number}
+                  </span>
+                  <h3
+                    className="font-editorial text-[1.25rem] leading-tight tracking-[-0.005em] text-ink"
+                    style={{ fontVariationSettings: '"opsz" 72, "SOFT" 50' }}
+                  >
+                    {pillar.title}
+                  </h3>
+                </header>
+                <p className="text-[0.95rem] leading-[1.7] text-ink/70">
+                  {pillar.body}
+                </p>
+              </article>
+            ))}
+          </div>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+function Path() {
+  return (
+    <section>
+      <div className="container-page pt-12 pb-20 lg:pt-14 lg:pb-24">
+        <div className="grid grid-cols-1 gap-12 lg:grid-cols-12">
+          <div className="lg:col-span-8">
+            <h2
+              className="font-editorial text-[clamp(2.5rem,5.5vw,4.5rem)] leading-[1.02] tracking-[-0.025em] text-ink"
+              style={{ fontVariationSettings: HEADLINE_SOFT }}
+            >
+              Your first capability,{' '}
+              <span
+                className="text-cobalt-500 italic"
+                style={{ fontVariationSettings: HEADLINE_ITALIC }}
+              >
+                before lunch.
+              </span>
+            </h2>
+            <p className="mt-6 max-w-2xl text-[1.05rem] leading-[1.75] text-ink/70">
+              One command, and the assistant you already use can call a
+              capability you just wrote. When it earns its place, promote it,
+              and the next team installs it instead of writing their own.
+            </p>
+          </div>
+          <aside className="flex flex-col gap-6 lg:col-span-4 lg:items-end lg:text-right">
+            <a
+              href="https://codespaces.new/routecraftjs/craft-playground"
+              className="group inline-flex items-center gap-3 self-start bg-cobalt-500 px-6 py-3 text-paper transition hover:bg-cobalt-600 lg:self-end"
+            >
+              <span className="font-mono text-[0.7rem] tracking-[0.22em] uppercase">
+                Open the playground
+              </span>
+              <span
+                aria-hidden="true"
+                className="transition group-hover:translate-x-1"
+              >
+                →
+              </span>
+            </a>
+            <AppLink
+              href="/docs/introduction/installation"
+              className="group inline-flex items-center gap-2 self-start font-editorial text-[1.05rem] text-ink italic hover:text-cobalt-500 lg:self-end"
+            >
+              <span>or install locally</span>
+              <span
+                aria-hidden="true"
+                className="transition group-hover:translate-x-1"
+              >
+                →
+              </span>
+            </AppLink>
+            <div className="inline-flex items-center gap-3 self-start border border-ink/15 bg-paper-deep/40 px-4 py-3 lg:self-end">
+              <span className="text-cobalt-500" aria-hidden="true">
+                $
+              </span>
+              <code className="font-mono text-[0.8rem] text-ink">
+                bunx create-routecraft my-app
+              </code>
+            </div>
+          </aside>
+        </div>
+      </div>
+    </section>
+  )
+}
+
+/**
+ * Short claims read one under the other, at the size of a heading and ruled
+ * apart like entries in a ledger. Three boxes in a row read as a feature grid;
+ * three lines down the page read as the cost adding up.
+ */
+function Ledger({ lines, className }: { lines: string[]; className?: string }) {
+  return (
+    <ul
+      className={`divide-y divide-ink/15 border-y border-ink/15 ${className ?? ''}`}
+    >
+      {lines.map((line) => (
+        <li key={line} className="grid grid-cols-[auto_1fr] gap-5 py-6">
+          <span
+            aria-hidden="true"
+            className="mt-[0.7em] h-1.5 w-1.5 bg-cobalt-500"
+          />
+          <p
+            className="font-editorial text-[clamp(1.3rem,2vw,1.6rem)] leading-[1.3] tracking-[-0.01em] text-ink"
+            style={{ fontVariationSettings: '"opsz" 72, "SOFT" 50' }}
+          >
+            {line}
+          </p>
+        </li>
+      ))}
+    </ul>
   )
 }
 
@@ -117,98 +389,6 @@ function PaperGrain() {
           "url(\"data:image/svg+xml;utf8,<svg xmlns='http://www.w3.org/2000/svg' width='160' height='160'><filter id='n'><feTurbulence type='fractalNoise' baseFrequency='0.85' numOctaves='2' stitchTiles='stitch'/><feColorMatrix values='0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0.6 0'/></filter><rect width='100%' height='100%' filter='url(%23n)'/></svg>\")",
       }}
     />
-  )
-}
-
-function Hero() {
-  return (
-    <section className="relative">
-      <div className="container-page grid grid-cols-1 gap-x-12 gap-y-16 pt-16 pb-20 lg:grid-cols-12 lg:pt-24 lg:pb-28">
-        <div className="lg:col-span-6 lg:pr-4">
-          <p
-            className="paper-rise font-mono text-[0.7rem] tracking-[0.22em] text-cobalt-500 uppercase"
-            style={{ animationDelay: '60ms' }}
-          >
-            {siteTagline} &nbsp;·&nbsp;{' '}
-            <AppLink
-              href={changelogHighlight.href}
-              className="hover:text-cobalt-600"
-            >
-              v{docVersion}
-            </AppLink>
-          </p>
-          <h1
-            className="paper-rise mt-6 font-editorial text-[clamp(3rem,7vw,5.75rem)] leading-[0.98] tracking-[-0.025em] text-ink"
-            style={{
-              animationDelay: '140ms',
-              fontVariationSettings: '"opsz" 144, "SOFT" 30',
-            }}
-          >
-            Tools for <span className="text-cobalt-500">agents</span>.
-            <br />
-            <span
-              className="font-editorial italic"
-              style={{ fontVariationSettings: '"opsz" 144, "SOFT" 100' }}
-            >
-              Or the
-            </span>{' '}
-            <span
-              className="font-editorial text-cobalt-500 italic"
-              style={{ fontVariationSettings: '"opsz" 144, "SOFT" 100' }}
-            >
-              agent harness
-            </span>{' '}
-            itself.
-          </h1>
-
-          <p
-            className="paper-rise mt-8 max-w-xl text-[1.1rem] leading-[1.75] text-ink/75"
-            style={{ animationDelay: '260ms' }}
-          >
-            Type-safe framework for AI automation. Build the tools an agent
-            uses, or the harness itself, with the same fluent DSL.
-          </p>
-
-          <div
-            className="paper-rise mt-10 flex flex-wrap items-center gap-x-8 gap-y-4"
-            style={{ animationDelay: '360ms' }}
-          >
-            <AppLink
-              href="/docs/introduction/installation"
-              className="group inline-flex items-center gap-3 bg-cobalt-500 px-6 py-3 text-paper transition hover:bg-cobalt-600"
-            >
-              <span className="font-mono text-[0.7rem] tracking-[0.22em] uppercase">
-                Get started
-              </span>
-              <span
-                aria-hidden="true"
-                className="transition group-hover:translate-x-1"
-              >
-                →
-              </span>
-            </AppLink>
-            <AppLink
-              href="/cheat-sheet"
-              className="group relative font-editorial text-[1.05rem] text-ink italic hover:text-cobalt-500"
-            >
-              <span className="border-b border-current pb-px transition group-hover:border-cobalt-500">
-                Read the cheat sheet
-              </span>
-            </AppLink>
-            <a
-              href="https://github.com/routecraftjs/routecraft"
-              className="group font-mono text-[0.75rem] tracking-[0.18em] text-ink/65 uppercase hover:text-ink"
-            >
-              GitHub <span aria-hidden="true">↗</span>
-            </a>
-          </div>
-        </div>
-
-        <div className="lg:col-span-6">
-          <CodeMorph />
-        </div>
-      </div>
-    </section>
   )
 }
 
@@ -230,237 +410,6 @@ function SectionRule({ numeral, label }: { numeral?: string; label: string }) {
         </div>
       </div>
     </div>
-  )
-}
-
-function TwoModes() {
-  return (
-    <section>
-      <div className="container-page pt-12 pb-20 lg:pt-14 lg:pb-24">
-        <header className="max-w-3xl">
-          <h2
-            className="font-editorial text-[2.5rem] leading-[1.05] tracking-[-0.02em] text-ink"
-            style={{ fontVariationSettings: '"opsz" 144, "SOFT" 30' }}
-          >
-            Use Routecraft on{' '}
-            <span
-              className="text-cobalt-500 italic"
-              style={{ fontVariationSettings: '"opsz" 144, "SOFT" 100' }}
-            >
-              either side
-            </span>{' '}
-            of the agent.
-          </h2>
-          <p className="mt-5 max-w-2xl text-[1.05rem] leading-[1.75] text-ink/70">
-            The same fluent DSL builds the tools an agent calls, and the harness
-            that runs an agent. You pick which side you are on. Sometimes both,
-            in the same project.
-          </p>
-        </header>
-
-        <div className="mt-12 grid grid-cols-1 gap-px border border-ink/15 bg-ink/15 lg:grid-cols-2">
-          <article className="relative flex flex-col gap-5 bg-paper p-7 lg:p-10">
-            <header className="flex items-baseline gap-4">
-              <span className="font-editorial text-[1.5rem] text-cobalt-500 italic tabular-nums">
-                01
-              </span>
-              <p className="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase">
-                Tools for an agent
-              </p>
-            </header>
-            <h3
-              className="font-editorial text-[1.85rem] leading-[1.1] tracking-[-0.015em] text-ink"
-              style={{ fontVariationSettings: '"opsz" 96, "SOFT" 50' }}
-            >
-              Expose capabilities,{' '}
-              <span
-                className="text-cobalt-500 italic"
-                style={{ fontVariationSettings: '"opsz" 96, "SOFT" 100' }}
-              >
-                let agents call them.
-              </span>
-            </h3>
-            <p className="text-[1rem] leading-[1.7] text-ink/70">
-              Set the source to <InlineMono>mcp()</InlineMono> and your
-              capability becomes an MCP tool. Claude Desktop, Cursor, ChatGPT,
-              OpenClaw, Hermes, or any MCP-speaking client can pick it up. Auth,
-              validation, and structured output are part of the primitive.
-            </p>
-            <ul className="mt-2 flex flex-col gap-2 font-mono text-[0.8rem] text-ink/75">
-              <li className="flex items-baseline gap-3">
-                <span className="text-cobalt-500" aria-hidden="true">
-                  ▸
-                </span>
-                <span>
-                  <span className="text-cobalt-600">.from(mcp())</span> exposes
-                  a typed tool
-                </span>
-              </li>
-              <li className="flex items-baseline gap-3">
-                <span className="text-cobalt-500" aria-hidden="true">
-                  ▸
-                </span>
-                <span>
-                  <span className="text-cobalt-600">.input(schema)</span>{' '}
-                  validates before your code runs
-                </span>
-              </li>
-              <li className="flex items-baseline gap-3">
-                <span className="text-cobalt-500" aria-hidden="true">
-                  ▸
-                </span>
-                <span>
-                  <span className="text-cobalt-600">
-                    .authorize(&#123; roles &#125;)
-                  </span>{' '}
-                  gates per-agent
-                </span>
-              </li>
-            </ul>
-            <AppLink
-              href="/docs/advanced/expose-as-mcp"
-              className="mt-3 inline-flex items-center gap-2 font-mono text-[0.7rem] tracking-[0.22em] text-cobalt-500 uppercase hover:text-cobalt-600"
-            >
-              <span>Expose a capability over MCP</span>
-              <span aria-hidden="true">→</span>
-            </AppLink>
-          </article>
-
-          <article className="relative flex flex-col gap-5 bg-paper p-7 lg:p-10">
-            <header className="flex items-baseline gap-4">
-              <span className="font-editorial text-[1.5rem] text-cobalt-500 italic tabular-nums">
-                02
-              </span>
-              <p className="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase">
-                The whole agent
-              </p>
-            </header>
-            <h3
-              className="font-editorial text-[1.85rem] leading-[1.1] tracking-[-0.015em] text-ink"
-              style={{ fontVariationSettings: '"opsz" 96, "SOFT" 50' }}
-            >
-              Build the harness.{' '}
-              <span
-                className="text-cobalt-500 italic"
-                style={{ fontVariationSettings: '"opsz" 96, "SOFT" 100' }}
-              >
-                Own the loop.
-              </span>
-            </h3>
-            <p className="text-[1rem] leading-[1.7] text-ink/70">
-              Set the destination to <InlineMono>agent()</InlineMono> and the
-              capability becomes the brain. You choose the model, the system
-              prompt, the tools the agent can reach for, and what happens to the
-              result. The DSL is the harness.
-            </p>
-            <ul className="mt-2 flex flex-col gap-2 font-mono text-[0.8rem] text-ink/75">
-              <li className="flex items-baseline gap-3">
-                <span className="text-cobalt-500" aria-hidden="true">
-                  ▸
-                </span>
-                <span>
-                  <span className="text-cobalt-600">
-                    .to(agent(&#123; model, system &#125;))
-                  </span>{' '}
-                  picks the model
-                </span>
-              </li>
-              <li className="flex items-baseline gap-3">
-                <span className="text-cobalt-500" aria-hidden="true">
-                  ▸
-                </span>
-                <span>
-                  <span className="text-cobalt-600">tools([...])</span> scopes
-                  what the agent can do
-                </span>
-              </li>
-              <li className="flex items-baseline gap-3">
-                <span className="text-cobalt-500" aria-hidden="true">
-                  ▸
-                </span>
-                <span>
-                  <span className="text-cobalt-600">
-                    .to(direct(&apos;next&apos;))
-                  </span>{' '}
-                  composes into longer flows
-                </span>
-              </li>
-            </ul>
-            <AppLink
-              href="/docs/reference/adapters/agent/"
-              className="mt-3 inline-flex items-center gap-2 font-mono text-[0.7rem] tracking-[0.22em] text-cobalt-500 uppercase hover:text-cobalt-600"
-            >
-              <span>Build an agent capability</span>
-              <span aria-hidden="true">→</span>
-            </AppLink>
-          </article>
-        </div>
-      </div>
-    </section>
-  )
-}
-
-function InlineMono({ children }: { children: ReactNode }) {
-  return (
-    <code className="border border-ink/15 bg-paper-deep/60 px-1.5 py-0.5 font-mono text-[0.9em] text-cobalt-600">
-      {children}
-    </code>
-  )
-}
-
-function Thesis() {
-  return (
-    <section>
-      <div className="container-page pt-12 pb-20 lg:pt-14 lg:pb-24">
-        <header className="mx-auto max-w-4xl text-center">
-          <p className="font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase">
-            Thesis
-          </p>
-          <h2
-            className="mt-6 font-editorial text-[clamp(2rem,4.2vw,3.25rem)] leading-[1.08] tracking-[-0.02em] text-ink"
-            style={{ fontVariationSettings: '"opsz" 144, "SOFT" 30' }}
-          >
-            Every primitive an{' '}
-            <span
-              className="text-cobalt-500 italic"
-              style={{ fontVariationSettings: '"opsz" 144, "SOFT" 100' }}
-            >
-              agent app
-            </span>{' '}
-            needs.
-          </h2>
-          <p className="mx-auto mt-5 max-w-2xl text-[1.05rem] leading-[1.75] text-ink/65">
-            Type-safety, validation, auth, MCP, composability, structured
-            logging. Production-grade plumbing so you spend your time on the
-            agent, not the boilerplate around it.
-          </p>
-        </header>
-
-        <div className="mt-14 grid grid-cols-1 gap-px border border-ink/15 bg-ink/15 sm:grid-cols-2 lg:grid-cols-3">
-          {features.map((f) => (
-            <article
-              key={f.number}
-              className="group relative flex flex-col gap-3 bg-paper px-6 py-8 transition hover:bg-paper-deep/40"
-            >
-              <header className="flex items-baseline gap-4">
-                <span className="font-editorial text-[1.5rem] text-cobalt-500 italic tabular-nums">
-                  {f.number}
-                </span>
-                <h3
-                  className="font-editorial text-[1.25rem] leading-tight tracking-[-0.005em] text-ink"
-                  style={{ fontVariationSettings: '"opsz" 72, "SOFT" 50' }}
-                >
-                  {f.title}
-                </h3>
-              </header>
-              <p className="text-[0.95rem] leading-[1.7] text-ink/70">
-                {f.description}
-              </p>
-            </article>
-          ))}
-        </div>
-      </div>
-    </section>
   )
 }
 
@@ -571,82 +520,8 @@ function Reading({ post }: { post: BlogPostMeta }) {
   )
 }
 
-function Finale() {
-  return (
-    <section>
-      <div className="container-page pt-12 pb-28 lg:pt-14 lg:pb-32">
-        <div className="grid grid-cols-1 gap-12 lg:grid-cols-12">
-          <div className="lg:col-span-8">
-            <h2
-              className="font-editorial text-[clamp(2.5rem,5.5vw,4.5rem)] leading-[1.02] tracking-[-0.025em] text-ink"
-              style={{ fontVariationSettings: '"opsz" 144, "SOFT" 30' }}
-            >
-              Open the playground.{' '}
-              <span
-                className="text-cobalt-500 italic"
-                style={{ fontVariationSettings: '"opsz" 144, "SOFT" 100' }}
-              >
-                Have an MCP server in thirty seconds.
-              </span>
-            </h2>
-            <p className="mt-6 max-w-2xl text-[1.05rem] leading-[1.75] text-ink/70">
-              Run it in GitHub Codespaces without leaving your browser. Or
-              scaffold locally and have it humming on your laptop in the same
-              minute.
-            </p>
-          </div>
-          <aside className="flex flex-col gap-6 lg:col-span-4 lg:items-end lg:text-right">
-            <a
-              href="https://codespaces.new/routecraftjs/craft-playground"
-              className="group inline-flex items-center gap-3 self-start bg-cobalt-500 px-6 py-3 text-paper transition hover:bg-cobalt-600 lg:self-end"
-            >
-              <span className="font-mono text-[0.7rem] tracking-[0.22em] uppercase">
-                Open the playground
-              </span>
-              <span
-                aria-hidden="true"
-                className="transition group-hover:translate-x-1"
-              >
-                →
-              </span>
-            </a>
-            <AppLink
-              href="/docs/introduction/installation"
-              className="group inline-flex items-center gap-2 self-start font-editorial text-[1.05rem] text-ink italic hover:text-cobalt-500 lg:self-end"
-            >
-              <span>or install locally</span>
-              <span
-                aria-hidden="true"
-                className="transition group-hover:translate-x-1"
-              >
-                →
-              </span>
-            </AppLink>
-            <div className="inline-flex items-center gap-3 self-start border border-ink/15 bg-paper-deep/40 px-4 py-3 lg:self-end">
-              <span className="text-cobalt-500" aria-hidden="true">
-                $
-              </span>
-              <code className="font-mono text-[0.8rem] text-ink">
-                bunx create-routecraft my-app
-              </code>
-            </div>
-          </aside>
-        </div>
-      </div>
-    </section>
-  )
-}
-
 export const Route = createFileRoute('/')({
   head: () => ({
-    meta: [
-      { title: 'Routecraft - AI automation as code' },
-      {
-        name: 'description',
-        content:
-          'Type-safe framework for AI automation. Build the tools an agent uses, or the harness itself, with the same fluent DSL.',
-      },
-    ],
     // Every other route carries its own canonical; without this one the home
     // page is the single URL left to consolidate on its own.
     links: [{ rel: 'canonical', href: absoluteUrl('/') }],
