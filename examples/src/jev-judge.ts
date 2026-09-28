@@ -103,8 +103,9 @@ let shared: TypeSafeClient | undefined;
 
 const typesafe = (): TypeSafeClient =>
   (shared ??= new TypeSafeClient({
-    // No retries: a screen that fails escalates to the reasoning judge, so we
-    // pay for one judge call rather than hold the dispatch for a retry.
+    // A screen that fails or stalls escalates to the reasoning judge, so waiting
+    // longer than Jev normally takes, or retrying, only holds the dispatch.
+    timeout: 2_000,
     retry: { maxRetries: 0 },
   }));
 

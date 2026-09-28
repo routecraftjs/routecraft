@@ -83,6 +83,3 @@ export const FIGURE_TEXT = {
     caption: 'One runtime, six layers, open at any depth.',
   },
 }
-
-/** Every figure id, in manifest order, for the prerender list. */
-export const FIGURE_IDS = Object.keys(FIGURE_TEXT)

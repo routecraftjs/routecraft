@@ -6,6 +6,7 @@ import {
   Chip,
   Eyebrow,
   FigureCanvas,
+  Conclusion,
   MonoNote,
   Plate,
 } from '@/components/figures/primitives'
@@ -183,25 +184,12 @@ function Figure({ palette }: FigureProps) {
           </div>
         </div>
 
-        <p
-          style={{
-            margin: 0,
-            textAlign: 'center',
-            fontFamily: 'var(--font-editorial)',
-            fontStyle: 'italic',
-            fontSize: '1.8rem',
-            lineHeight: 1.45,
-            color: palette.ink60,
-            borderTop: `1px solid ${palette.ink15}`,
-            paddingTop: 32,
-            fontVariationSettings: '"opsz" 96, "SOFT" 60',
-          }}
+        <Conclusion
+          palette={palette}
+          accent="you write only the part that is yours."
         >
-          The boring parts are done, so{' '}
-          <span style={{ color: palette.accent }}>
-            you write only the part that is yours.
-          </span>
-        </p>
+          The boring parts are done, so
+        </Conclusion>
       </div>
     </FigureCanvas>
   )

@@ -1,12 +1,12 @@
 import type { CSSProperties } from 'react'
 
 import {
-  AccentItalic,
   Arrow,
   Block,
   Chip,
   Eyebrow,
   FigureCanvas,
+  Conclusion,
   MonoNote,
   Plate,
 } from '@/components/figures/primitives'
@@ -169,27 +169,10 @@ function Figure({ palette }: FigureProps) {
           </div>
         </div>
 
-        <p
-          style={{
-            margin: 0,
-            textAlign: 'center',
-            fontFamily: 'var(--font-editorial)',
-            fontStyle: 'italic',
-            fontSize: '1.8rem',
-            lineHeight: 1.45,
-            color: palette.ink60,
-            borderTop: `1px solid ${palette.ink15}`,
-            paddingTop: 32,
-            fontVariationSettings: '"opsz" 96, "SOFT" 60',
-          }}
-        >
-          The caller sets{' '}
-          <AccentItalic palette={palette} size="1.8rem">
-            passAt
-          </AccentItalic>
-          . A confident yes skips the reasoning call; everything else gets a
-          sentence.
-        </p>
+        <Conclusion palette={palette} accent="passAt.">
+          A confident yes skips the reasoning call, everything else gets a
+          sentence, and the caller sets
+        </Conclusion>
       </div>
     </FigureCanvas>
   )
