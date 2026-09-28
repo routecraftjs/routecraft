@@ -15,6 +15,7 @@ tags:
 related:
   - stop-trusting-your-llm-to-behave
   - ai-agents-are-still-single-player
+diagram: function-to-mcp-tool
 layout: blog-post
 ---
 
@@ -54,6 +55,8 @@ A tiny **notebook** MCP server with two tools:
 - `notes_create` adds a new note to an in-memory store.
 
 The point is the shape, not the notes. Once you understand how a capability becomes a tool, the same pattern works for "list orders in Stripe", "search a Postgres table", "send a Slack message", or anything else you can call from a function.
+
+<Diagram id="function-to-mcp-tool" />
 
 End state:
 
@@ -108,8 +111,7 @@ export const store = {
     const q = query.toLowerCase()
     return notes.filter(
       (n) =>
-        n.title.toLowerCase().includes(q) ||
-        n.body.toLowerCase().includes(q),
+        n.title.toLowerCase().includes(q) || n.body.toLowerCase().includes(q),
     )
   },
   create(title: string, body: string): Note {
@@ -224,10 +226,10 @@ export const craftConfig = defineConfig({
 
 ```ts skip="multi-file: imports a sibling file the page describes in prose"
 // index.ts
-export { craftConfig } from "./craft.config.js";
-import capabilities from "./capabilities/index.js";
+export { craftConfig } from './craft.config.js'
+import capabilities from './capabilities/index.js'
 
-export default capabilities;
+export default capabilities
 ```
 
 This is the one piece of glue between the files you wrote and the runner: `index.ts` re-exports the config from `craft.config.ts` and the routes from `capabilities/`.
