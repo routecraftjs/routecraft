@@ -911,17 +911,14 @@ function Arrows({ t }: { t: number }) {
           drawn={credentials}
           colour={COBALT}
         />
-        {CALLS.map((call) => (
-          <Arrow
-            key={call.caller}
-            x1={doorX(call.door) + 55}
-            y1={TOP_BAND.y + TOP_BAND.h + 4}
-            x2={targetX}
-            y2={TEAM_PANEL.y - 6}
-            drawn={ramp(t, call.at + 0.1, 0.6)}
-            colour={COBALT}
-          />
-        ))}
+        <Arrow
+          x1={targetX}
+          y1={TOP_BAND.y + TOP_BAND.h + 4}
+          x2={targetX}
+          y2={TEAM_PANEL.y - 6}
+          drawn={ramp(t, CALLS[0].at, 0.5)}
+          colour={`color-mix(in srgb, ${COBALT} ${Math.round(called(t) * 100)}%, ${ink(55)})`}
+        />
       </svg>
       <ArrowLabel x={906} y={508} opacity={promote * l}>
         promote
