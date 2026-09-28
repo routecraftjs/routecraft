@@ -54,8 +54,8 @@ export type Judgement = z.infer<typeof judgement>;
  *
  * The shape is JSON all the way down because the screen sends it as the
  * SDK's `state`, which is structurally JSON: `request` is validated as JSON
- * rather than typed `unknown`, and `error` is `null` rather than absent,
- * since an optional field infers `undefined` and `undefined` is not JSON.
+ * rather than typed `unknown`, and an absent `error` becomes `null`, since
+ * an optional field infers `undefined` and `undefined` is not JSON.
  */
 export const evidence = z.object({
   request: z.json(),
@@ -64,7 +64,7 @@ export const evidence = z.object({
     z.object({
       toolName: z.string(),
       failed: z.boolean(),
-      error: z.string().nullable(),
+      error: z.string().nullable().default(null),
     }),
   ),
 });

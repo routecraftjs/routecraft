@@ -90,7 +90,7 @@ It runs inside an `.enrich()` step, which stores the probability on the body as 
 
 A failed Jev call becomes `NaN`, which takes the fallback branch. If that judge returns no usable verdict, the capability fails rather than inventing a pass.
 
-This is the Routecraft integration: an SDK call, a condition, and a structured LLM response in one capability, callable from another through `direct("judge-agent-result")`.
+This is the Routecraft integration: an SDK call, a condition, and a structured LLM response in one capability, callable from another through `direct("judge-agent-result")`. It keeps the id and verdict of the [vendor-neutral judge](/docs/advanced/judging-agent-results), so it can take that judge's place.
 
 Three things about `@typesafe-ai/sdk` 0.6.0 are in its API reference and absent from its quickstart, and each one changes how you wire it:
 

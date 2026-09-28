@@ -114,10 +114,22 @@ describe("judgementFrom()", () => {
    * @expectedResult A synthetic pass whose reason records the probability and
    *   that no reasoning call was made
    */
-  test("synthesises a pass only above the threshold", () => {
+  test("synthesises a pass above the threshold", () => {
     expect(judgementFrom({ passAt: 0.85, screen: { met: 0.94 } })).toEqual({
       met: true,
       reason: "Screened as met with probability 0.94; no reasoning call made.",
+    });
+  });
+
+  /**
+   * @case The screen scored exactly the caller's threshold (0.9 against 0.9).
+   * @preconditions No verdict on the body
+   * @expectedResult A synthetic pass: the threshold is inclusive, as `passAt`
+   *   documents
+   */
+  test("synthesises a pass at exactly the threshold", () => {
+    expect(judgementFrom({ passAt: 0.9, screen: { met: 0.9 } })).toMatchObject({
+      met: true,
     });
   });
 
@@ -315,6 +327,37 @@ describe("judge-agent-result capability", () => {
     expect(result).toEqual(verdict);
     expect(judge.calls.send).toHaveLength(1);
     expect(lastState).toEqual(evidence);
+  });
+
+  /**
+   * @case Dispatch evidence the screen scores exactly at the caller's
+   *   `passAt`, with a tool record that omits `error` the way the neutral
+   *   judge's callers build it.
+   * @preconditions Stub server answering 0.9; `passAt: 0.9`; the llm() adapter
+   *   mocked so an escalation would be recorded
+   * @expectedResult A screened pass with no judge call: the threshold is
+   *   inclusive at the choice as well, and an absent `error` is accepted
+   */
+  test("a screen at exactly passAt passes without the judge", async () => {
+    probability = 0.9;
+    const judge = mockAdapter(llm, {
+      send: async () => ({ output: { met: false, reason: "unused" } }),
+    });
+    t = await testContext().override(judge).routes([judgeRoute]).build();
+    await t.startAndWaitReady();
+
+    const result = await t.client.sendDirect<JudgeRequest, Judgement>(
+      "judge-agent-result",
+      {
+        request: evidence.request,
+        account: evidence.account,
+        toolCalls: [{ toolName: "archive-invoice", failed: false }],
+        passAt: 0.9,
+      },
+    );
+
+    expect(result.met).toBe(true);
+    expect(judge.calls.send).toHaveLength(0);
   });
 
   /**
