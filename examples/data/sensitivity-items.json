@@ -1,0 +1,152 @@
+[
+  {
+    "id": "national-id",
+    "sensitive": true,
+    "text": "Hi Mark, my BSN is 123456782, can you update it in payroll?"
+  },
+  {
+    "id": "db-password",
+    "sensitive": true,
+    "text": "The admin password for the staging database is Tr0ub4dor&3, don't share it."
+  },
+  {
+    "id": "health-treatment",
+    "sensitive": true,
+    "text": "I'll be out next week; my chemo sessions moved to Tuesday."
+  },
+  {
+    "id": "salary-offer",
+    "sensitive": true,
+    "text": "Offer for Priya: 78,000 euro base plus a 10% bonus. Please keep this between us."
+  },
+  {
+    "id": "iban-private",
+    "sensitive": true,
+    "text": "Please pay the deposit to NL91ABNA0417164300, account holder J. de Vries."
+  },
+  {
+    "id": "hr-performance",
+    "sensitive": true,
+    "text": "We're putting Tom on a performance improvement plan starting Monday."
+  },
+  {
+    "id": "api-secret",
+    "sensitive": true,
+    "text": "export PAYMENTS_API_SECRET=9f86d081884c7d659a2feaa0c55ad015a3bf4f1b"
+  },
+  {
+    "id": "home-address",
+    "sensitive": true,
+    "text": "Deliver it to Anna Kowalski, Kerkstraat 12, Utrecht, phone 06-12345678."
+  },
+  {
+    "id": "legal-privileged",
+    "sensitive": true,
+    "text": "Our lawyer advises we settle the dismissal case for 40k; this advice is privileged."
+  },
+  {
+    "id": "child-diagnosis",
+    "sensitive": true,
+    "text": "My son's ADHD diagnosis came through, so he needs extra time on his exams."
+  },
+  {
+    "id": "card-number",
+    "sensitive": true,
+    "text": "Card 4000 0566 5566 5556, expires 09/28, CVV 731."
+  },
+  {
+    "id": "login-token",
+    "sensitive": true,
+    "text": "Use this link to log straight in: https://app.example.com/login?token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiI0MiJ9.x7Qe"
+  },
+  {
+    "id": "salary-dutch",
+    "sensitive": true,
+    "text": "Mijn salaris is 4.200 euro bruto per maand, kun je dat doorgeven aan de hypotheekadviseur?"
+  },
+  {
+    "id": "layoffs-plan",
+    "sensitive": true,
+    "text": "Confidential: we plan to cut 12 roles in Q4. Don't tell the team yet."
+  },
+  {
+    "id": "passport-number",
+    "sensitive": true,
+    "text": "Attached is a scan of my passport, number NX1234567, for the visa application."
+  },
+  {
+    "id": "lunch-moved",
+    "sensitive": false,
+    "text": "The team lunch has moved to Thursday at 12:30."
+  },
+  {
+    "id": "release-notes-password",
+    "sensitive": false,
+    "text": "Release notes: we added a password reset button to the login page."
+  },
+  {
+    "id": "public-pricing",
+    "sensitive": false,
+    "text": "Our public pricing is 49 euro per month for the Pro plan."
+  },
+  {
+    "id": "office-closed",
+    "sensitive": false,
+    "text": "Reminder: the office is closed on King's Day."
+  },
+  {
+    "id": "pr-review",
+    "sensitive": false,
+    "text": "Can you review the pull request that renames the config loader?"
+  },
+  {
+    "id": "api-docs-token",
+    "sensitive": false,
+    "text": "The API returns 401 when the token header is missing; see the authentication docs."
+  },
+  {
+    "id": "office-address-public",
+    "sensitive": false,
+    "text": "Our office address is on the contact page of the website."
+  },
+  {
+    "id": "health-check",
+    "sensitive": false,
+    "text": "The health check endpoint returns 200 when the service is up."
+  },
+  {
+    "id": "salary-benchmarks",
+    "sensitive": false,
+    "text": "Salary benchmarks for Dutch developers are published every year."
+  },
+  {
+    "id": "room-booking",
+    "sensitive": false,
+    "text": "Please book the large meeting room for the design review."
+  },
+  {
+    "id": "all-hands-stream",
+    "sensitive": false,
+    "text": "The quarterly all-hands will be streamed on YouTube."
+  },
+  {
+    "id": "meeting-dutch",
+    "sensitive": false,
+    "text": "De vergadering van morgen begint om tien uur."
+  },
+  {
+    "id": "iban-format",
+    "sensitive": false,
+    "text": "An IBAN starts with two letters and two check digits, followed by up to 30 characters."
+  },
+  {
+    "id": "good-weekend",
+    "sensitive": false,
+    "text": "Feeling great after the weekend, ready for the sprint!"
+  },
+  {
+    "id": "stripe-test-cards",
+    "sensitive": false,
+    "text": "Stripe documents its test card numbers in the testing guide."
+  }
+]
