@@ -53,7 +53,7 @@ Every skill follows the same shape:
 4. **Authoring checklist** -- short, agent-actionable rules
 5. **Verify** -- `bun run lint && bun run typecheck && bun run test`, iterate until clean
 
-The skill bodies link to AI-friendly docs at `https://routecraft.dev/raw/docs/<page>.md` and `https://routecraft.dev/llms.txt`. They never link into `.standards/*` (those target framework contributors, not agents writing user code).
+The skill bodies link to AI-friendly docs at `https://routecraft.dev/raw/docs/<page>.md` and `https://routecraft.dev/llms.txt`. They never link into `.standards/*` (those target Routecraft contributors, not agents writing user code).
 
 ## Versioning
 

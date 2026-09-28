@@ -60,7 +60,7 @@ The template's files win over the base scaffold, except for the project name you
 the package manager you chose, and its `dependencies`, `devDependencies`,
 `peerDependencies` and `scripts` merge into the base manifest rather than replacing it.
 **Every `@routecraft/*` version is the one this scaffolder belongs to**, whatever the
-template pins: a template describes a project's shape, not which version of the framework
+template pins: a template describes a project's shape, not which version of Routecraft
 you get, and honouring its pins meant asking for `@canary` and being handed whatever that
 repository last committed.
 
