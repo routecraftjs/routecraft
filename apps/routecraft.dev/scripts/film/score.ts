@@ -5,9 +5,9 @@
  * whenever the picture changes and carries no rights question. It follows the
  * film's arc and turns where the film turns: a dark A minor drone under the
  * board filling up, a low pulse that builds while nobody else can use any of
- * it, a swell under the line that names the problem, and then, on the beat
- * where Routecraft is named as the place to run it, the pulse stops, the key
- * lifts into C major and an arpeggio carries the platform drawing itself. A soft note marks every card
+ * it, a swell while the next team builds the same thing again, and then, as
+ * the board clears and Routecraft is named, the pulse stops, the key lifts
+ * into C major and an arpeggio carries the platform drawing itself. A soft note marks every card
  * and block landing, taken from `SCORE_EVENTS` so sound and picture share one
  * timeline. A licensed track can replace the MP3 instead; either way, `mix.ts`
  * then lays the voice over it.
@@ -18,21 +18,17 @@ import { join } from 'node:path'
 
 import {
   BOARD_EXIT,
+  CALLS,
   CAPABILITY_AT,
-  CREDENTIALS,
+  CROSSING,
+  DUPLICATE_PULSE,
   FILM_DURATION,
-  LEAVES,
   NARRATION,
   PROMOTE,
-  RECORD_LINES,
-  REMOTE,
   SCENE_OUT,
   SCORE_EVENTS,
-  SETTLE,
-  TEAM_BLOCK_AT,
-  TOP_BAND_IN,
-  TO_PLATFORM,
-  TRIGGER_AT,
+  SECOND_LOCAL,
+  TELEMETRY,
 } from '../../app/components/film/timeline'
 import { RATE, encode } from './ffmpeg'
 
@@ -43,27 +39,23 @@ const TAU = Math.PI * 2
 const hz = (midi: number) => 440 * Math.pow(2, (midi - 69) / 12)
 
 /** The moment the problem is answered; everything before it tightens, everything after it opens. */
-const TURN = TO_PLATFORM.from
-const NOBODY_ELSE = NARRATION[2].at
-const NOT_SHORT_OF_IDEAS = NARRATION[3].at
+const TURN = BOARD_EXIT.from
+const NOBODY_ELSE = NARRATION[1].at
 
 /** Chords as MIDI notes, each held from its start until the next one. */
 const CHORDS: [number, number[]][] = [
   [0, [33, 45, 52, 57, 60]],
   [NOBODY_ELSE, [33, 45, 52, 56, 60]],
-  [LEAVES.from, [38, 50, 53, 57, 62]],
-  [NOT_SHORT_OF_IDEAS, [41, 48, 53, 57, 64]],
-  [BOARD_EXIT.from - 1.6, [40, 47, 52, 56, 62]],
+  [DUPLICATE_PULSE.from, [40, 47, 52, 56, 62]],
   [TURN, [36, 48, 55, 60, 64]],
-  [CAPABILITY_AT[0], [36, 48, 55, 60, 64, 67]],
+  [CAPABILITY_AT, [36, 48, 55, 60, 64, 67]],
   [PROMOTE.from, [35, 47, 55, 59, 62]],
-  [TEAM_BLOCK_AT[0], [33, 45, 57, 60, 64]],
-  [REMOTE.from, [29, 41, 53, 57, 60, 65]],
-  [TOP_BAND_IN.from, [29, 41, 53, 57, 60]],
-  [TRIGGER_AT(0), [36, 48, 55, 60, 64]],
-  [CREDENTIALS.from, [31, 43, 55, 59, 62]],
-  [RECORD_LINES[0].at, [36, 48, 55, 60, 64, 67]],
-  [SETTLE.from, [36, 48, 55, 62, 64, 67]],
+  [CROSSING.from + CROSSING.duration, [36, 48, 55, 60, 64]],
+  [CALLS[0].at, [33, 45, 57, 60, 64]],
+  [CALLS[1].at, [29, 41, 53, 57, 60, 65]],
+  [CALLS[2].at, [36, 48, 55, 60, 64]],
+  [TELEMETRY.from, [31, 43, 55, 59, 62]],
+  [SECOND_LOCAL.from, [36, 48, 55, 62, 64, 67]],
   [SCENE_OUT.from, [36, 48, 60, 64, 67]],
 ]
 
@@ -152,7 +144,7 @@ for (let at = NOBODY_ELSE; at < TURN - 0.4; at += 0.75) {
 
 // The swell while the harness forms: noise through a lowpass that opens up.
 {
-  const from = NOT_SHORT_OF_IDEAS
+  const from = DUPLICATE_PULSE.from
   const to = TURN
   let low = 0
   for (let i = Math.floor(from * RATE); i < Math.floor(to * RATE); i++) {

@@ -1,12 +1,12 @@
 import type { CSSProperties, ReactNode } from 'react'
 
 import {
-  ASKS_YOU,
-  BECOME_LOCAL,
+  ACCESS_LINE,
   BOARD,
   BOARD_EXIT,
   type BoardCard,
-  CAPABILITIES,
+  CALLS,
+  CAPABILITY,
   CAPABILITY_AT,
   CAPTIONS,
   CARD_H,
@@ -17,10 +17,8 @@ import {
   DOORS,
   DUPLICATE_PULSE,
   END_CARD,
-  ENTRY_ARROWS,
   FILM_HEIGHT,
   FILM_WIDTH,
-  LEAVES,
   LOCAL_PANEL,
   LOCAL_PANEL_IN,
   mix,
@@ -29,11 +27,10 @@ import {
   RECORD_LINES,
   type Rect,
   ramp,
-  REMOTE,
+  ROUTE_LINE,
   SCENE_OUT,
   SECOND_LOCAL,
   SETTLE,
-  SUBJECT,
   SYSTEM_TILE_H,
   SYSTEM_TILE_X,
   SYSTEM_TILE_Y,
@@ -45,7 +42,8 @@ import {
   TEAM_BLOCKS,
   TEAM_IN,
   TEAM_PANEL,
-  TO_PLATFORM,
+  TELEMETRY,
+  TEST_LINE,
   TOP_BAND,
   TOP_BAND_IN,
   TRIGGER_AT,
@@ -79,17 +77,14 @@ export function FilmFrame({ t }: { t: number }) {
       <div style={{ position: 'absolute', inset: 0, opacity: scene }}>
         <SystemsBand t={t} />
         <BoardWires t={t} />
-        {BOARD.map((card, i) =>
-          i === SUBJECT ? null : <BoardTile key={i} card={card} t={t} i={i} />,
-        )}
+        {BOARD.map((card, i) => (
+          <BoardTile key={i} card={card} t={t} i={i} />
+        ))}
         <TopBand t={t} />
         <SecondLocal t={t} />
         <LocalPanel t={t} />
         <TeamPanel t={t} />
-        <Subject t={t} />
-        {CAPABILITIES.map((name, i) => (
-          <Capability key={name} name={name} i={i} t={t} />
-        ))}
+        <LocalCapability t={t} />
         <Crossing t={t} />
         <Arrows t={t} />
       </div>
@@ -301,10 +296,7 @@ function PanelTitle({
 
 /** How far a board card has left the stage. */
 const boardExit = (t: number, i: number) =>
-  Math.max(
-    ramp(t, BOARD_EXIT.from + (i % 5) * 0.08, BOARD_EXIT.duration),
-    BOARD[i].leaves ? ramp(t, LEAVES.from, LEAVES.duration) : 0,
-  )
+  ramp(t, BOARD_EXIT.from + (i % 5) * 0.08, BOARD_EXIT.duration)
 
 /** The duplicates light up together while the line says the next team builds it again. */
 const duplicatePulse = (t: number, card: BoardCard) =>
@@ -428,59 +420,6 @@ function BoardTile({ card, t, i }: { card: BoardCard; t: number; i: number }) {
   )
 }
 
-/** The subject: a card on the board, then a skill in the local harness. */
-function Subject({ t }: { t: number }) {
-  const card = BOARD[SUBJECT]
-  const shown = ramp(t, card.at, 0.45)
-  if (shown <= 0) return null
-  const dock = ramp(t, TO_PLATFORM.from, TO_PLATFORM.duration)
-  const board = { x: card.x, y: card.y, w: card.w, h: CARD_H }
-  const rect = mixRect(board, blockRect(LOCAL_PANEL, 0), dock)
-  const boardFace = 1 - clamp01(dock * 2.5)
-  const blockFace = clamp01((dock - 0.5) / 0.4) * labels(t)
-  const skill = ramp(t, BECOME_LOCAL.from, BECOME_LOCAL.duration)
-  return (
-    <div
-      style={{
-        ...at(rect),
-        ...cardBox,
-        padding: 0,
-        background: dock > 0.5 ? PAPER_DEEP : PAPER,
-        border: `1px solid ${dock > 0.5 ? ink(18) : dock > 0 ? COBALT : ink(20)}`,
-        opacity: shown,
-        transform: `translateY(${(1 - shown) * 16}px) rotate(${card.tilt * (1 - dock)}deg)`,
-      }}
-    >
-      {boardFace > 0 && (
-        <div
-          style={{
-            position: 'absolute',
-            inset: 0,
-            padding: '16px 18px',
-            opacity: boardFace,
-          }}
-        >
-          <CardFace card={card} />
-        </div>
-      )}
-      {blockFace > 0 && (
-        <>
-          <BlockLabel
-            eyebrow="instruction"
-            name="overdue.md"
-            opacity={blockFace * (1 - skill)}
-          />
-          <BlockLabel
-            eyebrow="skill"
-            name="overdue.md"
-            opacity={blockFace * skill}
-          />
-        </>
-      )}
-    </div>
-  )
-}
-
 function BlockLabel({
   eyebrow,
   name,
@@ -496,7 +435,7 @@ function BlockLabel({
 }) {
   return (
     <div
-      style={{ position: 'absolute', inset: 0, padding: '12px 14px', opacity }}
+      style={{ position: 'absolute', inset: 0, padding: '12px 10px', opacity }}
     >
       <div
         style={{
@@ -513,7 +452,7 @@ function BlockLabel({
         style={{
           marginTop: 8,
           fontFamily: MONO,
-          fontSize: 17,
+          fontSize: 15,
           whiteSpace: 'nowrap',
           color: onPlate ? PAPER : INK_SOLID,
         }}
@@ -524,26 +463,61 @@ function BlockLabel({
   )
 }
 
-/** A capability built in the local harness, beside the skill that needs it. */
-function Capability({ name, i, t }: { name: string; i: number; t: number }) {
-  const shown = ramp(t, CAPABILITY_AT[i], 0.5)
-  if (shown <= 0) return null
-  const settled = ramp(t, CAPABILITY_AT[i] + 1.4, 1)
-  const border = `color-mix(in srgb, ${COBALT} ${Math.round((1 - settled) * 100)}%, ${ink(26)})`
+/** A line of monospaced text typed out from `from`. */
+function Typed({
+  t,
+  text,
+  from,
+  x,
+  y,
+  colour,
+}: {
+  t: number
+  text: string
+  from: number
+  x: number
+  y: number
+  colour: string
+}) {
+  const typed = clamp01((t - from) / 0.6)
+  if (typed <= 0) return null
   return (
     <div
       style={{
-        ...at(blockRect(LOCAL_PANEL, i + 1)),
+        position: 'absolute',
+        left: x,
+        top: y,
+        fontFamily: MONO,
+        fontSize: 15,
+        whiteSpace: 'pre',
+        color: colour,
+        opacity: labels(t),
+      }}
+    >
+      {text.slice(0, Math.round(text.length * typed))}
+    </div>
+  )
+}
+
+/** The capability the film follows, built and tested in the local harness. */
+function LocalCapability({ t }: { t: number }) {
+  const shown = ramp(t, CAPABILITY_AT, 0.6)
+  if (shown <= 0) return null
+  const settled = ramp(t, CROSSING.from, 1.2)
+  return (
+    <div
+      style={{
+        ...at(blockRect(LOCAL_PANEL, 0)),
         boxSizing: 'border-box',
-        background: PAPER_DEEP,
-        border: `1px solid ${border}`,
+        background: PAPER,
+        border: `1.5px solid color-mix(in srgb, ${COBALT} ${Math.round((1 - settled) * 100)}%, ${ink(26)})`,
         opacity: shown,
-        transform: `translateY(${(1 - shown) * 18}px)`,
+        transform: `translateY(${(1 - shown) * 18}px) scale(${0.94 + 0.06 * shown})`,
       }}
     >
       <BlockLabel
         eyebrow="capability"
-        name={name}
+        name={CAPABILITY}
         opacity={labels(t)}
         accent={settled < 1}
       />
@@ -551,7 +525,7 @@ function Capability({ name, i, t }: { name: string; i: number; t: number }) {
   )
 }
 
-/** The local harness panel, drawn around the skill as it lands. */
+/** The local harness: where a capability is built and proved before anyone else relies on it. */
 function LocalPanel({ t }: { t: number }) {
   const shown = ramp(t, LOCAL_PANEL_IN.from, LOCAL_PANEL_IN.duration)
   if (shown <= 0) return null
@@ -562,6 +536,22 @@ function LocalPanel({ t }: { t: number }) {
         sub="on your own machine, on your own access"
         x={30}
         y={28}
+      />
+      <Typed
+        t={t}
+        text={ROUTE_LINE.text}
+        from={ROUTE_LINE.at}
+        x={30}
+        y={120}
+        colour={ink(72)}
+      />
+      <Typed
+        t={t}
+        text={TEST_LINE.text}
+        from={TEST_LINE.at}
+        x={30}
+        y={150}
+        colour={COBALT}
       />
     </div>
   )
@@ -597,9 +587,21 @@ function SecondLocal({ t }: { t: number }) {
   )
 }
 
+/** How strongly the promoted capability lights up while a caller reaches it. */
+const called = (t: number) =>
+  Math.max(
+    0,
+    ...CALLS.map((call) => span(t, call.at + 0.5, call.at + 1.9, 0.4)),
+  )
+
 function TeamPanel({ t }: { t: number }) {
   const shown = ramp(t, TEAM_IN.from, TEAM_IN.duration)
   if (shown <= 0) return null
+  const arrived = ramp(t, CROSSING.from + CROSSING.duration - 0.1, 0.3)
+  const telemetry = ramp(t, TELEMETRY.from, TELEMETRY.duration)
+  const pulse = called(t)
+  const fresh = 1 - ramp(t, CROSSING.from + CROSSING.duration + 0.8, 1.2)
+  const promoted = blockRect(TEAM_PANEL, 0)
   return (
     <div
       style={{
@@ -611,36 +613,86 @@ function TeamPanel({ t }: { t: number }) {
     >
       <PanelTitle
         name="Team harness"
-        sub="always on, on service credentials, every call on record"
+        sub="on your infrastructure, on service credentials"
         x={30}
         y={28}
         onPlate
       />
-      {RECORD_LINES.map((line) => {
-        const typed = clamp01((t - line.at) / 0.5)
-        if (typed <= 0) return null
-        return (
-          <div
-            key={line.text}
+      {telemetry > 0 && (
+        <div
+          style={{
+            position: 'absolute',
+            right: 30,
+            top: 34,
+            display: 'flex',
+            alignItems: 'center',
+            gap: 10,
+            fontFamily: MONO,
+            fontSize: 14,
+            letterSpacing: '0.1em',
+            textTransform: 'uppercase',
+            color: paper(78),
+            opacity: telemetry * labels(t),
+          }}
+        >
+          <span
             style={{
-              position: 'absolute',
-              left: 30,
-              top: 120 + RECORD_LINES.indexOf(line) * 26,
-              fontFamily: MONO,
-              fontSize: 15,
-              whiteSpace: 'pre',
-              color: paper(78),
-              opacity: labels(t),
+              width: 9,
+              height: 9,
+              borderRadius: 9,
+              background: COBALT,
             }}
-          >
-            {line.text.slice(0, Math.round(line.text.length * typed))}
-          </div>
-        )
-      })}
+          />
+          telemetry on
+        </div>
+      )}
+      <Typed
+        t={t}
+        text={ACCESS_LINE.text}
+        from={ACCESS_LINE.at}
+        x={30}
+        y={112}
+        colour={paper(78)}
+      />
+      {RECORD_LINES.map((line, i) => (
+        <Typed
+          key={line.text}
+          t={t}
+          text={line.text}
+          from={line.at}
+          x={30}
+          y={146 + i * 24}
+          colour={paper(62)}
+        />
+      ))}
+      {arrived > 0 && (
+        <div
+          style={{
+            ...at({
+              x: promoted.x - TEAM_PANEL.x,
+              y: promoted.y - TEAM_PANEL.y,
+              w: promoted.w,
+              h: promoted.h,
+            }),
+            boxSizing: 'border-box',
+            background: `color-mix(in srgb, ${COBALT} ${Math.round(pulse * 45)}%, ${paper(12)})`,
+            border: `1.5px solid color-mix(in srgb, ${COBALT} ${Math.round(Math.max(pulse, fresh) * 100)}%, ${paper(28)})`,
+            opacity: arrived,
+            transform: `scale(${1 + 0.05 * pulse})`,
+          }}
+        >
+          <BlockLabel
+            eyebrow="capability"
+            name={CAPABILITY}
+            opacity={labels(t)}
+            onPlate
+          />
+        </div>
+      )}
       {TEAM_BLOCKS.map((name, i) => {
         const block = ramp(t, TEAM_BLOCK_AT[i], 0.45)
         if (block <= 0) return null
-        const r = blockRect(TEAM_PANEL, i)
+        const r = blockRect(TEAM_PANEL, i + 1)
         return (
           <div
             key={name}
@@ -670,13 +722,11 @@ function TeamPanel({ t }: { t: number }) {
   )
 }
 
-/** The promoted capability travelling from the laptop to the team harness. */
+/** The promoted capability travelling from the local harness to the team harness. */
 function Crossing({ t }: { t: number }) {
   const p = ramp(t, CROSSING.from, CROSSING.duration)
   if (p <= 0 || t > CROSSING.from + CROSSING.duration + 0.3) return null
-  const from = blockRect(LOCAL_PANEL, CROSSING.capability + 1)
-  const to = blockRect(TEAM_PANEL, 0)
-  const rect = mixRect(from, to, p)
+  const rect = mixRect(blockRect(LOCAL_PANEL, 0), blockRect(TEAM_PANEL, 0), p)
   const lift = Math.sin(p * Math.PI) * 60
   return (
     <div
@@ -688,32 +738,25 @@ function Crossing({ t }: { t: number }) {
         opacity: 1 - ramp(t, CROSSING.from + CROSSING.duration, 0.3),
       }}
     >
-      <BlockLabel
-        eyebrow="capability"
-        name={CAPABILITIES[CROSSING.capability]}
-        opacity={1}
-        accent
-      />
+      <BlockLabel eyebrow="capability" name={CAPABILITY} opacity={1} accent />
     </div>
   )
+}
+
+/** Where each door or trigger sits in the top band, in canvas pixels. */
+const doorX = (name: string) => {
+  const d = DOORS.indexOf(name as (typeof DOORS)[number])
+  return d >= 0
+    ? 640 + d * 124
+    : 1162 + TRIGGERS.indexOf(name as (typeof TRIGGERS)[number]) * 124
 }
 
 function TopBand({ t }: { t: number }) {
   const shown = ramp(t, TOP_BAND_IN.from, TOP_BAND_IN.duration)
   if (shown <= 0) return null
   const blocks = [
-    ...DOORS.map((name, i) => ({
-      name,
-      at: DOOR_AT(i),
-      x: 640 + i * 124,
-      door: true,
-    })),
-    ...TRIGGERS.map((name, i) => ({
-      name,
-      at: TRIGGER_AT(i),
-      x: 1162 + i * 124,
-      door: false,
-    })),
+    ...DOORS.map((name, i) => ({ name, at: DOOR_AT(i), door: true })),
+    ...TRIGGERS.map((name, i) => ({ name, at: TRIGGER_AT(i), door: false })),
   ]
   return (
     <div style={{ ...at(TOP_BAND), background: PAPER_DEEP, opacity: shown }}>
@@ -726,17 +769,20 @@ function TopBand({ t }: { t: number }) {
       {blocks.map((b) => {
         const p = ramp(t, b.at, 0.4)
         if (p <= 0) return null
+        const call = CALLS.find((c) => c.door === b.name)
+        const lit = call ? ramp(t, call.at, 0.4) * labels(t) : 0
         return (
           <span
             key={b.name}
             style={{
-              ...at({ x: b.x - TOP_BAND.x, y: 27, w: 110, h: 56 }),
+              ...at({ x: doorX(b.name) - TOP_BAND.x, y: 27, w: 110, h: 56 }),
               boxSizing: 'border-box',
               display: 'flex',
               alignItems: 'center',
               justifyContent: 'center',
               background: PAPER,
-              border: `1.5px ${b.door ? 'solid' : 'dashed'} ${ink(b.door ? 30 : 38)}`,
+              border: `1.5px ${b.door ? 'solid' : 'dashed'} color-mix(in srgb, ${COBALT} ${Math.round(lit * 100)}%, ${ink(b.door ? 30 : 38)})`,
+              color: `color-mix(in srgb, ${COBALT} ${Math.round(lit * 100)}%, ${INK_SOLID})`,
               fontFamily: MONO,
               fontSize: 16,
               opacity: p,
@@ -794,12 +840,15 @@ function ArrowLabel({
   children,
   opacity,
   colour,
+  centred = false,
 }: {
   x: number
   y: number
   children: ReactNode
   opacity: number
   colour?: string
+  /** Centred on `x` instead of starting there. */
+  centred?: boolean
 }) {
   if (opacity <= 0) return null
   return (
@@ -813,6 +862,7 @@ function ArrowLabel({
         whiteSpace: 'nowrap',
         color: colour ?? ink(62),
         opacity,
+        transform: centred ? 'translateX(-50%)' : undefined,
       }}
     >
       {children}
@@ -822,14 +872,13 @@ function ArrowLabel({
 
 function Arrows({ t }: { t: number }) {
   const promote = ramp(t, PROMOTE.from, PROMOTE.duration)
-  const remote = ramp(t, REMOTE.from, REMOTE.duration)
-  const entry = ramp(t, ENTRY_ARROWS.from, ENTRY_ARROWS.duration)
-  const asks = ramp(t, ASKS_YOU.from, ASKS_YOU.duration)
   const credentials = ramp(t, CREDENTIALS.from, CREDENTIALS.duration)
   const l = labels(t)
   const localX = LOCAL_PANEL.x + 390
   const teamX = TEAM_PANEL.x + 390
   const bottom = LOCAL_PANEL.y + LOCAL_PANEL.h
+  const target = blockRect(TEAM_PANEL, 0)
+  const targetX = target.x + target.w / 2
   return (
     <>
       <svg
@@ -844,39 +893,6 @@ function Arrows({ t }: { t: number }) {
           y2={540}
           drawn={promote}
           colour={ink(70)}
-        />
-        <Arrow
-          x1={1014}
-          y1={620}
-          x2={906}
-          y2={620}
-          drawn={remote}
-          colour={ink(60)}
-          dashed
-        />
-        <Arrow
-          x1={localX}
-          y1={TOP_BAND.y + TOP_BAND.h + 4}
-          x2={localX}
-          y2={LOCAL_PANEL.y - 22}
-          drawn={entry}
-          colour={ink(60)}
-        />
-        <Arrow
-          x1={teamX}
-          y1={TOP_BAND.y + TOP_BAND.h + 4}
-          x2={teamX}
-          y2={TEAM_PANEL.y - 6}
-          drawn={entry}
-          colour={ink(60)}
-        />
-        <Arrow
-          x1={TEAM_PANEL.x + 740}
-          y1={TEAM_PANEL.y - 6}
-          x2={TEAM_PANEL.x + 740}
-          y2={TOP_BAND.y + TOP_BAND.h + 4}
-          drawn={asks}
-          colour={COBALT}
         />
         <Arrow
           x1={localX}
@@ -895,21 +911,33 @@ function Arrows({ t }: { t: number }) {
           drawn={credentials}
           colour={COBALT}
         />
+        {CALLS.map((call) => (
+          <Arrow
+            key={call.caller}
+            x1={doorX(call.door) + 55}
+            y1={TOP_BAND.y + TOP_BAND.h + 4}
+            x2={targetX}
+            y2={TEAM_PANEL.y - 6}
+            drawn={ramp(t, call.at + 0.1, 0.6)}
+            colour={COBALT}
+          />
+        ))}
       </svg>
       <ArrowLabel x={906} y={508} opacity={promote * l}>
         promote
       </ArrowLabel>
-      <ArrowLabel x={920} y={632} opacity={remote * l}>
-        remote
-      </ArrowLabel>
-      <ArrowLabel
-        x={teamX + 16}
-        y={TOP_BAND.y + TOP_BAND.h + 22}
-        opacity={asks * l}
-        colour={COBALT}
-      >
-        asks you when it needs a decision
-      </ArrowLabel>
+      {CALLS.map((call) => (
+        <ArrowLabel
+          key={call.caller}
+          x={doorX(call.door) + 55}
+          y={TOP_BAND.y + 88}
+          opacity={ramp(t, call.at, 0.4) * l}
+          colour={COBALT}
+          centred
+        >
+          {call.caller}
+        </ArrowLabel>
+      ))}
       <ArrowLabel x={localX + 14} y={bottom + 34} opacity={credentials * l}>
         personal credentials
       </ArrowLabel>
