@@ -198,16 +198,20 @@ function Problem() {
 
         <Diagram id="every-team-builds-its-own" />
 
-        <div className="grid grid-cols-1 gap-x-16 gap-y-10 lg:grid-cols-12 lg:items-end">
-          <Ledger lines={CONSEQUENCES} className="lg:col-span-7" />
-          <p
-            className="max-w-md font-editorial text-[1.5rem] leading-[1.35] tracking-[-0.01em] text-ink italic lg:col-span-5 lg:pb-6"
-            style={{ fontVariationSettings: '"opsz" 96, "SOFT" 100' }}
+        <Statements lines={CONSEQUENCES} escalate />
+
+        <p
+          className="mt-16 max-w-4xl font-editorial text-[clamp(2rem,3.6vw,3rem)] leading-[1.1] tracking-[-0.02em] text-ink lg:mt-20"
+          style={{ fontVariationSettings: HEADLINE_SOFT }}
+        >
+          Your people are not short of ideas.{' '}
+          <span
+            className="text-cobalt-500 italic"
+            style={{ fontVariationSettings: HEADLINE_ITALIC }}
           >
-            Your people are not short of ideas. They are short of a place to run
-            them.
-          </p>
-        </div>
+            They are short of a place to run them.
+          </span>
+        </p>
       </div>
     </section>
   )
@@ -217,15 +221,11 @@ function Cost() {
   return (
     <section>
       <div className="container-page pt-12 pb-20 lg:pt-14 lg:pb-24">
-        <div className="grid grid-cols-1 gap-x-16 gap-y-10 lg:grid-cols-12">
-          <div className="lg:col-span-5">
-            <SectionHeading
-              plain="You are paying for the licences."
-              accent="You are not getting the results."
-            />
-          </div>
-          <Ledger lines={COSTS} className="lg:col-span-7" />
-        </div>
+        <SectionHeading
+          plain="You are paying for the licences."
+          accent="You are not getting the results."
+        />
+        <Statements lines={COSTS} size="body" className="mt-10" />
       </div>
     </section>
   )
@@ -352,27 +352,45 @@ function Path() {
 }
 
 /**
- * Short claims read one under the other, at the size of a heading and ruled
- * apart like entries in a ledger. Three boxes in a row read as a feature grid;
- * three lines down the page read as the cost adding up.
+ * Short claims set as statements: large type, one under the other, no markers
+ * or rules, so they read as an argument rather than a feature list. With
+ * `escalate` each line is darker than the one before, so the last lands hardest.
  */
-function Ledger({ lines, className }: { lines: string[]; className?: string }) {
+function Statements({
+  lines,
+  escalate = false,
+  size = 'display',
+  className,
+}: {
+  lines: string[]
+  escalate?: boolean
+  /** `display` stands on its own; `body` sits under a section heading. */
+  size?: 'display' | 'body'
+  className?: string
+}) {
+  const tone = (i: number) =>
+    size === 'body'
+      ? 'text-ink/75'
+      : !escalate || i === lines.length - 1
+        ? 'text-ink'
+        : i === 0
+          ? 'text-ink/40'
+          : 'text-ink/60'
+  const scale =
+    size === 'body'
+      ? 'text-[clamp(1.25rem,1.8vw,1.55rem)] leading-[1.4]'
+      : 'text-[clamp(1.5rem,2.6vw,2.2rem)] leading-[1.25]'
   return (
     <ul
-      className={`divide-y divide-ink/15 border-y border-ink/15 ${className ?? ''}`}
+      className={`flex flex-col ${size === 'body' ? 'max-w-3xl gap-4' : 'max-w-5xl gap-5'} ${className ?? ''}`}
     >
-      {lines.map((line) => (
-        <li key={line} className="grid grid-cols-[auto_1fr] gap-5 py-6">
-          <span
-            aria-hidden="true"
-            className="mt-[0.7em] h-1.5 w-1.5 bg-cobalt-500"
-          />
-          <p
-            className="font-editorial text-[clamp(1.3rem,2vw,1.6rem)] leading-[1.3] tracking-[-0.01em] text-ink"
-            style={{ fontVariationSettings: '"opsz" 72, "SOFT" 50' }}
-          >
-            {line}
-          </p>
+      {lines.map((line, i) => (
+        <li
+          key={line}
+          className={`font-editorial tracking-[-0.01em] ${scale} ${tone(i)}`}
+          style={{ fontVariationSettings: '"opsz" 96, "SOFT" 50' }}
+        >
+          {line}
         </li>
       ))}
     </ul>
