@@ -196,71 +196,80 @@ function Problem() {
         </SectionHeading>
 
         <Diagram id="every-team-builds-its-own" />
-
-        <Escalation lines={CONSEQUENCES} />
-
-        <p
-          className="mt-16 max-w-4xl font-editorial text-[clamp(2rem,3.6vw,3rem)] leading-[1.1] tracking-[-0.02em] text-ink lg:mt-20"
-          style={{ fontVariationSettings: HEADLINE_SOFT }}
-        >
-          Your people are not short of ideas.{' '}
-          <span
-            className="text-cobalt-500 italic"
-            style={{ fontVariationSettings: HEADLINE_ITALIC }}
-          >
-            They are short of a place to run them.
-          </span>
-        </p>
       </div>
     </section>
   )
 }
 
 /**
- * The one full-bleed colour band on the page, set between the two figures so
- * the argument turns from what it costs to what the platform does. Its colours
- * are fixed rather than themed: the deep cobalt reads the same in light and
- * dark, so the text on it never swaps to dark ink.
+ * The reckoning: what the scattered builds cost and what the licences are
+ * failing to buy, on one tinted band between the two figures. Both halves
+ * share a shape, a headline beside its three claims, so the page turns from
+ * problem to platform in a single panel rather than two runs of paper.
  */
 function Cost() {
   return (
-    <section className="mb-16 bg-cobalt-700 text-white lg:mb-20">
+    <section className="mb-16 border-y border-ink/15 bg-paper-deep lg:mb-20">
       <div className="container-page py-16 lg:py-20">
-        <div className="flex items-center gap-4">
-          <span aria-hidden="true" className="h-1.5 w-1.5 bg-cobalt-200" />
-          <span className="font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-200 uppercase tabular-nums">
-            II
-          </span>
-          <span className="font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-100/80 uppercase">
-            The cost
-          </span>
-          <span className="h-px flex-1 bg-cobalt-400/60" />
+        <Reckoning
+          plain="Your people are not short of ideas."
+          accent="They are short of a place to run them."
+          lines={CONSEQUENCES}
+        />
+        <div className="mt-16 lg:mt-20">
+          <SectionLabel numeral="II" label="The cost" />
         </div>
-        <h2
-          className="mt-12 max-w-4xl font-editorial text-[clamp(2.2rem,4vw,3.25rem)] leading-[1.05] tracking-[-0.02em]"
-          style={{ fontVariationSettings: HEADLINE_SOFT }}
-        >
-          You are paying for the licences.{' '}
-          <span
-            className="text-cobalt-200 italic"
-            style={{ fontVariationSettings: HEADLINE_ITALIC }}
-          >
-            You are not getting the results.
-          </span>
-        </h2>
-        <ul className="mt-12 grid grid-cols-1 gap-x-12 gap-y-8 md:grid-cols-3">
-          {COSTS.map((line) => (
-            <li
-              key={line}
-              className="border-t border-cobalt-400/60 pt-5 font-editorial text-[1.2rem] leading-[1.45] text-cobalt-50"
-              style={{ fontVariationSettings: '"opsz" 72, "SOFT" 50' }}
-            >
-              {line}
-            </li>
-          ))}
-        </ul>
+        <Reckoning
+          plain="You are paying for the licences."
+          accent="You are not getting the results."
+          lines={COSTS}
+          className="mt-12"
+        />
       </div>
     </section>
+  )
+}
+
+/** One half of the reckoning band: a headline on the left, its claims on the right. */
+function Reckoning({
+  plain,
+  accent,
+  lines,
+  className,
+}: {
+  plain: string
+  accent: string
+  lines: string[]
+  className?: string
+}) {
+  return (
+    <div
+      className={`grid grid-cols-1 gap-x-16 gap-y-10 lg:grid-cols-12 ${className ?? ''}`}
+    >
+      <h2
+        className="font-editorial text-[clamp(2rem,3.4vw,2.9rem)] leading-[1.08] tracking-[-0.02em] text-balance text-ink lg:col-span-5"
+        style={{ fontVariationSettings: HEADLINE_SOFT }}
+      >
+        {plain}{' '}
+        <span
+          className="text-cobalt-500 italic"
+          style={{ fontVariationSettings: HEADLINE_ITALIC }}
+        >
+          {accent}
+        </span>
+      </h2>
+      <ul className="flex flex-col lg:col-span-7">
+        {lines.map((line) => (
+          <li
+            key={line}
+            className="border-t border-ink/20 py-5 font-editorial text-[clamp(1.25rem,1.9vw,1.55rem)] leading-[1.35] text-ink last:border-b"
+            style={{ fontVariationSettings: '"opsz" 72, "SOFT" 50' }}
+          >
+            {line}
+          </li>
+        ))}
+      </ul>
+    </div>
   )
 }
 
@@ -384,33 +393,6 @@ function Path() {
   )
 }
 
-/**
- * Short claims set as statements: large type, one under the other, no markers
- * or rules, so they read as an argument rather than a feature list. Each line
- * is darker than the one before, so the last lands hardest.
- */
-function Escalation({ lines }: { lines: string[] }) {
-  const tone = (i: number) =>
-    i === lines.length - 1
-      ? 'text-ink'
-      : i === 0
-        ? 'text-ink/40'
-        : 'text-ink/60'
-  return (
-    <ul className="flex max-w-5xl flex-col gap-5">
-      {lines.map((line, i) => (
-        <li
-          key={line}
-          className={`font-editorial text-[clamp(1.5rem,2.6vw,2.2rem)] leading-[1.25] tracking-[-0.01em] ${tone(i)}`}
-          style={{ fontVariationSettings: '"opsz" 96, "SOFT" 50' }}
-        >
-          {line}
-        </li>
-      ))}
-    </ul>
-  )
-}
-
 function PaperGrain() {
   return (
     <div
@@ -428,19 +410,25 @@ function SectionRule({ numeral, label }: { numeral?: string; label: string }) {
   return (
     <div className="relative">
       <div className="container-page">
-        <div className="flex items-center gap-4">
-          <span aria-hidden="true" className="h-1.5 w-1.5 bg-cobalt-500" />
-          {numeral && (
-            <span className="font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase tabular-nums">
-              {numeral}
-            </span>
-          )}
-          <span className="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase">
-            {label}
-          </span>
-          <span className="h-px flex-1 bg-ink/15" />
-        </div>
+        <SectionLabel numeral={numeral} label={label} />
       </div>
+    </div>
+  )
+}
+
+function SectionLabel({ numeral, label }: { numeral?: string; label: string }) {
+  return (
+    <div className="flex items-center gap-4">
+      <span aria-hidden="true" className="h-1.5 w-1.5 bg-cobalt-500" />
+      {numeral && (
+        <span className="font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase tabular-nums">
+          {numeral}
+        </span>
+      )}
+      <span className="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase">
+        {label}
+      </span>
+      <span className="h-px flex-1 bg-ink/15" />
     </div>
   )
 }
