@@ -47,11 +47,11 @@ export function encode(
 ) {
   const work = mkdtempSync(join(tmpdir(), 'routecraft-film-audio-'))
   const raw = join(work, 'samples.f32')
-  writeFileSync(
-    raw,
-    new Uint8Array(samples.buffer, samples.byteOffset, samples.byteLength),
-  )
   try {
+    writeFileSync(
+      raw,
+      new Uint8Array(samples.buffer, samples.byteOffset, samples.byteLength),
+    )
     run([
       '-f',
       'f32le',

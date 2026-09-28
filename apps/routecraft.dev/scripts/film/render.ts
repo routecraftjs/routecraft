@@ -147,6 +147,8 @@ if (stills) {
   const frames = FILM_DURATION * FPS
   for (let frame = 0; frame < frames; frame++) {
     ffmpeg.stdin.write(await shoot(frame / FPS))
+    // Applies the pipe's backpressure, so a failed ffmpeg surfaces here rather than after every frame is shot.
+    await ffmpeg.stdin.flush()
     if (frame % FPS === 0) process.stdout.write(`\rframe ${frame}/${frames}`)
   }
   await ffmpeg.stdin.end()
