@@ -1,11 +1,16 @@
+/**
+ * The one line on routecraft.dev that names DevOptix. It closes the page as a
+ * contained panel rather than a full-bleed band, so its tint keeps to the same
+ * column as every section above it and never meets the footer's own tint.
+ */
 export function BuiltWithRoutecraft() {
   return (
-    <section className="bg-paper-deep/40">
-      <div className="container-page py-14 lg:py-16">
-        <div className="grid grid-cols-1 gap-8 lg:grid-cols-[1fr_auto] lg:items-center">
+    <section>
+      <div className="container-page pt-4 pb-20 lg:pb-24">
+        <div className="grid grid-cols-1 gap-8 border border-ink/15 bg-paper-deep/40 px-6 py-10 sm:px-10 lg:grid-cols-[1fr_auto] lg:items-center lg:gap-16 lg:px-12 lg:py-12">
           <div>
             <h2
-              className="font-editorial text-[clamp(1.6rem,3vw,2.1rem)] leading-[1.2] tracking-[-0.01em] text-ink"
+              className="font-editorial text-[clamp(1.6rem,3vw,2.1rem)] leading-[1.2] tracking-[-0.01em] text-balance text-ink"
               style={{ fontVariationSettings: '"opsz" 96, "SOFT" 50' }}
             >
               Routecraft is the platform.{' '}

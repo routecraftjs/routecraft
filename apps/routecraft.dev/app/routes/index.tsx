@@ -84,13 +84,13 @@ function LandingPage() {
       <Guardrails />
       <SectionRule numeral="V" label="The path" />
       <Path />
-      <BuiltWithRoutecraft />
       {featuredPost && (
         <>
           <SectionRule numeral="VI" label="From the blog" />
           <Reading post={featuredPost} />
         </>
       )}
+      <BuiltWithRoutecraft />
     </main>
   )
 }
