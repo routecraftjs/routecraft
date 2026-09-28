@@ -134,8 +134,8 @@ function Hero() {
               them live on their laptops, on their own logins, and nobody else
               can use them. Your competitors ship capabilities in an afternoon.
               You are still arguing about where to run them. Routecraft is the
-              open source platform where one team builds it and every team runs
-              it.
+              open source platform your teams build on together. What one team
+              proves, every team can use.
             </p>
 
             <div
