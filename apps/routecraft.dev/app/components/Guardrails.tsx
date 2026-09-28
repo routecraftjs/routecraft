@@ -24,11 +24,11 @@ export function Guardrails() {
     <section>
       <div className="container-page pt-12 pb-20 lg:pt-14 lg:pb-24">
         <SectionHeading plain="Hands," accent="not keys.">
-          Agents have deleted production databases trying to do their job. On
-          Routecraft an agent never holds a credential: it calls named
-          capabilities, each declaring its typed input and who may call it, and
-          each call carries who asked. The capability runs where the agent is
-          not.
+          Agents have deleted production databases trying to be helpful. On
+          Routecraft an agent never holds a credential. It gets hands:
+          capabilities that each do one thing, say who may call them, and run
+          where the agent is not. It cannot reach past them, because there is
+          nothing past them to reach.
         </SectionHeading>
 
         <div className="mt-6 grid grid-cols-1 gap-x-12 lg:grid-cols-2 lg:items-center">
@@ -48,16 +48,16 @@ export function Guardrails() {
             className="font-editorial text-[1.05rem] leading-[1.65] text-ink/70 italic"
             style={{ fontVariationSettings: '"opsz" 96, "SOFT" 100' }}
           >
-            The DSL is simple enough that an LLM can write the capability for
-            you. You review the <span className="not-italic">capability</span>,
-            not the <span className="not-italic">prompt</span>.
+            You review the <span className="not-italic">capability</span>, not
+            the <span className="not-italic">prompt</span>. A prompt is a
+            request. A capability is a decision, and it stays decided.
           </p>
           <div className="flex flex-wrap items-center gap-x-6 gap-y-3 lg:justify-end">
             <AppLink
               href="/docs/advanced/expose-as-mcp"
               className="group inline-flex items-center gap-2 font-mono text-[0.7rem] tracking-[0.22em] text-cobalt-500 uppercase hover:text-cobalt-600"
             >
-              <span>Expose to an agent</span>
+              <span>Give your agent hands</span>
               <span
                 aria-hidden="true"
                 className="transition group-hover:translate-x-1"

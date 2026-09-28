@@ -1,5 +1,4 @@
 import { createFileRoute } from '@tanstack/react-router'
-import type { ReactNode } from 'react'
 
 import { AppLink } from '@/components/AppLink'
 import { BlogMark } from '@/components/BlogMark'
@@ -21,9 +20,15 @@ import { type BlogPostMeta, getAllBlogPosts, getFeaturedPost } from '@/lib/blog'
 import { absoluteUrl, docVersion } from '@/lib/site'
 
 const CONSEQUENCES = [
-  "Nobody can tell a person's call from an agent's.",
-  'Nothing built in one team runs in another.',
-  'The tools that matter most are the ones nobody reviewed.',
+  'Built again in every team. Reviewed in none.',
+  "Every one of them on somebody's personal login.",
+  'The day that person leaves, the tool leaves with them.',
+]
+
+const COSTS = [
+  'Build it once, and every licence you already pay for can call it.',
+  'Your AI burns tokens sifting through content instead of solving the problem. A capability answers in one call, the same way every time.',
+  'Nothing to replace. Your assistants keep working, with hands.',
 ]
 
 interface Pillar {
@@ -35,22 +40,22 @@ interface Pillar {
 const PILLARS: Pillar[] = [
   {
     number: '01',
-    title: 'Local harness',
-    body: 'Build and prove a capability on your own machine, on your own access. Nothing to approve before you try it.',
+    title: 'Ship it this afternoon',
+    body: 'Build and prove a capability on your own machine, on your own access. No ticket, no approval, nothing to ask for before you try it.',
   },
   {
     number: '02',
-    title: 'Team harness',
-    body: 'Always on, on service credentials the platform holds and no person does. Every call carries who asked, and telemetry keeps the record.',
+    title: 'Run it for everyone',
+    body: 'Promote it and it runs always on, on service credentials the platform holds and no person does. Every call carries who asked, and the record keeps it.',
   },
   {
     number: '03',
-    title: 'Built once, shared by all',
-    body: 'Promote a capability when it is proven. Capabilities, skills and agents ship as packages, so every other team installs it instead of building it again.',
+    title: 'Never build it twice',
+    body: 'Capabilities, skills and agents ship as packages. The next team installs yours instead of writing their own.',
   },
   {
     number: '04',
-    title: 'Every way in',
+    title: 'Where your people already work',
     body: 'Your editor, any MCP client, the CLI or plain HTTP. Or on its own, from a schedule, a webhook or an email. When it needs a decision, it asks a person.',
   },
 ]
@@ -71,14 +76,14 @@ function LandingPage() {
       <Hero />
       <SectionRule numeral="I" label="The problem" />
       <Problem />
-      <SectionRule numeral="II" label="The platform" />
+      <SectionRule numeral="II" label="The cost" />
+      <Cost />
+      <SectionRule numeral="III" label="The platform" />
       <Platform />
-      <SectionRule numeral="III" label="Bounded by design" />
+      <SectionRule numeral="IV" label="Bounded by design" />
       <Guardrails />
-      <SectionRule numeral="IV" label="The path" />
+      <SectionRule numeral="V" label="The path" />
       <Path />
-      <SectionRule numeral="V" label="Two ways in" />
-      <TwoModes />
       {featuredPost && (
         <>
           <SectionRule numeral="VI" label="From the blog" />
@@ -179,12 +184,14 @@ function Problem() {
     <section>
       <div className="container-page pt-12 pb-20 lg:pt-14 lg:pb-24">
         <SectionHeading
-          plain="Every team is building AI tools."
-          accent="Alone."
+          plain="Your people already built the tools."
+          accent="Nobody else can use them."
         >
-          A script that calls the CRM. A tool that copies a session token out of
-          a browser. Skills that work on one laptop. Every team its own version
-          of the same lookup, each on somebody&apos;s own key.
+          Somewhere in your organisation a script already calls the CRM. Down
+          the hall another team is writing it again, on a session token copied
+          out of a browser. Neither knows the other exists. Both run on
+          somebody&apos;s personal login, and both stop the day that person is
+          on holiday.
         </SectionHeading>
 
         <Diagram id="every-team-builds-its-own" />
@@ -201,9 +208,33 @@ function Problem() {
           ))}
         </ul>
         <p className="mt-8 max-w-2xl text-[1.05rem] leading-[1.75] text-ink/70">
-          Every team wants private AI tools on its own business logic. What they
-          lack is a platform to run them on.
+          Your people are not short of ideas. They are short of a place to run
+          them.
         </p>
+      </div>
+    </section>
+  )
+}
+
+function Cost() {
+  return (
+    <section>
+      <div className="container-page pt-12 pb-20 lg:pt-14 lg:pb-24">
+        <SectionHeading
+          plain="You are paying for the licences."
+          accent="You are not getting the work."
+        />
+        <ul className="mt-10 grid grid-cols-1 gap-px border border-ink/15 bg-ink/15 md:grid-cols-3">
+          {COSTS.map((line) => (
+            <li
+              key={line}
+              className="bg-paper px-6 py-6 font-editorial text-[1.2rem] leading-[1.35] text-ink"
+              style={{ fontVariationSettings: '"opsz" 72, "SOFT" 50' }}
+            >
+              {line}
+            </li>
+          ))}
+        </ul>
       </div>
     </section>
   )
@@ -217,9 +248,18 @@ function Platform() {
           plain="One runtime,"
           accent="every way in, the same capabilities everywhere."
         >
-          A capability is proven on a laptop, promoted to the team harness, and
-          from then on every team, editor and agent calls the same one.
+          Prove it on a laptop this afternoon. Promote it, and from tomorrow
+          every team, editor and agent in the company calls the same one.
         </SectionHeading>
+
+        <ul className="mt-8 mb-10 flex flex-wrap gap-x-8 gap-y-3 font-mono text-[0.7rem] tracking-[0.18em] text-ink/65 uppercase">
+          {OUTCOMES.map((outcome) => (
+            <li key={outcome} className="flex items-center gap-3">
+              <span aria-hidden="true" className="h-1.5 w-1.5 bg-cobalt-500" />
+              {outcome}
+            </li>
+          ))}
+        </ul>
 
         <Diagram id="platform" />
 
@@ -246,15 +286,6 @@ function Platform() {
             </article>
           ))}
         </div>
-
-        <ul className="mt-10 flex flex-wrap gap-x-8 gap-y-3 font-mono text-[0.7rem] tracking-[0.18em] text-ink/65 uppercase">
-          {OUTCOMES.map((outcome) => (
-            <li key={outcome} className="flex items-center gap-3">
-              <span aria-hidden="true" className="h-1.5 w-1.5 bg-cobalt-500" />
-              {outcome}
-            </li>
-          ))}
-        </ul>
       </div>
     </section>
   )
@@ -270,18 +301,18 @@ function Path() {
               className="font-editorial text-[clamp(2.5rem,5.5vw,4.5rem)] leading-[1.02] tracking-[-0.025em] text-ink"
               style={{ fontVariationSettings: HEADLINE_SOFT }}
             >
-              Start on your laptop.{' '}
+              Your first capability,{' '}
               <span
                 className="text-cobalt-500 italic"
                 style={{ fontVariationSettings: HEADLINE_ITALIC }}
               >
-                Promote it when it works.
+                before lunch.
               </span>
             </h2>
             <p className="mt-6 max-w-2xl text-[1.05rem] leading-[1.75] text-ink/70">
-              The first capability runs on your own machine in a minute, and the
-              agent you already use can call it. When it earns its place, it
-              moves to the team harness and every other team installs it.
+              One command, and the assistant you already use can call a
+              capability you just wrote. When it earns its place, promote it,
+              and the next team installs it instead of writing their own.
             </p>
           </div>
           <aside className="flex flex-col gap-6 lg:col-span-4 lg:items-end lg:text-right">
@@ -323,79 +354,6 @@ function Path() {
         </div>
       </div>
     </section>
-  )
-}
-
-function TwoModes() {
-  return (
-    <section>
-      <div className="container-page pt-12 pb-20 lg:pt-14 lg:pb-24">
-        <SectionHeading
-          plain="Tools for agents."
-          accent="Or the harness itself."
-        >
-          Most teams start by giving the agents they already use a few governed
-          tools. Some go on to run the agent itself on the platform.
-        </SectionHeading>
-
-        <div className="mt-12 grid grid-cols-1 gap-px border border-ink/15 bg-ink/15 lg:grid-cols-2">
-          <ModeCard
-            number="01"
-            label="Tools for an agent"
-            href="/docs/advanced/expose-as-mcp"
-            cta="Expose a capability over MCP"
-          >
-            Expose a capability over MCP and Claude, Cursor, Copilot, ChatGPT or
-            any MCP client can call it, with auth, validation and a record of
-            every call.
-          </ModeCard>
-          <ModeCard
-            number="02"
-            label="The whole agent"
-            href="/docs/reference/adapters/agent/"
-            cta="Build an agent capability"
-          >
-            Run the agent on the platform: you choose the model, the prompt and
-            the capabilities it may reach for, and what happens to the result.
-          </ModeCard>
-        </div>
-      </div>
-    </section>
-  )
-}
-
-function ModeCard({
-  number,
-  label,
-  href,
-  cta,
-  children,
-}: {
-  number: string
-  label: string
-  href: string
-  cta: string
-  children: ReactNode
-}) {
-  return (
-    <article className="flex flex-col gap-5 bg-paper p-7 lg:p-10">
-      <header className="flex items-baseline gap-4">
-        <span className="font-editorial text-[1.5rem] text-cobalt-500 italic tabular-nums">
-          {number}
-        </span>
-        <p className="font-mono text-[0.65rem] tracking-[0.22em] text-ink/55 uppercase">
-          {label}
-        </p>
-      </header>
-      <p className="text-[1rem] leading-[1.7] text-ink/70">{children}</p>
-      <AppLink
-        href={href}
-        className="mt-auto inline-flex items-center gap-2 font-mono text-[0.7rem] tracking-[0.22em] text-cobalt-500 uppercase hover:text-cobalt-600"
-      >
-        <span>{cta}</span>
-        <span aria-hidden="true">→</span>
-      </AppLink>
-    </article>
   )
 }
 
