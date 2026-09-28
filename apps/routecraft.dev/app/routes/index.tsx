@@ -5,9 +5,13 @@ import { AppLink } from '@/components/AppLink'
 import { BlogMark } from '@/components/BlogMark'
 import { BlogMeta } from '@/components/BlogMeta'
 import { BuiltWithRoutecraft } from '@/components/BuiltWithRoutecraft'
+import {
+  FilmPreview,
+  FilmProvider,
+  WatchFilmButton,
+} from '@/components/film/HeroFilm'
 import { Diagram } from '@/components/figures/Diagram'
 import { Guardrails } from '@/components/Guardrails'
-import { PlatformMedia } from '@/components/PlatformMedia'
 import {
   HEADLINE_ITALIC,
   HEADLINE_SOFT,
@@ -88,80 +92,85 @@ function LandingPage() {
 
 function Hero() {
   return (
-    <section className="relative">
-      <div className="container-page pt-16 pb-20 lg:pt-24 lg:pb-28">
-        <div className="max-w-4xl">
-          <p
-            className="paper-rise font-mono text-[0.7rem] tracking-[0.22em] text-cobalt-500 uppercase"
-            style={{ animationDelay: '60ms' }}
-          >
-            Open source AI automation platform &nbsp;·&nbsp;{' '}
-            <AppLink href="/changelog" className="hover:text-cobalt-600">
-              v{docVersion}
-            </AppLink>
-          </p>
-          <h1
-            className="paper-rise mt-6 font-editorial text-[clamp(3rem,7vw,5.75rem)] leading-[0.98] tracking-[-0.025em] text-ink"
-            style={{
-              animationDelay: '140ms',
-              fontVariationSettings: HEADLINE_SOFT,
-            }}
-          >
-            Where your AI{' '}
-            <span
-              className="font-editorial text-cobalt-500 italic"
-              style={{ fontVariationSettings: HEADLINE_ITALIC }}
+    <FilmProvider>
+      <section className="relative">
+        <div className="container-page grid grid-cols-1 items-center gap-x-12 gap-y-12 pt-16 pb-20 lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)] lg:pt-20 lg:pb-24">
+          <div>
+            <p
+              className="paper-rise font-mono text-[0.7rem] tracking-[0.22em] text-cobalt-500 uppercase"
+              style={{ animationDelay: '60ms' }}
             >
-              gets to work.
-            </span>
-          </h1>
-
-          <p
-            className="paper-rise mt-8 max-w-2xl text-[1.15rem] leading-[1.75] text-ink/75"
-            style={{ animationDelay: '260ms' }}
-          >
-            You bought everyone AI licences. Nobody can name one thing they
-            shipped. Your competitors ship capabilities in an afternoon.
-            You&apos;re still arguing about which tools to use and where to run
-            them. Routecraft is the platform you&apos;ve been looking for.
-          </p>
-
-          <div
-            className="paper-rise mt-10 flex flex-wrap items-center gap-x-8 gap-y-4"
-            style={{ animationDelay: '360ms' }}
-          >
-            <AppLink
-              href="/docs/introduction/installation"
-              className="group inline-flex items-center gap-3 bg-cobalt-500 px-6 py-3 text-paper transition hover:bg-cobalt-600"
+              Open source AI automation platform &nbsp;·&nbsp;{' '}
+              <AppLink href="/changelog" className="hover:text-cobalt-600">
+                v{docVersion}
+              </AppLink>
+            </p>
+            <h1
+              className="paper-rise mt-6 font-editorial text-[clamp(3rem,5.2vw,4.75rem)] leading-[0.98] tracking-[-0.025em] text-ink"
+              style={{
+                animationDelay: '140ms',
+                fontVariationSettings: HEADLINE_SOFT,
+              }}
             >
-              <span className="font-mono text-[0.7rem] tracking-[0.22em] uppercase">
-                Put your AI to work
-              </span>
+              Where your AI{' '}
               <span
-                aria-hidden="true"
-                className="transition group-hover:translate-x-0.5"
+                className="font-editorial text-cobalt-500 italic"
+                style={{ fontVariationSettings: HEADLINE_ITALIC }}
               >
-                →
+                gets to work.
               </span>
-            </AppLink>
-            <a
-              href="#platform"
-              className="group relative font-editorial text-[1.05rem] text-ink italic hover:text-cobalt-500"
+            </h1>
+
+            <p
+              className="paper-rise mt-8 max-w-2xl text-[1.15rem] leading-[1.75] text-ink/75"
+              style={{ animationDelay: '260ms' }}
             >
-              <span className="border-b border-current pb-px transition group-hover:border-cobalt-500">
-                See it in one minute
-              </span>
-            </a>
-            <a
-              href="https://github.com/routecraftjs/routecraft"
-              className="group font-mono text-[0.75rem] tracking-[0.18em] text-ink/65 uppercase hover:text-ink"
+              You bought everyone AI licences. Nobody can name one thing they
+              shipped. Your competitors ship capabilities in an afternoon.
+              You&apos;re still arguing about which tools to use and where to
+              run them. Routecraft is the platform you&apos;ve been looking for.
+            </p>
+
+            <div
+              className="paper-rise mt-10 flex flex-wrap items-center gap-x-8 gap-y-4"
+              style={{ animationDelay: '360ms' }}
             >
-              GitHub <span aria-hidden="true">↗</span>
-            </a>
+              <AppLink
+                href="/docs/introduction/installation"
+                className="group inline-flex items-center gap-3 bg-cobalt-500 px-6 py-3 text-paper transition hover:bg-cobalt-600"
+              >
+                <span className="font-mono text-[0.7rem] tracking-[0.22em] uppercase">
+                  Put your AI to work
+                </span>
+                <span
+                  aria-hidden="true"
+                  className="transition group-hover:translate-x-0.5"
+                >
+                  →
+                </span>
+              </AppLink>
+              <WatchFilmButton className="group relative cursor-pointer font-editorial text-[1.05rem] text-ink italic hover:text-cobalt-500">
+                <span className="border-b border-current pb-px transition group-hover:border-cobalt-500">
+                  See it in one minute
+                </span>
+              </WatchFilmButton>
+              <a
+                href="https://github.com/routecraftjs/routecraft"
+                className="group font-mono text-[0.75rem] tracking-[0.18em] text-ink/65 uppercase hover:text-ink"
+              >
+                GitHub <span aria-hidden="true">↗</span>
+              </a>
+            </div>
+          </div>
+          <div
+            className="paper-rise min-w-0"
+            style={{ animationDelay: '200ms' }}
+          >
+            <FilmPreview />
           </div>
         </div>
-      </div>
-    </section>
+      </section>
+    </FilmProvider>
   )
 }
 
@@ -212,7 +221,7 @@ function Platform() {
           from then on every team, editor and agent calls the same one.
         </SectionHeading>
 
-        <PlatformMedia />
+        <Diagram id="platform" />
 
         <div className="grid grid-cols-1 gap-px border border-ink/15 bg-ink/15 sm:grid-cols-2 lg:grid-cols-4">
           {PILLARS.map((pillar) => (

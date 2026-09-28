@@ -80,3 +80,6 @@ app/routeTree.gen.ts
 
 # generated fixtures for the documentation example typecheck (scripts/check-examples.ts)
 /.docs-typecheck*/
+
+# Review stills from `bun scripts/film/render.ts --stills`
+/scripts/film/stills/
