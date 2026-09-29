@@ -997,7 +997,7 @@ function EndCard({ t }: { t: number }) {
           opacity: ramp(t, END_CARD.from + 0.6, 0.8),
         }}
       >
-        Built to be <Accent>used</Accent>.
+        Give your agent <Accent>hands</Accent>.
       </p>
       <p
         style={{
