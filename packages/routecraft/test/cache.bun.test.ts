@@ -1,6 +1,11 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
-import { createHmac } from "node:crypto";
-import { testContext, spy, type TestContext } from "@routecraft/testing";
+import {
+  bootServer,
+  signHs256,
+  testContext,
+  spy,
+  type TestContext,
+} from "@routecraft/testing";
 import {
   craft,
   CacheWrapperStep,
@@ -15,7 +20,6 @@ import {
   type Adapter,
   type CacheProvider,
   type CraftConfig,
-  type EventName,
   type Exchange,
   type Principal,
   type Source,
@@ -1441,41 +1445,22 @@ const JWT_SECRET = "cache-test-secret";
 const JWT_ISSUER = "https://idp.test";
 const JWT_AUDIENCE = "https://api.test";
 
-function makeJwt(claims: Record<string, unknown>): string {
-  const encode = (value: unknown): string =>
-    Buffer.from(JSON.stringify(value)).toString("base64url");
-  const header = encode({ alg: "HS256", typ: "JWT" });
-  const payload = encode({
-    iss: JWT_ISSUER,
-    aud: JWT_AUDIENCE,
-    exp: Math.floor(Date.now() / 1000) + 60,
-    ...claims,
-  });
-  const signature = createHmac("sha256", JWT_SECRET)
-    .update(`${header}.${payload}`)
-    .digest("base64url");
-  return `${header}.${payload}.${signature}`;
+/** Bearer token for `sub`, signed for the jwt validator {@link bootHttp} configures. */
+function bearer(sub: string): string {
+  return `Bearer ${signHs256({ secret: JWT_SECRET, claims: { sub } })}`;
 }
 
 /**
- * Boot a test context serving `routes` over http on an ephemeral port,
- * optionally behind jwt auth, and return it with the bound port.
+ * Thin wrapper over the shared `bootServer` helper: serve `routes` over
+ * http, optionally behind jwt auth, and report failed exchanges.
  */
 async function bootHttp(opts: {
   routes: Parameters<ReturnType<typeof testContext>["routes"]>[0];
   auth?: boolean;
   onFailed?: (details: unknown) => void;
 }): Promise<{ ctx: TestContext; port: number }> {
-  let port = 0;
-  const builder = testContext()
-    .on(
-      "server:listening" as EventName,
-      ((payload: { details: unknown }) => {
-        port = (payload.details as { port: number }).port;
-      }) as Parameters<ReturnType<typeof testContext>["on"]>[1],
-    )
-    .routes(opts.routes)
-    .with({
+  return bootServer((builder) => {
+    const b = builder.routes(opts.routes).with({
       servers: { default: { port: 0 } },
       http: opts.auth
         ? {
@@ -1487,14 +1472,11 @@ async function bootHttp(opts: {
           }
         : {},
     } as CraftConfig);
-  if (opts.onFailed) {
     const onFailed = opts.onFailed;
-    builder.on("route:exchange:failed", ({ details }) => onFailed(details));
-  }
-  const ctx = await builder.build();
-  await ctx.startAndWaitReady();
-  expect(port).toBeGreaterThan(0);
-  return { ctx, port };
+    return onFailed
+      ? b.on("route:exchange:failed", ({ details }) => onFailed(details))
+      : b;
+  });
 }
 
 describe(".cache() default key identity", () => {
@@ -1634,6 +1616,147 @@ describe(".cache() default key identity", () => {
   });
 
   /**
+   * @case A route edit that moves a different step onto a cached step's old position misses instead of reading its entry
+   * @preconditions One provider; v1 is .cache().transform(A); v2 of the same route id inserts .cache().transform(B) before .cache().transform(A), so B's cache takes A's old index
+   * @expectedResult v2 runs B on the same body rather than returning A's cached output
+   */
+  test("a route edit never lets one step read another step's entries", async () => {
+    const provider = new MemoryCacheProvider();
+    const runB = mock((b: string) => `B:${b}`);
+
+    const v1 = await testContext()
+      .routes(
+        craft()
+          .id("key-edit")
+          .from<string>(direct())
+          .cache({ provider })
+          .transform((b: string) => `A:${b}`)
+          .to(noop()),
+      )
+      .build();
+    await v1.startAndWaitReady();
+    await v1.client.sendDirect("key-edit", "x");
+    await v1.stop();
+
+    const sink = spy();
+    t = await testContext()
+      .routes(
+        craft()
+          .id("key-edit")
+          .from<string>(direct())
+          .cache({ provider })
+          .transform(runB)
+          .cache({ provider })
+          .transform((b: string) => `A:${b}`)
+          .to(sink),
+      )
+      .build();
+    await t.startAndWaitReady();
+    await t.client.sendDirect("key-edit", "x");
+
+    expect(runB).toHaveBeenCalledTimes(1);
+    expect(sink.received[0]?.body).toBe("A:B:x");
+  });
+
+  /**
+   * @case The default step-scope key separates principals
+   * @preconditions Step-scope .cache() before a process step that reads the principal; the source emits the same body as alice, bob, then alice
+   * @expectedResult Bob gets his own result; alice's repeat is a hit, so the step runs twice in total
+   */
+  test("step scope keeps separate entries per principal", async () => {
+    const principal = (subject: string): Principal => ({
+      kind: "custom",
+      scheme: "bearer",
+      issuer: "https://idp.test",
+      subject,
+    });
+    const source: Source<string> = {
+      subscribe: async (sub) => {
+        for (const subject of ["alice", "bob", "alice"]) {
+          await sub.emit({
+            message: "same",
+            headers: {
+              "routecraft.auth.principal": markAuthentic(principal(subject)),
+            },
+          });
+        }
+      },
+    };
+    let runs = 0;
+    const sink = spy();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("key-step-principal")
+          .from(source)
+          .cache({ provider: new MemoryCacheProvider() })
+          .process((ex) =>
+            DefaultExchange.rewrap(ex, {
+              body: { subject: ex.principal?.subject ?? null, run: ++runs },
+            }),
+          )
+          .to(sink),
+      )
+      .build();
+    await t.test();
+
+    expect(runs).toBe(2);
+    expect(sink.received.map((e) => e.body)).toEqual([
+      { subject: "alice", run: 1 },
+      { subject: "bob", run: 2 },
+      { subject: "alice", run: 1 },
+    ]);
+  });
+
+  /**
+   * @case An unnamed route whose cache uses the default key warns that its key changes on every start
+   * @preconditions A route with no .id() and a step-scope .cache() without a key
+   * @expectedResult The route logger warns once, naming the generated id and telling the user to add .id()
+   */
+  test("an unnamed route with a default-key cache warns", async () => {
+    t = await testContext({ fn: mock })
+      .routes(
+        craft()
+          .from<string>(direct())
+          .cache({ provider: new MemoryCacheProvider() })
+          .transform((b: string) => b)
+          .to(noop()),
+      )
+      .build();
+
+    const warnings = t.logger.warn.mock.calls.map((call) => String(call[1]));
+    const routeId = t.ctx.getRoutes()[0]?.definition.id ?? "";
+    expect(warnings.filter((w) => w.includes("Add .id()"))).toHaveLength(1);
+    expect(warnings.find((w) => w.includes("Add .id()"))).toContain(routeId);
+  });
+
+  /**
+   * @case A named route, or an unnamed one whose cache has a custom key, does not warn
+   * @preconditions One route with .id() and a default-key cache; one route without .id() whose cache supplies key
+   * @expectedResult Neither route logs the unnamed-route warning
+   */
+  test("a named route or a custom-key cache does not warn", async () => {
+    t = await testContext({ fn: mock })
+      .routes([
+        craft()
+          .id("key-named")
+          .cache({ provider: new MemoryCacheProvider() })
+          .from<string>(direct())
+          .to(noop()),
+        craft()
+          .from<string>(direct())
+          .cache({ provider: new MemoryCacheProvider(), key: () => "k" })
+          .transform((b: string) => b)
+          .to(noop()),
+      ])
+      .build();
+
+    const warnings = t.logger.warn.mock.calls.map((call) => String(call[1]));
+    expect(warnings.some((w) => w.includes("Add .id()"))).toBe(false);
+  });
+
+  /**
    * @case A custom key is used verbatim, so routes sharing a provider share its entries
    * @preconditions Two routes with the same constant custom key on one provider
    * @expectedResult The second route receives the first route's cached result without running its pipeline
@@ -1695,7 +1818,7 @@ describe(".cache() default key identity", () => {
       const res = await fetch(`http://127.0.0.1:${bound.port}/me`, {
         method: "POST",
         headers: {
-          authorization: `Bearer ${makeJwt({ sub })}`,
+          authorization: bearer(sub),
           "content-type": "application/json",
         },
         body: "{}",

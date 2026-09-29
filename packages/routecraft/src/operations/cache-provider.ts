@@ -28,9 +28,6 @@ type CacheEnvelope = { v: unknown };
  * dedupe strategy can match the backend. In-memory providers track an
  * in-flight Promise per key; distributed providers like Redis can use a
  * lock key or rely on the underlying store's atomicity.
- *
- * @experimental Shipped with the first dual-mode wrapper after
- * `.error()`; see `.standards/resilience-wrappers.md`.
  */
 export interface CacheProvider {
   /**
@@ -94,8 +91,6 @@ export interface CacheProvider {
 
 /**
  * Construction options for {@link MemoryCacheProvider}.
- *
- * @experimental
  */
 export interface MemoryCacheProviderOptions {
   /**
@@ -126,8 +121,6 @@ export interface MemoryCacheProviderOptions {
  * an in-flight Promise, and resolves it atomically with respect to
  * other JS turns on the same key. Across workers / processes the cache
  * is local to the host.
- *
- * @experimental
  */
 export class MemoryCacheProvider implements CacheProvider {
   // Values are wrapped in a `CacheEnvelope` so `null` can be cached

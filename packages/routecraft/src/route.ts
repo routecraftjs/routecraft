@@ -365,6 +365,15 @@ export type RouteDefinition<T = unknown> = {
    * @internal
    */
   usesResume?: boolean;
+
+  /**
+   * The route has no `.id()` and a `.cache()` using the default key, which
+   * is namespaced by the route id. The generated id changes on every start,
+   * so the route warns once it is registered. Set by `RouteBuilder.build()`.
+   *
+   * @internal
+   */
+  volatileCacheKey?: boolean;
 };
 
 /**
@@ -594,6 +603,13 @@ export class DefaultRoute implements Route {
     this.assertNotAborted();
     this.abortController = abortController ?? new AbortController();
     this.logger = logger.child(childBindings(this));
+    if (definition.volatileCacheKey) {
+      this.logger.warn(
+        { route: definition.id },
+        `Route "${definition.id}" has no .id() and uses .cache() with the default key, which includes the route id. ` +
+          `The id is generated on every start, so cached entries never match after a restart. Add .id() to the route.`,
+      );
+    }
     // One (channel, consumer) pair per source so each ingress gets its own
     // delivery queue and, for batch routes, its own batch window. All
     // consumers drive the same shared step pipeline via the handler

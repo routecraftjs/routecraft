@@ -1,8 +1,5 @@
 ---
 title: cache
-titleBadges:
-  - text: experimental
-    color: green
 ---
 
 <Lead>
@@ -47,7 +44,7 @@ craft()
 craft()
   .id('file-processor')
   .from(fileWatcher())
-  .cache({ key: e => `file-processor:${e.headers[FileHeaders.PATH]}` })
+  .cache({ key: e => JSON.stringify([e.headers[HeadersKeys.ROUTE_ID], e.headers[FileHeaders.PATH]]) })
   // Cached per file path: an in-place edit of the same file reuses the
   // cached result until the TTL expires. Omit `key` to hash the body
   // (the file contents) instead, so edits produce a fresh key.
@@ -62,7 +59,7 @@ const provider = new MemoryCacheProvider({ max: 10_000, ttl: 60_000 })
 craft()
   .id('file-processor')
   .from(fileWatcher())
-  .cache({ provider, key: e => `file-processor:${e.headers[FileHeaders.PATH]}` })
+  .cache({ provider, key: e => JSON.stringify([e.headers[HeadersKeys.ROUTE_ID], e.headers[FileHeaders.PATH]]) })
   .process(expensiveOperation)
   .to(destination)
 ```
@@ -73,6 +70,8 @@ craft()
 - `provider` (optional) - A `CacheProvider` implementation. Defaults to a process-wide `MemoryCacheProvider` backed by `lru-cache`. Pass a custom provider to plug in Redis, multi-tier, or file-backed stores.
 
 **Memory is bounded by default.** The default `MemoryCacheProvider` caps the store at `max: 1000` entries and evicts the least-recently-used entry once full, so an unbounded key space cannot grow the cache without limit, with or without a `ttl`. Raise or lower the cap with your own instance (`new MemoryCacheProvider({ max: 10_000 })`); there is no unbounded setting.
+
+**The default provider is shared.** It is one process-wide LRU of 1000 entries used by every route and every caller, so the entries the default key keeps apart per route and per principal still compete for the same slots. Give a hot route its own provider so it cannot evict everyone else's entries.
 
 **Concurrency:** When multiple exchanges race against the same key, the provider's `getOrCompute` is responsible for deduplication. The bundled `MemoryCacheProvider` runs the wrapped step at most once per key per TTL window; concurrent waiters share the result.
 
@@ -91,15 +90,15 @@ craft()
 
 With no `key`, the key is a SHA-256 over:
 
-1. **The scope.** The route id at route scope. At step scope, the route id plus the wrapped step's position in the route, so two cached steps in one route never share entries.
+1. **The scope.** The route id at route scope. At step scope, the route id plus the wrapped step's pre-order index in the route and a fingerprint of its definition (operation, label, adapter and options, callable source), so two cached steps in one route never share entries.
 2. **The principal**, when the exchange carries one: its `issuer` and `subject`. Two callers sending the same body get separate entries.
 3. **The body**, as a SHA-256 of `JSON.stringify(body)`.
 
-Every part is derived from the route definition and the exchange, so processes running the same route source compute the same keys and can share an external provider. The route id is part of the key: give every cached route an `.id()`, because an unnamed route gets a fresh id on every start and its entries stop matching after a restart. Editing a route above a step-scope cache moves the step's position, which costs one miss per key.
+Every part is derived from the route definition and the exchange, so processes running the same route source compute the same keys and can share an external provider. The route id is part of the key: give every cached route an `.id()`, because an unnamed route gets a fresh id on every start and its entries stop matching after a restart (the route logs a warning when this applies). Editing a route only ever causes misses, never a hit on another step's entry: a moved step gets a new index, and a different step landing on an old index carries a different fingerprint.
 
 **The default key needs a body.** An exchange whose body is `undefined` fails with [`RC5029`](/docs/reference/errors#rc-5029). The common case is an `http()` GET: it has no body, and its input lives in headers (`routecraft.http.params`, `routecraft.http.query`) that the default key does not read. Supply a `key` for bodiless routes. A `null` body is keyable.
 
-**A custom `key` is used verbatim.** Nothing is added to it: not the route, not the step, not the principal. Two routes or steps on the same provider that return the same key share the entry, and so does every caller. Put whatever distinguishes the answer into the key yourself:
+**A custom `key` is used verbatim.** Nothing is added to it: not the route, not the step, not the principal. Two routes or steps on the same provider that return the same key share the entry, and so does every caller. Put whatever distinguishes the answer into the key yourself. Read the route id from the exchange rather than writing it out, so a renamed or copied route cannot collide with the original, and drop the principal only when every caller sees the same answer:
 
 ```ts skip="fragment: loadOrder is illustrative"
 craft()
@@ -108,7 +107,12 @@ craft()
   .cache({
     ttl: '1m',
     key: (ex) =>
-      `get-order:${ex.principal?.subject}:${ex.headers['routecraft.http.params']?.['id']}`,
+      JSON.stringify([
+        ex.headers[HeadersKeys.ROUTE_ID],
+        ex.principal?.issuer,
+        ex.principal?.subject,
+        ex.headers['routecraft.http.params']?.['id'],
+      ]),
   })
   .from(http({ path: '/orders/:id', method: 'GET' }))
   .enrich(loadOrder)
@@ -141,12 +145,12 @@ On a hit, **the whole pipeline is skipped** (no `.enrich`, no `.transform`, no `
 
 ```ts skip="fragment: loadEmployees, loadLeaveForUser are illustrative"
 // Shared role-gated data: every authorized caller sees the same list.
-// A constant key shares one entry; the default would keep one per
-// principal, and this GET has no body to key on anyway.
+// A key of just the route id shares one entry; the default would keep
+// one per principal, and this GET has no body to key on anyway.
 craft()
   .id('list-employees')
   .authorize({ roles: ['hr'] })
-  .cache({ ttl: 60_000, key: () => 'list-employees' })
+  .cache({ ttl: 60_000, key: e => String(e.headers[HeadersKeys.ROUTE_ID]) })
   .from(http({ path: '/employees' }))
   .enrich(loadEmployees)
   .to(noop())
@@ -155,7 +159,10 @@ craft()
 craft()
   .id('get-my-leave')
   .authorize()
-  .cache({ ttl: 60_000, key: e => `get-my-leave:${e.principal?.subject}` })
+  .cache({
+    ttl: 60_000,
+    key: e => JSON.stringify([e.headers[HeadersKeys.ROUTE_ID], e.principal?.issuer, e.principal?.subject]),
+  })
   .from(http({ path: '/me/leave' }))
   .enrich(loadLeaveForUser)
   .to(noop())

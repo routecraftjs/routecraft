@@ -652,13 +652,21 @@ Cache key derivation failed
 The default `.cache()` key needs a body to hash. It fails when the body is `undefined`, which is every bodiless request such as an `http()` GET (its path parameters and query live in the `routecraft.http.params` and `routecraft.http.query` headers, which the default key does not read), and when `JSON.stringify(body)` cannot represent the body (functions, symbols, circular references, `BigInt`). Also raised when a custom `key` function throws.
 
 **Suggestion**  
-Supply an explicit `key` function that returns a stable string identifier:
+Supply an explicit `key` function that returns a stable string identifier. A custom key is used verbatim: the default key's route and principal namespacing is not added, so carry both yourself:
 
 ```ts skip="fragment: a chain shown without its route"
-.cache({ key: (e) => `order:${JSON.stringify(e.headers['routecraft.http.params'])}` })
+.cache({
+  key: (e) =>
+    JSON.stringify([
+      e.headers[HeadersKeys.ROUTE_ID],
+      e.principal?.issuer,
+      e.principal?.subject,
+      e.headers['routecraft.http.params'],
+    ]),
+})
 ```
 
-A custom key is used verbatim: the default key's route and principal namespacing is not added, so include the route and the caller's identity in the key when responses differ by either. See [cache key](/docs/reference/operations/cache#cache-key).
+Drop the principal only when every caller sees the same answer. See [cache key](/docs/reference/operations/cache#cache-key).
 
 This error is not retryable: the same exchange fails key derivation the same way every time.
 

@@ -522,10 +522,8 @@ export interface PreFromStaging<S extends BuilderState = BuilderState> {
   error(handler: ErrorHandler): this;
   /**
    * Configure ROUTE-SCOPE caching for the next route (whole-pipeline
-   * memoisation). Before `.from()` the whole route is cached and a failed
-   * exchange is never stored; after `.from()` only the next step's output
-   * is cached, including an error reply that step returns without
-   * throwing. See {@link RouteBuilder.cache}.
+   * memoisation); a failed exchange is never stored. After `.from()` only
+   * the next step's output is cached, see {@link RouteBuilder.cache}.
    */
   cache(options?: CacheOptions<unknown>): this;
   /**
@@ -634,6 +632,11 @@ export class RouteBuilder<
 > extends StepBuilderBase<S> {
   protected currentRoute?: RouteDefinition;
   protected routes: RouteDefinition[] = [];
+  /**
+   * Routes whose id was generated because no `.id()` was staged, mapped to
+   * whether their route-scope `.cache()` uses the default key.
+   */
+  private readonly unnamedRoutes = new WeakMap<RouteDefinition, boolean>();
 
   // Pending options set via .id() / .batch() / .error() / .description() / ... before .from()
   protected pendingOptions?:
@@ -1476,6 +1479,12 @@ export class RouteBuilder<
         : {}),
     };
     setBrand(this.currentRoute, BRAND.RouteDefinition);
+    if (this.pendingOptions?.id === undefined) {
+      this.unnamedRoutes.set(
+        this.currentRoute,
+        cacheConfig?.usesDefaultKey ?? false,
+      );
+    }
 
     // Clear staged options once used
     this.pendingOptions = undefined;
@@ -1860,7 +1869,14 @@ export class RouteBuilder<
       }
       if (usesResume(route)) route.usesResume = true;
       assertRouteScopeCacheCompatibility(route);
-      assignCacheSites(route);
+      const stepScopeDefaultKey = assignCacheSites(route);
+      const routeScopeDefaultKey = this.unnamedRoutes.get(route);
+      if (
+        routeScopeDefaultKey !== undefined &&
+        (routeScopeDefaultKey || stepScopeDefaultKey)
+      ) {
+        route.volatileCacheKey = true;
+      }
     }
     logger.trace({ routeCount: this.routes.length }, "Building routes");
     return this.routes;
