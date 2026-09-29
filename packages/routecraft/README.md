@@ -1,8 +1,8 @@
 # @routecraft/routecraft
 
-Tools for agents. Or the agent harness itself.
+Where your AI gets to work.
 
-Routecraft is a TypeScript-first framework for building automation capabilities that agents can invoke. Write deterministic pipelines for Software 1.0. Hand them to an AI agent as tools for Software 3.0. Both, from the same code.
+Routecraft is the open source AI automation platform your teams build on together. Write a capability as a typed TypeScript route, and the same code is an MCP tool for any agent, an HTTP endpoint or a scheduled job. Prove it on your laptop, promote it to a team harness, and every team can use it on service credentials instead of their own.
 
 ## Installation
 

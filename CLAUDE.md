@@ -1,6 +1,6 @@
 # Routecraft
 
-Type-safe integration and automation framework. Monorepo with Bun workspaces (>=1.1.0).
+Open source AI automation platform. Monorepo with Bun workspaces (>=1.1.0).
 
 ## Quick Reference
 
@@ -31,7 +31,7 @@ Type-safe integration and automation framework. Monorepo with Bun workspaces (>=
 
 Detailed coding standards for contributors live in `.standards/`:
 
-- [Positioning](.standards/positioning.md) -- what Routecraft is for and what it is not: the framework enables a capability and never owns it; protocols and cross-cutting operations earn framework time, products and vendors get connected; the three questions before any addition, the four homes a capability lands in, a named consumer as the demand test, and the check as a challenge a consumer may overrule with a recorded reason, never a veto
+- [Positioning](.standards/positioning.md) -- what Routecraft is for and what it is not: the platform enables a capability and never owns it; protocols and cross-cutting operations earn platform time, products and vendors get connected; the three questions before any addition, the four homes a capability lands in, a named consumer as the demand test, and the check as a challenge a consumer may overrule with a recorded reason, never a veto
 - [Adapter Architecture](.standards/adapter-architecture.md) -- patterns, file structure, facade, authoring guide
 - [Exchange State Model](.standards/exchange-state-model.md) -- where state lives on an exchange (`body`/`headers` vs derivations), halt/continue contract
 - [Naming Policy](.standards/naming-policy.md) -- Source/Destination vs Server/Client conventions
@@ -42,7 +42,7 @@ Detailed coding standards for contributors live in `.standards/`:
 - [CI/CD](.standards/ci-cd.md) -- PR gates, hook policy, peer-dependency rules, release flow
 - [Package Boundaries](.standards/package-boundaries.md) -- standards-in-core vs vendors-grouped-by-ecosystem, bounded package count, core dependency policy (minimal-dependency ambition with pragmatic exceptions), packages created on first adapter
 - [Resilience Wrappers](.standards/resilience-wrappers.md) -- dual-mode wrapper pattern (`.error()` and future resilience ops), authoring contract
-- [Pre-from Filter Chain](.standards/pre-from-filter-chain.md) -- fixed ordered chain at route scope (`error` / `authorize` / `parse` / `input` / `throttle` / `circuitBreaker` / `retry` / `timeout` / `concurrency` / `cacheCheck` / pipeline / `cacheStore`); framework picks the order, and every position is filled by a shipped operation
+- [Pre-from Filter Chain](.standards/pre-from-filter-chain.md) -- fixed ordered chain at route scope (`error` / `authorize` / `parse` / `input` / `throttle` / `circuitBreaker` / `retry` / `timeout` / `concurrency` / `cacheCheck` / pipeline / `cacheStore`); the platform picks the order, and every position is filled by a shipped operation
 - [Security](.standards/security.md) -- JWT / JWKS verification, principal propagation, bearer-token handling, `userinfo` enrichment, RFC 9728 metadata, `authorize()` semantics, and the vulnerability gate: scanned images, SBOMs, expiring waivers in `.trivyignore.yaml`
 - [API Stability](.standards/api-stability.md) -- the v0 policy: the whole public API is unstable, so we tag only `@internal` and `@deprecated`; per-symbol `@experimental` / `@beta` / `@stable` tiers arrive at v1
 - [Content and Docs](.standards/content-and-docs.md) -- where content belongs across docs and blog (the five surfaces), introduction-vs-advanced depth axis, code-lives-once, nav-matches-folders, the `route.ts` and management-surface naming exceptions, constrained-MDX authoring rule, the compile-or-say-why rule for code examples, redirect constraint

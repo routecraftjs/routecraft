@@ -218,7 +218,7 @@ const nextCombined = combinePages(nextPages, (url) =>
 // -- Shared constants for generated docs headers --
 const BASE_URL = 'https://routecraft.dev'
 const DESCRIPTION =
-  'Routecraft is a code-first TypeScript automation framework that bridges traditional integration patterns (ETL, webhooks, cron jobs) and AI-native workflows (MCP tool use). Write deterministic capabilities in TypeScript, expose them to AI agents via Model Context Protocol, and keep full control over what AI can access.'
+  'Routecraft is the open source AI automation platform your teams build on together. A capability is a typed TypeScript route from a source, through operations, to a destination. The same route is an MCP tool for any agent, an HTTP endpoint or a scheduled job. Prove it on your laptop, promote it to a team harness, and every agent, editor and team can use it on service credentials instead of their own.'
 
 const AUTHORING_SKILLS = [
   'Routecraft ships Agent Skills (open standard) for authoring capabilities and adapters. They point at the closest',
