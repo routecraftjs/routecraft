@@ -573,7 +573,7 @@ export const NARRATION: { at: number; end: number; text: string }[] = [
     text: 'Enable telemetry. Record who called it, and what happened.',
   },
   { at: 50.9, end: 55, text: 'What one team proves, every team can use.' },
-  { at: 56.4, end: 60, text: 'Routecraft. Built to be used.' },
+  { at: 56.4, end: 60, text: 'Routecraft. Give your agent hands.' },
 ]
 
 /** What the voice says, in order: the film's transcript. */
