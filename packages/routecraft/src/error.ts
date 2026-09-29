@@ -635,7 +635,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Runtime",
     message: "Remote instance refused the credential",
     suggestion:
-      "The remote's door answered 401 or 403 to a dispatch on an imported route, so the problem is the credential and not the route. The message carries the door's own reason: no credential was presented (`remotes.<name>.auth.token` is unset or resolved to nothing), the credential was rejected, or it is valid but lacks the dispatch tier's scope, which needs a token carrying that scope rather than a new sign-in. When the remote advertises RFC 9728 metadata the message also names who issues acceptable tokens.",
+      "The remote answered 401 or 403 to a dispatch on an imported route, so the problem is the identity the dispatch carried and not a fault in the route. The message carries the remote's own reason: no credential was presented (`remotes.<name>.auth.token` is unset or resolved to nothing), the credential was rejected or expired, it is valid but lacks the dispatch tier's or the route's scope, which needs a token carrying that scope rather than a new sign-in, or the route's own `.authorize()` does not permit the identity (`insufficient_permissions`), which no new token for the same identity changes. When the remote advertises RFC 9728 metadata the message also names who issues acceptable tokens.",
     docs: `${DOCS_BASE}#rc-5063`,
     retryable: false,
   },
@@ -651,7 +651,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Runtime",
     message: "Request validation failed",
     suggestion:
-      "The payload a caller supplied did not satisfy the route's `.input()` schema. Read the message: it names the field and the rule. This is the caller's fault rather than the instance's, which is what separates it from `RC5002`; a transport answering a request maps it to a client error, and the ops dispatch mount returns 400 with the message.",
+      "The payload a caller supplied did not satisfy the route's `.input()` schema. Read the message: it names the field and the rule. This is the caller's fault rather than the instance's, which is what separates it from `RC5002`; a transport answering a request maps it to a client error. The `http()` source and the ops dispatch mount answer 400 with the part that failed (`in`) and the schema's issues, each a path and the schema's own message, so a custom issue message is client-facing.",
     docs: `${DOCS_BASE}#rc-5065`,
     retryable: false,
   },
@@ -775,8 +775,10 @@ export function formatSchemaIssues(issues: unknown): string {
 
 /**
  * Converts a Standard Schema path array into a dot-separated string.
+ *
+ * @internal
  */
-function formatIssuePath(
+export function formatIssuePath(
   path: SchemaIssue["path"] | undefined,
 ): string | undefined {
   if (!path || path.length === 0) return undefined;

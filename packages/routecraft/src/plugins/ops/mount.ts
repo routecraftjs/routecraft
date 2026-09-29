@@ -22,6 +22,7 @@ import {
   missingCredentialResponse,
 } from "../http/response";
 import { bearerChallenge } from "../server/protected-resource.ts";
+import { callerRefusalResponse } from "../http/caller-refusal.ts";
 import { principalExpirySignal } from "../../auth/expiry.ts";
 import { anySignal } from "../../shared/abort.ts";
 import { sseResponse, type SseEvent } from "../http/sse";
@@ -240,7 +241,14 @@ export function createManagementHandler(
       if (req.method !== "POST") {
         return methodNotAllowed("POST");
       }
-      return dispatchExchange(api, exchangesMatch[1]!, req, verdict.principal);
+      return dispatchExchange(
+        api,
+        exchangesMatch[1]!,
+        req,
+        verdict.principal,
+        context,
+        onRefused,
+      );
     }
 
     const resourceMatch = RESOURCE.exec(pathname);
@@ -341,11 +349,44 @@ function describeRoute(api: ManagementApi, rawId: string): Response {
     : jsonResponse(route, { status: 200 });
 }
 
+/**
+ * What this door answers a route that needed an identity the request went
+ * without, when a credential could have supplied one: an open tier admits a
+ * credential-free caller, and one whose credential failed, as anonymous.
+ * `undefined` when the mount has no validator or the caller was admitted
+ * with a principal, since no credential would then change the outcome.
+ *
+ * `authenticate` is memoized per request and admission has already called
+ * it wherever a validator is in scope, so this reads the verdict rather
+ * than verifying a second time. A failed credential gets the canonical
+ * rejection the ingress already reported; a missing one gets the same 401
+ * and `auth:rejected` a scope-gated tier gives it.
+ */
+async function unauthenticatedAnswer(
+  context: HttpMountContext,
+  requestUrl: string,
+  onRefused: ManagementHandlerOptions["onRefused"],
+): Promise<(() => Response) | undefined> {
+  if (!context.auth.configured) return undefined;
+  const result = await context.authenticate();
+  if (result === undefined || result.kind === "admit") return undefined;
+  if (result.kind === "reject") return () => result.response.clone();
+  return () => {
+    onRefused?.({
+      reason: missingCredentialReason(result.scheme),
+      scheme: result.scheme,
+    });
+    return missingCredentialResponse(result.scheme, requestUrl);
+  };
+}
+
 async function dispatchExchange(
   api: ManagementApi,
   rawId: string,
   req: Request,
   principal: Parameters<ManagementApi["dispatch"]>[2],
+  context: HttpMountContext,
+  onRefused: ManagementHandlerOptions["onRefused"],
 ): Promise<Response> {
   const id = decodeSegment(rawId);
   if (id === undefined) return notFound();
@@ -384,21 +425,13 @@ async function dispatchExchange(
         { status: 409 },
       );
     }
-    if (code === "RC5065") {
-      // The caller's own payload, rejected before any step ran. 400 rather
-      // than 500 because nothing here is the instance's fault, and a 500
-      // tells a client to retry a request that can never succeed.
-      //
-      // The message crosses the wire, unlike the route failure below. It is
-      // bounded by construction: `.input()` validation runs at chain
-      // position #4, before the pipeline, so the only thing it can describe
-      // is the payload the caller just sent and the schema it did not
-      // satisfy. There is nothing of the instance's in it to disclose.
-      return jsonResponse(
-        { error: "bad request", code, message: (error as Error).message },
-        { status: 400 },
-      );
-    }
+    const refused = callerRefusalResponse(error, {
+      routeId: id,
+      requestUrl: req.url,
+      principal,
+      unauthenticated: await unauthenticatedAnswer(context, req.url, onRefused),
+    });
+    if (refused !== undefined) return refused;
     // The code crosses the wire and the message does not. A route failure is
     // whatever its steps threw, and `rcError` messages routinely interpolate
     // the cause: adapter failures carry hostnames, file paths and upstream
@@ -408,8 +441,8 @@ async function dispatchExchange(
     // rule governs dispatch and health; the event tail is a separately
     // scope-gated observation surface and does carry messages, on purpose,
     // because a failure event without one is not diagnostic. The code
-    // is enough to tell an authorize refusal from a broken step; the message
-    // is in the logs, where the error policy already routes it.
+    // is enough to tell one kind of failure from another; the message is in
+    // the logs, where the error policy already routes it.
     //
     // `RC5002` stays here on purpose. It is not only the caller's input: the
     // same code covers `.output()` validation, a mid-pipeline `.validate()`

@@ -789,9 +789,15 @@ export class RouteBuilder<
    * Declare input schemas for the next route. The engine validates incoming
    * message bodies and headers against these schemas before any pipeline
    * step runs, so the pipeline never sees an invalid message. A failure
-   * throws `RC5002`, which a route `.error()` handler can recover;
+   * throws `RC5065`, which a route `.error()` handler can recover;
    * unrecovered, it emits `route:exchange:failed`. Accepts either a bundle
    * (`{ body, headers }`) or a bare Standard Schema as a body-only shorthand.
+   *
+   * Issue messages are client-facing. The `http()` source and the ops
+   * dispatch door answer an unrecovered failure with 400 carrying each
+   * issue's path and message verbatim, so a custom message on a refinement
+   * or an async validator reaches the caller as written: keep internal
+   * detail out of it.
    *
    * When a body schema is given, the chain is retyped: the following
    * `.from(source)` opens the pipeline with the schema's inferred output

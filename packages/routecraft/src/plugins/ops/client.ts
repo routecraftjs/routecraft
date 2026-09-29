@@ -159,8 +159,11 @@ interface WireError {
   error?: string;
   reason?: string;
   scope?: string;
+  scope_mode?: string;
   code?: string;
   message?: string;
+  /** An input refusal's schema issues, already rendered as one line. */
+  issues?: string;
 }
 
 /**
@@ -353,8 +356,8 @@ export function createOpsHttpClient(
     // proxy's plain-text refusal names the thing that refused.
     const wire = sanitizeWire(
       parsed === null || typeof parsed !== "object"
-        ? textAsWireError(text)
-        : (parsed as WireError),
+        ? { ...textAsWireError(text) }
+        : (parsed as Record<string, unknown>),
     );
     if (response.status === 401 || response.status === 403) {
       const challenge = parseBearerChallenge(
@@ -384,7 +387,10 @@ export function createOpsHttpClient(
     }
     throw new OpsClientError(
       "error",
-      wire.message ?? describeWireError(wire, response.status),
+      wire.message ??
+        (wire.issues !== undefined
+          ? `The instance refused the payload: ${wire.issues}.`
+          : describeWireError(wire, response.status)),
       response.status,
       wire,
     );
@@ -411,9 +417,17 @@ export function createOpsHttpClient(
     const lines: string[] = [];
     if (status === 403 && wire.reason === "insufficient_scope") {
       lines.push(
-        `Refused: the credential does not carry the scope "${
-          wire.scope ?? challenge.scope ?? "(unnamed)"
-        }". The identity is valid and the credential is not, so this needs a token carrying that scope rather than signing in again.`,
+        wire.scope_mode === "any"
+          ? `Refused: the credential carries none of the scopes "${
+              wire.scope ?? "(unnamed)"
+            }", any one of which would do. The identity is valid and the credential is not, so this needs a token carrying one of them rather than signing in again.`
+          : `Refused: the credential does not carry the scope "${
+              wire.scope ?? challenge.scope ?? "(unnamed)"
+            }". The identity is valid and the credential is not, so this needs a token carrying that scope rather than signing in again.`,
+      );
+    } else if (status === 403 && wire.reason === "insufficient_permissions") {
+      lines.push(
+        "Refused: the route's policy does not permit this identity. The credential is valid, so a new token for the same identity will not change this.",
       );
     } else if (!presented) {
       lines.push(
@@ -740,13 +754,46 @@ function textAsWireError(text: string): WireError {
  * message. The body came from whatever answered at the address, which may
  * be a proxy or a stranger, and an error message reaches terminals and logs.
  */
-function sanitizeWire(wire: WireError): WireError {
+function sanitizeWire(wire: Readonly<Record<string, unknown>>): WireError {
   const out: WireError = {};
-  for (const key of ["error", "reason", "scope", "code", "message"] as const) {
+  for (const key of [
+    "error",
+    "reason",
+    "scope",
+    "scope_mode",
+    "code",
+    "message",
+  ] as const) {
     const value = wire[key];
     if (typeof value === "string") out[key] = printable(value);
   }
+  const issues = renderIssues(wire["issues"]);
+  if (issues !== undefined) out.issues = issues;
   return out;
+}
+
+/** How many of an input refusal's issues reach the message before it says how many more. */
+const MAX_RENDERED_ISSUES = 5;
+
+/**
+ * Render an input refusal's `issues` as `path: message; ...`, bounded, since
+ * a payload with a thousand bad array items would otherwise produce a
+ * thousand-line error message.
+ */
+function renderIssues(raw: unknown): string | undefined {
+  if (!Array.isArray(raw) || raw.length === 0) return undefined;
+  const rendered = raw.slice(0, MAX_RENDERED_ISSUES).map((issue: unknown) => {
+    const { path, message } = (issue ?? {}) as {
+      path?: unknown;
+      message?: unknown;
+    };
+    const text = typeof message === "string" ? printable(message) : "invalid";
+    return typeof path === "string" ? `${printable(path)}: ${text}` : text;
+  });
+  const more = raw.length - rendered.length;
+  return more > 0
+    ? `${rendered.join("; ")}; and ${String(more)} more`
+    : rendered.join("; ");
 }
 
 /** A thrown value's message; non-Error throws (a `ResolveMessage`) still carry one. */

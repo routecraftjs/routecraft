@@ -1,4 +1,5 @@
 import { jsonResponse, missingCredentialResponse } from "./response.ts";
+import { callerRefusalResponse } from "./caller-refusal.ts";
 import { anySignal } from "../../shared/abort.ts";
 import { logger as defaultLogger } from "../../logger";
 import {
@@ -561,6 +562,29 @@ export function createDispatcher(
       });
       return response;
     } catch (err) {
+      // No `credentialScheme`: a route that reaches its pipeline without a
+      // principal is one this door never reads a credential for, so a 401
+      // would ask the caller for something that changes nothing.
+      const refused = callerRefusalResponse(err, {
+        routeId: entry.routeId,
+        requestUrl: req.url,
+        principal,
+      });
+      if (refused !== undefined) {
+        log.debug(
+          { err, routeId: entry.routeId, method, path: pathname },
+          "http source: route refused the caller",
+        );
+        emitCompleted(opts, {
+          method,
+          path: entry.matcher.pattern,
+          status: refused.status,
+          durationMs: ms(started),
+          routeId: entry.routeId,
+          principal: principal ? { subject: principal.subject } : undefined,
+        });
+        return refused;
+      }
       log.error(
         { err, routeId: entry.routeId, method, path: pathname },
         entry.respond !== undefined

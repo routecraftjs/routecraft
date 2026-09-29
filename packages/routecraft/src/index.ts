@@ -11,6 +11,7 @@ export {
   type AuthorizeOptions,
   type ActorSpec,
   type InsufficientAuthority,
+  isAuthorizationRefusal,
   type SubjectMatcher,
 } from "./auth/authorize.ts";
 export { authenticate, type PrincipalClaims } from "./auth/authenticate.ts";
@@ -454,7 +455,11 @@ export {
   RC,
 } from "./error.ts";
 
-export { validateAgainst } from "./pipeline/validation.ts";
+export {
+  validateAgainst,
+  isInputValidationFailure,
+  type InputValidationFailure,
+} from "./pipeline/validation.ts";
 export { isStandardSchema } from "./shared/standard-schema.ts";
 export { parseDuration } from "./shared/duration.ts";
 export { rejectStaleOptions } from "./shared/stale-options.ts";

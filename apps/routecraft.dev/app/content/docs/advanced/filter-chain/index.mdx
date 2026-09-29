@@ -25,7 +25,7 @@ Outside in (position 1 wraps everything below):
 | 1 | `error` | shipped | `.error(handler)` | - | catches throws from everything below |
 | 2 | `authorize` (stacks) | shipped | `.authorize({ roles, scopes, predicate })` | `RC5012` / `RC5015` / `RC5023` / `RC5020`; delegation `RC5034`-`RC5038` | principal on `exchange.headers` |
 | 3 | `parse` | shipped | source adapter (HTTP, mail, CSV, ...) | `RC5016` | raw body bytes → typed body |
-| 4 | `input` | shipped | `.input(schema)` | `RC5002` | typed body / headers |
+| 4 | `input` | shipped | `.input(schema)` | `RC5065` | typed body / headers |
 | 5 | `throttle` | shipped | `.throttle({ rate, per, mode })` | `RC5013` (`mode: 'reject'` only; default `'delay'` paces) | rate limit on the route (delay or reject) |
 | 6 | `circuitBreaker` | shipped | `.circuitBreaker({...})` | `RC5025` (fast-fail when open) | failure stats; fast-fails when open |
 | 7 | `retry` | shipped | `.retry({...})` | final attempt's throw | re-runs everything below on failure |

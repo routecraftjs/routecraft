@@ -13,8 +13,10 @@ import {
   craft,
   delegate,
   type InsufficientAuthority,
+  isAuthorizationRefusal,
   markAuthentic,
   noop,
+  rcError,
   simple,
   type Principal,
   type Source,
@@ -1302,5 +1304,70 @@ describe(".authorize() type checks", () => {
     // After .from<{id: string}>, the builder's Current generic must be
     // {id: string} so a downstream .to(spy<{id:string}>()) type-checks.
     expectTypeOf(built.to).toBeCallableWith(spy<{ id: string }>());
+  });
+});
+
+describe("isAuthorizationRefusal()", () => {
+  let t: TestContext | undefined;
+
+  afterEach(async () => {
+    if (t) await t.stop();
+    t = undefined;
+  });
+
+  /**
+   * @case A refusal authorize() raised is recognised, scoped to the route it refused on
+   * @preconditions Route "guarded" whose .authorize({ roles: ["admin"] }) refuses a principal carrying no roles
+   * @expectedResult The failure is an RC5015 refusal with no route given and for "guarded", and not for any other route id
+   */
+  test("recognises a refusal raised by authorize()", async () => {
+    t = await testContext()
+      .routes(
+        craft()
+          .id("guarded")
+          .authorize({ roles: ["admin"] })
+          .from(
+            principalSource("hello", {
+              kind: "custom",
+              scheme: "bearer",
+              subject: "user-1",
+            }),
+          )
+          .to(noop()),
+      )
+      .build();
+    await t.test();
+
+    const refused = t.errors.find((error) => error.rc === "RC5015");
+    expect(refused).toBeDefined();
+    expect(isAuthorizationRefusal(refused)).toBe(true);
+    expect(isAuthorizationRefusal(refused, "guarded")).toBe(true);
+    expect(isAuthorizationRefusal(refused, "elsewhere")).toBe(false);
+  });
+
+  /**
+   * @case The same code thrown by anything but authorize() is not a refusal
+   * @preconditions A step throws rcError("RC5015"), as an adapter does for an upstream permission failure; a plain value is also checked
+   * @expectedResult false for the step's error and for non-objects
+   */
+  test("does not recognise the same code thrown by a step", async () => {
+    t = await testContext()
+      .routes(
+        craft()
+          .id("upstream")
+          .from(simple("hello"))
+          .transform(() => {
+            throw rcError("RC5015", new Error("upstream said no"));
+          })
+          .to(noop()),
+      )
+      .build();
+    await t.test();
+
+    const thrown = t.errors.find((error) => error.rc === "RC5015");
+    expect(thrown).toBeDefined();
+    expect(isAuthorizationRefusal(thrown)).toBe(false);
+    expect(isAuthorizationRefusal("RC5015")).toBe(false);
+    expect(isAuthorizationRefusal(undefined)).toBe(false);
   });
 });

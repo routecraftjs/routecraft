@@ -105,6 +105,29 @@ Failure modes:
 
 All codes flow through the route's normal error path: `.error()` handles them like any other validation failure; without `.error()`, `route:exchange:failed` fires.
 
+## What an HTTP caller receives
+
+When the route was reached through the [`http()` source](/docs/reference/adapters/http) or the [ops dispatch door](/docs/reference/plugins/opsplugin#dispatching), an unrecovered refusal answers the caller with a client status rather than a 500. Both doors map it the same way:
+
+| Code | Status | Body | `WWW-Authenticate` (bearer principals) |
+| --- | --- | --- | --- |
+| `RC5012` | 401 | the door's own answer to a missing or rejected credential | `Bearer realm=..., resource_metadata=...` |
+| `RC5020` | 401 | `{ "error": "unauthorized", "reason": "expired" }` | `error="invalid_token"` |
+| `RC5015`, `RC5034`, `RC5035`, `RC5036` | 403 | `{ "error": "forbidden", "reason": "insufficient_permissions" }` | none |
+| `RC5038` | 403 | `{ "error": "forbidden", "reason": "insufficient_scope", "scope": "billing:write" }` | `error="insufficient_scope", scope="billing:write"` |
+
+The four permission codes collapse to one answer on the wire: the caller's remedy is the same for each, and naming which check failed would tell a prober which part of the policy it tripped. The codes stay distinct in process, on the error and in the logs.
+
+An `RC5038` from an `anyScope` check names the whole accepted set and adds `"scope_mode": "any"`, since any one entry suffices; its challenge omits `scope`, which RFC 6750 would read as every listed scope being required.
+
+Three cases stay a 500, because the caller could not have changed them:
+
+- **`RC5012` where no credential would have helped.** `RC5012` answers 401 only when the door verified credentials for the request and admitted none, which is the ops dispatch door on an open tier with a validator. On the `http()` source a route that verifies credentials never reaches its pipeline without a principal (the door answers 401 first), so a missing principal there means the door never read a credential for the route: a mount with no wall and no route-entry `.authorize()`. A mid-pipeline check then finds no principal whatever the caller sends. Declare the requirement with `.authorize()` at route entry instead, which makes the door verify.
+- **`RC5023` and `RC5043`.** The doors brand every principal they verify, so a self-asserted or restored principal was put on the exchange by the route itself.
+- **A refusal raised by another route.** A route calling another through `direct()` receives the callee's refusal as its own step failure. What the callee refused was the identity the outer route handed it, not necessarily the caller's.
+
+Only a refusal `authorize()` itself raised is mapped. The same codes thrown by an adapter (an upstream login refused, a mailbox denying access) stay a 500. `isAuthorizationRefusal(err, routeId?)` answers that question for a surface of your own.
+
 <Callout type="warning" title="Breaking change: delegation is opt-in per route">
 
 The `actor` default is `'none'`. Routes written before delegation existed keep exactly their old behavior for direct callers, but a principal carrying an actor (minted by [`.delegate()`](/docs/reference/operations/delegate) or parsed from a token's `act` claim) is rejected with RC5034 until the route declares its permitted actor(s). This is deliberate: a capability is not agent-reachable unless it says so.
