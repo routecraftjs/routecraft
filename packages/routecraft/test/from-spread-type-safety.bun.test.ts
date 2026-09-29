@@ -1,15 +1,18 @@
 import { describe, expect, expectTypeOf, test } from "bun:test";
 import { z } from "zod";
-import { craft, simple, type SourceLike } from "../src/index.ts";
+import {
+  craft,
+  simple,
+  type SourceLike,
+  type SourceList,
+} from "../src/index.ts";
 import { direct } from "../src/adapters/direct/index.ts";
 import type { RouteBuilder } from "../src/builder.ts";
 
-type NonEmptySources = [SourceLike<unknown>, ...SourceLike<unknown>[]];
-
 /**
  * Type-level tests: `.from()` accepts sources spread in after a leading
- * source, or spread on their own from a non-empty tuple, while the
- * single-source overloads keep inferring the body exactly as before. An
+ * source, or spread on their own from a `SourceList`, while the
+ * single-source overload keeps inferring the body exactly as before. An
  * empty or possibly-empty source list stays a compile error.
  *
  * A multi-source chain without `.input()` is refused at runtime with
@@ -23,7 +26,7 @@ describe(".from() spread type safety", () => {
 
   const extra: SourceLike<unknown>[] = [direct(), simple({ userId: "u1" })];
 
-  function ingresses(): NonEmptySources {
+  function ingresses(): SourceList {
     return [direct(), simple({ userId: "u1" })];
   }
 
@@ -51,7 +54,7 @@ describe(".from() spread type safety", () => {
 
   /**
    * @case A helper returning a non-empty tuple is spread on its own
-   * @preconditions from(...ingresses()) where ingresses returns [SourceLike, ...SourceLike[]]; with and without .input()
+   * @preconditions from(...ingresses()) where ingresses returns SourceList; with and without .input()
    * @expectedResult Without .input() the body is unknown; after .input({ body }) it is Query
    */
   test("non-empty tuple helper spread compiles on both builders", () => {

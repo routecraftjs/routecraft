@@ -149,6 +149,9 @@ export type SourceLike<T = unknown> =
   | AsyncIterable<T>
   | Iterable<T>;
 
+/** A non-empty list of sources, the type a helper returns so `.from(...helper())` compiles. */
+export type SourceList = [SourceLike<unknown>, ...SourceLike<unknown>[]];
+
 const ASYNC_GENERATOR_CTOR = Object.getPrototypeOf(async function* () {})
   .constructor as object;
 const GENERATOR_CTOR = Object.getPrototypeOf(function* () {})

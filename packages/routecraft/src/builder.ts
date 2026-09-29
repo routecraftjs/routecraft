@@ -37,7 +37,12 @@ import { CraftClient } from "./client.ts";
 import type { EventHandler, EventName } from "./types.ts";
 import { SimpleConsumer } from "./consumers/simple.ts";
 import { BatchConsumer } from "./consumers/batch.ts";
-import { type Source, type SourceLike, toSource } from "./operations/from.ts";
+import {
+  type Source,
+  type SourceLike,
+  type SourceList,
+  toSource,
+} from "./operations/from.ts";
 import type { Adapter, Step, Consumer, ConsumerType } from "./types.ts";
 import { OperationType } from "./exchange.ts";
 import { resolveDeferSites, usesResume } from "./deferral/sites.ts";
@@ -616,15 +621,11 @@ export interface PreFromTypedBuilder<
    * anyway (RC2001), so every channel validates to this one type. The
    * spread forms of {@link RouteBuilder.from} apply here too.
    */
-  from(
-    ...sources: [SourceLike<unknown>, ...Array<SourceLike<unknown>>]
-  ): RouteBuilder<S>;
+  from(...sources: SourceList): RouteBuilder<S>;
   /**
    * Open the route with an explicit body type, overriding the staged one.
    */
-  from<T>(
-    ...sources: [SourceLike<unknown>, ...Array<SourceLike<unknown>>]
-  ): RouteBuilder<SetBody<S, T>>;
+  from<T>(...sources: SourceList): RouteBuilder<SetBody<S, T>>;
 }
 
 export class RouteBuilder<
@@ -1302,30 +1303,22 @@ export class RouteBuilder<
    * // `.input()` so every channel validates and normalizes to one body type:
    * // .input(QuerySchema).from(direct(), mcp(), http({ path: '/q', method: 'POST' }))
    *
-   * // Sources can be spread in. A leading source makes any array spreadable;
-   * // a helper spread on its own must return a non-empty tuple type, so an empty
-   * // source list stays a compile error. Spread, never pass the array
-   * // itself: an array is an Iterable, so `.from(list)` is ONE source that
-   * // emits each element as a body.
-   * // const ingresses = (): [SourceLike<unknown>, ...SourceLike<unknown>[]] =>
-   * //   [direct(), mcp()]
-   * // .input(QuerySchema).from(...ingresses())
+   * // Spread sources in; `.from(list)` without the spread is ONE Iterable
+   * // source that emits each element as a body. A spread on its own needs a
+   * // `SourceList` return type:
    * // .input(QuerySchema).from(direct(), ...extraIngresses)
+   * // .input(QuerySchema).from(...ingresses())
    *
    * The multiple-source `.input()` requirement is a deliberate build-time
    * precondition, enforced at `.from()` with RC2001 rather than in the type
-   * system: the variadic overload is statically reachable on THIS class,
-   * with literal arguments or a spread alike. Chains that declare
-   * `.input({ body })` first go through {@link PreFromTypedBuilder.from}
-   * instead, where the staged schema type seeds the body so multi-ingress
-   * is typed without an explicit generic.
+   * system: the variadic overload is statically reachable on THIS class.
+   * Chains that declare `.input({ body })` first go through
+   * {@link PreFromTypedBuilder.from} instead, where the staged schema type
+   * seeds the body so multi-ingress is typed without an explicit generic.
    */
   from<T>(source: SourceLike<T>): RouteBuilder<SetBody<S, T>>;
-  from<T>(source: SourceLike<unknown>): RouteBuilder<SetBody<S, T>>;
-  // Stays last so a single source still resolves to the inferring overloads above.
-  from<T>(
-    ...sources: [SourceLike<unknown>, ...Array<SourceLike<unknown>>]
-  ): RouteBuilder<SetBody<S, T>>;
+  // Stays last so a single source still resolves to the inferring overload above.
+  from<T>(...sources: SourceList): RouteBuilder<SetBody<S, T>>;
   from<T>(...sources: Array<SourceLike<T>>): RouteBuilder<SetBody<S, T>> {
     this.assertNoPendingWrappers("from");
     if (sources.length === 0) {

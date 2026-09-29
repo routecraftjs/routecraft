@@ -7,6 +7,7 @@ import {
   noop,
   simple,
   type SourceLike,
+  type SourceList,
 } from "@routecraft/routecraft";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
 
@@ -33,15 +34,24 @@ describe("Multi-ingress routes", () => {
   });
 
   /**
-   * @case A route with several sources but no .input() is rejected at build time
-   * @preconditions craft().from(simple(a), simple(b)) with no .input()
-   * @expectedResult Building throws RC2001 because a shared pipeline needs a shared input contract
+   * @case A route with several sources but no .input() is rejected at build time, whether listed or spread
+   * @preconditions craft().from(simple(a), simple(b)), and craft().from(simple(a), ...[simple(b)]), with no .input()
+   * @expectedResult Both builds throw RC2001 because a shared pipeline needs a shared input contract; spreading does not bypass it
    */
   test("multi-source .from() without .input() throws RC2001", () => {
     expectRC2001(() =>
       craft()
         .id("multi-no-input")
         .from(simple({ id: "a" }), simple({ id: "b" }))
+        .to(noop())
+        .build(),
+    );
+
+    const rest: SourceLike<unknown>[] = [simple({ id: "b" })];
+    expectRC2001(() =>
+      craft()
+        .id("spread-no-input")
+        .from(simple({ id: "a" }), ...rest)
         .to(noop())
         .build(),
     );
@@ -57,22 +67,6 @@ describe("Multi-ingress routes", () => {
       from: (...sources: unknown[]) => unknown;
     };
     expectRC2001(() => builder.from());
-  });
-
-  /**
-   * @case A spread array after a leading source without .input() is rejected like literal arguments
-   * @preconditions craft().from(simple(a), ...[simple(b)]) with no .input()
-   * @expectedResult Building throws RC2001; spreading does not bypass the shared-input requirement
-   */
-  test("array spread of several sources without .input() throws RC2001", () => {
-    const rest: SourceLike<unknown>[] = [simple({ id: "b" })];
-    expectRC2001(() =>
-      craft()
-        .id("spread-no-input")
-        .from(simple({ id: "a" }), ...rest)
-        .to(noop())
-        .build(),
-    );
   });
 
   /**
@@ -98,13 +92,11 @@ describe("Multi-ingress routes", () => {
 
   /**
    * @case A one-element non-empty tuple spread is a single-source route
-   * @preconditions craft().from(...sources) with sources typed [SourceLike, ...SourceLike[]] holding simple(x); no .input()
+   * @preconditions craft().from(...sources) with sources typed SourceList holding simple(x); no .input()
    * @expectedResult One route with one source; the input requirement only applies to more than one source
    */
   test("one-element tuple spread builds without .input()", () => {
-    const sources: [SourceLike<unknown>, ...SourceLike<unknown>[]] = [
-      simple("x"),
-    ];
+    const sources: SourceList = [simple("x")];
     const def = craft()
       .id("spread-single")
       .from(...sources)
