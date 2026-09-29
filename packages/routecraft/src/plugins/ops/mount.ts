@@ -17,11 +17,11 @@ import { parsePageQuery } from "./pagination.ts";
 import { isRoutecraftError, rcCodeOf } from "../../brand";
 import { missingCredentialReason } from "../http/auth";
 import {
+  insufficientScopeResponse,
   jsonResponse,
   methodNotAllowed,
   missingCredentialResponse,
 } from "../http/response";
-import { bearerChallenge } from "../server/protected-resource.ts";
 import { callerRefusalResponse } from "../http/caller-refusal.ts";
 import { principalExpirySignal } from "../../auth/expiry.ts";
 import { anySignal } from "../../shared/abort.ts";
@@ -124,31 +124,9 @@ function refuse(
     return missingCredentialResponse(verdict.scheme, requestUrl);
   }
   onRefused?.({ reason: "insufficient_scope", scheme: verdict.scheme });
-  // Bearer-only challenge: announcing `Bearer` to an api-key client points it
-  // at a ceremony it cannot perform (same rule as missingCredentialResponse).
-  // The RFC 9728 `resource_metadata` hint rides the 403 too: the identity
-  // was fine and the credential was not, and the document names the issuer
-  // a caller must go back to for one carrying the missing scope.
-  const headers =
-    verdict.scheme === "bearer"
-      ? {
-          "www-authenticate": bearerChallenge({
-            requestUrl,
-            params: {
-              error: "insufficient_scope",
-              scope: verdict.missing,
-            },
-          }),
-        }
-      : undefined;
-  return jsonResponse(
-    {
-      error: "forbidden",
-      reason: "insufficient_scope",
-      scope: verdict.missing,
-    },
-    { status: 403, ...(headers !== undefined ? { headers } : {}) },
-  );
+  return insufficientScopeResponse(verdict.scheme, requestUrl, {
+    scope: verdict.missing,
+  });
 }
 
 /** Parse `?dispatchable=`, refusing a value that is neither true nor false. */

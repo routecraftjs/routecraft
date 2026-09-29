@@ -37,7 +37,7 @@ Outside in (position 1 wraps everything below):
 
 <Callout type="note" title="Position #4 (`input`) is a real chain step">
 
-`.input()` validation runs inside the chain at position #4: after auth and parse, before any resilience wrapper, `cacheCheck`, or user step. When the source attaches a parser, the validator runs inside the parse step (input validates the parsed body); otherwise it runs as a standalone synthetic `input` step. Either way a failure throws `RC5002` through the chain's catch boundary, so `.error()` can observe and recover it exactly like an `authorize` or `parse` rejection. An unrecovered failure takes the normal error path (`route:error`, `context:error`, `route:exchange:failed`); it is not a drop.
+`.input()` validation runs inside the chain at position #4: after auth and parse, before any resilience wrapper, `cacheCheck`, or user step. When the source attaches a parser, the validator runs inside the parse step (input validates the parsed body); otherwise it runs as a standalone synthetic `input` step. Either way a failure throws `RC5065` through the chain's catch boundary, so `.error()` can observe and recover it exactly like an `authorize` or `parse` rejection. An unrecovered failure takes the normal error path (`route:error`, `context:error`, `route:exchange:failed`); it is not a drop.
 
 </Callout>
 
@@ -95,7 +95,7 @@ the outermost catch:
   if ([
     'RC5012', 'RC5015', 'RC5023', 'RC5020',
     'RC5034', 'RC5035', 'RC5036', 'RC5037', 'RC5038',
-    'RC5002', 'RC5016',
+    'RC5065', 'RC5016',
   ].includes(err.rc)) throw err
 
   // Backpressure: re-throw so the caller sees it.

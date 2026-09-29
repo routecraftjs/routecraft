@@ -562,9 +562,7 @@ export function createDispatcher(
       });
       return response;
     } catch (err) {
-      // No `credentialScheme`: a route that reaches its pipeline without a
-      // principal is one this door never reads a credential for, so a 401
-      // would ask the caller for something that changes nothing.
+      // No `unauthenticated`: a principal-less run never had its credential read.
       const refused = callerRefusalResponse(err, {
         routeId: entry.routeId,
         requestUrl: req.url,

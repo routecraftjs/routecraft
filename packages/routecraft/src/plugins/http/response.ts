@@ -36,17 +36,65 @@ export function missingCredentialResponse(
   scheme: string,
   requestUrl: string,
 ): Response {
-  const headers: Record<string, string> = {};
-  // WWW-Authenticate per RFC 7235 only when the scheme is bearer. Sending
-  // `Bearer` on an api-key route mis-signals the protocol. The bearer
-  // challenge carries the RFC 9728 `resource_metadata` hint, so a refused
-  // caller can discover who issues.
-  if (scheme === "bearer") {
-    headers["www-authenticate"] = bearerChallenge({ requestUrl });
-  }
   return jsonResponse(
     { error: "unauthorized", reason: missingCredentialReason(scheme) },
-    { status: 401, headers },
+    { status: 401, headers: bearerChallengeHeaders(scheme, requestUrl) },
+  );
+}
+
+/**
+ * The `WWW-Authenticate` header a refusal carries, present only for the
+ * bearer scheme.
+ *
+ * RFC 7235: announcing `Bearer` to an api-key client points it at a
+ * ceremony it cannot perform. The bearer challenge carries the RFC 9728
+ * `resource_metadata` hint, so a refused caller can discover who issues.
+ * One helper so every refusal decides the scheme question the same way.
+ */
+export function bearerChallengeHeaders(
+  scheme: string | undefined,
+  requestUrl: string,
+  params?: Record<string, string>,
+): Record<string, string> {
+  if (scheme !== "bearer") return {};
+  return {
+    "www-authenticate": bearerChallenge({
+      requestUrl,
+      ...(params !== undefined ? { params } : {}),
+    }),
+  };
+}
+
+/**
+ * The 403 a caller gets when its identity is valid and its credential lacks
+ * a scope: the ops tier check's refusal and a route's own `RC5038` alike,
+ * so a client reads both the same way.
+ *
+ * `anyOf` marks a list that is an accepted set, of which one entry
+ * suffices, with `scope_mode: "any"`; read as requirements it would send a
+ * consent flow after every member of the family. The challenge then omits
+ * `scope`, since RFC 6750 reads that attribute as the scope the token needs.
+ */
+export function insufficientScopeResponse(
+  scheme: string | undefined,
+  requestUrl: string,
+  refusal: { scope: string; anyOf?: boolean },
+): Response {
+  const { scope, anyOf = false } = refusal;
+  return jsonResponse(
+    {
+      error: "forbidden",
+      reason: "insufficient_scope",
+      scope,
+      ...(anyOf ? { scope_mode: "any" } : {}),
+    },
+    {
+      status: 403,
+      headers: bearerChallengeHeaders(scheme, requestUrl, {
+        error: "insufficient_scope",
+        ...(anyOf || scope.length === 0 ? {} : { scope }),
+      }),
+    },
   );
 }
 

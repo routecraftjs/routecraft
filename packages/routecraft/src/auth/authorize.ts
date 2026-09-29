@@ -422,17 +422,15 @@ export function authorize(
     });
   }
   return (exchange: Exchange<unknown>) => {
-    const deny = (error: RoutecraftError): RoutecraftError =>
-      refusal(exchange, error);
+    const refuse = (...args: Parameters<typeof rcError>): RoutecraftError =>
+      refusal(exchange, rcError(...args));
     const principal = exchange.principal;
     if (!principal) {
-      throw deny(
-        rcError("RC5012", new Error("No authenticated principal"), {
-          message: "Authorization failed: no authenticated principal",
-          suggestion:
-            "Configure auth on the source so it emits a Principal (e.g. mcp({ auth: jwt(...) })). For a mid-pipeline check, mint a principal with the .authenticate() operation (or the authenticate() helper) before authorize().",
-        }),
-      );
+      throw refuse("RC5012", new Error("No authenticated principal"), {
+        message: "Authorization failed: no authenticated principal",
+        suggestion:
+          "Configure auth on the source so it emits a Principal (e.g. mcp({ auth: jwt(...) })). For a mid-pipeline check, mint a principal with the .authenticate() operation (or the authenticate() helper) before authorize().",
+      });
     }
 
     // Trust only principals established by a trusted origin: a source-side
@@ -446,38 +444,36 @@ export function authorize(
     // differs: a restored identity needs re-verification against the live
     // credential, not a mint.
     if (isRestored(principal)) {
-      throw deny(
-        rcError("RC5043", new Error("Principal was restored from a deferral"), {
+      throw refuse(
+        "RC5043",
+        new Error("Principal was restored from a deferral"),
+        {
           message:
             "Authorization failed: principal was restored from a deferral, not verified live",
           suggestion:
             "The exchange resumed from durable storage, so its principal is a recorded shape with no live credential behind it. Re-verify the identity after resume (a fresh .authenticate() from a checked credential), or authorize the resume ingress route instead, where the resuming principal is verified live. ex.deferral.resumedBy records who resumed it.",
-        }),
+        },
       );
     }
 
     if (!isAuthentic(principal)) {
-      throw deny(
-        rcError("RC5023", new Error("Principal is not authentic"), {
-          message:
-            "Authorization failed: principal was not established by a trusted origin",
-          suggestion:
-            'Mint the identity with the .authenticate() operation or the authenticate() helper (or let a source verifier such as jwt()/jwks()/oauth() attach it). A plain object assigned to headers["routecraft.auth.principal"] is not trusted.',
-        }),
-      );
+      throw refuse("RC5023", new Error("Principal is not authentic"), {
+        message:
+          "Authorization failed: principal was not established by a trusted origin",
+        suggestion:
+          'Mint the identity with the .authenticate() operation or the authenticate() helper (or let a source verifier such as jwt()/jwks()/oauth() attach it). A plain object assigned to headers["routecraft.auth.principal"] is not trusted.',
+      });
     }
 
     // Boundary semantics (floored, inclusive, fail-closed on non-finite) live
     // on the shared predicate so this gate and the HTTP bearer middleware can
     // never disagree by a second.
     if (isPrincipalExpired(principal, clockToleranceSec)) {
-      throw deny(
-        rcError("RC5020", new Error("Token expired"), {
-          message: "Authorization failed: token expired during processing",
-          suggestion:
-            "The token's `exp` is in the past (or `expiresAt` / `clockToleranceSec` was non-finite). A long-running step likely outlived the credential; the client should refresh and retry. To recover in-route, restructure the pipeline so authorize() runs before the slow step or attach a fresh principal in a .process() before the validator.",
-        }),
-      );
+      throw refuse("RC5020", new Error("Token expired"), {
+        message: "Authorization failed: token expired during processing",
+        suggestion:
+          "The token's `exp` is in the past (or `expiresAt` / `clockToleranceSec` was non-finite). A long-running step likely outlived the credential; the client should refresh and retry. To recover in-route, restructure the pipeline so authorize() runs before the slow step or attach a fresh principal in a .process() before the validator.",
+      });
     }
 
     // Actor gate before role/scope checks: "you may not be here as a
@@ -485,23 +481,21 @@ export function authorize(
     // decision must not leak which roles would have sufficed.
     const currentActor = principal.actor;
     if (!actorAllowed(actorSpec, currentActor, principal)) {
-      throw deny(
-        rcError(
-          "RC5034",
-          new Error(
-            currentActor === undefined
-              ? "Direct calls are not admitted by the actor spec"
-              : `Actor "${currentActor.subject}" is not admitted`,
-          ),
-          {
-            message:
-              currentActor === undefined
-                ? "Authorization failed: this route requires a delegated actor and the call is direct"
-                : `Authorization failed: actor "${currentActor.subject}" is not permitted to act on the subject's behalf here`,
-            suggestion:
-              "Declare the permitted actor(s) on the route's authorize({ actor }) (the default 'none' rejects all delegation), or have the permitted party perform the call.",
-          },
+      throw refuse(
+        "RC5034",
+        new Error(
+          currentActor === undefined
+            ? "Direct calls are not admitted by the actor spec"
+            : `Actor "${currentActor.subject}" is not admitted`,
         ),
+        {
+          message:
+            currentActor === undefined
+              ? "Authorization failed: this route requires a delegated actor and the call is direct"
+              : `Authorization failed: actor "${currentActor.subject}" is not permitted to act on the subject's behalf here`,
+          suggestion:
+            "Declare the permitted actor(s) on the route's authorize({ actor }) (the default 'none' rejects all delegation), or have the permitted party perform the call.",
+        },
       );
     }
 
@@ -512,18 +506,16 @@ export function authorize(
       // so a misconfigured limit (e.g. Number(unsetEnvVar)) would silently
       // accept a chain of any depth instead of rejecting it.
       if (!Number.isFinite(maxDelegationDepth) || depth > maxDelegationDepth) {
-        throw deny(
-          rcError(
-            "RC5036",
-            new Error(
-              `Delegation depth ${depth} exceeds maximum ${maxDelegationDepth}`,
-            ),
-            {
-              message: `Authorization failed: delegation chain of depth ${depth} exceeds this route's maximum of ${maxDelegationDepth}`,
-              suggestion:
-                "Have an agent closer to the subject perform the call, or raise maxDelegationDepth on the route deliberately. Only the outermost actor is a policy input; deeper chains add audit surface, not authority.",
-            },
+        throw refuse(
+          "RC5036",
+          new Error(
+            `Delegation depth ${depth} exceeds maximum ${maxDelegationDepth}`,
           ),
+          {
+            message: `Authorization failed: delegation chain of depth ${depth} exceeds this route's maximum of ${maxDelegationDepth}`,
+            suggestion:
+              "Have an agent closer to the subject perform the call, or raise maxDelegationDepth on the route deliberately. Only the outermost actor is a policy input; deeper chains add audit surface, not authority.",
+          },
         );
       }
     }
@@ -534,13 +526,11 @@ export function authorize(
           ? subjectSpec(principal)
           : subjectMatches(principal, subjectSpec);
       if (!ok) {
-        throw deny(
-          rcError("RC5035", new Error("Subject not permitted"), {
-            message: `Authorization failed: subject "${principal.subject}" is not permitted by this route's subject constraint`,
-            suggestion:
-              "Check the route's authorize({ subject }) constraint (subject id, issuer, profile) against the caller's identity.",
-          }),
-        );
+        throw refuse("RC5035", new Error("Subject not permitted"), {
+          message: `Authorization failed: subject "${principal.subject}" is not permitted by this route's subject constraint`,
+          suggestion:
+            "Check the route's authorize({ subject }) constraint (subject id, issuer, profile) against the caller's identity.",
+        });
       }
     }
 
@@ -548,16 +538,14 @@ export function authorize(
       const granted = new Set(principal.roles ?? []);
       const missing = roles.filter((r) => !granted.has(r));
       if (missing.length > 0) {
-        throw deny(
-          rcError(
-            "RC5015",
-            new Error(`Missing required roles: ${missing.join(", ")}`),
-            {
-              message: `Authorization failed: principal is missing required role(s): ${missing.join(", ")}`,
-              suggestion:
-                "Grant the principal the missing role(s) at the IdP, or relax the authorize() requirement.",
-            },
-          ),
+        throw refuse(
+          "RC5015",
+          new Error(`Missing required roles: ${missing.join(", ")}`),
+          {
+            message: `Authorization failed: principal is missing required role(s): ${missing.join(", ")}`,
+            suggestion:
+              "Grant the principal the missing role(s) at the IdP, or relax the authorize() requirement.",
+          },
         );
       }
     }
@@ -566,24 +554,24 @@ export function authorize(
       const granted = grantedScopes(principal, effective);
       if (scopes && scopes.length > 0) {
         const missing = scopes.filter((scope) => !granted.has(scope));
-        if (missing.length > 0) throw deny(insufficientScope(missing, "all"));
+        if (missing.length > 0) {
+          throw refusal(exchange, insufficientScope(missing, "all"));
+        }
       }
       if (
         anyScope !== undefined &&
         !anyScope.some((scope) => granted.has(scope))
       ) {
-        throw deny(insufficientScope([...anyScope], "any"));
+        throw refusal(exchange, insufficientScope([...anyScope], "any"));
       }
     }
 
     if (predicate && !predicate(principal)) {
-      throw deny(
-        rcError("RC5015", new Error("Principal failed predicate check"), {
-          message: "Authorization failed: principal failed predicate check",
-          suggestion:
-            "Adjust the predicate or the principal's claims so the check passes.",
-        }),
-      );
+      throw refuse("RC5015", new Error("Principal failed predicate check"), {
+        message: "Authorization failed: principal failed predicate check",
+        suggestion:
+          "Adjust the predicate or the principal's claims so the check passes.",
+      });
     }
 
     return exchange.body;

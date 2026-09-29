@@ -116,6 +116,8 @@ When the route was reached through the [`http()` source](/docs/reference/adapter
 | `RC5015`, `RC5034`, `RC5035`, `RC5036` | 403 | `{ "error": "forbidden", "reason": "insufficient_permissions" }` | none |
 | `RC5038` | 403 | `{ "error": "forbidden", "reason": "insufficient_scope", "scope": "billing:write" }` | `error="insufficient_scope", scope="billing:write"` |
 
+A mid-pipeline `.validate(authorize(...))` refusal on the dispatched route maps the same way as the route-entry guard. The steps before it have already run by then, so an `RC5020` 401 from there means the client's retry, with a refreshed token, runs those steps again: keep what precedes a mid-pipeline check free of side effects, or check at route entry.
+
 The four permission codes collapse to one answer on the wire: the caller's remedy is the same for each, and naming which check failed would tell a prober which part of the policy it tripped. The codes stay distinct in process, on the error and in the logs.
 
 An `RC5038` from an `anyScope` check names the whole accepted set and adds `"scope_mode": "any"`, since any one entry suffices; its challenge omits `scope`, which RFC 6750 would read as every listed scope being required.

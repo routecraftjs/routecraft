@@ -1059,7 +1059,9 @@ The 400 carries the part that failed and the schema's issues, never the error's 
 
 Each issue's `message` is the schema's own text, sent verbatim. A custom message on a refinement or an async validator is therefore client-facing: write it for the caller, and keep internal detail out of it.
 
-An RC5065 raised by a route the dispatched one calls through `direct()` stays a 500. What that route refused was the outer route's output, not anything the caller sent.
+At most 20 issues are sent. When the schema reported more, the body adds `"truncated": <number left out>`, so a payload with thousands of bad array items cannot make the answer proportionally large.
+
+Only an RC5065 the dispatched route's own `.input()` raised answers 400. One raised by a route the dispatched one calls through `direct()` stays a 500, since what that route refused was the outer route's output, not anything the caller sent; so does one a step throws itself, which says nothing about the caller's payload.
 
 The structured detail is on the error's `cause` in process. `isInputValidationFailure(err.cause)` narrows it to `{ invalid: { in, issues, routeId } }`, for a surface of your own that wants to answer the same way.
 

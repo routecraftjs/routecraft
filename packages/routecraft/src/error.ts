@@ -651,7 +651,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Runtime",
     message: "Request validation failed",
     suggestion:
-      "The payload a caller supplied did not satisfy the route's `.input()` schema. Read the message: it names the field and the rule. This is the caller's fault rather than the instance's, which is what separates it from `RC5002`; a transport answering a request maps it to a client error. The `http()` source and the ops dispatch mount answer 400 with the part that failed (`in`) and the schema's issues, each a path and the schema's own message, so a custom issue message is client-facing.",
+      "The payload a caller supplied did not satisfy the route's `.input()` schema. Read the issues: each names a field (`path`) and the rule it broke (`message`); in process they are on the error's cause (`isInputValidationFailure(err.cause)`), and over HTTP the `http()` source and the ops dispatch mount answer 400 carrying them, with `in` naming the body or the headers. This is the caller's fault rather than the instance's, which is what separates it from `RC5002`. Issue messages are the schema's own text and reach the caller verbatim.",
     docs: `${DOCS_BASE}#rc-5065`,
     retryable: false,
   },

@@ -162,8 +162,16 @@ interface WireError {
   scope_mode?: string;
   code?: string;
   message?: string;
-  /** An input refusal's schema issues, already rendered as one line. */
-  issues?: string;
+  /** An input refusal's schema issues, sanitised and bounded. */
+  issues?: WireIssue[];
+  /** Issues the body or this client left out of `issues`. */
+  truncated?: number;
+}
+
+/** One schema issue of an input refusal. */
+interface WireIssue {
+  path?: string;
+  message: string;
 }
 
 /**
@@ -389,7 +397,7 @@ export function createOpsHttpClient(
       "error",
       wire.message ??
         (wire.issues !== undefined
-          ? `The instance refused the payload: ${wire.issues}.`
+          ? `The instance refused the payload: ${renderIssues(wire.issues, wire.truncated)}.`
           : describeWireError(wire, response.status)),
       response.status,
       wire,
@@ -767,36 +775,57 @@ function sanitizeWire(wire: Readonly<Record<string, unknown>>): WireError {
     const value = wire[key];
     if (typeof value === "string") out[key] = printable(value);
   }
-  const issues = renderIssues(wire["issues"]);
-  if (issues !== undefined) out.issues = issues;
+  const raw = wire["issues"];
+  if (Array.isArray(raw) && raw.length > 0) {
+    out.issues = raw.slice(0, MAX_WIRE_ISSUES).map(sanitizeIssue);
+    const truncated = wire["truncated"];
+    const omitted =
+      raw.length -
+      out.issues.length +
+      (typeof truncated === "number" && Number.isInteger(truncated)
+        ? Math.max(0, truncated)
+        : 0);
+    if (omitted > 0) out.truncated = omitted;
+  }
   return out;
 }
 
-/** How many of an input refusal's issues reach the message before it says how many more. */
+/** The most issues kept from a body, matching what a door sends at most. */
+const MAX_WIRE_ISSUES = 20;
+
+/** How many issues reach an error message before it says how many more. */
 const MAX_RENDERED_ISSUES = 5;
 
+function sanitizeIssue(issue: unknown): WireIssue {
+  const { path, message } = (issue ?? {}) as {
+    path?: unknown;
+    message?: unknown;
+  };
+  return {
+    ...(typeof path === "string" ? { path: printable(path) } : {}),
+    message: typeof message === "string" ? printable(message) : "invalid",
+  };
+}
+
 /**
- * Render an input refusal's `issues` as `path: message; ...`, bounded, since
+ * Render an input refusal's issues as `path: message; ...`, bounded, since
  * a payload with a thousand bad array items would otherwise produce a
  * thousand-line error message.
  */
-function renderIssues(raw: unknown): string | undefined {
-  if (!Array.isArray(raw) || raw.length === 0) return undefined;
-  const rendered = raw.slice(0, MAX_RENDERED_ISSUES).map((issue: unknown) => {
-    const { path, message } = (issue ?? {}) as {
-      path?: unknown;
-      message?: unknown;
-    };
-    const text = typeof message === "string" ? printable(message) : "invalid";
-    return typeof path === "string" ? `${printable(path)}: ${text}` : text;
-  });
-  const more = raw.length - rendered.length;
+function renderIssues(issues: readonly WireIssue[], truncated = 0): string {
+  const rendered = issues
+    .slice(0, MAX_RENDERED_ISSUES)
+    .map((issue) =>
+      issue.path !== undefined
+        ? `${issue.path}: ${issue.message}`
+        : issue.message,
+    );
+  const more = issues.length - rendered.length + truncated;
   return more > 0
     ? `${rendered.join("; ")}; and ${String(more)} more`
     : rendered.join("; ");
 }
 
-/** A thrown value's message; non-Error throws (a `ResolveMessage`) still carry one. */
 /**
  * The codes a runtime raises when no connection was ever established, so
  * nothing was sent: refused, no route to the host, or a name that did not
@@ -835,6 +864,7 @@ function neverConnected(error: unknown): boolean {
   return false;
 }
 
+/** A thrown value's message; non-Error throws (a `ResolveMessage`) still carry one. */
 function messageOf(error: unknown): string {
   if (error instanceof Error) return error.message;
   return typeof error === "object" && error !== null && "message" in error

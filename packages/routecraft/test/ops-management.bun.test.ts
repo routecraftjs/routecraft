@@ -966,6 +966,34 @@ describe("the ops management API", () => {
   });
 
   /**
+   * @case An RC5065 that .input() did not raise stays a server fault
+   * @preconditions An open dispatch tier; a route with no .input() whose step throws a bare rcError("RC5065")
+   * @expectedResult 500 dispatch failed with RC5065. Without the structured detail for the dispatched route the code says nothing about what the caller sent
+   */
+  test("keeps a bare RC5065 from a step a 500", async () => {
+    const port = await start({
+      tiers: { dispatch: true },
+      routes: [
+        craft()
+          .id("bare")
+          .from(direct())
+          .transform(() => {
+            throw rcError("RC5065", new Error("x"));
+          })
+          .to(noop()),
+      ],
+    });
+    const { status, body } = await call<{ error: string; code: string }>(
+      port,
+      "/ops/routes/bare/exchanges",
+      { method: "POST", body: {} },
+    );
+
+    expect(status).toBe(500);
+    expect(body).toEqual({ error: "dispatch failed", code: "RC5065" });
+  });
+
+  /**
    * @case A route whose own output violates its schema stays a server fault
    * @preconditions An open dispatch tier and a route whose `.output()` rejects what its pipeline produced, dispatched with a body its `.input()` accepts
    * @expectedResult 500 with RC5002 and no message. The caller sent nothing wrong, so blaming them with a 400 would send them to fix a payload that was correct

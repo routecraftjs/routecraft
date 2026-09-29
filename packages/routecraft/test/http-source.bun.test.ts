@@ -6,6 +6,7 @@ import {
   authorize,
   craft,
   DefaultExchange,
+  direct,
   http,
   httpPlugin,
   jwt,
@@ -991,6 +992,75 @@ describe("HTTP Source Adapter", () => {
     const age = body.issues.find((issue) => issue.path === "age");
     expect(age?.message).toBe("must be an adult");
     expect(text.split("must be an adult")).toHaveLength(2);
+  });
+
+  /**
+   * @case An input refusal with many issues sends a bounded list
+   * @preconditions Route with .input({ body: z.array(z.number()) }); POST an array of 25 strings, one issue each
+   * @expectedResult 400 carrying the first 20 issues and truncated: 5
+   */
+  test(".input() failure caps the issues it sends", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("numbers")
+        .input({ body: z.array(z.number()) })
+        .from(http({ path: "/numbers", method: "POST" }))
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/numbers`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(Array.from({ length: 25 }, () => "x")),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      issues: { path?: string }[];
+      truncated: number;
+    };
+    expect(body.issues).toHaveLength(20);
+    expect(body.issues[0]?.path).toBe("0");
+    expect(body.truncated).toBe(5);
+  });
+
+  /**
+   * @case An RC5065 that .input() did not raise stays a 500
+   * @preconditions Two routes with no .input(): one whose step throws a bare rcError("RC5065"), one that calls through direct() a route whose step does the same
+   * @expectedResult Both answer 500 internal server error. Without the structured detail for the dispatched route the code says nothing about what the caller sent
+   */
+  test("a bare RC5065 from a step stays a 500", async () => {
+    const bound = await bootHttp({
+      routes: [
+        craft()
+          .id("bare")
+          .from(http({ path: "/bare", method: "GET" }))
+          .transform(() => {
+            throw rcError("RC5065", new Error("x"));
+          })
+          .to(noop()),
+        craft()
+          .id("outer")
+          .from(http({ path: "/outer", method: "GET" }))
+          .to(direct("inner-bare")),
+        craft()
+          .id("inner-bare")
+          .from(direct())
+          .transform(() => {
+            throw rcError("RC5065", new Error("x"));
+          })
+          .to(noop()),
+      ],
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    for (const path of ["/bare", "/outer"]) {
+      const res = await fetch(`http://127.0.0.1:${bound.port}${path}`);
+      expect(res.status).toBe(500);
+      expect(await res.json()).toEqual({ error: "internal server error" });
+    }
   });
 
   /**

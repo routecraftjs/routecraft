@@ -312,7 +312,7 @@ Three outcomes, told apart because they need different answers:
 
 A route that fails answers 500 carrying the framework's error `code` and never its message. Two failures are the caller's rather than the instance's and answer with a client status instead, the same way the [`http()` source](/docs/reference/adapters/http) answers them:
 
-- A body the route's [`.input()`](/docs/reference/operations/input) schema refuses answers 400 with the part that failed and the schema's issues: `{ "error": "bad request", "code": "RC5065", "in": "body", "issues": [{ "path": "name", "message": "..." }] }`. See [RC5065](/docs/reference/errors#rc-5065).
+- A body the route's [`.input()`](/docs/reference/operations/input) schema refuses answers 400 with the schema's issues, in the shape given under [RC5065](/docs/reference/errors#rc-5065).
 - A refusal by the route's own `.authorize()` answers 401 or 403, in the shapes listed under [what an HTTP caller receives](/docs/reference/operations/authorize#what-an-http-caller-receives). A route-level scope refusal reads exactly like the tier check's own `insufficient_scope`, naming the route's scope instead of the tier's.
 
 **No bypass, and no synthetic operator principal.** A dispatch runs the full [pre-from chain](/docs/advanced/filter-chain), and the principal is the one the mount's validator minted from the presented credential. A downstream `.authorize()` cannot distinguish an operator dispatch from any other authenticated caller, which is the point: the management door is built from the framework's own primitives rather than beside them.

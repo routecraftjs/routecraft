@@ -6,8 +6,11 @@ import {
 } from "../../auth/authorize.ts";
 import type { Principal } from "../../auth/types.ts";
 import { isInputValidationFailure } from "../../pipeline/validation.ts";
-import { bearerChallenge } from "../server/protected-resource.ts";
-import { jsonResponse } from "./response.ts";
+import {
+  bearerChallengeHeaders,
+  insufficientScopeResponse,
+  jsonResponse,
+} from "./response.ts";
 
 /**
  * What a door knows about the request whose route failed.
@@ -56,10 +59,12 @@ interface WireIssue {
  * Mapped:
  *
  * - `RC5065` (`.input()` refused the payload): 400 with the part that
- *   failed and the schema's issues. Never the error message, which names
- *   the route. An RC5065 without the structured detail answers 400 with no
- *   issues rather than guess at them; one raised by a route other than the
- *   dispatched one is not the caller's.
+ *   failed and the schema's issues, at most {@link MAX_WIRE_ISSUES} of them
+ *   with the rest counted in `truncated`. Never the error message, which
+ *   names the route. Only an RC5065 carrying the `InputValidationFailure`
+ *   detail for the dispatched route maps: one without it was thrown by
+ *   something other than `.input()`, and one naming another route came up
+ *   through `direct()`, so neither is the caller's.
  * - `RC5012` (no principal): the door's own unauthenticated answer, only
  *   when the door says a credential could have changed the outcome.
  * - `RC5020` (the credential expired in flight): 401 `expired`, with an
@@ -98,7 +103,7 @@ export function callerRefusalResponse(
         { error: "unauthorized", reason: "expired" },
         {
           status: 401,
-          ...challenge(scheme, context.requestUrl, {
+          headers: bearerChallengeHeaders(scheme, context.requestUrl, {
             error: "invalid_token",
           }),
         },
@@ -118,21 +123,26 @@ export function callerRefusalResponse(
   }
 }
 
+/**
+ * How many schema issues a 400 carries. The rest are counted in
+ * `truncated`: a payload with thousands of bad array items would otherwise
+ * produce a response body proportional to the damage.
+ */
+const MAX_WIRE_ISSUES = 20;
+
 function inputRefused(error: Error, routeId: string): Response | undefined {
   const cause = error.cause;
-  if (!isInputValidationFailure(cause)) {
-    return jsonResponse(
-      { error: "bad request", code: "RC5065" },
-      { status: 400 },
-    );
+  if (!isInputValidationFailure(cause) || cause.invalid.routeId !== routeId) {
+    return undefined;
   }
-  if (cause.invalid.routeId !== routeId) return undefined;
+  const { issues } = cause.invalid;
+  const omitted = issues.length - MAX_WIRE_ISSUES;
   return jsonResponse(
     {
       error: "bad request",
       code: "RC5065",
       in: cause.invalid.in,
-      issues: cause.invalid.issues.map((issue): WireIssue => {
+      issues: issues.slice(0, MAX_WIRE_ISSUES).map((issue): WireIssue => {
         const path = formatIssuePath(issue.path);
         return {
           ...(path !== undefined ? { path } : {}),
@@ -140,21 +150,12 @@ function inputRefused(error: Error, routeId: string): Response | undefined {
             typeof issue.message === "string" ? issue.message : "invalid",
         };
       }),
+      ...(omitted > 0 ? { truncated: omitted } : {}),
     },
     { status: 400 },
   );
 }
 
-/**
- * The RC5038 refusal, shaped like the ops tier's own `insufficient_scope`
- * answer so a client reads both the same way.
- *
- * An `anyScope` refusal names the whole accepted set, of which one entry
- * suffices, and says so with `scope_mode: "any"`: read as a list of
- * requirements it would send a consent flow after every member of the
- * family. The challenge leaves `scope` off for the same reason, since RFC
- * 6750 reads the attribute as the scope the token needs.
- */
 function scopeRefused(
   error: Error,
   scheme: string | undefined,
@@ -162,37 +163,8 @@ function scopeRefused(
 ): Response {
   const missing = (error.cause as Partial<InsufficientAuthority> | undefined)
     ?.missing;
-  const scope = (missing?.scopes ?? []).join(" ");
-  const anyOf = missing?.mode === "any";
-  return jsonResponse(
-    {
-      error: "forbidden",
-      reason: "insufficient_scope",
-      scope,
-      ...(anyOf ? { scope_mode: "any" } : {}),
-    },
-    {
-      status: 403,
-      ...challenge(scheme, requestUrl, {
-        error: "insufficient_scope",
-        ...(anyOf || scope.length === 0 ? {} : { scope }),
-      }),
-    },
-  );
-}
-
-/**
- * The bearer challenge, for a bearer principal only: announcing `Bearer` to
- * an api-key client points it at a ceremony it cannot perform (the rule
- * `missingCredentialResponse` and the ops tier check already follow).
- */
-function challenge(
-  scheme: string | undefined,
-  requestUrl: string,
-  params: Record<string, string>,
-): { headers?: Record<string, string> } {
-  if (scheme !== "bearer") return {};
-  return {
-    headers: { "www-authenticate": bearerChallenge({ requestUrl, params }) },
-  };
+  return insufficientScopeResponse(scheme, requestUrl, {
+    scope: (missing?.scopes ?? []).join(" "),
+    anyOf: missing?.mode === "any",
+  });
 }

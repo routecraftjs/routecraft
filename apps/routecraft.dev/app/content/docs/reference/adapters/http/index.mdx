@@ -457,7 +457,7 @@ Workspace containers are excluded from auto-detection. If the nearest `package.j
 
 Verification runs at most once per incoming request, and only when the mount posture demands it (see [Mounts and authentication](#mounts-and-authentication) below). When admitted, the resolved `Principal` lands on the exchange (`routecraft.auth.principal`), and per-route guards via the existing `.authorize({ roles, scopes, predicate })` builder take it from there. A route's refusal answers the caller with 401 or 403 (a missing role is `403 insufficient_permissions`, a missing scope `403 insufficient_scope` with a challenge naming it); the full mapping is under [what an HTTP caller receives](/docs/reference/operations/authorize#what-an-http-caller-receives).
 
-A request the route's [`.input()`](/docs/reference/operations/input) schema refuses answers 400 with the schema's issues rather than 500: `{ "error": "bad request", "code": "RC5065", "in": "body" | "headers", "issues": [{ "path", "message" }] }`. Issue messages are sent verbatim, so a custom one is client-facing. Any other route failure answers `500 { "error": "internal server error" }`.
+A request the route's [`.input()`](/docs/reference/operations/input) schema refuses answers 400 with the schema's issues, in the shape given under [RC5065](/docs/reference/errors#rc-5065). Any other route failure answers `500 { "error": "internal server error" }`.
 
 API-key name matching follows each location's convention: header names are case-insensitive (per HTTP), so the `name` is matched case-insensitively; query parameter names are case-sensitive (per the URL spec), so the `name` must match exactly. Note the default name differs by location: `x-api-key` for headers, `api_key` for query.
 
