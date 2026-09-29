@@ -6,6 +6,7 @@ import {
   isRoutecraftError,
   noop,
   simple,
+  type SourceLike,
 } from "@routecraft/routecraft";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
 
@@ -56,6 +57,62 @@ describe("Multi-ingress routes", () => {
       from: (...sources: unknown[]) => unknown;
     };
     expectRC2001(() => builder.from());
+  });
+
+  /**
+   * @case A spread array after a leading source without .input() is rejected like literal arguments
+   * @preconditions craft().from(simple(a), ...[simple(b)]) with no .input()
+   * @expectedResult Building throws RC2001; spreading does not bypass the shared-input requirement
+   */
+  test("array spread of several sources without .input() throws RC2001", () => {
+    const rest: SourceLike<unknown>[] = [simple({ id: "b" })];
+    expectRC2001(() =>
+      craft()
+        .id("spread-no-input")
+        .from(simple({ id: "a" }), ...rest)
+        .to(noop())
+        .build(),
+    );
+  });
+
+  /**
+   * @case A spread array of several sources after .input() builds one multi-ingress route
+   * @preconditions .input({ body }) then .from(direct(), ...[simple(a), simple(b)])
+   * @expectedResult One RouteDefinition holding all three sources
+   */
+  test("array spread of several sources with .input() builds", () => {
+    const sources: SourceLike<unknown>[] = [
+      simple({ id: "a" }),
+      simple({ id: "b" }),
+    ];
+    const def = craft()
+      .id("spread-ok")
+      .input({ body: z.object({ id: z.string() }) })
+      .from(direct(), ...sources)
+      .to(noop())
+      .build();
+
+    expect(def).toHaveLength(1);
+    expect(def[0].sources).toHaveLength(3);
+  });
+
+  /**
+   * @case A one-element non-empty tuple spread is a single-source route
+   * @preconditions craft().from(...sources) with sources typed [SourceLike, ...SourceLike[]] holding simple(x); no .input()
+   * @expectedResult One route with one source; the input requirement only applies to more than one source
+   */
+  test("one-element tuple spread builds without .input()", () => {
+    const sources: [SourceLike<unknown>, ...SourceLike<unknown>[]] = [
+      simple("x"),
+    ];
+    const def = craft()
+      .id("spread-single")
+      .from(...sources)
+      .to(noop())
+      .build();
+
+    expect(def).toHaveLength(1);
+    expect(def[0].sources).toHaveLength(1);
   });
 
   /**

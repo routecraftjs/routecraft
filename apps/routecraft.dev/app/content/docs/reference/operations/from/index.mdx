@@ -9,9 +9,7 @@ title: from
 ```ts skip="signature: a type signature, not a statement"
 from<T>(src: SourceLike<T>): RouteBuilder<T>
 from<T>(
-  source1: SourceLike<unknown>,
-  source2: SourceLike<unknown>,
-  ...moreSources: Array<SourceLike<unknown>>
+  ...sources: [SourceLike<unknown>, ...Array<SourceLike<unknown>>]
 ): RouteBuilder<T>
 
 // SourceLike<T> = Source<T> | CallableSource<T> | GeneratorSource<T>
@@ -69,5 +67,21 @@ Rules:
 - **`.input()` is required** with multiple sources. Each ingress emits a different raw body type (`direct` is `unknown`, `mcp` is the tool argument, `http` is the request body); the input schema validates and normalizes all of them to one shared type before the pipeline runs. Without it the pipeline body would be an unsound union, so the build fails with `RC2001`.
 - **Authorization applies uniformly.** A route-level `.authorize()` runs for every ingress. When channels need *different* auth (for example, an unauthenticated internal `direct` ingress next to a scoped `mcp` one), express each channel as its own single-source route instead.
 - **`.batch()` works per ingress.** Each source gets its own batch window, so a batch never merges items arriving on different channels.
+- **Sources can be spread in.** After a leading source, any array spreads: `.from(direct(), ...extra)`. Spread on its own, the list must be typed as non-empty, because `.from()` always needs at least one source; give a helper that builds a shared set of channels the non-empty tuple return type `[SourceLike<unknown>, ...SourceLike<unknown>[]]`. Spread it, never pass it as-is: an array is an `Iterable`, which `.from()` treats as one source that emits each element as a body.
+
+```ts
+const channels = (
+  path: string,
+): [SourceLike<unknown>, ...SourceLike<unknown>[]] => [
+  direct(),
+  http({ path, method: 'POST' }),
+]
+
+craft()
+  .id('servicenow-fetch')
+  .input(z.object({ incidentId: z.string() }))
+  .from(...channels('/servicenow/fetch'))
+  .log()
+```
 
 When a channel genuinely needs a different contract, keep it as a separate route that delegates to the canonical one via `to(direct('...'))`.

@@ -613,7 +613,8 @@ export interface PreFromTypedBuilder<
   /**
    * Open the route with the body type staged by `.input()`. Accepts one or
    * more sources; multi-ingress routes require the `.input()` body schema
-   * anyway (RC2001), so every channel validates to this one type.
+   * anyway (RC2001), so every channel validates to this one type. The
+   * spread forms of {@link RouteBuilder.from} apply here too.
    */
   from(
     ...sources: [SourceLike<unknown>, ...Array<SourceLike<unknown>>]
@@ -1301,21 +1302,29 @@ export class RouteBuilder<
    * // `.input()` so every channel validates and normalizes to one body type:
    * // .input(QuerySchema).from(direct(), mcp(), http({ path: '/q', method: 'POST' }))
    *
+   * // Sources can be spread in. A leading source makes any array spreadable;
+   * // a helper spread on its own must return a non-empty tuple type, so an empty
+   * // source list stays a compile error. Spread, never pass the array
+   * // itself: an array is an Iterable, so `.from(list)` is ONE source that
+   * // emits each element as a body.
+   * // const ingresses = (): [SourceLike<unknown>, ...SourceLike<unknown>[]] =>
+   * //   [direct(), mcp()]
+   * // .input(QuerySchema).from(...ingresses())
+   * // .input(QuerySchema).from(direct(), ...extraIngresses)
+   *
    * The multiple-source `.input()` requirement is a deliberate build-time
    * precondition, enforced at `.from()` with RC2001 rather than in the type
-   * system: the variadic overload is statically reachable on THIS class.
-   * Chains that declare `.input({ body })` first go through
-   * {@link PreFromTypedBuilder.from} instead, where the staged schema type
-   * seeds the body so multi-ingress is typed without an explicit generic.
+   * system: the variadic overload is statically reachable on THIS class,
+   * with literal arguments or a spread alike. Chains that declare
+   * `.input({ body })` first go through {@link PreFromTypedBuilder.from}
+   * instead, where the staged schema type seeds the body so multi-ingress
+   * is typed without an explicit generic.
    */
   from<T>(source: SourceLike<T>): RouteBuilder<SetBody<S, T>>;
   from<T>(source: SourceLike<unknown>): RouteBuilder<SetBody<S, T>>;
+  // Stays last so a single source still resolves to the inferring overloads above.
   from<T>(
-    ...sources: [
-      SourceLike<unknown>,
-      SourceLike<unknown>,
-      ...Array<SourceLike<unknown>>,
-    ]
+    ...sources: [SourceLike<unknown>, ...Array<SourceLike<unknown>>]
   ): RouteBuilder<SetBody<S, T>>;
   from<T>(...sources: Array<SourceLike<T>>): RouteBuilder<SetBody<S, T>> {
     this.assertNoPendingWrappers("from");
