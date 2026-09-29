@@ -67,8 +67,9 @@ frame-exact export and sync to narration harder.
 
 ## Shipping state
 
-The site ships the film silent and draws it live, so nothing under
-`public/film/` or `scripts/film/audio/` is committed; the stems are generated
-output and are ignored. Regenerating the soundtrack and the MP4 is for the
-reworked cut; when it lands, the player takes the audio element back as its
-clock and the download link returns.
+The site draws the film live and ships one media file,
+`public/film/soundtrack.mp3`: the production voice mixed over the music. It is
+committed, because the player plays it. Everything else the scripts write
+(the stems in `scripts/film/audio/`, the MP4, the stills) is generated and
+ignored. Replace the soundtrack only with a production read; a draft-voice mix
+is for review and never lands on the page.

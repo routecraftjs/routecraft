@@ -8,7 +8,8 @@
  * pause between two lines, and each line is placed so its first word lands on
  * its `at` in the timeline. `--lines` reads every line as its own request
  * instead, for comparison. The raw take and its alignment are kept beside the
- * stem as `eleven-take.mp3` and `eleven-take.json`.
+ * stem as `eleven-take.mp3` and `eleven-take.json`, and reused while the
+ * transcript, voice and model are unchanged, so retiming the film is free.
  *
  * A line that runs past its window is reported, never sped up: retime the
  * timeline to the read instead.
@@ -19,7 +20,14 @@
  *
  * Usage: bun scripts/film/eleven.ts [--lines] && bun scripts/film/mix.ts
  */
-import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs'
+import {
+  existsSync,
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  rmSync,
+  writeFileSync,
+} from 'node:fs'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 
@@ -30,8 +38,6 @@ const KEY = process.env.ELEVENLABS_API_KEY
 /** The film's narrator; ELEVENLABS_VOICE_ID overrides it for a voice test. */
 const VOICE = process.env.ELEVENLABS_VOICE_ID ?? 'C9fbwSpEaejywLWx722Z'
 const MODEL = process.env.ELEVENLABS_MODEL ?? 'eleven_v4'
-if (!KEY) throw new Error('set ELEVENLABS_API_KEY')
-
 const AUDIO = join(import.meta.dir, 'audio')
 /** Short fades at every cut, so a line never starts or ends on a click. */
 const FADE = Math.floor(0.012 * RATE)
@@ -49,6 +55,7 @@ interface Speech {
 }
 
 async function speak(text: string): Promise<Speech> {
+  if (!KEY) throw new Error('set ELEVENLABS_API_KEY')
   const response = await fetch(
     `https://api.elevenlabs.io/v1/text-to-speech/${VOICE}/with-timestamps?output_format=mp3_44100_128`,
     {
@@ -67,6 +74,10 @@ async function speak(text: string): Promise<Speech> {
     alignment: Alignment
   }
   const mp3 = Uint8Array.from(Buffer.from(body.audio_base64, 'base64'))
+  return { mp3, samples: mono(mp3), alignment: body.alignment }
+}
+
+function mono(mp3: Uint8Array): Float32Array {
   const work = mkdtempSync(join(tmpdir(), 'routecraft-eleven-'))
   try {
     const file = join(work, 'speech.mp3')
@@ -74,10 +85,42 @@ async function speak(text: string): Promise<Speech> {
     const stereo = decodeStereo(file)
     const samples = new Float32Array(stereo.length / 2)
     for (let i = 0; i < samples.length; i++) samples[i] = stereo[i * 2]
-    return { mp3, samples, alignment: body.alignment }
+    return samples
   } finally {
     rmSync(work, { recursive: true, force: true })
   }
+}
+
+const TAKE_MP3 = join(AUDIO, 'eleven-take.mp3')
+const TAKE_JSON = join(AUDIO, 'eleven-take.json')
+
+interface SavedTake {
+  text: string
+  voice: string
+  model: string
+  alignment: Alignment
+}
+
+/** A retime must not buy the same read twice: the saved take is reused while its text, voice and model still match. */
+async function oneTake(text: string): Promise<Speech> {
+  if (existsSync(TAKE_MP3) && existsSync(TAKE_JSON)) {
+    const saved = JSON.parse(readFileSync(TAKE_JSON, 'utf8')) as SavedTake
+    if (saved.text === text && saved.voice === VOICE && saved.model === MODEL) {
+      console.log(`reusing ${TAKE_MP3}`)
+      const mp3 = new Uint8Array(readFileSync(TAKE_MP3))
+      return { mp3, samples: mono(mp3), alignment: saved.alignment }
+    }
+  }
+  const take = await speak(text)
+  writeFileSync(TAKE_MP3, take.mp3)
+  const saved: SavedTake = {
+    text,
+    voice: VOICE,
+    model: MODEL,
+    alignment: take.alignment,
+  }
+  writeFileSync(TAKE_JSON, JSON.stringify(saved, null, 2))
+  return take
 }
 
 const track = new Float32Array(Math.ceil(FILM_DURATION * RATE))
@@ -121,16 +164,11 @@ if (process.argv.includes('--lines')) {
   }
 } else {
   const text = NARRATION.map((line) => line.text).join(' ')
-  const take = await speak(text)
+  const take = await oneTake(text)
   const { characters, character_start_times_seconds: starts } = take.alignment
   const ends = take.alignment.character_end_times_seconds
   if (characters.join('') !== text)
     throw new Error('the alignment does not match the transcript it was sent')
-  writeFileSync(join(AUDIO, 'eleven-take.mp3'), take.mp3)
-  writeFileSync(
-    join(AUDIO, 'eleven-take.json'),
-    JSON.stringify(take.alignment, null, 2),
-  )
 
   let offset = 0
   const spans = NARRATION.map((line) => {
@@ -154,7 +192,7 @@ if (process.argv.includes('--lines')) {
     report(i, span.end - span.start)
   })
   console.log(
-    `✓ ${join(AUDIO, 'eleven-take.mp3')} (${(take.samples.length / RATE).toFixed(1)}s as read)`,
+    `✓ ${TAKE_MP3} (${(take.samples.length / RATE).toFixed(1)}s as read)`,
   )
 }
 
