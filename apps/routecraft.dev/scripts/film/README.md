@@ -29,15 +29,28 @@ the reference for the next.
 
 ffmpeg must be on `PATH` or set in `FFMPEG`.
 
-`eleven.ts` reads `ELEVENLABS_API_KEY` and `ELEVENLABS_VOICE_ID` from the
-environment, and `ELEVENLABS_MODEL` when set (default `eleven_v4`). It never
-speeds a line up: when a read runs past a line's window, retime the timeline.
+Two voice scripts write the same stem, `scripts/film/audio/voice.mp3`, and
+`mix.ts` takes whichever ran last:
+
+| Voice      | Script      | Cost                      | Use it for                                        |
+| ---------- | ----------- | ------------------------- | ------------------------------------------------- |
+| Draft      | `voice.ts`  | Free, runs locally        | Every review render, until the film is signed off |
+| Production | `eleven.ts` | ElevenLabs, per character | The final render only                             |
+
+Judge the script, the picture and the timing on the draft voice; ElevenLabs is
+billed per character, so it runs once the cut is approved. `voice.ts` uses
+Kokoro with the male voice `bm_george` (`VOICE=` for another). `eleven.ts` uses
+Eleven v4 with the film's narrator voice; it reads `ELEVENLABS_API_KEY` from the
+environment, and `ELEVENLABS_VOICE_ID` and `ELEVENLABS_MODEL` override the
+voice and the model. It reads the script as one take and cuts it at the pauses;
+`--lines` reads each line separately. Neither script speeds a production read
+up: when a line runs past its window, retime the timeline to the read.
 
 ```
 bun scripts/film/score.ts                 # music stem
 bun add --no-save kokoro-js               # the voice model runtime, 427 MB, not a dependency
-bun scripts/film/voice.ts                 # voice stem, VOICE=bm_george for another voice
-bun scripts/film/eleven.ts                # or the voice stem from ElevenLabs, read as one take (--lines: per line)
+bun scripts/film/voice.ts                 # draft voice stem, free, local
+bun scripts/film/eleven.ts                # production voice stem, paid, final render only
 bun scripts/film/mix.ts                   # public/film/soundtrack.mp3
 bun scripts/film/render.ts                # public/film/routecraft-platform.mp4
 bun scripts/film/render.ts --stills 12,44 # review PNGs instead of the MP4
