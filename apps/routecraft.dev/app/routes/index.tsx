@@ -123,12 +123,12 @@ function Hero() {
               className="paper-rise mt-8 max-w-2xl text-[1.15rem] leading-[1.75] text-ink/75"
               style={{ animationDelay: '260ms' }}
             >
-              You bought everyone AI licences. The tools your people built with
-              them live on their laptops, on their own logins, and nobody else
-              can use them. Your competitors ship capabilities in an afternoon.
-              You are still arguing about where to run them. Routecraft is the
-              open source platform your teams build on together. What one team
-              proves, every team can use.
+              Your engineers are already building AI tools. They live on
+              laptops, on personal logins, and nobody else can use them. Your
+              competitors ship capabilities in an afternoon. You are still
+              arguing about where to run them. Routecraft is the open source
+              platform your teams build on together. What one team proves, every
+              team can use.
             </p>
 
             <div

@@ -57,7 +57,7 @@ const CARDS: TeamCard[] = [
     name: 'invoice-chaser',
     lang: 'Python',
     line: 'one VM, one shared key for everyone',
-    left: 358,
+    left: 368,
     top: 40,
     tilt: -1.5,
   },
@@ -65,7 +65,7 @@ const CARDS: TeamCard[] = [
     name: 'recruitment-agent',
     lang: 'Node',
     line: "a laptop, a person's token, off on Fridays",
-    left: 724,
+    left: 734,
     top: 102,
     tilt: 1.8,
   },
@@ -73,7 +73,7 @@ const CARDS: TeamCard[] = [
     name: 'expense-approvals',
     lang: 'Node',
     line: 'logs in as you, copies the session cookie',
-    left: 376,
+    left: 386,
     top: 185,
     tilt: 1.2,
   },
@@ -81,7 +81,7 @@ const CARDS: TeamCard[] = [
     name: 'support-replies',
     lang: 'Python',
     line: 'its own prompts, its own model key',
-    left: 742,
+    left: 752,
     top: 247,
     tilt: -2,
   },
@@ -89,7 +89,7 @@ const CARDS: TeamCard[] = [
     name: 'mcp-tools-repo',
     lang: 'TypeScript',
     line: 'works on one machine, nobody can install it',
-    left: 362,
+    left: 372,
     top: 330,
     tilt: -0.8,
   },
@@ -97,7 +97,7 @@ const CARDS: TeamCard[] = [
     name: 'payroll-checks',
     lang: 'PowerShell',
     line: 'run by hand every Friday, on one login',
-    left: 728,
+    left: 738,
     top: 392,
     tilt: 1.5,
   },
@@ -105,7 +105,7 @@ const CARDS: TeamCard[] = [
     name: 'agent-skills',
     lang: 'Markdown',
     line: 'the same skill, written four times',
-    left: 380,
+    left: 390,
     top: 475,
     tilt: -1.2,
   },
@@ -113,14 +113,14 @@ const CARDS: TeamCard[] = [
     name: 'sales-followups',
     lang: 'Node',
     line: "reads the CRM on the rep's own login",
-    left: 746,
+    left: 756,
     top: 537,
     tilt: 1.6,
   },
   {
     name: 'the next one',
     line: 'being written this week',
-    left: 366,
+    left: 376,
     top: 620,
     tilt: -1,
     ghost: true,
@@ -128,7 +128,7 @@ const CARDS: TeamCard[] = [
   {
     name: 'the one in your area',
     line: 'not on any list yet',
-    left: 734,
+    left: 744,
     top: 682,
     tilt: 1.3,
     ghost: true,
@@ -147,8 +147,16 @@ const BACKENDS = [
   'source control',
 ]
 
-/** Left edge of the backend column, where every wire lands. */
-const BACKEND_X = 1058
+/** Where the board's content ends on the right; both right-hand columns align to it. */
+const CONTENT_RIGHT = 1456
+const BACKEND_W = 340
+const MODEL_API_W = 398
+/** Left edge of the backend column, where the wires to the systems land. */
+const BACKEND_X = CONTENT_RIGHT - BACKEND_W
+/** Left edge of the model API box, which is wider than the systems below it. */
+const MODEL_API_X = CONTENT_RIGHT - MODEL_API_W
+/** The y of the model API box's centre, the one wire target that is not a system. */
+const MODEL_API_Y = 89
 
 interface Wire {
   /** Where the wire leaves a card's edge. */
@@ -160,16 +168,16 @@ interface Wire {
 }
 
 const WIRES: Wire[] = [
-  { from: [508, 88], to: [178, 256, 412, 89] },
-  { from: [874, 150], to: [334, 568, 89] },
-  { from: [526, 233], to: [256, 334, 412] },
-  { from: [892, 295], to: [89, 178, 646] },
-  { from: [512, 378], to: [568, 490, 334] },
-  { from: [878, 440], to: [334, 256, 568] },
-  { from: [530, 523], to: [724, 490] },
-  { from: [896, 585], to: [178, 568, 646] },
-  { from: [516, 668], to: [412], faint: true },
-  { from: [884, 730], to: [490], faint: true },
+  { from: [518, 88], to: [178, 256, 412, MODEL_API_Y] },
+  { from: [884, 150], to: [334, 568, MODEL_API_Y] },
+  { from: [536, 233], to: [256, 334, 412] },
+  { from: [902, 295], to: [MODEL_API_Y, 178, 646] },
+  { from: [522, 378], to: [568, 490, 334] },
+  { from: [888, 440], to: [334, 256, 568] },
+  { from: [540, 523], to: [724, 490] },
+  { from: [906, 585], to: [178, 568, 646] },
+  { from: [526, 668], to: [412], faint: true },
+  { from: [894, 730], to: [490], faint: true },
 ]
 
 function Card({ card, palette }: { card: TeamCard; palette: FigurePalette }) {
@@ -271,7 +279,7 @@ function Figure({ palette }: FigureProps) {
                   key={`${wire.from.join(',')}-${y}`}
                   x1={wire.from[0]}
                   y1={wire.from[1]}
-                  x2={BACKEND_X}
+                  x2={y === MODEL_API_Y ? MODEL_API_X : BACKEND_X}
                   y2={y}
                   opacity={wire.faint ? 0.45 : undefined}
                 />
@@ -312,8 +320,8 @@ function Figure({ palette }: FigureProps) {
 
           <div
             style={{
-              ...at(BACKEND_X, 52),
-              width: 398,
+              ...at(MODEL_API_X, 52),
+              width: MODEL_API_W,
               height: 76,
               border: `1px dashed ${palette.ink40}`,
               background: palette.paper,
@@ -355,7 +363,7 @@ function Figure({ palette }: FigureProps) {
               <div
                 key={backend}
                 style={{
-                  width: 340,
+                  width: BACKEND_W,
                   height: 56,
                   display: 'flex',
                   alignItems: 'center',
