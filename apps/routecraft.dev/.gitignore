@@ -80,12 +80,3 @@ app/routeTree.gen.ts
 
 # generated fixtures for the documentation example typecheck (scripts/check-examples.ts)
 /.docs-typecheck*/
-
-# Review stills from `bun scripts/film/render.ts --stills`
-/scripts/film/stills/
-
-# Film stems written by `scripts/film/score.ts` and `voice.ts`; generated, never committed
-/scripts/film/audio/
-
-# The MP4 from `scripts/film/render.ts`; the site draws the film live and ships only the soundtrack
-/public/film/*.mp4

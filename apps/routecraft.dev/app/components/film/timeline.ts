@@ -1,8 +1,8 @@
 /**
  * The platform film as data: when every caption, card and block appears, in
  * seconds from the start. The drawing (`FilmFrame`), the player and the score
- * generator (`scripts/film/score.ts`) all read these numbers, so a change to
- * the timing moves the picture and the music together.
+ * all read these numbers, so a change to the timing moves the picture and the
+ * music together, and the soundtrack is remixed to match.
  *
  * The canvas is 1920 by 1080. Every position here is in canvas pixels.
  */
@@ -528,9 +528,8 @@ export const SCORE_EVENTS: { at: number; weight: number }[] = [
 ]
 
 /**
- * The voice-over. Each line starts at `at` and must be spoken by `end`;
- * `scripts/film/voice.ts` speeds a line up slightly when the voice runs long,
- * and refuses one that would need more than that.
+ * The voice-over. Each line starts at `at` and must be spoken by `end`; a read
+ * that runs past `end` means retiming the film, never speeding the voice up.
  */
 export const NARRATION: { at: number; end: number; text: string }[] = [
   {
