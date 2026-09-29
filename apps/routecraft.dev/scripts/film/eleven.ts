@@ -4,8 +4,8 @@
  *
  * By default the whole transcript is read as one take, so the voice carries its
  * intonation from sentence to sentence. The timestamped endpoint says where
- * every character falls in the take; the take is cut in the middle of the
- * pause between two lines, and each line is placed so its first word lands on
+ * every character falls in the take; the take is cut in the quiet between two
+ * lines (see `cutBetween`), and each line is placed so its first word lands on
  * its `at` in the timeline. `--lines` reads every line as its own request
  * instead, for comparison. The raw take and its alignment are kept beside the
  * stem as `eleven-take.mp3` and `eleven-take.json`, and reused while the
@@ -41,6 +41,48 @@ const MODEL = process.env.ELEVENLABS_MODEL ?? 'eleven_v4'
 const AUDIO = join(import.meta.dir, 'audio')
 /** Short fades at every cut, so a line never starts or ends on a click. */
 const FADE = Math.floor(0.012 * RATE)
+
+/**
+ * Where to cut the take between two lines, in seconds. The alignment runs
+ * about a tenth of a second late, so the next line's first sound often starts
+ * before its timestamp and a cut between the timestamps clips it. The cut goes
+ * in the middle of the first stretch of real silence after the line, found in
+ * the audio, so a breath before the next line travels with it. A silence is at least 30 ms long, so the closure of a
+ * consonant inside a word never counts; where the voice runs two lines
+ * together with no silence at all, the cut goes at the deepest dip at the
+ * boundary itself. `onset` is where the next line's words begin, after the
+ * last silence and any breath, which is what lands on the line's `at`.
+ */
+function cutBetween(samples: Float32Array, end: number, next: number) {
+  const step = Math.floor(0.01 * RATE)
+  const level = (at: number) => {
+    let sum = 0
+    for (let j = at; j < at + step; j++) sum += (samples[j] ?? 0) ** 2
+    return 10 * Math.log10(sum / step + 1e-12)
+  }
+  const from = Math.max(0, Math.floor((end - 0.2) * RATE))
+  const to = Math.min(samples.length - step, Math.floor((next + 0.1) * RATE))
+  const runs: [number, number][] = []
+  let start = -1
+  for (let i = from; i <= to; i += step) {
+    const silent = i < to && level(i) < -60
+    if (silent && start < 0) start = i
+    if (!silent && start >= 0) {
+      if (i - start >= 3 * step) runs.push([start, i])
+      start = -1
+    }
+  }
+  if (runs.length > 0)
+    return {
+      cut: (runs[0][0] + runs[0][1]) / 2 / RATE,
+      onset: runs[runs.length - 1][1] / RATE,
+    }
+  let deepest = Math.floor((end - 0.05) * RATE)
+  for (let i = deepest; i < to; i += step)
+    if (level(i) < level(deepest)) deepest = i
+  const cut = (deepest + step / 2) / RATE
+  return { cut, onset: cut }
+}
 
 interface Alignment {
   characters: string[]
@@ -177,19 +219,21 @@ if (process.argv.includes('--lines')) {
     offset += line.text.length + 1
     return { start: starts[first], end: ends[last] }
   })
+  const cuts = spans
+    .slice(1)
+    .map((span, i) => cutBetween(take.samples, spans[i].end, span.start))
   spans.forEach((span, i) => {
-    const before = i === 0 ? 0 : (spans[i - 1].end + span.start) / 2
+    const before = i === 0 ? 0 : cuts[i - 1].cut
+    const onset = i === 0 ? span.start : cuts[i - 1].onset
     const after =
-      i === spans.length - 1
-        ? take.samples.length / RATE
-        : (span.end + spans[i + 1].start) / 2
+      i === spans.length - 1 ? take.samples.length / RATE : cuts[i].cut
     place(
       take.samples,
       Math.floor(before * RATE),
       Math.floor(after * RATE),
-      NARRATION[i].at - (span.start - before),
+      NARRATION[i].at - (onset - before),
     )
-    report(i, span.end - span.start)
+    report(i, span.end - onset)
   })
   console.log(
     `✓ ${TAKE_MP3} (${(take.samples.length / RATE).toFixed(1)}s as read)`,
