@@ -196,13 +196,13 @@ function Problem() {
 }
 
 /**
- * The cost, on the page's one tinted band between the two figures: the licence
- * line beside its three claims, so the page turns from problem to platform in
- * a single panel.
+ * The cost, on a tinted band between the two figures in the same light tone as
+ * the DevOptix band: the licence line beside its three claims, so the page
+ * turns from problem to platform in a single panel.
  */
 function Cost() {
   return (
-    <section className="mb-16 border-y border-ink/15 bg-paper-deep lg:mb-20">
+    <section className="mb-16 bg-paper-deep/40 lg:mb-20">
       <div className="container-page py-16 lg:py-20">
         <SectionLabel numeral="II" label="The cost" />
         <div className="mt-12 grid grid-cols-1 gap-x-16 gap-y-10 lg:grid-cols-12">
