@@ -72,6 +72,7 @@ import { ValidateStep } from "./operations/validate.ts";
 import { authorize, type AuthorizeOptions } from "./auth/authorize.ts";
 import {
   type CacheOptions,
+  assignCacheSites,
   resolveCacheOptions,
   type ResolvedCacheOptions,
 } from "./operations/cache-wrapper.ts";
@@ -521,8 +522,10 @@ export interface PreFromStaging<S extends BuilderState = BuilderState> {
   error(handler: ErrorHandler): this;
   /**
    * Configure ROUTE-SCOPE caching for the next route (whole-pipeline
-   * memoisation). The step-scope variant lives on the post-`.from()`
-   * builder. See {@link RouteBuilder.cache}.
+   * memoisation). Before `.from()` the whole route is cached and a failed
+   * exchange is never stored; after `.from()` only the next step's output
+   * is cached, including an error reply that step returns without
+   * throwing. See {@link RouteBuilder.cache}.
    */
   cache(options?: CacheOptions<unknown>): this;
   /**
@@ -985,26 +988,32 @@ export class RouteBuilder<
   }
 
   /**
-   * Cache. Dual-mode:
+   * Cache. Dual-mode, and the position decides what is cached:
    *
-   * - **Before `.from()` (route scope):** the route looks up its
-   *   provider before any pipeline step runs. On a hit, the entire
-   *   pipeline is skipped and the cached body is returned to the
-   *   source as the route's final exchange body. On a miss, the
-   *   pipeline runs normally and the terminal body is stored for
-   *   future hits. Side effects (e.g. `.to(destination)` calls) do
-   *   NOT replay on a hit; the whole pipeline is bypassed.
+   * - **Before `.from()` (route scope):** caches the whole route. The
+   *   route looks up its provider before any pipeline step runs. On a
+   *   hit, the entire pipeline is skipped and the cached body is
+   *   returned to the source as the route's final exchange body. On a
+   *   miss, the pipeline runs and the terminal body is stored only when
+   *   the exchange completes; a failed exchange is never stored. Side
+   *   effects (e.g. `.to(destination)` calls) do NOT replay on a hit.
    *
-   * - **After `.from()` (step scope):** wraps the immediately-next
-   *   step; see {@link StepBuilderBase.cache} for the step-scope
+   * - **After `.from()` (step scope):** caches only the output of the
+   *   immediately-next step, whatever the rest of the route does. A step
+   *   that returns an error reply without throwing (an `http()` enricher
+   *   with `throwOnHttpError: false` answering 503) has that reply
+   *   cached. See {@link StepBuilderBase.cache} for the step-scope
    *   contract.
    *
-   * Routes with `.split()` are not supported at route scope (the
-   * pipeline produces N terminals rather than one) and throw
+   * The default key is namespaced by route id (plus the step's position
+   * at step scope) and by the principal's issuer and subject, then the
+   * body; a bodiless exchange needs an explicit `key`, which is used
+   * verbatim. See {@link CacheOptions.key}.
+   *
+   * Routes with an unbalanced `.split()` are not supported at route
+   * scope (the pipeline produces N terminals rather than one) and throw
    * `RC5003` at build time. Use step-scope `.cache()` to wrap the
    * expensive step inside such a route.
-   *
-   * @experimental
    */
   override cache(options: CacheOptions<S["body"]> = {}): this {
     if (this.currentRoute === undefined || this.pendingOptions !== undefined) {
@@ -1851,6 +1860,7 @@ export class RouteBuilder<
       }
       if (usesResume(route)) route.usesResume = true;
       assertRouteScopeCacheCompatibility(route);
+      assignCacheSites(route);
     }
     logger.trace({ routeCount: this.routes.length }, "Building routes");
     return this.routes;

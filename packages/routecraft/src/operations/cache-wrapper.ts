@@ -1,3 +1,4 @@
+import { createHash, randomUUID } from "node:crypto";
 import { type Duration, parseDuration } from "../shared/duration.ts";
 import {
   type Exchange,
@@ -10,28 +11,46 @@ import { rcError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
 import { hashExchangeBody } from "./hash-body.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
+import type { RouteDefinition } from "../route.ts";
 import { WrapperStep } from "./wrapper.ts";
+import { nestedStepsOf } from "../deferral/sites.ts";
 import {
   type CacheProvider,
   defaultMemoryCacheProvider,
 } from "./cache-provider.ts";
 
 /**
- * Options for the `.cache()` step-scope wrapper.
+ * Options for `.cache()`, at route scope (before `.from()`) and step scope
+ * (after `.from()`).
  *
- * @template Current Body type entering the wrapped step.
- * @experimental
+ * @template Current Body type entering the cached route or step.
  */
 export interface CacheOptions<Current = unknown> {
   /**
    * Derive the cache key from the exchange. The returned string is the
-   * identity used by the provider's `get` / `set`. When omitted, a key
-   * is computed by SHA-256 hashing `JSON.stringify(body)`.
+   * identity used by the provider's `get` / `set`.
    *
-   * The default works for plain JSON-shaped bodies (primitives, arrays,
-   * plain objects with string keys). For bodies containing functions,
-   * symbols, circular references, or anything else `JSON.stringify`
-   * cannot represent, supply an explicit `key` function.
+   * When omitted, the key is a SHA-256 over the route id (and, at step
+   * scope, the wrapped step's position in the route), the principal's
+   * `issuer` and `subject` when the exchange carries one, and a SHA-256
+   * of `JSON.stringify(body)`. Two routes, two cached steps, or two
+   * callers therefore never share an entry by accident. The route id is
+   * part of the key, so give the route an `.id()`: an unnamed route gets
+   * a fresh id on every start, and its entries in an external provider
+   * stop matching after a restart.
+   *
+   * The default needs a body. An exchange whose body is `undefined` (a
+   * bodiless `http()` GET, whose input lives in the
+   * `routecraft.http.params` / `routecraft.http.query` headers) fails
+   * with `RC5029`, as does a body `JSON.stringify` cannot represent
+   * (functions, symbols, circular references, `BigInt`). Supply `key` for
+   * those. A `null` body is keyable.
+   *
+   * A custom `key` is used VERBATIM: nothing is added to it. Every route
+   * and step on the same provider shares entries for equal keys, and so
+   * does every caller, so put the route and the caller's identity
+   * (`ex.principal?.subject`) in the key whenever the response depends on
+   * them.
    *
    * Performance: the default hashes a JSON serialisation of the body on
    * every exchange. For hot paths or large bodies (file contents, large
@@ -56,30 +75,48 @@ export interface CacheOptions<Current = unknown> {
 }
 
 /**
+ * Where a cache sits, which the default key namespaces its entries by.
+ *
+ * `site` is the wrapped step's position in a pre-order walk of the route's
+ * step tree (the numbering `.defer()` sites use), then the cache's index
+ * within that step's wrapper stack. It derives from the route definition
+ * alone, so every process running the same route source computes the same
+ * site and shares entries in an external provider. Editing the route above
+ * a cached step shifts the site, which costs one miss per key.
+ *
+ * @internal
+ */
+export type CacheKeyScope =
+  | { readonly kind: "route"; readonly routeId: string }
+  | { readonly kind: "step"; readonly routeId: string; readonly site: string };
+
+/**
  * Internal resolved shape of {@link CacheOptions}: every field is
  * populated, with defaults filled in. Shared between the step-scope
- * wrapper and the route-scope path in `route.ts`.
+ * wrapper and the route-scope filter steps.
  *
  * @internal
  */
 export interface ResolvedCacheOptions<Current = unknown> {
-  key: (exchange: Exchange<Current>) => string;
+  key: (exchange: Exchange<Current>, scope: CacheKeyScope) => string;
   ttl: number | undefined;
   provider: CacheProvider;
 }
 
 /**
  * Resolve a user-supplied {@link CacheOptions} into a fully populated
- * {@link ResolvedCacheOptions}, filling defaults: the SHA-256 body
- * hasher for `key`, no TTL, and the module-level in-memory provider.
+ * {@link ResolvedCacheOptions}, filling defaults: {@link defaultCacheKey}
+ * for `key`, no TTL, and the module-level in-memory provider. A custom
+ * `key` ignores the scope.
  *
  * @internal
  */
 export function resolveCacheOptions<Current = unknown>(
   options: CacheOptions<Current> = {},
 ): ResolvedCacheOptions<Current> {
+  const custom = options.key;
   return {
-    key: options.key ?? (defaultKey as (e: Exchange<Current>) => string),
+    key: custom ? (exchange) => custom(exchange) : defaultCacheKey,
     ttl:
       options.ttl === undefined
         ? undefined
@@ -88,9 +125,34 @@ export function resolveCacheOptions<Current = unknown>(
   };
 }
 
-function defaultKey(exchange: Exchange<unknown>): string {
+/**
+ * The default cache key: a SHA-256 over the JSON tuple
+ * `[scope.kind, routeId, site | null, [issuer | null, subject] | null, bodyHash]`.
+ * Encoding the tuple as JSON keeps the fields from running into each
+ * other; hashing the body first keeps a large body out of the second
+ * serialisation.
+ *
+ * @throws RC5029 when the body is `undefined` (nothing to key on) or is
+ *   not JSON-serialisable.
+ * @internal
+ */
+export function defaultCacheKey(
+  exchange: Exchange<unknown>,
+  scope: CacheKeyScope,
+): string {
+  if (exchange.body === undefined) {
+    throw rcError("RC5029", undefined, {
+      message:
+        `Default cache key for route "${scope.routeId}" has nothing to key on: the exchange body is undefined. ` +
+        "A bodiless request such as an http() GET carries its input in the routecraft.http.params and " +
+        "routecraft.http.query headers, which the default key does not read. Supply a key, e.g. " +
+        "cache({ key: (ex) => `order:${JSON.stringify(ex.headers['routecraft.http.params'])}` }). " +
+        "A custom key is used verbatim, so include the caller's identity in it when responses differ per caller.",
+    });
+  }
+  let bodyHash: string;
   try {
-    return hashExchangeBody(exchange.body);
+    bodyHash = hashExchangeBody(exchange.body);
   } catch (err) {
     throw rcError("RC5029", err, {
       message:
@@ -98,6 +160,45 @@ function defaultKey(exchange: Exchange<unknown>): string {
         "Supply an explicit `key` function in cache({ key: ... }).",
     });
   }
+  const principal = exchange.principal;
+  const identity = JSON.stringify([
+    scope.kind,
+    scope.routeId,
+    scope.kind === "step" ? scope.site : null,
+    principal ? [principal.issuer ?? null, principal.subject] : null,
+    bodyHash,
+  ]);
+  return createHash("sha256").update(identity).digest("hex");
+}
+
+/**
+ * Give every step-scope cache in a finalised route its
+ * {@link CacheKeyScope} site. Runs from `RouteBuilder.build()`, walking the
+ * step tree in the same pre-order as the defer-site walk and looking through
+ * wrapper stacks, so a cache inside a `.choice()` branch or under an outer
+ * `.retry()` is found too.
+ *
+ * @internal
+ */
+export function assignCacheSites(route: RouteDefinition): void {
+  let next = 0;
+  const visit = (steps: ReadonlyArray<Step<Adapter>>): void => {
+    for (const step of steps) {
+      const position = next++;
+      let depth = 0;
+      for (
+        let current: Step<Adapter> = step;
+        current instanceof WrapperStep;
+        current = current.wrapped
+      ) {
+        if (current instanceof CacheWrapperStep) {
+          current.assignSite(`${position}.${depth++}`);
+        }
+      }
+      for (const nested of nestedStepsOf(step)) visit(nested.steps);
+    }
+  };
+  visit(route.steps);
 }
 
 /**
@@ -120,6 +221,15 @@ class CacheLoaderDrop extends Error {
  * a miss, runs the wrapped step, caches its produced body, and lets
  * the pipeline continue normally. Errors from the wrapped step are
  * NOT cached and propagate to outer wrappers / route-level handlers.
+ * Whatever the wrapped step returns without throwing IS cached, so an
+ * error reply returned as a value (an `http()` enricher with
+ * `throwOnHttpError: false` answering 503) becomes the cached answer.
+ *
+ * The default key is namespaced by route id and by this wrapper's site,
+ * assigned by {@link assignCacheSites} when the route is built. A wrapper
+ * that never went through `RouteBuilder.build()` (constructed by hand)
+ * gets a random site on first use, so it never shares entries with
+ * another cache, at the cost of not sharing them across restarts either.
  *
  * Concurrent exchanges with the same derived key share a single
  * computation via the provider's `getOrCompute`, so a slow underlying
@@ -144,18 +254,28 @@ class CacheLoaderDrop extends Error {
  * key. Put `.error()` OUTSIDE the cache (`.error(h).cache().to(d)`)
  * unless caching recovery results is intended.
  *
- * @experimental Surfaced via the dual-mode `.cache()` builder method;
- * route-scope behaviour is tracked in #112 and currently throws when
- * staged before `.from()`.
+ * Route scope (`.cache()` before `.from()`) does not use this class; it
+ * runs as the `cacheCheck` / `cacheStore` filter steps.
  */
 export class CacheWrapperStep<
   T extends Adapter = Adapter,
 > extends WrapperStep<T> {
   readonly #options: ResolvedCacheOptions;
+  #site: string | undefined;
 
   constructor(inner: Step<T>, options: CacheOptions = {}) {
     super(inner);
     this.#options = resolveCacheOptions(options);
+  }
+
+  /**
+   * Record this wrapper's position in its route. Called by
+   * {@link assignCacheSites}; see {@link CacheKeyScope}.
+   *
+   * @internal
+   */
+  assignSite(site: string): void {
+    this.#site = site;
   }
 
   protected override async runInner(
@@ -165,10 +285,11 @@ export class CacheWrapperStep<
     const { route, context, routeId, stepLabel, correlationId } =
       wrapperEventScope(exchange, this);
     const shouldEmit = route && context && routeId;
+    const site = (this.#site ??= `unbuilt:${randomUUID()}`);
 
     let key: string;
     try {
-      key = this.#options.key(exchange);
+      key = this.#options.key(exchange, { kind: "step", routeId, site });
     } catch (err) {
       if (shouldEmit) {
         context.emit("route:cache:failed", {

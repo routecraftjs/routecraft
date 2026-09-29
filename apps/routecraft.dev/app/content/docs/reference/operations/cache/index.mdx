@@ -15,10 +15,19 @@ cache(options?: CacheOptions): RouteBuilder<Current>
 
 Cache and reuse the result of an expensive operation. When a cached value exists for the derived key, the body is replaced with the cached value and the wrapped operation is skipped. Only successful executions are cached; errors and dropped exchanges leave the cache untouched.
 
-**Mental model:** Dual-mode. After `.from()` it wraps the immediately-next step. Before `.from()` it caches the entire route's terminal output keyed by the source message; on a hit the whole pipeline is skipped and the cached body is returned to the source.
+**Mental model:** Dual-mode, and the position decides what "successful" means.
+
+- **Before `.from()`** it caches the whole route. On a hit the pipeline is skipped and the cached body is returned to the source. The result is stored only when the exchange completes, so a failed exchange is never cached, wherever in the route it failed.
+- **After `.from()`** it caches only the output of the immediately-next step. That step succeeded if it did not throw, whatever the rest of the route does.
+
+<Callout type="warning" title="Step scope caches error replies that are returned, not thrown">
+
+A step that turns a failure into a value is a success as far as a step-scope cache can tell. An `http()` enricher with `throwOnHttpError: false` that gets a 503 returns the 503 response as its result, and `.cache()` placed in front of it stores that response for the whole TTL. Put `.cache()` before `.from()` when the route itself decides whether the answer is good, or leave `throwOnHttpError` at its default so the failure throws and nothing is stored.
+
+</Callout>
 
 ```ts skip="fragment: source, expensiveOperation, destination are illustrative"
-// Default: key derived from body hash, process-wide in-memory provider
+// Default: key derived from route, step, principal and body; process-wide in-memory provider
 craft()
   .id('document-processor')
   .from(source)
@@ -26,7 +35,7 @@ craft()
   .process(expensiveOperation) // Result is cached per body content
   .to(destination)
 
-// With TTL (key still derived from body)
+// With TTL (same default key)
 craft()
   .id('document-processor')
   .from(source)
@@ -38,7 +47,7 @@ craft()
 craft()
   .id('file-processor')
   .from(fileWatcher())
-  .cache({ key: e => e.headers[FileHeaders.PATH] as string })
+  .cache({ key: e => `file-processor:${e.headers[FileHeaders.PATH]}` })
   // Cached per file path: an in-place edit of the same file reuses the
   // cached result until the TTL expires. Omit `key` to hash the body
   // (the file contents) instead, so edits produce a fresh key.
@@ -53,13 +62,13 @@ const provider = new MemoryCacheProvider({ max: 10_000, ttl: 60_000 })
 craft()
   .id('file-processor')
   .from(fileWatcher())
-  .cache({ provider, key: e => e.headers[FileHeaders.PATH] as string })
+  .cache({ provider, key: e => `file-processor:${e.headers[FileHeaders.PATH]}` })
   .process(expensiveOperation)
   .to(destination)
 ```
 
 **Options:**
-- `key` (optional) - Function to derive the cache key from the exchange. If omitted, a key is derived by SHA-256 hashing `JSON.stringify(body)`. Supply an explicit `key` when the body is not JSON-serialisable or when a stable identity lives in headers.
+- `key` (optional) - Function to derive the cache key from the exchange. If omitted, the key combines the route (and step position), the principal, and a SHA-256 of `JSON.stringify(body)`; see [Cache key](#cache-key). Supply an explicit `key` when the body is `undefined` or not JSON-serialisable, or when a stable identity lives in headers. A custom key is used verbatim.
 - `ttl` (optional) - Time to live in milliseconds. After expiry, the next execution recomputes the value. When omitted, the provider's default expiry applies (the bundled in-memory provider keeps entries until LRU eviction).
 - `provider` (optional) - A `CacheProvider` implementation. Defaults to a process-wide `MemoryCacheProvider` backed by `lru-cache`. Pass a custom provider to plug in Redis, multi-tier, or file-backed stores.
 
@@ -68,7 +77,7 @@ craft()
 **Concurrency:** When multiple exchanges race against the same key, the provider's `getOrCompute` is responsible for deduplication. The bundled `MemoryCacheProvider` runs the wrapped step at most once per key per TTL window; concurrent waiters share the result.
 
 **Caching semantics:**
-- Only successful executions are cached. A wrapped step that throws propagates the error and writes nothing.
+- Only successful executions are cached. A wrapped step that throws propagates the error and writes nothing. At step scope, a step that returns an error reply instead of throwing has that reply cached (see the warning above).
 - `null` is a valid cached value; `undefined` is treated as "no value" and is never cached (the step recomputes next time).
 - A cache hit replaces the body but does NOT replay the wrapped step's side effects (header writes, etc.); those only happen on a miss when the step actually runs.
 
@@ -78,9 +87,37 @@ craft()
 
 **Custom providers:** Implement `CacheProvider` (`get`, `set`, `delete`, `has`, `getOrCompute`) and pass an instance via `cache({ provider })`. A future release will allow a global default to be set on `CraftConfig`.
 
+## Cache key
+
+With no `key`, the key is a SHA-256 over:
+
+1. **The scope.** The route id at route scope. At step scope, the route id plus the wrapped step's position in the route, so two cached steps in one route never share entries.
+2. **The principal**, when the exchange carries one: its `issuer` and `subject`. Two callers sending the same body get separate entries.
+3. **The body**, as a SHA-256 of `JSON.stringify(body)`.
+
+Every part is derived from the route definition and the exchange, so processes running the same route source compute the same keys and can share an external provider. The route id is part of the key: give every cached route an `.id()`, because an unnamed route gets a fresh id on every start and its entries stop matching after a restart. Editing a route above a step-scope cache moves the step's position, which costs one miss per key.
+
+**The default key needs a body.** An exchange whose body is `undefined` fails with [`RC5029`](/docs/reference/errors#rc-5029). The common case is an `http()` GET: it has no body, and its input lives in headers (`routecraft.http.params`, `routecraft.http.query`) that the default key does not read. Supply a `key` for bodiless routes. A `null` body is keyable.
+
+**A custom `key` is used verbatim.** Nothing is added to it: not the route, not the step, not the principal. Two routes or steps on the same provider that return the same key share the entry, and so does every caller. Put whatever distinguishes the answer into the key yourself:
+
+```ts skip="fragment: loadOrder is illustrative"
+craft()
+  .id('get-order')
+  .authorize()
+  .cache({
+    ttl: '1m',
+    key: (ex) =>
+      `get-order:${ex.principal?.subject}:${ex.headers['routecraft.http.params']?.['id']}`,
+  })
+  .from(http({ path: '/orders/:id', method: 'GET' }))
+  .enrich(loadOrder)
+  .to(noop())
+```
+
 ## Route scope
 
-Place `.cache()` BEFORE `.from()` to cache the entire route's terminal output (the body returned to the source) keyed by the source-emitted message.
+Place `.cache()` BEFORE `.from()` to cache the entire route's terminal output (the body returned to the source), keyed by the route, the principal, and the source-emitted message.
 
 ```ts skip="fragment: weatherApi, formatForecast are illustrative"
 craft()
@@ -100,15 +137,16 @@ On a hit, **the whole pipeline is skipped** (no `.enrich`, no `.transform`, no `
 
 **`.cache()` slots into the framework's pre-from filter chain at a fixed position.** Auth runs first (unauthenticated callers never see cached responses); parse and `.input()` validation run before the cache check (so stale-schema entries can't slip through); the cache hit-check sits just above the user pipeline; the cache write sits just below. See [Filter Chain](/docs/advanced/filter-chain) for the full chain, including reserved slots for `.throttle()`, `.circuitBreaker()`, `.retry()`, `.timeout()`.
 
-**Cache key partitions the *data*, not the authorization.** Pick the key based on what the cached response represents:
+**Cache key partitions the *data*, not the authorization.** The default key keeps one entry per principal, which is the safe choice when a response might depend on who asked. When every authorized caller sees the same data, share one entry through an explicit key:
 
 ```ts skip="fragment: loadEmployees, loadLeaveForUser are illustrative"
 // Shared role-gated data: every authorized caller sees the same list.
-// Default body-hash key is correct.
+// A constant key shares one entry; the default would keep one per
+// principal, and this GET has no body to key on anyway.
 craft()
   .id('list-employees')
   .authorize({ roles: ['hr'] })
-  .cache({ ttl: 60_000 })
+  .cache({ ttl: 60_000, key: () => 'list-employees' })
   .from(http({ path: '/employees' }))
   .enrich(loadEmployees)
   .to(noop())
@@ -117,14 +155,14 @@ craft()
 craft()
   .id('get-my-leave')
   .authorize()
-  .cache({ ttl: 60_000, key: e => `leave:${e.principal?.subject}` })
+  .cache({ ttl: 60_000, key: e => `get-my-leave:${e.principal?.subject}` })
   .from(http({ path: '/me/leave' }))
   .enrich(loadLeaveForUser)
   .to(noop())
 ```
 
-This is the same pattern any application-level cache follows: the key reflects the data's identity, not the caller's permissions.
+A shared entry is safe because authorization runs before the cache check: a caller who fails `.authorize()` never reaches it. The key reflects the data's identity; the chain enforces the caller's permissions.
 
 **Stampede protection:** route scope does NOT dedupe concurrent same-key callers in this release. Each concurrent caller runs the pipeline once before the cache is populated. Use step-scope `.cache()` around the expensive step if stampede dedupe matters.
 
-**Failure mode:** provider read failures throw `RC5028` (retryable). Key derivation failures throw `RC5029` (not retryable). Provider write failures emit `route:cache:failed phase:"set"` but do NOT fail the exchange (the result was already computed and returned).
+**Failure mode:** provider read failures throw `RC5028` (retryable). Key derivation failures throw `RC5029` (not retryable), including a default key on an exchange with no body. Provider write failures emit `route:cache:failed phase:"set"` but do NOT fail the exchange (the result was already computed and returned).
