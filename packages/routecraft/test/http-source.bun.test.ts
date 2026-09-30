@@ -944,6 +944,63 @@ describe("HTTP Source Adapter", () => {
   });
 
   /**
+   * @case A refusal of an identity the pipeline swapped in stays a 500
+   * @preconditions Public route that replaces the caller's identity with .authenticate() and then checks it with a mid-pipeline .validate(authorize({ scopes }))
+   * @expectedResult 500 internal server error, not 403. The refused principal is the instance's, no credential the caller presents changes it, and the internal scope requirement stays off the wire
+   */
+  test("a refusal of an internal replacement identity stays a 500", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("internal")
+        .from(http({ path: "/internal", method: "GET" }))
+        .authenticate(() => ({ subject: "internal-worker", scopes: [] }))
+        .validate(authorize({ scopes: ["internal:write"] }))
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/internal`);
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "internal server error" });
+    expect(t.errors.map((error) => error.rc)).toContain("RC5038");
+  });
+
+  /**
+   * @case A mid-pipeline refusal of the caller's own principal still maps
+   * @preconditions Walled jwt mount; route with no route-entry .authorize() and a mid-pipeline .validate(authorize({ scopes: ["billing:write"] })); a valid bearer without that scope
+   * @expectedResult 403 insufficient_scope naming billing:write. The refused principal is the one the door admitted, so the caller can fix it
+   */
+  test("a mid-pipeline refusal of the admitted caller answers 403", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("billing")
+        .from(http({ path: "/billing", method: "GET" }))
+        .validate(authorize({ scopes: ["billing:write"] }))
+        .to(noop()),
+      http: {
+        port: 0,
+        auth: jwt({
+          secret: JWT_SECRET,
+          issuer: JWT_ISSUER,
+          audience: JWT_AUDIENCE,
+        }),
+      },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/billing`, {
+      headers: { authorization: `Bearer ${makeJwt({ sub: "user-42" })}` },
+    });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      error: "forbidden",
+      reason: "insufficient_scope",
+      scope: "billing:write",
+    });
+  });
+
+  /**
    * @case A body that fails the route's .input() schema is the caller's fault
    * @preconditions Route with .input({ body }) where one field carries a custom refine message; POST a body violating two fields
    * @expectedResult 400 with code RC5065, in "body" and one issue per violation; the custom message appears only as its issue's message, and neither the route id nor a concatenated message reaches the body

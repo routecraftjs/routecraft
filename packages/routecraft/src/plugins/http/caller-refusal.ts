@@ -26,7 +26,11 @@ export interface CallerRefusalContext {
   routeId: string;
   /** The request URL, for the RFC 9728 hint on a bearer challenge. */
   requestUrl: string;
-  /** The principal the door admitted, if any. Its scheme picks the challenge. */
+  /**
+   * The principal the door admitted, if any. Its scheme picks the
+   * challenge, and a refusal maps only when it is this exact principal
+   * that `authorize()` refused.
+   */
   principal?: Principal | undefined;
   /**
    * What the door answers a caller who had to authenticate and did not,
@@ -79,8 +83,11 @@ interface WireIssue {
  *   the ops tier check already answers, naming the scopes.
  *
  * The authorization codes map only when {@link isAuthorizationRefusal}
- * says `authorize()` raised them on the dispatched route: the same codes
- * come out of adapters for an upstream login refused, which stays a 500.
+ * says `authorize()` raised them on the dispatched route about the
+ * principal the door admitted: the same codes come out of adapters for an
+ * upstream login refused, and a check of an identity the pipeline swapped
+ * in (`.authenticate()`, a delegation) refused the instance. Both stay a
+ * 500, which also keeps an internal identity's requirements off the wire.
  * `RC5023` (a self-asserted principal) and `RC5043` (one restored from a
  * deferral) are not mapped: a door brands every principal it verifies, so
  * either one was put there by the route and is the route's fault.
@@ -93,7 +100,14 @@ export function callerRefusalResponse(
 ): Response | undefined {
   const code = rcCodeOf(error);
   if (code === "RC5065") return inputRefused(error as Error, context.routeId);
-  if (!isAuthorizationRefusal(error, context.routeId)) return undefined;
+  if (
+    !isAuthorizationRefusal(error, {
+      routeId: context.routeId,
+      principal: context.principal,
+    })
+  ) {
+    return undefined;
+  }
   const scheme = context.principal?.scheme;
   switch (code) {
     case "RC5012":

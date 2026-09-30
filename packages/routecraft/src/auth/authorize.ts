@@ -56,12 +56,18 @@ export interface InsufficientAuthority extends Error {
  * whether the caller was refused. Only the origin can, and a copyable brand
  * would let any step dress its own failure up as the caller's.
  *
- * The route id rides along because a refusal propagates: a route calling
- * another through `direct()` receives the callee's refusal as its own step
- * failure, and the caller of the outer route is not who the inner one
- * refused.
+ * The route id and the refused principal ride along because a refusal
+ * can be about someone other than the caller. A route calling another
+ * through `direct()` receives the callee's refusal as its own step failure,
+ * and a pipeline that swaps in an identity of its own (`.authenticate()`, a
+ * delegation) and then checks it refused the instance, not the caller.
  */
-const refusals = new WeakMap<object, string | undefined>();
+interface RefusalOrigin {
+  routeId: string | undefined;
+  principal: Principal | undefined;
+}
+
+const refusals = new WeakMap<object, RefusalOrigin>();
 
 function refusal(
   exchange: Exchange<unknown>,
@@ -71,7 +77,10 @@ function refusal(
   // object, which may carry no headers at all.
   const headers = exchange.headers as Exchange["headers"] | undefined;
   const routeId = headers?.[HeadersKeys.ROUTE_ID];
-  refusals.set(error, typeof routeId === "string" ? routeId : undefined);
+  refusals.set(error, {
+    routeId: typeof routeId === "string" ? routeId : undefined,
+    principal: headers?.[HeadersKeys.AUTH_PRINCIPAL] as Principal | undefined,
+  });
   return error;
 }
 
@@ -81,23 +90,29 @@ function refusal(
  *
  * Doors use this to answer a refusal with a client status (401 / 403)
  * while an adapter's `RC5012` for a rejected upstream login stays a server
- * fault. With `routeId`, only a refusal raised on an exchange of that route
- * counts, which is what a door wants: the route it dispatched refused its
- * caller, rather than some route further down the call chain refused
- * whatever identity the pipeline handed it.
+ * fault. With `caller`, only a refusal of that caller counts: raised on an
+ * exchange of the route the door dispatched, about the very principal the
+ * door admitted (compared by reference, the way identity is carried per
+ * hop). A refusal raised further down the call chain, or of an identity the
+ * pipeline substituted, is the instance's fault and does not match.
  *
  * @param error - Any thrown value
- * @param routeId - Restrict to refusals raised on this route's exchanges
- * @returns `true` when `authorize()` raised this exact error object
+ * @param caller - The route the door dispatched and the principal it
+ *   admitted (`undefined` when it admitted none)
+ * @returns `true` when `authorize()` raised this exact error object, for
+ *   `caller` when given
  */
 export function isAuthorizationRefusal(
   error: unknown,
-  routeId?: string,
+  caller?: { routeId: string; principal: Principal | undefined },
 ): error is RoutecraftError {
-  if (typeof error !== "object" || error === null || !refusals.has(error)) {
-    return false;
-  }
-  return routeId === undefined || refusals.get(error) === routeId;
+  if (typeof error !== "object" || error === null) return false;
+  const origin = refusals.get(error);
+  if (origin === undefined) return false;
+  return (
+    caller === undefined ||
+    (origin.routeId === caller.routeId && origin.principal === caller.principal)
+  );
 }
 
 /**

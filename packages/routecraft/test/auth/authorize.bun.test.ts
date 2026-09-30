@@ -1316,23 +1316,22 @@ describe("isAuthorizationRefusal()", () => {
   });
 
   /**
-   * @case A refusal authorize() raised is recognised, scoped to the route it refused on
+   * @case A refusal authorize() raised is recognised, scoped to the route and the principal it refused
    * @preconditions Route "guarded" whose .authorize({ roles: ["admin"] }) refuses a principal carrying no roles
-   * @expectedResult The failure is an RC5015 refusal with no route given and for "guarded", and not for any other route id
+   * @expectedResult The failure is an RC5015 refusal with no caller given and for "guarded" with that exact principal; not for another route id, and not for an equal-looking copy of the principal
    */
   test("recognises a refusal raised by authorize()", async () => {
+    const principal = markAuthentic<Principal>({
+      kind: "custom",
+      scheme: "bearer",
+      subject: "user-1",
+    });
     t = await testContext()
       .routes(
         craft()
           .id("guarded")
           .authorize({ roles: ["admin"] })
-          .from(
-            principalSource("hello", {
-              kind: "custom",
-              scheme: "bearer",
-              subject: "user-1",
-            }),
-          )
+          .from(principalSource("hello", principal))
           .to(noop()),
       )
       .build();
@@ -1341,8 +1340,50 @@ describe("isAuthorizationRefusal()", () => {
     const refused = t.errors.find((error) => error.rc === "RC5015");
     expect(refused).toBeDefined();
     expect(isAuthorizationRefusal(refused)).toBe(true);
-    expect(isAuthorizationRefusal(refused, "guarded")).toBe(true);
-    expect(isAuthorizationRefusal(refused, "elsewhere")).toBe(false);
+    expect(
+      isAuthorizationRefusal(refused, { routeId: "guarded", principal }),
+    ).toBe(true);
+    expect(
+      isAuthorizationRefusal(refused, { routeId: "elsewhere", principal }),
+    ).toBe(false);
+    expect(
+      isAuthorizationRefusal(refused, {
+        routeId: "guarded",
+        principal: { ...principal },
+      }),
+    ).toBe(false);
+  });
+
+  /**
+   * @case A refusal of an identity the pipeline swapped in is not the caller's
+   * @preconditions Route "worker" admits the caller's principal, replaces it with .authenticate(), then refuses the replacement with .validate(authorize({ scopes }))
+   * @expectedResult The RC5038 is a refusal, but not one of the caller the route was entered with
+   */
+  test("does not attribute a replacement identity's refusal to the caller", async () => {
+    const principal = markAuthentic<Principal>({
+      kind: "custom",
+      scheme: "bearer",
+      subject: "user-1",
+      scopes: ["internal:write"],
+    });
+    t = await testContext()
+      .routes(
+        craft()
+          .id("worker")
+          .from(principalSource("hello", principal))
+          .authenticate(() => ({ subject: "internal-worker", scopes: [] }))
+          .validate(authorize({ scopes: ["internal:write"] }))
+          .to(noop()),
+      )
+      .build();
+    await t.test();
+
+    const refused = t.errors.find((error) => error.rc === "RC5038");
+    expect(refused).toBeDefined();
+    expect(isAuthorizationRefusal(refused)).toBe(true);
+    expect(
+      isAuthorizationRefusal(refused, { routeId: "worker", principal }),
+    ).toBe(false);
   });
 
   /**

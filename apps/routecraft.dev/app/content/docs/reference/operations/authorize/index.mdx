@@ -116,7 +116,7 @@ When the route was reached through the [`http()` source](/docs/reference/adapter
 | `RC5015`, `RC5034`, `RC5035`, `RC5036` | 403 | `{ "error": "forbidden", "reason": "insufficient_permissions" }` | none |
 | `RC5038` | 403 | `{ "error": "forbidden", "reason": "insufficient_scope", "scope": "billing:write" }` | `error="insufficient_scope", scope="billing:write"` |
 
-A mid-pipeline `.validate(authorize(...))` refusal on the dispatched route maps the same way as the route-entry guard. The steps before it have already run by then, so an `RC5020` 401 from there means the client's retry, with a refreshed token, runs those steps again: keep what precedes a mid-pipeline check free of side effects, or check at route entry.
+A mid-pipeline `.validate(authorize(...))` refusal on the dispatched route maps the same way as the route-entry guard, as long as it refused the principal the door admitted. If the pipeline swapped in an identity of its own first (`.authenticate()`, a `.process()` that sets a service principal, a delegation), a refusal of that identity is the instance's fault: it stays a 500, and the internal identity's requirements never reach the caller. The steps before it have already run by then, so an `RC5020` 401 from there means the client's retry, with a refreshed token, runs those steps again: keep what precedes a mid-pipeline check free of side effects, or check at route entry.
 
 The four permission codes collapse to one answer on the wire: the caller's remedy is the same for each, and naming which check failed would tell a prober which part of the policy it tripped. The codes stay distinct in process, on the error and in the logs.
 
@@ -128,7 +128,7 @@ Three cases stay a 500, because the caller could not have changed them:
 - **`RC5023` and `RC5043`.** The doors brand every principal they verify, so a self-asserted or restored principal was put on the exchange by the route itself.
 - **A refusal raised by another route.** A route calling another through `direct()` receives the callee's refusal as its own step failure. What the callee refused was the identity the outer route handed it, not necessarily the caller's.
 
-Only a refusal `authorize()` itself raised is mapped. The same codes thrown by an adapter (an upstream login refused, a mailbox denying access) stay a 500. `isAuthorizationRefusal(err, routeId?)` answers that question for a surface of your own.
+Only a refusal `authorize()` itself raised is mapped. The same codes thrown by an adapter (an upstream login refused, a mailbox denying access) stay a 500. `isAuthorizationRefusal(err, { routeId, principal })` answers that question for a surface of your own: it matches only a refusal raised on that route about that exact principal object.
 
 <Callout type="warning" title="Breaking change: delegation is opt-in per route">
 

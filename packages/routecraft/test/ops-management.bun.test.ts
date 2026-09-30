@@ -4,6 +4,7 @@ import { signHs256, testContext, type TestContext } from "@routecraft/testing";
 import {
   MemoryDeferralStore,
   apiKey,
+  authorize,
   craft,
   jwt,
   cron,
@@ -784,6 +785,63 @@ describe("the ops management API", () => {
       reason: "insufficient_permissions",
     });
     expect(headers.get("www-authenticate")).toBeNull();
+  });
+
+  /**
+   * @case A refusal of an identity the pipeline swapped in stays a 500 on the ops door
+   * @preconditions Open dispatch tier; route that replaces the caller's identity with .authenticate() and then checks it with a mid-pipeline .validate(authorize({ scopes }))
+   * @expectedResult 500 dispatch failed carrying RC5038, not 403. The refused principal is the instance's, and the internal scope requirement stays off the wire
+   */
+  test("a refusal of an internal replacement identity stays a 500", async () => {
+    const port = await start({
+      tiers: { dispatch: true },
+      routes: [
+        craft()
+          .id("internal")
+          .from(direct())
+          .authenticate(() => ({ subject: "internal-worker", scopes: [] }))
+          .validate(authorize({ scopes: ["internal:write"] }))
+          .to(noop()),
+      ],
+    });
+    const { status, body } = await call<{ error: string; code: string }>(
+      port,
+      "/ops/routes/internal/exchanges",
+      { method: "POST", body: {} },
+    );
+
+    expect(status).toBe(500);
+    expect(body).toEqual({ error: "dispatch failed", code: "RC5038" });
+  });
+
+  /**
+   * @case A mid-pipeline refusal of the admitted caller still maps on the ops door
+   * @preconditions Scope-gated dispatch tier, api-key validator; the operator key carries no roles; the route checks the admin role with a mid-pipeline .validate(authorize())
+   * @expectedResult 403 insufficient_permissions. The refused principal is the one the door admitted
+   */
+  test("a mid-pipeline refusal of the admitted caller answers 403", async () => {
+    const port = await start({
+      auth: keyAuth(),
+      tiers: { dispatch: "ops:dispatch" },
+      routes: [
+        craft()
+          .id("guarded")
+          .from(direct())
+          .validate(authorize({ roles: ["admin"] }))
+          .to(noop()),
+      ],
+    });
+    const { status, body } = await call<{ error: string; reason: string }>(
+      port,
+      "/ops/routes/guarded/exchanges",
+      { method: "POST", key: "operator", body: {} },
+    );
+
+    expect(status).toBe(403);
+    expect(body).toEqual({
+      error: "forbidden",
+      reason: "insufficient_permissions",
+    });
   });
 
   /**
