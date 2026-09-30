@@ -1027,7 +1027,7 @@ Remote instance refused the credential
 The remote answered 401 or 403 to a dispatch on an imported route, so the problem is the identity the dispatch carried and not a fault in the route. The message carries the remote's own reason: no credential was presented (`remotes.<name>.auth.token` is unset or resolved to nothing), the credential was rejected or expired, it is valid but lacks the dispatch tier's or the route's scope, or the route's own `.authorize()` does not permit the identity (`insufficient_permissions`).
 
 **Suggestion**  
-A missing scope needs a token carrying it rather than a new sign-in; the message names the scope. `insufficient_permissions` is a policy decision about who the identity is, which no new token for the same identity changes. When the remote advertises RFC 9728 metadata the message also names who issues acceptable tokens. The credential is read per request when `auth.token` is a function, so a rotated token takes effect on the next call without a restart.
+A missing scope needs a token carrying it rather than a new sign-in; the message names the scope. `insufficient_permissions` means the route's policy does not admit the identity with the claims its credential carries: a retry with the same credential cannot change that, but a refreshed token carrying a newly granted role or claim can. When the remote advertises RFC 9728 metadata the message also names who issues acceptable tokens. The credential is read per request when `auth.token` is a function, so a rotated token takes effect on the next call without a restart.
 
 ## RC5064
 Remote dispatch failed

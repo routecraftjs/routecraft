@@ -435,7 +435,7 @@ export function createOpsHttpClient(
       );
     } else if (status === 403 && wire.reason === "insufficient_permissions") {
       lines.push(
-        "Refused: the route's policy does not permit this identity. The credential is valid, so a new token for the same identity will not change this.",
+        "Refused: the route's policy does not admit this identity with the claims its credential carries (roles, subject, actor or delegation). Retrying with the same credential will not change this; if access has been granted since it was issued, a refreshed token carrying the new claims can.",
       );
     } else if (!presented) {
       lines.push(

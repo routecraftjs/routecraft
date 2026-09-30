@@ -635,7 +635,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Runtime",
     message: "Remote instance refused the credential",
     suggestion:
-      "The remote answered 401 or 403 to a dispatch on an imported route, so the problem is the identity the dispatch carried and not a fault in the route. The message carries the remote's own reason: no credential was presented (`remotes.<name>.auth.token` is unset or resolved to nothing), the credential was rejected or expired, it is valid but lacks the dispatch tier's or the route's scope, which needs a token carrying that scope rather than a new sign-in, or the route's own `.authorize()` does not permit the identity (`insufficient_permissions`), which no new token for the same identity changes. When the remote advertises RFC 9728 metadata the message also names who issues acceptable tokens.",
+      "The remote answered 401 or 403 to a dispatch on an imported route, so the problem is the identity the dispatch carried and not a fault in the route. The message carries the remote's own reason: no credential was presented (`remotes.<name>.auth.token` is unset or resolved to nothing), the credential was rejected or expired, it is valid but lacks the dispatch tier's or the route's scope, which needs a token carrying that scope rather than a new sign-in, or the route's own `.authorize()` does not admit the identity with the claims its credential carries (`insufficient_permissions`), which a retry with the same credential cannot change but a refreshed token carrying newly granted claims can. When the remote advertises RFC 9728 metadata the message also names who issues acceptable tokens.",
     docs: `${DOCS_BASE}#rc-5063`,
     retryable: false,
   },

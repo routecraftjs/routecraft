@@ -756,7 +756,7 @@ describe("the ops management API", () => {
   /**
    * @case A route's role refusal of an admitted caller answers 403
    * @preconditions Scope-gated dispatch tier, api-key validator; the operator key carries the tier scope and no roles; the route authorizes on the admin role
-   * @expectedResult 403 forbidden with reason insufficient_permissions and no challenge. The identity is known and the route's policy does not admit it, which no new credential for the same identity changes
+   * @expectedResult 403 forbidden with reason insufficient_permissions and no challenge. The identity is known and its current claims do not satisfy the route's policy, which a retry with the same credential cannot change
    */
   test("answers 403 when the route's authorize refuses a role", async () => {
     const port = await start({

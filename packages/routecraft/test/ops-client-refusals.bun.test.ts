@@ -79,7 +79,7 @@ describe("ops client caller refusals", () => {
   /**
    * @case A route's role refusal reads as a policy decision, not a bad credential
    * @preconditions The door answers 403 insufficient_permissions with no challenge
-   * @expectedResult A "refused" failure saying the route's policy does not permit the identity and that a new token for it will not help
+   * @expectedResult A "refused" failure saying the identity's current claims do not satisfy the route's policy, that a retry with the same credential will not help, and that a refreshed token carrying newly granted claims can
    */
   test("explains insufficient_permissions", async () => {
     const error = await dispatchAgainst(403, {
@@ -88,8 +88,12 @@ describe("ops client caller refusals", () => {
     });
 
     expect(error.kind).toBe("refused");
-    expect(error.message).toMatch(/route's policy does not permit/);
-    expect(error.message).toMatch(/will not change this/);
+    expect(error.message).toMatch(
+      /route's policy does not admit this identity/,
+    );
+    expect(error.message).toMatch(/claims its credential carries/);
+    expect(error.message).toMatch(/refreshed token carrying the new claims/);
+    expect(error.message).not.toMatch(/new token for the same identity/);
   });
 
   /**
