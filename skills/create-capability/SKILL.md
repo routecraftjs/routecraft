@@ -260,6 +260,10 @@ describe("my-capability", () => {
 
 Errors thrown inside handlers are caught at the boundary and surfaced on `t.errors`; do not expect `t.test()` to reject. Full test pattern: https://routecraft.dev/raw/docs/introduction/testing.md
 
+- **Replace the system, not the route.** A route that reaches a mailbox, an API or a model is tested unchanged, with the adapter swapped: `testContext().override(mockAdapter(http, { send: async () => ({ status: 200, body }) }))`. Do not add a test-only branch or an injectable client to the route to make it testable.
+- **An adapter factory you write tags itself, or it cannot be mocked by factory.** Return `tagAdapter(adapter, myFactory, [args])` from the factory, then `mockAdapter(myFactory, { send })` replaces every instance the route builds. An untagged adapter can still be matched by class, but a plain object enricher has no class to match.
+- **Read what an adapter option does in the installed package before a test depends on it.** Option names read like intent and mean something narrower, and a test written against the name passes while production does something else.
+
 ## Step 5: verify
 
 Run, in this order, until each is clean:
