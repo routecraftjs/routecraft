@@ -111,7 +111,9 @@ export function Footer() {
               </span>
             </div>
             <p className="max-w-xs font-editorial text-[1.05rem] leading-[1.65] text-ink/70">
-              <span className="text-cobalt-500 italic">Built to be used.</span>{' '}
+              <span className="text-cobalt-500 italic">
+                Give your agent hands.
+              </span>{' '}
               The open source AI automation platform where your teams build
               together and share what works.
             </p>
