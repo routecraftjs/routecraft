@@ -4,12 +4,14 @@ import { signHs256, testContext, type TestContext } from "@routecraft/testing";
 import {
   MemoryDeferralStore,
   apiKey,
+  authorize,
   craft,
   jwt,
   cron,
   direct,
   noop,
   opsPlugin,
+  rcError,
   type HttpAuth,
   type OpsPage,
   type OpsRouteDetail,
@@ -725,11 +727,11 @@ describe("the ops management API", () => {
   });
 
   /**
-   * @case A route's own authorize refusal is reported as a dispatch failure, not a door refusal
-   * @preconditions An open dispatch tier and a route demanding a role no caller carries
-   * @expectedResult 500 carrying the framework's error code. The door admitted the caller and the route refused it, and collapsing the two would tell an operator to go fix their credential when the app's policy is what said no
+   * @case A route demanding an identity behind a door with no validator fails as the route's fault
+   * @preconditions An open dispatch tier on a mount with no validator, and a route whose `.authorize()` demands a role
+   * @expectedResult 500 carrying RC5012. No credential the caller could present would be read, so a 401 would send them after something that changes nothing
    */
-  test("reports a route-level authorize refusal separately from a tier refusal", async () => {
+  test("keeps a missing principal a 500 when the door reads no credential", async () => {
     const port = await start({
       tiers: { dispatch: true },
       routes: [
@@ -748,15 +750,214 @@ describe("the ops management API", () => {
 
     expect(status).toBe(500);
     expect(body.error).toBe("dispatch failed");
-    expect(body.code).toBeDefined();
+    expect(body.code).toBe("RC5012");
+  });
+
+  /**
+   * @case A route's role refusal of an admitted caller answers 403
+   * @preconditions Scope-gated dispatch tier, api-key validator; the operator key carries the tier scope and no roles; the route authorizes on the admin role
+   * @expectedResult 403 forbidden with reason insufficient_permissions and no challenge. The identity is known and its current claims do not satisfy the route's policy, which a retry with the same credential cannot change
+   */
+  test("answers 403 when the route's authorize refuses a role", async () => {
+    const port = await start({
+      auth: keyAuth(),
+      tiers: { dispatch: "ops:dispatch" },
+      routes: [
+        craft()
+          .id("guarded")
+          .authorize({ roles: ["admin"] })
+          .from(direct())
+          .to(noop()),
+      ],
+    });
+    const { status, body, headers } = await call<{
+      error: string;
+      reason: string;
+    }>(port, "/ops/routes/guarded/exchanges", {
+      method: "POST",
+      key: "operator",
+      body: {},
+    });
+
+    expect(status).toBe(403);
+    expect(body).toEqual({
+      error: "forbidden",
+      reason: "insufficient_permissions",
+    });
+    expect(headers.get("www-authenticate")).toBeNull();
+  });
+
+  /**
+   * @case A refusal of an identity the pipeline swapped in stays a 500 on the ops door
+   * @preconditions Open dispatch tier; route that replaces the caller's identity with .authenticate() and then checks it with a mid-pipeline .validate(authorize({ scopes }))
+   * @expectedResult 500 dispatch failed carrying RC5038, not 403. The refused principal is the instance's, and the internal scope requirement stays off the wire
+   */
+  test("a refusal of an internal replacement identity stays a 500", async () => {
+    const port = await start({
+      tiers: { dispatch: true },
+      routes: [
+        craft()
+          .id("internal")
+          .from(direct())
+          .authenticate(() => ({ subject: "internal-worker", scopes: [] }))
+          .validate(authorize({ scopes: ["internal:write"] }))
+          .to(noop()),
+      ],
+    });
+    const { status, body } = await call<{ error: string; code: string }>(
+      port,
+      "/ops/routes/internal/exchanges",
+      { method: "POST", body: {} },
+    );
+
+    expect(status).toBe(500);
+    expect(body).toEqual({ error: "dispatch failed", code: "RC5038" });
+  });
+
+  /**
+   * @case A mid-pipeline refusal of the admitted caller still maps on the ops door
+   * @preconditions Scope-gated dispatch tier, api-key validator; the operator key carries no roles; the route checks the admin role with a mid-pipeline .validate(authorize())
+   * @expectedResult 403 insufficient_permissions. The refused principal is the one the door admitted
+   */
+  test("a mid-pipeline refusal of the admitted caller answers 403", async () => {
+    const port = await start({
+      auth: keyAuth(),
+      tiers: { dispatch: "ops:dispatch" },
+      routes: [
+        craft()
+          .id("guarded")
+          .from(direct())
+          .validate(authorize({ roles: ["admin"] }))
+          .to(noop()),
+      ],
+    });
+    const { status, body } = await call<{ error: string; reason: string }>(
+      port,
+      "/ops/routes/guarded/exchanges",
+      { method: "POST", key: "operator", body: {} },
+    );
+
+    expect(status).toBe(403);
+    expect(body).toEqual({
+      error: "forbidden",
+      reason: "insufficient_permissions",
+    });
+  });
+
+  /**
+   * @case A route's scope refusal answers in the tier check's own shape
+   * @preconditions Scope-gated dispatch tier behind jwt(); the bearer carries the tier scope and not the route's billing:write
+   * @expectedResult 403 with reason insufficient_scope naming billing:write, and an RFC 6750 insufficient_scope challenge carrying the scope and the resource_metadata hint
+   */
+  test("answers 403 insufficient_scope when the route's authorize lacks a scope", async () => {
+    const port = await start({
+      auth: jwt({
+        secret: JWT_SECRET,
+        issuer: JWT_ISSUER,
+        audience: JWT_AUDIENCE,
+      }),
+      tiers: { dispatch: "ops:dispatch" },
+      routes: [
+        craft()
+          .id("billing")
+          .authorize({ scopes: ["billing:write"] })
+          .from(direct())
+          .to(noop()),
+      ],
+    });
+    const res = await fetch(
+      `http://127.0.0.1:${String(port)}/ops/routes/billing/exchanges`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${signHs256({
+            secret: JWT_SECRET,
+            claims: { scope: "ops:dispatch" },
+          })}`,
+        },
+        body: "{}",
+      },
+    );
+
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      error: "forbidden",
+      reason: "insufficient_scope",
+      scope: "billing:write",
+    });
+    const challenge = res.headers.get("www-authenticate") ?? "";
+    expect(challenge).toMatch(/^Bearer /);
+    expect(challenge).toContain('error="insufficient_scope"');
+    expect(challenge).toContain('scope="billing:write"');
+    expect(challenge).toContain("resource_metadata=");
+  });
+
+  /**
+   * @case A route demanding an identity on an open tier with a validator answers 401 to a credential-free caller
+   * @preconditions Open dispatch tier on a mount with an api-key validator; no key presented; the route authorizes on a role
+   * @expectedResult The door's own missing-credential 401 and an auth:rejected event. A credential would have been read, so the caller can fix this, unlike the no-validator case
+   */
+  test("answers 401 when a credential-free caller reaches a route that needs one", async () => {
+    const rejected: unknown[] = [];
+    const port = await start({
+      auth: keyAuth(),
+      tiers: { dispatch: true },
+      routes: [
+        craft()
+          .id("guarded")
+          .authorize({ roles: ["admin"] })
+          .from(direct())
+          .to(noop()),
+      ],
+    });
+    t?.ctx.on("auth:rejected", ({ details }) => {
+      rejected.push(details);
+    });
+    const { status, body } = await call<{ error: string; reason: string }>(
+      port,
+      "/ops/routes/guarded/exchanges",
+      { method: "POST", body: {} },
+    );
+
+    expect(status).toBe(401);
+    expect(body).toEqual({ error: "unauthorized", reason: "missing api key" });
+    expect(rejected).toHaveLength(1);
+  });
+
+  /**
+   * @case A step that throws an authorization code is not mistaken for a refusal
+   * @preconditions Open dispatch tier; a route with no authorize() whose transform throws RC5015 itself, as an adapter does for an upstream permission failure
+   * @expectedResult 500 dispatch failed with RC5015. Only a refusal authorize() raised is the caller's; the same code from a step is the instance's
+   */
+  test("keeps a step's own RC5015 a 500", async () => {
+    const port = await start({
+      tiers: { dispatch: true },
+      routes: [
+        craft()
+          .id("upstream")
+          .from(direct())
+          .transform(() => {
+            throw rcError("RC5015", new Error("upstream said no"));
+          })
+          .to(noop()),
+      ],
+    });
+    const { status, body } = await call<{ error: string; code: string }>(
+      port,
+      "/ops/routes/upstream/exchanges",
+      { method: "POST", body: {} },
+    );
+
+    expect(status).toBe(500);
+    expect(body).toEqual({ error: "dispatch failed", code: "RC5015" });
   });
 
   /**
    * @case A body that fails the route's input schema is refused as a client error
    * @preconditions An open dispatch tier and a route whose `.input()` rejects the posted body
-   * @expectedResult 400 with RC5065 and the validation message. A 500 would call the caller's own malformed payload an instance fault, and RC5065 is not retryable, so a client honouring the status would retry a request that can never succeed
+   * @expectedResult 400 with RC5065, the failing part and one issue per schema issue, and no free-text message. A 500 would call the caller's own malformed payload an instance fault, and RC5065 is not retryable, so a client honouring the status would retry a request that can never succeed
    */
-  test("answers 400 with the reason when the posted body fails input validation", async () => {
+  test("answers 400 with the issues when the posted body fails input validation", async () => {
     const port = await start({
       tiers: { dispatch: true },
       routes: [
@@ -770,7 +971,9 @@ describe("the ops management API", () => {
     const { status, body } = await call<{
       error: string;
       code: string;
-      message: string;
+      in: string;
+      issues: { path?: string; message: string }[];
+      message?: string;
     }>(port, "/ops/routes/strict/exchanges", {
       method: "POST",
       body: { userId: 42 },
@@ -779,10 +982,73 @@ describe("the ops management API", () => {
     expect(status).toBe(400);
     expect(body.error).toBe("bad request");
     expect(body.code).toBe("RC5065");
-    // The caller cannot act on "validation failed"; the field and the rule are
-    // the whole value of sending a message at all.
-    expect(body.message).toContain("strict");
-    expect(body.message).toContain("userId");
+    expect(body.in).toBe("body");
+    expect(body.issues).toHaveLength(1);
+    expect(body.issues[0]!.path).toBe("userId");
+    expect(typeof body.issues[0]!.message).toBe("string");
+    expect(body.message).toBeUndefined();
+    expect(JSON.stringify(body)).not.toContain("strict");
+  });
+
+  /**
+   * @case An input failure raised by a route the dispatched one calls stays a server fault
+   * @preconditions An open dispatch tier; the dispatched route accepts anything and forwards a body the callee's `.input()` refuses
+   * @expectedResult 500 with RC5065 and no issues. What the callee refused was the outer route's output, which the caller never sent, and its schema issues are the instance's to see
+   */
+  test("keeps a nested route's input failure a 500", async () => {
+    const port = await start({
+      tiers: { dispatch: true },
+      routes: [
+        craft()
+          .id("outer")
+          .from(direct())
+          .transform(() => ({ userId: 42 }))
+          .to(direct("inner")),
+        craft()
+          .id("inner")
+          .input({ body: z.object({ userId: z.string() }) })
+          .from(direct())
+          .to(noop()),
+      ],
+    });
+    const { status, body } = await call<{
+      error: string;
+      code: string;
+      issues?: unknown;
+    }>(port, "/ops/routes/outer/exchanges", { method: "POST", body: {} });
+
+    expect(status).toBe(500);
+    expect(body.error).toBe("dispatch failed");
+    expect(body.code).toBe("RC5065");
+    expect(body.issues).toBeUndefined();
+  });
+
+  /**
+   * @case An RC5065 that .input() did not raise stays a server fault
+   * @preconditions An open dispatch tier; a route with no .input() whose step throws a bare rcError("RC5065")
+   * @expectedResult 500 dispatch failed with RC5065. Without the structured detail for the dispatched route the code says nothing about what the caller sent
+   */
+  test("keeps a bare RC5065 from a step a 500", async () => {
+    const port = await start({
+      tiers: { dispatch: true },
+      routes: [
+        craft()
+          .id("bare")
+          .from(direct())
+          .transform(() => {
+            throw rcError("RC5065", new Error("x"));
+          })
+          .to(noop()),
+      ],
+    });
+    const { status, body } = await call<{ error: string; code: string }>(
+      port,
+      "/ops/routes/bare/exchanges",
+      { method: "POST", body: {} },
+    );
+
+    expect(status).toBe(500);
+    expect(body).toEqual({ error: "dispatch failed", code: "RC5065" });
   });
 
   /**

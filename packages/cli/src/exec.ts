@@ -36,7 +36,7 @@ export const EXEC_EXIT = {
   usage: 2,
   /** No instance could be reached. */
   unreachable: 3,
-  /** The door refused: missing credential, bad credential, missing scope. */
+  /** The door or the route's own `.authorize()` refused: missing, bad or expired credential, missing scope, an identity the route does not permit. */
   refused: 4,
 } as const;
 
@@ -246,10 +246,10 @@ function dispatchBlame(
   const detail = error.detail as
     { code?: string; message?: string } | undefined;
   if (error.kind !== "absent") {
-    return withNextStep(error.message, detail?.code, route, settings);
+    return withNextStep(error, detail?.code, route, settings);
   }
   if (detail?.code !== undefined) {
-    return withNextStep(error.message, detail.code, route, settings);
+    return withNextStep(error, detail.code, route, settings);
   }
   return [
     `The instance at ${settings.url.value} (from the ${describeSource(settings.url)}) did not accept a dispatch to "${route}".`,
@@ -274,18 +274,21 @@ function dispatchBlame(
  * to know the sentence exists at all, let alone that it is in the
  * instance's log.
  *
- * `RC5065` gets a better answer than "read the log", because the answer is
- * local: the payload failed the route's own `.input()` schema, and
- * `craft ops routes <id>` prints that schema.
+ * `RC5065` answered with 400 gets a better answer than "read the log",
+ * because the answer is local: the payload failed the route's own `.input()`
+ * schema, and `craft ops routes <id>` prints that schema. An RC5065 answered
+ * with 500 came from a route the dispatched one called, which the caller's
+ * payload never reached, so it reads like any other route failure.
  */
 function withNextStep(
-  message: string,
+  error: OpsClientError,
   code: string | undefined,
   route: string,
   settings: ResolvedSettings,
 ): string {
+  const message = error.message;
   if (code === undefined) return message;
-  if (code === "RC5065") {
+  if (code === "RC5065" && error.status === 400) {
     return [
       message,
       "",

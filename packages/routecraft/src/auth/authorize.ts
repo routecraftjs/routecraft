@@ -1,4 +1,4 @@
-import type { Exchange } from "../exchange.ts";
+import { HeadersKeys, type Exchange } from "../exchange.ts";
 import { rcError, type RoutecraftError } from "../error.ts";
 import type { CallableValidator } from "../operations/validate.ts";
 import { isAuthentic } from "./authentic.ts";
@@ -42,6 +42,77 @@ export interface InsufficientAuthority extends Error {
      */
     mode?: "all" | "any";
   };
+}
+
+/**
+ * Refusals raised by an {@link authorize} check, keyed to the id of the
+ * route whose exchange was refused.
+ *
+ * A module-private `WeakMap` rather than a property brand, for the reason
+ * `authentic.ts` gives: membership cannot be enumerated, read back, or
+ * copied onto another object. The codes `authorize()` throws are shared
+ * with adapters that raise them for upstream or operator faults (an IMAP
+ * login refused, a delegation misconfigured), so the code alone cannot say
+ * whether the caller was refused. Only the origin can, and a copyable brand
+ * would let any step dress its own failure up as the caller's.
+ *
+ * The route id and the refused principal ride along because a refusal
+ * can be about someone other than the caller. A route calling another
+ * through `direct()` receives the callee's refusal as its own step failure,
+ * and a pipeline that swaps in an identity of its own (`.authenticate()`, a
+ * delegation) and then checks it refused the instance, not the caller.
+ */
+interface RefusalOrigin {
+  routeId: string | undefined;
+  principal: Principal | undefined;
+}
+
+const refusals = new WeakMap<object, RefusalOrigin>();
+
+function refusal(
+  exchange: Exchange<unknown>,
+  error: RoutecraftError,
+): RoutecraftError {
+  // The validator is public and callable on a hand-built exchange-like
+  // object, which may carry no headers at all.
+  const headers = exchange.headers as Exchange["headers"] | undefined;
+  const routeId = headers?.[HeadersKeys.ROUTE_ID];
+  refusals.set(error, {
+    routeId: typeof routeId === "string" ? routeId : undefined,
+    principal: headers?.[HeadersKeys.AUTH_PRINCIPAL] as Principal | undefined,
+  });
+  return error;
+}
+
+/**
+ * Whether `error` is a refusal raised by an {@link authorize} check, as
+ * opposed to the same code thrown by anything else.
+ *
+ * Doors use this to answer a refusal with a client status (401 / 403)
+ * while an adapter's `RC5012` for a rejected upstream login stays a server
+ * fault. With `caller`, only a refusal of that caller counts: raised on an
+ * exchange of the route the door dispatched, about the very principal the
+ * door admitted (compared by reference, the way identity is carried per
+ * hop). A refusal raised further down the call chain, or of an identity the
+ * pipeline substituted, is the instance's fault and does not match.
+ *
+ * @param error - Any thrown value
+ * @param caller - The route the door dispatched and the principal it
+ *   admitted (`undefined` when it admitted none)
+ * @returns `true` when `authorize()` raised this exact error object, for
+ *   `caller` when given
+ */
+export function isAuthorizationRefusal(
+  error: unknown,
+  caller?: { routeId: string; principal: Principal | undefined },
+): error is RoutecraftError {
+  if (typeof error !== "object" || error === null) return false;
+  const origin = refusals.get(error);
+  if (origin === undefined) return false;
+  return (
+    caller === undefined ||
+    (origin.routeId === caller.routeId && origin.principal === caller.principal)
+  );
 }
 
 /**
@@ -288,6 +359,10 @@ function actorAllowed(
  * Throws `RC2001` when the validator is built with an empty `anyScope`,
  * which would name an accepted set that admits nobody.
  *
+ * Every refusal is recognisable through {@link isAuthorizationRefusal}, which
+ * is how the `http()` source and the ops dispatch door answer a refusal of
+ * the route they dispatched with 401 or 403 rather than 500.
+ *
  * Most routes should declare authorization at the route boundary using the
  * pre-from `.authorize()` builder method, which wires this validator as a
  * route-entry guard. Use this function directly with `.validate(...)` only
@@ -362,9 +437,11 @@ export function authorize(
     });
   }
   return (exchange: Exchange<unknown>) => {
+    const refuse = (...args: Parameters<typeof rcError>): RoutecraftError =>
+      refusal(exchange, rcError(...args));
     const principal = exchange.principal;
     if (!principal) {
-      throw rcError("RC5012", new Error("No authenticated principal"), {
+      throw refuse("RC5012", new Error("No authenticated principal"), {
         message: "Authorization failed: no authenticated principal",
         suggestion:
           "Configure auth on the source so it emits a Principal (e.g. mcp({ auth: jwt(...) })). For a mid-pipeline check, mint a principal with the .authenticate() operation (or the authenticate() helper) before authorize().",
@@ -382,7 +459,7 @@ export function authorize(
     // differs: a restored identity needs re-verification against the live
     // credential, not a mint.
     if (isRestored(principal)) {
-      throw rcError(
+      throw refuse(
         "RC5043",
         new Error("Principal was restored from a deferral"),
         {
@@ -395,7 +472,7 @@ export function authorize(
     }
 
     if (!isAuthentic(principal)) {
-      throw rcError("RC5023", new Error("Principal is not authentic"), {
+      throw refuse("RC5023", new Error("Principal is not authentic"), {
         message:
           "Authorization failed: principal was not established by a trusted origin",
         suggestion:
@@ -407,7 +484,7 @@ export function authorize(
     // on the shared predicate so this gate and the HTTP bearer middleware can
     // never disagree by a second.
     if (isPrincipalExpired(principal, clockToleranceSec)) {
-      throw rcError("RC5020", new Error("Token expired"), {
+      throw refuse("RC5020", new Error("Token expired"), {
         message: "Authorization failed: token expired during processing",
         suggestion:
           "The token's `exp` is in the past (or `expiresAt` / `clockToleranceSec` was non-finite). A long-running step likely outlived the credential; the client should refresh and retry. To recover in-route, restructure the pipeline so authorize() runs before the slow step or attach a fresh principal in a .process() before the validator.",
@@ -419,7 +496,7 @@ export function authorize(
     // decision must not leak which roles would have sufficed.
     const currentActor = principal.actor;
     if (!actorAllowed(actorSpec, currentActor, principal)) {
-      throw rcError(
+      throw refuse(
         "RC5034",
         new Error(
           currentActor === undefined
@@ -444,7 +521,7 @@ export function authorize(
       // so a misconfigured limit (e.g. Number(unsetEnvVar)) would silently
       // accept a chain of any depth instead of rejecting it.
       if (!Number.isFinite(maxDelegationDepth) || depth > maxDelegationDepth) {
-        throw rcError(
+        throw refuse(
           "RC5036",
           new Error(
             `Delegation depth ${depth} exceeds maximum ${maxDelegationDepth}`,
@@ -464,7 +541,7 @@ export function authorize(
           ? subjectSpec(principal)
           : subjectMatches(principal, subjectSpec);
       if (!ok) {
-        throw rcError("RC5035", new Error("Subject not permitted"), {
+        throw refuse("RC5035", new Error("Subject not permitted"), {
           message: `Authorization failed: subject "${principal.subject}" is not permitted by this route's subject constraint`,
           suggestion:
             "Check the route's authorize({ subject }) constraint (subject id, issuer, profile) against the caller's identity.",
@@ -476,7 +553,7 @@ export function authorize(
       const granted = new Set(principal.roles ?? []);
       const missing = roles.filter((r) => !granted.has(r));
       if (missing.length > 0) {
-        throw rcError(
+        throw refuse(
           "RC5015",
           new Error(`Missing required roles: ${missing.join(", ")}`),
           {
@@ -492,18 +569,20 @@ export function authorize(
       const granted = grantedScopes(principal, effective);
       if (scopes && scopes.length > 0) {
         const missing = scopes.filter((scope) => !granted.has(scope));
-        if (missing.length > 0) throw insufficientScope(missing, "all");
+        if (missing.length > 0) {
+          throw refusal(exchange, insufficientScope(missing, "all"));
+        }
       }
       if (
         anyScope !== undefined &&
         !anyScope.some((scope) => granted.has(scope))
       ) {
-        throw insufficientScope([...anyScope], "any");
+        throw refusal(exchange, insufficientScope([...anyScope], "any"));
       }
     }
 
     if (predicate && !predicate(principal)) {
-      throw rcError("RC5015", new Error("Principal failed predicate check"), {
+      throw refuse("RC5015", new Error("Principal failed predicate check"), {
         message: "Authorization failed: principal failed predicate check",
         suggestion:
           "Adjust the predicate or the principal's claims so the check passes.",

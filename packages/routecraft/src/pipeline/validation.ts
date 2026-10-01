@@ -179,10 +179,70 @@ export async function applyOutputStage<
 }
 
 /**
+ * Machine-readable detail attached to an `RC5065` error's cause: which part
+ * of the input failed the route's `.input()` schema, and the schema's own
+ * issues. Read it off `error.cause` through {@link isInputValidationFailure}
+ * to build a structured rejection instead of parsing the message:
+ *
+ * ```ts
+ * if (isInputValidationFailure(err.cause)) {
+ *   for (const issue of err.cause.invalid.issues) report(issue.path, issue.message)
+ * }
+ * ```
+ *
+ * The http doors (the `http()` source and the ops dispatch mount) send
+ * `in` and each issue's path and message to the caller, so issue messages
+ * are client-facing: a schema author's custom message reaches the wire
+ * verbatim.
+ *
+ * In-process only, like `InsufficientAuthority`: `RoutecraftError.toJSON()`
+ * serialises the cause's message and stack, not its own properties.
+ */
+export interface InputValidationFailure extends Error {
+  invalid: {
+    /** Which part of the input the schema refused. */
+    in: "body" | "headers";
+    /** The schema's issues, as it returned them. */
+    issues: readonly StandardSchemaV1.Issue[];
+    /**
+     * The route whose `.input()` refused. A route calling another through
+     * `direct()` receives the callee's RC5065 as its own step failure, and
+     * what the callee refused was the caller route's output, not input
+     * anyone outside supplied.
+     */
+    routeId: string;
+  };
+}
+
+/**
+ * Whether `value` (typically an RC5065 error's `cause`) carries the
+ * {@link InputValidationFailure} detail.
+ *
+ * @param value - Any value, usually `error.cause`
+ * @returns `true` when the value is an Error carrying a well-formed `invalid` detail
+ */
+export function isInputValidationFailure(
+  value: unknown,
+): value is InputValidationFailure {
+  if (!(value instanceof Error)) return false;
+  const invalid = (value as { invalid?: unknown }).invalid;
+  if (typeof invalid !== "object" || invalid === null) return false;
+  const detail = invalid as Record<string, unknown>;
+  return (
+    (detail["in"] === "body" || detail["in"] === "headers") &&
+    Array.isArray(detail["issues"]) &&
+    typeof detail["routeId"] === "string"
+  );
+}
+
+/**
  * Validate an exchange against the route's `input` schemas, throwing
  * `RC5065` on failure without emitting any lifecycle events: the caller
  * is a chain step inside `runPipeline`, so the failure becomes a normal
  * step failure (`route:step:failed` -> the error-handler-or-failed path).
+ *
+ * The error's cause is an {@link InputValidationFailure} naming the part
+ * that failed and the schema's issues.
  *
  * On success returns a (possibly new) exchange with validated / coerced
  * values; validated headers are merged over the originals so caller
@@ -203,18 +263,31 @@ export async function validateInputOrThrow(
   if (schemas.body) {
     const res = await validateAgainst(schemas.body, current.body);
     if (!res.ok) {
-      throw rcError("RC5065", new Error(res.message), {
-        message: `Body validation failed for route "${deps.routeId}": ${res.message}`,
-      });
+      throw rcError(
+        "RC5065",
+        inputValidationFailure(res.message, "body", res.issues, deps.routeId),
+        {
+          message: `Body validation failed for route "${deps.routeId}": ${res.message}`,
+        },
+      );
     }
     current = DefaultExchange.rewrap(current, { body: res.value });
   }
   if (schemas.headers) {
     const res = await validateAgainst(schemas.headers, current.headers);
     if (!res.ok) {
-      throw rcError("RC5065", new Error(res.message), {
-        message: `Header validation failed for route "${deps.routeId}": ${res.message}`,
-      });
+      throw rcError(
+        "RC5065",
+        inputValidationFailure(
+          res.message,
+          "headers",
+          res.issues,
+          deps.routeId,
+        ),
+        {
+          message: `Header validation failed for route "${deps.routeId}": ${res.message}`,
+        },
+      );
     }
     const headerValue = res.value as ExchangeHeaders | undefined;
     if (headerValue !== undefined) {
@@ -224,6 +297,17 @@ export async function validateInputOrThrow(
     }
   }
   return current;
+}
+
+function inputValidationFailure(
+  message: string,
+  part: "body" | "headers",
+  issues: readonly StandardSchemaV1.Issue[],
+  routeId: string,
+): InputValidationFailure {
+  return Object.assign(new Error(message), {
+    invalid: { in: part, issues, routeId },
+  });
 }
 
 /**
