@@ -361,8 +361,9 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    * handler's recovery scope.
    *
    * @param options Optional `{ key, ttl, provider }`. Defaults: a key
-   *   namespaced by route id, this cache's site in the route, and the
-   *   principal's issuer and subject (with its actor chain), then a SHA-256 of
+   *   namespaced by route id (plus, at step scope, this cache's site in the
+   *   route) and the principal's issuer and subject (with its actor chain),
+   *   then a SHA-256 of
    *   `JSON.stringify(body)` (see {@link CacheOptions.key}; a bodiless
    *   exchange needs an explicit `key`, used verbatim); no TTL;
    *   process-wide in-memory provider.

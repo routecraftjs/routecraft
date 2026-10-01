@@ -671,7 +671,7 @@ Supply an explicit `key` function that returns a stable string identifier. A cus
 })
 ```
 
-Drop the principal only when every caller sees the same answer. See [cache key](/docs/reference/operations/cache#cache-key).
+Drop the principal only when every caller sees the same answer. On a route that admits delegation, add the current actor (`e.principal?.actor?.issuer`, `e.principal?.actor?.subject`) as well. See [cache key](/docs/reference/operations/cache#cache-key).
 
 This error is not retryable: the same exchange fails key derivation the same way every time.
 

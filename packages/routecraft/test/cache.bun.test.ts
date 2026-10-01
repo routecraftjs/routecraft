@@ -1936,6 +1936,49 @@ describe(".cache() default key identity", () => {
   });
 
   /**
+   * @case The default key terminates on a self-referential actor chain
+   * @preconditions Step-scope .cache(); the source emits the same body twice under a principal whose actor is itself
+   * @expectedResult Key derivation completes; the repeat is a hit, so the step runs once
+   */
+  test("step scope keys a self-referential actor chain", async () => {
+    const cyclic: Principal & { actor?: Principal } = {
+      kind: "custom",
+      scheme: "bearer",
+      issuer: "https://idp.test",
+      subject: "alice",
+    };
+    cyclic.actor = cyclic;
+    const authentic = markAuthentic(cyclic);
+    const source: Source<string> = {
+      subscribe: async (sub) => {
+        for (let i = 0; i < 2; i++) {
+          await sub.emit({
+            message: "same",
+            headers: { "routecraft.auth.principal": authentic },
+          });
+        }
+      },
+    };
+    let runs = 0;
+    const sink = spy();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("key-step-cyclic-actor")
+          .from(source)
+          .cache({ provider: new MemoryCacheProvider() })
+          .process((ex) => DefaultExchange.rewrap(ex, { body: ++runs }))
+          .to(sink),
+      )
+      .build();
+    await t.test();
+
+    expect(runs).toBe(1);
+    expect(sink.received.map((e) => e.body)).toEqual([1, 1]);
+  });
+
+  /**
    * @case A custom key is used verbatim, so routes sharing a provider share its entries
    * @preconditions Two routes with the same constant custom key on one provider
    * @expectedResult The second route receives the first route's cached result without running its pipeline

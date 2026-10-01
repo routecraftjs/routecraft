@@ -55,7 +55,9 @@ export interface CacheOptions<Current = unknown> {
    * does every caller, so put the route (`ex.headers[HeadersKeys.ROUTE_ID]`)
    * and the caller's identity (`ex.principal?.issuer` and `subject`) in
    * the key, and drop the principal only when every caller sees the same
-   * answer.
+   * answer. On a route that admits delegation, add the current actor
+   * (`ex.principal?.actor?.issuer` and `subject`) as well, or two delegates
+   * acting for the same subject share entries.
    *
    * Performance: the default hashes a JSON serialisation of the body on
    * every exchange. For hot paths or large bodies (file contents, large
@@ -199,7 +201,14 @@ function principalIdentity(
 ): Array<[string | null, string]> | null {
   if (!principal) return null;
   const chain: Array<[string | null, string]> = [];
-  for (let hop: Principal | undefined = principal; hop; hop = hop.actor) {
+  // A hand-assembled self-referential actor chain would otherwise spin here.
+  const seen = new Set<Principal>();
+  for (
+    let hop: Principal | undefined = principal;
+    hop && !seen.has(hop);
+    hop = hop.actor
+  ) {
+    seen.add(hop);
     chain.push([hop.issuer ?? null, hop.subject]);
   }
   return chain;
