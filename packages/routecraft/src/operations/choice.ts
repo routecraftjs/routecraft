@@ -369,6 +369,7 @@ export class ChoiceStep<In = unknown> implements Step<ChoiceAdapter> {
     return this.branches.map((branch) => ({
       steps: branch.steps,
       rejoins: true,
+      predicate: branch.predicate,
     }));
   }
 

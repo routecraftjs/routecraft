@@ -241,15 +241,17 @@ export function stepDefinitionFingerprint(step: Step<Adapter>): string {
 }
 
 /**
- * Digest of a wrapper's options, as its `describeOptions()` reports them.
- * The same projection a step's adapter options go through, so callables
- * contribute their verbatim source and anything the projection cannot
- * represent collapses to its stable placeholder.
+ * Digest of a definition value that lives outside a step's adapter: a
+ * wrapper's options as its `describeOptions()` reports them, or the
+ * predicate selecting a `.choice()` branch. The same projection a step's
+ * adapter options go through, so callables contribute their verbatim
+ * source and anything the projection cannot represent collapses to its
+ * stable placeholder.
  *
  * @internal
  */
-export function wrapperOptionsFingerprint(options: unknown): string {
-  return sha256(canonical(describable(options)));
+export function definitionFingerprint(value: unknown): string {
+  return sha256(canonical(describable(value)));
 }
 
 /**

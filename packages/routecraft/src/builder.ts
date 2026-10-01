@@ -84,6 +84,7 @@ import { authorize, type AuthorizeOptions } from "./auth/authorize.ts";
 import {
   type CacheOptions,
   assignCacheSites,
+  pipelineFingerprint,
   resolveCacheOptions,
   type ResolvedCacheOptions,
 } from "./operations/cache-wrapper.ts";
@@ -1918,6 +1919,9 @@ export class RouteBuilder<
       if (usesResume(route)) route.usesResume = true;
       assertRouteScopeCacheCompatibility(route);
       const stepScopeDefaultKey = assignCacheSites(route);
+      if (route.postParseFilters.some((f) => f.label === "cache-check")) {
+        route.cachePipeline = pipelineFingerprint(route.steps);
+      }
       const routeScopeDefaultKey = this.unnamedRoutes.get(route);
       if (
         routeScopeDefaultKey !== undefined &&

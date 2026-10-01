@@ -16,6 +16,10 @@ import {
 } from "../adapters/shared/parse.ts";
 import type { Adapter, Step } from "../types.ts";
 import {
+  pipelineFingerprint,
+  type ResolvedCacheOptions,
+} from "../operations/cache-wrapper.ts";
+import {
   ThrottleController,
   throttleEmitHooks,
   type ResolvedThrottleOptions,
@@ -275,7 +279,7 @@ const CACHE_STORE_STEP_ADAPTER: Adapter = {
  * signature may change without notice.
  */
 export function buildCacheCheckStep(
-  cacheConfig: import("../operations/cache-wrapper.ts").ResolvedCacheOptions,
+  cacheConfig: ResolvedCacheOptions,
 ): Step<Adapter> {
   return {
     operation: OperationType.PROCESS,
@@ -295,7 +299,12 @@ export function buildCacheCheckStep(
 
       let key: string;
       try {
-        key = cacheConfig.key(exchange, { kind: "route", routeId });
+        // A definition that skipped `RouteBuilder.build()` has no stored
+        // fingerprint; deriving it here keeps the key deterministic.
+        const pipeline =
+          route?.definition.cachePipeline ??
+          pipelineFingerprint(route?.definition.steps ?? []);
+        key = cacheConfig.key(exchange, { kind: "route", routeId, pipeline });
       } catch (err) {
         context?.emit("route:cache:failed", {
           routeId,
@@ -407,7 +416,7 @@ export function buildCacheCheckStep(
  * signature may change without notice.
  */
 export function buildCacheStoreStep(
-  cacheConfig: import("../operations/cache-wrapper.ts").ResolvedCacheOptions,
+  cacheConfig: ResolvedCacheOptions,
 ): Step<Adapter> {
   return {
     operation: OperationType.PROCESS,
