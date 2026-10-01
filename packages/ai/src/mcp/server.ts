@@ -53,6 +53,7 @@ import {
   resolveCorsOptions,
 } from "./cors.ts";
 import { ROUTECRAFT_DEFAULT_ICONS } from "./default-icon.ts";
+import { toolFailureText } from "./tool-failure.ts";
 import { buildEnrichedVerifier } from "./userinfo.ts";
 import { loadMcpServerSdk, loadMcpServerStdioSdk } from "./sdk.ts";
 import {
@@ -139,27 +140,6 @@ function toolErrorLogMessage(error: unknown): string {
       : String(error);
 }
 
-/**
- * Client-facing message for a failed tool call: the RC message plus the
- * cause when the cause adds something, and never stack traces or internal
- * details.
- *
- * Each piece of text appears once. A plain error thrown by a step reaches
- * here as RC5001 with the error itself as the cause and its message as the
- * RC message, and several core sites embed the cause's text in the RC
- * message they build, so appending the cause blindly repeated the same
- * text in every such tool error. Derived from the error alone so a caller
- * cannot hand it a message the containment test was never meant for.
- */
-function toolErrorUserMessage(error: unknown): string {
-  const message = toolErrorLogMessage(error);
-  if (!isRoutecraftError(error)) return message;
-  const cause = (error as { cause?: Error }).cause?.message;
-  if (!cause || message.includes(cause)) return message;
-  if (cause.includes(message)) return cause;
-  return `${message}: ${cause}`;
-}
-
 /** The wire result for a tool call that did not answer, a decline or a failure. */
 function toolErrorResult(text: string): McpToolCallResult {
   return { content: [{ type: "text", text: `Error: ${text}` }], isError: true };
@@ -237,6 +217,12 @@ export class McpServer {
   private serverInfo: SdkServerInfo | null = null;
   private serverOptions: SdkServerOptions | null = null;
   private running = false;
+  /**
+   * The HTTP mount has a validator, so a call without a principal could
+   * have carried one. Decides whether a route's missing-principal refusal
+   * is the caller's to fix; stdio carries no credentials and leaves it off.
+   */
+  private acceptsCredentials = false;
   private boundPort: number | undefined;
   private readonly stopListeningForServer: () => void;
   private toolsListLogged = false;
@@ -481,6 +467,13 @@ export class McpServer {
     const path = normalizeMcpPath(this.options.path);
     const metadataPath = `${PROTECTED_RESOURCE_METADATA_PATH}${path}`;
     const ingress = requireWebIngress(this.context, this.options.server);
+    const mountAuth =
+      this.options.auth === undefined ||
+      this.options.auth === false ||
+      verifier === null
+        ? this.options.auth
+        : { ...this.options.auth, validator: verifier };
+    this.acceptsCredentials = ingress.resolveMountAuth(mountAuth).configured;
     this.mcpHandler = createMcpHandler(
       (requestContext) =>
         this.createServerInstance(
@@ -514,14 +507,7 @@ export class McpServer {
       // Streamable HTTP holds the GET channel open and legitimately quiet;
       // without the exemption Bun's idle reaper would cut it at 255s.
       longLived: true,
-      ...(this.options.auth !== undefined
-        ? {
-            auth:
-              this.options.auth === false || verifier === null
-                ? this.options.auth
-                : { ...this.options.auth, validator: verifier },
-          }
-        : {}),
+      ...(mountAuth !== undefined ? { auth: mountAuth } : {}),
       claims: () => claims,
       handler: async (request, mountContext) => {
         const pathname = new URL(request.url).pathname;
@@ -1257,6 +1243,7 @@ export class McpServer {
     args: Record<string, unknown>,
     principal: Principal | undefined,
   ): Promise<McpToolCallResult> {
+    let admitted: Principal | undefined;
     try {
       // Normalize args once for both the local and proxied paths (the SDK
       // may pass a parsed object or a raw JSON string). MCP tool arguments
@@ -1297,7 +1284,8 @@ export class McpServer {
         [McpHeadersKeys.REQUEST]: crypto.randomUUID(),
       };
       if (principal) {
-        headers[HeadersKeys.AUTH_PRINCIPAL] = markAuthentic(principal);
+        admitted = markAuthentic(principal);
+        headers[HeadersKeys.AUTH_PRINCIPAL] = admitted;
       }
 
       const exchange = new DefaultExchange(this.context, {
@@ -1371,7 +1359,15 @@ export class McpServer {
         error: logMsg,
       });
 
-      return toolErrorResult(toolErrorUserMessage(error));
+      return toolErrorResult(
+        toolFailureText(toolName, error, {
+          // A local tool's name is its route id.
+          routeId: toolName,
+          principal: admitted,
+          credentialCouldHelp:
+            this.acceptsCredentials && admitted === undefined,
+        }),
+      );
     }
   }
 

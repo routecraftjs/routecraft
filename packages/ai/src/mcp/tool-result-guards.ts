@@ -6,6 +6,7 @@ import {
   validateAgainst,
   wasOutputValidated,
   type Exchange,
+  type OutputValidationFailure,
 } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { McpLocalToolEntry } from "./types.ts";
@@ -67,7 +68,9 @@ export function declinedError(
 /**
  * Enforce the tool's advertised output schema against the body about to be
  * published, throwing AI2001 when no advertised arm accepts it, and returning
- * the body to publish.
+ * the body to publish. The error's cause carries every arm's issues as an
+ * `OutputValidationFailure`, the same detail a route's own `.output()` check
+ * attaches, so the server reports both the same way.
  *
  * A client is entitled to parse `structuredContent` against the schema
  * `tools/list` advertised, so publishing an unchecked body is a protocol
@@ -101,13 +104,18 @@ export async function enforceAdvertisedOutput(
   if (isDeferred(exchange.body)) return exchange.body;
 
   const failures: string[] = [];
+  const issues: StandardSchemaV1.Issue[] = [];
   for (const arm of arms) {
     const result = await validateAgainst(arm, exchange.body);
     if (result.ok) return result.value;
     failures.push(result.message);
+    issues.push(...result.issues);
   }
 
-  throw rcError("AI2001", new Error(failures.join("; ")), {
+  const cause = Object.assign(new Error(failures.join("; ")), {
+    invalidOutput: { in: "body" as const, issues, routeId: entry.endpoint },
+  }) satisfies OutputValidationFailure;
+  throw rcError("AI2001", cause, {
     message: `MCP tool "${entry.endpoint}" returned a body that does not match its declared output schema`,
   });
 }

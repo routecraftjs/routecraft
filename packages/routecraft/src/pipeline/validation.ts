@@ -236,6 +236,66 @@ export function isInputValidationFailure(
 }
 
 /**
+ * Machine-readable detail attached to the cause of the `RC5002` a route's
+ * `.output()` schema raises: which part of the result failed, the schema's
+ * own issues, and the route. Read it off `error.cause` through
+ * {@link isOutputValidationFailure}.
+ *
+ * Only `.output()` attaches it. The same code covers a mid-pipeline
+ * `.validate()` and an empty aggregation, whose causes carry no such
+ * detail, so its presence is what tells a door the result broke the route's
+ * declared contract. The MCP server sends the issues to the caller, because
+ * the tool advertised that schema as its `outputSchema`.
+ *
+ * In-process only, like {@link InputValidationFailure}.
+ */
+export interface OutputValidationFailure extends Error {
+  invalidOutput: {
+    /** Which part of the result the schema refused. */
+    in: "body" | "headers";
+    /** The schema's issues, as it returned them. */
+    issues: readonly StandardSchemaV1.Issue[];
+    /**
+     * The route whose `.output()` refused. A route calling another through
+     * `direct()` receives the callee's RC5002 as its own step failure.
+     */
+    routeId: string;
+  };
+}
+
+/**
+ * Whether `value` (typically an RC5002 error's `cause`) carries the
+ * {@link OutputValidationFailure} detail.
+ *
+ * @param value - Any value, usually `error.cause`
+ * @returns `true` when the value is an Error carrying a well-formed `invalidOutput` detail
+ */
+export function isOutputValidationFailure(
+  value: unknown,
+): value is OutputValidationFailure {
+  if (!(value instanceof Error)) return false;
+  const invalid = (value as { invalidOutput?: unknown }).invalidOutput;
+  if (typeof invalid !== "object" || invalid === null) return false;
+  const detail = invalid as Record<string, unknown>;
+  return (
+    (detail["in"] === "body" || detail["in"] === "headers") &&
+    Array.isArray(detail["issues"]) &&
+    typeof detail["routeId"] === "string"
+  );
+}
+
+function outputValidationFailure(
+  message: string,
+  part: "body" | "headers",
+  issues: readonly StandardSchemaV1.Issue[],
+  routeId: string,
+): OutputValidationFailure {
+  return Object.assign(new Error(message), {
+    invalidOutput: { in: part, issues, routeId },
+  });
+}
+
+/**
  * Validate an exchange against the route's `input` schemas, throwing
  * `RC5065` on failure without emitting any lifecycle events: the caller
  * is a chain step inside `runPipeline`, so the failure becomes a normal
@@ -401,9 +461,13 @@ export async function applyOutputValidation(
   if (schemas.body) {
     const res = await validateAgainst(schemas.body, current.body);
     if (!res.ok) {
-      throw rcError("RC5002", new Error(res.message), {
-        message: `Output body validation failed for route "${deps.routeId}"`,
-      });
+      throw rcError(
+        "RC5002",
+        outputValidationFailure(res.message, "body", res.issues, deps.routeId),
+        {
+          message: `Output body validation failed for route "${deps.routeId}"`,
+        },
+      );
     }
     current = DefaultExchange.rewrap(current, { body: res.value });
     markOutputValidated(current, schemas.body);
@@ -411,9 +475,18 @@ export async function applyOutputValidation(
   if (schemas.headers) {
     const res = await validateAgainst(schemas.headers, current.headers);
     if (!res.ok) {
-      throw rcError("RC5002", new Error(res.message), {
-        message: `Output header validation failed for route "${deps.routeId}"`,
-      });
+      throw rcError(
+        "RC5002",
+        outputValidationFailure(
+          res.message,
+          "headers",
+          res.issues,
+          deps.routeId,
+        ),
+        {
+          message: `Output header validation failed for route "${deps.routeId}"`,
+        },
+      );
     }
     const headerValue = res.value as ExchangeHeaders | undefined;
     if (headerValue !== undefined) {

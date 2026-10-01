@@ -30,6 +30,7 @@ import {
 import type { Duration } from "../../shared/duration.ts";
 import { parseDuration } from "../../shared/duration.ts";
 import { DOCS_BASE, findErrorMeta } from "../../error.ts";
+import type { WireIssue } from "../../pipeline/caller-refusal.ts";
 import type {
   HealthComponent,
   HealthReport,
@@ -166,12 +167,6 @@ interface WireError {
   issues?: WireIssue[];
   /** Issues the body or this client left out of `issues`. */
   truncated?: number;
-}
-
-/** One schema issue of an input refusal. */
-interface WireIssue {
-  path?: string;
-  message: string;
 }
 
 /**
