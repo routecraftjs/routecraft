@@ -224,28 +224,35 @@ export interface InputValidationFailure extends Error {
 export function isInputValidationFailure(
   value: unknown,
 ): value is InputValidationFailure {
-  if (!(value instanceof Error)) return false;
-  const invalid = (value as { invalid?: unknown }).invalid;
-  if (typeof invalid !== "object" || invalid === null) return false;
-  const detail = invalid as Record<string, unknown>;
   return (
-    (detail["in"] === "body" || detail["in"] === "headers") &&
-    Array.isArray(detail["issues"]) &&
-    typeof detail["routeId"] === "string"
+    value instanceof Error &&
+    isValidationDetail((value as { invalid?: unknown }).invalid)
+  );
+}
+
+function isValidationDetail(detail: unknown): boolean {
+  if (typeof detail !== "object" || detail === null) return false;
+  const fields = detail as Record<string, unknown>;
+  return (
+    (fields["in"] === "body" || fields["in"] === "headers") &&
+    Array.isArray(fields["issues"]) &&
+    typeof fields["routeId"] === "string"
   );
 }
 
 /**
- * Machine-readable detail attached to the cause of the `RC5002` a route's
- * `.output()` schema raises: which part of the result failed, the schema's
- * own issues, and the route. Read it off `error.cause` through
+ * Machine-readable detail attached to the cause of an error raised because a
+ * result broke its declared output schema: which part failed, the schema's
+ * own issues, and the route or tool. Read it off `error.cause` through
  * {@link isOutputValidationFailure}.
  *
- * Only `.output()` attaches it. The same code covers a mid-pipeline
- * `.validate()` and an empty aggregation, whose causes carry no such
- * detail, so its presence is what tells a door the result broke the route's
- * declared contract. The MCP server sends the issues to the caller, because
- * the tool advertised that schema as its `outputSchema`.
+ * Two checks attach it: a route's `.output()` (`RC5002`) and the MCP
+ * server's check of a tool result against the `outputSchema` it advertised
+ * (`AI2001`, for a tool the pipeline did not validate). `RC5002` also covers
+ * a mid-pipeline `.validate()` and an empty aggregation, whose causes carry
+ * no such detail, so its presence is what tells a door the result broke a
+ * declared contract. The MCP server sends the body issues to the caller,
+ * because the tool advertised that schema.
  *
  * In-process only, like {@link InputValidationFailure}.
  */
@@ -256,8 +263,9 @@ export interface OutputValidationFailure extends Error {
     /** The schema's issues, as it returned them. */
     issues: readonly StandardSchemaV1.Issue[];
     /**
-     * The route whose `.output()` refused. A route calling another through
-     * `direct()` receives the callee's RC5002 as its own step failure.
+     * The route whose `.output()` refused, or the tool whose advertised
+     * schema refused. A route calling another through `direct()` receives
+     * the callee's RC5002 as its own step failure.
      */
     routeId: string;
   };
@@ -273,14 +281,9 @@ export interface OutputValidationFailure extends Error {
 export function isOutputValidationFailure(
   value: unknown,
 ): value is OutputValidationFailure {
-  if (!(value instanceof Error)) return false;
-  const invalid = (value as { invalidOutput?: unknown }).invalidOutput;
-  if (typeof invalid !== "object" || invalid === null) return false;
-  const detail = invalid as Record<string, unknown>;
   return (
-    (detail["in"] === "body" || detail["in"] === "headers") &&
-    Array.isArray(detail["issues"]) &&
-    typeof detail["routeId"] === "string"
+    value instanceof Error &&
+    isValidationDetail((value as { invalidOutput?: unknown }).invalidOutput)
   );
 }
 

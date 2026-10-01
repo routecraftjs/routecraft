@@ -162,7 +162,7 @@ export abstract class WrapperStep<
    *
    * @internal
    */
-  get describedOptions(): unknown {
+  get fingerprintOptions(): unknown {
     return this.describeOptions();
   }
 

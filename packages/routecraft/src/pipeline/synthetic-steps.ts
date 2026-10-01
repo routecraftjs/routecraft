@@ -15,10 +15,7 @@ import {
   PARSE_DROPPED_REASON,
 } from "../adapters/shared/parse.ts";
 import type { Adapter, Step } from "../types.ts";
-import {
-  pipelineFingerprint,
-  type ResolvedCacheOptions,
-} from "../operations/cache-wrapper.ts";
+import type { ResolvedCacheOptions } from "../operations/cache-wrapper.ts";
 import {
   ThrottleController,
   throttleEmitHooks,
@@ -299,11 +296,13 @@ export function buildCacheCheckStep(
 
       let key: string;
       try {
-        // A definition that skipped `RouteBuilder.build()` has no stored
-        // fingerprint; deriving it here keeps the key deterministic.
-        const pipeline =
-          route?.definition.cachePipeline ??
-          pipelineFingerprint(route?.definition.steps ?? []);
+        const pipeline = route?.definition.cachePipeline;
+        if (pipeline === undefined) {
+          throw rcError("RC5029", undefined, {
+            message:
+              "This route-scope .cache() is not part of a built route, so the pipeline its key covers is unknown. Build the route through craft()...build() rather than assembling a RouteDefinition by hand.",
+          });
+        }
         key = cacheConfig.key(exchange, { kind: "route", routeId, pipeline });
       } catch (err) {
         context?.emit("route:cache:failed", {

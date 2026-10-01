@@ -32,8 +32,22 @@ export interface WireIssues {
 export const MAX_WIRE_ISSUES = 20;
 
 /**
+ * The longest path or message a wire issue carries. A path echoes the
+ * caller's own keys, so a record key of a megabyte repeated across every
+ * issue would make the answer many times the size of the request.
+ */
+const MAX_WIRE_ISSUE_TEXT = 256;
+
+function clip(text: string): string {
+  return text.length > MAX_WIRE_ISSUE_TEXT
+    ? `${text.slice(0, MAX_WIRE_ISSUE_TEXT)}...`
+    : text;
+}
+
+/**
  * Reduce Standard Schema issues to what a door may put on the wire: each
- * issue's path and message, at most {@link MAX_WIRE_ISSUES} of them.
+ * issue's path and message, at most {@link MAX_WIRE_ISSUES} of them, each
+ * clipped to {@link MAX_WIRE_ISSUE_TEXT} characters.
  *
  * The message is the schema's own text, so a schema author's custom message
  * reaches the caller verbatim. A non-string message becomes `"invalid"`.
@@ -48,8 +62,9 @@ export function wireIssues(
     issues: issues.slice(0, MAX_WIRE_ISSUES).map((issue) => {
       const path = formatIssuePath(issue.path);
       return {
-        ...(path !== undefined ? { path } : {}),
-        message: typeof issue.message === "string" ? issue.message : "invalid",
+        ...(path !== undefined ? { path: clip(path) } : {}),
+        message:
+          typeof issue.message === "string" ? clip(issue.message) : "invalid",
       };
     }),
     omitted: Math.max(0, issues.length - MAX_WIRE_ISSUES),

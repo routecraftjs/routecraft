@@ -30,7 +30,10 @@ import {
 import type { Duration } from "../../shared/duration.ts";
 import { parseDuration } from "../../shared/duration.ts";
 import { DOCS_BASE, findErrorMeta } from "../../error.ts";
-import type { WireIssue } from "../../pipeline/caller-refusal.ts";
+import {
+  MAX_WIRE_ISSUES,
+  type WireIssue,
+} from "../../pipeline/caller-refusal.ts";
 import type {
   HealthComponent,
   HealthReport,
@@ -784,9 +787,6 @@ function sanitizeWire(wire: Readonly<Record<string, unknown>>): WireError {
   }
   return out;
 }
-
-/** The most issues kept from a body, matching what a door sends at most. */
-const MAX_WIRE_ISSUES = 20;
 
 /** How many issues reach an error message before it says how many more. */
 const MAX_RENDERED_ISSUES = 5;

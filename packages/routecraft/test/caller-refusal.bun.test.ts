@@ -184,4 +184,25 @@ describe("wireIssues()", () => {
     });
     expect(result.omitted).toBe(3);
   });
+
+  /**
+   * @case A caller-chosen record key and a long custom message reach the wire
+   * @preconditions 20 issues whose path starts with a 100 000-character key and whose message is 10 000 characters
+   * @expectedResult Every path and message is clipped, so the refusal stays a few kilobytes however long the caller's keys are
+   */
+  test("clips each path and message", () => {
+    const key = "k".repeat(100_000);
+    const issues = Array.from({ length: 20 }, (_, i) => ({
+      path: [key, i],
+      message: "m".repeat(10_000),
+    }));
+
+    const result = wireIssues(issues);
+
+    for (const issue of result.issues) {
+      expect(issue.path!.length).toBeLessThanOrEqual(259);
+      expect(issue.message.length).toBeLessThanOrEqual(259);
+    }
+    expect(JSON.stringify(result).length).toBeLessThan(20_000);
+  });
 });

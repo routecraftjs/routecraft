@@ -53,7 +53,7 @@ export interface ConcurrencyOptions {
    *
    * @example Per authenticated principal
    * ```ts
-   * .concurrency({ max: 3, key: (ex) => ex.principal?.sub ?? "anonymous" })
+   * .concurrency({ max: 3, key: (ex) => ex.principal?.subject ?? "anonymous" })
    * ```
    */
   key?: (exchange: Exchange) => string;

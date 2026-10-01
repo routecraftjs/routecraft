@@ -124,7 +124,7 @@ Key contract points:
 - The inner step never sees the engine's work queue: it returns a `StepOutcome` (`continue` / `complete` / `drop` / `branch` / `fanOut`) and the pipeline executor owns all scheduling. A failed inner step has, by construction, scheduled nothing, so recovery simply substitutes an outcome (typically `{ kind: "continue", exchange: recovered }`). There is no buffer to capture, relay, or clear.
 - Pass `ctx` (the `StepContext`) through to `this.inner.execute(exchange, ctx)` unchanged; it carries the narrow executor capabilities (e.g. `takePending` for join steps) and the wrapper must not intercept them. One sanctioned exception: a wrapper that owns a cancellation boundary (`.timeout()`) derives a new context whose `signal` links its own `AbortController` with any enclosing `ctx.signal` via `AbortSignal.any`, leaving every other capability untouched, so the inner step can abort cancellation-aware IO when the earliest enclosing deadline fires.
 - Throwing from `runInner` propagates out so the executor's catch in `pipeline/executor.ts` cascades to the route-level handler (or default error path). Wrappers do not need to re-emit `step:failed` themselves; the template emits it via try/catch.
-- `describeOptions()` is abstract, so a wrapper that omits it does not compile. A step-scope `.cache()` stacked above the wrapper, and a route-scope `.cache()` over the pipeline, fold the returned value into the default key (see section 9), so an edit to the wrapper's options misses instead of replaying entries the old options produced. Return configuration, never runtime state: callables as themselves (their source is hashed), plain data as plain data, and `null` for a wrapper with no options. A controller or other live object projects to `[opaque]` and contributes nothing.
+- `describeOptions()` is abstract, so a wrapper that omits it does not compile. A step-scope `.cache()` stacked above the wrapper, and a route-scope `.cache()` over the pipeline, fold the returned value into the default key (see section 9), so an edit to the wrapper's options misses instead of replaying entries the old options produced. Return all of the resolved configuration, presentation fields such as an event `label` included, the same way a step's own label is part of its definition fingerprint: a rename costs one cold cache, never a wrong hit. Return configuration, never runtime state: callables as themselves (their source is hashed), plain data as plain data, and `null` for a wrapper with no options. A controller or other live object projects to `[opaque]` and contributes nothing.
 
 Then add the dual-mode method on the builder:
 
@@ -226,9 +226,9 @@ accordingly.
       on `this` precisely so all exchanges share one rate limiter.
       The rule bars leaking one exchange's state into the next, not
       deliberately shared route-level state.
-- [ ] `describeOptions()` returns the wrapper's resolved configuration
-      (every option that can change what the wrapped step yields,
-      callables included), not its runtime state.
+- [ ] `describeOptions()` returns the wrapper's whole resolved
+      configuration (callables and presentation fields such as `label`
+      included), not its runtime state.
 - [ ] Dual-mode `.x(...)` builder method on `StepBuilderBase` (step
       scope) with an override on `RouteBuilder` for the pre-from
       path.

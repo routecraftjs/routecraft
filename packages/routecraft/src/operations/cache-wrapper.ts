@@ -298,7 +298,7 @@ function unwrapStack(step: Step<Adapter>): {
 function wrapperIdentity(wrapper: WrapperStep<Adapter>): [string, string] {
   return [
     wrapper.constructor.name,
-    definitionFingerprint(wrapper.describedOptions),
+    definitionFingerprint(wrapper.fingerprintOptions),
   ];
 }
 

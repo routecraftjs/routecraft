@@ -13,7 +13,7 @@ import { McpServer } from "../src/mcp/server.ts";
 import { mcp, mcpPlugin } from "../src/index.ts";
 import { MCP_PLUGIN_REGISTERED } from "../src/mcp/types.ts";
 import { rpcBody } from "./fixtures/rpc-body.ts";
-import { callTool, type ToolResult } from "./helpers/mcp-tool-call.ts";
+import { callTool } from "./helpers/mcp-tool-call.ts";
 
 const MCP_STORE_KEY =
   MCP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry;
@@ -49,24 +49,6 @@ describe("MCP tool failure text", () => {
     await t.startAndWaitReady();
     server = new McpServer(t.ctx);
     return server;
-  }
-
-  /** Call a tool as `principal`, the way the HTTP transport hands one over. */
-  async function callAs(
-    srv: McpServer,
-    tool: string,
-    args: Record<string, unknown>,
-    principal: Principal,
-  ): Promise<ToolResult> {
-    return (
-      srv as unknown as {
-        handleToolCall(
-          tool: string,
-          args: Record<string, unknown>,
-          principal: Principal,
-        ): Promise<ToolResult>;
-      }
-    ).handleToolCall(tool, args, principal);
   }
 
   function user(overrides: Partial<Principal> = {}): Principal {
@@ -230,7 +212,7 @@ describe("MCP tool failure text", () => {
         .to(noop()),
     ]);
 
-    const result = await callAs(srv, "archive", {}, user());
+    const result = await callTool(srv, "archive", {}, user());
 
     expect(result.content[0]!.text).toBe(
       'Error: Tool "archive" refused the call: insufficient permissions.',
@@ -264,7 +246,7 @@ describe("MCP tool failure text", () => {
           (bindings as { tool?: string } | undefined)?.tool === tool,
       );
 
-    await callAs(srv, "archive", {}, user());
+    await callTool(srv, "archive", {}, user());
     await callTool(srv, "thrower", {});
 
     const log = t!.contextLogger;
@@ -288,7 +270,7 @@ describe("MCP tool failure text", () => {
         .to(noop()),
     ]);
 
-    const result = await callAs(
+    const result = await callTool(
       srv,
       "write-order",
       {},
@@ -315,7 +297,7 @@ describe("MCP tool failure text", () => {
         .to(noop()),
     ]);
 
-    const result = await callAs(
+    const result = await callTool(
       srv,
       "guarded",
       {},
@@ -345,7 +327,7 @@ describe("MCP tool failure text", () => {
         }),
     ]);
 
-    const result = await callAs(srv, "upstream-login", {}, user());
+    const result = await callTool(srv, "upstream-login", {}, user());
 
     expect(result.content[0]!.text).toBe(
       'Error: Tool "upstream-login" failed (RC5015).',
@@ -374,6 +356,28 @@ describe("MCP tool failure text", () => {
       'Error: MCP tool "violator" returned a body that does not match its declared output schema (RC5002): "total": ',
     );
     expect(text).not.toContain("for route");
+  });
+
+  /**
+   * @case The route's .output() headers schema rejects the headers it produced
+   * @preconditions Tool route declares .output({ headers }) requiring an internal header the route never sets; the headers schema is not part of the advertised outputSchema
+   * @expectedResult The generic failure text with RC5002, naming neither the header nor the schema's message
+   */
+  test("keeps an output headers violation generic", async () => {
+    const srv = await serve([
+      craft()
+        .id("tagged")
+        .description("Produces headers its output schema rejects")
+        .output({ headers: z.object({ "x-internal-tenant": z.string() }) })
+        .from<{ value: string }>(mcp())
+        .transform(() => ({ ok: true })),
+    ]);
+
+    const result = await callTool(srv, "tagged", { value: "hi" });
+
+    expect(result.content[0]!.text).toBe(
+      'Error: Tool "tagged" failed (RC5002).',
+    );
   });
 });
 

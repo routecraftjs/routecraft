@@ -1362,15 +1362,17 @@ export class McpServer {
       };
       const logMsg = toolErrorLogMessage(error);
       // A refusal the caller caused is answered, not an instance fault, and route.runSteps already logged it.
-      const level =
-        callerRefusalOf(error, origin) === undefined ? "error" : "debug";
+      const refusal = callerRefusalOf(error, origin);
+      const level = refusal === undefined ? "error" : "debug";
       this.context.logger[level]({ tool: toolName, err: error }, logMsg);
       this.context.emit(`plugin:mcp:tool:failed`, {
         tool: toolName,
         error: logMsg,
       });
 
-      return toolErrorResult(toolFailureText(toolName, error, origin));
+      return toolErrorResult(
+        toolFailureText(toolName, error, refusal, origin.routeId),
+      );
     }
   }
 

@@ -1,10 +1,8 @@
 import {
-  callerRefusalOf,
   isOutputValidationFailure,
   rcCodeOf,
   wireIssues,
   type CallerRefusal,
-  type CallerRefusalOrigin,
   type WireIssues,
 } from "@routecraft/routecraft";
 
@@ -17,9 +15,10 @@ import {
  * class of an `authorize()` refusal. Which failures those are is decided by
  * `callerRefusalOf`, the classification every door shares.
  *
- * A result that broke the tool's declared output schema names the failing
+ * A body that broke the tool's declared output schema names the failing
  * fields too. That schema is published as the tool's `outputSchema`, so its
- * paths and messages tell the caller nothing `tools/list` did not.
+ * paths and messages tell the caller nothing `tools/list` did not. The
+ * output headers schema is never published, so its issues stay off the wire.
  *
  * Everything else answers with the tool name and the error code only. An
  * error message routinely interpolates its cause, and the cause of a route
@@ -29,26 +28,27 @@ import {
  *
  * @param tool - The tool the caller named
  * @param error - What the call threw
- * @param origin - The tool's route, the principal the server put on the
- *   exchange, and whether a credential could have supplied one
+ * @param refusal - What `callerRefusalOf` made of the error, classified once
+ *   by the caller so the log level and this text cannot disagree
+ * @param routeId - The tool's route
  * @returns The tool result text, without the `Error: ` prefix
  */
 export function toolFailureText(
   tool: string,
   error: unknown,
-  origin: CallerRefusalOrigin,
+  refusal: CallerRefusal | undefined,
+  routeId: string,
 ): string {
-  const refusal = callerRefusalOf(error, origin);
   if (refusal !== undefined) return refusalText(tool, refusal);
   const code = rcCodeOf(error);
   const cause = (error as { cause?: unknown } | null)?.cause;
   if (
     code !== undefined &&
     isOutputValidationFailure(cause) &&
-    cause.invalidOutput.routeId === origin.routeId
+    cause.invalidOutput.in === "body" &&
+    cause.invalidOutput.routeId === routeId
   ) {
-    const part = cause.invalidOutput.in === "body" ? "a body" : "headers";
-    return `MCP tool "${tool}" returned ${part} that does not match its declared output schema (${code})${issuesText(wireIssues(cause.invalidOutput.issues))}`;
+    return `MCP tool "${tool}" returned a body that does not match its declared output schema (${code})${issuesText(wireIssues(cause.invalidOutput.issues))}`;
   }
   return code === undefined
     ? `Tool "${tool}" failed.`

@@ -114,7 +114,7 @@ export interface ThrottleOptions {
    *
    * @example Per authenticated principal
    * ```ts
-   * .throttle({ rate: 10, key: (ex) => ex.principal?.sub ?? "anonymous" })
+   * .throttle({ rate: 10, key: (ex) => ex.principal?.subject ?? "anonymous" })
    * ```
    */
   key?: (exchange: Exchange) => string;
