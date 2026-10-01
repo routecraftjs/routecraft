@@ -67,7 +67,13 @@ Today (as of #112 / #395 / 0.6.0):
   `postParseFilters`.
 - The cache key flows from `cache-check` to `cache-store` via
   `internals.cacheKey` on the exchange (per-invocation, no shared
-  closure).
+  closure). `cache-check` derives it after `authorize` and `input`
+  have run; the default key hashes the route id, the principal's
+  issuer and subject with each `actor` hop, and the validated body,
+  and a custom `key` is used verbatim (see `.standards/security.md`
+  § 4). Because `cache-check` runs before the pipeline, a route whose
+  pipeline contains `.authenticate()` refuses route-scope `.cache()`
+  at build (`RC5003`): a hit would skip authentication.
 - The builder assembles all three arrays in the chain order
   regardless of which `.authorize()` / `.cache()` / `.error()`
   methods were called first on the builder.

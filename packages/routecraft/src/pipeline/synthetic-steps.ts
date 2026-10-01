@@ -258,7 +258,8 @@ const CACHE_STORE_STEP_ADAPTER: Adapter = {
  * Build the route-scope cache HIT-CHECK synthetic step. Inserted into
  * `initialSteps` AFTER `buildParseStep` (so parse + `applyValidation`
  * have already run) and BEFORE the user steps. Derives the cache key
- * from the parsed/validated exchange, looks it up in the provider, and
+ * from the parsed/validated exchange (the default key is namespaced by
+ * route id and principal), looks it up in the provider, and
  * on a hit pushes a rewrapped exchange with `steps: []` to short-circuit
  * the rest of the pipeline (including the matching cache-store step).
  * On a miss pushes the exchange with the unchanged `remainingSteps` so
@@ -294,7 +295,7 @@ export function buildCacheCheckStep(
 
       let key: string;
       try {
-        key = cacheConfig.key(exchange);
+        key = cacheConfig.key(exchange, { kind: "route", routeId });
       } catch (err) {
         context?.emit("route:cache:failed", {
           routeId,

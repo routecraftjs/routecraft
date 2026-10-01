@@ -85,7 +85,7 @@ The reserve/commit/release outcome is decided from the entering exchange's termi
 
 **Default key derivation:**
 
-When `dedupe` or `cache` is called without a `key` function, a key is derived automatically by SHA-256 hashing the JSON serialisation of the body:
+When `dedupe` is called without a `key` function, a key is derived automatically by SHA-256 hashing the JSON serialisation of the body. (`cache` hashes the body the same way but also namespaces its default key by route and principal; see [cache key](/docs/reference/operations/cache#cache-key).)
 
 ```txt
 key = sha256(JSON.stringify(body))
@@ -95,16 +95,16 @@ The key is computed from the body at the moment the operation executes. If the b
 
 **Unsupported bodies (throw an error):**
 
-The default key fails on bodies that are not JSON-serialisable:
+The default dedupe key fails on bodies that are not JSON-serialisable:
 
 - Functions, symbols, or a top-level `undefined`
 - `BigInt`
 - Circular references
 
-When the body is not serialisable, a `RoutecraftError` (`RC5033` for `dedupe`, `RC5029` for `cache`) is thrown, indicating that a `key` function is required.
+When the body is not serialisable, `dedupe` throws a `RoutecraftError` (`RC5033`) indicating that a `key` function is required.
 
 <Callout type="note" title="When to provide a key function">
 
-Use an explicit `key` when you need stable identity across body changes. For example, if the body is enriched or transformed before `dedupe` / `cache`, but identity should be based on a header set earlier by an adapter. A `key` that returns an identifier already to hand (an id field, a content hash in a header) also avoids re-serialising and re-hashing the body on every exchange.
+Use an explicit `key` when you need stable identity across body changes. For example, if the body is enriched or transformed before `dedupe`, but identity should be based on a header set earlier by an adapter. A `key` that returns an identifier already to hand (an id field, a content hash in a header) also avoids re-serialising and re-hashing the body on every exchange.
 
 </Callout>
