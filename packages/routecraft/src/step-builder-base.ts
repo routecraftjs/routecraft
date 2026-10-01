@@ -339,29 +339,34 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    * replaces `exchange.body`. On a miss, the step runs and its output
    * body is written to the cache for future calls.
    *
-   * Only successful executions are cached: if the wrapped step throws,
-   * the error propagates and the cache is left untouched. Dropped
-   * exchanges (filter / halt) are not cached.
+   * Only the next step's output is cached, and only when that step
+   * does not throw: a throw propagates and leaves the cache untouched,
+   * and dropped exchanges (filter / halt) are not cached. A step that
+   * returns an error reply without throwing (an `http()` enricher with
+   * `throwOnHttpError: false` answering 503) succeeded as far as the
+   * cache can tell, so that reply IS cached. Use route scope, or make
+   * the step throw, when a failure must not be remembered.
    *
    * Concurrent exchanges with the same key share one computation via
    * the provider's `getOrCompute`, so a slow underlying operation
    * runs at most once per key per TTL window.
    *
-   * On `RouteBuilder`, this method is dual-mode. The route-scope
-   * variant (called BEFORE `.from()`) is not yet implemented and
-   * throws RC2001; for now use the step-scope form chained after
-   * `.from()`. On `PathBuilder`, it is always step-scope.
+   * On `RouteBuilder`, this method is dual-mode: called BEFORE
+   * `.from()` it caches the whole route and never stores a failed
+   * exchange (see {@link RouteBuilder.cache}). On `PathBuilder`, it is
+   * always step-scope.
    *
    * Stacks left-to-right with other wrappers: `.error(h).cache().to(d)`
-   * produces `error(cache(d))` -- the cache runs inside the error
+   * produces `error(cache(d))`, so the cache runs inside the error
    * handler's recovery scope.
    *
-   * @param options Optional `{ key, ttl, provider }`. Defaults: key
-   *   derived from a SHA-256 of `JSON.stringify(body)`, no TTL,
+   * @param options Optional `{ key, ttl, provider }`. Defaults: a key
+   *   namespaced by route id (plus, at step scope, this cache's site in the
+   *   route) and the principal's issuer and subject (with its actor chain),
+   *   then a SHA-256 of
+   *   `JSON.stringify(body)` (see {@link CacheOptions.key}; a bodiless
+   *   exchange needs an explicit `key`, used verbatim); no TTL;
    *   process-wide in-memory provider.
-   *
-   * @experimental Step-scope behaviour ships with the dual-mode
-   * wrapper pattern (see `.standards/resilience-wrappers.md`).
    */
   cache(options: CacheOptions<S["body"]> = {}): this {
     this.pendingStepWrappers.push(

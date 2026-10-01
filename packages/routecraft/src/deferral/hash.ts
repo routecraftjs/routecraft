@@ -229,6 +229,18 @@ export function actionFingerprint(input: {
 }
 
 /**
+ * Digest of one step's definition: the projection {@link continuationHash}
+ * applies to each tail step (operation kind, label, adapter id, callable
+ * source, adapter options). Inherits the same "step definitions only"
+ * boundary and the same verbatim-source rule.
+ *
+ * @internal
+ */
+export function stepDefinitionFingerprint(step: Step<Adapter>): string {
+  return sha256(canonical(describeStep(step)));
+}
+
+/**
  * Reduce a step to the parts that define what it will do.
  *
  * Two kinds of own property carry that definition, and both have to be in

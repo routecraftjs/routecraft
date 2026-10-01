@@ -359,7 +359,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Adapter",
     message: "Cache key derivation failed",
     suggestion:
-      "The default key hashes JSON.stringify(body); it fails on non-serialisable bodies (functions, symbols, circular refs, BigInt). Supply an explicit `key` function in cache({ key: ... }). Retrying will not help: the same body fails the same way.",
+      "The default key needs a JSON-serialisable body. It fails when the body is undefined (a bodiless request such as an http() GET, whose input lives in the routecraft.http.params / routecraft.http.query headers) or cannot be serialised (a top-level function or symbol, a circular reference, a BigInt; nested functions and symbols are silently omitted, not rejected). Supply an explicit `key` function in cache({ key: ... }); a custom key is used verbatim, so include the route and caller identity when they matter. Retrying will not help: the same exchange fails the same way.",
     docs: `${DOCS_BASE}#rc-5029`,
     retryable: false,
   },
@@ -635,7 +635,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Runtime",
     message: "Remote instance refused the credential",
     suggestion:
-      "The remote's door answered 401 or 403 to a dispatch on an imported route, so the problem is the credential and not the route. The message carries the door's own reason: no credential was presented (`remotes.<name>.auth.token` is unset or resolved to nothing), the credential was rejected, or it is valid but lacks the dispatch tier's scope, which needs a token carrying that scope rather than a new sign-in. When the remote advertises RFC 9728 metadata the message also names who issues acceptable tokens.",
+      "The remote answered 401 or 403 to a dispatch on an imported route, so the problem is the identity the dispatch carried and not a fault in the route. The message carries the remote's own reason: no credential was presented (`remotes.<name>.auth.token` is unset or resolved to nothing), the credential was rejected or expired, it is valid but lacks the dispatch tier's or the route's scope, which needs a token carrying that scope rather than a new sign-in, or the route's own `.authorize()` does not admit the identity with the claims its credential carries (`insufficient_permissions`), which a retry with the same credential cannot change but a refreshed token carrying newly granted claims can. When the remote advertises RFC 9728 metadata the message also names who issues acceptable tokens.",
     docs: `${DOCS_BASE}#rc-5063`,
     retryable: false,
   },
@@ -651,7 +651,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Runtime",
     message: "Request validation failed",
     suggestion:
-      "The payload a caller supplied did not satisfy the route's `.input()` schema. Read the message: it names the field and the rule. This is the caller's fault rather than the instance's, which is what separates it from `RC5002`; a transport answering a request maps it to a client error, and the ops dispatch mount returns 400 with the message.",
+      "The payload a caller supplied did not satisfy the route's `.input()` schema. Read the issues: each names a field (`path`) and the rule it broke (`message`); in process they are on the error's cause (`isInputValidationFailure(err.cause)`), and over HTTP the `http()` source and the ops dispatch mount answer 400 carrying them, with `in` naming the body or the headers. This is the caller's fault rather than the instance's, which is what separates it from `RC5002`. Issue messages are the schema's own text and reach the caller verbatim.",
     docs: `${DOCS_BASE}#rc-5065`,
     retryable: false,
   },
@@ -775,8 +775,10 @@ export function formatSchemaIssues(issues: unknown): string {
 
 /**
  * Converts a Standard Schema path array into a dot-separated string.
+ *
+ * @internal
  */
-function formatIssuePath(
+export function formatIssuePath(
   path: SchemaIssue["path"] | undefined,
 ): string | undefined {
   if (!path || path.length === 0) return undefined;

@@ -177,7 +177,7 @@ describe("the credential ladder via craft exec", () => {
   /**
    * @case Rung 3: a self-signed JWT minted with jose, admitted by jwt() on a scope-guarded route
    * @preconditions Server-level jwt({ secret, issuer, audience }); the dispatch tier gated on ops:dispatch; the route guarded with .authorize({ scopes }); a token minted in the test with jose carrying both scopes
-   * @expectedResult The minted token passes the tier AND the route's own .authorize() end to end; a token missing the route scope passes the tier and fails the route, so the guard provably ran
+   * @expectedResult The minted token passes the tier AND the route's own .authorize() end to end; a token missing the route scope passes the tier and is refused by the route with the refused exit code and the route's scope named, so the guard provably ran
    */
   test("self-signed JWT: minted with jose, admitted through tier and route guard", async () => {
     const secret = "ladder-jwt-secret-please-change-me";
@@ -229,6 +229,7 @@ describe("the credential ladder via craft exec", () => {
       token: await mint("ops:dispatch"),
       ...isolated(),
     });
-    expect(underScoped.code).toBe(EXEC_EXIT.failed);
+    expect(underScoped.code).toBe(EXEC_EXIT.refused);
+    expect(underScoped.error).toContain("orders:resolve");
   });
 });

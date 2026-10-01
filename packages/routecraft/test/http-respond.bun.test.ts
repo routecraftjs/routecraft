@@ -1186,6 +1186,70 @@ describe("HTTP source respond", () => {
   });
 
   /**
+   * @case A route's authorize refusal answers 403 through a responder, whichever way it reaches the door
+   * @preconditions Two routes behind jwt() declaring .authorize({ roles: ["admin"] }): one whose responder awaits `finished` and so rethrows the refusal, one whose responder returns undefined so the door awaits the run itself; the bearer carries no roles
+   * @expectedResult Both answer 403 insufficient_permissions, and request:completed reports 403 for each. The refusal is the original error on both paths, so neither falls to the responder's 500
+   */
+  test("an authorize refusal answers 403 on both responder paths", async () => {
+    const statuses: number[] = [];
+    const bound = await bootHttp({
+      routes: [
+        craft()
+          .id("refused-awaiting")
+          .authorize({ roles: ["admin"] })
+          .from(
+            http({
+              path: "/hooks/awaiting",
+              method: "POST",
+              respond: AWAIT_RESULT,
+            }),
+          )
+          .to(noop()),
+        craft()
+          .id("refused-deferring")
+          .authorize({ roles: ["admin"] })
+          .from(
+            http({
+              path: "/hooks/deferring",
+              method: "POST",
+              respond: () => undefined,
+            }),
+          )
+          .to(noop()),
+      ],
+      http: {},
+      serverAuth: jwt({
+        secret: JWT_SECRET,
+        issuer: JWT_ISSUER,
+        audience: JWT_AUDIENCE,
+      }),
+      events: {
+        ["plugin:http:request:completed" as EventName]: (ev: {
+          details: unknown;
+        }) => {
+          statuses.push((ev.details as { status: number }).status);
+        },
+      },
+    });
+    t = bound.ctx;
+
+    const bearer = `Bearer ${signHs256({ secret: JWT_SECRET, claims: { sub: "user-1" } })}`;
+    for (const path of ["/hooks/awaiting", "/hooks/deferring"]) {
+      const res = await fetch(`http://127.0.0.1:${bound.port}${path}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", authorization: bearer },
+        body: JSON.stringify({ id: "evt_1" }),
+      });
+      expect(res.status).toBe(403);
+      expect(await res.json()).toEqual({
+        error: "forbidden",
+        reason: "insufficient_permissions",
+      });
+    }
+    expect(statuses).toEqual([403, 403]);
+  });
+
+  /**
    * @case A respond that is not callable is refused at the call site
    * @preconditions http({ respond }) built with a string, as an untyped caller or a stale example would produce
    * @expectedResult RC5003 thrown from http({...}) itself rather than a 500 on the first delivery

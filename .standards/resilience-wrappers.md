@@ -252,8 +252,17 @@ accordingly.
   during cooldown).
 - `#112` (Cache): dual-mode at both scopes. Step-scope wraps the
   immediately-next step via `CacheWrapperStep`. Route-scope (called
-  BEFORE `.from()`) caches the route's terminal body keyed by the
-  source-emitted message and skips the whole pipeline on a hit;
+  BEFORE `.from()`) caches the route's terminal body and skips the
+  whole pipeline on a hit. The default key (`defaultCacheKey` in
+  `operations/cache-wrapper.ts`) at both scopes hashes the route id,
+  at step scope the cache's site (`CacheKeyScope`: the step's
+  pre-order index, the cache's index in the full wrapper stack, the
+  kinds of the wrappers below it, and the innermost step's definition
+  fingerprint), the principal's issuer and subject with each `actor`
+  hop, and the body; a custom `key` is verbatim (see
+  `.standards/security.md` § 4). Route scope is refused at build on a
+  route whose pipeline contains `.authenticate()`, because a hit would
+  skip it. Route scope is
   wired into `RouteDefinition.postParseFilters` (the `cache-check`
   filter at chain position #9) and `RouteDefinition.postFromFilters`
   (the `cache-store` filter at position #10); see

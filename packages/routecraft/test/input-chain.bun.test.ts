@@ -1,7 +1,12 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
 import { testContext, type TestContext } from "@routecraft/testing";
-import { craft, simple, direct } from "@routecraft/routecraft";
+import {
+  craft,
+  simple,
+  direct,
+  isInputValidationFailure,
+} from "@routecraft/routecraft";
 
 /**
  * `.input()` as a real filter-chain step (#447).
@@ -55,6 +60,44 @@ describe("Input validation in the filter chain (#447)", () => {
     expect(seenRc).toBe("RC5065");
     expect(t.errors).toHaveLength(0);
     expect(completed).toEqual([{ id: "fallback" }]);
+  });
+
+  /**
+   * @case RC5065 carries the structured detail a door answers with
+   * @preconditions Route "typed" with .input({ body }) fails its body schema; route "tenanted" with .input({ headers }) fails its headers schema
+   * @expectedResult Each cause passes isInputValidationFailure with the failing part, the schema's issues and the route id
+   */
+  test("RC5065 cause names the part, the issues and the route", async () => {
+    t = await testContext()
+      .routes([
+        craft()
+          .id("typed")
+          .input({ body: z.object({ id: z.string() }) })
+          .from(simple({ id: 123 }))
+          .to(mock()),
+        craft()
+          .id("tenanted")
+          .input({ headers: z.object({ tenant: z.string() }) })
+          .from(simple({ id: "ok" }))
+          .to(mock()),
+      ])
+      .build();
+    await t.test();
+
+    const details = t.errors
+      .map((error) => error.cause)
+      .filter(isInputValidationFailure)
+      .map((cause) => ({
+        in: cause.invalid.in,
+        routeId: cause.invalid.routeId,
+        path: cause.invalid.issues[0]?.path,
+      }))
+      .sort((a, b) => a.routeId.localeCompare(b.routeId));
+    expect(details).toEqual([
+      { in: "headers", routeId: "tenanted", path: ["tenant"] },
+      { in: "body", routeId: "typed", path: ["id"] },
+    ]);
+    expect(isInputValidationFailure(new Error("plain"))).toBe(false);
   });
 
   /**

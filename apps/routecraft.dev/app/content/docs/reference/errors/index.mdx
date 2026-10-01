@@ -215,6 +215,8 @@ Two cases share this code:
 - For upstream-API failures: verify API keys, tokens, audience/issuer, and credential rotation. Check that the auth header is reaching the destination.
 - For in-route failures: configure `auth:` on the source (e.g. `mcp({ auth: jwt(...) })`) so the source emits a principal, or attach a custom principal in a `.process()` step before the `authorize()` validator runs. See [`.authorize()`](/docs/reference/operations/authorize).
 
+Over HTTP the in-route case answers 401 only where a credential could have supplied the principal; otherwise, and for the upstream case, it stays a 500. See [what an HTTP caller receives](/docs/reference/operations/authorize#what-an-http-caller-receives).
+
 ## RC5013
 Rate limited
 
@@ -244,6 +246,8 @@ Two cases share this code:
 **Suggestion**  
 - For upstream denials: check IAM, ACLs, and scopes granted to the credential.
 - For in-route denials: grant the principal the missing role(s) at your IdP, or relax the `.authorize()` requirement. The error message lists the missing roles. See [`.authorize()`](/docs/reference/operations/authorize).
+
+Over HTTP only the in-route case is the caller's: the `http()` source and the ops dispatch door answer a refusal `.authorize()` raised with `403 insufficient_permissions`, and the same code thrown by an adapter with a 500. See [what an HTTP caller receives](/docs/reference/operations/authorize#what-an-http-caller-receives).
 
 ## RC5016
 Source payload parse failed
@@ -303,7 +307,7 @@ The check is also raised fail-closed when either `expiresAt` or `clockToleranceS
 The check is distinct from `RC5012` (no principal at all) and `RC5015` (principal failed a role / predicate check; a missing scope is `RC5038`) so clients can react accordingly: an `RC5020` signal almost always means "refresh and retry," whereas `RC5015` is a permanent denial under the current credentials.
 
 **Suggestion**  
-- The client should refresh the bearer and retry the request.
+- The client should refresh the bearer and retry the request. The `http()` source and the ops dispatch door say so on the wire: `401 { "error": "unauthorized", "reason": "expired" }` with an RFC 6750 `invalid_token` challenge.
 - To recover server-side, restructure the pipeline so `authorize()` runs before the slow step, or attach a fresh principal in a `.process()` step before the validator.
 - If your source-side verifier (`jwt()` / `jwks()`) sets a `clockToleranceSec`, pass the same value to `authorize({ clockToleranceSec })` so the boundary and mid-pipeline checks agree on a token's validity window.
 - If the principal genuinely has no expiry (e.g. an API key with infinite lifetime), leave `expiresAt` unset on the `Principal` so the check is skipped.
@@ -649,16 +653,27 @@ Inspect the underlying backend. Transient connectivity errors are retryable; con
 Cache key derivation failed
 
 **Why it happens**  
-The default `.cache()` key hashes `JSON.stringify(body)`, which fails on bodies containing functions, symbols, circular references, or `BigInt`. Also raised when a custom `key` function throws.
+The default `.cache()` key needs a body to hash. It fails when the body is `undefined`, which is every bodiless request such as an `http()` GET (its path parameters and query live in the `routecraft.http.params` and `routecraft.http.query` headers, which the default key does not read), and when `JSON.stringify(body)` cannot represent the body (a top-level function or symbol, a circular reference, a `BigInt` anywhere; nested functions and symbols are silently omitted rather than rejected, so supply a `key` when they matter to identity). Also raised when a custom `key` function throws.
 
 **Suggestion**  
-Supply an explicit `key` function that returns a stable string identifier:
+Supply an explicit `key` function that returns a stable string identifier. A custom key is used verbatim: the default key's route and principal namespacing is not added, so carry both yourself:
 
 ```ts skip="fragment: a chain shown without its route"
-.cache({ key: (e) => String((e.body as { id: unknown }).id) })
+.cache({
+  key: (e) =>
+    JSON.stringify([
+      e.headers[HeadersKeys.ROUTE_ID],
+      e.principal?.issuer,
+      e.principal?.subject,
+      e.headers['routecraft.http.params'],
+      e.headers['routecraft.http.query'],
+    ]),
+})
 ```
 
-This error is not retryable: the same body fails key derivation the same way every time.
+Drop the principal only when every caller sees the same answer. On a route that admits delegation, add the current actor (`e.principal?.actor?.issuer`, `e.principal?.actor?.subject`) as well. See [cache key](/docs/reference/operations/cache#cache-key).
+
+This error is not retryable: the same exchange fails key derivation the same way every time.
 
 ## RC5030
 Resource changed (precondition failed)
@@ -755,6 +770,8 @@ The principal is authentic and admitted, but lacks one or more scopes the route 
 
 **Suggestion**  
 The cause error carries a machine-readable `missing.scopes` array and a `missing.mode` saying how to read it. With `mode: "all"` the array lists exactly the required scopes that are absent, and every one is needed. With `mode: "any"` it lists the whole accepted set of an `anyScope` check, of which any ONE would have opened the door, so a consent flow offers the caller the choice rather than requesting all of them. Feed it to your consent flow, or grant at the IdP, then retry. `mode` is optional on the type so an application that throws this shape itself keeps compiling; `authorize()` always sets it, and an absent value means `"all"`.
+
+Over HTTP the scopes reach the caller too: the `http()` source and the ops dispatch door answer a route's RC5038 with `403 { "error": "forbidden", "reason": "insufficient_scope", "scope": "<space-separated scopes>" }` and an RFC 6750 `insufficient_scope` challenge, adding `"scope_mode": "any"` for an `anyScope` refusal. See [what an HTTP caller receives](/docs/reference/operations/authorize#what-an-http-caller-receives).
 
 ## RC5039
 HTTP webhook signature verification failed
@@ -1018,10 +1035,10 @@ Check the remote's `url` and that the instance is running and serving its ops su
 Remote instance refused the credential
 
 **Why it happens**  
-The remote's door answered 401 or 403 to a dispatch on an imported route, so the problem is the credential and not the route. The message carries the door's own reason: no credential was presented (`remotes.<name>.auth.token` is unset or resolved to nothing), the credential was rejected, or it is valid but lacks the dispatch tier's scope.
+The remote answered 401 or 403 to a dispatch on an imported route, so the problem is the identity the dispatch carried and not a fault in the route. The message carries the remote's own reason: no credential was presented (`remotes.<name>.auth.token` is unset or resolved to nothing), the credential was rejected or expired, it is valid but lacks the dispatch tier's or the route's scope, or the route's own `.authorize()` does not permit the identity (`insufficient_permissions`).
 
 **Suggestion**  
-A missing scope needs a token carrying it rather than a new sign-in; the message names the scope. When the remote advertises RFC 9728 metadata the message also names who issues acceptable tokens. The credential is read per request when `auth.token` is a function, so a rotated token takes effect on the next call without a restart.
+A missing scope needs a token carrying it rather than a new sign-in; the message names the scope. `insufficient_permissions` means the route's policy does not admit the identity with the claims its credential carries: a retry with the same credential cannot change that, but a refreshed token carrying a newly granted role or claim can. When the remote advertises RFC 9728 metadata the message also names who issues acceptable tokens. The credential is read per request when `auth.token` is a function, so a rotated token takes effect on the next call without a restart.
 
 ## RC5064
 Remote dispatch failed
@@ -1038,10 +1055,29 @@ Request validation failed
 **Why it happens**  
 A payload a caller supplied did not satisfy the route's `.input()` schema, on the body or on the headers. Validation runs at filter chain position #4, before any step of the pipeline, so nothing of the route has executed when this is raised and a route-scope `.error()` can recover it like any other chain failure.
 
-This is the caller's fault rather than the instance's, which is the whole reason it is not [RC5002](#rc-5002). RC5002 also covers `.output()` validation, a mid-pipeline `validate()` step and an empty aggregation, none of which the caller can do anything about. Splitting them lets a transport answer the two differently: the [ops dispatch mount](/docs/reference/plugins/opsplugin) returns 400 with the message for this code, where a route failure is a 500 carrying only the code.
+This is the caller's fault rather than the instance's, which is the whole reason it is not [RC5002](#rc-5002). RC5002 also covers `.output()` validation, a mid-pipeline `validate()` step and an empty aggregation, none of which the caller can do anything about. Splitting them lets a transport answer the two differently: the [`http()` source](/docs/reference/adapters/http) and the [ops dispatch mount](/docs/reference/plugins/opsplugin) answer this code with a 400, where a route failure is a 500.
+
+The 400 carries the part that failed and the schema's issues, never the error's message, which names the route:
+
+```json
+{
+  "error": "bad request",
+  "code": "RC5065",
+  "in": "body",
+  "issues": [{ "path": "age", "message": "must be an adult" }]
+}
+```
+
+Each issue's `message` is the schema's own text, sent verbatim. A custom message on a refinement or an async validator is therefore client-facing: write it for the caller, and keep internal detail out of it.
+
+At most 20 issues are sent. When the schema reported more, the body adds `"truncated": <number left out>`, so a payload with thousands of bad array items cannot make the answer proportionally large.
+
+Only an RC5065 the dispatched route's own `.input()` raised answers 400. One raised by a route the dispatched one calls through `direct()` stays a 500, since what that route refused was the outer route's output, not anything the caller sent; so does one a step throws itself, which says nothing about the caller's payload.
+
+The structured detail is on the error's `cause` in process. `isInputValidationFailure(err.cause)` narrows it to `{ invalid: { in, issues, routeId } }`, for a surface of your own that wants to answer the same way.
 
 **Suggestion**  
-Read the message: it names the route, the field and the rule that rejected it. `craft ops routes <id>` prints the route's full input schema on a running instance. Retrying an unchanged payload cannot succeed, which is why this code is not retryable.
+Read the issues: each names the field and the rule that rejected it. `craft ops routes <id>` prints the route's full input schema on a running instance. Retrying an unchanged payload cannot succeed, which is why this code is not retryable.
 
 ## RC5066
 Deferral store is missing a contract member

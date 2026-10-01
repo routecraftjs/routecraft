@@ -67,7 +67,13 @@ Today (as of #112 / #395 / 0.6.0):
   `postParseFilters`.
 - The cache key flows from `cache-check` to `cache-store` via
   `internals.cacheKey` on the exchange (per-invocation, no shared
-  closure).
+  closure). `cache-check` derives it after `authorize` and `input`
+  have run; the default key hashes the route id, the principal's
+  issuer and subject with each `actor` hop, and the validated body,
+  and a custom `key` is used verbatim (see `.standards/security.md`
+  § 4). Because `cache-check` runs before the pipeline, a route whose
+  pipeline contains `.authenticate()` refuses route-scope `.cache()`
+  at build (`RC5003`): a hit would skip authentication.
 - The builder assembles all three arrays in the chain order
   regardless of which `.authorize()` / `.cache()` / `.error()`
   methods were called first on the builder.
@@ -80,11 +86,11 @@ Input validation (chain position #4) is folded into the chain
 source attached a parser (input validates the parsed body, so #3
 and #4 collapse into one step) or as a standalone synthetic input
 step (`buildInputValidationStep`, `operation: "input"`, adapter id
-`routecraft.input`) when it did not. Both paths throw `RC5002`
+`routecraft.input`) when it did not. Both paths throw `RC5065`
 through the chain catch boundary, so `.error()` (position #1) can
 observe and recover a validation failure regardless of source
 shape, and the old eager path's `exchange:dropped` emission is
-gone: an unrecovered RC5002 takes the normal
+gone: an unrecovered RC5065 takes the normal
 `step:failed` -> `route:error` / `context:error` /
 `exchange:failed` path.
 

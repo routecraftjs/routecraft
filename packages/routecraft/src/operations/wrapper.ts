@@ -146,6 +146,16 @@ export abstract class WrapperStep<
   }
 
   /**
+   * The step this wrapper folds around, for build-time walks that must see
+   * through a stack of wrappers (e.g. assigning a step-scope cache its site).
+   *
+   * @internal
+   */
+  get wrapped(): Step<T> {
+    return this.inner;
+  }
+
+  /**
    * Run the inner step with whatever extra behaviour the subclass adds
    * and return the outcome the pipeline should act on. Return the
    * inner's outcome unchanged when it succeeded; return a substitute
