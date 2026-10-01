@@ -167,8 +167,10 @@ export abstract class WrapperStep<
   }
 
   /**
-   * Report the options that define this wrapper, so a step-scope
-   * `.cache()` stacked above it can fold them into its default key.
+   * Report the options that define this wrapper, so a `.cache()` whose
+   * cached computation includes it (a step-scope cache stacked above it,
+   * or a route-scope cache over the pipeline) can fold them into its
+   * default key.
    * Without them, editing a wrapper between a cache and its step (an
    * `.error()` handler's recovery value, a `.retry()` predicate deciding
    * which failures are recovered) would leave the key unchanged and an

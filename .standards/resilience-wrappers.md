@@ -124,7 +124,7 @@ Key contract points:
 - The inner step never sees the engine's work queue: it returns a `StepOutcome` (`continue` / `complete` / `drop` / `branch` / `fanOut`) and the pipeline executor owns all scheduling. A failed inner step has, by construction, scheduled nothing, so recovery simply substitutes an outcome (typically `{ kind: "continue", exchange: recovered }`). There is no buffer to capture, relay, or clear.
 - Pass `ctx` (the `StepContext`) through to `this.inner.execute(exchange, ctx)` unchanged; it carries the narrow executor capabilities (e.g. `takePending` for join steps) and the wrapper must not intercept them. One sanctioned exception: a wrapper that owns a cancellation boundary (`.timeout()`) derives a new context whose `signal` links its own `AbortController` with any enclosing `ctx.signal` via `AbortSignal.any`, leaving every other capability untouched, so the inner step can abort cancellation-aware IO when the earliest enclosing deadline fires.
 - Throwing from `runInner` propagates out so the executor's catch in `pipeline/executor.ts` cascades to the route-level handler (or default error path). Wrappers do not need to re-emit `step:failed` themselves; the template emits it via try/catch.
-- `describeOptions()` is abstract, so a wrapper that omits it does not compile. A step-scope `.cache()` stacked above the wrapper folds the returned value into its default key (see section 9), so an edit to the wrapper's options misses instead of replaying entries the old options produced. Return configuration, never runtime state: callables as themselves (their source is hashed), plain data as plain data, and `null` for a wrapper with no options. A controller or other live object projects to `[opaque]` and contributes nothing.
+- `describeOptions()` is abstract, so a wrapper that omits it does not compile. A step-scope `.cache()` stacked above the wrapper, and a route-scope `.cache()` over the pipeline, fold the returned value into the default key (see section 9), so an edit to the wrapper's options misses instead of replaying entries the old options produced. Return configuration, never runtime state: callables as themselves (their source is hashed), plain data as plain data, and `null` for a wrapper with no options. A controller or other live object projects to `[opaque]` and contributes nothing.
 
 Then add the dual-mode method on the builder:
 
@@ -264,7 +264,12 @@ accordingly.
   BEFORE `.from()`) caches the route's terminal body and skips the
   whole pipeline on a hit. The default key (`defaultCacheKey` in
   `operations/cache-wrapper.ts`) at both scopes hashes the route id,
-  at step scope the cache's site (`CacheKeyScope`: the step's
+  at route scope the `pipelineFingerprint` of every step a hit skips
+  (each step's definition, the kind and `describeOptions()` fingerprint
+  of every wrapper, nested sub-pipelines with the predicate selecting
+  each `.choice()` branch; computed once in `RouteBuilder.build()` and
+  stored as `RouteDefinition.cachePipeline`), at step scope the cache's
+  site (`CacheKeyScope`: the step's
   pre-order index, the cache's index in the full wrapper stack, the
   kind and `describeOptions()` fingerprint of each wrapper below it,
   and the innermost step's definition fingerprint), the principal's
@@ -274,9 +279,13 @@ accordingly.
   the site with their options: they shape what the cache stores, while
   a wrapper above it runs outside the cached computation and passes the
   exchange inward unchanged, so its options cannot change an entry and
-  only its presence counts (through the stack index). Neither
-  fingerprint covers what a callable closes over or config read at run
-  time. Route scope is refused at build on a
+  only its presence counts (through the stack index). The route's
+  `.input()` / `.output()` schemas stay out of the route-scope
+  fingerprint: input validation runs before the cache check and yields
+  the body the key hashes, and output validation runs on a hit as on a
+  miss, so neither shapes a stored entry. No fingerprint covers what a
+  callable closes over or config read at run time. Route scope is
+  refused at build on a
   route whose pipeline contains `.authenticate()`, because a hit would
   skip it. Route scope is
   wired into `RouteDefinition.postParseFilters` (the `cache-check`
