@@ -4,6 +4,14 @@ export const navigation = [
     href: '/',
     links: [
       { title: 'Installation', href: '/docs/introduction/installation' },
+      {
+        title: 'Tools for agents',
+        href: '/docs/introduction/tools-for-agents',
+      },
+      {
+        title: 'An agent of your own',
+        href: '/docs/introduction/an-agent-of-your-own',
+      },
       { title: 'Changelog', href: '/changelog' },
     ],
   },

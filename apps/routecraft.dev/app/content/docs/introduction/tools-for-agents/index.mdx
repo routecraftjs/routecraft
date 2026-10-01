@@ -1,0 +1,115 @@
+---
+title: Tools for agents
+---
+
+<Lead>
+Fifteen minutes from nothing to an agent calling a capability you own. You end with a project running on your laptop, one tool in it, and Claude, Cursor or Copilot connected to it.
+</Lead>
+
+## 1. Scaffold a project
+
+You need [Bun](https://bun.sh) 1.1 or later; the `craft` CLI runs on it. [Installation](/docs/introduction/installation) has the other package managers and the manual route.
+
+```bash
+bunx create-routecraft my-tools
+cd my-tools
+```
+
+The project has one capability folder, `capabilities/hello-world`, with two routes in it: `greet`, which looks a user up over HTTP and returns a greeting, and `hello-world`, which calls `greet` once at start so you can see the project run.
+
+## 2. Run it
+
+```bash
+bun run start
+```
+
+The log ends with `Hello, Leanne Graham!`. That was `hello-world` calling `greet` through the in-process door, `direct()`, with the user id validated against the capability's input schema before any code ran. Stop it with Ctrl-C.
+
+```bash
+bun run test
+```
+
+The capability's own test mocks `fetch`, runs the same two routes, and asserts the greeting. It is the shape to copy for every capability you write.
+
+## 3. Connect your client
+
+`greet` has a second door: `mcp()`. The project's `craft.config.ts` serves every capability with that source as an MCP tool over stdio, so a client spawns the project and talks to it on its standard streams. No port, no credential. Run the client from the project folder.
+
+Claude Code:
+
+```bash
+claude mcp add my-tools -- bunx craft start --log-file craft.log
+```
+
+Cursor (`.cursor/mcp.json`) and Claude Desktop take the same command in JSON:
+
+```json
+{
+  "mcpServers": {
+    "my-tools": {
+      "command": "bunx",
+      "args": ["craft", "start", "--log-file", "craft.log"]
+    }
+  }
+}
+```
+
+VS Code and Copilot (`.vscode/mcp.json`):
+
+```json
+{
+  "servers": {
+    "my-tools": {
+      "type": "stdio",
+      "command": "bunx",
+      "args": ["craft", "start", "--log-file", "craft.log"]
+    }
+  }
+}
+```
+
+The log goes to a file because standard output is the protocol.
+
+## 4. Call it
+
+Ask the client: **greet user 1**. It reads the tool's title, description and input schema, which are the `.title()`, `.description()` and `.input()` on the route, decides to call `greet` with `{ "userId": 1 }`, and gets `Hello, Leanne Graham!` back. Ask for user `"one"` and the schema refuses it before your code runs; the client is told which field was wrong.
+
+That is the whole mechanism. The agent never held a credential for the user service and never saw a URL. It pressed a tool you built.
+
+## 5. Make it yours
+
+Copy `capabilities/hello-world`, rename it, and change what it does. The one rule: `route.ts` is the capability's public surface and the only file another capability may import.
+
+```ts
+// capabilities/find-overdue-invoices/route.ts
+import { craft, direct, log } from "@routecraft/routecraft";
+import { mcp } from "@routecraft/ai";
+import { z } from "zod";
+
+export default craft()
+  .id("find-overdue-invoices")
+  .title("Find overdue invoices")
+  .description("List invoices more than the given number of days overdue")
+  .input({ body: z.object({ days: z.number().int().min(1) }) })
+  .from(direct(), mcp())
+  .transform(({ days }) => ({ days, invoices: [] }))
+  .to(log());
+```
+
+`craft start` discovers the new folder on its own. Give the route an `http()` source and it is also an endpoint; a `cron()` source and it also runs on a schedule. Same capability, same schema, every door.
+
+## 6. What comes next
+
+- **Share it with your team.** Run the project always on, serve MCP over HTTP behind authentication, on service credentials no person holds. [Local harness, team harness](/docs/introduction/local-and-team-harness) is the step; [Running an MCP server](/docs/advanced/expose-as-mcp) has the HTTP transport and every client.
+- **Decide who may call it.** [Credentials and identity](/docs/introduction/credentials-and-identity) is the model; [`authorize`](/docs/reference/operations/authorize) is the operation.
+- **Reach it the other ways.** [Doors and triggers](/docs/introduction/doors-and-triggers) covers the CLI, HTTP and what starts a capability when nobody asks.
+
+<QuickLinks>
+
+<QuickLink title="An agent of your own" icon="presets" href="/docs/introduction/an-agent-of-your-own" description="The other first project: a harness you talk to from your editor." />
+
+<QuickLink title="Capabilities" icon="plugins" href="/docs/introduction/capabilities" description="Everything a route can be." />
+
+<QuickLink title="MCP tool" icon="installation" href="/docs/examples/mcp" description="A copyable capability exposed as an MCP tool, and one that calls a remote MCP server." />
+
+</QuickLinks>
