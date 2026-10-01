@@ -238,6 +238,42 @@ describe("MCP tool failure text", () => {
   });
 
   /**
+   * @case A caller refusal and an instance fault log at different levels
+   * @preconditions One tool whose .authorize() refuses the caller, one whose step throws; both called once
+   * @expectedResult The refusal's tool line is debug and never error, the fault's is error, matching the http doors
+   */
+  test("logs a caller refusal at debug and a fault at error", async () => {
+    const srv = await serve([
+      craft()
+        .id("archive")
+        .description("Admins only")
+        .authorize({ roles: ["admin"] })
+        .from(mcp())
+        .to(noop()),
+      craft()
+        .id("thrower")
+        .description("Fails")
+        .from(mcp())
+        .transform(() => {
+          throw new Error("boom");
+        }),
+    ]);
+    const toolLines = (calls: unknown[][], tool: string) =>
+      calls.filter(
+        ([bindings]) =>
+          (bindings as { tool?: string } | undefined)?.tool === tool,
+      );
+
+    await callAs(srv, "archive", {}, user());
+    await callTool(srv, "thrower", {});
+
+    const log = t!.contextLogger;
+    expect(toolLines(log.debug.mock.calls, "archive")).toHaveLength(1);
+    expect(toolLines(log.error.mock.calls, "archive")).toHaveLength(0);
+    expect(toolLines(log.error.mock.calls, "thrower")).toHaveLength(1);
+  });
+
+  /**
    * @case The tool's own .authorize() refuses for a missing scope
    * @preconditions Tool route declares .authorize({ scopes: ["orders:write"] }); principal carries only orders:read
    * @expectedResult The insufficient-scope text naming the missing scope, so the agent can request it

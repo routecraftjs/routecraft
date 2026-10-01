@@ -1,6 +1,7 @@
 import type { CraftContext } from "@routecraft/routecraft";
 import {
   buildProtectedResourceMetadata,
+  callerRefusalOf,
   DefaultExchange,
   HeadersKeys,
   isRoutecraftError,
@@ -9,6 +10,7 @@ import {
   markAuthentic,
   rcError,
   requireWebIngress,
+  type CallerRefusalOrigin,
   type ProtectedResourceMetadata,
 } from "@routecraft/routecraft";
 import type { PathClaim, WebIngress } from "@routecraft/routecraft";
@@ -1352,22 +1354,23 @@ export class McpServer {
       }
       return result;
     } catch (error) {
+      const origin: CallerRefusalOrigin = {
+        // A local tool's name is its route id.
+        routeId: toolName,
+        principal: admitted,
+        credentialCouldHelp: this.acceptsCredentials && admitted === undefined,
+      };
       const logMsg = toolErrorLogMessage(error);
-      this.context.logger.error({ tool: toolName, err: error }, logMsg);
+      // A refusal the caller caused is answered, not an instance fault, and route.runSteps already logged it.
+      const level =
+        callerRefusalOf(error, origin) === undefined ? "error" : "debug";
+      this.context.logger[level]({ tool: toolName, err: error }, logMsg);
       this.context.emit(`plugin:mcp:tool:failed`, {
         tool: toolName,
         error: logMsg,
       });
 
-      return toolErrorResult(
-        toolFailureText(toolName, error, {
-          // A local tool's name is its route id.
-          routeId: toolName,
-          principal: admitted,
-          credentialCouldHelp:
-            this.acceptsCredentials && admitted === undefined,
-        }),
-      );
+      return toolErrorResult(toolFailureText(toolName, error, origin));
     }
   }
 
