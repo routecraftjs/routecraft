@@ -706,16 +706,25 @@ Return one of the supported outcomes from your step: `continue`, `complete`, `dr
 Dedupe key derivation failed
 
 **Why it happens**  
-The default `.dedupe()` key hashes `JSON.stringify(body)`, which fails on bodies containing functions, symbols, circular references, or `BigInt`. Also raised when a custom `key` function throws.
+The default `.dedupe()` key hashes the caller's principal together with `JSON.stringify(body)`, so it needs a body. It fails when the body is `undefined`, which is every bodiless request such as an `http()` GET (its input lives in the `routecraft.http.params` and `routecraft.http.query` headers, which the default key does not read), and when `JSON.stringify(body)` cannot represent the body (functions, symbols, circular references, or `BigInt`). Also raised when a custom `key` function throws or returns a non-string.
 
 **Suggestion**  
-Supply an explicit `key` function that returns a stable string identifier:
+Supply an explicit `key` function that returns a stable string identifier. A custom key is used verbatim: the default key's principal is not added, so include the caller's identity when callers must not dedupe each other:
 
 ```ts skip="fragment: a chain shown without its route"
-.dedupe({ key: (e) => String((e.body as { id: unknown }).id) })
+.dedupe({
+  key: (e) =>
+    JSON.stringify([
+      e.principal?.issuer,
+      e.principal?.subject,
+      (e.body as { id: unknown }).id,
+    ]),
+})
 ```
 
-This error is not retryable: the same body fails key derivation the same way every time.
+On a route that admits delegation, add the current actor (`e.principal?.actor?.issuer`, `e.principal?.actor?.subject`) as well. See [dedupe](/docs/reference/operations/dedupe).
+
+This error is not retryable: the same exchange fails key derivation the same way every time.
 
 ## RC5034
 Actor not permitted
