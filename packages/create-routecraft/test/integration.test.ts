@@ -41,7 +41,11 @@ const PACKAGE_MANAGER_DEFS: Record<PackageManagerId, PackageManagerDef> = {
   bun: {
     id: "bun",
     pmOption: "bun",
-    install: "bun install --ignore-scripts",
+    // Hoisted, because each local file: package carries its own link to core,
+    // and the isolated linker installs those as separate copies: `direct()`
+    // and `mcp()` would then carry two type identities and `.from()` would
+    // refuse them together. A registry install has one core and no such split.
+    install: "bun install --ignore-scripts --linker=hoisted",
     typecheck: "bunx tsc --noEmit",
     start: "bun run start",
     unitTests: "bun test",
@@ -113,8 +117,8 @@ async function runInstall(projectDir: string): Promise<void> {
 }
 
 /**
- * Run a long-running command and resolve as soon as the expected substring
- * appears on stdout or stderr. Kills the process once matched.
+ * Run a long-running command and resolve as soon as every expected substring
+ * has appeared on stdout or stderr. Kills the process once matched.
  *
  * Needed because the hello-world example includes a direct source that keeps
  * the context alive after the caller route finishes; we assert success by
@@ -124,11 +128,13 @@ async function runUntilOutput(
   cmd: string,
   opts: {
     cwd: string;
-    expectedOutput: string;
+    expectedOutput: string | string[];
     timeoutMs: number;
     env: NodeJS.ProcessEnv;
   },
 ): Promise<void> {
+  const expected = [opts.expectedOutput].flat();
+  const described = expected.map((e) => `"${e}"`).join(" and ");
   await new Promise<void>((resolve, reject) => {
     const child = spawn("/bin/sh", ["-c", cmd], {
       cwd: opts.cwd,
@@ -177,19 +183,16 @@ async function runUntilOutput(
       void finish(() =>
         reject(
           new Error(
-            `Timed out waiting for "${opts.expectedOutput}" after ${opts.timeoutMs}ms.\nstdout:\n${stdout}\nstderr:\n${stderr}`,
+            `Timed out waiting for ${described} after ${opts.timeoutMs}ms.\nstdout:\n${stdout}\nstderr:\n${stderr}`,
           ),
         ),
       );
     }, opts.timeoutMs);
 
+    const seenAll = () =>
+      expected.every((e) => stdout.includes(e) || stderr.includes(e));
     const check = () => {
-      if (
-        stdout.includes(opts.expectedOutput) ||
-        stderr.includes(opts.expectedOutput)
-      ) {
-        void finish(() => resolve());
-      }
+      if (seenAll()) void finish(() => resolve());
     };
 
     child.stdout?.on("data", (d) => {
@@ -202,16 +205,13 @@ async function runUntilOutput(
     });
     child.on("exit", (code) => {
       if (settled) return;
-      if (
-        stdout.includes(opts.expectedOutput) ||
-        stderr.includes(opts.expectedOutput)
-      ) {
+      if (seenAll()) {
         void finish(() => resolve());
       } else {
         void finish(() =>
           reject(
             new Error(
-              `Process exited with code ${code} before emitting "${opts.expectedOutput}".\nstdout:\n${stdout}\nstderr:\n${stderr}`,
+              `Process exited with code ${code} before emitting ${described}.\nstdout:\n${stdout}\nstderr:\n${stderr}`,
             ),
           ),
         );
@@ -277,11 +277,13 @@ async function patchDepsToLocal(projectDir: string): Promise<void> {
   const pkgPath = join(projectDir, "package.json");
   const pkg = JSON.parse(await readFile(pkgPath, "utf-8"));
 
+  const local = (pkg: string) => `file:${join(MONOREPO_ROOT, "packages", pkg)}`;
   const localPackages: Record<string, string> = {
-    "@routecraft/routecraft": `file:${join(MONOREPO_ROOT, "packages/routecraft")}`,
-    "@routecraft/cli": `file:${join(MONOREPO_ROOT, "packages/cli")}`,
-    "@routecraft/testing": `file:${join(MONOREPO_ROOT, "packages/testing")}`,
-    "@routecraft/eslint-plugin-routecraft": `file:${join(MONOREPO_ROOT, "packages/eslint-plugin-routecraft")}`,
+    "@routecraft/routecraft": local("routecraft"),
+    "@routecraft/cli": local("cli"),
+    "@routecraft/ai": local("ai"),
+    "@routecraft/testing": local("testing"),
+    "@routecraft/eslint-plugin-routecraft": local("eslint-plugin-routecraft"),
   };
 
   for (const [name, localPath] of Object.entries(localPackages)) {
@@ -366,9 +368,9 @@ describe(`integration (${pm.id}): scaffolded project compiles`, () => {
   );
 
   /**
-   * @case Scaffolded hello-world project type-checks and dispatches simple -> direct on the selected package manager
+   * @case Scaffolded hello-world project type-checks, serves its MCP tool and dispatches simple -> direct on the selected package manager
    * @preconditions Hello-world project scaffolded, dependencies installed via the selected package manager
-   * @expectedResult tsc --noEmit passes, and the project's own start script, run with no logging configured in the environment, logs "Hello, Leanne Graham!" within the timeout
+   * @expectedResult tsc --noEmit passes, and the project's own start script, run with no logging configured in the environment, logs "MCP server started" and "Hello, Leanne Graham!" within the timeout, so a plugin that fails at start cannot pass on the greeting alone
    */
   integrationTest.concurrent(
     "hello-world project type-checks and dispatches simple -> direct via craft",
@@ -398,7 +400,7 @@ describe(`integration (${pm.id}): scaffolded project compiles`, () => {
         for (const name of LOG_ENV) delete env[name];
         await runUntilOutput(startCmd, {
           cwd: projectDir,
-          expectedOutput: "Hello, Leanne Graham!",
+          expectedOutput: ["MCP server started", "Hello, Leanne Graham!"],
           timeoutMs: 60_000,
           env,
         });

@@ -5,9 +5,10 @@
  * than what the monorepo's lockfile holds.
  *
  * Profiles:
- * - `starter`: the `create-routecraft` scaffold, core and CLI only. Its
- *   Dockerfile is the one the scaffolder writes.
- * - `adapters`: the starter plus `@routecraft/ai`, `@routecraft/os` and every
+ * - `starter`: the `create-routecraft` scaffold: core, the CLI and
+ *   `@routecraft/ai`, which the scaffold's MCP tool needs. Its Dockerfile is
+ *   the one the scaffolder writes.
+ * - `adapters`: the starter plus `@routecraft/os` and every
  *   optional peer the three packages declare, at the newest version their
  *   declared ranges allow. This is the dependency tree a project using the
  *   adapters resolves today, and the only one where a CVE in an adapter's
@@ -47,7 +48,7 @@ const repoRoot = resolve(import.meta.dir, "..", "..");
 
 const packages =
   profile === "starter"
-    ? ["routecraft", "cli"]
+    ? ["routecraft", "cli", "ai"]
     : ["routecraft", "cli", "ai", "os"];
 
 type Manifest = {

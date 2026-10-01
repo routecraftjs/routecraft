@@ -1,15 +1,17 @@
 # hello-world
 
-Two capabilities that demonstrate the core shape of Routecraft: a caller dispatching to a
-service by id.
+Two routes that show the shape of a Routecraft project: a capability behind two doors, and a
+caller that uses one of them.
 
-- `greet` receives a user id over the `direct()` endpoint, enriches it with an HTTP lookup,
-  and returns a greeting.
-- `hello-world` is the caller: it emits a user id and dispatches to `greet`.
+- `greet` receives a user id, enriches it with an HTTP lookup, and returns a greeting. It
+  stands behind `direct()`, the in-process door, and `mcp()`, which makes it a tool an agent
+  can call. The input schema is validated whichever door the call came through.
+- `hello-world` is the caller: it emits a user id at start and dispatches to `greet`.
 
 ```mermaid
 flowchart LR
   A[hello-world: simple] -->|direct| B[greet]
+  M[an agent, over MCP] -->|mcp| B
   B -->|enrich| C[(HTTP user lookup)]
   B --> D[log]
 ```
@@ -20,5 +22,8 @@ registers it by hand.
 
 `greet` calls `https://jsonplaceholder.typicode.com`, so the first run needs a network. The
 tests do not: they replace `fetch`, which is also the shape to copy when you write your own.
+The test serves the MCP door over HTTP on a port the operating system picks, so the `mcp()`
+source can subscribe without touching the test runner's standard streams.
 
-Run the project with `bun run start`, and the tests with `bun run test`.
+Run the project with `bun run start`, the tests with `bun run test`, and see the project
+README for connecting an agent.
