@@ -19,6 +19,29 @@ import { InMemoryDirectChannel } from "../../adapters/direct/shared";
 import { createDeferred } from "../../deferral/deferred";
 import { OpsClientError, type OpsHttpClient } from "../ops/client";
 
+/**
+ * `RC5004` failures a channel raised because its remote answered 404, keyed
+ * to the local endpoint the channel fronts.
+ *
+ * Module-private for the reason `authorize.ts` keeps its refusals in one: a
+ * route reaching this endpoint through a nested `direct()` fails with the
+ * same code, and so does any step that throws it. Only the ops door that
+ * dispatched this endpoint itself may answer the remote's 404 as its own.
+ */
+const absences = new WeakMap<object, string>();
+
+/**
+ * Whether `error` is a channel's report that the remote no longer answers
+ * `endpoint`, as opposed to an `RC5004` raised anywhere else, including by
+ * a channel fronting a different endpoint.
+ *
+ * @internal
+ */
+export function isRemoteAbsence(error: unknown, endpoint: string): boolean {
+  if (typeof error !== "object" || error === null) return false;
+  return absences.get(error) === endpoint;
+}
+
 /** What a channel needs to know about the route it fronts. */
 export interface RemoteTarget {
   ctx: CraftContext;
@@ -171,11 +194,14 @@ export class RemoteDirectChannel implements DirectChannel<Exchange> {
         return rcError("RC5063", error, {
           message: `Dispatching ${where}: ${error.message}`,
         });
-      case "absent":
+      case "absent": {
         await this.target.onMissing();
-        return rcError("RC5004", error, {
+        const absence = rcError("RC5004", error, {
           message: `Dispatching ${where}: the remote answered 404, so the route is gone from the remote or its dispatch tier is closed. The inventory has been refreshed; a route the remote no longer lists is no longer a direct endpoint here.`,
         });
+        absences.set(absence, this.target.endpoint);
+        return absence;
+      }
       case "error":
         // No status means the request never completed: a timeout, where
         // the work may still be running on the remote. Not retryable, for
