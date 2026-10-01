@@ -1,0 +1,81 @@
+---
+title: Credentials and identity
+---
+
+<Lead>
+On the team harness the credential belongs to the capability, not to the agent and not to the person asking, and every call carries who asked. This page is the model. [Securing capabilities](/docs/advanced/securing-capabilities) is the how-to.
+</Lead>
+
+## Two kinds of credential
+
+A **personal credential** is yours: the token in your `.env`, the session your browser holds. On the local harness every capability runs on it, which is the point of the local harness: nothing to ask for before you can try something, and nothing that reaches beyond what you could already do.
+
+A **service credential** belongs to the organisation and to one capability's job. On the team harness it is read from the environment by the adapter that needs it, held by no person, and rotated without a restart when the adapter takes a function rather than a string. A capability promoted to the team harness stops running as whoever wrote it and starts running as itself.
+
+The person or agent calling the capability holds neither. They hold a credential for the door, and the door turns it into an identity.
+
+## Hands, not keys
+
+<Diagram id="hands-not-keys" />
+
+An agent holding the CRM's key can do everything the key allows, and nothing in a prompt can stop it. An agent calling a capability can do what the capability does: the input it accepts, the systems it touches, the rules it checks. The key never leaves the harness.
+
+The question a security team asks at this point is the right one: what stops the agent from reading the secret and calling the system itself? The answer is where things run. The capability runs on the team harness, and the agent does not. It reaches the capability over a door, with a credential that identifies it and bounds what it may ask for, and the service credential sits in the harness's environment, which the agent cannot read. An agent that runs inside Routecraft, as the `agent()` step of a capability, is handed tools, not environment variables, and the identity it is told about in its prompt is a deliberate subset: name, email, subject and roles, never a token or a claim.
+
+On a laptop the picture is different by design: the agent and the capability run on your credentials, as you. That is acceptable for one person's own access and is exactly what promotion changes.
+
+## Who asked
+
+Every exchange carries a **principal**: who the call is for, verified at the boundary.
+
+- **At a door**, the verifier mints it. A JWT or JWKS validator, or an OAuth resource-server check, on the MCP, HTTP and ops mounts, with `issuer` and `audience` required and `exp` mandatory.
+- **From a channel the framework cannot verify**, you mint it: `.authenticate()` turns claims you checked yourself (a DKIM-passing sender, a Slack signature, a webhook HMAC) into a principal. A plain object written into a header is not a principal and is refused.
+
+The principal is frozen and rides the exchange through every step and every in-process hop, so a capability calling another with `direct()` runs the second one under the same identity. It is never forwarded to a remote harness: the remote's credential authenticates this instance, and the remote mints its own view of the caller from that.
+
+Then each capability declares who may drive it:
+
+```ts skip="fragment: not a complete statement on its own"
+// People in the finance role, directly. This is the default for actor.
+.authorize({ roles: ["finance"], actor: "none" })
+
+// A member directly, or one named agent acting on a member's behalf
+.authorize({
+  roles: ["member"],
+  scopes: ["mail:send"],
+  actor: ["none", { subject: "agent:zoe", issuer: "https://agents.example.com" }],
+})
+
+// Autonomous agents only, for scheduled background work
+.authorize({ subject: { profile: "ai_agent" }, actor: "none" })
+```
+
+A refusal is answered at the door the caller came through, as a 401 or 403 with the reason, not as a generic failure.
+
+## An agent acting for a person
+
+When an agent exercises a person's authority, the principal records both: `subject` stays the person the action is for, and `actor` names the agent driving it. The [`delegate`](/docs/reference/operations/delegate) operation establishes that from a consent record, and it can only narrow authority, never widen it. A capability that should be driven only by people says `actor: "none"`, which is the default. Standing authority for an agent of its own, with no person behind it, is minted on a schedule or a timer and never from a channel the outside can reach, so an inbound message can never wake an agent's own permissions.
+
+## The four gates
+
+<Diagram id="four-gates" />
+
+Every call, through every door, falls through the same gates in order: the **input** schema, the **policy** you wrote in `.authorize()` and `.filter()`, the **identity** the door verified, and the **declared intent** of the capability, which is the description and schema an agent was shown before it chose to call. What survives all four reaches your code. A model's decision is never one of the gates.
+
+## On record
+
+With the telemetry plugin on, every exchange is written with its route, the door it came through, the principal's subject, issuer and actor chain, and the outcome, and it is exported to any OpenTelemetry backend. Principal fields are loggable. Bearer tokens are not, anywhere: not in logs, not in events, not in error messages. See [Monitoring](/docs/introduction/monitoring#telemetry-plugin).
+
+## Related
+
+<QuickLinks>
+
+<QuickLink title="Securing capabilities" icon="presets" href="/docs/advanced/securing-capabilities" description="The credential ladder, from a static key to an OAuth resource server." />
+
+<QuickLink title="authorize" icon="plugins" href="/docs/reference/operations/authorize" description="Roles, scopes, subject and actor rules on a capability." />
+
+<QuickLink title="authenticate" icon="plugins" href="/docs/reference/operations/authenticate" description="Mint a principal from a channel you verified yourself." />
+
+<QuickLink title="delegate" icon="plugins" href="/docs/reference/operations/delegate" description="Record an agent acting on a person's behalf." />
+
+</QuickLinks>

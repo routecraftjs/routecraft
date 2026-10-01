@@ -13,6 +13,18 @@ export const navigation = [
     links: [
       { title: 'What is Routecraft', href: '/docs/introduction' },
       {
+        title: 'Local harness, team harness',
+        href: '/docs/introduction/local-and-team-harness',
+      },
+      {
+        title: 'Doors and triggers',
+        href: '/docs/introduction/doors-and-triggers',
+      },
+      {
+        title: 'Credentials and identity',
+        href: '/docs/introduction/credentials-and-identity',
+      },
+      {
         title: 'Talk from your editor',
         href: '/docs/introduction/talk-from-your-editor',
       },

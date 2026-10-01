@@ -27,18 +27,18 @@ Read it top to bottom.
 - **When it needs a decision, it asks a person.** Approve by mail or chat, and the capability continues, hours or days later, through any door.
 - **Your systems stay where they are.** CRM, ERP, HR and payroll, the support desk, the knowledge base, mail and calendar, chat, source control. Routecraft is the one governed way in.
 
-Every call, through every door, is on record: who asked, which door, which capability, which system.
+Switch telemetry on and every call, through every door, is on record: who asked, which door, which capability, which system.
 
 ## The words
 
 A short glossary. Each one has its own page further in.
 
 - **Capability.** The unit of everything. A TypeScript route that connects a source to a destination through typed steps, with an id, a description and an input schema that is validated on every call. A capability can be fully deterministic, or carry an agent inside it that reasons within the boundary the code sets. See [Capabilities](/docs/introduction/capabilities).
-- **Harness.** A running Routecraft instance together with its capabilities, skills and agents. A local harness runs on a laptop on personal access; the team harness runs always on, on service credentials. Both run the same code. See [Project structure](/docs/introduction/project-structure).
+- **Harness.** A running Routecraft instance together with its capabilities, skills and agents. A local harness runs on a laptop on personal access; the team harness runs always on, on service credentials. Both run the same code. See [Local harness, team harness](/docs/introduction/local-and-team-harness).
 - **Agent.** A model loop that works inside a capability with the tools you gave it, and only those. An agent can also live outside Routecraft, in Claude, Copilot, Cursor or ChatGPT, and reach your capabilities over MCP. Both are first class. See [Durable agents](/docs/advanced/durable-agents).
 - **Skill.** Instructions in markdown that an agent loads to do one kind of job, shipped as a package beside the capabilities it uses. See [Project structure](/docs/introduction/project-structure#skills).
-- **Door.** How a caller reaches a capability when someone asks: MCP for agents, the Agent Client Protocol for editors, the CLI, and HTTP. One capability, every door, the same checks. See [Running an MCP server](/docs/advanced/expose-as-mcp) and [Talk from your editor](/docs/introduction/talk-from-your-editor).
-- **Trigger.** What starts a capability when nobody asks: a schedule, a webhook, an email, an event from another capability, a file. See [Adapters](/docs/introduction/adapters).
+- **Door.** How a caller reaches a capability when someone asks: MCP for agents, the Agent Client Protocol for editors, the CLI, and HTTP. One capability, every door, the same checks. See [Doors and triggers](/docs/introduction/doors-and-triggers).
+- **Trigger.** What starts a capability when nobody asks: a schedule, a webhook, an email, an event from another capability, a file. See [Doors and triggers](/docs/introduction/doors-and-triggers).
 - **Adapter.** A connector to the outside world. A source brings data in, a destination sends it out, and some do both. See the [adapter reference](/docs/reference/adapters).
 - **Operation.** A step inside a capability: `transform`, `filter`, `enrich`, `split`, `aggregate` and the rest. See [Operations](/docs/introduction/operations).
 - **Exchange.** The message that moves through a capability: a body and headers. See [The Exchange](/docs/introduction/exchange).
@@ -90,7 +90,7 @@ An agent that holds a credential can do anything that credential can do. An agen
 
 On the team harness, the credential belongs to the capability, not to the agent and not to the person asking. Every call runs through the same gates: the input schema, the authorisation rules you wrote, the identity of the caller, and the declared intent of the tool. What survives all four reaches your code. The agent reaches the capability over a door and never sees the secret behind it, so there is nothing for it to copy, leak or reuse.
 
-This is also why the local harness is safe to hand to every engineer: on a laptop a capability runs on that person's own access, and promoting it is the moment it moves onto service credentials and under the team's rules.
+This is also why the local harness is safe to hand to every engineer: on a laptop a capability runs on that person's own access, and promoting it is the moment it moves onto service credentials and under the team's rules. [Credentials and identity](/docs/introduction/credentials-and-identity) is the full model.
 
 ## How it differs from what you may already use
 

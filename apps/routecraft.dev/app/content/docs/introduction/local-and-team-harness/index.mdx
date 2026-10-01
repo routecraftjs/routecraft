@@ -1,0 +1,78 @@
+---
+title: Local harness, team harness
+---
+
+<Lead>
+Every Routecraft instance is a harness: the runtime plus the capabilities, skills and agents it loads. The one on your laptop and the one your organisation runs are the same code. What differs is whose credentials it holds and who can reach it.
+</Lead>
+
+## One codebase, two places to run it
+
+<Diagram id="single-player-vs-multiplayer" />
+
+**The local harness** is a project on your machine, started with `craft start` or `bun run dev`. It runs on your own access: the tokens in your `.env`, your editor, your agents. Nothing to approve before you try something, and nothing another person can reach. This is where a capability is built and proven, and where an engineer keeps the tools that only they need.
+
+**The team harness** is the same project deployed: `craft start` on a server, in the container the scaffold ships, always on. Its credentials are the organisation's service credentials, read from the environment and held by no person. Its doors sit behind authentication, every capability declares who may call it, and telemetry records every call. This is where a capability goes once it has earned its place, and from then on every team calls the same one.
+
+The split is the whole security model in one sentence: on a laptop a capability runs as you; on the team harness it runs as itself, and the caller is only ever who the door verified. [Credentials and identity](/docs/introduction/credentials-and-identity) has the detail.
+
+## Prove, then promote
+
+A capability starts local. You write it, run it against the real systems on your own access, and test it the way the [testing guide](/docs/introduction/testing) describes. When it works, promoting it means deploying the same folder to the team harness, with the service credentials its adapters read from the environment, and a `.authorize()` rule that says which roles, scopes or agents may call it.
+
+Promotion is not a cut-over. With a [remote](#remotes-one-surface) configured, the moment a capability exists on your laptop and on the team harness at once is handled: the local copy answers your own calls, the team copy answers everyone else's, the overlap is logged, and when you delete the local copy the team harness takes the endpoint back. Nothing is torn down to put the new thing up.
+
+## Remotes: one surface
+
+A local harness names the team harness in its config, and every dispatchable capability on the team harness becomes a direct endpoint on the laptop.
+
+```ts
+import { defineConfig } from "@routecraft/routecraft";
+
+export const craftConfig = defineConfig({
+  remotes: {
+    default: {
+      url: "https://routecraft.example.internal",
+      auth: { token: () => process.env.RC_REMOTE_TOKEN },
+    },
+  },
+});
+```
+
+From then on `direct('find-overdue-invoices')` in a local route, `Direct(find-overdue-invoices)` in a local agent's tool list, and `craft exec find-overdue-invoices` all reach the team harness's capability as if it were local, with its input schema advertised to your agents exactly as the team harness renders it. Validation runs where the schema lives: at the team harness's door.
+
+Two rules keep this safe. The credential is the environment's: `auth.token` is read per request from wherever the deployment keeps it, so a rotated token is picked up without a restart. And your local identity is never forwarded: the remote capability runs under the identity the token carries, which is this instance's, not yours. The [remotes reference](/docs/reference/plugins/remotesplugin) covers names, shadowing and outcomes.
+
+## What travels between harnesses
+
+A harness is a project, so what it runs is what the project installs.
+
+- **Capabilities** are folders of TypeScript under `capabilities/`. A team that wants to share one publishes it like any module and the next team re-exports it from a one-line `route.ts` in its own tree, or copies the folder. The runtime discovers it either way.
+- **Skills** are markdown, and an agent lists them by local path or by `npm:` reference into an installed package, so a skill set is a dependency in `package.json` with no network access at boot.
+- **Agents** are markdown files or bundles under `agents/`, with their skills beside them, and a Claude Code `.claude/agents/` tree drops in unchanged.
+
+[Project structure](/docs/introduction/project-structure) shows the layout, and what `craft start` discovers.
+
+## Who reaches which harness
+
+| | Local harness | Team harness |
+| --- | --- | --- |
+| Runs | on your laptop, while you work | on your infrastructure, always on |
+| Credentials | yours, in `.env` | the organisation's service credentials, in the environment |
+| Who can call it | you: your editor, your agents, `craft exec` | every team, through a door that verifies who they are |
+| Who decides what runs | you | `.authorize()` on each capability, and the door's own tiers |
+| On record | your local telemetry database, if you switch it on | every call, with who asked, which door and which capability |
+
+## Related
+
+<QuickLinks>
+
+<QuickLink title="Doors and triggers" icon="presets" href="/docs/introduction/doors-and-triggers" description="How a capability is reached when someone asks, and what starts it when nobody does." />
+
+<QuickLink title="Credentials and identity" icon="presets" href="/docs/introduction/credentials-and-identity" description="Service credentials, the verified caller, and what the agent never holds." />
+
+<QuickLink title="Deployment" icon="installation" href="/docs/introduction/deployment" description="Run the team harness on a server, in the container the scaffold ships." />
+
+<QuickLink title="remotesPlugin" icon="plugins" href="/docs/reference/plugins/remotesplugin" description="Every option, name rule and outcome of a remote." />
+
+</QuickLinks>
