@@ -10,7 +10,7 @@ title: acpPlugin
 import { acpPlugin } from '@routecraft/ai'
 ```
 
-Serves the [Agent Client Protocol](/docs/advanced/talk-from-your-editor) over Streamable HTTP, so a person can talk to this instance's agents from their editor. It mounts on a named server beside the MCP mount and the HTTP surface, behind the same wall as everything else the instance exposes.
+Serves the [Agent Client Protocol](/docs/introduction/talk-from-your-editor) over Streamable HTTP, so a person can talk to this instance's agents from their editor. It mounts on a named server beside the MCP mount and the HTTP surface, behind the same wall as everything else the instance exposes.
 
 Nothing ships switched off. Installing the plugin serves the protocol, and the framework's own name reaches the editor unless the app replaces it.
 
@@ -66,13 +66,13 @@ The mount builds one route per registered agent when it applies, so it has to ap
 
 Unset, `agent` resolves to the only agent the context holds. A context holding several refuses `session/new` with a message naming them all, because silently picking one for somebody would answer in the wrong voice with no way to notice.
 
-A harness names its own with the `Routecraft-Agent` request header, which is what [`craft acp --agent`](/docs/reference/cli#acp) sends, and every session it opens belongs to that agent for life. A name the instance does not hold is refused by name. There is no config option and no mode for this: see [why agent selection is not an ACP mode](/docs/advanced/talk-from-your-editor#why-agent-selection-is-not-an-acp-mode).
+A harness names its own with the `Routecraft-Agent` request header, which is what [`craft acp --agent`](/docs/reference/cli#acp) sends, and every session it opens belongs to that agent for life. A name the instance does not hold is refused by name. There is no config option and no mode for this: see [why agent selection is not an ACP mode](/docs/introduction/talk-from-your-editor#why-agent-selection-is-not-an-acp-mode).
 
 Every agent the context holds is advertised to every credential holder. There is no per-agent visibility rule: agents are not what carries the security here, hands are, and each one authorizes the caller on every call under the principal of the person who typed the prompt.
 
 ## A prompt sent while a turn runs
 
-A `session/prompt` that arrives while the conversation's turn is running is queued behind it and answered, together with anything else that queued, by the turn that runs next. The request stays open until that reply has streamed and returns `end_turn` only then; several held on one conversation return in the order they were sent. A prompt this instance cannot answer returns `cancelled`, never `end_turn` with nothing shown. `session/cancel` interrupts the running turn alone: its request returns `cancelled` and a queued message is still answered by the next turn. The full behaviour is in [Sending while a turn runs](/docs/advanced/talk-from-your-editor#sending-while-a-turn-runs).
+A `session/prompt` that arrives while the conversation's turn is running is queued behind it and answered, together with anything else that queued, by the turn that runs next. The request stays open until that reply has streamed and returns `end_turn` only then; several held on one conversation return in the order they were sent. A prompt this instance cannot answer returns `cancelled`, never `end_turn` with nothing shown. `session/cancel` interrupts the running turn alone: its request returns `cancelled` and a queued message is still answered by the next turn. The full behaviour is in [Sending while a turn runs](/docs/introduction/talk-from-your-editor#sending-while-a-turn-runs).
 
 ## Who can see a conversation
 

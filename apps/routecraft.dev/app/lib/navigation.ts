@@ -13,18 +13,20 @@ export const navigation = [
     links: [
       { title: 'What is Routecraft', href: '/docs/introduction' },
       {
+        title: 'Talk from your editor',
+        href: '/docs/introduction/talk-from-your-editor',
+      },
+      { title: 'Capabilities', href: '/docs/introduction/capabilities' },
+      {
         title: 'Project structure',
         href: '/docs/introduction/project-structure',
       },
-      { title: 'Capabilities', href: '/docs/introduction/capabilities' },
       { title: 'The Exchange', href: '/docs/introduction/exchange' },
       { title: 'Operations', href: '/docs/introduction/operations' },
       { title: 'Adapters', href: '/docs/introduction/adapters' },
-      { title: 'Events', href: '/docs/introduction/events' },
       { title: 'Testing', href: '/docs/introduction/testing' },
       { title: 'Deployment', href: '/docs/introduction/deployment' },
       { title: 'Monitoring', href: '/docs/introduction/monitoring' },
-      { title: 'Terminal UI', href: '/docs/introduction/tui' },
     ],
   },
   {
@@ -36,6 +38,7 @@ export const navigation = [
         title: 'Composing Capabilities',
         href: '/docs/advanced/composing-capabilities',
       },
+      { title: 'Events', href: '/docs/advanced/events' },
       { title: 'Error Handling', href: '/docs/advanced/error-handling' },
       { title: 'Filter Chain', href: '/docs/advanced/filter-chain' },
       { title: 'Merged Options', href: '/docs/advanced/merged-options' },
@@ -45,6 +48,7 @@ export const navigation = [
         title: 'Programmatic Invocation',
         href: '/docs/advanced/programmatic-invocation',
       },
+      { title: 'Terminal UI', href: '/docs/advanced/tui' },
       { title: 'Running an MCP server', href: '/docs/advanced/expose-as-mcp' },
       { title: 'Calling an MCP', href: '/docs/advanced/call-an-mcp' },
       {
@@ -52,10 +56,6 @@ export const navigation = [
         href: '/docs/advanced/judging-agent-results',
       },
       { title: 'Durable Agents', href: '/docs/advanced/durable-agents' },
-      {
-        title: 'Talk from your editor',
-        href: '/docs/advanced/talk-from-your-editor',
-      },
       {
         title: 'Securing capabilities',
         href: '/docs/advanced/securing-capabilities',

@@ -181,7 +181,7 @@ To run inside a Node application instead of through the CLI, embed `@routecraft/
 
 - [Expose as MCP](https://routecraft.dev/docs/advanced/expose-as-mcp) and [call an MCP](https://routecraft.dev/docs/advanced/call-an-mcp)
 - [Agent adapter](https://routecraft.dev/docs/reference/adapters/agent) and [durable agents](https://routecraft.dev/docs/advanced/durable-agents)
-- [Talk from your editor](https://routecraft.dev/docs/advanced/talk-from-your-editor)
+- [Talk from your editor](https://routecraft.dev/docs/introduction/talk-from-your-editor)
 - [LLM adapter](https://routecraft.dev/docs/reference/adapters/llm)
 
 ## Contributing

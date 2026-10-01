@@ -1,44 +1,79 @@
 ---
-title: Introduction
+title: What is Routecraft
 ---
 
 <Lead>
-What Routecraft is and how it works.
+Routecraft is the open source AI automation platform your teams build on together. Build a capability once, as a typed TypeScript route, and every agent, editor and schedule in the organisation can call it, on service credentials the platform holds, with every call on record.
 </Lead>
 
-## What is Routecraft?
+## The problem it exists for
 
-Routecraft is a **code-first automation platform** for TypeScript that bridges traditional integration (Software 1.0) and AI-native workflows (Software 3.0).
+Your engineers are already building AI tools. An invoice chaser on one VM. A recruitment agent on a laptop. Expense approvals on a session cookie copied out of a browser. The same GitHub skill written four times by four teams. Each one was the fastest way to get something done, and each one runs on somebody's personal login, stops when that person is on holiday, and cannot be installed by the next team.
 
-Whether you need to process a daily CSV on a cron job, route incoming webhooks, or give Claude the ability to manage your Google Calendar, Routecraft handles it all through a single, unified DSL.
+<Diagram id="every-team-builds-its-own" />
 
-Routecraft is built for both eras of software:
+A policy memo does not fix this. Teams route around a ban. What fixes it is a place to run the tools: build on your own machine, promote what works, run it on service credentials, and let every team install it.
 
-- **Traditional Automation:** Build robust data pipelines, process webhooks, and run scheduled tasks with a type-safe DSL.
-- **AI-Native Tools:** Expose those exact same capabilities to Claude, ChatGPT, Cursor, and other agents via MCP.
+## The platform in one picture
 
-TypeScript all the way. Full IDE support, version controlled, and testable.
+<Diagram id="platform" />
 
-**Secure by Design**
-Nothing is accessible until you explicitly write a capability for it. Write a **deterministic** capability for predictable, code-controlled actions. Write a **non-deterministic** one and the agent reasons within the boundary you defined. You define what AI can do, and the code enforces it.
+Read it top to bottom.
+
+- **Every way in.** A person in their editor, an agent over MCP, the command line, plain HTTP. Those are the doors: how a capability is reached when someone asks. Beside them are the triggers: a schedule, a webhook, an email arriving, an event, a file landing. Those start a capability when nobody asks.
+- **A local harness per person.** Your laptop, your own access, nothing to approve before you can try something. You build and prove a capability here.
+- **The team harness.** Always on, on your own infrastructure, on service credentials no person holds, with access rules you control. When a capability has earned its place, you promote it here, and from then on every team calls the same one.
+- **Promote, remote, share.** A proven capability moves from the local harness to the team harness. A local harness can reach the team harness's capabilities through a remote, so the two are one surface. Capabilities, skills and agents ship as packages, so the next team installs yours instead of writing their own.
+- **When it needs a decision, it asks a person.** Approve by mail or chat, and the capability continues, hours or days later, through any door.
+- **Your systems stay where they are.** CRM, ERP, HR and payroll, the support desk, the knowledge base, mail and calendar, chat, source control. Routecraft is the one governed way in.
+
+Every call, through every door, is on record: who asked, which door, which capability, which system.
+
+## The words
+
+A short glossary. Each one has its own page further in.
+
+- **Capability.** The unit of everything. A TypeScript route that connects a source to a destination through typed steps, with an id, a description and an input schema that is validated on every call. A capability can be fully deterministic, or carry an agent inside it that reasons within the boundary the code sets. See [Capabilities](/docs/introduction/capabilities).
+- **Harness.** A running Routecraft instance together with its capabilities, skills and agents. A local harness runs on a laptop on personal access; the team harness runs always on, on service credentials. Both run the same code. See [Project structure](/docs/introduction/project-structure).
+- **Agent.** A model loop that works inside a capability with the tools you gave it, and only those. An agent can also live outside Routecraft, in Claude, Copilot, Cursor or ChatGPT, and reach your capabilities over MCP. Both are first class. See [Durable agents](/docs/advanced/durable-agents).
+- **Skill.** Instructions in markdown that an agent loads to do one kind of job, shipped as a package beside the capabilities it uses. See [Project structure](/docs/introduction/project-structure#skills).
+- **Door.** How a caller reaches a capability when someone asks: MCP for agents, the Agent Client Protocol for editors, the CLI, and HTTP. One capability, every door, the same checks. See [Running an MCP server](/docs/advanced/expose-as-mcp) and [Talk from your editor](/docs/introduction/talk-from-your-editor).
+- **Trigger.** What starts a capability when nobody asks: a schedule, a webhook, an email, an event from another capability, a file. See [Adapters](/docs/introduction/adapters).
+- **Adapter.** A connector to the outside world. A source brings data in, a destination sends it out, and some do both. See the [adapter reference](/docs/reference/adapters).
+- **Operation.** A step inside a capability: `transform`, `filter`, `enrich`, `split`, `aggregate` and the rest. See [Operations](/docs/introduction/operations).
+- **Exchange.** The message that moves through a capability: a body and headers. See [The Exchange](/docs/introduction/exchange).
+- **Context.** The runtime that loads capabilities, starts them, stops them and runs one on demand. See the [CLI](/docs/reference/cli).
+
+## How a capability is built
+
+Every capability has the same shape. This one is an MCP tool: an agent calls it with a name, the input is validated against the schema before any code runs, and the tool answers with a greeting.
+
+```ts
+// capabilities/greet-user.ts
+import { craft, log, noop } from "@routecraft/routecraft";
+import { mcp } from "@routecraft/ai";
+import { z } from "zod";
+
+const GreetInput = z.object({
+  user: z.string().trim().min(1).describe("The user to greet."),
+});
+
+export default craft()
+  .id("greet-user")
+  .title("Greet user")
+  .description("Greet a user by name")
+  .input({ body: GreetInput })
+  .from(mcp())
+  .transform((body) => `Hello, ${body.user}!`)
+  .tap(log())
+  .to(noop());
+```
+
+Swap `mcp()` for `http()`, `cron()` or `mail()` and the same pipeline answers a request, runs on a schedule or reacts to an email. Put more than one source in `.from()` and one capability serves them all.
 
 <TopologyDiagram />
 
----
-
-## Core Concepts
-
-These concepts give you a high-level map of how everything fits together.
-
-### Capabilities and Routes
-
-From an AI agent's perspective, everything you build is a **Capability**: a discoverable action it can invoke, like "send an email" or "book a meeting." Under the hood, each capability is implemented as a **Route**: a TypeScript pipeline connecting a **source** to one or more **steps** (operations, processors, or adapters), and eventually to a **destination**.
-
-Capabilities can be fully **deterministic** (the same input always produces the same output) or **non-deterministic** (an embedded agent reasons and decides at runtime). You choose the level of autonomy for each one.
-
-### The DSL
-
-Routecraft uses a **fluent DSL (Domain-Specific Language)** to author capabilities. It reads like a pipeline:
+The DSL reads as a pipeline, top to bottom:
 
 ```ts skip="fragment: source, fn, destination are illustrative"
 craft()
@@ -47,71 +82,40 @@ craft()
   .to(destination)
 ```
 
-This makes capabilities easy to write, read, and extend.
+## Hands, not keys
 
-### Operations
+An agent that holds a credential can do anything that credential can do. An agent that calls a capability can do what the capability does, and nothing else.
 
-Operations are the **steps inside a capability**. They can transform data, filter messages, enrich responses with external calls, or split and aggregate streams. They are the verbs of the DSL: `transform`, `filter`, `enrich`, and more.
+<Diagram id="hands-not-keys" />
 
-### Adapters
+On the team harness, the credential belongs to the capability, not to the agent and not to the person asking. Every call runs through the same gates: the input schema, the authorisation rules you wrote, the identity of the caller, and the declared intent of the tool. What survives all four reaches your code. The agent reaches the capability over a door and never sees the secret behind it, so there is nothing for it to copy, leak or reuse.
 
-Adapters are **connectors** that let your capabilities interact with the outside world. They come in different types:
+This is also why the local harness is safe to hand to every engineer: on a laptop a capability runs on that person's own access, and promoting it is the moment it moves onto service credentials and under the team's rules.
 
-- **Sources**: where data enters (HTTP requests, timers, files).
-- **Processors**: steps that modify or enrich the exchange.
-- **Destinations**: where the data ends up (logs, databases, APIs).
+## How it differs from what you may already use
 
-Adapters make Routecraft extensible. You can use the built-ins or create your own.
+- **An integration framework such as Apache Camel.** The same model: routes, exchanges, adapters, a fluent DSL. Routecraft is that model in TypeScript, with MCP, the editor protocol and agents as first-class sources and steps, so you do not need a second system for the AI side.
+- **An agent framework such as LangGraph.** Those build the agent. Routecraft builds the tools the agent uses, and can host the agent too, as a capability with the same validation, authorisation and telemetry as every other call. Your agents in Claude, Copilot or Cursor keep working, with hands.
+- **The plain MCP SDK.** Routecraft is an MCP server, and every tool on it already has the gates, the service credentials, the audit record, and restart-safe human approval. The other doors sit beside it on the same instance, so the tool you wrote for an agent is also an endpoint and a scheduled job.
 
-### Exchange
+## Where most teams stand
 
-Every step passes along an **exchange**. An exchange carries the **body** (the main data) and **headers** (metadata such as IDs, parameters, or context). It is the message envelope that moves through the pipeline from start to finish.
+<Diagram id="maturity-ladder" />
 
-```json
-{
-  "id": "a3f4e1b2-9c6d-4e8a-b1f3-2d7c0e5a9f12",
-  "body": {
-    "to": "alice@example.com",
-    "subject": "Your meeting is confirmed"
-  },
-  "headers": {
-    "routecraft.correlation_id": "abc-123"
-  }
-}
-```
-
-### Context
-
-The **Routecraft context** is the runtime that manages your capabilities. It handles:
-
-- Loading capabilities.
-- Starting and stopping them.
-- Hot reload in development.
-- Running a capability once for batch jobs or tests.
-
-You can drive a context through the CLI, or embed it programmatically in your own application.
-
-### How it all fits
-
-- **Capabilities** are the secure workflows.
-- **DSL** is how you describe them.
-- **Operations** are the steps.
-- **Adapters** connect to the outside world.
-- **Exchange** is the data that flows through.
-- **Context** is the engine that runs everything.
-
-These concepts are the whole of the platform's core: straightforward to start, and powerful enough to grow with your needs.
+Most teams have a prompt library and a repository of skills and agents. The jump that matters is deployed capabilities: tools that run somewhere other than a laptop, on credentials no person holds, that another team can install. That jump is what the platform is for.
 
 ---
 
-## Related
+## Where to go next
 
 <QuickLinks>
 
-<QuickLink title="Installation" icon="installation" href="/docs/introduction/installation" description="Install via CLI or manually add packages." />
-
-<QuickLink title="Project structure" icon="presets" href="/docs/introduction/project-structure" description="Nuxt-style folder layout and auto-discovery." />
+<QuickLink title="Installation" icon="installation" href="/docs/introduction/installation" description="Scaffold a project and run your first capability." />
 
 <QuickLink title="Capabilities" icon="plugins" href="/docs/introduction/capabilities" description="Author small, focused capabilities using the DSL." />
+
+<QuickLink title="Running an MCP server" icon="presets" href="/docs/advanced/expose-as-mcp" description="Give Claude, Cursor or Copilot a capability to call." />
+
+<QuickLink title="Talk from your editor" icon="presets" href="/docs/introduction/talk-from-your-editor" description="Reach a running harness from the editor you already have open." />
 
 </QuickLinks>

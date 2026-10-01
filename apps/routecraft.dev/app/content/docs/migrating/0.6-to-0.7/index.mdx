@@ -209,7 +209,7 @@ The `randomUuid()` replacement is the same shape with `handler: () => crypto.ran
 
 ### 5.4 `craft chat` is removed
 
-With no shim, alias or pointer. The interactive interface is an editor speaking the Agent Client Protocol: `craft acp` is the bridge, and `acp:` on `defineConfig` serves it. See [talk from your editor](/docs/advanced/talk-from-your-editor).
+With no shim, alias or pointer. The interactive interface is an editor speaking the Agent Client Protocol: `craft acp` is the bridge, and `acp:` on `defineConfig` serves it. See [talk from your editor](/docs/introduction/talk-from-your-editor).
 
 ## 6. MCP \{#6-mcp}
 
@@ -292,7 +292,7 @@ For context, no migration required:
 
 - **Durable defer and resume.** [`.defer()`](/docs/reference/operations/defer), [`.resume()`](/docs/reference/operations/resume), the deferral store with signed tokens, the sweeper, `.resume({ authorize })`, `meta`, `tokenFor`, and re-entrant defer sites for adapters that defer mid-step.
 - **Durable agents and sessions.** `ctx.defer()` inside a tool defers the loop; `agent(name, { session })` keeps a transcript with an inbox, one turn at a time, `interrupt: true`, and `directTool(id, { background: true })` for work that outlasts a turn. See [durable agents](/docs/advanced/durable-agents) and the [agent adapter](/docs/reference/adapters/agent).
-- **Talk to an agent from your editor.** `acp:` on `defineConfig`, `craft acp`, profiles, the model and thinking-level pickers, and the [`surface()`](/docs/reference/adapters/surface) adapter for a capability that reaches the editor. See [talk from your editor](/docs/advanced/talk-from-your-editor).
+- **Talk to an agent from your editor.** `acp:` on `defineConfig`, `craft acp`, profiles, the model and thinking-level pickers, and the [`surface()`](/docs/reference/adapters/surface) adapter for a capability that reaches the editor. See [talk from your editor](/docs/introduction/talk-from-your-editor).
 - **The ops surface.** Health, readiness, indicators, the management API, contributed resources and the event tail, behind scope-gated tiers. See the [ops plugin](/docs/reference/plugins/opsplugin).
 - **Remotes.** Another instance's dispatchable routes as direct endpoints. See the [remotes plugin](/docs/reference/plugins/remotesplugin).
 - **The project runtime.** `craft start` boots a project from its layout, Claude Code agent files load unchanged, `registerProjectDiscoverer` lets a package claim a folder. See [project structure](/docs/introduction/project-structure) and the [CLI reference](/docs/reference/cli).
