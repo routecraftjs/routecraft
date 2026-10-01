@@ -25,7 +25,7 @@ Outside in (position 1 wraps everything below):
 | 1 | `error` | shipped | `.error(handler)` | - | catches throws from everything below |
 | 2 | `authorize` (stacks) | shipped | `.authorize({ roles, scopes, predicate })` | `RC5012` / `RC5015` / `RC5023` / `RC5020`; delegation `RC5034`-`RC5038` | principal on `exchange.headers` |
 | 3 | `parse` | shipped | source adapter (HTTP, mail, CSV, ...) | `RC5016` | raw body bytes → typed body |
-| 4 | `input` | shipped | `.input(schema)` | `RC5002` | typed body / headers |
+| 4 | `input` | shipped | `.input(schema)` | `RC5065` | typed body / headers |
 | 5 | `throttle` | shipped | `.throttle({ rate, per, mode })` | `RC5013` (`mode: 'reject'` only; default `'delay'` paces) | rate limit on the route (delay or reject) |
 | 6 | `circuitBreaker` | shipped | `.circuitBreaker({...})` | `RC5025` (fast-fail when open) | failure stats; fast-fails when open |
 | 7 | `retry` | shipped | `.retry({...})` | final attempt's throw | re-runs everything below on failure |
@@ -37,7 +37,7 @@ Outside in (position 1 wraps everything below):
 
 <Callout type="note" title="Position #4 (`input`) is a real chain step">
 
-`.input()` validation runs inside the chain at position #4: after auth and parse, before any resilience wrapper, `cacheCheck`, or user step. When the source attaches a parser, the validator runs inside the parse step (input validates the parsed body); otherwise it runs as a standalone synthetic `input` step. Either way a failure throws `RC5002` through the chain's catch boundary, so `.error()` can observe and recover it exactly like an `authorize` or `parse` rejection. An unrecovered failure takes the normal error path (`route:error`, `context:error`, `route:exchange:failed`); it is not a drop.
+`.input()` validation runs inside the chain at position #4: after auth and parse, before any resilience wrapper, `cacheCheck`, or user step. When the source attaches a parser, the validator runs inside the parse step (input validates the parsed body); otherwise it runs as a standalone synthetic `input` step. Either way a failure throws `RC5065` through the chain's catch boundary, so `.error()` can observe and recover it exactly like an `authorize` or `parse` rejection. An unrecovered failure takes the normal error path (`route:error`, `context:error`, `route:exchange:failed`); it is not a drop.
 
 </Callout>
 
@@ -95,7 +95,7 @@ the outermost catch:
   if ([
     'RC5012', 'RC5015', 'RC5023', 'RC5020',
     'RC5034', 'RC5035', 'RC5036', 'RC5037', 'RC5038',
-    'RC5002', 'RC5016',
+    'RC5065', 'RC5016',
   ].includes(err.rc)) throw err
 
   // Backpressure: re-throw so the caller sees it.

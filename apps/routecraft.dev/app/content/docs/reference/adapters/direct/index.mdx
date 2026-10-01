@@ -125,7 +125,7 @@ Route-level metadata lives on the builder: `.title('...')`, `.description('...')
 - **Endpoint = route id**: The direct source uses the route's `.id()` as its endpoint name. Callers reference the consumer by that id.
 - **Ids with a remote prefix**: with [`remotes`](/docs/reference/plugins/remotesplugin) configured, `direct('lab:hello')` reaches route `hello` on the remote named `lab`, and `direct('hello')` reaches the default remote's `hello` unless a local route of that id shadows it. Nothing about the enricher changes: the endpoint is a direct endpoint like any other, and the transport behind it is the remote's ops door.
 - **Agent-only capabilities**: Omit `.id()` to register under a UUID the builder generates; agents can still discover the route via the registry, but it cannot be addressed as a string from code.
-- **Framework-enforced validation**: `.input()` and `.output()` schemas are validated by the engine, not the adapter. A validation failure throws `RC5002` and routes to the consumer route's error handler (both directions); unrecovered, it fails the exchange and rejects the sender.
+- **Framework-enforced validation**: `.input()` and `.output()` schemas are validated by the engine, not the adapter. An `.input()` failure throws `RC5065` and an `.output()` failure `RC5002`; either routes to the consumer route's error handler (both directions); unrecovered, it fails the exchange and rejects the sender.
 - **Automatic endpoint name sanitization**: URL-unsafe characters in the route id are URL-encoded for collision-free registry keys.
 - **Dynamic endpoints**: Caller-side endpoints can be computed from the exchange; sources always use the route id.
 
@@ -161,7 +161,7 @@ Zod 4 uses different object constructors to control extra field handling:
 |-------------|--------------|----------|
 | `z.object()` | Stripped (default) | Strict contracts, clean data |
 | `z.looseObject()` | Preserved | Flexible schemas, passthrough |
-| `z.strictObject()` | Error (RC5002) | Reject unexpected fields |
+| `z.strictObject()` | Error (RC5065) | Reject unexpected fields |
 
 ```ts skip="fragment: processUser is illustrative"
 import { z } from 'zod'
@@ -181,7 +181,7 @@ craft()
 // Passes: { userId: '...', action: 'create' }
 // Passes: { userId: '...', action: 'create', extra: 'field' }
 //    Extra fields silently removed from result
-// RC5002: { userId: '...', missing: 'action' }
+// RC5065: { userId: '...', missing: 'action' }
 ```
 
 ```ts skip="fragment: processUser is illustrative"
@@ -215,7 +215,7 @@ craft()
   .process(processUser)
 
 // Passes: { userId: '...', action: 'create' }
-// RC5002: { userId: '...', action: 'create', extra: 'field' }
+// RC5065: { userId: '...', action: 'create', extra: 'field' }
 ```
 
 **Header Validation**

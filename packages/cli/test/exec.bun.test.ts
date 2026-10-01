@@ -339,9 +339,10 @@ describe("craft exec", () => {
    * @case A payload the route's own schema refused
    * @preconditions An instance answering 400 with RC5065, the shape the ops
    *   dispatch surface returns when `.input()` rejects the caller's body
-   * @expectedResult The next step is the local command that prints the
-   *   schema, not "read the instance's log": the answer is one command away
-   *   and nothing on the instance says so
+   * @expectedResult The schema's issues are in the message, and the next
+   *   step is the local command that prints the schema, not "read the
+   *   instance's log": the answer is one command away and nothing on the
+   *   instance says so
    */
   test("names the schema command when the payload was refused", async () => {
     const refusing = createServer((_req, res) => {
@@ -350,7 +351,8 @@ describe("craft exec", () => {
         JSON.stringify({
           error: "bad request",
           code: "RC5065",
-          message: 'Body validation failed for route "greet"',
+          in: "body",
+          issues: [{ path: "name", message: "Expected string" }],
         }),
       );
     });
@@ -364,6 +366,7 @@ describe("craft exec", () => {
         ...isolated(),
       });
       expect(result.code).toBe(EXEC_EXIT.failed);
+      expect(result.error).toContain("name: Expected string");
       expect(result.error).toContain("craft ops routes greet");
       expect(result.error).not.toMatch(/its own log/);
     } finally {

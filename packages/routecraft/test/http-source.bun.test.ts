@@ -1,14 +1,18 @@
 import { describe, test, expect, afterEach } from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
+import { z } from "zod";
 import {
   apiKey,
+  authorize,
   craft,
   DefaultExchange,
+  direct,
   http,
   httpPlugin,
   jwt,
   noop,
   normalizeStaticPathPrefix,
+  rcError,
   type CraftConfig,
   type EventName,
   type HttpPluginOptions,
@@ -723,10 +727,11 @@ describe("HTTP Source Adapter", () => {
 
   /**
    * @case Per-route authorize() rejects principal that lacks a role
-   * @preconditions http.auth = jwt(...) and route declares .authorize({ roles: ["admin"] })
-   * @expectedResult Non-200 status when the JWT has no admin role
+   * @preconditions http.auth = jwt(...) and route declares .authorize({ roles: ["admin"] }); request:completed observed
+   * @expectedResult 403 forbidden with reason insufficient_permissions and no challenge, and request:completed reports 403 rather than the 500 the catch-all would have sent
    */
   test(".authorize() rejects principal missing required role", async () => {
+    const statuses: number[] = [];
     const bound = await bootHttp({
       routes: craft()
         .id("admin")
@@ -742,6 +747,13 @@ describe("HTTP Source Adapter", () => {
           audience: JWT_AUDIENCE,
         }),
       },
+      events: {
+        ["plugin:http:request:completed" as EventName]: (ev: {
+          details: unknown;
+        }) => {
+          statuses.push((ev.details as { status: number }).status);
+        },
+      },
     });
     t = bound.ctx;
 
@@ -749,10 +761,395 @@ describe("HTTP Source Adapter", () => {
     const res = await fetch(`http://127.0.0.1:${bound.port}/admin`, {
       headers: { authorization: `Bearer ${token}` },
     });
-    // authorize() throws RC5015 (permission denied) which the route engine
-    // converts to context:error; the dispatcher surfaces it as 500. Either
-    // way the request must not be admitted, which is what we assert here.
-    expect(res.status).not.toBe(200);
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      error: "forbidden",
+      reason: "insufficient_permissions",
+    });
+    expect(res.headers.get("www-authenticate")).toBeNull();
+    expect(statuses).toEqual([403]);
+  });
+
+  /**
+   * @case Per-route authorize() refuses a principal missing a scope
+   * @preconditions http.auth = jwt(...), route declares .authorize({ scopes: ["billing:write"] }), bearer carries only billing:read
+   * @expectedResult 403 insufficient_scope naming billing:write, with an RFC 6750 insufficient_scope challenge carrying the scope and the resource_metadata hint, the shape the ops tier check answers
+   */
+  test(".authorize() refuses a missing scope with insufficient_scope", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("billing")
+        .authorize({ scopes: ["billing:write"] })
+        .from(http({ path: "/billing", method: "POST" }))
+        .to(noop()),
+      http: {
+        port: 0,
+        auth: jwt({
+          secret: JWT_SECRET,
+          issuer: JWT_ISSUER,
+          audience: JWT_AUDIENCE,
+        }),
+      },
+    });
+    t = bound.ctx;
+
+    const token = makeJwt({ sub: "user-42", scope: "billing:read" });
+    const res = await fetch(`http://127.0.0.1:${bound.port}/billing`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      error: "forbidden",
+      reason: "insufficient_scope",
+      scope: "billing:write",
+    });
+    const challenge = res.headers.get("www-authenticate") ?? "";
+    expect(challenge).toMatch(/^Bearer /);
+    expect(challenge).toContain('error="insufficient_scope"');
+    expect(challenge).toContain('scope="billing:write"');
+    expect(challenge).toContain(
+      `resource_metadata="http://127.0.0.1:${bound.port}/.well-known/oauth-protected-resource/billing"`,
+    );
+  });
+
+  /**
+   * @case An anyScope refusal says one of the named scopes suffices
+   * @preconditions Route declares .authorize({ anyScope: ["leave:read", "leave:read:self"] }); bearer carries neither
+   * @expectedResult 403 insufficient_scope naming the whole accepted set with scope_mode "any", and a challenge without a scope attribute, which RFC 6750 would read as every listed scope being required
+   */
+  test(".authorize() refuses an anyScope miss with scope_mode any", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("leave")
+        .authorize({ anyScope: ["leave:read", "leave:read:self"] })
+        .from(http({ path: "/leave", method: "GET" }))
+        .to(noop()),
+      http: {
+        port: 0,
+        auth: jwt({
+          secret: JWT_SECRET,
+          issuer: JWT_ISSUER,
+          audience: JWT_AUDIENCE,
+        }),
+      },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/leave`, {
+      headers: { authorization: `Bearer ${makeJwt({ sub: "user-42" })}` },
+    });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      error: "forbidden",
+      reason: "insufficient_scope",
+      scope: "leave:read leave:read:self",
+      scope_mode: "any",
+    });
+    const challenge = res.headers.get("www-authenticate") ?? "";
+    expect(challenge).toContain('error="insufficient_scope"');
+    expect(challenge).not.toContain("scope=");
+  });
+
+  /**
+   * @case A credential the door admitted within its tolerance has expired by the route's check
+   * @preconditions jwt({ clockToleranceSec: 300 }) on the mount admits a token that expired 60s ago; the route's .authorize() applies its default zero tolerance
+   * @expectedResult 401 with reason expired and an RFC 6750 invalid_token challenge, so the client refreshes rather than treating the refusal as a server fault
+   */
+  test(".authorize() answers 401 invalid_token for an expired principal", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("fresh")
+        .authorize()
+        .from(http({ path: "/fresh", method: "GET" }))
+        .to(noop()),
+      http: {
+        port: 0,
+        auth: jwt({
+          secret: JWT_SECRET,
+          issuer: JWT_ISSUER,
+          audience: JWT_AUDIENCE,
+          clockToleranceSec: 300,
+        }),
+      },
+    });
+    t = bound.ctx;
+
+    const token = makeJwt({
+      sub: "user-42",
+      exp: Math.floor(Date.now() / 1000) - 60,
+    });
+    const res = await fetch(`http://127.0.0.1:${bound.port}/fresh`, {
+      headers: { authorization: `Bearer ${token}` },
+    });
+    expect(res.status).toBe(401);
+    expect(await res.json()).toEqual({
+      error: "unauthorized",
+      reason: "expired",
+    });
+    expect(res.headers.get("www-authenticate")).toContain(
+      'error="invalid_token"',
+    );
+  });
+
+  /**
+   * @case A mid-pipeline authorize() on a route the door reads no credential for stays a 500
+   * @preconditions Unwalled mount with a validator (auth: false), a route with no route-entry .authorize() and a mid-pipeline .validate(authorize()); a valid bearer presented
+   * @expectedResult 500. The door never resolves a credential for this route, so answering 401 would send the caller after a credential that changes nothing
+   */
+  test("a missing principal the door could not have supplied stays a 500", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("mid")
+        .from(http({ path: "/mid", method: "GET" }))
+        .validate(authorize())
+        .to(noop()),
+      http: { port: 0, auth: false },
+      serverAuth: jwt({
+        secret: JWT_SECRET,
+        issuer: JWT_ISSUER,
+        audience: JWT_AUDIENCE,
+      }),
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/mid`, {
+      headers: { authorization: `Bearer ${makeJwt({ sub: "user-42" })}` },
+    });
+    expect(res.status).toBe(500);
+    expect(t.errors.map((error) => error.rc)).toContain("RC5012");
+  });
+
+  /**
+   * @case A step throwing an authorization code is not mistaken for a refusal
+   * @preconditions Route with no authorize() whose transform throws rcError("RC5015"), as an adapter does for an upstream permission failure
+   * @expectedResult 500 internal server error. Only a refusal authorize() raised is the caller's; the same code from a step is the instance's
+   */
+  test("a step's own RC5015 stays a 500", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("upstream")
+        .from(http({ path: "/upstream", method: "GET" }))
+        .transform(() => {
+          throw rcError("RC5015", new Error("upstream said no"));
+        })
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/upstream`);
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "internal server error" });
+  });
+
+  /**
+   * @case A refusal of an identity the pipeline swapped in stays a 500
+   * @preconditions Public route that replaces the caller's identity with .authenticate() and then checks it with a mid-pipeline .validate(authorize({ scopes }))
+   * @expectedResult 500 internal server error, not 403. The refused principal is the instance's, no credential the caller presents changes it, and the internal scope requirement stays off the wire
+   */
+  test("a refusal of an internal replacement identity stays a 500", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("internal")
+        .from(http({ path: "/internal", method: "GET" }))
+        .authenticate(() => ({ subject: "internal-worker", scopes: [] }))
+        .validate(authorize({ scopes: ["internal:write"] }))
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/internal`);
+    expect(res.status).toBe(500);
+    expect(await res.json()).toEqual({ error: "internal server error" });
+    expect(t.errors.map((error) => error.rc)).toContain("RC5038");
+  });
+
+  /**
+   * @case A mid-pipeline refusal of the caller's own principal still maps
+   * @preconditions Walled jwt mount; route with no route-entry .authorize() and a mid-pipeline .validate(authorize({ scopes: ["billing:write"] })); a valid bearer without that scope
+   * @expectedResult 403 insufficient_scope naming billing:write. The refused principal is the one the door admitted, so the caller can fix it
+   */
+  test("a mid-pipeline refusal of the admitted caller answers 403", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("billing")
+        .from(http({ path: "/billing", method: "GET" }))
+        .validate(authorize({ scopes: ["billing:write"] }))
+        .to(noop()),
+      http: {
+        port: 0,
+        auth: jwt({
+          secret: JWT_SECRET,
+          issuer: JWT_ISSUER,
+          audience: JWT_AUDIENCE,
+        }),
+      },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/billing`, {
+      headers: { authorization: `Bearer ${makeJwt({ sub: "user-42" })}` },
+    });
+    expect(res.status).toBe(403);
+    expect(await res.json()).toEqual({
+      error: "forbidden",
+      reason: "insufficient_scope",
+      scope: "billing:write",
+    });
+  });
+
+  /**
+   * @case A body that fails the route's .input() schema is the caller's fault
+   * @preconditions Route with .input({ body }) where one field carries a custom refine message; POST a body violating two fields
+   * @expectedResult 400 with code RC5065, in "body" and one issue per violation; the custom message appears only as its issue's message, and neither the route id nor a concatenated message reaches the body
+   */
+  test(".input() body failure answers 400 with structured issues", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("secret-route-name")
+        .input({
+          body: z.object({
+            name: z.string(),
+            age: z.number().refine((n) => n >= 18, {
+              message: "must be an adult",
+            }),
+          }),
+        })
+        .from(http({ path: "/people", method: "POST" }))
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/people`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ name: 7, age: 12 }),
+    });
+    expect(res.status).toBe(400);
+    const text = await res.text();
+    expect(text).not.toContain("secret-route-name");
+    const body = JSON.parse(text) as {
+      error: string;
+      code: string;
+      in: string;
+      issues: { path?: string; message: string }[];
+      message?: string;
+    };
+    expect(body.error).toBe("bad request");
+    expect(body.code).toBe("RC5065");
+    expect(body.in).toBe("body");
+    expect(body.message).toBeUndefined();
+    expect(body.issues.map((issue) => issue.path).sort()).toEqual([
+      "age",
+      "name",
+    ]);
+    const age = body.issues.find((issue) => issue.path === "age");
+    expect(age?.message).toBe("must be an adult");
+    expect(text.split("must be an adult")).toHaveLength(2);
+  });
+
+  /**
+   * @case An input refusal with many issues sends a bounded list
+   * @preconditions Route with .input({ body: z.array(z.number()) }); POST an array of 25 strings, one issue each
+   * @expectedResult 400 carrying the first 20 issues and truncated: 5
+   */
+  test(".input() failure caps the issues it sends", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("numbers")
+        .input({ body: z.array(z.number()) })
+        .from(http({ path: "/numbers", method: "POST" }))
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/numbers`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(Array.from({ length: 25 }, () => "x")),
+    });
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      issues: { path?: string }[];
+      truncated: number;
+    };
+    expect(body.issues).toHaveLength(20);
+    expect(body.issues[0]?.path).toBe("0");
+    expect(body.truncated).toBe(5);
+  });
+
+  /**
+   * @case An RC5065 that .input() did not raise stays a 500
+   * @preconditions Two routes with no .input(): one whose step throws a bare rcError("RC5065"), one that calls through direct() a route whose step does the same
+   * @expectedResult Both answer 500 internal server error. Without the structured detail for the dispatched route the code says nothing about what the caller sent
+   */
+  test("a bare RC5065 from a step stays a 500", async () => {
+    const bound = await bootHttp({
+      routes: [
+        craft()
+          .id("bare")
+          .from(http({ path: "/bare", method: "GET" }))
+          .transform(() => {
+            throw rcError("RC5065", new Error("x"));
+          })
+          .to(noop()),
+        craft()
+          .id("outer")
+          .from(http({ path: "/outer", method: "GET" }))
+          .to(direct("inner-bare")),
+        craft()
+          .id("inner-bare")
+          .from(direct())
+          .transform(() => {
+            throw rcError("RC5065", new Error("x"));
+          })
+          .to(noop()),
+      ],
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    for (const path of ["/bare", "/outer"]) {
+      const res = await fetch(`http://127.0.0.1:${bound.port}${path}`);
+      expect(res.status).toBe(500);
+      expect(await res.json()).toEqual({ error: "internal server error" });
+    }
+  });
+
+  /**
+   * @case Headers that fail the route's .input() schema are the caller's fault
+   * @preconditions Route with .input({ headers }) requiring an x-tenant request header; request sent without it
+   * @expectedResult 400 with code RC5065 and in "headers"
+   */
+  test(".input() header failure answers 400 with in headers", async () => {
+    const bound = await bootHttp({
+      routes: craft()
+        .id("tenant")
+        .input({
+          headers: z.object({
+            "routecraft.http.rawHeaders": z.object({ "x-tenant": z.string() }),
+          }),
+        })
+        .from(http({ path: "/tenant", method: "GET" }))
+        .to(noop()),
+      http: { port: 0 },
+    });
+    t = bound.ctx;
+
+    const res = await fetch(`http://127.0.0.1:${bound.port}/tenant`);
+    expect(res.status).toBe(400);
+    const body = (await res.json()) as {
+      code: string;
+      in: string;
+      issues: { path?: string; message: string }[];
+    };
+    expect(body.code).toBe("RC5065");
+    expect(body.in).toBe("headers");
+    expect(body.issues[0]?.path).toBe("routecraft.http.rawHeaders.x-tenant");
   });
 
   /**

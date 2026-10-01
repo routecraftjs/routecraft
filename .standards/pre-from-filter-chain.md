@@ -83,11 +83,11 @@ Input validation (chain position #4) is folded into the chain
 source attached a parser (input validates the parsed body, so #3
 and #4 collapse into one step) or as a standalone synthetic input
 step (`buildInputValidationStep`, `operation: "input"`, adapter id
-`routecraft.input`) when it did not. Both paths throw `RC5002`
+`routecraft.input`) when it did not. Both paths throw `RC5065`
 through the chain catch boundary, so `.error()` (position #1) can
 observe and recover a validation failure regardless of source
 shape, and the old eager path's `exchange:dropped` emission is
-gone: an unrecovered RC5002 takes the normal
+gone: an unrecovered RC5065 takes the normal
 `step:failed` -> `route:error` / `context:error` /
 `exchange:failed` path.
 
