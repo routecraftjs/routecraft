@@ -84,6 +84,25 @@ hand every caller a log-volume lever.
 
 ---
 
+## What crosses the wire
+
+A door is anything that runs a route on behalf of a caller outside the process: the `http()` source, the ops dispatch mount, an MCP tool call, the ACP mount. Every door follows the same three rules.
+
+1. **The code crosses the wire, the message does not.** A route failure is whatever its steps threw, and `rcError` messages routinely interpolate the cause: hostnames, file paths, upstream response text, other routes' ids. The RC code is a bounded vocabulary a client can act on; the message stays in the boundary log and the failure event, which are operator-facing.
+2. **A failure is the caller's only when it came from the caller's own request, judged by origin, never by code.** The same code is raised in more than one place: `RC5065` by the dispatched route's `.input()` and by a nested `direct()` call's, `RC5015` by `authorize()` and by an adapter whose upstream login was refused, `RC5004` by the door's own lookup and by a nested `direct()` to a missing endpoint. Only the first of each pair is the caller's doing. The origin is recorded where the failure is raised (`isAuthorizationRefusal`, the `InputValidationFailure` cause naming its route, the door's own pre-dispatch check) and the door reads that, never the code alone.
+3. **A caller-caused answer carries what the caller can act on and nothing the instance owns.** The schema issues for a refused payload, capped so a large payload cannot produce a proportional response; one fixed reason per class of refusal, collapsed where the caller's remedy is the same, so a prober cannot tell which check it tripped; the missing scopes, because the caller can request them.
+
+| Door | Caller-caused (by origin) | Anything else |
+|------|---------------------------|---------------|
+| `http()` source | 400 with the `.input()` issues; 401 for a missing or expired credential where one could change the outcome; 403 `insufficient_permissions` or `insufficient_scope` | 500 with the RC code |
+| ops dispatch | The `http()` mapping (one shared implementation, `plugins/http/caller-refusal.ts`), plus 404 for an unknown route id and 409 for a route with no dispatch door, both raised by the dispatch's own check only | 500 with the RC code |
+| MCP tool call | `isError` carrying the `.input()` issues or the refusal class; `AI2002` for a declined call; the failing fields when the result does not match the advertised `outputSchema` | `isError` naming the tool and the RC code |
+| ACP mount | The JSON-RPC taxonomy below | `-32603` |
+
+A new door reuses the shared classification rather than re-deriving it, so the same refusal cannot be a 403 on one door and a 500 on another. The security side of these rules (why identity refusals map only for the admitted principal) is in [security.md](./security.md) § Doors map refusals by origin.
+
+---
+
 ## Error Code Philosophy
 
 - **Core owns the `RC` namespace.** Core codes are defined in `packages/routecraft/src/error.ts`. Ecosystem packages register their own namespaced codes (e.g. `AI1001`) via `ErrorCodeRegistry` declaration merging plus a runtime `registerErrorCodes(namespace, codes, owner)` call; each namespace is claimable by exactly one owner package.
