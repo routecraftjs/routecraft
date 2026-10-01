@@ -58,7 +58,8 @@ Each boundary handles the error (does not re-throw it to another boundary). Do n
 | **http dispatch (respond)** | A route's `respond` responder threw, or returned a descriptor the dispatcher refused (bad status, streaming body). The caller gets 500; the pipeline it already started keeps running | error | `{ err, routeId, method, path }` |
 | **http dispatch (caller refusal)** | Any `http()` source route, on either response path, whose failure `callerRefusalResponse` maps to a 4xx: the route's own `.input()` or `.authorize()` refused the caller, who gets that status instead of 500. Debug rather than error: `route.runSteps` has already logged the failure, and this line only records the status the door chose | debug | `{ err, routeId, method, path }` |
 | **http dispatch (unread body)** | Cancelling the unread body of a run whose responder answered on its own failed (a locked stream rejects). Warn rather than error: the response is already sent and the only cost is a resource held until GC | warn | `{ err, routeId, method, path }` |
-| **AI server tool handler** | Tool call errors | error | `{ tool, err }` |
+| **AI server tool handler** | Tool call errors. A failure `callerRefusalOf` classifies as the caller's own (a refused payload, an `authorize()` refusal of the admitted principal) logs at debug, as the http doors do: the caller gets the refusal and `route.runSteps` has already logged it | error, debug for a caller refusal | `{ tool, err }` |
+| **ACP mount handler** | A `session/*` or `initialize` handler failed with anything but a refusal the mount raised itself (a failed turn, a store outage), or a `session/cancel` notification failed. The caller gets `-32603` with at most the RC code, so this log is the only place the message survives. A `SurfaceDisconnected` logs at debug: the caller it would answer is gone | error, debug for a disconnect | `{ err, method, connectionId, session? }` |
 | **Agent tool policy predicate** | An `agentPlugin({ toolPolicy })` predicate threw | error | `{ agent, tool, kind, err }` |
 | **Route enablement predicate** | A `.enabled()` predicate threw. The route is left disabled with the error message as its reason and the boot is never failed, so this log is the only place the stack survives | error | `{ route, err }` |
 | **Deferral deny-on-cancellation** | Store failure while denying a deferral deferred by a cancelled run (best effort: the caller's RC5054 must land whatever the store does) | error | `{ deferralId, routeId, expiresAt, err }` |
@@ -84,6 +85,29 @@ hand every caller a log-volume lever.
 
 ---
 
+## What crosses the wire
+
+A door is anything that runs a route on behalf of a caller outside the process: the `http()` source, the ops dispatch mount, an MCP tool call, the ACP mount. Every door follows the same three rules.
+
+1. **At most the code crosses the wire, never the message.** A route failure is whatever its steps threw, and `rcError` messages routinely interpolate the cause: hostnames, file paths, upstream response text, other routes' ids. The RC code is a bounded vocabulary a client can act on, so a framework door sends it; the `http()` source sends neither, because its 500 is part of the route author's own public API. The message stays in the boundary log and the failure event, which are operator-facing.
+2. **A failure is the caller's only when it came from the caller's own request, judged by origin, never by code.** The same code is raised in more than one place: `RC5065` by the dispatched route's `.input()` and by a nested `direct()` call's, `RC5015` by `authorize()` and by an adapter whose upstream login was refused, `RC5004` by the door's own lookup and by a nested `direct()` to a missing endpoint. Only the first of each pair is the caller's doing. The origin is recorded where the failure is raised (`isAuthorizationRefusal`, the `InputValidationFailure` cause naming its route, the door's own pre-dispatch check) and the door reads that, never the code alone.
+3. **A caller-caused answer carries what the caller can act on and nothing the instance owns.** The schema issues for a refused payload, at most 20 of them and each path and message clipped to 256 characters, so a large payload cannot produce a proportional response; one fixed reason per class of refusal, collapsed where the caller's remedy is the same, so a prober cannot tell which check it tripped; the missing scopes, because the caller can request them.
+
+| Door | Caller-caused (by origin) | Anything else |
+|------|---------------------------|---------------|
+| `http()` source | 400 with the `.input()` issues; 401 for a missing or expired credential where one could change the outcome; 403 `insufficient_permissions` or `insufficient_scope` | 500 `internal server error`, no code |
+| ops dispatch | The `http()` mapping, plus 404 for an unknown route id (or an imported route whose remote no longer has it) and 409 for a route with no dispatch door, both decided by the dispatch's own check only | 500 with the RC code |
+| MCP tool call | `isError` carrying the `.input()` issues or the refusal class; `AI2002` for a declined call | `isError` naming the tool and the RC code |
+| ACP mount | The JSON-RPC taxonomy below | `-32603` carrying the RC code |
+
+One instance fault crosses with detail, as a named exception: an MCP tool whose result body breaks the `outputSchema` it advertised answers with the failing fields, because `tools/list` already published that schema and its paths tell the caller nothing new. The output headers schema is never published, so its failures stay generic.
+
+Surfaces that answer outside callers without running a route follow rule 1 on their own terms: an ops contributed resource answers a failure with its code (and a malformed limit or cursor, the caller's, with the mount's fixed text); a proxied MCP tool sends a generic text for a framework failure, passes a guard's own message through because the guard's author wrote it for the caller, and relays the upstream server's result unchanged, since that text is the upstream's, not ours.
+
+A new door reuses the shared classification (`callerRefusalOf`) rather than re-deriving it, so the same refusal cannot be a 403 on one door and a 500 on another. The security side of these rules (why identity refusals map only for the admitted principal) is in [security.md](./security.md) § Doors map refusals by origin.
+
+---
+
 ## Error Code Philosophy
 
 - **Core owns the `RC` namespace.** Core codes are defined in `packages/routecraft/src/error.ts`. Ecosystem packages register their own namespaced codes (e.g. `AI1001`) via `ErrorCodeRegistry` declaration merging plus a runtime `registerErrorCodes(namespace, codes, owner)` call; each namespace is claimable by exactly one owner package.
@@ -99,7 +123,7 @@ The ACP mount answers a refused request with a JSON-RPC error, and a client bran
 |------|------|-----------------------|-------------------------|
 | `-32002` | Resource not found | A session the caller cannot see: missing, owned by somebody else, or belonging to an agent this harness does not serve. One code and one message for all three, so the answer is not an oracle for which ids exist | The conversation is gone from this view. A bridge drops it from its tracking and tells the person to start a new one |
 | `-32602` | Invalid params | Input the mount cannot act on: a content block it does not accept, a prompt with no text, a configuration option it does not offer, an agent name the instance does not hold | The request was wrong, not the conversation. Nothing is dropped; the same request will be refused again until it changes |
-| `-32603` | Internal error | The SDK's own answer when a handler throws anything that is not a `RequestError`: a store outage, a fault in the mount | The instance is unwell. The conversation may well still exist; keep it and retry later |
+| `-32603` | Internal error | Any handler failure that is not a refusal the mount raised itself: a failed turn, a store outage, a fault in the mount. `data` carries at most the RC code, never the message | The instance is unwell. The conversation may well still exist; keep it and retry later |
 | `-32000` | Connection lost | Minted by `craft acp`, never by the mount: the relay's own answer to an editor request the dead transport never answered | The instance is being reconnected to; the request was not delivered |
 
 A refusal of one kind must never be reported under another code: the bridge's drop-on-not-found rule is only safe while not-found means exactly that. A new refusal the mount grows picks its code from this table, or adds a row and says what a client may infer from it.

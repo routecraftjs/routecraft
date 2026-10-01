@@ -80,6 +80,8 @@ A conversation belongs to the person who started it. The mount lists, loads and 
 
 That answer is the protocol's own resource-not-found code (`-32002`), one code and one message for a conversation that is missing, somebody else's, or another agent's. A client may drop a conversation from its tracking on that code and on no other: a refusal of any other kind (invalid params for a request that was wrong, an internal error for an instance that is unwell) means the conversation may well still exist, and [`craft acp`](/docs/reference/cli#acp) keeps it and tries again on its next reconnection. The whole taxonomy is recorded in the error policy beside the code, so the bridge and the mount cannot drift on it.
 
+An internal error (`-32603`, a failed turn or a store outage) carries the failure's RC code in its `data` when it has one, as `{ "code": "RC5001" }`, and nothing else. The message stays in the instance's log, because it routinely names hosts, file paths and upstream responses that are the operator's to read, not the editor's.
+
 ## Withholding tool payloads
 
 `toolCallPayloads: false` keeps the arguments and the result of every tool call out of the editor. The call itself stays visible whatever this says: a person watching a turn still sees which hands ran and how each one ended. This is the expandable detail underneath.

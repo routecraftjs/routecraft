@@ -2,9 +2,9 @@ import { createHash } from "node:crypto";
 
 /**
  * Derive a stable SHA-256 hex digest from an exchange body by hashing its
- * JSON serialisation. `.dedupe()` uses it as its default key, and the
- * default `.cache()` key hashes it together with the route and principal,
- * so the two operations agree on what "the same body" means.
+ * JSON serialisation. The default `.dedupe()` key hashes it together with
+ * the principal, and the default `.cache()` key with the route and
+ * principal, so the two operations agree on what "the same body" means.
  *
  * Works for JSON-shaped bodies: primitives, arrays, and plain objects with
  * string keys. It does NOT canonicalise object key order, so two objects

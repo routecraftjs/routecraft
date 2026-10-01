@@ -377,32 +377,12 @@ async function dispatchExchange(
     return badRequest("The request body must be JSON.");
   }
 
+  let outcome: Awaited<ReturnType<ManagementApi["dispatch"]>>;
   try {
-    const outcome = await api.dispatch(id, body, principal);
-    if (outcome.outcome === "deferred") {
-      // 202 for a deferral, the same answer the http() source gives: the work
-      // was accepted and is not finished, and the acknowledgment carries
-      // what is needed to finish it.
-      return jsonResponse(outcome, { status: 202 });
-    }
-    // A drop is a terminal outcome the request delivered successfully, so
-    // it is 200 with the outcome named rather than an error status: the
-    // caller asked for a dispatch and got a complete answer about one.
-    return jsonResponse(outcome, { status: 200 });
+    outcome = await api.dispatch(id, body, principal);
   } catch (error: unknown) {
     if (!isRoutecraftError(error)) throw error;
     const code = rcCodeOf(error);
-    if (code === "RC5004") return notFound();
-    if (code === "RC5060") {
-      return jsonResponse(
-        {
-          error: "not dispatchable",
-          code,
-          message: (error as Error).message,
-        },
-        { status: 409 },
-      );
-    }
     const refused = callerRefusalResponse(error, {
       routeId: id,
       requestUrl: req.url,
@@ -425,9 +405,32 @@ async function dispatchExchange(
     // `RC5002` stays here on purpose. It is not only the caller's input: the
     // same code covers `.output()` validation, a mid-pipeline `.validate()`
     // and an empty aggregation, which are the instance's faults and would be
-    // misattributed by a 400.
+    // misattributed by a 400. An `RC5004` or `RC5060` reaches this line only
+    // from the route's pipeline: the dispatch's own refusals arrive as values.
     return jsonResponse({ error: "dispatch failed", code }, { status: 500 });
   }
+
+  if (outcome.outcome === "refused") {
+    if (outcome.reason === "unknown") return notFound();
+    return jsonResponse(
+      {
+        error: "not dispatchable",
+        code: "RC5060",
+        message: outcome.message,
+      },
+      { status: 409 },
+    );
+  }
+  if (outcome.outcome === "deferred") {
+    // 202 for a deferral, the same answer the http() source gives: the work
+    // was accepted and is not finished, and the acknowledgment carries
+    // what is needed to finish it.
+    return jsonResponse(outcome, { status: 202 });
+  }
+  // A drop is a terminal outcome the request delivered successfully, so
+  // it is 200 with the outcome named rather than an error status: the
+  // caller asked for a dispatch and got a complete answer about one.
+  return jsonResponse(outcome, { status: 200 });
 }
 
 function badRequest(message: string): Response {

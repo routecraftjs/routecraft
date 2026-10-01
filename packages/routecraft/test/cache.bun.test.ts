@@ -17,6 +17,7 @@ import {
   MemoryCacheProvider,
   noop,
   otherwise,
+  when,
   type Adapter,
   type CacheProvider,
   type CraftConfig,
@@ -1873,6 +1874,292 @@ describe(".cache() default key identity", () => {
       "x",
     );
     expect(result).toBe("computed:x");
+  });
+
+  /**
+   * @case Editing an .error() handler between a cache and its step misses instead of replaying the old handler's recovery value
+   * @preconditions One provider and one route id; the step always fails; v1 is .cache().error(() => "fallback-v1").transform(step), v2 the same route with the handler returning "fallback-v2"
+   * @expectedResult v2 runs the step again and returns its own handler's value, not v1's cached one
+   */
+  test("changing an .error() handler below a cache changes its key", async () => {
+    const provider = new MemoryCacheProvider();
+    const step = mock((): string => {
+      throw new Error("upstream down");
+    });
+    const build = (fallback: () => string) =>
+      craft()
+        .id("key-error-options")
+        .from<string>(direct())
+        .cache({ provider })
+        .error(fallback)
+        .transform(step)
+        .to(noop());
+
+    expect(
+      await sendOnce(
+        build(() => "fallback-v1"),
+        "key-error-options",
+        "x",
+      ),
+    ).toBe("fallback-v1");
+
+    t = await testContext()
+      .routes(build(() => "fallback-v2"))
+      .build();
+    await t.startAndWaitReady();
+    const result = await t.client.sendDirect("key-error-options", "x");
+
+    expect(result).toBe("fallback-v2");
+    expect(step).toHaveBeenCalledTimes(2);
+    expect(provider.size).toBe(2);
+  });
+
+  /**
+   * @case Editing a .retry() policy between a cache and its step misses instead of replaying a recovery the new policy would not have reached
+   * @preconditions One provider and one route id; .cache().error(fallback).retry({ maxAttempts }).transform(flaky), where flaky fails its first call in each version and succeeds after; v1 has maxAttempts 1, v2 has maxAttempts 2
+   * @expectedResult v1 caches the fallback; v2 re-attempts, recovers, and returns the computed value rather than v1's cached fallback
+   */
+  test("changing a .retry() option below a cache changes its key", async () => {
+    const provider = new MemoryCacheProvider();
+    let failuresLeft = 0;
+    const flaky = mock((b: string) => {
+      if (failuresLeft > 0) {
+        failuresLeft--;
+        throw new Error("transient");
+      }
+      return `computed:${b}`;
+    });
+    const fallback = () => "fallback";
+    const build = (maxAttempts: number) =>
+      craft()
+        .id("key-retry-options")
+        .from<string>(direct())
+        .cache({ provider })
+        .error(fallback)
+        .retry({ maxAttempts, backoff: 0 })
+        .transform(flaky)
+        .to(noop());
+
+    failuresLeft = 1;
+    expect(await sendOnce(build(1), "key-retry-options", "x")).toBe("fallback");
+
+    failuresLeft = 1;
+    t = await testContext().routes(build(2)).build();
+    await t.startAndWaitReady();
+    const result = await t.client.sendDirect("key-retry-options", "x");
+
+    expect(result).toBe("computed:x");
+    expect(flaky).toHaveBeenCalledTimes(3);
+  });
+
+  /**
+   * @case A cache above a stack of every wrapper kind keeps its key across a rebuild of the unchanged route
+   * @preconditions One provider; .cache() above .error(), .retry(), .timeout(), .delay(), .throttle(), .circuitBreaker(), .concurrency() and an inner .cache() with a custom key, all over one step; the same route source is built into two contexts in turn
+   * @expectedResult The second context hits the entry the first stored and returns the same value; the step runs once
+   */
+  test("an unchanged wrapper stack below a cache still hits after a rebuild", async () => {
+    const provider = new MemoryCacheProvider();
+    const inner = new MemoryCacheProvider();
+    const compute = mock((b: string) => `computed:${b}`);
+    const build = () =>
+      craft()
+        .id("key-wrapper-stack-rebuild")
+        .from<string>(direct())
+        .cache({ provider })
+        .error(() => "fallback")
+        .retry({ maxAttempts: 2, backoff: 0, retryOn: () => true })
+        .timeout("5s")
+        .delay(0)
+        .throttle({ rate: 100, per: "second" })
+        .circuitBreaker({ failureThreshold: 5, fallback: () => "open" })
+        .concurrency({ max: 4 })
+        .cache({ provider: inner, key: (ex) => `inner:${String(ex.body)}` })
+        .transform(compute)
+        .to(noop());
+
+    expect(await sendOnce(build(), "key-wrapper-stack-rebuild", "x")).toBe(
+      "computed:x",
+    );
+    // Without this the inner cache answers round two, hiding a miss on the outer key.
+    inner.clear();
+
+    t = await testContext().routes(build()).build();
+    await t.startAndWaitReady();
+    const second = await t.client.sendDirect("key-wrapper-stack-rebuild", "x");
+
+    expect(second).toBe("computed:x");
+    expect(compute).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * @case Editing a wrapper above a cache keeps the cache's entries
+   * @preconditions One provider and one route id; v1 is .retry({ maxAttempts: 2 }).cache().transform(compute), v2 the same with maxAttempts 3, so only the outer wrapper's options differ
+   * @expectedResult v2 hits the entry v1 stored and returns the same value; compute runs once
+   */
+  test("a wrapper's options above a cache do not enter its key", async () => {
+    const provider = new MemoryCacheProvider();
+    const compute = mock((b: string) => `computed:${b}`);
+    const build = (maxAttempts: number) =>
+      craft()
+        .id("key-wrapper-above")
+        .from<string>(direct())
+        .retry({ maxAttempts, backoff: 0 })
+        .cache({ provider })
+        .transform(compute)
+        .to(noop());
+
+    expect(await sendOnce(build(2), "key-wrapper-above", "x")).toBe(
+      "computed:x",
+    );
+
+    t = await testContext().routes(build(3)).build();
+    await t.startAndWaitReady();
+    const second = await t.client.sendDirect("key-wrapper-above", "x");
+
+    expect(second).toBe("computed:x");
+    expect(compute).toHaveBeenCalledTimes(1);
+  });
+
+  /**
+   * @case Editing a step under a route-scope cache misses instead of replaying what the old pipeline produced
+   * @preconditions One provider and one route id with .cache() before .from(); v1 transforms to "A:<body>", v2 to "B:<body>"
+   * @expectedResult v2 runs its own pipeline and returns "B:x", not v1's cached "A:x"
+   */
+  test("editing a step under a route-scope cache changes its key", async () => {
+    const provider = new MemoryCacheProvider();
+    const build = (step: (b: string) => string) =>
+      craft()
+        .id("key-route-edit")
+        .cache({ provider })
+        .from<string>(direct())
+        .transform(step)
+        .to(noop());
+
+    expect(
+      await sendOnce(
+        build((b) => `A:${b}`),
+        "key-route-edit",
+        "x",
+      ),
+    ).toBe("A:x");
+
+    t = await testContext()
+      .routes(build((b) => `B:${b}`))
+      .build();
+    await t.startAndWaitReady();
+    const result = await t.client.sendDirect("key-route-edit", "x");
+
+    expect(result).toBe("B:x");
+    expect(provider.size).toBe(2);
+  });
+
+  /**
+   * @case Editing a .choice() predicate under a route-scope cache misses, though every step in both branches is unchanged
+   * @preconditions One provider and one route id with .cache() before .from(); .choice(when(p, match), otherwise(other)) where v1's p selects "x" and v2's p rejects it
+   * @expectedResult v1 returns the match branch's value; v2 runs the pipeline again and returns the otherwise branch's value
+   */
+  test("editing a branch predicate under a route-scope cache changes its key", async () => {
+    const provider = new MemoryCacheProvider();
+    const build = (selects: (ex: Exchange<string>) => boolean) =>
+      craft()
+        .id("key-route-predicate")
+        .cache({ provider })
+        .from<string>(direct())
+        .choice(
+          when(selects, (b) => b.transform((s: string) => `match:${s}`)),
+          otherwise((b) => b.transform((s: string) => `other:${s}`)),
+        )
+        .to(noop());
+
+    expect(
+      await sendOnce(
+        build((ex) => ex.body === "x"),
+        "key-route-predicate",
+        "x",
+      ),
+    ).toBe("match:x");
+
+    t = await testContext()
+      .routes(build((ex) => ex.body !== "x"))
+      .build();
+    await t.startAndWaitReady();
+    const result = await t.client.sendDirect("key-route-predicate", "x");
+
+    expect(result).toBe("other:x");
+  });
+
+  /**
+   * @case Editing a step-scope wrapper's options under a route-scope cache misses
+   * @preconditions One provider and one route id with .cache() before .from(); the pipeline is .error(fallback).transform(step) with step always failing; v1's handler returns "fallback-v1", v2's "fallback-v2"
+   * @expectedResult v2 runs the pipeline again and returns "fallback-v2", not v1's cached value
+   */
+  test("editing a wrapper under a route-scope cache changes its key", async () => {
+    const provider = new MemoryCacheProvider();
+    const step = mock((): string => {
+      throw new Error("upstream down");
+    });
+    const build = (fallback: () => string) =>
+      craft()
+        .id("key-route-wrapper")
+        .cache({ provider })
+        .from<string>(direct())
+        .error(fallback)
+        .transform(step)
+        .to(noop());
+
+    expect(
+      await sendOnce(
+        build(() => "fallback-v1"),
+        "key-route-wrapper",
+        "x",
+      ),
+    ).toBe("fallback-v1");
+
+    t = await testContext()
+      .routes(build(() => "fallback-v2"))
+      .build();
+    await t.startAndWaitReady();
+    const result = await t.client.sendDirect("key-route-wrapper", "x");
+
+    expect(result).toBe("fallback-v2");
+    expect(step).toHaveBeenCalledTimes(2);
+  });
+
+  /**
+   * @case A route-scope cache over an unchanged pipeline with nested branches and wrappers still hits after a rebuild
+   * @preconditions One provider; .cache() before .from() over .error(h).retry(...).transform(compute) and a .choice() with when/otherwise branches; the same route source is built into two contexts in turn
+   * @expectedResult The second context hits the entry the first stored and returns the same value; compute runs once
+   */
+  test("an unchanged pipeline under a route-scope cache still hits after a rebuild", async () => {
+    const provider = new MemoryCacheProvider();
+    const compute = mock((b: string) => `computed:${b}`);
+    const build = () =>
+      craft()
+        .id("key-route-rebuild")
+        .cache({ provider })
+        .from<string>(direct())
+        .error(() => "fallback")
+        .retry({ maxAttempts: 2, backoff: 0 })
+        .transform(compute)
+        .choice(
+          when(
+            (ex: Exchange<string>) => ex.body.startsWith("computed"),
+            (b) => b.transform((s: string) => `match:${s}`),
+          ),
+          otherwise((b) => b.transform((s: string) => `other:${s}`)),
+        )
+        .to(noop());
+
+    expect(await sendOnce(build(), "key-route-rebuild", "x")).toBe(
+      "match:computed:x",
+    );
+
+    t = await testContext().routes(build()).build();
+    await t.startAndWaitReady();
+    const second = await t.client.sendDirect("key-route-rebuild", "x");
+
+    expect(second).toBe("match:computed:x");
+    expect(compute).toHaveBeenCalledTimes(1);
   });
 
   /**

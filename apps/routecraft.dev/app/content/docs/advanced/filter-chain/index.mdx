@@ -31,7 +31,7 @@ Outside in (position 1 wraps everything below):
 | 7 | `retry` | shipped | `.retry({...})` | final attempt's throw | re-runs everything below on failure |
 | 8 | `timeout` | shipped | `.timeout(ms)` | `RC5011` | per-attempt deadline |
 | 8.5 | `concurrency` | shipped | `.concurrency({ max })` | `RC5026` (`mode: 'reject'` or full `maxQueue`; default `'queue'` paces) | bulkhead; bounds simultaneous in-flight (innermost resilience, so a slot is held per attempt) |
-| 9 | `cacheCheck` | shipped | `.cache({...})` | `RC5028` / `RC5029` | route id, principal, validated body → cache key |
+| 9 | `cacheCheck` | shipped | `.cache({...})` | `RC5028` / `RC5029` | route id, pipeline fingerprint, principal, validated body → cache key |
 | - | **your pipeline** | - | `.transform()`, `.to()`, `.process()`, ... | - | the work |
 | 10 | `cacheStore` | shipped | `.cache({...})` | swallows (`route:cache:failed phase:"set"`) | terminal body, written best-effort |
 
@@ -81,7 +81,7 @@ All three run `error` → `authorize` → `parse` → `input` →
 declarative; you state which filters apply, not what order they
 run in.
 
-The examples pass a custom `key`, which `cacheCheck` uses verbatim: the route id and principal from the table above are added only to the default key. A key of the route id alone is right here only because every caller who passes `.authorize()` sees the same employee list. When the answer depends on the caller or the request, use the default key, or a custom key that includes the principal and the request's params and query (a bodiless GET like this one needs the custom key, because the default fails with `RC5029`).
+The examples pass a custom `key`, which `cacheCheck` uses verbatim: the route id, pipeline fingerprint and principal from the table above are added only to the default key. A key of the route id alone is right here only because every caller who passes `.authorize()` sees the same employee list. When the answer depends on the caller or the request, use the default key, or a custom key that includes the principal and the request's params and query (a bodiless GET like this one needs the custom key, because the default fails with `RC5029`).
 
 Because `cacheCheck` runs before your pipeline, a route-scope `.cache()` on a route whose pipeline contains `.authenticate()` is refused at build with `RC5003`: a hit would skip authentication.
 

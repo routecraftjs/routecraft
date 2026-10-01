@@ -35,7 +35,7 @@ Detailed coding standards for contributors live in `.standards/`:
 - [Adapter Architecture](.standards/adapter-architecture.md) -- patterns, file structure, facade, authoring guide
 - [Exchange State Model](.standards/exchange-state-model.md) -- where state lives on an exchange (`body`/`headers` vs derivations), halt/continue contract
 - [Naming Policy](.standards/naming-policy.md) -- Source/Destination vs Server/Client conventions
-- [Error and Logging Policy](.standards/error-and-logging-policy.md) -- throw/boundary rules, log levels, error codes
+- [Error and Logging Policy](.standards/error-and-logging-policy.md) -- throw/boundary rules, log levels, error codes, what crosses the wire at every door (code not message, caller faults mapped by origin)
 - [Type Safety and Schemas](.standards/type-safety-and-schemas.md) -- type flow, Standard Schema, plugin vs config
 - [Plugin Lifecycle](.standards/plugin-lifecycle.md) -- the three phases (`apply` / `start` / `teardown`), which work belongs in each, ordering and failure semantics, readiness via `whenStarted()`
 - [Testing](.standards/testing.md) -- runner conventions, JSDoc-on-every-test, helpers, lifecycle, assertion patterns

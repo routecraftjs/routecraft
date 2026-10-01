@@ -43,7 +43,7 @@ import type {
   SetSessionConfigOptionResponse,
   StopReason,
 } from "@agentclientprotocol/sdk";
-import type { Principal } from "@routecraft/routecraft";
+import { rcCodeOf, type Principal } from "@routecraft/routecraft";
 import { version as PACKAGE_VERSION } from "../../package.json";
 import type {
   AgentSessionOutcome,
@@ -101,6 +101,22 @@ export interface AcpRuntimeSdk {
 const NO_SUCH_SESSION = "No such session.";
 
 /**
+ * The refusals this mount raised itself: the only `RequestError`s it
+ * answers with as written.
+ *
+ * Judged by origin rather than by class. A `RequestError` also arrives
+ * from the editor, when a turn's write to it is refused, and its code
+ * means something on the editor's side. Passed through, an editor's
+ * `-32002` would read as "this conversation is gone" and a bridge would
+ * drop a conversation that still exists.
+ */
+const ownRefusals = new WeakSet<object>();
+
+function isOwnRefusal(err: unknown): boolean {
+  return typeof err === "object" && err !== null && ownRefusals.has(err);
+}
+
+/**
  * One caller's connection.
  *
  * Created when the mount admits an `initialize`, retired when the
@@ -143,12 +159,19 @@ export class AcpConnection implements AgentSurfaceConnection {
 
   /** A refusal the connection layer turns into a JSON-RPC error. */
   private refuse(message: string): Error {
-    return new this.sdk.RequestError(INVALID_PARAMS, message);
+    const refusal = new this.sdk.RequestError(INVALID_PARAMS, message);
+    ownRefusals.add(refusal);
+    return refusal;
   }
 
   /** The one answer for a session this connection cannot see. */
   private noSuchSession(): Error {
-    return new this.sdk.RequestError(RESOURCE_NOT_FOUND, NO_SUCH_SESSION);
+    const refusal = new this.sdk.RequestError(
+      RESOURCE_NOT_FOUND,
+      NO_SUCH_SESSION,
+    );
+    ownRefusals.add(refusal);
+    return refusal;
   }
 
   /** Whose sessions this connection may see. */
@@ -328,6 +351,87 @@ export class AcpConnection implements AgentSurfaceConnection {
       agentName,
       how,
     });
+  }
+
+  // -------------------------------------------------------------- boundary
+
+  /**
+   * Run one request's handler and decide what of a failure reaches the
+   * caller.
+   *
+   * The mount is a door, and its caller is outside the process. A refusal
+   * the mount raised itself is written for that caller and passes as it
+   * is. Anything else (a failed turn, a store outage) answers `-32603`
+   * carrying the RC code when there is one and nothing else: the message
+   * names hosts, paths and upstream text, and stays in the log. Without
+   * this the SDK would put the message in the error's `data`.
+   *
+   * Parameter validation is unaffected: the SDK checks params before the
+   * handler runs and answers `-32602` on its own.
+   *
+   * @internal
+   */
+  async answer<T>(
+    method: string,
+    session: string | undefined,
+    run: () => T | Promise<T>,
+  ): Promise<T> {
+    try {
+      return await run();
+    } catch (err: unknown) {
+      if (isOwnRefusal(err)) throw err;
+      this.logFailure(method, session, err);
+      const code = rcCodeOf(err);
+      throw this.sdk.RequestError.internalError(
+        code === undefined ? undefined : { code },
+      );
+    }
+  }
+
+  /**
+   * Run one notification's handler. There is no answer to send, so a
+   * failure ends at the log rather than at the SDK, which would print it
+   * to the console.
+   *
+   * @internal
+   */
+  async heed(
+    method: string,
+    session: string | undefined,
+    run: () => void | Promise<void>,
+  ): Promise<void> {
+    try {
+      await run();
+    } catch (err: unknown) {
+      this.logFailure(method, session, err);
+    }
+  }
+
+  /**
+   * One log line per failed request, carrying everything the caller was
+   * not told. A disconnect is debug: the caller it would answer is gone,
+   * and nothing on the instance failed.
+   */
+  private logFailure(
+    method: string,
+    session: string | undefined,
+    err: unknown,
+  ): void {
+    const bindings = {
+      err,
+      method,
+      connectionId: this.id,
+      ...(session !== undefined ? { session } : {}),
+    };
+    const message =
+      err instanceof Error && err.message !== ""
+        ? err.message
+        : "ACP request failed";
+    if (err instanceof SurfaceDisconnected) {
+      this.runtime.context.logger.debug(bindings, message);
+    } else {
+      this.runtime.context.logger.error(bindings, message);
+    }
   }
 
   // -------------------------------------------------------------- handlers
@@ -621,31 +725,52 @@ export function buildAcpApp(
   connection: AcpConnection,
   create: () => AgentApp,
 ): AgentApp {
+  const answer = connection.answer.bind(connection);
   return create()
     .onConnect((open) => {
       connection.open(open.client, open.closed);
     })
-    .onRequest("initialize", ({ params }) => connection.initialize(params))
-    .onRequest("session/new", ({ params }) => connection.newSession(params))
+    .onRequest("initialize", ({ params }) =>
+      answer("initialize", undefined, () => connection.initialize(params)),
+    )
+    .onRequest("session/new", ({ params }) =>
+      answer("session/new", undefined, () => connection.newSession(params)),
+    )
     .onRequest("session/load", ({ params }) =>
-      connection.loadSession(params.sessionId),
+      answer("session/load", params.sessionId, () =>
+        connection.loadSession(params.sessionId),
+      ),
     )
     .onRequest("session/resume", ({ params }) =>
-      connection.resumeSession(params.sessionId),
+      answer("session/resume", params.sessionId, () =>
+        connection.resumeSession(params.sessionId),
+      ),
     )
-    .onRequest("session/close", ({ params }) => {
-      connection.closeSession(params.sessionId);
-      return {};
-    })
+    .onRequest("session/close", ({ params }) =>
+      answer("session/close", params.sessionId, () => {
+        connection.closeSession(params.sessionId);
+        return {};
+      }),
+    )
     .onRequest("session/list", ({ params }) =>
-      connection.listSessions(params.cwd, params.cursor),
+      answer("session/list", undefined, () =>
+        connection.listSessions(params.cwd, params.cursor),
+      ),
     )
-    .onRequest("session/prompt", ({ params }) => connection.prompt(params))
+    .onRequest("session/prompt", ({ params }) =>
+      answer("session/prompt", params.sessionId, () =>
+        connection.prompt(params),
+      ),
+    )
     .onRequest("session/set_config_option", ({ params }) =>
-      connection.setConfigOption(params),
+      answer("session/set_config_option", params.sessionId, () =>
+        connection.setConfigOption(params),
+      ),
     )
     .onNotification("session/cancel", ({ params }) =>
-      connection.cancel(params.sessionId),
+      connection.heed("session/cancel", params.sessionId, () =>
+        connection.cancel(params.sessionId),
+      ),
     );
 }
 

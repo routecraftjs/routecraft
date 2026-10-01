@@ -460,7 +460,17 @@ export {
   validateAgainst,
   isInputValidationFailure,
   type InputValidationFailure,
+  isOutputValidationFailure,
+  type OutputValidationFailure,
 } from "./pipeline/validation.ts";
+export {
+  callerRefusalOf,
+  wireIssues,
+  type CallerRefusal,
+  type CallerRefusalOrigin,
+  type WireIssue,
+  type WireIssues,
+} from "./pipeline/caller-refusal.ts";
 export { isStandardSchema } from "./shared/standard-schema.ts";
 export { parseDuration } from "./shared/duration.ts";
 export { rejectStaleOptions } from "./shared/stale-options.ts";

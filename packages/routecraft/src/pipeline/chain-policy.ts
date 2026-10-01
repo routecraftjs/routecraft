@@ -35,6 +35,9 @@ type NonChainField =
   | "requiresPrincipal"
   // A build-time diagnostic flag read once when the route is registered.
   | "volatileCacheKey"
+  // An input to the cache-check filter's key, not a position: the filter
+  // itself answers under `postParseFilters`.
+  | "cachePipeline"
   // Per-route LIFECYCLE, not per-exchange admission: it decides whether the
   // route runs at all, and is evaluated when the route starts rather than
   // when an exchange arrives. A detached run only happens inside a route

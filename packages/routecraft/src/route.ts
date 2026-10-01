@@ -374,6 +374,15 @@ export type RouteDefinition<T = unknown> = {
    * @internal
    */
   volatileCacheKey?: boolean;
+
+  /**
+   * Fingerprint of the user pipeline a route-scope `.cache()` skips on a
+   * hit, folded into its default key (see `CacheKeyScope`). Set by
+   * `RouteBuilder.build()` on a route with a route-scope cache.
+   *
+   * @internal
+   */
+  cachePipeline?: string;
 };
 
 /**

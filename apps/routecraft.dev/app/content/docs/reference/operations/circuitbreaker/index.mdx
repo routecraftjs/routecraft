@@ -79,7 +79,7 @@ The two compose: a route-scope breaker over the whole pipeline plus a tighter st
 
 ## State is per route
 
-Breaker state (the failure window and the open/half-open machine) is shared across every exchange on the route, not per exchange, so failures accumulate toward the threshold and one tripped breaker fast-fails the whole route. A definition registered into multiple contexts gets an independent circuit per route, so the contexts never trip each other. State is in-memory and per instance; sharing a breaker across instances is a future addition built on the shared-store abstraction.
+Breaker state (the failure window and the open/half-open machine) is shared across every exchange on the route, every caller included (the breaker takes no `key`, since its state describes the downstream, not a caller), so failures accumulate toward the threshold and one tripped breaker fast-fails the whole route. A definition registered into multiple contexts gets an independent circuit per route, so the contexts never trip each other. State is in-memory and per instance; sharing a breaker across instances is a future addition built on the shared-store abstraction.
 
 ## Interaction with `.error()` and `.retry()`
 

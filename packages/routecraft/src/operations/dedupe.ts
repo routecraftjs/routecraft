@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { LRUCache } from "lru-cache";
 import {
   type Adapter,
@@ -19,6 +20,7 @@ import { isRoutecraftError } from "../brand.ts";
 import type { CraftContext } from "../context.ts";
 import type { Route } from "../route.ts";
 import { hashExchangeBody } from "./hash-body.ts";
+import { principalIdentity } from "./principal-identity.ts";
 import { DEFAULT_MAX_KEYS, validateMaxKeys } from "./max-keys.ts";
 import { RouteScopedController } from "./route-scoped-controller.ts";
 
@@ -28,11 +30,28 @@ import { RouteScopedController } from "./route-scoped-controller.ts";
 export interface DedupeOptions {
   /**
    * Derive the deduplication key from the exchange. The returned string is
-   * the identity two exchanges are compared on. When omitted, a key is
-   * computed by SHA-256 hashing `JSON.stringify(body)` (see
-   * {@link hashExchangeBody}); supply an explicit `key` when the body is not
-   * JSON-serialisable or when a stable identity lives in a header (a file
-   * path, an event id) that should survive body changes.
+   * the identity two exchanges are compared on.
+   *
+   * When omitted, the key is a SHA-256 over the principal's `issuer` and
+   * `subject` plus those of every `actor` hop when the exchange carries
+   * one, and a SHA-256 of `JSON.stringify(body)` (see
+   * {@link hashExchangeBody}). Two callers with different identities
+   * sending the same body are therefore not duplicates of each other, and
+   * neither are two delegates acting for the same subject. Identity means
+   * issuer and subject per hop: exchanges with no principal all share one
+   * identity, and principals differing only in `clientId` or `grantId`
+   * count as the same caller. The route is not part of the
+   * key: each `.dedupe()` already keeps its own seen-key set per route.
+   * The default needs a body: an `undefined` body (a bodiless `http()`
+   * GET) or one `JSON.stringify` cannot represent fails with `RC5033`.
+   *
+   * A custom `key` is used VERBATIM: nothing is added to it, so every
+   * caller returning the same key dedupes against every other. When
+   * callers must not dedupe each other, put the caller's identity
+   * (`ex.principal?.issuer` and `subject`, plus `ex.principal?.actor` on a
+   * route that admits delegation) in the key. Supply `key` as well when
+   * the body is not JSON-serialisable or when a stable identity lives in a
+   * header (a file path, an event id) that should survive body changes.
    */
   key?: (exchange: Exchange) => string;
   /**
@@ -71,9 +90,9 @@ export interface ResolvedDedupeOptions {
 
 /**
  * Validate user-supplied {@link DedupeOptions} into a
- * {@link ResolvedDedupeOptions}, filling defaults: the SHA-256 body hasher
- * for `key`, no TTL, and a `maxKeys` ceiling of 10_000. Rejects at build
- * time (RC5003) so a typo fails when the route is built.
+ * {@link ResolvedDedupeOptions}, filling defaults: the principal-and-body
+ * hasher for `key`, no TTL, and a `maxKeys` ceiling of 10_000. Rejects at
+ * build time (RC5003) so a typo fails when the route is built.
  *
  * @internal
  */
@@ -97,9 +116,33 @@ export function resolveDedupeOptions(
   };
 }
 
+/**
+ * The default dedupe key: a SHA-256 over the JSON tuple
+ * `[principalChain | null, bodyHash]`, where `principalChain` is
+ * {@link principalIdentity}. Dedupe state is per step and per route, so
+ * the route and the step's position need not be in the key the way they
+ * are for `.cache()`, whose provider is shared.
+ *
+ * @throws RC5033 when the body is `undefined` (nothing to key on) or is
+ *   not JSON-serialisable.
+ * @internal
+ */
 function defaultDedupeKey(exchange: Exchange<unknown>): string {
+  if (exchange.body === undefined) {
+    throw rcError("RC5033", undefined, {
+      message:
+        "Default dedupe key has nothing to key on: the exchange body is undefined. " +
+        "A bodiless request such as an http() GET carries its input in the routecraft.http.params and " +
+        "routecraft.http.query headers, which the default key does not read. Supply a key, e.g. " +
+        "dedupe({ key: (ex) => JSON.stringify([ex.principal?.issuer, ex.principal?.subject, " +
+        "ex.headers['routecraft.http.params'], ex.headers['routecraft.http.query']]) }). " +
+        "A custom key is used verbatim: drop the principal only when callers may dedupe each other, " +
+        "and on a route that admits delegation add each ex.principal.actor hop as well.",
+    });
+  }
+  let bodyHash: string;
   try {
-    return hashExchangeBody(exchange.body);
+    bodyHash = hashExchangeBody(exchange.body);
   } catch (err) {
     throw rcError("RC5033", err, {
       message:
@@ -107,6 +150,11 @@ function defaultDedupeKey(exchange: Exchange<unknown>): string {
         "Supply an explicit `key` function in dedupe({ key: ... }).",
     });
   }
+  const identity = JSON.stringify([
+    principalIdentity(exchange.principal),
+    bodyHash,
+  ]);
+  return createHash("sha256").update(identity).digest("hex");
 }
 
 /**

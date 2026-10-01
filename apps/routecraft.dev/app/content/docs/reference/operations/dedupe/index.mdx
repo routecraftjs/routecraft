@@ -44,7 +44,7 @@ craft()
 ```
 
 **Options:**
-- `key` (optional) - Function to derive the deduplication key from the exchange. If omitted, a key is derived by hashing the exchange body (see "Default key derivation" below).
+- `key` (optional) - Function to derive the deduplication key from the exchange. If omitted, a key is derived by hashing the caller's principal (with its delegation actors) and the exchange body, so different callers never dedupe each other (see "Default key derivation" below). A custom key is used verbatim: include the caller's identity in it when callers must not dedupe each other.
 - `ttl` (optional) - Time to live in milliseconds for a committed key. The window is sliding (inactivity-based), not a fixed lifetime from commit: each duplicate hit refreshes it, so an actively-arriving duplicate stream stays suppressed and a key only expires once it has been quiet for `ttl`. After expiry the next exchange with that key is treated as new and passes again. When omitted, committed keys are retained until LRU eviction at `maxKeys`. This is the memory bound for long-running routes.
 - `maxKeys` (optional) - Maximum number of committed keys retained per route (an LRU keyed by recency of use). Default `10_000`. Keeps memory bounded even without a `ttl`; the least-recently-seen key is evicted (a duplicate hit counts as use, not just the original commit), and its next occurrence passes as new.
 
@@ -85,23 +85,44 @@ The reserve/commit/release outcome is decided from the entering exchange's termi
 
 **Default key derivation:**
 
-When `dedupe` is called without a `key` function, a key is derived automatically by SHA-256 hashing the JSON serialisation of the body. (`cache` hashes the body the same way but also namespaces its default key by route and principal; see [cache key](/docs/reference/operations/cache#cache-key).)
+When `dedupe` is called without a `key` function, the key is a SHA-256 over:
+
+1. **The principal**, when the exchange carries one: its `issuer` and `subject`, and those of every delegation `actor`. Two callers sending the same body are not duplicates of each other, and neither are two delegates acting for the same subject. An exchange with no principal keys on the body alone.
+2. **The body**, as a SHA-256 of `JSON.stringify(body)`.
 
 ```txt
-key = sha256(JSON.stringify(body))
+key = sha256(JSON.stringify([principalChain, sha256(JSON.stringify(body))]))
 ```
+
+The route is not part of the key: every `.dedupe()` keeps its own seen-key set per route, so two routes, or two `.dedupe()` steps in one route, never suppress each other. (`cache` also adds the route and the step's position, because its provider is shared across routes; see [cache key](/docs/reference/operations/cache#cache-key).)
 
 The key is computed from the body at the moment the operation executes. If the body changes at different points in the route, the derived key will differ. `JSON.stringify` does NOT canonicalise object key order, so two objects with the same entries serialised in a different order hash differently (and are treated as distinct); supply an explicit `key` when a stable identity must survive key reordering. Nested non-serialisable values follow standard `JSON.stringify` semantics: a nested `undefined`, function, or symbol is dropped (in an object) or coerced to `null` (in an array), so two bodies that differ only in such values hash the same; supply an explicit `key` when those values are significant to identity.
 
 **Unsupported bodies (throw an error):**
 
-The default dedupe key fails on bodies that are not JSON-serialisable:
+The default dedupe key needs a JSON-serialisable body. It fails on:
 
-- Functions, symbols, or a top-level `undefined`
+- A top-level `undefined`, which is every bodiless request such as an `http()` GET (its input lives in the `routecraft.http.params` and `routecraft.http.query` headers, which the default key does not read)
+- Functions or symbols at the top level
 - `BigInt`
 - Circular references
 
-When the body is not serialisable, `dedupe` throws a `RoutecraftError` (`RC5033`) indicating that a `key` function is required.
+In each case `dedupe` throws a `RoutecraftError` ([`RC5033`](/docs/reference/errors#rc-5033)) indicating that a `key` function is required. A `null` body is keyable.
+
+**A custom `key` is used verbatim.** Nothing is added to it, so every caller that returns the same key dedupes against every other. That is right for an idempotency key that already identifies the work (an event id, a file path). When callers must not dedupe each other, put the caller's identity into the key yourself; on a route that admits delegation (`authorize({ actor })`), add the current actor too, or two delegates acting for the same subject dedupe each other. The example adds the current (outermost) actor only, which is the one `authorize({ actor })` decides on; where `maxDelegationDepth` is above 1 and earlier hops must stay apart too, add every hop as the default key does:
+
+```ts skip="fragment: a chain shown without its route"
+.dedupe({
+  key: (ex) =>
+    JSON.stringify([
+      ex.principal?.issuer,
+      ex.principal?.subject,
+      ex.principal?.actor?.issuer,
+      ex.principal?.actor?.subject,
+      (ex.body as { orderId: string }).orderId,
+    ]),
+})
+```
 
 <Callout type="note" title="When to provide a key function">
 

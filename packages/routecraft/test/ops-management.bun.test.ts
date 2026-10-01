@@ -688,6 +688,108 @@ describe("the ops management API", () => {
   });
 
   /**
+   * @case A route whose nested direct() call finds no endpoint fails as a server fault, not as an unknown id
+   * @preconditions An open dispatch tier; the dispatched route exists and is dispatchable, and its pipeline sends to a direct endpoint nothing subscribes to
+   * @expectedResult 500 dispatch failed with RC5004 and no message. The id the caller named is known; the endpoint that is missing is the route's own dependency, and its name is not the caller's to see
+   */
+  test("keeps a nested direct() to a missing endpoint a 500", async () => {
+    const port = await start({
+      tiers: { dispatch: true },
+      routes: [
+        craft().id("outer").from(direct()).to(direct("missing-dependency")),
+      ],
+    });
+    const { status, body } = await call<Record<string, unknown>>(
+      port,
+      "/ops/routes/outer/exchanges",
+      { method: "POST", body: {} },
+    );
+
+    expect(status).toBe(500);
+    expect(body).toEqual({ error: "dispatch failed", code: "RC5004" });
+  });
+
+  /**
+   * @case An RC5060 raised inside the dispatched route's pipeline fails as a server fault, not as a refusal of the caller
+   * @preconditions An open dispatch tier; a dispatchable route whose step throws RC5060 with a message naming another route, as a step relaying a remote's refusal would
+   * @expectedResult 500 dispatch failed with RC5060 and no message. Only the dispatch's own check of the id the caller named answers 409, and the other route's name never reaches the caller
+   */
+  test("keeps a pipeline-raised RC5060 a 500", async () => {
+    const port = await start({
+      tiers: { dispatch: true },
+      routes: [
+        craft()
+          .id("relay")
+          .from(direct())
+          .transform(() => {
+            throw rcError("RC5060", undefined, {
+              message: 'Route "billing-internal" is not dispatchable.',
+            });
+          })
+          .to(noop()),
+      ],
+    });
+    const { status, body } = await call<Record<string, unknown>>(
+      port,
+      "/ops/routes/relay/exchanges",
+      { method: "POST", body: {} },
+    );
+
+    expect(status).toBe(500);
+    expect(body).toEqual({ error: "dispatch failed", code: "RC5060" });
+    expect(JSON.stringify(body)).not.toContain("billing-internal");
+  });
+
+  /**
+   * @case A dispatch against an unknown route answers 404 alongside a route whose nested call is broken
+   * @preconditions An open dispatch tier and a route whose pipeline sends to a missing direct endpoint; the dispatch names an id no route declares
+   * @expectedResult 404 not found with no message. The unknown-id refusal is the dispatch's own check and survives the origin rule that sends the nested failure to 500
+   */
+  test("still answers 404 for an unknown id", async () => {
+    const port = await start({
+      tiers: { dispatch: true },
+      routes: [
+        craft().id("outer").from(direct()).to(direct("missing-dependency")),
+      ],
+    });
+    const { status, body } = await call<Record<string, unknown>>(
+      port,
+      "/ops/routes/nope/exchanges",
+      { method: "POST", body: {} },
+    );
+
+    expect(status).toBe(404);
+    expect(body).toEqual({ error: "not found" });
+  });
+
+  /**
+   * @case A dispatch against an internal route answers 409 with the dispatch's own message
+   * @preconditions An open dispatch tier; the target declares direct({ internal: true }), so it has a door that only other routes may use
+   * @expectedResult 409 not dispatchable carrying RC5060 and the message naming the route as internal, which is the caller's actionable answer
+   */
+  test("still answers 409 for an internal route", async () => {
+    const port = await start({
+      tiers: { dispatch: true },
+      routes: [
+        craft()
+          .id("hidden")
+          .from(direct({ internal: true }))
+          .to(noop()),
+      ],
+    });
+    const { status, body } = await call<Record<string, unknown>>(
+      port,
+      "/ops/routes/hidden/exchanges",
+      { method: "POST", body: {} },
+    );
+
+    expect(status).toBe(409);
+    expect(body["error"]).toBe("not dispatchable");
+    expect(body["code"]).toBe("RC5060");
+    expect(body["message"]).toMatch(/"hidden" is declared internal/);
+  });
+
+  /**
    * @case The dispatched exchange carries the principal the mount minted
    * @preconditions A route whose .authorize() demands a role, dispatched by a principal carrying it
    * @expectedResult 200. There is no bypass and no synthetic operator identity: the route's own pre-from chain runs and sees exactly the principal the validator produced, so an operator dispatch is indistinguishable from any other authenticated caller

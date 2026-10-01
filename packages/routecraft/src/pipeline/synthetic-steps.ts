@@ -15,6 +15,7 @@ import {
   PARSE_DROPPED_REASON,
 } from "../adapters/shared/parse.ts";
 import type { Adapter, Step } from "../types.ts";
+import type { ResolvedCacheOptions } from "../operations/cache-wrapper.ts";
 import {
   ThrottleController,
   throttleEmitHooks,
@@ -275,7 +276,7 @@ const CACHE_STORE_STEP_ADAPTER: Adapter = {
  * signature may change without notice.
  */
 export function buildCacheCheckStep(
-  cacheConfig: import("../operations/cache-wrapper.ts").ResolvedCacheOptions,
+  cacheConfig: ResolvedCacheOptions,
 ): Step<Adapter> {
   return {
     operation: OperationType.PROCESS,
@@ -295,7 +296,14 @@ export function buildCacheCheckStep(
 
       let key: string;
       try {
-        key = cacheConfig.key(exchange, { kind: "route", routeId });
+        const pipeline = route?.definition.cachePipeline;
+        if (pipeline === undefined) {
+          throw rcError("RC5029", undefined, {
+            message:
+              "This route-scope .cache() is not part of a built route, so the pipeline its key covers is unknown. Build the route through craft()...build() rather than assembling a RouteDefinition by hand.",
+          });
+        }
+        key = cacheConfig.key(exchange, { kind: "route", routeId, pipeline });
       } catch (err) {
         context?.emit("route:cache:failed", {
           routeId,
@@ -407,7 +415,7 @@ export function buildCacheCheckStep(
  * signature may change without notice.
  */
 export function buildCacheStoreStep(
-  cacheConfig: import("../operations/cache-wrapper.ts").ResolvedCacheOptions,
+  cacheConfig: ResolvedCacheOptions,
 ): Step<Adapter> {
   return {
     operation: OperationType.PROCESS,

@@ -391,7 +391,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Adapter",
     message: "Dedupe key derivation failed",
     suggestion:
-      "The default `.dedupe()` key hashes JSON.stringify(body); it fails on non-serialisable bodies (functions, symbols, circular refs, BigInt). Supply an explicit `key` function in dedupe({ key: ... }). Retrying will not help: the same body fails the same way.",
+      "The default `.dedupe()` key hashes the caller's principal and JSON.stringify(body); it fails when the body is undefined (a bodiless request such as an http() GET, whose input lives in the routecraft.http.params / routecraft.http.query headers) or cannot be serialised (functions, symbols, circular refs, BigInt). Supply an explicit `key` function in dedupe({ key: ... }); a custom key is used verbatim, so include the caller's identity when callers must not dedupe each other. Retrying will not help: the same exchange fails the same way.",
     docs: `${DOCS_BASE}#rc-5033`,
     retryable: false,
   },

@@ -53,7 +53,7 @@ export interface ConcurrencyOptions {
    *
    * @example Per authenticated principal
    * ```ts
-   * .concurrency({ max: 3, key: (ex) => ex.principal?.sub ?? "anonymous" })
+   * .concurrency({ max: 3, key: (ex) => ex.principal?.subject ?? "anonymous" })
    * ```
    */
   key?: (exchange: Exchange) => string;
@@ -490,13 +490,17 @@ export async function executeWithConcurrency(
 export class ConcurrencyWrapperStep<
   T extends Adapter = Adapter,
 > extends WrapperStep<T> {
+  readonly #options: ResolvedConcurrencyOptions;
   readonly #controller: ConcurrencyController;
 
   constructor(inner: Step<T>, options: ConcurrencyOptions) {
     super(inner);
-    this.#controller = new ConcurrencyController(
-      resolveConcurrencyOptions(options),
-    );
+    this.#options = resolveConcurrencyOptions(options);
+    this.#controller = new ConcurrencyController(this.#options);
+  }
+
+  protected override describeOptions(): unknown {
+    return this.#options;
   }
 
   protected override async runInner(
