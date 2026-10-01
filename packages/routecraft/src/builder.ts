@@ -40,7 +40,13 @@ import { BatchConsumer } from "./consumers/batch.ts";
 import { type Source, type SourceLike, toSource } from "./operations/from.ts";
 import type { Adapter, Step, Consumer, ConsumerType } from "./types.ts";
 import { OperationType } from "./exchange.ts";
-import { resolveDeferSites, usesResume } from "./deferral/sites.ts";
+import {
+  nestedStepsOf,
+  resolveDeferSites,
+  usesResume,
+} from "./deferral/sites.ts";
+import { WrapperStep } from "./operations/wrapper.ts";
+import { AuthenticateStep } from "./operations/authenticate.ts";
 import {
   type Splitter,
   type CallableSplitter,
@@ -438,6 +444,11 @@ export type RouteOptions = Partial<Pick<RouteDefinition, "consumer">> & {
  * Neither filter would run on either execution, so the route would carry a
  * `.cache()` that silently never caches.
  *
+ * A reachable `.authenticate()` is refused because the cache check runs
+ * before the pipeline: a hit would return a stored response without
+ * running authentication, and the key could not see the principal it would
+ * have minted. This holds for a custom key too.
+ *
  * Step-scope `.cache()` is unaffected; it wraps a single inner step and
  * never participates in this check.
  */
@@ -446,6 +457,16 @@ function assertRouteScopeCacheCompatibility(route: RouteDefinition): void {
     (f) => f.label === "cache-check",
   );
   if (!hasRouteScopeCache) return;
+
+  if (containsAuthenticate(route.steps)) {
+    throw rcError("RC5003", undefined, {
+      message:
+        `Route "${route.id}" has route-scope .cache() and an .authenticate() step. ` +
+        `The cache check runs before the pipeline, so a hit would return a cached response ` +
+        `without running .authenticate(). Cache the expensive step with a step-scope ` +
+        `.cache() placed after .authenticate() instead.`,
+    });
+  }
 
   if ((route.deferSteps?.length ?? 0) > 0) {
     throw rcError("RC5003", undefined, {
@@ -477,6 +498,21 @@ function assertRouteScopeCacheCompatibility(route: RouteDefinition): void {
         `value, or use step-scope .cache() to wrap the expensive operation.`,
     });
   }
+}
+
+/**
+ * Whether any step in the tree, looking through wrapper stacks and into
+ * nested sub-pipelines, is an `.authenticate()` step.
+ */
+function containsAuthenticate(steps: ReadonlyArray<Step<Adapter>>): boolean {
+  return steps.some((step) => {
+    let innermost: Step<Adapter> = step;
+    while (innermost instanceof WrapperStep) innermost = innermost.wrapped;
+    if (innermost instanceof AuthenticateStep) return true;
+    return nestedStepsOf(step).some((nested) =>
+      containsAuthenticate(nested.steps),
+    );
+  });
 }
 
 /**
@@ -1014,10 +1050,14 @@ export class RouteBuilder<
    *   cached. See {@link StepBuilderBase.cache} for the step-scope
    *   contract.
    *
-   * The default key is namespaced by route id (plus the step's position
-   * at step scope) and by the principal's issuer and subject, then the
-   * body; a bodiless exchange needs an explicit `key`, which is used
-   * verbatim. See {@link CacheOptions.key}.
+   * The default key is namespaced by route id (plus the cache's site at
+   * step scope) and by the principal's issuer and subject with its actor
+   * chain, then the body; a bodiless exchange needs an explicit `key`,
+   * which is used verbatim. See {@link CacheOptions.key}.
+   *
+   * Route scope is refused at build (`RC5003`) on a route whose pipeline
+   * contains `.authenticate()`: the cache check runs before the pipeline,
+   * so a hit would skip authentication.
    *
    * Routes with an unbalanced `.split()` are not supported at route
    * scope (the pipeline produces N terminals rather than one) and throw

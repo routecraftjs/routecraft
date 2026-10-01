@@ -653,7 +653,7 @@ Inspect the underlying backend. Transient connectivity errors are retryable; con
 Cache key derivation failed
 
 **Why it happens**  
-The default `.cache()` key needs a body to hash. It fails when the body is `undefined`, which is every bodiless request such as an `http()` GET (its path parameters and query live in the `routecraft.http.params` and `routecraft.http.query` headers, which the default key does not read), and when `JSON.stringify(body)` cannot represent the body (functions, symbols, circular references, `BigInt`). Also raised when a custom `key` function throws.
+The default `.cache()` key needs a body to hash. It fails when the body is `undefined`, which is every bodiless request such as an `http()` GET (its path parameters and query live in the `routecraft.http.params` and `routecraft.http.query` headers, which the default key does not read), and when `JSON.stringify(body)` cannot represent the body (a top-level function or symbol, a circular reference, a `BigInt` anywhere; nested functions and symbols are silently omitted rather than rejected, so supply a `key` when they matter to identity). Also raised when a custom `key` function throws.
 
 **Suggestion**  
 Supply an explicit `key` function that returns a stable string identifier. A custom key is used verbatim: the default key's route and principal namespacing is not added, so carry both yourself:
@@ -666,6 +666,7 @@ Supply an explicit `key` function that returns a stable string identifier. A cus
       e.principal?.issuer,
       e.principal?.subject,
       e.headers['routecraft.http.params'],
+      e.headers['routecraft.http.query'],
     ]),
 })
 ```

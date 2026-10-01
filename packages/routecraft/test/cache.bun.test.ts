@@ -1038,6 +1038,71 @@ describe(".cache() route scope: dual-mode wrapper", () => {
   });
 
   /**
+   * @case Route-scope cache on a route that authenticates in its pipeline is refused at build
+   * @preconditions Route-scope .cache() (once with the default key, once with a custom key) and an .authenticate() step after .from()
+   * @expectedResult build() throws RC5003 naming .authenticate(), since a hit would skip it
+   */
+  test("route-scope cache with .authenticate() in the pipeline is refused", () => {
+    for (const options of [{}, { key: () => "k" }]) {
+      let error: unknown;
+      try {
+        craft()
+          .id("route-cache-authenticate")
+          .cache(options)
+          .from<string>(direct())
+          .authenticate(() => ({ subject: "alice" }))
+          .to(noop())
+          .build();
+      } catch (err) {
+        error = err;
+      }
+      expect(error).toMatchObject({ rc: "RC5003" });
+      expect((error as Error).message).toMatch(
+        /without running \.authenticate\(\)/,
+      );
+    }
+  });
+
+  /**
+   * @case An .authenticate() nested in a choice branch under a wrapper is found too
+   * @preconditions Route-scope .cache(); .authenticate() sits inside otherwise(b => b.error(h).authenticate(...))
+   * @expectedResult build() throws RC5003
+   */
+  test("route-scope cache with a nested, wrapped .authenticate() is refused", () => {
+    expect(() =>
+      craft()
+        .id("route-cache-authenticate-nested")
+        .cache()
+        .from<string>(direct())
+        .choice(
+          otherwise((b) => b
+            .error(() => "anon")
+            .authenticate(() => ({ subject: "alice" }))),
+        )
+        .to(noop())
+        .build(),
+    ).toThrow(/\.authenticate\(\)/);
+  });
+
+  /**
+   * @case A step-scope cache placed after .authenticate() is the supported alternative
+   * @preconditions No route-scope cache; .authenticate() then a step-scope .cache() around a transform
+   * @expectedResult build() succeeds
+   */
+  test("step-scope cache after .authenticate() builds", () => {
+    expect(() =>
+      craft()
+        .id("step-cache-after-authenticate")
+        .from<string>(direct())
+        .authenticate(() => ({ subject: "alice" }))
+        .cache()
+        .transform((b: string) => b)
+        .to(noop())
+        .build(),
+    ).not.toThrow();
+  });
+
+  /**
    * @case Balanced .split() + .aggregate() is allowed at build time
    * @preconditions craft().cache().from().split()...aggregate()...to()
    * @expectedResult Build succeeds; the route definition is returned
@@ -1451,6 +1516,25 @@ function bearer(sub: string): string {
 }
 
 /**
+ * Run `routes` in a context of their own, send one body to `routeId`, and
+ * stop the context even when the send fails. Stands in for an earlier
+ * process (or route version) that populated a shared provider.
+ */
+async function sendOnce(
+  routes: Parameters<ReturnType<typeof testContext>["routes"]>[0],
+  routeId: string,
+  body: string,
+): Promise<unknown> {
+  const ctx = await testContext().routes(routes).build();
+  try {
+    await ctx.startAndWaitReady();
+    return await ctx.client.sendDirect(routeId, body);
+  } finally {
+    await ctx.stop();
+  }
+}
+
+/**
  * Thin wrapper over the shared `bootServer` helper: serve `routes` over
  * http, optionally behind jwt auth, and report failed exchanges.
  */
@@ -1570,15 +1654,13 @@ describe(".cache() default key identity", () => {
         .transform(compute)
         .to(noop());
 
-    const first = await testContext().routes(build()).build();
-    await first.startAndWaitReady();
-    await first.client.sendDirect("key-rebuild", "x");
-    await first.stop();
+    expect(await sendOnce(build(), "key-rebuild", "x")).toBe("computed:x");
 
     t = await testContext().routes(build()).build();
     await t.startAndWaitReady();
-    await t.client.sendDirect("key-rebuild", "x");
+    const second = await t.client.sendDirect("key-rebuild", "x");
 
+    expect(second).toBe("computed:x");
     expect(compute).toHaveBeenCalledTimes(1);
     expect(provider.size).toBe(1);
   });
@@ -1603,15 +1685,15 @@ describe(".cache() default key identity", () => {
         )
         .to(noop());
 
-    const first = await testContext().routes(build()).build();
-    await first.startAndWaitReady();
-    await first.client.sendDirect("key-rebuild-nested", "x");
-    await first.stop();
+    expect(await sendOnce(build(), "key-rebuild-nested", "x")).toBe(
+      "computed:x",
+    );
 
     t = await testContext().routes(build()).build();
     await t.startAndWaitReady();
-    await t.client.sendDirect("key-rebuild-nested", "x");
+    const second = await t.client.sendDirect("key-rebuild-nested", "x");
 
+    expect(second).toBe("computed:x");
     expect(compute).toHaveBeenCalledTimes(1);
   });
 
@@ -1624,21 +1706,14 @@ describe(".cache() default key identity", () => {
     const provider = new MemoryCacheProvider();
     const runB = mock((b: string) => `B:${b}`);
 
-    const v1 = await testContext()
-      .routes(
-        craft()
-          .id("key-edit")
-          .from<string>(direct())
-          .cache({ provider })
-          .transform((b: string) => `A:${b}`)
-          .to(noop()),
-      )
-      .build();
-    await v1.startAndWaitReady();
-    await v1.client.sendDirect("key-edit", "x");
-    await v1.stop();
+    const v1 = craft()
+      .id("key-edit")
+      .from<string>(direct())
+      .cache({ provider })
+      .transform((b: string) => `A:${b}`)
+      .to(noop());
+    expect(await sendOnce(v1, "key-edit", "x")).toBe("A:x");
 
-    const sink = spy();
     t = await testContext()
       .routes(
         craft()
@@ -1648,14 +1723,14 @@ describe(".cache() default key identity", () => {
           .transform(runB)
           .cache({ provider })
           .transform((b: string) => `A:${b}`)
-          .to(sink),
+          .to(noop()),
       )
       .build();
     await t.startAndWaitReady();
-    await t.client.sendDirect("key-edit", "x");
+    const result = await t.client.sendDirect("key-edit", "x");
 
     expect(runB).toHaveBeenCalledTimes(1);
-    expect(sink.received[0]?.body).toBe("A:B:x");
+    expect(result).toBe("A:B:x");
   });
 
   /**
@@ -1754,6 +1829,110 @@ describe(".cache() default key identity", () => {
 
     const warnings = t.logger.warn.mock.calls.map((call) => String(call[1]));
     expect(warnings.some((w) => w.includes("Add .id()"))).toBe(false);
+  });
+
+  /**
+   * @case Reordering a cache and an .error() in one wrapper stack misses instead of reading the other ordering's entry
+   * @preconditions One provider and one route id; v1 is .cache().error(recover).transform(step) with step failing, so the recovery value is cached; v2 is .error(recover).cache().transform(step) with step succeeding; the step and handler are the same functions in both
+   * @expectedResult v2 runs the step and returns its own result, not v1's cached recovery value
+   */
+  test("reordering wrappers around a cache changes its site", async () => {
+    const provider = new MemoryCacheProvider();
+    let failing = true;
+    const recover = () => "recovered";
+    const step = (b: string) => {
+      if (failing) throw new Error("upstream down");
+      return `computed:${b}`;
+    };
+
+    const v1 = craft()
+      .id("key-wrapper-order")
+      .from<string>(direct())
+      .cache({ provider })
+      .error(recover)
+      .transform(step)
+      .to(noop());
+    expect(await sendOnce(v1, "key-wrapper-order", "x")).toBe("recovered");
+
+    failing = false;
+    t = await testContext()
+      .routes(
+        craft()
+          .id("key-wrapper-order")
+          .from<string>(direct())
+          .error(recover)
+          .cache({ provider })
+          .transform(step)
+          .to(noop()),
+      )
+      .build();
+    await t.startAndWaitReady();
+
+    const result = await t.client.sendDirect<string, string>(
+      "key-wrapper-order",
+      "x",
+    );
+    expect(result).toBe("computed:x");
+  });
+
+  /**
+   * @case The default key separates delegates acting for the same subject
+   * @preconditions Step-scope .cache(); the source emits the same body as alice delegated to agent-1, then to agent-2, then to agent-1 again
+   * @expectedResult agent-2 gets its own result; agent-1's repeat is a hit, so the step runs twice
+   */
+  test("step scope keeps separate entries per actor", async () => {
+    const delegated = (actor: string): Principal => ({
+      kind: "custom",
+      scheme: "bearer",
+      issuer: "https://idp.test",
+      subject: "alice",
+      actor: {
+        kind: "custom",
+        scheme: "bearer",
+        issuer: "https://agents.test",
+        subject: actor,
+      },
+    });
+    const source: Source<string> = {
+      subscribe: async (sub) => {
+        for (const actor of ["agent-1", "agent-2", "agent-1"]) {
+          await sub.emit({
+            message: "same",
+            headers: {
+              "routecraft.auth.principal": markAuthentic(delegated(actor)),
+            },
+          });
+        }
+      },
+    };
+    let runs = 0;
+    const sink = spy();
+
+    t = await testContext()
+      .routes(
+        craft()
+          .id("key-step-actor")
+          .from(source)
+          .cache({ provider: new MemoryCacheProvider() })
+          .process((ex) =>
+            DefaultExchange.rewrap(ex, {
+              body: {
+                actor: ex.principal?.actor?.subject ?? null,
+                run: ++runs,
+              },
+            }),
+          )
+          .to(sink),
+      )
+      .build();
+    await t.test();
+
+    expect(runs).toBe(2);
+    expect(sink.received.map((e) => e.body)).toEqual([
+      { actor: "agent-1", run: 1 },
+      { actor: "agent-2", run: 2 },
+      { actor: "agent-1", run: 1 },
+    ]);
   });
 
   /**

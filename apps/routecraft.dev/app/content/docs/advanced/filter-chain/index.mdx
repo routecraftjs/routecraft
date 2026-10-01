@@ -81,6 +81,10 @@ All three run `error` → `authorize` → `parse` → `input` →
 declarative; you state which filters apply, not what order they
 run in.
 
+The examples pass a custom `key`, which `cacheCheck` uses verbatim: the route id and principal from the table above are added only to the default key. A key of the route id alone is right here only because every caller who passes `.authorize()` sees the same employee list. When the answer depends on the caller or the request, use the default key, or a custom key that includes the principal and the request's params and query (a bodiless GET like this one needs the custom key, because the default fails with `RC5029`).
+
+Because `cacheCheck` runs before your pipeline, a route-scope `.cache()` on a route whose pipeline contains `.authenticate()` is refused at build with `RC5003`: a hit would skip authentication.
+
 ### Each filter throws on rejection; `.error()` decides what to recover
 
 Filters 2-9 propagate failures upward by throwing. `.error()` is

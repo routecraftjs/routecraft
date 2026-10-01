@@ -359,7 +359,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Adapter",
     message: "Cache key derivation failed",
     suggestion:
-      "The default key needs a JSON-serialisable body. It fails when the body is undefined (a bodiless request such as an http() GET, whose input lives in the routecraft.http.params / routecraft.http.query headers) or cannot be serialised (functions, symbols, circular refs, BigInt). Supply an explicit `key` function in cache({ key: ... }); a custom key is used verbatim, so include the route and caller identity when they matter. Retrying will not help: the same exchange fails the same way.",
+      "The default key needs a JSON-serialisable body. It fails when the body is undefined (a bodiless request such as an http() GET, whose input lives in the routecraft.http.params / routecraft.http.query headers) or cannot be serialised (a top-level function or symbol, a circular reference, a BigInt; nested functions and symbols are silently omitted, not rejected). Supply an explicit `key` function in cache({ key: ... }); a custom key is used verbatim, so include the route and caller identity when they matter. Retrying will not help: the same exchange fails the same way.",
     docs: `${DOCS_BASE}#rc-5029`,
     retryable: false,
   },
