@@ -6,4 +6,6 @@ The default step-scope `.cache()` key now covers the options of every wrapper be
 
 The default route-scope `.cache()` key (`.cache()` before `.from()`) now includes a fingerprint of the whole pipeline a hit skips: every step's definition, every wrapper with its options, and every `.choice()` branch with its predicate. It hashed only the route id, principal and body, so editing any step under a route-scope cache kept an external provider serving what the old pipeline produced. Every route-scope default key changes with this release, so those entries miss once after the upgrade and are recomputed. The route's `.input()` and `.output()` schemas are not part of the fingerprint, because input validation runs before the cache check and output validation runs on a hit as on a miss. Custom keys are unchanged at both scopes.
 
+The one-time miss holds for routes with an `.id()`. An unnamed route's generated id, and so every default key on it, already changes on every start, so give cached routes an `.id()`.
+
 `WrapperStep` subclasses must now implement `protected describeOptions(): unknown`, returning the options the wrapper was built with (callables included, `null` when it has none). It is abstract, so a custom wrapper that omits it fails to compile rather than silently dropping out of the cache key.

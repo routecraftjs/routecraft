@@ -104,7 +104,10 @@ export async function validateAgainst<S extends StandardSchemaV1>(
     return {
       ok: false,
       message: formatSchemaIssues(issues),
-      issues: issues as readonly StandardSchemaV1.Issue[],
+      // A non-array `issues` breaks the spec; report the failure without them.
+      issues: Array.isArray(issues)
+        ? (issues as readonly StandardSchemaV1.Issue[])
+        : [],
     };
   }
   const successResult = result as { value?: unknown };
@@ -287,15 +290,21 @@ export function isOutputValidationFailure(
   );
 }
 
+/**
+ * The cause of an output RC5002. A schema that failed without issues broke
+ * its own contract rather than the route's output, so it gets no detail and
+ * no door reports it as a declared-schema violation.
+ */
 function outputValidationFailure(
   message: string,
   part: "body" | "headers",
   issues: readonly StandardSchemaV1.Issue[],
   routeId: string,
-): OutputValidationFailure {
-  return Object.assign(new Error(message), {
-    invalidOutput: { in: part, issues, routeId },
-  });
+): Error {
+  const cause = new Error(message);
+  return issues.length === 0
+    ? cause
+    : Object.assign(cause, { invalidOutput: { in: part, issues, routeId } });
 }
 
 /**

@@ -190,7 +190,8 @@ export function defaultCacheKey(
         "routecraft.http.query headers, which the default key does not read. Supply a key, e.g. " +
         "cache({ key: (ex) => JSON.stringify([ex.headers['routecraft.route'], ex.principal?.issuer, " +
         "ex.principal?.subject, ex.headers['routecraft.http.params'], ex.headers['routecraft.http.query']]) }). " +
-        "A custom key is used verbatim: drop the principal only when every caller sees the same answer.",
+        "A custom key is used verbatim: drop the principal only when every caller sees the same answer, " +
+        "and on a route that admits delegation add each ex.principal.actor hop as well.",
     });
   }
   let bodyHash: string;

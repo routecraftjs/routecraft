@@ -38,10 +38,13 @@ export const MAX_WIRE_ISSUES = 20;
  */
 const MAX_WIRE_ISSUE_TEXT = 256;
 
+/** Cut by code point, ellipsis included, so a cut never splits a surrogate pair. */
 function clip(text: string): string {
-  return text.length > MAX_WIRE_ISSUE_TEXT
-    ? `${text.slice(0, MAX_WIRE_ISSUE_TEXT)}...`
-    : text;
+  if (text.length <= MAX_WIRE_ISSUE_TEXT) return text;
+  const chars = Array.from(text);
+  return chars.length <= MAX_WIRE_ISSUE_TEXT
+    ? text
+    : `${chars.slice(0, MAX_WIRE_ISSUE_TEXT - 3).join("")}...`;
 }
 
 /**

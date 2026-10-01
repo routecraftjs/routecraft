@@ -200,9 +200,23 @@ describe("wireIssues()", () => {
     const result = wireIssues(issues);
 
     for (const issue of result.issues) {
-      expect(issue.path!.length).toBeLessThanOrEqual(259);
-      expect(issue.message.length).toBeLessThanOrEqual(259);
+      expect(Array.from(issue.path!).length).toBeLessThanOrEqual(256);
+      expect(Array.from(issue.message).length).toBeLessThanOrEqual(256);
     }
     expect(JSON.stringify(result).length).toBeLessThan(20_000);
+  });
+
+  /**
+   * @case A message of emoji longer than the cap, so the cut lands inside the run of astral characters
+   * @preconditions One issue whose message is 300 emoji (each a surrogate pair in UTF-16)
+   * @expectedResult The clipped message is whole emoji plus the ellipsis, with no lone surrogate
+   */
+  test("never splits a character when it clips", () => {
+    const result = wireIssues([{ message: "\u{1F600}".repeat(300) }]);
+
+    const message = result.issues[0]!.message;
+    expect(message.endsWith("...")).toBe(true);
+    expect(message.isWellFormed()).toBe(true);
+    expect(Array.from(message)).toHaveLength(256);
   });
 });

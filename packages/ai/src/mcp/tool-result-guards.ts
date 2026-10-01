@@ -112,9 +112,18 @@ export async function enforceAdvertisedOutput(
     issues.push(...result.issues);
   }
 
-  const cause = Object.assign(new Error(failures.join("; ")), {
-    invalidOutput: { in: "body" as const, issues, routeId: entry.endpoint },
-  }) satisfies OutputValidationFailure;
+  const failure = new Error(failures.join("; "));
+  // No issues means a malformed schema, not a result breaking the contract.
+  const cause =
+    issues.length === 0
+      ? failure
+      : (Object.assign(failure, {
+          invalidOutput: {
+            in: "body" as const,
+            issues,
+            routeId: entry.endpoint,
+          },
+        }) satisfies OutputValidationFailure);
   throw rcError("AI2001", cause, {
     message: `MCP tool "${entry.endpoint}" returned a body that does not match its declared output schema`,
   });

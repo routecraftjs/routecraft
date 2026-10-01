@@ -226,7 +226,7 @@ app.listen(3000);
 
 - Start the context once at boot, not per-request.
 - For graceful shutdown, call `context.stop()` in your server's shutdown handler (e.g., `process.on('SIGTERM', ...)`).
-- `client.sendDirect()` throws a `RoutecraftError` (`RC5004`) whenever no direct handler is subscribed for the endpoint: the id is unknown, `context.start()` has not been called yet, or the context has stopped. The code does not say which endpoint was missing: a route that itself calls `direct()` to an endpoint nothing answers fails with the same `RC5004`, and that is the route's fault, not the caller's. To answer an unknown id with a 404, check the id before sending (against `context.capabilities()` or the ids your handler serves), and answer an `RC5004` thrown by `sendDirect()` itself as a 500.
+- `client.sendDirect()` throws a `RoutecraftError` (`RC5004`) whenever no direct handler is subscribed for the endpoint: the id is unknown, `context.start()` has not been called yet, or the context has stopped. The error code alone does not tell you whose fault it is: a route that itself calls `direct()` to an endpoint nothing answers fails with the same `RC5004`, and that is the route's fault, not the caller's. To answer an unknown id with a 404, check the id before sending (against `context.capabilities()` or the ids your handler serves), and answer an `RC5004` thrown by `sendDirect()` itself as a 500.
 
 ---
 

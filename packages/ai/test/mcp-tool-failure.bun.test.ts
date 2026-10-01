@@ -6,12 +6,18 @@ import {
   noop,
   rcError,
   type AnyRouteBuilder,
+  type Exchange,
   type Principal,
 } from "@routecraft/routecraft";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { z } from "zod";
 import { McpServer } from "../src/mcp/server.ts";
 import { mcp, mcpPlugin } from "../src/index.ts";
-import { MCP_PLUGIN_REGISTERED } from "../src/mcp/types.ts";
+import {
+  MCP_PLUGIN_REGISTERED,
+  type McpLocalToolEntry,
+} from "../src/mcp/types.ts";
+import { enforceAdvertisedOutput } from "../src/mcp/tool-result-guards.ts";
 import { rpcBody } from "./fixtures/rpc-body.ts";
 import { callTool } from "./helpers/mcp-tool-call.ts";
 
@@ -378,6 +384,80 @@ describe("MCP tool failure text", () => {
     expect(result.content[0]!.text).toBe(
       'Error: Tool "tagged" failed (RC5002).',
     );
+  });
+
+  /**
+   * @case The route's .input() headers schema refuses the headers the MCP server built
+   * @preconditions Tool route declares .input({ headers }) requiring a header no MCP call can carry
+   * @expectedResult The generic failure text with RC5065, naming neither the header nor the schema message: the caller sent no headers, so the refusal is the route's
+   */
+  test("keeps an input headers refusal generic", async () => {
+    const srv = await serve([
+      craft()
+        .id("needs-tenant")
+        .description("Requires a header MCP callers cannot send")
+        .input({ headers: z.object({ "x-internal-tenant": z.string() }) })
+        .from<{ value: string }>(mcp())
+        .to(noop()),
+    ]);
+
+    const result = await callTool(srv, "needs-tenant", { value: "hi" });
+
+    expect(result.content[0]!.text).toBe(
+      'Error: Tool "needs-tenant" failed (RC5065).',
+    );
+  });
+
+  /**
+   * @case The route's .output() schema itself is malformed and returns null instead of a result
+   * @preconditions Tool route declares .output({ body }) with a Standard Schema whose validate returns null
+   * @expectedResult The generic failure text with RC5002: a broken schema is the route's fault, not a body breaking the advertised contract
+   */
+  test("keeps a malformed output schema generic", async () => {
+    const malformed = {
+      "~standard": { version: 1, vendor: "test", validate: () => null },
+    } as unknown as StandardSchemaV1;
+    const srv = await serve([
+      craft()
+        .id("broken-schema")
+        .description("Declares an output schema that cannot answer")
+        .output({ body: malformed })
+        .from<{ value: string }>(mcp())
+        .transform(() => ({ ok: true })),
+    ]);
+
+    const result = await callTool(srv, "broken-schema", { value: "hi" });
+
+    expect(result.content[0]!.text).toBe(
+      'Error: Tool "broken-schema" failed (RC5002).',
+    );
+  });
+
+  /**
+   * @case An advertised output schema reports failure with a non-array issues value
+   * @preconditions enforceAdvertisedOutput on a tool entry whose output body schema returns a non-iterable issues object
+   * @expectedResult It throws AI2001 rather than a TypeError from spreading the non-iterable issues
+   */
+  test("raises AI2001 when a schema's issues are not an array", async () => {
+    const odd = {
+      "~standard": {
+        version: 1,
+        vendor: "test",
+        validate: () => ({ issues: { count: 1 } }),
+      },
+    } as unknown as StandardSchemaV1;
+    const entry = {
+      endpoint: "odd",
+      description: "Odd schema",
+      output: { body: odd },
+    } as McpLocalToolEntry;
+    const exchange = { body: { ok: true }, headers: {} } as unknown as Exchange;
+
+    const error = await enforceAdvertisedOutput(entry, exchange).catch(
+      (e: unknown) => e,
+    );
+
+    expect((error as { rc?: string }).rc).toBe("AI2001");
   });
 });
 

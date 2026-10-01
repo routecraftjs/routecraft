@@ -35,9 +35,12 @@ export interface DedupeOptions {
    * When omitted, the key is a SHA-256 over the principal's `issuer` and
    * `subject` plus those of every `actor` hop when the exchange carries
    * one, and a SHA-256 of `JSON.stringify(body)` (see
-   * {@link hashExchangeBody}). Two callers sending the same body are
-   * therefore never duplicates of each other, and neither are two
-   * delegates acting for the same subject. The route is not part of the
+   * {@link hashExchangeBody}). Two callers with different identities
+   * sending the same body are therefore not duplicates of each other, and
+   * neither are two delegates acting for the same subject. Identity means
+   * issuer and subject per hop: exchanges with no principal all share one
+   * identity, and principals differing only in `clientId` or `grantId`
+   * count as the same caller. The route is not part of the
    * key: each `.dedupe()` already keeps its own seen-key set per route.
    * The default needs a body: an `undefined` body (a bodiless `http()`
    * GET) or one `JSON.stringify` cannot represent fails with `RC5033`.
@@ -133,7 +136,8 @@ function defaultDedupeKey(exchange: Exchange<unknown>): string {
         "routecraft.http.query headers, which the default key does not read. Supply a key, e.g. " +
         "dedupe({ key: (ex) => JSON.stringify([ex.principal?.issuer, ex.principal?.subject, " +
         "ex.headers['routecraft.http.params'], ex.headers['routecraft.http.query']]) }). " +
-        "A custom key is used verbatim: drop the principal only when callers may dedupe each other.",
+        "A custom key is used verbatim: drop the principal only when callers may dedupe each other, " +
+        "and on a route that admits delegation add each ex.principal.actor hop as well.",
     });
   }
   let bodyHash: string;

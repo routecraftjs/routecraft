@@ -1980,6 +1980,7 @@ describe(".cache() default key identity", () => {
     expect(await sendOnce(build(), "key-wrapper-stack-rebuild", "x")).toBe(
       "computed:x",
     );
+    // Without this the inner cache answers round two, hiding a miss on the outer key.
     inner.clear();
 
     t = await testContext().routes(build()).build();

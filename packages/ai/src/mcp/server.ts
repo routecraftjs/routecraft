@@ -1362,7 +1362,12 @@ export class McpServer {
       };
       const logMsg = toolErrorLogMessage(error);
       // A refusal the caller caused is answered, not an instance fault, and route.runSteps already logged it.
-      const refusal = callerRefusalOf(error, origin);
+      const classified = callerRefusalOf(error, origin);
+      // An MCP caller sends no headers, so a headers refusal is the route's own.
+      const refusal =
+        classified?.kind === "input" && classified.in === "headers"
+          ? undefined
+          : classified;
       const level = refusal === undefined ? "error" : "debug";
       this.context.logger[level]({ tool: toolName, err: error }, logMsg);
       this.context.emit(`plugin:mcp:tool:failed`, {

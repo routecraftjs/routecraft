@@ -28,8 +28,10 @@ class FailingStore implements SessionStore {
   readonly inner = new MemorySessionStore();
   failReads = false;
   failCreates = false;
+  failGets = false;
 
   get(key: string): Promise<StoredSession | undefined> {
+    if (this.failGets) return Promise.reject(new Error(LEAK));
     return this.inner.get(key);
   }
   create(key: string, value: unknown): Promise<SessionCasResult> {
@@ -201,5 +203,39 @@ describe("ACP mount failures on the wire", () => {
     expect(answers.image.message).toContain('does not accept "image"');
     expect(answers.malformed.code).toBe(-32602);
     expect(h.t.contextLogger.error.mock.calls).toHaveLength(0);
+  });
+
+  /**
+   * @case A session/cancel notification whose store lookup fails, and one for a session this connection never opened
+   * @preconditions An attached session whose store read then rejects with an error naming a hostname and a path; a second cancel for an unknown session id
+   * @expectedResult The store failure is logged once at error with the full message and nothing is sent back, since a notification has no answer; the unknown session is ignored without a log line
+   */
+  test("a failed cancel is logged once and an unknown one stays silent", async () => {
+    const store = new FailingStore();
+    h = await acpHarness({ agents: PLAIN, sessionStore: store });
+    const cancelLines = (): unknown[][] =>
+      h!.t.contextLogger.error.mock.calls.filter(
+        (call) =>
+          (call[0] as { method?: string } | undefined)?.method ===
+          "session/cancel",
+      );
+
+    await h.connect(async (agent) => {
+      const session = await agent.buildSession("/work").start();
+      await agent.notify("session/cancel", {
+        sessionId: "11111111-2222-3333-4444-555555555555",
+      });
+      store.failGets = true;
+      await agent.notify("session/cancel", { sessionId: session.sessionId });
+      for (let i = 0; i < 50 && cancelLines().length === 0; i++) {
+        await new Promise((resolve) => setTimeout(resolve, 10));
+      }
+      store.failGets = false;
+      session.dispose();
+    });
+
+    const logged = cancelLines();
+    expect(logged).toHaveLength(1);
+    expect(String(logged[0]?.[1])).toContain(HOST);
   });
 });
