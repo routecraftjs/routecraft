@@ -1083,7 +1083,7 @@ Each issue's `message` is the schema's own text, sent verbatim. A custom message
 
 At most 20 issues are sent. When the schema reported more, the body adds `"truncated": <number left out>`, so a payload with thousands of bad array items cannot make the answer proportionally large.
 
-Only an RC5065 the dispatched route's own `.input()` raised answers 400. One raised by a route the dispatched one calls through `direct()` stays a 500, since what that route refused was the outer route's output, not anything the caller sent; so does one a step throws itself, which says nothing about the caller's payload. The MCP server applies the same rule: those two answer with the generic failure text.
+Only an RC5065 the dispatched route's own `.input()` raised answers 400. One raised by a route the dispatched one calls through `direct()` stays a 500, since what that route refused was the outer route's output, not anything the caller sent; so does one a step throws itself, which says nothing about the caller's payload. So does one whose schema failed without reporting a single issue: that schema broke its own contract, so the cause carries no detail and it answers as a route failure. The MCP server applies the same rule: all three answer with the generic failure text.
 
 The structured detail is on the error's `cause` in process. `isInputValidationFailure(err.cause)` narrows it to `{ invalid: { in, issues, routeId } }`. A surface of your own that wants to answer the same way calls `callerRefusalOf(err, { routeId, principal })`, the classification every built-in door uses: it returns the input refusal with its issues already capped, or the authorization refusal class, only for a failure the caller caused on that route.
 

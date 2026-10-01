@@ -38,11 +38,16 @@ export const MAX_WIRE_ISSUES = 20;
  */
 const MAX_WIRE_ISSUE_TEXT = 256;
 
-/** Cut by code point, ellipsis included, so a cut never splits a surrogate pair. */
+/**
+ * Cut by code point, ellipsis included, so a cut never splits a surrogate
+ * pair. Only the head is walked: a code point spans at most two UTF-16
+ * units, so twice the cap in units holds every code point that can survive.
+ */
 function clip(text: string): string {
   if (text.length <= MAX_WIRE_ISSUE_TEXT) return text;
-  const chars = Array.from(text);
-  return chars.length <= MAX_WIRE_ISSUE_TEXT
+  const chars = Array.from(text.slice(0, MAX_WIRE_ISSUE_TEXT * 2));
+  return text.length <= MAX_WIRE_ISSUE_TEXT * 2 &&
+    chars.length <= MAX_WIRE_ISSUE_TEXT
     ? text
     : `${chars.slice(0, MAX_WIRE_ISSUE_TEXT - 3).join("")}...`;
 }

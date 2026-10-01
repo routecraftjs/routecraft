@@ -1,9 +1,11 @@
 import { afterEach, describe, expect, test } from "bun:test";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { z } from "zod";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
   callerRefusalOf,
   craft,
+  isInputValidationFailure,
   markAuthentic,
   noop,
   rcError,
@@ -72,6 +74,38 @@ describe("callerRefusalOf()", () => {
     ).toHaveProperty(["issues", 0, "path"], "id");
     expect(
       callerRefusalOf(error, { routeId: "other", principal: undefined }),
+    ).toBeUndefined();
+  });
+
+  /**
+   * @case An .input() schema that fails without reporting any issue
+   * @preconditions Route "broken" whose body schema returns `{ issues: [] }`
+   * @expectedResult RC5065 whose cause carries no input detail, so it is not classified as a caller refusal
+   */
+  test("does not classify an issueless schema failure as the caller's", async () => {
+    const broken = {
+      "~standard": {
+        version: 1,
+        vendor: "test",
+        validate: () => ({ issues: [] }),
+      },
+    } as unknown as StandardSchemaV1;
+    t = await testContext()
+      .routes(
+        craft()
+          .id("broken")
+          .input({ body: broken })
+          .from(simple({ id: "1" }))
+          .to(noop()),
+      )
+      .build();
+    await t.test();
+    const error = t.errors.find((e) => e.rc === "RC5065");
+
+    expect(error).toBeDefined();
+    expect(isInputValidationFailure(error?.cause)).toBe(false);
+    expect(
+      callerRefusalOf(error, { routeId: "broken", principal: undefined }),
     ).toBeUndefined();
   });
 
@@ -204,6 +238,17 @@ describe("wireIssues()", () => {
       expect(Array.from(issue.message).length).toBeLessThanOrEqual(256);
     }
     expect(JSON.stringify(result).length).toBeLessThan(20_000);
+  });
+
+  /**
+   * @case A text longer than the cap in UTF-16 units but not in characters
+   * @preconditions One issue whose message is 200 emoji: 400 units, 200 code points
+   * @expectedResult The message passes whole, since only code points count against the cap
+   */
+  test("keeps a text within the cap in characters", () => {
+    const message = "\u{1F600}".repeat(200);
+
+    expect(wireIssues([{ message }]).issues[0]!.message).toBe(message);
   });
 
   /**

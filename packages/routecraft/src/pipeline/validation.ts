@@ -314,7 +314,8 @@ function outputValidationFailure(
  * step failure (`route:step:failed` -> the error-handler-or-failed path).
  *
  * The error's cause is an {@link InputValidationFailure} naming the part
- * that failed and the schema's issues.
+ * that failed and the schema's issues, unless the schema failed without
+ * any, which is the schema's fault and carries no detail.
  *
  * On success returns a (possibly new) exchange with validated / coerced
  * values; validated headers are merged over the originals so caller
@@ -371,15 +372,21 @@ export async function validateInputOrThrow(
   return current;
 }
 
+/**
+ * The cause of an RC5065. A schema that failed without issues broke its own
+ * contract rather than refused the caller, so it gets no detail and no door
+ * answers it as a caller refusal.
+ */
 function inputValidationFailure(
   message: string,
   part: "body" | "headers",
   issues: readonly StandardSchemaV1.Issue[],
   routeId: string,
-): InputValidationFailure {
-  return Object.assign(new Error(message), {
-    invalid: { in: part, issues, routeId },
-  });
+): Error {
+  const cause = new Error(message);
+  return issues.length === 0
+    ? cause
+    : Object.assign(cause, { invalid: { in: part, issues, routeId } });
 }
 
 /**
