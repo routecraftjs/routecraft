@@ -550,13 +550,17 @@ export async function executeWithCircuitBreaker(
 export class CircuitBreakerWrapperStep<
   T extends Adapter = Adapter,
 > extends WrapperStep<T> {
+  readonly #options: ResolvedCircuitBreakerOptions;
   readonly #controller: CircuitBreakerController;
 
   constructor(inner: Step<T>, options: CircuitBreakerOptions) {
     super(inner);
-    this.#controller = new CircuitBreakerController(
-      resolveCircuitBreakerOptions(options),
-    );
+    this.#options = resolveCircuitBreakerOptions(options);
+    this.#controller = new CircuitBreakerController(this.#options);
+  }
+
+  protected override describeOptions(): unknown {
+    return this.#options;
   }
 
   protected override async runInner(

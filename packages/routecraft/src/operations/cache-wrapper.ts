@@ -15,7 +15,10 @@ import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import type { RouteDefinition } from "../route.ts";
 import { WrapperStep } from "./wrapper.ts";
 import { nestedStepsOf } from "../deferral/sites.ts";
-import { stepDefinitionFingerprint } from "../deferral/hash.ts";
+import {
+  stepDefinitionFingerprint,
+  wrapperOptionsFingerprint,
+} from "../deferral/hash.ts";
 import {
   type CacheProvider,
   defaultMemoryCacheProvider,
@@ -86,17 +89,23 @@ export interface CacheOptions<Current = unknown> {
  *
  * `site` is the JSON of `[index, stackIndex, below, fingerprint]`: the
  * step's pre-order index in the route's step tree, the cache's index in
- * that step's full wrapper stack, the kinds of the wrappers between the
- * cache and the innermost step, and a fingerprint of the innermost step's
- * definition (operation, label, adapter id and options, callable source).
- * It derives from the route definition alone, so every process running the
- * same route source computes the same site and shares entries in an
- * external provider. Moving a step, reordering its wrappers, or changing
- * its definition changes the site, so those edits cause misses rather than
- * reads of another cache's entries. The fingerprint does not cover what a
- * callable closes over, external config, or a wrapper's own options (an
- * `.error()` handler's body); put those in an explicit key when they change
- * the output.
+ * that step's full wrapper stack, `[kind, optionsFingerprint]` for each
+ * wrapper between the cache and the innermost step, and a fingerprint of
+ * the innermost step's definition (operation, label, adapter id and
+ * options, callable source). It derives from the route definition alone,
+ * so every process running the same route source computes the same site
+ * and shares entries in an external provider. Moving a step, reordering
+ * its wrappers, or changing its definition or the options of a wrapper
+ * below the cache (an `.error()` handler, a `.retry()` policy) changes the
+ * site, so those edits cause misses rather than replays of entries the old
+ * definition produced.
+ *
+ * Wrappers above the cache contribute their count (through `stackIndex`)
+ * but not their options: they run outside the cached computation and none
+ * rewrites the exchange it passes inward, so they cannot change what is
+ * stored for a key. The fingerprints do not cover what a callable closes
+ * over or config read at run time; put those in an explicit key when they
+ * change the output.
  *
  * @internal
  */
@@ -214,7 +223,12 @@ export function assignCacheSites(route: RouteDefinition): boolean {
       const fingerprint = stepDefinitionFingerprint(innermost);
       stack.forEach((wrapper, index) => {
         if (!(wrapper instanceof CacheWrapperStep)) return;
-        const below = stack.slice(index + 1).map((w) => w.constructor.name);
+        const below = stack
+          .slice(index + 1)
+          .map((w) => [
+            w.constructor.name,
+            wrapperOptionsFingerprint(w.describedOptions),
+          ]);
         wrapper.assignSite(
           JSON.stringify([position, index, below, fingerprint]),
         );
@@ -287,11 +301,19 @@ export class CacheWrapperStep<
   T extends Adapter = Adapter,
 > extends WrapperStep<T> {
   readonly #options: ResolvedCacheOptions;
+  // The resolved `key` wraps a custom key in one adapter lambda whose
+  // source is the same for every cache, so fingerprint the original.
+  readonly #customKey: CacheOptions["key"];
   #site: string | undefined;
 
   constructor(inner: Step<T>, options: CacheOptions = {}) {
     super(inner);
     this.#options = resolveCacheOptions(options);
+    this.#customKey = options.key;
+  }
+
+  protected override describeOptions(): unknown {
+    return { key: this.#customKey ?? null, ttl: this.#options.ttl ?? null };
   }
 
   /**

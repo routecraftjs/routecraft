@@ -278,6 +278,10 @@ export class RetryWrapperStep<
     this.#options = resolveRetryOptions(options);
   }
 
+  protected override describeOptions(): unknown {
+    return this.#options;
+  }
+
   protected override async runInner(
     exchange: Exchange,
     ctx: StepContext,

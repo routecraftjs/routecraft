@@ -118,6 +118,10 @@ export class TimeoutWrapperStep<
     this.#timeoutMs = resolveTimeoutOptions(duration).timeoutMs;
   }
 
+  protected override describeOptions(): unknown {
+    return { timeoutMs: this.#timeoutMs };
+  }
+
   protected override async runInner(
     exchange: Exchange,
     ctx: StepContext,

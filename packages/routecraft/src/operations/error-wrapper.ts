@@ -50,6 +50,10 @@ export class ErrorWrapperStep<
     super(inner);
   }
 
+  protected override describeOptions(): unknown {
+    return { handler: this.handler };
+  }
+
   protected override async runInner(
     exchange: Exchange,
     ctx: StepContext,

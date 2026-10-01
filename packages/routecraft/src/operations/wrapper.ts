@@ -156,6 +156,36 @@ export abstract class WrapperStep<
   }
 
   /**
+   * The options this wrapper was built with, as reported by
+   * {@link describeOptions}, for build-time walks that fingerprint a
+   * wrapper stack.
+   *
+   * @internal
+   */
+  get describedOptions(): unknown {
+    return this.describeOptions();
+  }
+
+  /**
+   * Report the options that define this wrapper, so a step-scope
+   * `.cache()` stacked above it can fold them into its default key.
+   * Without them, editing a wrapper between a cache and its step (an
+   * `.error()` handler's recovery value, a `.retry()` predicate deciding
+   * which failures are recovered) would leave the key unchanged and an
+   * external provider would keep replaying what the old wrapper produced.
+   *
+   * Return the configuration, not runtime state: callables as themselves
+   * (their source text is hashed), plain data as plain data, and never a
+   * controller, bucket or other live object (those hash as `[opaque]` and
+   * add nothing). Return `null` when the wrapper takes no options. The
+   * value goes through the same projection as an adapter's options in
+   * `deferral/hash.ts`, so the same carriers and depth bound apply.
+   *
+   * Abstract so a new wrapper cannot silently opt out of the cache key.
+   */
+  protected abstract describeOptions(): unknown;
+
+  /**
    * Run the inner step with whatever extra behaviour the subclass adds
    * and return the outcome the pipeline should act on. Return the
    * inner's outcome unchanged when it succeeded; return a substitute

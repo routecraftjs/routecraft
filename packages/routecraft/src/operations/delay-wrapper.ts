@@ -37,6 +37,10 @@ export class DelayWrapperStep<
     this.#delayMs = parseDuration(duration, "delay(duration)", 0);
   }
 
+  protected override describeOptions(): unknown {
+    return { delayMs: this.#delayMs };
+  }
+
   protected override async runInner(
     exchange: Exchange,
     ctx: StepContext,
