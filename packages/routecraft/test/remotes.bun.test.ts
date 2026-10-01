@@ -844,6 +844,60 @@ describe("remotes", () => {
   });
 
   /**
+   * @case The local ops door answers a remote's 404 as its own only when it dispatched the imported route itself
+   * @preconditions A stand-in ops server that lists `ghost` and `stale` and answers 404 to every dispatch; the importer's open ops door; a local route `caller` whose pipeline sends to `lab:stale`
+   * @expectedResult Dispatching `lab:ghost` through the local door answers 404 not found, since the channel is that route's only door. Dispatching `caller` answers 500 with RC5004 and no message: the endpoint that went missing is the local route's dependency, and its name is not the caller's to read
+   */
+  test("answers 404 for a vanished imported route and 500 for a route that calls one", async () => {
+    const summary = (id: string): OpsRouteSummary => ({
+      id,
+      dispatchable: true,
+      enabled: true,
+      sources: ["direct"],
+      requiresPrincipal: false,
+    });
+    const fake = await serveFake((pathname) => {
+      if (pathname === "/ops/routes") {
+        return {
+          status: 200,
+          body: { items: ["ghost", "stale"].map(summary) },
+        };
+      }
+      const one = /^\/ops\/routes\/([^/]+)$/.exec(pathname);
+      if (one !== null) {
+        return { status: 200, body: summary(decodeURIComponent(one[1]!)) };
+      }
+      return { status: 404 };
+    });
+    try {
+      local = await startLocal({
+        remotes: {
+          lab: { url: `http://127.0.0.1:${String(fake.port)}`, refresh: false },
+        },
+        routes: [craft().id("caller").from(direct()).to(direct("lab:stale"))],
+      });
+
+      const vanished = await call<Record<string, unknown>>(
+        local.port,
+        `/ops/routes/${encodeURIComponent("lab:ghost")}/exchanges`,
+        { method: "POST", body: {} },
+      );
+      expect(vanished.status).toBe(404);
+      expect(vanished.body).toEqual({ error: "not found" });
+
+      const nested = await call<Record<string, unknown>>(
+        local.port,
+        "/ops/routes/caller/exchanges",
+        { method: "POST", body: {} },
+      );
+      expect(nested.status).toBe(500);
+      expect(nested.body).toEqual({ error: "dispatch failed", code: "RC5004" });
+    } finally {
+      await fake.close();
+    }
+  });
+
+  /**
    * @case A remote unreachable at boot registers nothing and its routes appear when it answers
    * @preconditions The first instance names a port nothing listens on, with a short refresh interval; the second instance is started on that port afterwards
    * @expectedResult The first instance starts, imports nothing for the remote and reports the `remote.lab` indicator down on its own health endpoint; after the second comes up a refresh imports its routes and the indicator reports up. An unreachable remote must not fail the boot, and must not need a restart to be found
