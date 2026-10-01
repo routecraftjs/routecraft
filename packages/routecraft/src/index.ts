@@ -248,6 +248,7 @@ export {
   type GeneratorSource,
   type Source,
   type SourceLike,
+  type SourceList,
   type SourceMeta,
   type Subscription,
 } from "./operations/from.ts";

@@ -8,14 +8,11 @@ title: from
 
 ```ts skip="signature: a type signature, not a statement"
 from<T>(src: SourceLike<T>): RouteBuilder<T>
-from<T>(
-  source1: SourceLike<unknown>,
-  source2: SourceLike<unknown>,
-  ...moreSources: Array<SourceLike<unknown>>
-): RouteBuilder<T>
+from<T>(...sources: SourceList): RouteBuilder<T>
 
 // SourceLike<T> = Source<T> | CallableSource<T> | GeneratorSource<T>
 //               | AsyncIterable<T> | Iterable<T>
+// SourceList    = [SourceLike<unknown>, ...SourceLike<unknown>[]]
 ```
 
 Defines the source adapter(s) and creates the capability. Must come after all other route-level operations (`id`, `batch`, `error`).
@@ -69,5 +66,19 @@ Rules:
 - **`.input()` is required** with multiple sources. Each ingress emits a different raw body type (`direct` is `unknown`, `mcp` is the tool argument, `http` is the request body); the input schema validates and normalizes all of them to one shared type before the pipeline runs. Without it the pipeline body would be an unsound union, so the build fails with `RC2001`.
 - **Authorization applies uniformly.** A route-level `.authorize()` runs for every ingress. When channels need *different* auth (for example, an unauthenticated internal `direct` ingress next to a scoped `mcp` one), express each channel as its own single-source route instead.
 - **`.batch()` works per ingress.** Each source gets its own batch window, so a batch never merges items arriving on different channels.
+- **Sources can be spread in.** After a leading source, any array spreads: `.from(direct(), ...extra)`. Spread on its own, the list must be typed as non-empty, because `.from()` always needs at least one source; give a helper that builds a shared set of channels the return type `SourceList`. Make the helper a function that builds fresh sources on every call, not a module-level array shared between routes, so no source instance is subscribed by more than one route. Spread the result, never pass it as-is: an array is an `Iterable`, which `.from()` treats as one source that emits each element as a body.
+
+```ts
+const channels = (path: string): SourceList => [
+  direct(),
+  http({ path, method: 'POST' }),
+]
+
+craft()
+  .id('orders-search')
+  .input(z.object({ customerId: z.string() }))
+  .from(...channels('/orders/search'))
+  .log()
+```
 
 When a channel genuinely needs a different contract, keep it as a separate route that delegates to the canonical one via `to(direct('...'))`.

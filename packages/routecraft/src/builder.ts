@@ -37,7 +37,12 @@ import { CraftClient } from "./client.ts";
 import type { EventHandler, EventName } from "./types.ts";
 import { SimpleConsumer } from "./consumers/simple.ts";
 import { BatchConsumer } from "./consumers/batch.ts";
-import { type Source, type SourceLike, toSource } from "./operations/from.ts";
+import {
+  type Source,
+  type SourceLike,
+  type SourceList,
+  toSource,
+} from "./operations/from.ts";
 import type { Adapter, Step, Consumer, ConsumerType } from "./types.ts";
 import { OperationType } from "./exchange.ts";
 import {
@@ -650,17 +655,14 @@ export interface PreFromTypedBuilder<
   /**
    * Open the route with the body type staged by `.input()`. Accepts one or
    * more sources; multi-ingress routes require the `.input()` body schema
-   * anyway (RC2001), so every channel validates to this one type.
+   * anyway (RC2001), so every channel validates to this one type. The
+   * spread forms of {@link RouteBuilder.from} apply here too.
    */
-  from(
-    ...sources: [SourceLike<unknown>, ...Array<SourceLike<unknown>>]
-  ): RouteBuilder<S>;
+  from(...sources: SourceList): RouteBuilder<S>;
   /**
    * Open the route with an explicit body type, overriding the staged one.
    */
-  from<T>(
-    ...sources: [SourceLike<unknown>, ...Array<SourceLike<unknown>>]
-  ): RouteBuilder<SetBody<S, T>>;
+  from<T>(...sources: SourceList): RouteBuilder<SetBody<S, T>>;
 }
 
 export class RouteBuilder<
@@ -1359,6 +1361,12 @@ export class RouteBuilder<
    * // `.input()` so every channel validates and normalizes to one body type:
    * // .input(QuerySchema).from(direct(), mcp(), http({ path: '/q', method: 'POST' }))
    *
+   * // Spread sources in; `.from(list)` without the spread is ONE Iterable
+   * // source that emits each element as a body. A spread on its own needs a
+   * // `SourceList` return type:
+   * // .input(QuerySchema).from(direct(), ...extraIngresses)
+   * // .input(QuerySchema).from(...ingresses())
+   *
    * The multiple-source `.input()` requirement is a deliberate build-time
    * precondition, enforced at `.from()` with RC2001 rather than in the type
    * system: the variadic overload is statically reachable on THIS class.
@@ -1367,14 +1375,8 @@ export class RouteBuilder<
    * seeds the body so multi-ingress is typed without an explicit generic.
    */
   from<T>(source: SourceLike<T>): RouteBuilder<SetBody<S, T>>;
-  from<T>(source: SourceLike<unknown>): RouteBuilder<SetBody<S, T>>;
-  from<T>(
-    ...sources: [
-      SourceLike<unknown>,
-      SourceLike<unknown>,
-      ...Array<SourceLike<unknown>>,
-    ]
-  ): RouteBuilder<SetBody<S, T>>;
+  // Stays last so a single source still resolves to the inferring overload above.
+  from<T>(...sources: SourceList): RouteBuilder<SetBody<S, T>>;
   from<T>(...sources: Array<SourceLike<T>>): RouteBuilder<SetBody<S, T>> {
     this.assertNoPendingWrappers("from");
     if (sources.length === 0) {
