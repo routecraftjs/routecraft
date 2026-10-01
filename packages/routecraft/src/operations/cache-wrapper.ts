@@ -195,20 +195,24 @@ export function defaultCacheKey(
  * outermost first. The actor chain is part of who is asking: a delegate
  * acting for the same subject can be authorized differently, so it must
  * not read another delegate's entries.
+ *
+ * A hand-assembled self-referential chain ends in the index of the hop it
+ * loops back to, so it neither spins nor keys like the same chain without
+ * the loop.
  */
 function principalIdentity(
   principal: Principal | undefined,
-): Array<[string | null, string]> | null {
+): Array<[string | null, string] | number> | null {
   if (!principal) return null;
-  const chain: Array<[string | null, string]> = [];
-  // A hand-assembled self-referential actor chain would otherwise spin here.
-  const seen = new Set<Principal>();
-  for (
-    let hop: Principal | undefined = principal;
-    hop && !seen.has(hop);
-    hop = hop.actor
-  ) {
-    seen.add(hop);
+  const chain: Array<[string | null, string] | number> = [];
+  const seen = new Map<Principal, number>();
+  for (let hop: Principal | undefined = principal; hop; hop = hop.actor) {
+    const loop = seen.get(hop);
+    if (loop !== undefined) {
+      chain.push(loop);
+      break;
+    }
+    seen.set(hop, chain.length);
     chain.push([hop.issuer ?? null, hop.subject]);
   }
   return chain;

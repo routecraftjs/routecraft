@@ -1936,9 +1936,9 @@ describe(".cache() default key identity", () => {
   });
 
   /**
-   * @case The default key terminates on a self-referential actor chain
-   * @preconditions Step-scope .cache(); the source emits the same body twice under a principal whose actor is itself
-   * @expectedResult Key derivation completes; the repeat is a hit, so the step runs once
+   * @case The default key terminates on a self-referential actor chain and keeps it apart from the actorless principal
+   * @preconditions Step-scope .cache(); the source emits the same body twice under a principal whose actor is itself, then once under the same issuer and subject with no actor
+   * @expectedResult Key derivation completes; the repeat is a hit and the actorless principal misses, so the step runs twice
    */
   test("step scope keys a self-referential actor chain", async () => {
     const cyclic: Principal & { actor?: Principal } = {
@@ -1948,13 +1948,18 @@ describe(".cache() default key identity", () => {
       subject: "alice",
     };
     cyclic.actor = cyclic;
-    const authentic = markAuthentic(cyclic);
+    const plain: Principal = {
+      kind: "custom",
+      scheme: "bearer",
+      issuer: "https://idp.test",
+      subject: "alice",
+    };
     const source: Source<string> = {
       subscribe: async (sub) => {
-        for (let i = 0; i < 2; i++) {
+        for (const principal of [cyclic, cyclic, plain]) {
           await sub.emit({
             message: "same",
-            headers: { "routecraft.auth.principal": authentic },
+            headers: { "routecraft.auth.principal": markAuthentic(principal) },
           });
         }
       },
@@ -1974,8 +1979,8 @@ describe(".cache() default key identity", () => {
       .build();
     await t.test();
 
-    expect(runs).toBe(1);
-    expect(sink.received.map((e) => e.body)).toEqual([1, 1]);
+    expect(runs).toBe(2);
+    expect(sink.received.map((e) => e.body)).toEqual([1, 1, 2]);
   });
 
   /**
