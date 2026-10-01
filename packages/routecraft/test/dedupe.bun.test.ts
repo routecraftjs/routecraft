@@ -4,13 +4,50 @@ import {
   craft,
   direct,
   DedupeStep,
+  markAuthentic,
   RoutecraftError,
   type Exchange,
+  type Principal,
+  type Source,
 } from "@routecraft/routecraft";
 
 /** Sleep for `ms` milliseconds. */
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+/** A bearer principal for `subject` at the test issuer, optionally acting through `actor`. */
+function principal(subject: string, actor?: string): Principal {
+  return {
+    kind: "custom",
+    scheme: "bearer",
+    issuer: "https://idp.test",
+    subject,
+    ...(actor
+      ? {
+          actor: {
+            kind: "custom",
+            scheme: "bearer",
+            issuer: "https://agents.test",
+            subject: actor,
+          },
+        }
+      : {}),
+  };
+}
+
+/** A source that emits the same body once per principal, in order. */
+function sameBodyFrom(principals: Principal[]): Source<string> {
+  return {
+    subscribe: async (sub) => {
+      for (const p of principals) {
+        await sub.emit({
+          message: "same",
+          headers: { "routecraft.auth.principal": markAuthentic(p) },
+        });
+      }
+    },
+  };
 }
 
 /**
@@ -275,6 +312,154 @@ describe("dedupe (.dedupe())", () => {
     await expect(
       t.client.sendDirect("dedupe-unsupported", { big: 1n }),
     ).rejects.toThrow(/RC5033|serialisable|dedupe key/i);
+  });
+
+  /**
+   * @case An undefined body with no key function fails with a message saying there is nothing to key on
+   * @preconditions Route with .dedupe() (default key); a send whose body is undefined
+   * @expectedResult The send rejects with RC5033 naming the undefined body, not a serialisation failure
+   */
+  test("throws RC5033 for an undefined body without a key", async () => {
+    t = await testContext()
+      .routes(craft().id("dedupe-bodiless").from(direct()).dedupe().to(spy()))
+      .build();
+    await t.startAndWaitReady();
+
+    await expect(
+      t.client.sendDirect("dedupe-bodiless", undefined),
+    ).rejects.toThrow(/nothing to key on/);
+  });
+
+  /**
+   * @case The default key separates principals sending the same body
+   * @preconditions Route with .dedupe() (default key); the source emits the same body as alice, then bob
+   * @expectedResult Both exchanges are processed: bob is not a duplicate of alice
+   */
+  test("default key keeps different principals apart", async () => {
+    const s = spy();
+    t = await testContext()
+      .routes(
+        craft()
+          .id("dedupe-principals")
+          .from(sameBodyFrom([principal("alice"), principal("bob")]))
+          .dedupe()
+          .to(s),
+      )
+      .build();
+    await t.test();
+
+    expect(s.received.map((e) => e.principal?.subject)).toEqual([
+      "alice",
+      "bob",
+    ]);
+  });
+
+  /**
+   * @case The default key still dedupes one principal's repeat
+   * @preconditions Route with .dedupe() (default key); the source emits the same body as alice, alice, then bob
+   * @expectedResult alice's repeat is dropped and bob passes, so two exchanges are processed
+   */
+  test("default key dedupes the same principal", async () => {
+    const s = spy();
+    t = await testContext()
+      .routes(
+        craft()
+          .id("dedupe-same-principal")
+          .from(
+            sameBodyFrom([
+              principal("alice"),
+              principal("alice"),
+              principal("bob"),
+            ]),
+          )
+          .dedupe()
+          .to(s),
+      )
+      .build();
+    await t.test();
+
+    expect(s.received.map((e) => e.principal?.subject)).toEqual([
+      "alice",
+      "bob",
+    ]);
+  });
+
+  /**
+   * @case The default key separates delegates acting for the same subject
+   * @preconditions Route with .dedupe() (default key); the source emits the same body as alice via agent-1, via agent-2, then via agent-1 again
+   * @expectedResult agent-2 passes and agent-1's repeat is dropped, so two exchanges are processed
+   */
+  test("default key keeps delegates for one subject apart", async () => {
+    const s = spy();
+    t = await testContext()
+      .routes(
+        craft()
+          .id("dedupe-actors")
+          .from(
+            sameBodyFrom([
+              principal("alice", "agent-1"),
+              principal("alice", "agent-2"),
+              principal("alice", "agent-1"),
+            ]),
+          )
+          .dedupe()
+          .to(s),
+      )
+      .build();
+    await t.test();
+
+    expect(s.received.map((e) => e.principal?.actor?.subject)).toEqual([
+      "agent-1",
+      "agent-2",
+    ]);
+  });
+
+  /**
+   * @case The default key terminates on a self-referential actor chain and keeps it apart from the actorless principal
+   * @preconditions Route with .dedupe() (default key); the source emits the same body twice under a principal whose actor is itself, then once under the same issuer and subject with no actor
+   * @expectedResult Key derivation completes; the cyclic repeat is dropped and the actorless principal passes, so two exchanges are processed
+   */
+  test("default key handles a self-referential actor chain", async () => {
+    const cyclic: Principal & { actor?: Principal } = principal("alice");
+    cyclic.actor = cyclic;
+    const s = spy();
+    t = await testContext()
+      .routes(
+        craft()
+          .id("dedupe-cyclic-actor")
+          .from(sameBodyFrom([cyclic, cyclic, principal("alice")]))
+          .dedupe()
+          .to(s),
+      )
+      .build();
+    await t.test();
+
+    expect(t.errors).toHaveLength(0);
+    expect(s.received.map((e) => e.principal?.actor !== undefined)).toEqual([
+      true,
+      false,
+    ]);
+  });
+
+  /**
+   * @case A custom key is used verbatim, so callers returning the same key dedupe each other
+   * @preconditions Route with .dedupe({ key: () => "shared" }); the source emits the same body as alice, then bob
+   * @expectedResult bob is dropped as a duplicate of alice
+   */
+  test("a custom key is not namespaced by principal", async () => {
+    const s = spy();
+    t = await testContext()
+      .routes(
+        craft()
+          .id("dedupe-custom-shared")
+          .from(sameBodyFrom([principal("alice"), principal("bob")]))
+          .dedupe({ key: () => "shared" })
+          .to(s),
+      )
+      .build();
+    await t.test();
+
+    expect(s.received.map((e) => e.principal?.subject)).toEqual(["alice"]);
   });
 
   /**

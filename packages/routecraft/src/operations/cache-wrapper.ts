@@ -10,9 +10,9 @@ import { wrapperEventScope } from "./event-scope.ts";
 import { rcError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
 import { hashExchangeBody } from "./hash-body.ts";
+import { principalIdentity } from "./principal-identity.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import type { RouteDefinition } from "../route.ts";
-import type { Principal } from "../auth/types.ts";
 import { WrapperStep } from "./wrapper.ts";
 import { nestedStepsOf } from "../deferral/sites.ts";
 import { stepDefinitionFingerprint } from "../deferral/hash.ts";
@@ -188,34 +188,6 @@ export function defaultCacheKey(
     bodyHash,
   ]);
   return createHash("sha256").update(identity).digest("hex");
-}
-
-/**
- * `[issuer, subject]` for the principal and then for every `actor` hop,
- * outermost first. The actor chain is part of who is asking: a delegate
- * acting for the same subject can be authorized differently, so it must
- * not read another delegate's entries.
- *
- * A hand-assembled self-referential chain ends in the index of the hop it
- * loops back to, so it neither spins nor keys like the same chain without
- * the loop.
- */
-function principalIdentity(
-  principal: Principal | undefined,
-): Array<[string | null, string] | number> | null {
-  if (!principal) return null;
-  const chain: Array<[string | null, string] | number> = [];
-  const seen = new Map<Principal, number>();
-  for (let hop: Principal | undefined = principal; hop; hop = hop.actor) {
-    const loop = seen.get(hop);
-    if (loop !== undefined) {
-      chain.push(loop);
-      break;
-    }
-    seen.set(hop, chain.length);
-    chain.push([hop.issuer ?? null, hop.subject]);
-  }
-  return chain;
 }
 
 /**
