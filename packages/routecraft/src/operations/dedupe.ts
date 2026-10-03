@@ -13,6 +13,7 @@ import {
   getExchangeContext,
   getExchangeRoute,
   emitExchangeDropped,
+  principalOf,
 } from "../exchange.ts";
 import { type Duration, parseDuration } from "../shared/duration.ts";
 import { rcError } from "../error.ts";
@@ -151,7 +152,7 @@ function defaultDedupeKey(exchange: Exchange<unknown>): string {
     });
   }
   const identity = JSON.stringify([
-    principalIdentity(exchange.principal),
+    principalIdentity(principalOf(exchange)),
     bodyHash,
   ]);
   return createHash("sha256").update(identity).digest("hex");

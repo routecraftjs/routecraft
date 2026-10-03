@@ -1,3 +1,4 @@
+import { authorityOf } from "../plugins/principals/index.ts";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { CraftContext } from "../context.ts";
 import { validateAgainst } from "../pipeline/validation.ts";
@@ -200,9 +201,10 @@ export async function reviveDeferral(
   // record's lifecycle becomes observable. It reads the record and the two
   // principals; it cannot transition anything, and a refusal leaves the
   // record exactly as it was found.
+  const authority = authorityOf(context);
   const hookInput = {
     principal: door.principal,
-    deferred: deferredPrincipal(deferral),
+    deferred: deferredPrincipal(deferral, authority),
     payload: request.result,
     record: recordView(deferral),
   };
@@ -220,6 +222,7 @@ export async function reviveDeferral(
         context.logger,
         deferral.errorPath?.refusedScopes,
         door.signal,
+        authority,
       )
     : undefined;
 

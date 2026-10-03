@@ -5,7 +5,12 @@ import { dirname, resolve, isAbsolute, basename } from "node:path";
 import { homedir } from "node:os";
 import { pino, stdSerializers } from "pino";
 import type { Route } from "./route.ts";
-import { type Exchange, getExchangeContext, HeadersKeys } from "./exchange.ts";
+import {
+  type Exchange,
+  getExchangeContext,
+  HeadersKeys,
+  principalOf,
+} from "./exchange.ts";
 import { isCraftContext, isRoute, isExchange } from "./brand.ts";
 import type { CraftContext } from "./context.ts";
 
@@ -276,7 +281,7 @@ export function childBindings(
       // Include non-PII auth identifiers from the principal when present.
       // Only subject and issuer are safe for logs; fields like email,
       // name, and roles are omitted to avoid leaking PII.
-      const principal = ex.principal;
+      const principal = principalOf(ex);
       if (principal?.subject !== undefined)
         bindings["auth.subject"] = principal.subject;
       if (principal?.issuer !== undefined)

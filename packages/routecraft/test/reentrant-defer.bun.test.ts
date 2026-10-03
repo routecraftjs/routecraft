@@ -13,6 +13,7 @@ import {
   simple,
   type Enricher,
   type Exchange,
+  deferralOf,
 } from "../src/index.ts";
 import { asDeferred, storeWith, deferring } from "./helpers/deferral.ts";
 
@@ -34,7 +35,7 @@ function deferCapable(): Enricher<unknown, unknown> {
     fetch: (ex: Exchange<unknown>) => {
       const state = peekResumeStepState(ex);
       if (state !== undefined) {
-        return { resumed: true, state, payload: ex.deferral.result };
+        return { resumed: true, state, payload: deferralOf(ex).result };
       }
       throw new DeferSignal({
         schema: Approval,

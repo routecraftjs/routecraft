@@ -22,6 +22,8 @@ import { EventBus } from "./event-bus.ts";
 import { CraftClient } from "./client.ts";
 import { PluginHost, type InstalledPlugin } from "./kernel/host.ts";
 import { defaultPluginsFor } from "./kernel/defaults.ts";
+import { installFacet } from "./kernel/facets.ts";
+import type { Exchange } from "./exchange.ts";
 import type { Plugin, RouteView } from "./kernel/plugin.ts";
 import {
   HookTable,
@@ -200,7 +202,7 @@ export interface CraftConfig {
    * Plugins to install. Bound in dependency order after the plugins config
    * keys install, which bind in their registration order.
    */
-  plugins?: Plugin[];
+  plugins?: readonly Plugin[];
   /** How long a graceful shutdown may drain before it is forced. */
   shutdown?: ShutdownConfig;
   /**
@@ -358,6 +360,7 @@ export class CraftContext {
 
   /** Every plugin hook, placed when the application froze. */
   private hookTable: HookTable | undefined;
+  private readonly facets = new Map<string, (exchange: Exchange) => unknown>();
 
   /** The application's hook order and disables, from config. */
   private readonly hooksConfig: HooksConfig;
@@ -506,12 +509,13 @@ export class CraftContext {
     if (this.pluginsInitialized) return;
     this.pluginsInitialized = true;
     try {
-      // Appended, so an application's own plugins keep their list
-      // positions; the host still binds a default before anything that
-      // requires what it provides.
+      // Defaults first: they are what the application's plugins build on,
+      // and ahead of them the application's plugins keep their relative
+      // order instead of each one that requires a default sliding behind
+      // independent plugins listed after it.
       this.host = new PluginHost([
-        ...this.pluginList,
         ...defaultPluginsFor(this.pluginList),
+        ...this.pluginList,
       ]);
     } catch (err) {
       this.logger.error({ err }, "Plugins could not be installed.");
@@ -559,11 +563,35 @@ export class CraftContext {
         this.hooksConfig,
         this.logger,
       );
+      for (const entry of host.ordered) {
+        if (!entry.plugin.facet) continue;
+        installFacet(entry.namespace);
+        this.facets.set(entry.namespace, entry.plugin.facet);
+      }
     } catch (err) {
       this.logger.error({ err }, "Plugin hooks could not be placed.");
       this.emit("context:error", { error: err });
       throw err;
     }
+  }
+
+  /**
+   * What `ex.<namespace>` reads on this application's exchanges, when an
+   * installed plugin declares that facet.
+   *
+   * @internal
+   */
+  facetOf(namespace: string): ((exchange: Exchange) => unknown) | undefined {
+    return this.facets.get(namespace);
+  }
+
+  /**
+   * Whether a plugin with this id is installed.
+   *
+   * @internal
+   */
+  hasPlugin(id: string): boolean {
+    return this.host?.ordered.some((entry) => entry.plugin.id === id) ?? false;
   }
 
   /**
@@ -1339,6 +1367,7 @@ export class CraftContext {
         await this.initPlugins();
       }
       this.assertDeferralConfigured();
+      for (const route of this.routes) route.compile();
     } catch (err) {
       // Every exit settles the deferred: a readiness probe waiting on a
       // context that refused its config must see the refusal.

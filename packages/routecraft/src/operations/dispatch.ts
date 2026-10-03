@@ -4,6 +4,10 @@ import { type Exchange, OperationType, cloneExchange } from "../exchange.ts";
 import { wrapperEventScope } from "./event-scope.ts";
 import { rcError } from "../error.ts";
 import { type Path, compilePath } from "./choice.ts";
+import type { StepCatalogue } from "../kernel/steps.ts";
+import type { ShippedPlugins } from "../plugins/catalogue.ts";
+
+const EMPTY_CATALOGUE: StepCatalogue = new Map();
 import { NESTED_STEPS } from "../dsl-symbol.ts";
 import type { NestedSteps } from "../deferral/sites.ts";
 import { RouteScopedController } from "./route-scoped-controller.ts";
@@ -74,10 +78,14 @@ const WEIGHTED = Symbol("routecraft.dispatch.weighted");
  * @template Out - Body type the target produces (discarded; dispatch is
  *   side-effect-only)
  */
-export interface WeightedTarget<In = unknown, Out = unknown> {
+export interface WeightedTarget<
+  In = unknown,
+  Out = unknown,
+  P = ShippedPlugins,
+> {
   readonly [WEIGHTED]: true;
   readonly weight: number;
-  readonly path: Path<In, Out>;
+  readonly path: Path<In, Out, P>;
 }
 
 /**
@@ -88,8 +96,8 @@ export interface WeightedTarget<In = unknown, Out = unknown> {
  * @template In  - Body type entering the target
  * @template Out - Body type the target produces (discarded)
  */
-export type DispatchTarget<In = unknown, Out = unknown> =
-  Path<In, Out> | WeightedTarget<In, Out>;
+export type DispatchTarget<In = unknown, Out = unknown, P = ShippedPlugins> =
+  Path<In, Out, P> | WeightedTarget<In, Out, P>;
 
 /**
  * Co-locate a relative weight with a dispatch target for the `weighted`
@@ -105,10 +113,10 @@ export type DispatchTarget<In = unknown, Out = unknown> =
  * @param weight - Relative weight; must be a finite number > 0
  * @returns A weighted target consumed by `.dispatch("weighted", ...)`
  */
-export function weighted<In = unknown, Out = unknown>(
-  path: Path<In, Out>,
+export function weighted<In = unknown, Out = unknown, P = ShippedPlugins>(
+  path: Path<In, Out, P>,
   weight: number,
-): WeightedTarget<In, Out> {
+): WeightedTarget<In, Out, P> {
   if (!Number.isFinite(weight) || weight <= 0) {
     throw rcError("RC5003", undefined, {
       message: `weighted() weight must be a finite number > 0, got ${String(weight)}.`,
@@ -119,8 +127,8 @@ export function weighted<In = unknown, Out = unknown>(
 
 /** Type guard: is this target a {@link weighted} wrapper rather than a bare path? */
 function isWeighted(
-  target: DispatchTarget<unknown, unknown>,
-): target is WeightedTarget<unknown, unknown> {
+  target: DispatchTarget<unknown, unknown, unknown>,
+): target is WeightedTarget<unknown, unknown, unknown> {
   return (
     typeof target === "object" &&
     target !== null &&
@@ -225,7 +233,8 @@ export function resolveDispatchStrategy(
  * @internal
  */
 export function compileDispatchTargets(
-  targets: readonly DispatchTarget<unknown, unknown>[],
+  targets: readonly DispatchTarget<unknown, unknown, unknown>[],
+  catalogue: StepCatalogue = EMPTY_CATALOGUE,
 ): CompiledTarget[] {
   if (targets.length === 0) {
     throw rcError("RC5003", undefined, {
@@ -234,8 +243,8 @@ export function compileDispatchTargets(
   }
   return targets.map((target) =>
     isWeighted(target)
-      ? { steps: compilePath(target.path), weight: target.weight }
-      : { steps: compilePath(target), weight: 1 },
+      ? { steps: compilePath(target.path, catalogue), weight: target.weight }
+      : { steps: compilePath(target, catalogue), weight: 1 },
   );
 }
 
@@ -342,13 +351,15 @@ export class DispatchStep<In = unknown> implements Step<DispatchAdapter> {
 
   constructor(
     strategy: DispatchStrategy<In>,
-    targets: readonly DispatchTarget<In, unknown>[],
+    targets: readonly DispatchTarget<In, unknown, unknown>[],
+    catalogue: StepCatalogue = EMPTY_CATALOGUE,
   ) {
     this.#strategy = resolveDispatchStrategy(
       strategy as DispatchStrategy<unknown>,
     );
     this.#targets = compileDispatchTargets(
-      targets as readonly DispatchTarget<unknown, unknown>[],
+      targets as readonly DispatchTarget<unknown, unknown, unknown>[],
+      catalogue,
     );
     this.#weights = this.#targets.map((t) => t.weight);
     this.#controller = new DispatchController(
@@ -505,7 +516,8 @@ export class DispatchStep<In = unknown> implements Step<DispatchAdapter> {
  */
 export function buildDispatchStep<In = unknown>(
   strategy: DispatchStrategy<In>,
-  targets: readonly DispatchTarget<In, unknown>[],
+  targets: readonly DispatchTarget<In, unknown, unknown>[],
+  catalogue?: StepCatalogue,
 ): DispatchStep<In> {
-  return new DispatchStep<In>(strategy, targets);
+  return new DispatchStep<In>(strategy, targets, catalogue);
 }

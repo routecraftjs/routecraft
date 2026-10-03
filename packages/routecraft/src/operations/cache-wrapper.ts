@@ -5,6 +5,7 @@ import {
   DefaultExchange,
   isDropped,
   markDropped,
+  principalOf,
 } from "../exchange.ts";
 import { wrapperEventScope } from "./event-scope.ts";
 import { rcError } from "../error.ts";
@@ -208,7 +209,7 @@ export function defaultCacheKey(
     scope.kind,
     scope.routeId,
     scope.kind === "step" ? scope.site : scope.pipeline,
-    principalIdentity(exchange.principal),
+    principalIdentity(principalOf(exchange)),
     bodyHash,
   ]);
   return createHash("sha256").update(identity).digest("hex");

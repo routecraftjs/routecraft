@@ -10,6 +10,7 @@ import {
   deferAside,
   type Principal,
   type RouteDefinition,
+  principalOf,
 } from "@routecraft/routecraft";
 import { spy, testContext, type TestContext } from "@routecraft/testing";
 import {
@@ -890,7 +891,7 @@ describe("agent sessions", () => {
     // delivery carries her principal, whoever queued the text.
     const boundary = sink.received[sink.received.length - 1]!;
     expect((boundary.body as AgentResult).text).toBe("hello both");
-    expect(boundary.principal?.subject).toBe("alice");
+    expect(principalOf(boundary)?.subject).toBe("alice");
   });
 
   /**

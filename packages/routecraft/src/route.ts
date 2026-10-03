@@ -69,6 +69,8 @@ import type {
   DeferSite,
   ErrorPathSite,
 } from "./deferral/sites.ts";
+import { nestedStepsOf } from "./deferral/sites.ts";
+import { STEP_PLUGIN } from "./dsl-symbol.ts";
 import { DeferralHeaders } from "./deferral/exchange-state.ts";
 import type { RouteEnablement } from "./enablement.ts";
 
@@ -496,6 +498,14 @@ export interface Route<T = unknown> {
   start(): Promise<void>;
 
   /**
+   * Fill the route's positions and check its plugin steps are installed.
+   *
+   * @throws RC1111 naming what is missing
+   * @internal
+   */
+  compile(): void;
+
+  /**
    * Stop the route: abort all source subscriptions and clear the internal queues.
    */
   stop(): void;
@@ -861,6 +871,46 @@ export class DefaultRoute implements Route {
   private compiledPositions?: CompiledPositions;
 
   /**
+   * Fill this route's positions from its application's providers and check
+   * that every plugin step it uses is installed. The context runs it for
+   * every route before any starts, so a missing provider fails the
+   * application's start instead of one route on its first exchange.
+   *
+   * @throws RC1111 naming what is missing
+   * @internal
+   */
+  compile(): void {
+    this.positions();
+    this.assertStepPlugins();
+  }
+
+  /**
+   * Every plugin step in the route, branches included, comes from a plugin
+   * this application installs.
+   *
+   * @throws RC1111 naming the missing plugins
+   */
+  private assertStepPlugins(): void {
+    const missing = new Set<string>();
+    const walk = (steps: ReadonlyArray<Step<Adapter>>): void => {
+      for (const step of steps) {
+        const plugin = (step as { [STEP_PLUGIN]?: string })[STEP_PLUGIN];
+        if (plugin !== undefined && !this.context.hasPlugin(plugin)) {
+          missing.add(plugin);
+        }
+        for (const nested of nestedStepsOf(step)) walk(nested.steps);
+      }
+    };
+    walk(this.definition.steps);
+    if (missing.size > 0) {
+      const ids = [...missing].map((id) => `"${id}"`).join(", ");
+      throw rcError("RC1111", undefined, {
+        message: `Route "${this.definition.id}" uses steps of ${ids}, which this application does not install. Install the plugin, or build the route with the project's craft() so the step is a compile error instead.`,
+      });
+    }
+  }
+
+  /**
    * This route's positions, filled once by its application's providers.
    *
    * @throws RC1111 when a configured position has no provider
@@ -950,9 +1000,7 @@ export class DefaultRoute implements Route {
    */
   async start(): Promise<void> {
     this.assertNotAborted();
-    // A position nobody provides refuses the route here rather than on its
-    // first exchange.
-    this.positions();
+    this.compile();
     // Lifecycle log is emitted only by context (one log per event).
 
     // Register the shared pipeline handler on every per-source consumer.

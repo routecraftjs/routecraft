@@ -1,3 +1,4 @@
+import { AUTHORITY } from "../principals/index.ts";
 import type { Plugin, PluginContext } from "../../kernel/plugin.ts";
 import { rcError } from "../../error.ts";
 import { type Duration, parseDuration } from "../../shared/duration.ts";
@@ -115,14 +116,20 @@ export function serversPlugin(definitions: ServerDefinitions): Plugin {
     id: "routecraft.servers",
     keepsAlive: true,
     provides: [WEB_INGRESS],
+    requires: [AUTHORITY],
     bind(c: PluginContext) {
       const registries = new Map<string, HttpMountRegistry>();
+      const host = {
+        logger: c.logger,
+        emit: c.emit.bind(c),
+        authority: c.require(AUTHORITY),
+      };
       for (const name of Object.keys(definitions)) {
         registries.set(
           name,
           new HttpMountRegistry(
             name,
-            c,
+            host,
             definitions[name]?.auth,
             resolveMaxStreamingRequests(
               name,

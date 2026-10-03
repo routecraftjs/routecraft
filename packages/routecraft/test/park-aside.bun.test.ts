@@ -7,6 +7,7 @@ import {
   direct,
   noop,
   deferAside,
+  deferralOf,
 } from "../src/index.ts";
 
 /**
@@ -40,7 +41,7 @@ describe("deferAside", () => {
     const first = await deferAside(t.ctx, exchange, site, "r", (id) => ({
       id,
     }));
-    const next = exchange.deferral.id;
+    const next = deferralOf(exchange).id;
     expect(next).not.toBe(first.deferralId);
     const second = await deferAside(t.ctx, exchange, site, "r", (id) => ({
       id,

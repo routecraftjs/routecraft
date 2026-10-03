@@ -1,4 +1,4 @@
-import { describe, expect, expectTypeOf, test } from "bun:test";
+import { describe, expect, test } from "bun:test";
 import { z } from "zod";
 import {
   craft,
@@ -7,7 +7,7 @@ import {
   type SourceList,
 } from "../src/index.ts";
 import { direct } from "../src/adapters/direct/index.ts";
-import type { RouteBuilder } from "../src/builder.ts";
+import { expectBodyOf, expectBodyReturnedBy } from "./helpers/types.ts";
 
 /**
  * Type-level tests: `.from()` accepts sources spread in after a leading
@@ -44,12 +44,8 @@ describe(".from() spread type safety", () => {
       .id("typed-lead")
       .input(querySchema)
       .from(direct(), ...extra);
-    expectTypeOf(open).returns.toEqualTypeOf<
-      RouteBuilder<{ body: unknown; deferral?: unknown }>
-    >();
-    expectTypeOf(typed).toEqualTypeOf<
-      RouteBuilder<{ body: Query; deferral?: unknown }>
-    >();
+    expectBodyReturnedBy(open).toEqualTypeOf<unknown>();
+    expectBodyOf(typed).toEqualTypeOf<Query>();
   });
 
   /**
@@ -66,18 +62,14 @@ describe(".from() spread type safety", () => {
       .id("typed-helper")
       .input({ body: querySchema })
       .from(...ingresses());
-    expectTypeOf(open).returns.toEqualTypeOf<
-      RouteBuilder<{ body: unknown; deferral?: unknown }>
-    >();
-    expectTypeOf(typed).toEqualTypeOf<
-      RouteBuilder<{ body: Query; deferral?: unknown }>
-    >();
+    expectBodyReturnedBy(open).toEqualTypeOf<unknown>();
+    expectBodyOf(typed).toEqualTypeOf<Query>();
   });
 
   /**
    * @case Explicit from<T>() generic with a spread
    * @preconditions from<Order>(...ingresses()) without .input(), and from<Order>(direct(), ...extra) after a typed .input()
-   * @expectedResult Both chains carry body Order; the generic overrides the staged schema type
+   * @expectedResult Both chains carry body type Order; the generic overrides the staged schema type
    */
   test("explicit generic applies to a spread", () => {
     const open = () =>
@@ -88,12 +80,8 @@ describe(".from() spread type safety", () => {
       .id("generic-typed")
       .input(querySchema)
       .from<Order>(direct(), ...extra);
-    expectTypeOf(open).returns.toEqualTypeOf<
-      RouteBuilder<{ body: Order; deferral?: unknown }>
-    >();
-    expectTypeOf(overridden).toEqualTypeOf<
-      RouteBuilder<{ body: Order; deferral?: unknown }>
-    >();
+    expectBodyReturnedBy(open).toEqualTypeOf<Order>();
+    expectBodyOf(overridden).toEqualTypeOf<Order>();
   });
 
   /**
@@ -112,12 +100,8 @@ describe(".from() spread type safety", () => {
     const route = craft()
       .id("one")
       .from(...single);
-    expectTypeOf(openPair).returns.toEqualTypeOf<
-      RouteBuilder<{ body: unknown; deferral?: unknown }>
-    >();
-    expectTypeOf(route).toEqualTypeOf<
-      RouteBuilder<{ body: { id: number }; deferral?: unknown }>
-    >();
+    expectBodyReturnedBy(openPair).toEqualTypeOf<unknown>();
+    expectBodyOf(route).toEqualTypeOf<{ id: number }>();
   });
 
   /**
@@ -130,24 +114,18 @@ describe(".from() spread type safety", () => {
       .id("inferred")
       .from(simple({ id: 0 }));
     const explicit = craft().id("explicit").from<Order>(direct());
-    expectTypeOf(inferred).toEqualTypeOf<
-      RouteBuilder<{ body: { id: number }; deferral?: unknown }>
-    >();
-    expectTypeOf(explicit).toEqualTypeOf<
-      RouteBuilder<{ body: Order; deferral?: unknown }>
-    >();
+    expectBodyOf(inferred).toEqualTypeOf<{ id: number }>();
+    expectBodyOf(explicit).toEqualTypeOf<Order>();
   });
 
   /**
    * @case An array passed without a spread is one Iterable source
    * @preconditions from([1, 2]) with no spread
-   * @expectedResult RouteBuilder<{ body: number; deferral?: unknown }>: each element is a body, not a source
+   * @expectedResult Body type is number: each element is a body, not a source
    */
   test("an unspread array is a single iterable source", () => {
     const route = craft().id("iterable").from([1, 2]);
-    expectTypeOf(route).toEqualTypeOf<
-      RouteBuilder<{ body: number; deferral?: unknown }>
-    >();
+    expectBodyOf(route).toEqualTypeOf<number>();
   });
 
   /**

@@ -1,9 +1,11 @@
+import { authorityOf } from "../plugins/principals/index.ts";
 import type { Adapter, Step, StepOutcome } from "../types.ts";
 import {
   type Exchange,
   OperationType,
   DefaultExchange,
   HeadersKeys,
+  principalOf,
 } from "../exchange.ts";
 import type { PrincipalClaims } from "../auth/authenticate.ts";
 import { delegate, type DelegateOptions } from "../auth/delegate.ts";
@@ -93,7 +95,8 @@ export class DelegateStep<T = unknown> implements Step<Adapter> {
       return { kind: "continue", exchange: dropUndelegated(exchange) };
     }
 
-    const subject = exchange.principal;
+    const authority = authorityOf(exchange);
+    const subject = authority.read(exchange);
     if (!subject) {
       throw rcError("RC5012", new Error("No principal to delegate"), {
         message:
@@ -107,7 +110,12 @@ export class DelegateStep<T = unknown> implements Step<Adapter> {
     const next = DefaultExchange.rewrap<T>(exchange, {
       headers: {
         ...exchange.headers,
-        [HeadersKeys.AUTH_PRINCIPAL]: delegate(subject, actor, options),
+        [HeadersKeys.AUTH_PRINCIPAL]: delegate(
+          subject,
+          actor,
+          options,
+          authority,
+        ),
       },
     });
     return { kind: "continue", exchange: next };
@@ -128,7 +136,7 @@ export class DelegateStep<T = unknown> implements Step<Adapter> {
  *   minted deliberately on internal triggers and act as themselves.
  */
 function dropUndelegated<T>(exchange: Exchange<T>): Exchange<T> {
-  const principal = exchange.principal;
+  const principal = principalOf(exchange);
   if (!principal || principal.actor) return exchange;
   if (principal.subjectProfile === "ai_agent") return exchange;
   const headers = { ...exchange.headers };

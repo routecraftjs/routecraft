@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
+  authorityOf,
   rcCodeOf,
   rcError,
   type CraftContext,
@@ -176,6 +177,7 @@ export async function buildVercelTools(
             : undefined,
           session,
           dispatchIdentity?.correlationId,
+          authorityOf(ctx),
         );
         const start = Date.now();
         // Tracked for the whole call, block loaders included: a turn

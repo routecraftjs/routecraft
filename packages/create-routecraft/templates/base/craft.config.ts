@@ -1,3 +1,3 @@
-import { defineConfig } from "@routecraft/routecraft";
+import { defineProject } from "@routecraft/routecraft";
 
-export const craftConfig = defineConfig({});
+export default defineProject({});

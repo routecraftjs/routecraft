@@ -82,7 +82,7 @@ export interface Step<T extends Adapter> {
 
   /**
    * Display name shown in traces, logs, and step events instead of the
-   * raw OperationType. Set automatically by registerDsl for sugar methods
+   * raw OperationType. Set automatically for sugar methods and plugin steps
    * (e.g., "log" instead of "tap", "schema" instead of "validate").
    * When absent, the operation field is used.
    */

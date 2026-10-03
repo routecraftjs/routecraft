@@ -1,4 +1,5 @@
 import {
+  AUTHORITY,
   type Plugin,
   type PluginContext,
   type EventName,
@@ -51,6 +52,7 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
   return {
     id: "routecraft.ai.mcp",
     provides: [MCP],
+    requires: [AUTHORITY],
     optional: [WEB_INGRESS],
     async bind(c: PluginContext) {
       // Shared, so the stop that clears the managers clears what dispatch sees.
@@ -97,6 +99,7 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
           observe: (event, handler) => c.observe(event, handler),
           service,
           ingress: c,
+          authority: c.require(AUTHORITY),
         },
         options,
       );

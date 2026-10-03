@@ -46,5 +46,9 @@
     "tests/**/*",
     "examples/src/**/*"
   ],
-  "exclude": ["**/*.bun.test.ts", "**/*.bun.test.tsx"]
+  "exclude": [
+    "**/*.bun.test.ts",
+    "**/*.bun.test.tsx",
+    "packages/routecraft/test/fixtures/type-budget/**"
+  ]
 }

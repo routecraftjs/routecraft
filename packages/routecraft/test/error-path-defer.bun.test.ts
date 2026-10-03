@@ -530,7 +530,7 @@ describe("recovery.defer: parking an exchange from the error path", () => {
           .from(direct())
           .authenticate(asWho)
           .transform((_body, ex) => {
-            parked = ex.principal;
+            parked = ex.auth.principal;
             throw new Error("needs a human");
           })
           .to(noop()),
@@ -538,7 +538,7 @@ describe("recovery.defer: parking an exchange from the error path", () => {
           .id("send-mail")
           .from(direct())
           .transform((body, ex) => {
-            seen = ex.principal;
+            seen = ex.auth.principal;
             return body;
           })
           .to(noop()),

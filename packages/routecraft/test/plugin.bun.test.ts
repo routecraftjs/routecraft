@@ -7,6 +7,7 @@ import {
   type Plugin,
   type PluginContext,
 } from "@routecraft/routecraft";
+import { defaultPluginsFor } from "../src/kernel/defaults.ts";
 
 describe("Plugin System", () => {
   let t: TestContext;
@@ -297,7 +298,7 @@ describe("Plugin System", () => {
   /**
    * @case Verifies plugin lifecycle events include correct metadata
    * @preconditions A plugin with id "test.metadata" is registered
-   * @expectedResult plugin:stopping and plugin:stopped carry the plugin's id as pluginId and its position in dependency order as pluginIndex
+   * @expectedResult plugin:stopping and plugin:stopped carry the plugin's id as pluginId and its position in dependency order, after the default plugins installed ahead of it, as pluginIndex
    */
   test("Plugin lifecycle events include metadata", async () => {
     const capturedEvents: Array<{ pluginId: string; pluginIndex: number }> = [];
@@ -329,10 +330,11 @@ describe("Plugin System", () => {
     await t.ctx.stop();
 
     expect(capturedEvents.length).toBe(2);
+    const installedAt = defaultPluginsFor([plugin]).length;
     expect(capturedEvents[0].pluginId).toBe("test.metadata");
-    expect(capturedEvents[0].pluginIndex).toBe(0);
+    expect(capturedEvents[0].pluginIndex).toBe(installedAt);
     expect(capturedEvents[1].pluginId).toBe("test.metadata");
-    expect(capturedEvents[1].pluginIndex).toBe(0);
+    expect(capturedEvents[1].pluginIndex).toBe(installedAt);
   });
 
   /**

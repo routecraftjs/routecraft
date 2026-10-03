@@ -11,6 +11,7 @@ import {
   type Exchange,
   type Principal,
   type Source,
+  principalOf,
 } from "../src/index.ts";
 
 /**
@@ -71,7 +72,7 @@ describe("forward() header propagation", () => {
           .authorize({ scopes: ["kb:read"] })
           .from(direct())
           .transform((_b: unknown, ex: Exchange<unknown>) => {
-            seenSubject = ex.principal?.subject;
+            seenSubject = principalOf(ex)?.subject;
             return { ok: true };
           }),
         craft()
@@ -127,7 +128,7 @@ describe("forward() header propagation", () => {
 
   /**
    * @case An anonymous caller forwards anonymously rather than acquiring an identity
-   * @preconditions Caller route has no principal and forwards to a target that records ex.principal
+   * @preconditions Caller route has no principal and forwards to a target that records ex.auth.principal
    * @expectedResult Target sees no principal; forward never fabricates one
    */
   test("does not fabricate a principal for an anonymous caller", async () => {
@@ -139,7 +140,7 @@ describe("forward() header propagation", () => {
           .id("target-anon")
           .from(direct())
           .transform((_b: unknown, ex: Exchange<unknown>) => {
-            sawPrincipal = ex.principal !== undefined;
+            sawPrincipal = principalOf(ex) !== undefined;
             return { ok: true };
           }),
         craft()
@@ -281,7 +282,7 @@ describe("forward() header propagation", () => {
           .authorize({ scopes: ["kb:read"] })
           .from(direct())
           .transform((_b: unknown, ex: Exchange<unknown>) => {
-            fallbackSubject = ex.principal?.subject;
+            fallbackSubject = principalOf(ex)?.subject;
             return { recovered: true };
           }),
         craft()
@@ -355,7 +356,7 @@ describe("forward() header propagation", () => {
           .authorize({ scopes: ["kb:read"] })
           .from(direct())
           .transform((_b: unknown, ex: Exchange<unknown>) => {
-            recoverySubject = ex.principal?.subject;
+            recoverySubject = principalOf(ex)?.subject;
             return { recovered: true };
           }),
         craft()

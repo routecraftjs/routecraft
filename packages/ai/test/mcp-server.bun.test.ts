@@ -2509,7 +2509,7 @@ describe("McpServer", () => {
               .input({ body: z.object({}) })
               .from(mcp())
               .tap((ex) => {
-                capturedPrincipal = ex.principal;
+                capturedPrincipal = ex.auth.principal;
               })
               .to(noop()),
           ],
@@ -2616,7 +2616,7 @@ describe("McpServer", () => {
               .input({ body: z.object({}) })
               .from(mcp())
               .tap((ex) => {
-                capturedPrincipal = ex.principal;
+                capturedPrincipal = ex.auth.principal;
               })
               .to(noop()),
           ],
@@ -2653,7 +2653,7 @@ describe("McpServer", () => {
       /**
        * @case oauth() verify returning a fully populated Principal rides as one structured header
        * @preconditions McpServer with oauth() auth; verify returns subject, clientId, email, name, issuer, audience, roles, scopes, expiresAt, claims
-       * @expectedResult Route receives a single structured principal at headers["routecraft.auth.principal"] (also exposed via the ex.principal getter); legacy flat routecraft.auth.* keys are no longer set
+       * @expectedResult Route receives a single structured principal at headers["routecraft.auth.principal"] (also exposed as ex.auth.principal); legacy flat routecraft.auth.* keys are no longer set
        */
       test("surfaces full principal as a single structured header", async () => {
         const { oauth } = await import("../src/mcp/oauth.ts");
@@ -2690,7 +2690,7 @@ describe("McpServer", () => {
               .from(mcp())
               .tap((ex) => {
                 capturedHeaders = ex.headers as Record<string, unknown>;
-                capturedPrincipal = ex.principal;
+                capturedPrincipal = ex.auth.principal;
               })
               .to(noop()),
           ],
@@ -2728,8 +2728,8 @@ describe("McpServer", () => {
           claims: { sub: "user-42", custom: "value" },
         });
 
-        // The principal rides on the structured header key; the ex.principal
-        // getter is sugar over it. Legacy flat routecraft.auth.* keys are
+        // The principal rides on the structured header key; the ex.auth.principal
+        // facet reads it. Legacy flat routecraft.auth.* keys are
         // no longer set.
         expect(capturedHeaders?.["routecraft.auth.principal"]).toBe(
           capturedPrincipal,
@@ -2781,7 +2781,7 @@ describe("McpServer", () => {
       /**
        * @case Minimal Principal carries only the fields verify returned; absent fields stay undefined on the principal
        * @preconditions McpServer with oauth(); verify returns only required fields (kind, scheme, subject, clientId, scopes)
-       * @expectedResult ex.principal has subject, clientId, scheme, scopes set; email/name/issuer/audience are undefined on the structured object
+       * @expectedResult ex.auth.principal has subject, clientId, scheme, scopes set; email/name/issuer/audience are undefined on the structured object
        */
       test("minimal principal omits optional identity fields", async () => {
         const { oauth } = await import("../src/mcp/oauth.ts");
@@ -2808,7 +2808,7 @@ describe("McpServer", () => {
               .input({ body: z.object({}) })
               .from(mcp())
               .tap((ex) => {
-                capturedPrincipal = ex.principal;
+                capturedPrincipal = ex.auth.principal;
               })
               .to(noop()),
           ],
@@ -2963,7 +2963,7 @@ describe("McpServer", () => {
               .input({ body: z.object({}) })
               .from(mcp())
               .tap((ex) => {
-                capturedPrincipal = ex.principal;
+                capturedPrincipal = ex.auth.principal;
               })
               .to(noop()),
           ],
@@ -3016,7 +3016,7 @@ describe("McpServer", () => {
       /**
        * @case Validator returning a custom Principal carries subject and name but no JWT-specific fields
        * @preconditions McpServer with validator returning kind: "custom" with a name
-       * @expectedResult ex.principal has subject, scheme, name; email/issuer/audience/scopes/clientId are undefined
+       * @expectedResult ex.auth.principal has subject, scheme, name; email/issuer/audience/scopes/clientId are undefined
        */
       test("custom principal omits jwt-only fields", async () => {
         let capturedPrincipal: Principal | undefined;
@@ -3029,7 +3029,7 @@ describe("McpServer", () => {
               .input({ body: z.object({}) })
               .from(mcp())
               .tap((ex) => {
-                capturedPrincipal = ex.principal;
+                capturedPrincipal = ex.auth.principal;
               })
               .to(noop()),
           ],

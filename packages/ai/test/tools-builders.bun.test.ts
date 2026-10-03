@@ -266,7 +266,7 @@ describe("tool builders - directTool dispatch", () => {
 
   /**
    * @case directTool forwards FnHandlerContext.principal to the downstream direct route's exchange
-   * @preconditions Handler invoked with a principal in its ctx; downstream route captures `ex.principal`
+   * @preconditions Handler invoked with a principal in its ctx; downstream route captures `ex.auth.principal`
    * @expectedResult Captured principal on the inner route equals the one from the calling tool ctx
    */
   test("dispatchDirect forwards the calling principal to the downstream exchange", async () => {
@@ -280,7 +280,7 @@ describe("tool builders - directTool dispatch", () => {
           .input(inputSchema)
           .from(direct())
           .process((ex) => {
-            downstreamPrincipal = ex.principal;
+            downstreamPrincipal = ex.auth.principal;
             return {
               ...ex,
               body: { ok: true },
@@ -356,7 +356,7 @@ describe("tool builders - directTool dispatch", () => {
 
   /**
    * @case directTool forwards authenticity only when the calling principal is authentic
-   * @preconditions Downstream route records isAuthentic(ex.principal); handler invoked once with an authentic principal and once with a self-asserted plain object carrying the same fields
+   * @preconditions Downstream route records isAuthentic(ex.auth.principal); handler invoked once with an authentic principal and once with a self-asserted plain object carrying the same fields
    * @expectedResult Authentic in -> authentic downstream; self-asserted in -> non-authentic downstream (no laundering across the agent -> tool boundary)
    */
   test("dispatchDirect forwards authenticity only for authentic principals", async () => {
@@ -369,7 +369,7 @@ describe("tool builders - directTool dispatch", () => {
           .input(z.object({}))
           .from(direct())
           .process((ex) => {
-            downstreamAuthentic = isAuthentic(ex.principal);
+            downstreamAuthentic = isAuthentic(ex.auth.principal);
             return { ...ex, body: { ok: true } };
           })
           .to(log()),

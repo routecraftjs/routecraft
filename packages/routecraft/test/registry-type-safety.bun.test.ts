@@ -11,7 +11,7 @@ import {
   type ResolveBody,
   type DirectEndpointRegistry,
 } from "../src/index.ts";
-import type { RouteBuilder } from "../src/builder.ts";
+import { expectBodyOf } from "./helpers/types.ts";
 
 /**
  * Type-level tests for the declaration merging registry system.
@@ -120,7 +120,7 @@ describe("to() body type preservation", () => {
   /**
    * @case to() with void destination preserves Current body type
    * @preconditions .from(simple("test")).to(sideEffect)
-   * @expectedResult RouteBuilder<{ body: string; deferral?: unknown }> (not RouteBuilder<{ body: void; deferral?: unknown }>)
+   * @expectedResult Body type is string (not void)
    */
   test("to() with void callback preserves body type", () => {
     const route = craft()
@@ -128,23 +128,19 @@ describe("to() body type preservation", () => {
       .to(() => {
         /* side effect */
       });
-    expectTypeOf(route).toEqualTypeOf<
-      RouteBuilder<{ body: string; deferral?: unknown }>
-    >();
+    expectBodyOf(route).toEqualTypeOf<string>();
   });
 
   /**
    * @case to() with non-void destination replaces body type
    * @preconditions .from(simple("test")).to(() => 42)
-   * @expectedResult RouteBuilder<{ body: number; deferral?: unknown }>
+   * @expectedResult Body type is number
    */
   test("to() with non-void callback replaces body type", () => {
     const route = craft()
       .from(simple("test"))
       .to(() => 42);
-    expectTypeOf(route).toEqualTypeOf<
-      RouteBuilder<{ body: number; deferral?: unknown }>
-    >();
+    expectBodyOf(route).toEqualTypeOf<number>();
   });
 
   /**

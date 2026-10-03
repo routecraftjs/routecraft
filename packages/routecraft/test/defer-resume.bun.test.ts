@@ -16,6 +16,7 @@ import {
   type CraftConfig,
   type EventName,
   type Exchange,
+  deferralOf,
 } from "../src/index.ts";
 import { asDeferred, storeWith, deferring } from "./helpers/deferral.ts";
 
@@ -1166,7 +1167,7 @@ describe("defer and resume", () => {
           .id("typed")
           .from(direct())
           .tap((ex: Exchange<unknown>) => {
-            const before: unknown = ex.deferral.result;
+            const before: unknown = deferralOf(ex).result;
             seen.push(typeof before);
           })
           .defer({ schema: Approval })
