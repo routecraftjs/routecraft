@@ -14,3 +14,11 @@ vulnerabilities:
     statement: sharp fix arrives with @huggingface/transformers 4, not yet adopted by the embedding adapter
     purls: ["pkg:npm/sharp"]
     expired_at: 2026-10-25
+  # basic-ftp: pulled in by agent-browser (an optional peer of @routecraft/os)
+  # through webdriverio, @puppeteer/browsers, proxy-agent, pac-proxy-agent and
+  # get-uri. Every get-uri release, 8.0.1 included, requires basic-ftp ^5, and
+  # the fix exists only in basic-ftp 6.
+  - id: CVE-2026-102990
+    statement: basic-ftp fix is only in 6.x; every get-uri release still requires ^5, reached through agent-browser's webdriverio chain
+    purls: ["pkg:npm/basic-ftp"]
+    expired_at: 2026-11-02
