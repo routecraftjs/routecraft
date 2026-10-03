@@ -160,7 +160,7 @@ Make the declaration and the provision match: list every port the plugin provide
 Contribution after the application froze
 
 **Why it happens**  
-A plugin provided a port or registered a route after the last `bind` returned. The application freezes before it compiles routes, so a later contribution would miss compilation.
+A plugin provided a port or registered a route after the last `bind` returned, or contributed through another plugin's port (an agent registered into `AGENTS`) after it. The application freezes before it compiles routes, so a later contribution would miss compilation, and whatever read the contributions during `bind` has already used them.
 
 **Suggestion**  
 Move the contribution into `bind(c)`. Work that needs running routes belongs in `start(c)`, but it cannot add ports or routes there.
@@ -169,7 +169,7 @@ Move the contribution into `bind(c)`. Work that needs running routes belongs in 
 Route needs a port nobody provides
 
 **Why it happens**  
-A route uses something only a plugin can provide and no installed plugin provides it: a chain position such as `.retry()` or `.authorize()` whose provider was removed, or a step such as `.defer()` or a third-party plugin's method on a route started in an application that does not install that plugin.
+A route uses something only a plugin can provide and no installed plugin provides it: a chain position such as `.retry()` or `.authorize()` whose provider was removed, a step such as `.defer()` or a third-party plugin's method on a route started in an application that does not install that plugin, or a read of that plugin's facet (`ex.deferral`) in such a route. A step or position fails the start; a facet fails at the read.
 
 **Suggestion**  
 Install the plugin the message names, in the same application that runs the route. A route built with a project's `craft()` must run in a context started from that project's config.
@@ -196,7 +196,7 @@ A point name belongs to one plugin. Rename one under its own namespace, for exam
 Facet name not allowed
 
 **Why it happens**  
-A plugin's facet would be read as `ex.<namespace>`, and its namespace names a field every exchange already has: `id`, `headers`, `body` or `logger`.
+A plugin's facet would be read as `ex.<namespace>`, and its namespace names something every exchange already has: one of its fields (`id`, `headers`, `body`, `logger`, `context`) or a method.
 
 **Suggestion**  
 Give the plugin a different `namespace`.
@@ -208,16 +208,16 @@ Hook broke its phase
 An `observe` hook returned a value, a `validate` hook returned something other than nothing or `refuse(reason)`, a hook declared a phase its slot does not have (`exit` and `error` have no `validate`), or a `perAttempt` hook is not a wrapper.
 
 **Suggestion**  
-Return nothing from `observe`, change the exchange only in `mutate`, and decide only in `validate`. A `perAttempt` hook is `{ wrap(proceed, exchange, info) }`.
+Return nothing from `observe`, change the exchange only in `mutate`, and decide only in `validate`. A `perAttempt` hook is `{ wrap(proceed, exchange, info) }` and calls `proceed()` exactly once; calling it twice is this error too.
 
 ## RC1116
 Two plugins declare one step
 
 **Why it happens**  
-Two installed plugins declare a step with the same name, or a plugin declares a step named after a method the builder already has (`to`, `transform`, `filter`, ...). A route method can mean one thing.
+Two installed plugins declare a step with the same name, or a plugin declares a step named after a method or field the builder already has (`to`, `transform`, `filter`, ...). A route method can mean one thing. The same code refuses a step factory that returns a step object it already returned, or a frozen one: the method labels and tags what the factory returns, so one shared object would be claimed by every route that used it.
 
 **Suggestion**  
-Remove one of the plugins, or rename the step.
+Remove one of the plugins, or rename the step. Build a new step on every call of a step factory.
 
 ## RC2001
 Invalid operation type

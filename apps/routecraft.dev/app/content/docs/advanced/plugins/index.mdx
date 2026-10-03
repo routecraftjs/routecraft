@@ -121,7 +121,7 @@ export function heartbeat(every = 60_000) {
 }
 ```
 
-`c.onDispose(fn)` registers a release that runs at stop, after the plugin's own `stop`, in reverse registration order. Every disposer runs even when another throws.
+`c.onDispose(fn)` registers a release that runs at stop, after the plugin's own `stop`, in reverse registration order. Every disposer runs even when another throws, and the disposers a `bind` registered run even when that `bind` throws afterwards, so register each release right after the acquisition it undoes.
 
 To abort a boot, throw from `bind` or `start`: the application unwinds and the original error surfaces unchanged. To stand the application down without failing the boot, call `c.execution.requestStop()`. The full ordering and unwind rules, the `stop` argument, and the fault each stage raises are in the [reference](/docs/reference/plugins#lifecycle).
 
@@ -423,7 +423,7 @@ export const tenant = definePlugin({
 })
 ```
 
-In a route built with a project that installs `tenant`, `.transform((body, ex) => ex.tenant.id)` is typed. A facet named after an exchange field (`id`, `headers`, `body`, `logger`) is `RC1114`.
+In a route built with a project that installs `tenant`, `.transform((body, ex) => ex.tenant.id)` is typed. A facet named after an exchange field (`id`, `headers`, `body`, `logger`, `context`) or method is `RC1114`.
 
 The shipped facets follow the same rule. `ex.auth.principal` is the authenticated principal, provided by the auth plugin; `ex.deferral` is the deferral plugin's view. Code that holds a plain `Exchange` rather than a route's typed one, such as an adapter or a hook, reads the same values with `principalOf(exchange)` and `deferralOf(exchange)`.
 
