@@ -117,11 +117,19 @@ export class ContinuationSweeper {
    * scan able to say whether a restart had work waiting for it.
    */
   sweep(now: Date = new Date()): Promise<number> {
+    return this.exclusive(() => this.runPass(now));
+  }
+
+  /**
+   * One unit of store work at a time, held as the in-flight pass that
+   * `stop()` waits for: a cadence tick landing while a pass runs joins it
+   * rather than racing it for the same records, and the store is never
+   * closed under a query.
+   */
+  private exclusive(work: () => Promise<number>): Promise<number> {
     if (this.stopping) return Promise.resolve(0);
-    // One pass at a time: a cadence tick landing while a pass runs joins it
-    // rather than racing it for the same records.
     if (this.inFlight) return this.inFlight;
-    const pass = this.runPass(now).finally(() => {
+    const pass = work().finally(() => {
       this.inFlight = undefined;
     });
     this.inFlight = pass;
@@ -283,10 +291,12 @@ export class ContinuationSweeper {
    * after an outage gets the escalations before the new traffic, which is
    * the order they would have arrived in had the process stayed up.
    */
-  async scanOnStart(): Promise<number> {
-    const retired = await this.sweep();
-    await this.reportOnStart(retired);
-    return retired;
+  scanOnStart(): Promise<number> {
+    return this.exclusive(async () => {
+      const retired = await this.runPass(new Date());
+      await this.reportOnStart(retired);
+      return retired;
+    });
   }
 
   /**

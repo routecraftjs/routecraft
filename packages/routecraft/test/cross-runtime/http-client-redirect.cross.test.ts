@@ -252,13 +252,7 @@ describe("http() client maxBodySize (cross-runtime contract)", () => {
       ).rejects.toThrow(/maxBodySize/);
     }
 
-    // Polled rather than slept: a released socket closes on the event loop's
-    // schedule, which a loaded run stretches. The deadline stays under the
-    // server's 5s keep-alive, so a leaked connection still fails here.
-    const deadline = Date.now() + 2_000;
-    while (liveConnections >= 5 && Date.now() < deadline) {
-      await new Promise((resolve) => setTimeout(resolve, 25));
-    }
+    await new Promise((resolve) => setTimeout(resolve, 250));
     expect(liveConnections).toBeLessThan(5);
   });
 

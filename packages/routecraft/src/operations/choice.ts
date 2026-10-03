@@ -326,6 +326,11 @@ export class PathBuilder<
   declare readonly [BUILDER_KIND]: "path";
   private readonly steps: Step<Adapter>[] = [];
 
+  constructor(catalogue?: StepCatalogue) {
+    super(catalogue);
+    this.installSteps();
+  }
+
   protected override pushStep<T extends Adapter>(step: Step<T>): void {
     this.steps.push(this.applyPendingWrappers(step));
   }
