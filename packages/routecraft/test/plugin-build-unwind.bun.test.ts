@@ -92,6 +92,40 @@ describe("unwinding a failed build", () => {
   });
 
   /**
+   * @case A bind that registers a disposer, then throws
+   * @preconditions One plugin whose bind() calls onDispose before throwing
+   * @expectedResult The disposer runs, while the plugin's own stop() is not called. Disposers are registered per acquisition precisely so a bind that fails partway can still release what it got
+   */
+  test("releases what a throwing bind registered", async () => {
+    const released: string[] = [];
+    let stopped = false;
+
+    await expect(
+      new ContextBuilder()
+        .with({
+        plugins: [
+          {
+            id: "test.partial",
+            bind(c) {
+              c.onDispose(() => {
+                released.push("handle");
+              });
+              throw new Error("refuses after acquiring");
+            },
+            stop() {
+              stopped = true;
+            },
+          },
+        ],
+        })
+        .build(),
+    ).rejects.toThrow("refuses after acquiring");
+
+    expect(released).toEqual(["handle"]);
+    expect(stopped).toBe(false);
+  });
+
+  /**
    * @case A failure in registerRoutes() unwinds too, not only a failure in initPlugins()
    * @preconditions Every plugin applies cleanly; two routes share an id, so registerRoutes() throws RC1002
    * @expectedResult The applied plugin is torn down and the duplicate-id error is what surfaces
