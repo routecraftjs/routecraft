@@ -259,7 +259,7 @@ Exit codes, which are the API for anything scripting this:
 Bridge an editor to a **running** instance over the [Agent Client Protocol](/docs/introduction/talk-from-your-editor). This is the command an editor is configured to run.
 
 ```bash
-craft acp [options]
+craft acp [dir] [options]
 ```
 
 It is a pipe that re-establishes itself: newline-delimited JSON on the editor's standard input and output, Streamable HTTP on the instance's side, every message forwarded verbatim in both directions. The bridge reads each message only far enough to know what it is, so a version of the protocol this build has never heard of passes through unchanged.
@@ -268,10 +268,13 @@ It is a pipe that re-establishes itself: newline-delimited JSON on the editor's 
 
 It never starts an app. `craft start` owns running, which is what lets one editor entry reach a laptop or a company instance by switching a profile and changing nothing else.
 
+An editor starts the command from whatever project it has open, not from the project that holds the profile. `dir` names that project: its `.routecraft/settings.yaml` is the project-local [settings file](#settings-file) read instead of the working directory's, so an editor entry reaches a harness from any window without copying its token anywhere else.
+
 Options:
 
 | Option | Description |
 | --- | --- |
+| `[dir]` | Project whose `.routecraft/settings.yaml` is read. Defaults to the working directory |
 | `--profile <name>` | [Settings profile](#profiles) to select. Carries the url, the token and the agent together |
 | `--url <url>` | Base URL of the target instance. Defaults to the [settings file](#settings-file), else `http://127.0.0.1:8080` |
 | `--token <token>` | Bearer credential presented on every request |
@@ -280,6 +283,7 @@ Options:
 ```bash
 craft acp
 craft acp --profile company
+craft acp /path/to/my-agent --profile editor
 craft acp --url https://eywa.example --token "$CRAFT_TOKEN" --agent zoe
 ```
 
@@ -350,7 +354,7 @@ Two locations, both YAML and both optional:
 
 | Location | Path |
 | --- | --- |
-| Project-local | `.routecraft/settings.yaml` under the working directory |
+| Project-local | `.routecraft/settings.yaml` under the working directory, or under the project `craft acp` is given |
 | Global | `.routecraft/settings.yaml` under your home directory |
 
 `settings.yml` is accepted as an alternate spelling in either location. A location carrying **both** spellings is refused with both paths named: a silent preference would leave edits to the unread file unexplained.

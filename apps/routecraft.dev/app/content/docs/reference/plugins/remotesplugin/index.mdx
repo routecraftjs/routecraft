@@ -52,7 +52,7 @@ Each entry under `remotes` is one remote, keyed by name:
 | Option | Type | Default | Description |
 |--------|------|---------|-------------|
 | `url` | `string` | required | The instance's base URL, the origin its ops surface is mounted on |
-| `auth.token` | `string \| () => string \| undefined \| Promise<...>` | none | Bearer for the remote's door. A function is evaluated per request, so a rotated token is picked up without a restart |
+| `auth.token` | `string \| () => string \| undefined \| Promise<...>` | none | Bearer for the remote's door. A function is evaluated per request; it picks up a rotated token without a restart when it reads a source that changes (a secret file, a secret manager), not `process.env` |
 | `timeout` | `Duration` | `'30s'` | Per-request deadline against the remote |
 | `refresh` | `Duration \| false` | `'60s'` | How often the inventory is re-read. `false` leaves only the boot read and the refresh a 404 forces |
 

@@ -69,7 +69,23 @@ export default craft()
   .to(log());
 ```
 
-`craft start` discovers the new folder on its own. Give the route an `http()` source and it is also an endpoint; a `cron()` source and it also runs on a schedule. Same capability, same schema, every door.
+`craft start` discovers the new folder on its own. Give the route an `http()` source as well and it is also an endpoint, behind the same schema.
+
+A schedule is different: a `cron()` source starts a run with no body, and this capability's `.input()` would refuse it. Give the schedule a route of its own that builds the input and calls the capability through its `direct()` door (`cron()` needs the optional peer: `bun add croner`):
+
+```ts
+// capabilities/daily-overdue-invoices/route.ts
+import { craft, cron, direct, log } from "@routecraft/routecraft";
+
+export default craft()
+  .id("daily-overdue-invoices")
+  .from(cron("0 8 * * *"))
+  .transform(() => ({ days: 30 }))
+  .to(direct("find-overdue-invoices"))
+  .to(log());
+```
+
+The capability stays written once, and the schedule passes the same input check as an agent's call.
 
 ## 6. What comes next
 

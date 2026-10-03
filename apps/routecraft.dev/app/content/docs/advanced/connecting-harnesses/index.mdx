@@ -3,7 +3,7 @@ title: Connecting harnesses
 ---
 
 <Lead>
-Connect a local harness to the team harness with a remote, so every capability the team harness exposes becomes a capability on your laptop: callable from your routes, your agents and the CLI, with the team's credentials staying on the team's side. [Local harness, team harness](/docs/introduction/local-and-team-harness) is the idea; this page is the setup.
+Connect a local harness to the team harness with a remote, so every dispatchable capability the team harness exposes becomes a capability on your laptop: callable from your routes, your agents and the CLI, with the team's credentials staying on the team's side. [Local harness, team harness](/docs/introduction/local-and-team-harness) is the idea; this page is the setup.
 </Lead>
 
 ## When you need this
@@ -24,7 +24,6 @@ import { defineConfig, jwks } from "@routecraft/routecraft";
 
 export const craftConfig = defineConfig({
   servers: {
-    default: { host: "0.0.0.0", port: 8080 },
     internal: {
       host: "0.0.0.0",
       port: 9090,
@@ -45,7 +44,7 @@ export const craftConfig = defineConfig({
 });
 ```
 
-A local harness needs a token carrying both scopes. Dispatch is always its own scope, so a dashboard that only reads the inventory never gets to run work. Keeping the ops surface on its own listener, as here, is what keeps it off the public port; [Servers and ports](/docs/introduction/servers-and-ports#a-door-on-its-own-port) covers the split.
+A local harness needs a token carrying both scopes. Dispatch is always its own scope, so a dashboard that only reads the inventory never gets to run work. Ops gets a listener of its own here, so whatever public port the team harness's other doors use never carries it. Every declared server needs at least one mount, so add `default` back only when something mounts on it; [Servers and ports](/docs/introduction/servers-and-ports#a-door-on-its-own-port) covers the split.
 
 What a remote can reach is every **dispatchable** capability: one with a `direct()` source. A capability that runs only from its own trigger (a `cron()`, a `mail()`, an `http()` route) has no dispatch door, and `direct({ internal: true })` closes one on purpose.
 
@@ -65,7 +64,7 @@ export const craftConfig = defineConfig({
 });
 ```
 
-`url` is the origin the team harness's ops surface is mounted on. The token is read from the environment on every request, so a rotated token is picked up without a restart. The CLI's `.routecraft/settings.yaml` is for the instance `craft` talks to and is never read here. A bearer over plain `http:` is refused unless the address is loopback.
+`url` is the origin the team harness's ops surface is mounted on. The function runs on every request, but `process.env` is the running process's own copy of its environment: changing the deployment's variable or `.env` needs a restart. To rotate without one, have the function read a source that changes underneath it, such as a mounted secret file read on each call or a secret manager. The CLI's `.routecraft/settings.yaml` is for the instance `craft` talks to and is never read here. A bearer over plain `http:` is refused unless the address is loopback.
 
 At start the laptop reads the team harness's inventory before it reports ready, then re-reads it every 60 seconds (`refresh`). Name more than one remote and each gets its own key.
 

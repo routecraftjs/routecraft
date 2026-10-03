@@ -3,14 +3,14 @@ title: Credentials and identity
 ---
 
 <Lead>
-On the team harness the credential belongs to the capability, not to the agent and not to the person asking, and every call carries who asked. This page is the model. [Securing capabilities](/docs/advanced/securing-capabilities) is the how-to.
+On the team harness the credential belongs to the capability, not to the agent and not to the person asking, and a call through an authenticated door carries who asked. This page is the model. [Securing capabilities](/docs/advanced/securing-capabilities) is the how-to.
 </Lead>
 
 ## Two kinds of credential
 
 A **personal credential** is yours: the token in your `.env`, the session your browser holds. On the local harness every capability runs on it, which is the point of the local harness: nothing to ask for before you can try something, and nothing that reaches beyond what you could already do.
 
-A **service credential** belongs to the organisation and to one capability's job. On the team harness it is read from the environment by the adapter that needs it, held by no person, and rotated without a restart when the adapter takes a function rather than a string. A capability promoted to the team harness stops running as whoever wrote it and starts running as itself.
+A **service credential** belongs to the organisation and to one capability's job. On the team harness it is read from the environment by the adapter that needs it, held by no person. An adapter that takes a function rather than a string asks for the credential on every call, so it can rotate without a restart when that function reads a source that changes, such as a mounted secret file or a secret manager. A capability promoted to the team harness stops running as whoever wrote it and starts running as itself.
 
 The person or agent calling the capability holds neither. They hold a credential for the door, and the door turns it into an identity.
 

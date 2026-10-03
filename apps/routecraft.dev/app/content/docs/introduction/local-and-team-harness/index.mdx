@@ -12,7 +12,7 @@ Every Routecraft instance is a harness: the runtime plus the capabilities, skill
 
 **The local harness** is a project on your machine, started with `craft start` or `bun run start`. It runs on your own access: the tokens in your `.env`, your editor, your agents. Nothing to approve before you try something, and nothing another person can reach. This is where a capability is built and proven, and where an engineer keeps the tools that only they need.
 
-**The team harness** is the same project deployed: `craft start` on a server, in the container the scaffold ships, always on. Its credentials are the organisation's service credentials, read from the environment and held by no person. Its doors sit behind authentication, every capability declares who may call it, and with telemetry on, every call is on record. This is where a capability goes once it has earned its place, and from then on every team calls the same one.
+**The team harness** is the same project deployed: `craft start` on a server, in the container the scaffold ships, always on. Its credentials are the organisation's service credentials, read from the environment and held by no person. You put its doors behind authentication and give each capability a `.authorize()` rule for who may call it, and with telemetry on, every call is on record. This is where a capability goes once it has earned its place, and from then on every team calls the same one.
 
 The split is the whole security model in one sentence: on a laptop a capability runs as you; on the team harness it runs as itself, and the caller is only ever who the door verified. [Credentials and identity](/docs/introduction/credentials-and-identity) has the detail.
 

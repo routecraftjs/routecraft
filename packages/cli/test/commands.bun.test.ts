@@ -9,7 +9,9 @@
  */
 
 import { describe, expect, test } from "bun:test";
-import { execFile } from "node:child_process";
+import { execFile, spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
 
@@ -89,5 +91,42 @@ describe("the craft command surface", () => {
     const runHelp = await help("run", "--help");
     expect(runHelp).toContain("--log-level");
     expect(runHelp).toContain("--log-file");
+  }, 30_000);
+  /**
+   * @case An editor starts the bridge from a project other than the one holding the profile
+   * @preconditions A profile defined only in one project's `.routecraft/settings.yaml`, an empty home, and `craft acp <that project> --profile editor` run from an unrelated working directory
+   * @expectedResult The profile is resolved from the named project: the run fails on the profile's unreachable address, naming that file as the source, rather than reporting the profile as missing
+   */
+  test("acp reads the profile from the project it is given", async () => {
+    const project = mkdtempSync(join(tmpdir(), "craft-acp-project-"));
+    mkdirSync(join(project, ".routecraft"));
+    writeFileSync(
+      join(project, ".routecraft", "settings.yaml"),
+      "profiles:\n  editor:\n    url: http://127.0.0.1:1\n",
+    );
+    const elsewhere = mkdtempSync(join(tmpdir(), "craft-acp-elsewhere-"));
+    const home = mkdtempSync(join(tmpdir(), "craft-acp-home-"));
+    // The bridge connects on the editor's first message, so send one.
+    const initialize = JSON.stringify({
+      jsonrpc: "2.0",
+      id: 1,
+      method: "initialize",
+      params: { protocolVersion: 1, clientCapabilities: {} },
+    });
+    const result = spawnSync(
+      "bun",
+      [ENTRY, "acp", project, "--profile", "editor"],
+      {
+        cwd: elsewhere,
+        env: { ...process.env, HOME: home, CRAFT_LOG_LEVEL: "silent" },
+        input: `${initialize}\n`,
+        encoding: "utf8",
+        timeout: 20_000,
+      },
+    );
+    const output = `${result.stdout}${result.stderr}`;
+    expect(output).not.toContain('No profile "editor"');
+    expect(output).toContain("http://127.0.0.1:1/acp");
+    expect(output).toContain(project);
   }, 30_000);
 });

@@ -20,11 +20,11 @@ A policy memo does not fix this. Teams route around a ban. What fixes it is a pl
 
 Read it top to bottom.
 
-- **Every way in.** A person in their editor, an agent over MCP, the command line, plain HTTP. Those are the doors: how a capability is reached when someone asks. Beside them are the triggers: a schedule, a webhook, an email arriving, an event, a file landing. Those start a capability when nobody asks.
+- **Every way in.** A person in their editor, an agent over MCP, the command line, plain HTTP. Those are the doors: how a capability is reached when someone asks. Beside them are the triggers: a schedule, a webhook, an email arriving, an event, files read when the harness starts. Those start a capability when nobody asks.
 - **A local harness per person.** Your laptop, your own access, nothing to approve before you can try something. You build and prove a capability here.
 - **The team harness.** Always on, on your own infrastructure, on service credentials no person holds, with access rules you control. When a capability has earned its place, you promote it here, and from then on every team calls the same one.
 - **Promote, remote, share.** A proven capability moves from the local harness to the team harness. A local harness can reach the team harness's capabilities through a remote, so the two are one surface. Capabilities, skills and agents ship as packages, so the next team installs yours instead of writing their own.
-- **Inside every harness, the same runtime.** Every call passes one gate in a fixed order: who is calling, what they may do, whether the input is valid, then throttling, retries, timeouts and caching. Behind the gate sit agents and skills, capabilities built from operations, adapters to the outside world, and the stores that let work and conversations survive a restart.
+- **Inside every harness, the same runtime.** Every call goes through one gate in a fixed order: who is calling, what they may do, whether the input is valid, then throttling, retries, timeouts and caching. The platform fixes the order; you choose which checks each capability and door switches on. Behind the gate sit agents and skills, capabilities built from operations, adapters to the outside world, and the stores that let work and conversations survive a restart.
 - **When it needs a decision, it asks a person.** Approve by mail or chat, and the capability continues, hours or days later, through any door.
 - **Your systems stay where they are.** CRM, ERP, HR and payroll, ticketing, the knowledge base, mail and calendar, chat, source control, and any model provider you approve. Routecraft is the one governed way in.
 
@@ -34,7 +34,7 @@ Switch telemetry on and every call, through every door, is on record: who asked,
 
 A short glossary. Each one has its own page further in.
 
-- **Capability.** The unit of everything. A TypeScript route that connects a source to a destination through typed steps, with an id, a description and an input schema that is validated on every call. A capability can be fully deterministic, or carry an agent inside it that reasons within the boundary the code sets. See [Capabilities](/docs/introduction/capabilities).
+- **Capability.** The unit of everything. A TypeScript route that connects a source to a destination through typed steps, with an id, a description and, when it declares one, an input schema that every call is validated against. A capability can be fully deterministic, or carry an agent inside it that reasons within the boundary the code sets. See [Capabilities](/docs/introduction/capabilities).
 - **Harness.** A running Routecraft instance together with its capabilities, skills and agents. A local harness runs on a laptop on personal access; the team harness runs always on, on service credentials. Both run the same code. See [Local harness, team harness](/docs/introduction/local-and-team-harness).
 - **Agent.** A model loop that works inside a capability with the tools you gave it, and only those. An agent can also live outside Routecraft, in Claude, Copilot, Cursor or ChatGPT, and reach your capabilities over MCP. Both are first class. See [Durable agents](/docs/advanced/durable-agents).
 - **Skill.** Instructions in markdown that an agent loads to do one kind of job, shipped as a package beside the capabilities it uses. See [Project structure](/docs/introduction/project-structure#skills).
@@ -47,11 +47,11 @@ A short glossary. Each one has its own page further in.
 
 ## How a capability is built
 
-Every capability has the same shape. This one is an MCP tool: an agent calls it with a name, the input is validated against the schema before any code runs, and the tool answers with a greeting.
+Every capability has the same shape. This one is an MCP tool, and other capabilities can call it in-process through `direct()`: an agent calls it with a name, the input is validated against the schema before any of its steps run, and the tool answers with a greeting.
 
 ```ts
 // capabilities/greet-user.ts
-import { craft, log, noop } from "@routecraft/routecraft";
+import { craft, direct, log, noop } from "@routecraft/routecraft";
 import { mcp } from "@routecraft/ai";
 import { z } from "zod";
 
@@ -64,13 +64,13 @@ export default craft()
   .title("Greet user")
   .description("Greet a user by name")
   .input({ body: GreetInput })
-  .from(mcp())
+  .from(direct(), mcp())
   .transform((body) => `Hello, ${body.user}!`)
   .tap(log())
   .to(noop());
 ```
 
-Swap `mcp()` for `http()`, `cron()` or `mail()` and the same pipeline answers a request, runs on a schedule or reacts to an email. Put more than one source in `.from()` and one capability serves them all.
+Add `http()` beside `mcp()` in `.from()` and the same capability answers a plain request too, behind the same schema. A schedule or an arriving email does not bring the `{ user }` this capability expects, so it gets a small route of its own that builds that input and calls the capability through `direct()`: the logic is still written once.
 
 <TopologyDiagram />
 
@@ -106,7 +106,7 @@ This is also why the local harness is safe to hand to every engineer: on a lapto
 
 - **An integration framework such as Apache Camel.** The same model: routes, exchanges, adapters, a fluent DSL. Routecraft is that model in TypeScript, with MCP, the editor protocol and agents as first-class sources and steps, so you do not need a second system for the AI side.
 - **An agent framework such as LangGraph.** Those build the agent. Routecraft builds the tools the agent uses, and can host the agent too, as a capability with the same validation, authorisation and telemetry as every other call. Your agents in Claude, Copilot or Cursor keep working, with hands.
-- **The plain MCP SDK.** Routecraft is an MCP server, and every tool on it already has the gates, the service credentials, the audit record, and restart-safe human approval. The other doors sit beside it on the same instance, so the tool you wrote for an agent is also an endpoint and a scheduled job.
+- **The plain MCP SDK.** Routecraft is an MCP server whose tools are capabilities, so input validation, authorisation, service credentials, an audit record and restart-safe human approval are there to switch on in the same model rather than to build per tool. A new project validates input; the rest you configure as a tool needs them. The other doors sit beside it on the same instance, so the tool you wrote for an agent is also an endpoint and a scheduled job.
 
 ## Where most teams stand
 

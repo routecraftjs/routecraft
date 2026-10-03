@@ -38,7 +38,7 @@ const UNASKED = [
   'webhooks',
   'mail arriving',
   'runtime events',
-  'files landing',
+  'files read at start',
   'a parked task resuming',
 ]
 
@@ -231,10 +231,10 @@ function Line({
  * The platform figure opened up for the docs. The same frame as `platform`
  * (every way in, a local harness per person, the team harness, your systems),
  * with every block named and one drawer between the harnesses showing what
- * runs inside each of them: the fixed gate every call passes, agents and
- * skills, capabilities and their operations, adapters, and the runtime
- * stores. Credentials run down the sides: personal from the laptop, service
- * from the team harness.
+ * runs inside each of them: the gate, whose order is fixed and whose checks
+ * are configured, agents and skills, capabilities and their operations,
+ * adapters, and the runtime stores. Credentials run down the sides: personal
+ * from the laptop, service from the team harness.
  */
 function PlatformArchitectureFigure({ palette }: FigureProps) {
   const tile = (text: string) => (
@@ -426,7 +426,7 @@ function PlatformArchitectureFigure({ palette }: FigureProps) {
         <LayerName colour={palette.inverseAccent}>Team harness</LayerName>
         <LayerSub colour={palette.inverseFg}>
           <span style={{ opacity: 0.7 }}>
-            always on, service credentials, every call on record
+            always on, service credentials, calls on record with telemetry
           </span>
         </LayerSub>
         <div style={rows}>
@@ -544,7 +544,7 @@ function PlatformArchitectureFigure({ palette }: FigureProps) {
           <div style={{ flex: 1, display: 'flex', flexDirection: 'column' }}>
             <DrawerRow
               palette={palette}
-              label="The gate, in a fixed order"
+              label="The gate: a fixed order, the checks you configure"
               first
             >
               {chain([

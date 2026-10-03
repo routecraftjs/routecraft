@@ -20,9 +20,11 @@ export interface RemoteDefinition {
    */
   url: string;
   /**
-   * Credential for the remote's door. Read from the environment, as a
-   * string or as a function evaluated per request so a rotated token is
-   * picked up without a restart. The identity the remote sees is whatever
+   * Credential for the remote's door, as a string or as a function evaluated
+   * per request. The function lets a rotated token reach a running process
+   * only when it reads a source that changes underneath it (a mounted secret
+   * file, a secret manager); `process.env` is fixed for the life of the
+   * process. The identity the remote sees is whatever
    * its own validator mints from it; this plugin makes no call on api keys
    * versus JWTs.
    */

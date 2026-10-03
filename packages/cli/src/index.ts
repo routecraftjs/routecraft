@@ -472,14 +472,23 @@ program
  * starts an app: `craft start` owns running, which is what lets one editor
  * entry reach a laptop or a company instance by switching a profile.
  *
+ * An editor starts this from whatever project it has open, so the optional
+ * directory names the project whose `.routecraft/settings.yaml` holds the
+ * profile; without it that file is looked for in the working directory.
+ *
  * Example:
  * craft acp
  * craft acp --profile company
+ * craft acp /path/to/my-agent --profile editor
  * craft acp --url https://acme.example --token "$TOKEN" --agent aria
  */
 program
   .command("acp")
   .description("Bridge an editor to an instance over the Agent Client Protocol")
+  .argument(
+    "[dir]",
+    "Project whose .routecraft/settings.yaml is read (default: the working directory)",
+  )
   .option("--profile <name>", "Settings profile to select")
   .option("--url <url>", "Ops server base URL of the target instance")
   .option("--token <token>", "Bearer credential for the management door")
@@ -488,18 +497,26 @@ program
     "Agent to talk to; the instance's default otherwise",
   )
   .action(
-    async (options: {
-      profile?: string;
-      url?: string;
-      token?: string;
-      agent?: string;
-    }) => {
+    async (
+      dir: string | undefined,
+      options: {
+        profile?: string;
+        url?: string;
+        token?: string;
+        agent?: string;
+      },
+    ) => {
       const { acpCommand } = await import("./acp.js");
       // Standard output is the protocol's, and `settle` writes there only
       // for a result carrying `output`, which this one never does. What it
       // adds is the awaited write: an editor spawns this with a pipe on
       // standard error, where an exit discards whatever is still queued.
-      settle(await acpCommand(options));
+      settle(
+        await acpCommand({
+          ...options,
+          ...(dir !== undefined && { cwd: resolve(process.cwd(), dir) }),
+        }),
+      );
     },
   );
 
