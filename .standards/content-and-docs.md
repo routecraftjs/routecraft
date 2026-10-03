@@ -39,7 +39,8 @@ because they are the first pages of that surface, not a surface of their own.
    post. A vendor walkthrough (Clerk, Stripe, WorkOS) is always a blog post, never an
    `advanced/` page; the `advanced/` page is the vendor-neutral version the blog links back to.
 3. **Is it a framework noun or a company?** Framework noun (auth, MCP, retries) gets a neutral
-   `advanced/` page. Company gets a blog post.
+   docs page, placed by test 1: its default setup in `introduction/`, what goes past it in
+   `advanced/`. Company gets a blog post.
 
 ## Rules
 

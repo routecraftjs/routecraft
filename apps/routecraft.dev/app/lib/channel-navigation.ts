@@ -1,5 +1,9 @@
 import { documentsHref } from '@/lib/docs-catalogue'
-import type { DocsChannelName } from '@/lib/docs-channel'
+import {
+  docsChannelFromPathname,
+  stripDocsChannel,
+  type DocsChannelName,
+} from '@/lib/docs-channel'
 import { earlierDocsHref } from '@/lib/docs-moves'
 import { navigation } from '@/lib/navigation'
 
@@ -31,4 +35,17 @@ export function navigationFor(channel: DocsChannelName) {
       }),
     }))
     .filter((section) => section.links.length > 0)
+}
+
+/**
+ * The sidebar section a docs page sits in, for a pathname on either channel.
+ *
+ * Read through the channel's own sidebar, so a page that moved since the
+ * release still finds its section at the address the release serves it from.
+ */
+export function docsSectionTitle(pathname: string): string | undefined {
+  const bare = stripDocsChannel(pathname)
+  return navigationFor(docsChannelFromPathname(pathname)).find((section) =>
+    section.links.some((link) => link.href === bare),
+  )?.title
 }

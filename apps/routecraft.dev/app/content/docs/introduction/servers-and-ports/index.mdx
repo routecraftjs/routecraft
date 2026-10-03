@@ -68,7 +68,7 @@ export const craftConfig = defineConfig({
 });
 ```
 
-`mcp`, `acp`, `ops` and `http` all take `server`. A named server that ends up with no mount on it is a configuration mistake and fails the start, and two servers cannot claim the same `host:port`. Splitting is a deployment choice, not a different kind of instance: the same capabilities answer on whichever port their door is mounted.
+`mcp`, `acp`, `ops` and `http` all take `server`. A named server that ends up with no mount on it is a configuration mistake and fails the start, and two servers cannot claim the same `host:port` (except `port: 0`, where the operating system gives each its own). Splitting is a deployment choice, not a different kind of instance: the same capabilities answer on whichever port their door is mounted.
 
 ## Who may connect
 

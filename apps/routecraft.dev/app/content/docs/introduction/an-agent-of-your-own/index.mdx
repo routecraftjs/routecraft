@@ -39,7 +39,7 @@ No `--token`, no `--url`: the instance is walled and the settings file carries t
 
 ## 3. Talk to it from your editor
 
-The harness serves the [Agent Client Protocol](https://agentclientprotocol.com) from boot, on its own listener, behind the same key as everything else. `setup` printed the two lines an editor needs:
+The harness serves the [Agent Client Protocol](https://agentclientprotocol.com) from boot, on a server of its own named `editor` (the harness gives each surface its own port, as [Servers and ports](/docs/introduction/servers-and-ports#a-door-on-its-own-port) describes), behind the same key as everything else. `setup` printed the two lines an editor needs:
 
 ```
 command:   /path/to/my-agent/node_modules/.bin/craft

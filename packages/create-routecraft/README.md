@@ -37,7 +37,7 @@ registered by hand and nothing has to be kept in step with the folder.
 HTTP and logs a greeting, so the first command after scaffolding produces output rather
 than a silent exit. `bun run test` runs the capability's own tests, which mock `fetch`.
 
-The sample capability is also an MCP tool from the first run: `craft.config.ts` serves it over
+The sample's `greet` capability is also an MCP tool from the first run: `craft.config.ts` serves it over
 stdio, and the project README shows how Claude Code, Cursor and VS Code connect to it. Delete
 `capabilities/hello-world` when you no longer need it.
 

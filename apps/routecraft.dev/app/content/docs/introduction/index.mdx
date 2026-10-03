@@ -98,7 +98,7 @@ An agent that holds a credential can do anything that credential can do. An agen
 
 <Diagram id="hands-not-keys" />
 
-On the team harness, the credential belongs to the capability, not to the agent and not to the person asking. Every call passes the same four checks: the identity of the caller, the authorisation rules you wrote, the input schema, and the declared intent of the tool. What survives all four reaches your code. The agent reaches the capability over a door and never sees the secret behind it, so there is nothing for it to copy, leak or reuse.
+On the team harness, the credential belongs to the capability, not to the agent and not to the person asking. A call reaches your code only past the checks the capability declares: the identity of the caller, the authorisation rules you wrote, and the input schema. The tool's declared intent, the description and schema an agent reads, steers what it asks for; the checks hold whatever it asks. The agent reaches the capability over a door and never sees the secret behind it, so there is nothing for it to copy, leak or reuse.
 
 This is also why the local harness is safe to hand to every engineer: on a laptop a capability runs on that person's own access, and promoting it is the moment it moves onto service credentials and under the team's rules. [Credentials and identity](/docs/introduction/credentials-and-identity) is the full model.
 

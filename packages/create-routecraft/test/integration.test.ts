@@ -3,7 +3,13 @@ import { mkdir, rm, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
-import { exec, execSync, spawn, type ExecOptions } from "node:child_process";
+import {
+  exec,
+  execSync,
+  spawn,
+  type ChildProcess,
+  type ExecOptions,
+} from "node:child_process";
 import { promisify } from "node:util";
 import { generateProjectStructure, type InitOptions } from "../src/lib.js";
 
@@ -117,6 +123,33 @@ async function runInstall(projectDir: string): Promise<void> {
 }
 
 /**
+ * Stop a child with SIGTERM, wait up to 2s for it to exit, then SIGKILL.
+ * Waiting avoids EPIPE noise from orphaned writes racing the next test.
+ */
+async function stopChild(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  await new Promise<void>((resolve) => {
+    const killTimer = setTimeout(() => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // already dead
+      }
+      resolve();
+    }, 2000);
+    child.once("exit", () => {
+      clearTimeout(killTimer);
+      resolve();
+    });
+    try {
+      child.kill("SIGTERM");
+    } catch {
+      // already dead
+    }
+  });
+}
+
+/**
  * Run a long-running command and resolve as soon as every expected substring
  * has appeared on stdout or stderr. Kills the process once matched.
  *
@@ -145,37 +178,11 @@ async function runUntilOutput(
     let stderr = "";
     let settled = false;
 
-    // Kill the child with SIGTERM, wait up to 2s for exit, then SIGKILL. This
-    // avoids EPIPE noise from orphaned writes racing the next test.
     const finish = async (fn: () => void) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      if (child.exitCode === null && child.signalCode === null) {
-        try {
-          child.kill("SIGTERM");
-        } catch {
-          // already dead
-        }
-        await new Promise<void>((r) => {
-          if (child.exitCode !== null || child.signalCode !== null) {
-            r();
-            return;
-          }
-          const killTimer = setTimeout(() => {
-            try {
-              child.kill("SIGKILL");
-            } catch {
-              // already dead
-            }
-            r();
-          }, 2000);
-          child.once("exit", () => {
-            clearTimeout(killTimer);
-            r();
-          });
-        });
-      }
+      await stopChild(child);
       fn();
     };
 
@@ -238,7 +245,8 @@ async function mcpStdioRoundTrip(opts: {
 }): Promise<Map<number, Record<string, unknown>>> {
   const child = spawn(
     "/bin/sh",
-    ["-c", "bunx craft start --log-file craft.log"],
+    // `exec` so the signals in `stopChild` reach `craft`, not a wrapper shell.
+    ["-c", "exec bunx craft start --log-file craft.log"],
     { cwd: opts.cwd, stdio: ["pipe", "pipe", "pipe"], env: opts.env },
   );
   const send = (message: Record<string, unknown>) =>
@@ -315,7 +323,7 @@ async function mcpStdioRoundTrip(opts: {
   } finally {
     child.removeAllListeners("exit");
     child.stdin?.end();
-    child.kill("SIGTERM");
+    await stopChild(child);
   }
   return responses;
 }

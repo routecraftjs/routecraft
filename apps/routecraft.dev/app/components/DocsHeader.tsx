@@ -3,7 +3,7 @@ import { useRouterState } from '@tanstack/react-router'
 import { Menu, MenuButton, MenuItem, MenuItems } from '@headlessui/react'
 import clsx from 'clsx'
 
-import { navigation } from '@/lib/navigation'
+import { docsSectionTitle } from '@/lib/channel-navigation'
 import { Badge } from '@/components/Badge'
 import { CopyDocsButton } from '@/components/CopyDocsButton'
 import { docVersion } from '@/lib/site'
@@ -37,9 +37,7 @@ export function DocsHeader({
   const channels = docsChannels(docVersion)
   const activeChannel =
     channels.find((channel) => channel.prefix === channelPrefix) ?? channels[0]
-  const section = navigation.find((section) =>
-    section.links.find((link) => link.href === barePathname),
-  )
+  const section = docsSectionTitle(rawPathname)
 
   if (!title && !section) {
     return null
@@ -54,7 +52,7 @@ export function DocsHeader({
         {section ? (
           <p className="flex items-center gap-3 font-mono text-[0.65rem] tracking-[0.22em] text-cobalt-500 uppercase">
             <span aria-hidden="true" className="h-1 w-1 bg-cobalt-500" />
-            <span>{section.title}</span>
+            <span>{section}</span>
           </p>
         ) : (
           <span />

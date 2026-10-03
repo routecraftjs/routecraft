@@ -8,7 +8,7 @@ Serve your capabilities as MCP tools, so Claude, Cursor, Copilot and any other M
 
 ## How it works
 
-A capability becomes an MCP tool when `mcp()` is one of its sources. The tool name is the capability's `.id()`, and its `.title()`, `.description()` and `.input()` schema are what the client reads to decide when to call it. Every call is validated against that schema before any of your code runs, and the client can reach nothing else.
+A capability becomes an MCP tool when `mcp()` is one of its sources. The tool name is the capability's `.id()`, and its `.title()`, `.description()` and `.input()` schema are what the client reads to decide when to call it. Every call is validated against that schema before the capability's steps run, and the client can reach nothing else.
 
 ```ts
 // capabilities/search-orders/route.ts

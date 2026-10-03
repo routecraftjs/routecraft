@@ -27,7 +27,7 @@ craft()
   .to(search);
 ```
 
-Whichever door a call comes through, the input is validated against the same schema, `.authorize()` sees the same verified caller, and telemetry records the same exchange.
+Whichever door a call comes through, the input is validated against the same schema, the same `.authorize()` rule judges the caller that door verified, and telemetry records the exchange the same way. Each door mints its own principal, so two doors with different validators can present the same person differently.
 
 ## The triggers
 
@@ -36,9 +36,10 @@ A trigger starts a capability when nobody is asking. These are ordinary sources,
 - **A schedule.** `cron()` for a timetable with a timezone, `timer()` for a fixed interval.
 - **An email arriving.** `mail()` watches a mailbox over IMAP and starts the capability for each message.
 - **A webhook.** An `http()` source receiving a POST from GitHub, a payment provider or any system that calls out. It is still a door, with the same checks as any HTTP call; it is listed here because no person asked.
-- **A file.** `file()` and `directory()` read what landed, line by line or file by file.
+- **A file.** `file()` and `directory()` read a path once when the capability starts, line by line or file by file. They do not watch for new arrivals.
 - **An event.** `event()` listens on the harness's own event bus, so one capability can start when another finishes, fails or defers.
-- **Another capability.** `direct()` is the in-process call from one capability to the next, carrying the caller's identity with it.
+
+One source is neither: `direct()` is the in-process call from one capability to the next, carrying the caller's identity with it. It starts a capability only when another one asks, and [Composing capabilities](/docs/advanced/composing-capabilities) covers it.
 
 The [adapter reference](/docs/reference/adapters) lists every source, and [Adapters](/docs/introduction/adapters) explains how a source, a step and a destination fit together.
 

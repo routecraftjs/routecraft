@@ -26,9 +26,9 @@ On a laptop the picture is different by design: the agent and the capability run
 
 ## Who asked
 
-Every exchange carries a **principal**: who the call is for, verified at the boundary.
+An exchange carries a **principal** when something at the boundary verified who the call is for. A capability with no authentication runs anonymously, and one that checks identity refuses a call that has none.
 
-- **At a door**, the verifier mints it. A JWT or JWKS validator, or an OAuth resource-server check, on the MCP, HTTP and ops mounts, with `issuer` and `audience` required and `exp` mandatory.
+- **At a door**, the verifier mints it: a JWT or JWKS validator, an OAuth resource-server check, or a validator you write, on the MCP, HTTP and ops mounts. `jwt()` and `jwks()` require `issuer`, require `audience` (`"*"` skips that check, and admits tokens minted for any other service), and refuse a token without `exp`. A custom or OAuth validator checks what you tell it to.
 - **From a channel the framework cannot verify**, you mint it: `.authenticate()` turns claims you checked yourself (a DKIM-passing sender, a Slack signature, a webhook HMAC) into a principal. A plain object written into a header is not a principal and is refused.
 
 The principal is frozen and rides the exchange through every step and every in-process hop, so a capability calling another with `direct()` runs the second one under the same identity. It is never forwarded to a remote harness: the remote's credential authenticates this instance, and the remote mints its own view of the caller from that.
@@ -46,7 +46,8 @@ Then each capability declares who may drive it:
   actor: ["none", { subject: "agent:zoe", issuer: "https://agents.example.com" }],
 })
 
-// Autonomous agents only, for scheduled background work
+// Autonomous agents only. This checks who, not how the call arrived:
+// give the capability only scheduled sources to keep it background work.
 .authorize({ subject: { profile: "ai_agent" }, actor: "none" })
 ```
 
@@ -60,7 +61,7 @@ When an agent exercises a person's authority, the principal records both: `subje
 
 <Diagram id="four-gates" />
 
-Every call, through every door, has to pass the same four kinds of check: the **input** schema, the **policy** you wrote in `.authorize()` and `.filter()`, the **identity** the door verified, and the **declared intent** of the capability, which is the description and schema an agent was shown before it chose to call. What survives all four reaches your code. A model's decision is never one of the gates. The order they run in is fixed by the platform; [Filter chain](/docs/advanced/filter-chain) has it.
+Four things stand between a caller and your code. Three are enforced at runtime, each where it is configured: the **identity** the door verified, when the door requires a credential; the **policy** you wrote in `.authorize()` and `.filter()`; and the **input** schema in `.input()`. A capability with neither `.authorize()` nor `.input()` admits any call its door lets through. The fourth, the capability's **declared intent**, is not a runtime check: it is the description and schema an agent reads before it chooses to call, which steers what a well-behaved agent asks for, while the three runtime checks hold whatever it asks. A model's decision is never one of them. The order the runtime checks run in is fixed by the platform; [Filter chain](/docs/advanced/filter-chain) has it.
 
 ## On record
 

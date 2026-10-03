@@ -25,6 +25,17 @@ function earlierRoute(
   )
 }
 
+/** Where a moved page's request goes, and whether that holds for good. */
+export interface DocsMove {
+  route: string
+  /**
+   * True for old to new, which never reverses. A new address sent back to
+   * the old one stops once the next release carries the page, and a cached
+   * 301 there would loop against the forward redirect.
+   */
+  permanent: boolean
+}
+
 /**
  * Where a request for a missing page on this channel should go, if anywhere.
  *
@@ -40,13 +51,19 @@ function earlierRoute(
 export function movedDocsPage(
   channel: DocsChannelName,
   slug: string,
-): string | undefined {
+): DocsMove | undefined {
   const route = slug.replace(/\/$/, '')
   const forward = MOVED[route]
   if (forward && (pagesByChannel[channel] ?? []).includes(forward)) {
-    return forward
+    return { route: forward, permanent: true }
   }
-  return earlierRoute(channel, route)
+  const earlier = earlierRoute(channel, route)
+  return earlier ? { route: earlier, permanent: false } : undefined
+}
+
+/** The HTTP status a move answers with. */
+export function docsMoveStatus(move: DocsMove): 301 | 307 {
+  return move.permanent ? 301 : 307
 }
 
 /**
@@ -86,5 +103,5 @@ export function docsHrefOnChannel(
   const route = path.slice('/docs/'.length).replace(/\/$/, '')
   if ((pagesByChannel[channel] ?? []).includes(route)) return href
   const moved = movedDocsPage(channel, route)
-  return moved ? `/docs/${moved}${path.endsWith('/') ? '/' : ''}` : href
+  return moved ? `/docs/${moved.route}${path.endsWith('/') ? '/' : ''}` : href
 }

@@ -12,7 +12,7 @@ Every Routecraft instance is a harness: the runtime plus the capabilities, skill
 
 **The local harness** is a project on your machine, started with `craft start` or `bun run start`. It runs on your own access: the tokens in your `.env`, your editor, your agents. Nothing to approve before you try something, and nothing another person can reach. This is where a capability is built and proven, and where an engineer keeps the tools that only they need.
 
-**The team harness** is the same project deployed: `craft start` on a server, in the container the scaffold ships, always on. Its credentials are the organisation's service credentials, read from the environment and held by no person. Its doors sit behind authentication, every capability declares who may call it, and telemetry records every call. This is where a capability goes once it has earned its place, and from then on every team calls the same one.
+**The team harness** is the same project deployed: `craft start` on a server, in the container the scaffold ships, always on. Its credentials are the organisation's service credentials, read from the environment and held by no person. Its doors sit behind authentication, every capability declares who may call it, and with telemetry on, every call is on record. This is where a capability goes once it has earned its place, and from then on every team calls the same one.
 
 The split is the whole security model in one sentence: on a laptop a capability runs as you; on the team harness it runs as itself, and the caller is only ever who the door verified. [Credentials and identity](/docs/introduction/credentials-and-identity) has the detail.
 
@@ -24,7 +24,7 @@ Promotion is not a cut-over. With a [remote](#remotes-one-surface) configured, a
 
 ## Remotes: one surface
 
-A local harness can name the team harness as a remote. From then on every capability the team harness exposes is callable on your laptop as if it were local: from your routes, from your agents' tool lists, and with `craft exec`. Validation runs where the schema lives, at the team harness's door.
+A local harness can name the team harness as a remote. From then on every dispatchable capability the team harness exposes (one with a `direct()` source) is callable on your laptop as if it were local: from your routes, from your agents' tool lists, and with `craft exec`. Validation runs where the schema lives, at the team harness's door.
 
 Your identity does not travel with the call. The remote capability runs under the identity of the token your harness presents, so the team harness keeps its own `.authorize()` rules without trusting every laptop. [Connecting harnesses](/docs/advanced/connecting-harnesses) is the setup on both sides, and the [remotes reference](/docs/reference/plugins/remotesplugin) covers names, shadowing and outcomes.
 
@@ -46,7 +46,7 @@ A harness is a project, so what it runs is what the project installs.
 | Credentials | yours, in `.env` | the organisation's service credentials, in the environment |
 | Who can call it | you: your editor, your agents, `craft exec` | every team, through a door that verifies who they are |
 | Who decides what runs | you | `.authorize()` on each capability, and the door's own tiers |
-| On record | your local telemetry database, if you switch it on | every call, with who asked, which door and which capability |
+| On record | your local telemetry database, if you switch it on | every call, with who asked, which door and which capability, once telemetry is on |
 
 ## Related
 

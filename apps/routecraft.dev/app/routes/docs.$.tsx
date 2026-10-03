@@ -4,7 +4,7 @@ import { DocsPageView } from '@/components/DocsPageView'
 import { NotFound } from '@/components/NotFound'
 import { docMetadata } from '@/lib/doc-metadata'
 import { loadDocsPage } from '@/lib/docs-content'
-import { movedDocsPage } from '@/lib/docs-moves'
+import { docsMoveStatus, movedDocsPage } from '@/lib/docs-moves'
 import { toRouteHead } from '@/lib/route-head'
 
 export const Route = createFileRoute('/docs/$')({
@@ -15,8 +15,8 @@ export const Route = createFileRoute('/docs/$')({
       if (moved) {
         throw redirect({
           to: '/docs/$/',
-          params: { _splat: moved },
-          statusCode: 301,
+          params: { _splat: moved.route },
+          statusCode: docsMoveStatus(moved),
         })
       }
       throw notFound()
