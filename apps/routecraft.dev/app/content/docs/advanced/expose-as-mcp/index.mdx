@@ -266,7 +266,8 @@ The view is a static HTML document. It loads the extension's `App` client, conne
         const list = document.getElementById('mail')
         for (const [label, value] of Object.entries(structuredContent ?? {})) {
           list.append(Object.assign(document.createElement('dt'), { textContent: label }))
-          list.append(Object.assign(document.createElement('dd'), { textContent: value }))
+          const text = typeof value === 'string' ? value : JSON.stringify(value)
+          list.append(Object.assign(document.createElement('dd'), { textContent: text }))
         }
       })
       await app.connect()
