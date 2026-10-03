@@ -44,7 +44,7 @@ export function mcpServerFor(
       emit: (event, details) => ctx.emit(event, details),
       observe: (event, handler) => ctx.on(event, handler),
       service: ctx.lookup(MCP) ?? createMcpService(),
-      context: ctx,
+      ingress: ctx,
     },
     options,
   );

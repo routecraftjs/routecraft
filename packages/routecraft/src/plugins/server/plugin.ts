@@ -1,9 +1,8 @@
-import type { CraftContext } from "../../context.ts";
 import type { Plugin, PluginContext } from "../../kernel/plugin.ts";
 import { rcError } from "../../error.ts";
 import { type Duration, parseDuration } from "../../shared/duration.ts";
 import { startServer, type HttpServerHandle } from "../http/server/index.ts";
-import { HttpMountRegistry, WEB_INGRESSES } from "./registry.ts";
+import { HttpMountRegistry, WEB_INGRESS } from "./registry.ts";
 import { resolveAllowedHostnames } from "./request-validation.ts";
 import type { ServerDefinitions } from "./types.ts";
 
@@ -110,20 +109,20 @@ interface ServerState {
 
 export function serversPlugin(definitions: ServerDefinitions): Plugin {
   validateDefinitions(definitions);
-  const states = new WeakMap<CraftContext, ServerState>();
+  const states = new WeakMap<PluginContext, ServerState>();
 
   return {
     id: "routecraft.servers",
     keepsAlive: true,
+    provides: [WEB_INGRESS],
     bind(c: PluginContext) {
-      const ctx = c.context;
       const registries = new Map<string, HttpMountRegistry>();
       for (const name of Object.keys(definitions)) {
         registries.set(
           name,
           new HttpMountRegistry(
             name,
-            ctx,
+            c,
             definitions[name]?.auth,
             resolveMaxStreamingRequests(
               name,
@@ -133,20 +132,18 @@ export function serversPlugin(definitions: ServerDefinitions): Plugin {
           ),
         );
       }
-      states.set(ctx, { registries, handles: new Map(), closed: false });
-      ctx.setStore(WEB_INGRESSES, registries);
+      states.set(c, { registries, handles: new Map(), closed: false });
+      c.provide(WEB_INGRESS, registries);
     },
     async start(c: PluginContext) {
-      const ctx = c.context;
-      const state = states.get(ctx);
+      const state = states.get(c);
       if (!state) return;
-      const boot = bindAll(ctx, state);
+      const boot = bindAll(c, state);
       state.starting = boot;
       await boot;
     },
     async stop(c: PluginContext) {
-      const ctx = c.context;
-      const state = states.get(ctx);
+      const state = states.get(c);
       if (!state) return;
       state.closed = true;
       // A raced start() closes its own in-flight bind on seeing `closed`;
@@ -159,20 +156,20 @@ export function serversPlugin(definitions: ServerDefinitions): Plugin {
             handle,
             resolveShutdownGrace(name, definitions[name]?.shutdownGrace),
           );
-          ctx.logger.info({ server: name }, "Server closed");
-          ctx.emit("server:closed", { server: name });
+          c.logger.info({ server: name }, "Server closed");
+          c.emit("server:closed", { server: name });
         } catch (error) {
-          ctx.logger.warn(
+          c.logger.warn(
             { err: error, server: name },
             "Named server failed to close cleanly",
           );
         }
       }
-      states.delete(ctx);
+      states.delete(c);
     },
   };
 
-  async function bindAll(ctx: CraftContext, state: ServerState): Promise<void> {
+  async function bindAll(c: PluginContext, state: ServerState): Promise<void> {
     assertEveryServerMounted(state.registries);
     for (const registry of state.registries.values()) registry.validate();
     for (const [name, definition] of Object.entries(definitions)) {
@@ -185,10 +182,10 @@ export function serversPlugin(definitions: ServerDefinitions): Plugin {
           port: definition.port,
           idleTimeoutMs: resolveIdleTimeout(name, definition.idleTimeout),
           fetch: (request, runtime) => registry.dispatch(request, runtime),
-          logger: ctx.logger,
+          logger: c.logger,
         });
       } catch (error) {
-        ctx.emit("server:failed", { server: name, error });
+        c.emit("server:failed", { server: name, error });
         throw rcError("RC5019", error, {
           message: `servers.${name}: bind failed on ${host}:${definition.port}: ${error instanceof Error ? error.message : String(error)}`,
         });
@@ -205,11 +202,11 @@ export function serversPlugin(definitions: ServerDefinitions): Plugin {
       }
       state.handles.set(name, handle);
       registry.setBoundAddress(host, handle.port);
-      ctx.logger.info(
+      c.logger.info(
         { server: name, host, port: handle.port },
         "Server listening",
       );
-      ctx.emit("server:listening", { server: name, host, port: handle.port });
+      c.emit("server:listening", { server: name, host, port: handle.port });
     }
   }
 }

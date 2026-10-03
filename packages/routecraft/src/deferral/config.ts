@@ -3,6 +3,7 @@ import type { Plugin, PluginContext } from "../kernel/plugin.ts";
 import { registerConfigApplier } from "../config-applier.ts";
 import { CONTINUATIONS } from "./runtime-key.ts";
 import { registerDeferralsResource } from "./ops-resource.ts";
+import { OPS } from "../plugins/ops/store.ts";
 import { MemoryDeferralStore } from "./memory-store.ts";
 import {
   DEFAULT_DEFERRAL_DB_PATH,
@@ -346,11 +347,12 @@ export function deferralPlugin(config: DeferralConfig = {}): Plugin {
   return {
     id: "routecraft.deferral",
     provides: [CONTINUATIONS],
+    optional: [OPS],
     async bind(c: PluginContext) {
       const ctx = c.context;
       // Registration first: it throws on a name collision, and a bind that
       // throws after opening the store would leave its handle to the unwind.
-      registerDeferralsResource(ctx);
+      registerDeferralsResource(c, () => ctx.lookup(CONTINUATIONS));
       const runtime = await createDeferralRuntime(ctx, config);
       runs.set(c, { runtime });
       c.provide(CONTINUATIONS, runtime);

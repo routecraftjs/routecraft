@@ -10,12 +10,14 @@ import { createManagementApi } from "../src/plugins/ops/management.ts";
 import {
   apiKey,
   craft,
+  definePlugin,
   direct,
   jwt,
   noop,
   opsPlugin,
   type HttpAuth,
   type OpsTiers,
+  type PluginContext,
   type Principal,
 } from "../src/index.ts";
 
@@ -121,11 +123,29 @@ describe("the ops event tail", () => {
    * @expectedResult The reader sees a dropped marker, so eviction happened before the item bound could
    */
   test("the tail evicts on its byte budget", async () => {
+    let plugin: PluginContext | undefined;
     t = await testContext()
+      .with({
+        plugins: [
+          definePlugin({
+            id: "test.tail",
+            bind(c) {
+              plugin = c;
+            },
+          }),
+        ],
+      })
       .routes(craft().id("worker").from(direct()).to(noop()))
       .build();
     const ctx = t.ctx;
-    const api = createManagementApi(ctx);
+    const api = createManagementApi({
+      routes: plugin!.routes,
+      execution: plugin!.execution,
+      observe: plugin!.observe,
+      isInternalEndpoint: () => false,
+      remoteRoutes: () => new Map(),
+      resource: () => undefined,
+    });
     const controller = new AbortController();
     const tail = api.tailEvents(controller.signal)[Symbol.asyncIterator]();
     // The generator subscribes to the bus on its first `next()`, not on

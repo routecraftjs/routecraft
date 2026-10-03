@@ -5,6 +5,7 @@ import {
   http,
   noop,
   requireWebIngress,
+  WEB_INGRESS,
   type Plugin,
   type EventName,
 } from "../src/index.ts";
@@ -428,8 +429,12 @@ describe("named server ingress", () => {
     let port = 0;
     const custom: Plugin = {
       id: "test.custom-health",
+      requires: [WEB_INGRESS],
       bind(c) {
-        const unmount = requireWebIngress(c.context, "public").mountHttp({
+        const unmount = requireWebIngress(
+          c.require(WEB_INGRESS),
+          "public",
+        ).mountHttp({
           id: "custom-health",
           claims: () => [
             { kind: "exact", path: "/internal/health", methods: ["GET"] },

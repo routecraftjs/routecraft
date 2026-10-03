@@ -1,4 +1,4 @@
-import type { CraftContext } from "../context.ts";
+import type { PluginContext } from "../kernel/plugin.ts";
 import { rcError } from "../error.ts";
 import {
   DEFAULT_PAGE_SIZE,
@@ -11,7 +11,7 @@ import {
 import { registerOpsResource } from "../plugins/ops/store.ts";
 import type { CursorScope } from "../plugins/ops/pagination.ts";
 import type { OpsDeferralSummary, OpsPage } from "../plugins/ops/types.ts";
-import { CONTINUATIONS } from "./runtime-key.ts";
+import type { DeferralRuntime } from "./config.ts";
 import { summariseDeferral } from "./types.ts";
 import type {
   DeferralListCursor,
@@ -181,21 +181,26 @@ function listingOf(store: DeferralStore): DeferralStore["list"] {
 /**
  * Contribute `GET /ops/deferrals` to the management API.
  *
- * Called from the deferral plugin's `apply()`, so a context that
- * configured deferral has the listing and one that did not has no
- * resource at all rather than an empty one. A second registration of the
- * name is refused by the seam, which is what a context carrying two
- * deferral plugins deserves.
+ * Called from the deferral plugin's `bind`, so a context that configured
+ * deferral has the listing and one that did not has no resource at all
+ * rather than an empty one. A second registration of the name is refused by
+ * the seam, which is what a context carrying two deferral plugins deserves.
  *
+ * @param c - The deferral plugin's context, which declares `optional: [OPS]`
+ * @param continuations - The application's selected continuations provider,
+ *   read per request
  * @internal
  */
-export function registerDeferralsResource(ctx: CraftContext): void {
-  registerOpsResource<OpsDeferralSummary>(ctx, {
+export function registerDeferralsResource(
+  c: Pick<PluginContext, "lookup">,
+  continuations: () => DeferralRuntime | undefined,
+): void {
+  registerOpsResource<OpsDeferralSummary>(c, {
     name: DEFERRALS_RESOURCE,
     async list(query): Promise<OpsPage<OpsDeferralSummary>> {
-      const runtime = ctx.lookup(CONTINUATIONS);
+      const runtime = continuations();
       // Not an empty page. This resource is registered by the deferral
-      // plugin's own `apply()`, immediately after it sets the runtime, so
+      // plugin's own `bind`, immediately before it provides the runtime, so
       // there is no state in which it is served without one; and an empty
       // listing is exactly the lie RC5066 exists to refuse, whatever the
       // reason the store cannot answer.
@@ -238,7 +243,7 @@ export function registerDeferralsResource(ctx: CraftContext): void {
       // One segment: a deferral is named by its id alone. The id contains
       // a `#`, which the mount has already decoded out of the path.
       if (segments.length !== 1) return undefined;
-      const runtime = ctx.lookup(CONTINUATIONS);
+      const runtime = continuations();
       // Undefined here is a 404, which is the right answer for an id
       // lookup and is why this arm diverges from the collection's throw:
       // "no such deferral" is what a reader asked about, and it is true.

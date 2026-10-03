@@ -2,10 +2,8 @@ import type { CraftContext } from "./context.ts";
 import type { Exchange, ExchangeHeaders } from "./exchange.ts";
 import { DefaultExchange, isDropped } from "./exchange.ts";
 import { rcError } from "./error.ts";
-import {
-  ADAPTER_DIRECT_STORE,
-  sanitizeEndpoint,
-} from "./adapters/direct/shared.ts";
+import { sanitizeEndpoint } from "./adapters/direct/shared.ts";
+import { DIRECT } from "./adapters/direct/registry.ts";
 
 /**
  * Programmatic client for dispatching messages into running routes.
@@ -54,9 +52,8 @@ export class CraftClient {
     body: T,
     headers?: ExchangeHeaders,
   ): Promise<R> {
-    const store = this.ctx.getStore(ADAPTER_DIRECT_STORE);
     const sanitized = sanitizeEndpoint(endpoint);
-    const channel = store?.get(sanitized);
+    const channel = this.ctx.lookup(DIRECT)?.channels.get(sanitized);
     if (!channel) {
       throw rcError("RC5004", undefined, {
         message: `No direct channel for endpoint "${endpoint}". Is the context started and does a route subscribe to this endpoint?`,

@@ -1,12 +1,13 @@
 import {
   CONTINUATIONS,
+  OPS,
+  REMOTES,
   parsePageQuery,
   rcCodeOf,
-  registerOpsResource,
-  type CraftContext,
   type Plugin,
   type PluginContext,
   type OpsPage,
+  type OpsService,
 } from "@routecraft/routecraft";
 import { AgentSessionRuntime } from "./session/runtime.ts";
 import type {
@@ -183,7 +184,9 @@ export function agentRuntimePlugin(): Plugin {
     id: "routecraft.ai.agent",
     provides: [AGENTS],
     requires: [SESSION_STORE],
-    optional: [CONTINUATIONS],
+    // REMOTES orders the remotes plugin first, so its imported routes are
+    // capabilities by the time start() resolves directTool references.
+    optional: [CONTINUATIONS, OPS, REMOTES],
     installs: [defaultSessionsPlugin()],
     bind(c: PluginContext) {
       const store = c.require(SESSION_STORE);
@@ -216,8 +219,8 @@ export function agentRuntimePlugin(): Plugin {
       };
       runs.set(c, { registry, tools });
       c.provide(AGENTS, registry);
-      const context = c.context;
-      registerSessionsResource(context);
+      const ops = c.lookup(OPS);
+      if (ops !== undefined) registerSessionsResource(registry, ops);
     },
 
     /**
@@ -322,16 +325,19 @@ const SESSIONS_RESOURCE = "agent-sessions";
  */
 const OPS_SCOPE: AgentSessionScope = "operator";
 
-function registerSessionsResource(ctx: CraftContext): void {
+function registerSessionsResource(
+  registry: AgentRegistryImpl,
+  ops: OpsService,
+): void {
   const runtime = (): AgentSessionRuntime | undefined => {
     try {
-      return AgentSessionRuntime.for(ctx);
+      return registry.sessions();
     } catch (err) {
       if (rcCodeOf(err) === "RC5052") return undefined;
       throw err;
     }
   };
-  registerOpsResource<AgentSessionSummary>(ctx, {
+  ops.registerResource<AgentSessionSummary>({
     name: SESSIONS_RESOURCE,
     async list(query): Promise<OpsPage<AgentSessionSummary>> {
       const sessions = runtime();

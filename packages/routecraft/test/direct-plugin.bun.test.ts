@@ -1,11 +1,15 @@
-import { describe, expect, mock, test } from "bun:test";
-import {
-  DIRECT_DEFAULTS,
-  getDirectChannel,
-} from "../src/adapters/direct/shared.ts";
-// Registers the `direct` config applier, which importing the context alone does not.
+import { describe, expect, test } from "bun:test";
+import { getDirectChannel } from "../src/adapters/direct/shared.ts";
+// Registers the `direct` config applier and the default `routecraft.direct`
+// plugin, which importing the context alone does not.
 import "../src/adapters/direct/config.ts";
+import { directPlugin } from "../src/plugins/direct/index.ts";
+import {
+  createDirectRegistry,
+  DIRECT,
+} from "../src/adapters/direct/registry.ts";
 import { CraftContext } from "../src/context.ts";
+import { definePlugin } from "../src/kernel/plugin.ts";
 import type {
   DirectChannel,
   DirectChannelType,
@@ -24,65 +28,102 @@ class MockDirectChannel implements DirectChannel {
 const MockChannelType =
   MockDirectChannel as unknown as DirectChannelType<DirectChannel>;
 
-function mockContext(
+async function installedContext(
   channelType?: DirectChannelType<DirectChannel>,
-): CraftContext {
-  const store = new Map();
-  const defaults = channelType ? { channelType } : undefined;
-  return {
-    logger: {
-      trace: mock(),
-      debug: mock(),
-      info: mock(),
-      warn: mock(),
-      error: mock(),
-      fatal: mock(),
-    },
-    getStore: (key: symbol) => store.get(key),
-    setStore: (key: symbol, value: unknown) => store.set(key, value),
-    lookup: (port: unknown) =>
-      port === DIRECT_DEFAULTS ? defaults : undefined,
-  } as unknown as CraftContext;
+): Promise<CraftContext> {
+  const ctx = new CraftContext(
+    channelType !== undefined ? { direct: { channelType } } : {},
+  );
+  await ctx.initPlugins();
+  return ctx;
 }
 
 describe("CraftConfig.direct defaults", () => {
   /**
    * @case CraftContext provides the direct channelType when config.direct is set
    * @preconditions CraftConfig includes a direct field; initPlugins() has run
-   *   (the direct config applier provides the DIRECT_DEFAULTS port during bind)
-   * @expectedResult Looking up DIRECT_DEFAULTS yields the configured channelType
+   *   (the direct config key installs routecraft.direct with those options)
+   * @expectedResult The DIRECT port carries the configured channelType
    */
-  test("provides channelType through the DIRECT_DEFAULTS port", async () => {
-    const ctx = new CraftContext({
-      direct: { channelType: MockChannelType },
-    });
-    await ctx.initPlugins();
+  test("provides channelType through the DIRECT port", async () => {
+    const ctx = await installedContext(MockChannelType);
 
-    const stored = ctx.lookup(DIRECT_DEFAULTS);
-    expect(stored).toHaveProperty("channelType", MockChannelType);
+    expect(ctx.lookup(DIRECT)?.channelType).toBe(MockChannelType);
   });
 
   /**
-   * @case CraftContext provides no direct defaults when config.direct is omitted
-   * @preconditions CraftConfig does not include a direct field
-   * @expectedResult Looking up DIRECT_DEFAULTS returns undefined
+   * @case The default direct plugin carries no channel type
+   * @preconditions CraftConfig does not include a direct field; initPlugins() has run
+   * @expectedResult DIRECT is provided by the default plugin, with no channelType
    */
-  test("provides no defaults when config.direct is omitted", () => {
-    const ctx = new CraftContext({});
+  test("provides the default registry when config.direct is omitted", async () => {
+    const ctx = await installedContext();
 
-    const stored = ctx.lookup(DIRECT_DEFAULTS);
-    expect(stored).toBeUndefined();
+    expect(ctx.lookup(DIRECT)).toBeDefined();
+    expect(ctx.lookup(DIRECT)?.channelType).toBeUndefined();
+  });
+});
+
+describe("default routecraft.direct plugin", () => {
+  /**
+   * @case An application installing routecraft.direct itself displaces the default
+   * @preconditions config.plugins carries directPlugin() with a channel type; no direct config key
+   * @expectedResult No RC1101 for a duplicate id, and DIRECT carries the explicit plugin's channel type
+   */
+  test("an explicit plugin with the default's id replaces it", async () => {
+    const ctx = new CraftContext({
+      plugins: [directPlugin({ channelType: MockChannelType })],
+    });
+    await ctx.initPlugins();
+
+    expect(ctx.lookup(DIRECT)?.channelType).toBe(MockChannelType);
+  });
+
+  /**
+   * @case A plugin that replaces DIRECT is the selected provider
+   * @preconditions A third-party plugin declares provides and replaces DIRECT alongside the default
+   * @expectedResult The context resolves DIRECT to the replacement's registry, not the default's
+   */
+  test("a plugin replacing DIRECT is selected over the default", async () => {
+    const replacement = createDirectRegistry();
+    const ctx = new CraftContext({
+      plugins: [
+        definePlugin({
+          id: "acme.endpoints",
+          provides: [DIRECT],
+          replaces: [DIRECT],
+          bind(c) {
+            c.provide(DIRECT, replacement);
+          },
+        }),
+      ],
+    });
+    await ctx.initPlugins();
+
+    expect(ctx.lookup(DIRECT)).toBe(replacement);
+  });
+
+  /**
+   * @case Every context carries its own registry
+   * @preconditions Two contexts built without any direct configuration
+   * @expectedResult Each resolves DIRECT to a distinct registry, so endpoints never leak between applications
+   */
+  test("each context gets a fresh default registry", async () => {
+    const first = await installedContext();
+    const second = await installedContext();
+
+    expect(first.lookup(DIRECT)).not.toBe(second.lookup(DIRECT));
   });
 });
 
 describe("resolveChannelType via getDirectChannel", () => {
   /**
    * @case getDirectChannel uses context-level channelType when per-adapter is absent
-   * @preconditions Context provides a DIRECT_DEFAULTS channelType, adapter options are empty
+   * @preconditions Context provides a DIRECT channelType, adapter options are empty
    * @expectedResult Channel is an instance of the context-level channel type
    */
-  test("uses context-level channelType when per-adapter is absent", () => {
-    const ctx = mockContext(MockChannelType);
+  test("uses context-level channelType when per-adapter is absent", async () => {
+    const ctx = await installedContext(MockChannelType);
 
     const channel = getDirectChannel(ctx, "test-endpoint", {});
     expect(channel).toBeInstanceOf(MockDirectChannel);
@@ -93,7 +134,7 @@ describe("resolveChannelType via getDirectChannel", () => {
    * @preconditions Both the context defaults and per-adapter options have channelType
    * @expectedResult Channel is an instance of the per-adapter channel type, not the context one
    */
-  test("prefers per-adapter channelType over context default", () => {
+  test("prefers per-adapter channelType over context default", async () => {
     class AdapterChannel implements DirectChannel {
       static brand = "adapter";
       constructor(public endpoint: string) {}
@@ -106,7 +147,7 @@ describe("resolveChannelType via getDirectChannel", () => {
     const AdapterChannelType =
       AdapterChannel as unknown as DirectChannelType<DirectChannel>;
 
-    const ctx = mockContext(MockChannelType);
+    const ctx = await installedContext(MockChannelType);
     const channel = getDirectChannel(ctx, "test-endpoint", {
       channelType: AdapterChannelType,
     });
@@ -120,8 +161,8 @@ describe("resolveChannelType via getDirectChannel", () => {
    * @preconditions Neither the context defaults nor per-adapter options have channelType
    * @expectedResult Channel is created (in-memory default), not an instance of MockDirectChannel
    */
-  test("falls back to in-memory channel when no channelType is set", () => {
-    const ctx = mockContext(); // no context-level channelType
+  test("falls back to in-memory channel when no channelType is set", async () => {
+    const ctx = await installedContext();
 
     const channel = getDirectChannel(ctx, "test-endpoint", {});
     expect(channel).toBeDefined();
