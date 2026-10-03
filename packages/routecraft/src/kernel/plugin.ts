@@ -146,6 +146,12 @@ export interface PluginContext {
   onDispose(dispose: () => void | Promise<void>): void;
   readonly routes: PluginRoutes;
   readonly execution: Execution;
+  /**
+   * True once the last `bind` returned. A provider that collects
+   * contributions through its port refuses them from then on (`RC1110`),
+   * because whatever read the contributions during bind has already used them.
+   */
+  readonly frozen: boolean;
 }
 
 /**

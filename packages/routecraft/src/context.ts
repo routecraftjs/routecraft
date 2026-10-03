@@ -1669,10 +1669,12 @@ export class CraftContext {
     const ordered = this.host?.ordered ?? [];
     for (let i = ordered.length - 1; i >= 0; i--) {
       const entry: InstalledPlugin = ordered[i]!;
-      if (!entry.bound) continue;
+      // A bind that threw still released nothing it registered with
+      // onDispose or observe; only its stop is skipped.
+      if (!entry.context) continue;
       const pluginId = entry.id;
       const pluginIndex = entry.index;
-      if (entry.plugin.stop) {
+      if (entry.bound && entry.plugin.stop) {
         this.emit("plugin:stopping", { pluginId, pluginIndex });
         try {
           await entry.plugin.stop(entry.context!, {

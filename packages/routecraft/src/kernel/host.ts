@@ -470,6 +470,7 @@ export class PluginHost {
     const refuseWhenFrozen = (what: string): void =>
       this.refuseWhenFrozen(id, what);
     const provisions = this.provisions;
+    const isFrozen = (): boolean => this.frozen;
     const context: PluginContext = {
       id,
       namespace: entry.namespace,
@@ -524,6 +525,9 @@ export class PluginHost {
         get: (routeId) => env.routes.get(routeId),
       },
       execution: env.execution,
+      get frozen() {
+        return isFrozen();
+      },
     };
     entry.context = context;
     return context;
