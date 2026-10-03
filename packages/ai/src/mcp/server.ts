@@ -58,6 +58,12 @@ import {
 } from "./cors.ts";
 import { ROUTECRAFT_DEFAULT_ICONS } from "./default-icon.ts";
 import { toolFailureText } from "./tool-failure.ts";
+import {
+  loadUiHtml,
+  MCP_APP_MIME_TYPE,
+  uiReadResult,
+  uiResourceUri,
+} from "./ui-resource.ts";
 import { buildEnrichedVerifier } from "./userinfo.ts";
 import { loadMcpServerSdk, loadMcpServerStdioSdk } from "./sdk.ts";
 import {
@@ -84,9 +90,6 @@ const NEVER_ABORTED = new AbortController().signal;
 /** How to run the HTTP transport over plain http locally, shared by the resource guards. */
 const LOCAL_HTTP_HINT =
   "For local work over plain http, run with NODE_ENV=development; an unset NODE_ENV counts as production.";
-
-/** MIME type the MCP Apps extension requires on a view resource. */
-const MCP_APP_MIME_TYPE = "text/html;profile=mcp-app";
 
 /** True for a plain, non-array, non-null object. */
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -276,12 +279,12 @@ export class McpServer {
   constructor(context: CraftContext, options: McpPluginOptions = {}) {
     this.context = context;
     this.options = {
-      name: "routecraft",
       version: "1.0.0",
       transport: "stdio",
       server: "default",
       path: "/mcp",
       ...options,
+      name: options.name ?? "routecraft",
     };
     this.validateResourceConfig();
     this.stopListeningForServer = context.on(
@@ -803,7 +806,7 @@ export class McpServer {
       resources: this.getExposedLocalEntries()
         .filter((entry) => entry.ui !== undefined)
         .map((entry) => ({
-          uri: this.uiResourceUri(entry),
+          uri: uiResourceUri(this.options.name, entry.endpoint),
           name: entry.endpoint,
           ...(entry.title !== undefined ? { title: entry.title } : {}),
           mimeType: MCP_APP_MIME_TYPE,
@@ -814,20 +817,12 @@ export class McpServer {
       resourceTemplates: [],
     }));
 
+    const notFound = this.resourceNotFound;
     server.setRequestHandler("resources/read", (request) =>
-      this.readUiResource(request.params.uri),
+      this.readUiResource(request.params.uri, notFound),
     );
 
     return server;
-  }
-
-  /**
-   * The `ui://` URI a tool's view is served at. Derived from the server and
-   * route identities rather than configured, so it cannot collide with
-   * another route's view or drift from the tool that advertises it.
-   */
-  private uiResourceUri(entry: McpLocalToolEntry): string {
-    return `ui://${encodeURIComponent(this.options.name)}/${entry.endpoint}`;
   }
 
   /**
@@ -839,52 +834,38 @@ export class McpServer {
    * file loader's error names an absolute path on this host, which is the
    * operator's to see and not the caller's.
    */
-  private async readUiResource(uri: string): Promise<ReadResourceResult> {
+  private async readUiResource(
+    uri: string,
+    notFound: typeof ResourceNotFoundError,
+  ): Promise<ReadResourceResult> {
     const entry = this.getExposedLocalEntries().find(
       (candidate) =>
-        candidate.ui !== undefined && this.uiResourceUri(candidate) === uri,
+        candidate.ui !== undefined &&
+        uiResourceUri(this.options.name, candidate.endpoint) === uri,
     );
     const ui = entry?.ui;
     if (entry === undefined || ui === undefined) {
-      throw new this.resourceNotFound!(uri);
+      throw new notFound(uri);
     }
 
-    let text: string;
+    let html: string;
     try {
-      text = typeof ui.html === "string" ? ui.html : await ui.html();
-      if (typeof text !== "string") {
-        throw new TypeError(
-          `ui.html resolved to ${typeof text}, expected an HTML string`,
-        );
-      }
+      html = await loadUiHtml(ui);
     } catch (error) {
+      const message = toolErrorLogMessage(error);
       this.context.logger.error(
         { tool: entry.endpoint, uri, err: error },
-        "MCP App view could not be loaded",
+        message,
       );
       this.context.emit("plugin:mcp:ui:failed", {
         tool: entry.endpoint,
         uri,
-        error: toolErrorLogMessage(error),
+        error: message,
       });
       throw new Error(`View for tool "${entry.endpoint}" could not be loaded`);
     }
-
-    const meta: Record<string, unknown> = {};
-    if (ui.csp !== undefined) meta["csp"] = ui.csp;
-    if (ui.prefersBorder !== undefined) {
-      meta["prefersBorder"] = ui.prefersBorder;
-    }
-    return {
-      contents: [
-        {
-          uri,
-          mimeType: MCP_APP_MIME_TYPE,
-          text,
-          ...(Object.keys(meta).length > 0 ? { _meta: { ui: meta } } : {}),
-        },
-      ],
-    };
+    this.context.emit("plugin:mcp:ui:served", { tool: entry.endpoint, uri });
+    return uiReadResult(uri, ui, html);
   }
 
   /**
@@ -1244,7 +1225,9 @@ export class McpServer {
       tool.icons = icons;
     }
     if (entry.ui !== undefined) {
-      tool._meta = { ui: { resourceUri: this.uiResourceUri(entry) } };
+      tool._meta = {
+        ui: { resourceUri: uiResourceUri(this.options.name, entry.endpoint) },
+      };
     }
     return tool;
   }

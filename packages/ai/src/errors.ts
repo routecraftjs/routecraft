@@ -77,6 +77,11 @@ declare module "@routecraft/routecraft" {
      * `ui.html` loader threw or resolved to something other than a string.
      * The host shows the tool's text result instead.
      */
+    /** An MCP Apps view was served for `resources/read`. */
+    "plugin:mcp:ui:served": {
+      tool: string;
+      uri: string;
+    };
     "plugin:mcp:ui:failed": {
       tool: string;
       uri: string;

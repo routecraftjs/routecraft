@@ -758,8 +758,8 @@ export interface McpTool {
   annotations?: McpToolAnnotations;
   /** Icons forwarded to clients per the MCP spec. */
   icons?: McpIcon[];
-  /** Protocol extension metadata, such as the MCP Apps `ui.resourceUri`. */
-  _meta?: Record<string, unknown>;
+  /** Protocol extension metadata, such as the MCP Apps view pointer. */
+  _meta?: { ui?: { resourceUri: string } } & Record<string, unknown>;
 }
 
 /**

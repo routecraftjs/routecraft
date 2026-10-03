@@ -154,7 +154,7 @@ export default craft()
 
 | Field | Type | Required | Description |
 |-------|------|----------|-------------|
-| `html` | `string \| (() => string \| Promise<string>)` | Yes | The view's HTML document, or a loader called on every `resources/read`. `fromFile(path)` returns a loader |
+| `html` | `string \| (() => string \| Promise<string>)` | Yes | The view's HTML document, or a loader called on every `resources/read`. `fromFile(path)` returns a loader; its relative path resolves against the process working directory, which a stdio host chooses, so prefer an absolute path |
 | `csp` | `McpUiCsp` | No | Outside origins the view may reach: `connectDomains`, `resourceDomains`, `frameDomains`, `baseUriDomains`, each a `string[]`. Omitted lists mean inline and own-origin only |
 | `prefersBorder` | `boolean` | No | Ask the host to draw a border around the view |
 
@@ -164,6 +164,7 @@ Rules the adapter enforces:
 - The URI is `ui://<server name>/<route id>`, derived from `mcpPlugin({ name })` and the route id, so it cannot collide or drift.
 - The view is served behind the same auth as the tools and follows the `tools` filter: a hidden tool's view is not listed and does not resolve. Every client of the server can read it, so keep the HTML static and let data arrive through the tool result.
 - A loader that throws answers a generic error naming the tool, logs the cause, and emits [`plugin:mcp:ui:failed`](/docs/reference/events#tool-call-events). The cause (often a host path) never reaches the caller.
+- The view receives the wire result, not your route's body: a non-object `.output()` arrives as `{ result }` on the 2025 protocol revision, a [deferrable tool](/docs/advanced/expose-as-mcp#deferrable-tools) can answer with the `{ status: "deferred", ... }` acknowledgment, and an `isError` result carries no `structuredContent`. Write the view to handle each it can meet.
 - The view renders after the tool has run. It is not a confirmation step; use `destructiveHint` and the host's own permission prompt for that.
 
 **Options (McpClientOptions -- destination):**

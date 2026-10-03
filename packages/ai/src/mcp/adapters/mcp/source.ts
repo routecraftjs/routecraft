@@ -61,7 +61,7 @@ function assertValidUiOptions(ui: McpUiOptions): void {
       if (
         origins !== undefined &&
         (!Array.isArray(origins) ||
-          origins.some((o) => typeof o !== "string" || o.length === 0))
+          origins.some((o) => typeof o !== "string" || o.trim() === ""))
       ) {
         invalid(`ui.csp.${key} must be an array of non-empty origin strings`);
       }
