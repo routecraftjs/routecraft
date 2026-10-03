@@ -103,20 +103,20 @@ describe("unwinding a failed build", () => {
     await expect(
       new ContextBuilder()
         .with({
-        plugins: [
-          {
-            id: "test.partial",
-            bind(c) {
-              c.onDispose(() => {
-                released.push("handle");
-              });
-              throw new Error("refuses after acquiring");
+          plugins: [
+            {
+              id: "test.partial",
+              bind(c) {
+                c.onDispose(() => {
+                  released.push("handle");
+                });
+                throw new Error("refuses after acquiring");
+              },
+              stop() {
+                stopped = true;
+              },
             },
-            stop() {
-              stopped = true;
-            },
-          },
-        ],
+          ],
         })
         .build(),
     ).rejects.toThrow("refuses after acquiring");
