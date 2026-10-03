@@ -27,7 +27,7 @@ Before writing, confirm answers to these questions. Ask the user only the ones t
 
 1. **Which roles does the adapter play?** Source (`.from(...)`), Destination (`.to(...)` / `.tap(...)`, push-out), Enricher (`.enrich(...)`, pull-in), Transformer (`.transform(...)`), or several of these?
 2. **How is data produced or consumed?** Request/response (HTTP-style)? Polling on an interval? Long-running stream or subscription? Filesystem? Two-sided protocol (server + client like mail)?
-3. **Where do options come from?** Per-call options on the factory, or context-wide defaults configured via a plugin?
+3. **Where do options come from?** Per-call options on the factory, or context-wide defaults a plugin provides through a port (`port<T>("owner.capability@1")`, read by the adapter with `context.lookup(PORT)`)?
 4. **What is the exchange shape?** What does `body` look like for sources you produce, and what does `body` need to look like for destinations you consume?
 
 ## Step 2: pick the closest example
@@ -52,7 +52,7 @@ Create the adapter under `packages/routecraft/src/adapters/<concept>/` if you ar
 The remaining authoring rules to keep in mind while writing:
 
 - **Tagging**: every factory return value goes through `tagAdapter(instance, factory, factoryArgs(...))`, at every return path. The eslint plugin and tests rely on this
-- **Store keys**: use `Symbol.for("routecraft.adapter.<concept>.<key>")` so keys survive duplicate package copies in the same process
+- **Store keys**: the adapter's own per-context state goes in the context store under `Symbol.for("routecraft.adapter.<concept>.<key>")`, so keys survive duplicate package copies in the same process. Anything a plugin hands the adapter (defaults, a client manager) is a port, never a store key another package writes
 - **No mutation**: transformers and processors return new objects via spread (`{ ...exchange, body: newBody }`). Do not mutate the incoming exchange
 - **Errors**: throw at adapter boundaries with a stable `rc` error code from `@routecraft/routecraft`. Capabilities catch and surface these via the capability-level error handler
 
