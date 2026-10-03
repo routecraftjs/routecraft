@@ -14,7 +14,6 @@ import {
   rcError,
   requireWebIngress,
   resolveCorsOptions,
-  type CraftContext,
   type PathClaim,
   type WebIngress,
 } from "@routecraft/routecraft";
@@ -57,6 +56,9 @@ export function normalizeAcpPath(raw: string): string {
   return path;
 }
 
+/** Where the mount looks up its named server: the plugin context. */
+type IngressSource = Parameters<typeof requireWebIngress>[0];
+
 /** What the mount remembers about one open connection. */
 interface ConnectionRecord {
   readonly connection: AcpConnection;
@@ -80,7 +82,7 @@ export class AcpServer {
     | undefined;
 
   constructor(
-    private readonly context: CraftContext,
+    private readonly context: IngressSource,
     private readonly runtime: AcpRuntime,
     private readonly options: AcpPluginOptions,
   ) {}
@@ -320,7 +322,7 @@ const SSE_COMMENT = new TextEncoder().encode(":\n\n");
 
 /** Refuse a mount whose ingress is missing, with the servers that exist. */
 export function assertIngress(
-  context: CraftContext,
+  context: IngressSource,
   server: string | undefined,
 ): WebIngress {
   try {

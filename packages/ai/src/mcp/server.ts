@@ -1,5 +1,5 @@
 import type {
-  CraftContext,
+  Port,
   EventDetailsMap,
   EventHandler,
   EventName,
@@ -216,11 +216,14 @@ export interface McpServerHost {
   /** The tools this application serves, and the clients it proxies. */
   readonly service: McpService;
   /**
-   * The context the HTTP mount resolves its named server through, until web
-   * ingress is reached through a port.
+   * Where the HTTP mount looks up the `WEB_INGRESS` port for its named
+   * server: the plugin context, which declares the port optional.
    */
-  readonly context: CraftContext;
+  readonly ingress: IngressLookup;
 }
+
+/** Anything that can look a port up: a plugin context, or a context. */
+type IngressLookup = { lookup<T>(port: Port<T>): T | undefined };
 
 /**
  * McpServer wraps the MCP SDK and bridges it to Routecraft's DirectChannel
@@ -238,7 +241,7 @@ export interface McpServerHost {
 export class McpServer {
   private readonly host: McpServerHost;
   private readonly service: McpService;
-  private context: CraftContext;
+  private context: IngressLookup;
   private options: McpServerResolvedOptions;
   private mcpHandler: McpHttpHandler | null = null;
   private unmountHttp: (() => void) | null = null;
@@ -301,7 +304,7 @@ export class McpServer {
   constructor(host: McpServerHost, options: McpPluginOptions = {}) {
     this.host = host;
     this.service = host.service;
-    this.context = host.context;
+    this.context = host.ingress;
     this.options = {
       version: "1.0.0",
       transport: "stdio",

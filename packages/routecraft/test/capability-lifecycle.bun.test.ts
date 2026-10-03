@@ -158,11 +158,12 @@ describe("capability registration lifecycle", () => {
 
   /**
    * @case A late disposer leaves a replacement alone
-   * @preconditions One endpoint registered, then re-registered by a second owner; the first owner's disposer runs afterwards
+   * @preconditions A context with its plugins installed; one endpoint registered, then re-registered by a second owner; the first owner's disposer runs afterwards
    * @expectedResult The second registration survives. This is the remotes handoff: `route:stopped` reaches the remotes plugin before the direct source's own abort listener, so the plugin has already advertised the remote route by the time the local disposer runs, and an unconditional delete would erase the endpoint the remote now owns
    */
-  test("a disposer whose entry was replaced removes nothing", () => {
+  test("a disposer whose entry was replaced removes nothing", async () => {
     const context = new CraftContext({});
+    await context.initPlugins();
 
     const disposeLocal = registerCapability(context, { endpoint: "hello" });
     registerCapability(context, { endpoint: "hello", remote: "lab" });
@@ -175,11 +176,12 @@ describe("capability registration lifecycle", () => {
 
   /**
    * @case The internal marker follows the same ownership rule
-   * @preconditions One endpoint marked internal twice, then the first registration's disposer run
+   * @preconditions A context with its plugins installed; one endpoint marked internal twice, then the first registration's disposer run
    * @expectedResult The marker stands. A set of names could not tell the two registrations apart, which is why the registry holds an identity token per registration
    */
-  test("an internal disposer whose marker was replaced removes nothing", () => {
+  test("an internal disposer whose marker was replaced removes nothing", async () => {
     const context = new CraftContext({});
+    await context.initPlugins();
 
     const disposeFirst = registerInternalEndpoint(context, "subroutine");
     registerInternalEndpoint(context, "subroutine");

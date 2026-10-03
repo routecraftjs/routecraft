@@ -116,10 +116,5 @@ export type {
   DirectOptions,
 } from "./types";
 
-// Re-export constants for registry access
-export {
-  ADAPTER_DIRECT_STORE,
-  DIRECT_DEFAULTS,
-  getDirectChannel,
-  sanitizeEndpoint,
-} from "./shared";
+export { getDirectChannel, sanitizeEndpoint } from "./shared";
+export { DIRECT, type DirectRegistry } from "./registry";

@@ -11,11 +11,11 @@
  * plugin.
  */
 
-import type { CraftContext } from "../../context";
 import type { Plugin, PluginContext } from "../../kernel/plugin.ts";
 import { parseDuration } from "../../shared/duration.ts";
 import { rcError } from "../../error";
-import { requireWebIngress } from "../server/registry";
+import { DIRECT } from "../../adapters/direct/registry.ts";
+import { requireWebIngress, WEB_INGRESS } from "../server/registry";
 import type { PathClaim } from "../server/types";
 import {
   bindIndicator,
@@ -27,11 +27,7 @@ import { createManagementApi } from "./management";
 import { createManagementHandler } from "./mount";
 import { createHealthHandler } from "./report";
 import { HealthState } from "./state";
-import {
-  OPS_CONTRIBUTED_INDICATORS,
-  OPS_HEALTH_STATE,
-  type ContributedIndicator,
-} from "./store";
+import { OPS, OpsContributions, type ContributedIndicator } from "./store";
 import { enforcesWall } from "./tier";
 import type { Health, Indicator, OpsPluginOptions, OpsTiers } from "./types";
 
@@ -49,9 +45,11 @@ const CLAIMS: readonly PathClaim[] = [
   { kind: "prefix", path: "/ops" },
 ];
 
-/** Per-context state. One plugin instance may serve several contexts. */
+/** Per-application state. One plugin instance may serve several applications. */
 interface Runtime {
   state: HealthState;
+  /** What other plugins contributed through {@link OPS}. */
+  contributions: OpsContributions;
   unsubscribes: (() => void)[];
   /** The mount's effective validator exists (its own auth, or the server's). */
   authConfigured: boolean;
@@ -78,14 +76,16 @@ interface Runtime {
  * for dependencies the framework cannot see.
  *
  * Lifecycle:
- * - `apply(ctx)`: build the ledger, bind indicators, subscribe to lifecycle
- *   events, and register the mount. Nothing is listening yet, so a
- *   misconfiguration fails the build rather than a live surface.
- * - `start(ctx)`: check that every route-bound indicator names a real route.
- *   The server binds its listener in its own `start()`, after routes are up,
- *   so a probe arriving before that gets connection refused, which every
- *   orchestrator reads as not-ready.
- * - `teardown(ctx)`: unmount, unsubscribe, and release the indicator bindings.
+ * - `bind(c)`: build the ledger, provide {@link OPS}, bind indicators,
+ *   subscribe to lifecycle events, and register the mount. Nothing is
+ *   listening yet, so a misconfiguration fails the build rather than a live
+ *   surface.
+ * - `start(c)`: check that every route-bound indicator names a real route,
+ *   and bind the indicators other plugins contributed. The server binds its
+ *   listener in its own `start()`, after routes are up, so a probe arriving
+ *   before that gets connection refused, which every orchestrator reads as
+ *   not-ready.
+ * - `stop(c)`: unmount, unsubscribe, and release the indicator bindings.
  *
  * The health surface never walls, whatever `auth` says: the ingress never
  * authenticates on its own, and this surface calls `authenticate()` only to
@@ -104,18 +104,19 @@ export function opsPlugin(options: OpsPluginOptions = {}): Plugin {
   const tiers: OpsTiers = options.tiers ?? {};
   const indicators: readonly Indicator[] = options.indicators ?? [];
 
-  const runtimes = new WeakMap<CraftContext, Runtime>();
+  const runtimes = new WeakMap<PluginContext, Runtime>();
 
   return {
     id: "routecraft.ops",
+    requires: [WEB_INGRESS, DIRECT],
+    provides: [OPS],
 
     bind(c: PluginContext) {
-      const ctx = c.context;
       // Everything below is resolved and validated before anything with a
       // side effect happens. The boot unwind is not guaranteed to reach this
       // plugin's teardown, so a binding or subscription installed before a
       // later throw would outlive the dead context.
-      const ingress = requireWebIngress(ctx, serverName);
+      const ingress = requireWebIngress(c.require(WEB_INGRESS), serverName);
       const mountAuth = ingress.resolveMountAuth(mountAuthOption);
 
       // Explicit intent with nothing to gate on is refused; only the
@@ -141,8 +142,8 @@ export function opsPlugin(options: OpsPluginOptions = {}): Plugin {
       }
 
       // Refused here rather than at mountHttp: by the time the mount is
-      // registered this apply() has already replaced the published ledger and
-      // rebound every indicator to it, so a second instance would leave the
+      // registered this bind has already provided its ledger and rebound
+      // every indicator to it, so a second instance would leave the
       // already-mounted handler reporting from a ledger nothing writes to.
       if (ingress.hasMount("ops")) {
         throw rcError("RC5053", undefined, {
@@ -152,19 +153,21 @@ export function opsPlugin(options: OpsPluginOptions = {}): Plugin {
 
       const state = new HealthState({
         onChange: (change) => {
-          ctx.emit("plugin:ops:health:changed", change);
+          c.emit("plugin:ops:health:changed", change);
         },
       });
       const names = new Set<string>();
+      const contributions = new OpsContributions(state);
       const runtime: Runtime = {
         state,
+        contributions,
         unsubscribes: [],
         authConfigured: mountAuth.configured,
         indicatorNames: names,
         contributed: [],
       };
-      runtimes.set(ctx, runtime);
-      ctx.setStore(OPS_HEALTH_STATE, state);
+      runtimes.set(c, runtime);
+      c.provide(OPS, contributions);
 
       for (const indicator of indicators) {
         if (!isIndicator(indicator)) {
@@ -188,7 +191,7 @@ export function opsPlugin(options: OpsPluginOptions = {}): Plugin {
           ...(maxAgeMs !== undefined ? { maxAgeMs } : {}),
           ...(domain !== undefined ? { domain } : {}),
         });
-        bindIndicator(indicator, ctx, state);
+        bindIndicator(indicator, c, state);
       }
 
       // Indicators bound to a route, keyed by route id, so one subscription
@@ -210,18 +213,18 @@ export function opsPlugin(options: OpsPluginOptions = {}): Plugin {
         // an orchestrator while a source is still coming up. The context is
         // marked started in this plugin's own start() hook instead, which the
         // framework runs after route readiness settles.
-        ctx.on("context:stopping", () => state.contextStopping()),
-        ctx.on("route:started", ({ details }) => {
+        c.observe("context:stopping", () => state.contextStopping()),
+        c.observe("route:started", ({ details }) => {
           state.routeStarted(details.routeId);
         }),
-        ctx.on("route:stopped", ({ details }) => {
+        c.observe("route:stopped", ({ details }) => {
           state.routeStopped(details.routeId);
         }),
         // Disabled is reported distinctly from failed, WITH its reason, and
         // never degrades the aggregate: an operator reading /ops sees
         // "mail-inbound: disabled (MAIL_USER, MAIL_APP_PASSWORD unset)" and
         // knows immediately that nothing is broken.
-        ctx.on("route:enablement:changed", ({ details }) => {
+        c.observe("route:enablement:changed", ({ details }) => {
           if (details.enabled) {
             state.clearRouteDisabled(details.routeId);
           } else {
@@ -235,10 +238,10 @@ export function opsPlugin(options: OpsPluginOptions = {}): Plugin {
         // subscribed: it fires for every unhandled exchange error and for any
         // throwing event handler, so reading it as a dead source would make
         // one refused caller report the route down.
-        ctx.on("route:source:failed", ({ details }) => {
+        c.observe("route:source:failed", ({ details }) => {
           state.sourceDied(details.routeId);
         }),
-        ctx.on("route:exchange:completed", ({ details }) => {
+        c.observe("route:exchange:completed", ({ details }) => {
           state.exchangeCompleted(details.routeId);
           if (hasBoundIndicators) {
             for (const name of boundIndicators.get(details.routeId) ?? []) {
@@ -252,7 +255,7 @@ export function opsPlugin(options: OpsPluginOptions = {}): Plugin {
         // the dependency was ever reached. Reporting a verdict from it would
         // be inventing one, so a bound indicator on a route that only drops
         // goes stale, which is the truthful answer.
-        ctx.on("route:exchange:failed", ({ details }) => {
+        c.observe("route:exchange:failed", ({ details }) => {
           state.exchangeFailed(details.routeId);
           if (hasBoundIndicators) {
             for (const name of boundIndicators.get(details.routeId) ?? []) {
@@ -264,13 +267,13 @@ export function opsPlugin(options: OpsPluginOptions = {}): Plugin {
         // signal, because it is the one thing that actually stops the route
         // serving. Both scopes count: a step-scope breaker still means part of
         // this route is refusing work.
-        ctx.on("route:circuitBreaker:opened", ({ details }) => {
+        c.observe("route:circuitBreaker:opened", ({ details }) => {
           state.circuitOpened(details.routeId, details.stepLabel, "open");
         }),
-        ctx.on("route:circuitBreaker:halfOpen", ({ details }) => {
+        c.observe("route:circuitBreaker:halfOpen", ({ details }) => {
           state.circuitOpened(details.routeId, details.stepLabel, "half-open");
         }),
-        ctx.on("route:circuitBreaker:closed", ({ details }) => {
+        c.observe("route:circuitBreaker:closed", ({ details }) => {
           state.circuitClosed(details.routeId, details.stepLabel);
         }),
       );
@@ -281,10 +284,18 @@ export function opsPlugin(options: OpsPluginOptions = {}): Plugin {
         uptime: () => process.uptime(),
       });
       const management = createManagementHandler({
-        api: createManagementApi(ctx),
+        api: createManagementApi({
+          routes: c.routes,
+          execution: c.execution,
+          observe: c.observe,
+          isInternalEndpoint: (endpoint) =>
+            c.require(DIRECT).isInternal(endpoint),
+          remoteRoutes: () => contributions.remoteRoutes(),
+          resource: (name) => contributions.resources.get(name),
+        }),
         tiers,
         onRefused: ({ reason, scheme }) => {
-          ctx.emit("auth:rejected", { reason, scheme, source: "ops" });
+          c.emit("auth:rejected", { reason, scheme, source: "ops" });
         },
       });
 
@@ -325,17 +336,15 @@ export function opsPlugin(options: OpsPluginOptions = {}): Plugin {
     },
 
     start(c: PluginContext) {
-      const ctx = c.context;
-      const runtime = runtimes.get(ctx);
+      const runtime = runtimes.get(c);
       if (!runtime) return;
 
       // An indicator naming a route that does not exist is a typo that would
       // otherwise present as a dependency stuck reporting nothing. Routes are
       // registered by the time start() runs, so this is the first point the
       // check can be made.
-      const known = new Set(
-        ctx.getRoutes().map((route) => route.definition.id),
-      );
+      const routes = c.routes.list();
+      const known = new Set(routes.map((route) => route.id));
       for (const indicator of indicators) {
         const boundRoute = indicator.definition.route;
         if (boundRoute !== undefined && !known.has(boundRoute)) {
@@ -349,8 +358,8 @@ export function opsPlugin(options: OpsPluginOptions = {}): Plugin {
       // readiness is bounded by a timeout, so a source that never signals
       // would otherwise be missing from the report rather than shown as
       // unproven. Routes that did signal already have their real state.
-      for (const route of ctx.getRoutes()) {
-        runtime.state.declareRoute(route.definition.id);
+      for (const route of routes) {
+        runtime.state.declareRoute(route.id);
       }
 
       // Routes disabled during the boot: their `route:enablement:changed`
@@ -359,25 +368,27 @@ export function opsPlugin(options: OpsPluginOptions = {}): Plugin {
       // from the context's own record rather than by re-evaluating the
       // predicates, which would run a user's credential check a second time
       // for a state the context already holds.
-      for (const [routeId, reason] of ctx.disabledRoutes()) {
-        runtime.state.setRouteDisabled(routeId, reason);
+      for (const route of routes) {
+        if (route.enabled) continue;
+        runtime.state.setRouteDisabled(
+          route.id,
+          route.disabledReason ?? "disabled by its enabled() predicate",
+        );
       }
 
       // Reaching this with the gate mode and no validator means the
       // unwritten default collapsed; the explicit case was refused at apply.
       if (detailsExposure === "when-authenticated" && !runtime.authConfigured) {
-        ctx.logger.warn(
+        c.logger.warn(
           { server: serverName, plugin: "ops" },
           `ops.health serves statuses only: no validator is in scope, so the default "when-authenticated" gate withholds per-component details from every caller. Set ops.auth (or servers.${serverName}.auth) to gate them, or health.details: "always" to serve them to everyone.`,
         );
       }
 
-      // Indicators other plugins contributed from their apply(), bound here
-      // because a contributor may have applied after this plugin did. Names
-      // share one report with ops.indicators, so a clash is refused rather
-      // than letting whichever registered last own the key.
-      for (const entry of ctx.getStore(OPS_CONTRIBUTED_INDICATORS)?.values() ??
-        []) {
+      // Indicators other plugins contributed from their bind, which ran after
+      // this plugin's. Names share one report with ops.indicators, so a clash
+      // is refused rather than letting whichever registered last own the key.
+      for (const entry of runtime.contributions.indicators.values()) {
         if (runtime.indicatorNames.has(entry.name)) {
           throw rcError("RC5053", undefined, {
             message: `Indicator "${entry.name}" is both listed in ops.indicators and contributed by a plugin. Indicator names are the keys of the health report, so they must be unique.`,
@@ -407,7 +418,7 @@ export function opsPlugin(options: OpsPluginOptions = {}): Plugin {
 
       const unbound = unboundIndicators();
       if (unbound.length > 0) {
-        ctx.logger.warn(
+        c.logger.warn(
           { indicators: unbound, plugin: "ops" },
           `Indicators declared but not registered: ${unbound.join(", ")}. A push through an unregistered handle is inert, so these dependencies would never appear in the health report. Add them to ops.indicators.`,
         );
@@ -419,8 +430,7 @@ export function opsPlugin(options: OpsPluginOptions = {}): Plugin {
     },
 
     stop(c: PluginContext) {
-      const ctx = c.context;
-      const runtime = runtimes.get(ctx);
+      const runtime = runtimes.get(c);
       if (!runtime) return;
 
       // teardown must tolerate its own start() never having run: the unwind
@@ -436,11 +446,11 @@ export function opsPlugin(options: OpsPluginOptions = {}): Plugin {
         // context draining forever.
         runtime.state.contextStopped();
         for (const unsubscribe of runtime.unsubscribes) unsubscribe();
-        for (const indicator of indicators) unbindIndicator(indicator, ctx);
+        for (const indicator of indicators) unbindIndicator(indicator, c);
         for (const { entry, sink } of runtime.contributed) {
           entry.sinks.delete(sink);
         }
-        runtimes.delete(ctx);
+        runtimes.delete(c);
       }
     },
   };

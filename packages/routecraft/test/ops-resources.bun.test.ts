@@ -5,6 +5,7 @@ import {
   craft,
   direct,
   noop,
+  OPS,
   opsPlugin,
   parsePageQuery,
   rcError,
@@ -61,8 +62,9 @@ let contributors = 0;
 function contributing(resource: OpsResource): Plugin {
   return {
     id: `test.widgets-${++contributors}`,
+    optional: [OPS],
     bind(c) {
-      registerOpsResource(c.context, resource);
+      registerOpsResource(c, resource);
     },
   };
 }

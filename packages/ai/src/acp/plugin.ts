@@ -12,6 +12,7 @@ import {
   craft,
   direct,
   rcError,
+  WEB_INGRESS,
   type Plugin,
   type PluginContext,
   type RouteDefinition,
@@ -59,6 +60,7 @@ export function acpPlugin(options: AcpPluginOptions = {}): Plugin {
   return {
     id: "routecraft.ai.acp",
     requires: [AGENTS],
+    optional: [WEB_INGRESS],
     async bind(c: PluginContext) {
       const registry = c.require(AGENTS);
       const agents = registry.agents;
@@ -69,11 +71,11 @@ export function acpPlugin(options: AcpPluginOptions = {}): Plugin {
             "Write the agents under `agent:` (or let `craft start` discover them), or list acpPlugin() after the agentPlugin() that registers them in `plugins`.",
         });
       }
-      // Surfaces and the web ingress are still keyed on the context.
+      // Live surfaces are still registered on the context.
       runtime = new AcpRuntime(c, registry, c.context, options);
       runtime.subscribe();
       c.routes.register(...turnRoutes(runtime, [...agents.keys()]));
-      server = new AcpServer(runtime.surfaceContext, runtime, options);
+      server = new AcpServer(c, runtime, options);
       await server.prepare();
       c.logger.info(
         { path: options.path ?? "/acp", agents: agents.size },

@@ -96,6 +96,7 @@ export {
 } from "./plugins/resilience/index.ts";
 export { cachePlugin, cacheProvider } from "./plugins/cache/index.ts";
 export { authPlugin, enforcementProvider } from "./plugins/auth/index.ts";
+export { directPlugin } from "./plugins/direct/index.ts";
 export {
   refuse,
   SLOTS,
@@ -153,7 +154,12 @@ import "./deferral/config.ts";
 
 export { httpPlugin } from "./plugins/http/plugin.ts";
 export { serversPlugin } from "./plugins/server/plugin.ts";
-export { requireWebIngress } from "./plugins/server/registry.ts";
+export {
+  requireWebIngress,
+  WEB_INGRESS,
+  type IngressHost,
+} from "./plugins/server/registry.ts";
+export { HTTP, type HttpMounts } from "./plugins/http/registry.ts";
 export { normalizeStaticPathPrefix } from "./plugins/server/mount-path.ts";
 export type {
   HttpMount,
@@ -186,9 +192,11 @@ export {
 export { opsPlugin } from "./plugins/ops/plugin.ts";
 export { defineIndicator } from "./plugins/ops/indicator.ts";
 export {
-  OPS_HEALTH_STATE,
-  OPS_RESOURCES,
+  OPS,
+  contributeOpsIndicator,
   registerOpsResource,
+  type IndicatorContribution,
+  type OpsService,
 } from "./plugins/ops/store.ts";
 // Paging for contributed resources, so a contributor's collection carries the
 // same cursor contract as the route listing rather than a second one.
@@ -263,6 +271,11 @@ export {
   type RuntimeVersion,
 } from "./shared/runtime-version.ts";
 export { remotesPlugin } from "./plugins/remotes/plugin.ts";
+export {
+  REMOTES,
+  type RemoteRoute,
+  type Remotes,
+} from "./plugins/remotes/store.ts";
 export type {
   RemoteDefinition,
   RemotesConfig,
@@ -654,6 +667,8 @@ export {
   type HttpWebhookSignatureScheme,
 } from "./adapters/http/index.ts";
 export {
+  DIRECT,
+  type DirectRegistry,
   type DirectBaseOptions,
   type DirectChannel,
   type DirectChannelType,

@@ -17,16 +17,11 @@ import {
   type GatedBuiltins,
   type RequestCompletedHandler,
 } from "./dispatcher";
-import {
-  HTTP_MOUNTS,
-  HTTP_PLUGIN_REGISTERED,
-  type HttpMountRuntime,
-  type HttpRouteView,
-} from "./registry";
+import { HTTP, type HttpMountRuntime, type HttpRouteView } from "./registry";
 import type { HttpOpenApiInfo } from "./openapi";
 import type { HttpWebhookSignatureRejection } from "./webhook-signature";
 import { findPackageInfo } from "./package-info";
-import { requireWebIngress } from "../server/registry.ts";
+import { requireWebIngress, WEB_INGRESS } from "../server/registry.ts";
 import { normalizeStaticPathPrefix } from "../server/mount-path.ts";
 import type { PathClaim } from "../server/types.ts";
 import { staticPathPrefix } from "./path-matcher.ts";
@@ -55,9 +50,9 @@ interface ResolvedMount {
  * `.authorize()`, which pull verification through it.
  *
  * Lifecycle:
- *   - `apply(ctx)`: validate options, publish the mount table on the context
- *     store, and mount each dispatcher on its mount's named server.
- *   - `teardown(ctx)`: unmount the dispatchers and clear the registries.
+ *   - `bind(c)`: provide the mount table as {@link HTTP}, and mount each
+ *     dispatcher on its mount's named server.
+ *   - `stop(c)`: unmount the dispatchers and clear the registries.
  */
 export function httpPlugin(options: HttpPluginOptions): Plugin {
   const { mounts: mountsResolved, maxBodySize } = validate(options);
@@ -118,14 +113,14 @@ export function httpPlugin(options: HttpPluginOptions): Plugin {
 
   return {
     id: "routecraft.http",
+    requires: [WEB_INGRESS],
+    provides: [HTTP],
     async bind(c: PluginContext) {
-      const ctx = c.context;
-      ctx.setStore(HTTP_PLUGIN_REGISTERED, true);
-      ctx.setStore(HTTP_MOUNTS, mountRuntimes);
+      c.provide(HTTP, { mounts: mountRuntimes });
 
       const onRequestCompleted: RequestCompletedHandler | undefined =
         perRequestEnabled
-          ? (event) => ctx.emit("plugin:http:request:completed", { ...event })
+          ? (event) => c.emit("plugin:http:request:completed", { ...event })
           : undefined;
 
       // Streaming responses are the one kind of in-flight request that can
@@ -135,7 +130,7 @@ export function httpPlugin(options: HttpPluginOptions): Plugin {
       // listener's graceful close finds nothing left to drain.
       const shutdown = new AbortController();
       unmounts.push(
-        ctx.on("context:stopping", () => {
+        c.observe("context:stopping", () => {
           shutdown.abort(new Error("Context is stopping"));
         }),
       );
@@ -144,10 +139,11 @@ export function httpPlugin(options: HttpPluginOptions): Plugin {
       // `server` on the third mount cannot leave the first two registered on
       // a context whose boot then fails; the unwind is not guaranteed to
       // reach this plugin's teardown.
+      const ingressMap = c.require(WEB_INGRESS);
       const ingresses = new Map(
         mountsResolved.map((mount) => [
           mount.name,
-          requireWebIngress(ctx, mount.server),
+          requireWebIngress(ingressMap, mount.server),
         ]),
       );
       for (const mount of mountsResolved) {
@@ -164,7 +160,7 @@ export function httpPlugin(options: HttpPluginOptions): Plugin {
         // the event. Built per mount so every rejection path on one surface
         // reports the same `source` the thunk's events carry.
         const onAuthAbsent = (scheme: string) => {
-          ctx.emit("auth:rejected", {
+          c.emit("auth:rejected", {
             reason: missingCredentialReason(scheme),
             scheme,
             source: mountId,
@@ -176,7 +172,7 @@ export function httpPlugin(options: HttpPluginOptions): Plugin {
         // because the per-route signature gate is independent of the mount
         // wall; a webhook endpoint typically lives on a public mount.
         const onSignatureRejected = (reason: HttpWebhookSignatureRejection) => {
-          ctx.emit("auth:rejected", {
+          c.emit("auth:rejected", {
             reason,
             scheme: "signature",
             source: mountId,
@@ -246,7 +242,7 @@ export function httpPlugin(options: HttpPluginOptions): Plugin {
           shutdownSignal: shutdown.signal,
           onAuthAbsent,
           onSignatureRejected,
-          logger: ctx.logger,
+          logger: c.logger,
         });
         unmounts.push(
           ingress.mountHttp({
@@ -309,21 +305,16 @@ export function httpPlugin(options: HttpPluginOptions): Plugin {
       }
     },
     async stop(c: PluginContext) {
-      const ctx = c.context;
       for (const unmount of unmounts.splice(0)) {
         try {
           unmount();
         } catch (error) {
-          ctx.logger.warn(
-            { err: error },
-            "HTTP mount failed to unmount cleanly",
-          );
+          c.logger.warn({ err: error }, "HTTP mount failed to unmount cleanly");
         }
       }
       for (const runtime of mountRuntimes.values()) {
         runtime.registry.clear();
       }
-      ctx.setStore(HTTP_PLUGIN_REGISTERED, false);
     },
   };
 }

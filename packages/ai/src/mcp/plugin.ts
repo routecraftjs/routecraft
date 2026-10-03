@@ -4,6 +4,7 @@ import {
   type EventName,
   parseDuration,
   rejectStaleOptions,
+  WEB_INGRESS,
 } from "@routecraft/routecraft";
 import { McpServer } from "./server.ts";
 import { connectMcpHttpClient } from "./sdk.ts";
@@ -50,6 +51,7 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
   return {
     id: "routecraft.ai.mcp",
     provides: [MCP],
+    optional: [WEB_INGRESS],
     async bind(c: PluginContext) {
       // Shared, so the stop that clears the managers clears what dispatch sees.
       const service: McpService = {
@@ -94,7 +96,7 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
           emit: (event, details) => c.emit(event, details),
           observe: (event, handler) => c.observe(event, handler),
           service,
-          context: c.context,
+          ingress: c,
         },
         options,
       );

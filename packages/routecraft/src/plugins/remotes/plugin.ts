@@ -18,32 +18,26 @@
  * bearer is the identity every imported route runs under.
  */
 
-import type { CraftContext } from "../../context";
-import type { Plugin, PluginContext } from "../../kernel/plugin.ts";
+import type {
+  Plugin,
+  PluginContext,
+  PluginLogger,
+} from "../../kernel/plugin.ts";
 import { rcError } from "../../error";
-import {
-  CAPABILITY_REGISTRY,
-  isInternalEndpoint,
-  registerCapability,
-  type Capability,
-} from "../../capabilities";
-import {
-  ADAPTER_DIRECT_STORE,
-  sanitizeEndpoint,
-} from "../../adapters/direct/shared";
-import type { DirectChannel } from "../../adapters/direct/types";
-import type { Exchange } from "../../exchange";
+import type { Capability } from "../../capabilities";
+import { sanitizeEndpoint } from "../../adapters/direct/shared";
+import { DIRECT, type DirectRegistry } from "../../adapters/direct/registry.ts";
 import { parseDuration } from "../../shared/duration.ts";
 import {
   createOpsHttpClient,
   isLoopbackHostname,
   type OpsHttpClient,
 } from "../ops/client";
-import { contributeOpsIndicator } from "../ops/store";
+import { contributeOpsIndicator, OPS } from "../ops/store";
 import type { Health, OpsRouteDetail } from "../ops/types";
 import { RemoteDirectChannel, type RemoteTarget } from "./channel";
 import { standardSchemaFromJsonSchema } from "./schema";
-import { REMOTE_ROUTES, type RemoteRoute } from "./store";
+import { REMOTES, type RemoteRoute } from "./store";
 import type { RemoteDefinition, RemotesPluginOptions } from "./types";
 
 /** The remote whose routes are advertised bare. */
@@ -85,8 +79,18 @@ interface RemoteRuntime {
   seen: boolean;
 }
 
-/** Per-context state. One plugin instance may serve several contexts. */
+/** What every remote of one application reconciles against. */
+interface Host {
+  logger: PluginLogger;
+  /** The application's direct endpoints, where imported routes are installed. */
+  direct: DirectRegistry;
+  /** Imported routes holding their endpoint, by local endpoint. */
+  routes: Map<string, RemoteRoute>;
+}
+
+/** Per-application state. One plugin instance may serve several applications. */
 interface Runtime {
+  host: Host;
   remotes: RemoteRuntime[];
   /** Stops listening for local routes starting and stopping. */
   off: Array<() => void>;
@@ -178,23 +182,30 @@ function validate(options: RemotesPluginOptions): void {
  * `defineConfig({ remotes: { default: { url, auth } } })` rather than
  * pushing it onto `config.plugins`.
  *
- * `apply` validates, builds a client per remote and contributes an
+ * `bind` validates, builds a client per remote and contributes an
  * indicator per remote to the health report. `start` reads every
  * inventory once, awaited, so a route the remote exposes is a local
  * endpoint by the time the context reports ready, and a remote that is
  * unreachable registers nothing, logs, and reports its indicator down;
- * its routes appear on the refresh that first reaches it. `teardown`
+ * its routes appear on the refresh that first reaches it. `stop`
  * clears the timers and removes every endpoint this plugin installed.
  */
 export function remotesPlugin(options: RemotesPluginOptions): Plugin {
   validate(options);
-  const runtimes = new WeakMap<CraftContext, Runtime>();
+  const runtimes = new WeakMap<PluginContext, Runtime>();
 
   return {
     id: "routecraft.remotes",
+    requires: [DIRECT],
+    optional: [OPS],
+    provides: [REMOTES],
 
     bind(c: PluginContext) {
-      const ctx = c.context;
+      const host: Host = {
+        logger: c.logger,
+        direct: c.require(DIRECT),
+        routes: new Map<string, RemoteRoute>(),
+      };
       const remotes: RemoteRuntime[] = Object.entries(options).map(
         ([name, definition]) => {
           const client = createOpsHttpClient({
@@ -219,7 +230,7 @@ export function remotesPlugin(options: RemotesPluginOptions): Plugin {
           // Deployment domain: every replica reaches the remote with the same
           // credential over the same network, so one failing means all do,
           // and moving traffic between replicas would not help.
-          const report = contributeOpsIndicator(ctx, {
+          const report = contributeOpsIndicator(c, {
             name: indicatorName(name),
             domain: "deployment",
           });
@@ -242,27 +253,27 @@ export function remotesPlugin(options: RemotesPluginOptions): Plugin {
       // local route is still there at all is the capability registry's
       // answer now that the direct source unregisters at stop, so this
       // plugin no longer tracks the lifecycle itself. Listening from
-      // apply, not start, so no route can stop unseen.
+      // bind, not start, so no route can stop unseen.
       const off = [
-        ctx.on("route:stopped", ({ details }) => {
-          for (const remote of remotes) lift(ctx, remote, details.routeId);
+        c.observe("route:stopped", ({ details }) => {
+          for (const remote of remotes) lift(host, remote, details.routeId);
         }),
       ];
-      runtimes.set(ctx, { remotes, off });
-      if (!ctx.getStore(REMOTE_ROUTES)) {
-        ctx.setStore(REMOTE_ROUTES, new Map<string, RemoteRoute>());
-      }
+      runtimes.set(c, { host, remotes, off });
+      const imported = (): ReadonlyMap<string, RemoteRoute> => host.routes;
+      c.provide(REMOTES, { routes: imported });
+      c.lookup(OPS)?.contributeRemoteRoutes(imported);
     },
 
     async start(c: PluginContext) {
-      const ctx = c.context;
-      const runtime = runtimes.get(ctx);
+      const runtime = runtimes.get(c);
       if (!runtime) return;
-      await Promise.all(runtime.remotes.map((remote) => refresh(ctx, remote)));
+      const { host } = runtime;
+      await Promise.all(runtime.remotes.map((remote) => refresh(host, remote)));
       for (const remote of runtime.remotes) {
         if (remote.refreshMs === undefined) continue;
         const timer = setInterval(() => {
-          void refresh(ctx, remote);
+          void refresh(host, remote);
         }, remote.refreshMs);
         timer.unref?.();
         remote.timer = timer;
@@ -270,10 +281,9 @@ export function remotesPlugin(options: RemotesPluginOptions): Plugin {
     },
 
     async stop(c: PluginContext) {
-      const ctx = c.context;
-      const runtime = runtimes.get(ctx);
+      const runtime = runtimes.get(c);
       if (!runtime) return;
-      runtimes.delete(ctx);
+      runtimes.delete(c);
       for (const off of runtime.off) off();
       for (const remote of runtime.remotes) {
         if (remote.timer !== undefined) clearInterval(remote.timer);
@@ -282,7 +292,7 @@ export function remotesPlugin(options: RemotesPluginOptions): Plugin {
         // below on a context that is going away.
         await remote.inflight?.catch(() => undefined);
         for (const endpoint of [...remote.channels.keys()]) {
-          release(ctx, remote, endpoint);
+          release(runtime.host, remote, endpoint);
         }
       }
     },
@@ -298,18 +308,15 @@ export function remotesPlugin(options: RemotesPluginOptions): Plugin {
  * in flight joins it, which is also the right answer for a dispatch that
  * met a 404 while the interval was already asking.
  */
-function refresh(ctx: CraftContext, remote: RemoteRuntime): Promise<void> {
+function refresh(host: Host, remote: RemoteRuntime): Promise<void> {
   if (remote.inflight !== undefined) return remote.inflight;
-  remote.inflight = reconcile(ctx, remote).finally(() => {
+  remote.inflight = reconcile(host, remote).finally(() => {
     delete remote.inflight;
   });
   return remote.inflight;
 }
 
-async function reconcile(
-  ctx: CraftContext,
-  remote: RemoteRuntime,
-): Promise<void> {
+async function reconcile(host: Host, remote: RemoteRuntime): Promise<void> {
   const { name, client } = remote;
   let details: OpsRouteDetail[];
   try {
@@ -321,9 +328,9 @@ async function reconcile(
     // The last inventory stays: a remote that blinks must not take every
     // imported endpoint with it, and a dispatch against a route that is
     // truly gone finds out at the door and forces the next refresh.
-    const log = remote.down ? ctx.logger.debug : ctx.logger.warn;
+    const log = remote.down ? host.logger.debug : host.logger.warn;
     log.call(
-      ctx.logger,
+      host.logger,
       { remote: name, url: remote.definition.url, err: error },
       `Remote "${name}" inventory could not be read; keeping the last inventory (${String(remote.channels.size)} routes)`,
     );
@@ -341,15 +348,15 @@ async function reconcile(
     if (name === DEFAULT_REMOTE) wanted.set(detail.id, detail);
   }
   for (const endpoint of [...remote.channels.keys()]) {
-    if (!wanted.has(endpoint)) release(ctx, remote, endpoint);
+    if (!wanted.has(endpoint)) release(host, remote, endpoint);
   }
   for (const [endpoint, detail] of wanted) {
-    install(ctx, remote, endpoint, detail);
+    install(host, remote, endpoint, detail);
   }
 
-  const log = remote.seen ? ctx.logger.debug : ctx.logger.info;
+  const log = remote.seen ? host.logger.debug : host.logger.info;
   log.call(
-    ctx.logger,
+    host.logger,
     { remote: name, url: remote.definition.url, routes: details.length },
     `Remote "${name}" inventory read: ${String(details.length)} dispatchable routes`,
   );
@@ -371,22 +378,21 @@ async function reconcile(
  * remote route simply takes the endpoint.
  */
 function install(
-  ctx: CraftContext,
+  host: Host,
   remote: RemoteRuntime,
   endpoint: string,
   detail: OpsRouteDetail,
 ): void {
   const { name } = remote;
-  const registry = ctx.getStore(CAPABILITY_REGISTRY);
-  const existing = registry?.get(endpoint);
-  const routes = ctx.getStore(REMOTE_ROUTES)!;
+  const existing = host.direct.capability(endpoint);
+  const routes = host.routes;
   remote.details.set(endpoint, detail);
 
   if (
-    isInternalEndpoint(ctx, endpoint) ||
+    host.direct.isInternal(endpoint) ||
     (existing !== undefined && existing.remote === undefined)
   ) {
-    ctx.logger.warn(
+    host.logger.warn(
       { endpoint, remote: name, remoteRouteId: detail.id },
       endpoint === qualified(name, detail.id)
         ? `Local route "${endpoint}" shadows route "${detail.id}" of remote "${name}", which is unreachable until the local route is renamed`
@@ -394,14 +400,14 @@ function install(
     );
     routes.delete(endpoint);
     if (!remote.channels.has(endpoint)) {
-      const store = directStore(ctx);
+      const store = host.direct.channels;
       const key = sanitizeEndpoint(endpoint);
       const local = store.get(key);
       // No channel means an internal route that never subscribed, or a
       // route whose channel comes later; there is nothing to warn through.
       if (local === undefined) return;
       const channel = new RemoteDirectChannel(
-        target(ctx, remote, endpoint, detail.id),
+        target(host, remote, endpoint, detail.id),
         local,
       );
       store.set(key, channel);
@@ -415,7 +421,7 @@ function install(
     existing.remote !== undefined &&
     existing.remote !== name
   ) {
-    ctx.logger.error(
+    host.logger.error(
       {
         endpoint,
         remote: name,
@@ -427,16 +433,16 @@ function install(
     return;
   }
 
-  advertise(ctx, remote, endpoint, detail);
+  advertise(host, remote, endpoint, detail);
 
   if (!remote.channels.has(endpoint)) {
-    const store = directStore(ctx);
+    const store = host.direct.channels;
     // Whatever the store holds here is a placeholder an enricher created
     // on demand before this inventory landed (a subscribed local route
     // would have registered a capability and returned above), so replacing
     // it is what makes that enricher's next fetch reach the remote.
     const channel = new RemoteDirectChannel(
-      target(ctx, remote, endpoint, detail.id),
+      target(host, remote, endpoint, detail.id),
     );
     store.set(sanitizeEndpoint(endpoint), channel);
     remote.channels.set(endpoint, channel);
@@ -445,7 +451,7 @@ function install(
 
 /** Register the remote route as the capability behind a local endpoint. */
 function advertise(
-  ctx: CraftContext,
+  host: Host,
   remote: RemoteRuntime,
   endpoint: string,
   detail: OpsRouteDetail,
@@ -474,8 +480,8 @@ function advertise(
   // function that wrote them. Comparing `remote` on the way out is weaker,
   // because two successive installs by one remote compare equal, so a
   // stale release could take an entry a later refresh had installed.
-  remote.disposers.set(endpoint, registerCapability(ctx, capability));
-  const routes = ctx.getStore(REMOTE_ROUTES)!;
+  remote.disposers.set(endpoint, host.direct.registerCapability(capability));
+  const routes = host.routes;
   routes.set(endpoint, { remote: name, id: detail.id, endpoint, detail });
 }
 
@@ -492,52 +498,38 @@ function advertise(
  * left alone: the app declared it is not a capability, and a remote route
  * behind it would open the door the declaration closed.
  */
-function lift(
-  ctx: CraftContext,
-  remote: RemoteRuntime,
-  endpoint: string,
-): void {
+function lift(host: Host, remote: RemoteRuntime, endpoint: string): void {
   const channel = remote.channels.get(endpoint);
   const detail = remote.details.get(endpoint);
-  const routes = ctx.getStore(REMOTE_ROUTES);
   if (
     channel === undefined ||
     detail === undefined ||
-    routes?.has(endpoint) === true ||
-    isInternalEndpoint(ctx, endpoint)
+    host.routes.has(endpoint) ||
+    host.direct.isInternal(endpoint)
   ) {
     return;
   }
   channel.local = undefined;
-  advertise(ctx, remote, endpoint, detail);
-  ctx.logger.info(
+  advertise(host, remote, endpoint, detail);
+  host.logger.info(
     { endpoint, remote: remote.name, remoteRouteId: detail.id },
     `The local route on "${endpoint}" has stopped; the route "${detail.id}" of remote "${remote.name}" answers it from now on`,
   );
 }
 
 /** Remove one endpoint this remote installed, restoring a shadowed local channel. */
-function release(
-  ctx: CraftContext,
-  remote: RemoteRuntime,
-  endpoint: string,
-): void {
+function release(host: Host, remote: RemoteRuntime, endpoint: string): void {
   const channel = remote.channels.get(endpoint);
   remote.channels.delete(endpoint);
   remote.details.delete(endpoint);
   remote.disposers.get(endpoint)?.();
   remote.disposers.delete(endpoint);
-  const routes = ctx.getStore(REMOTE_ROUTES);
-  if (routes?.get(endpoint)?.remote === remote.name) routes.delete(endpoint);
-  const store = ctx.getStore(ADAPTER_DIRECT_STORE);
-  const key = sanitizeEndpoint(endpoint);
-  if (
-    store === undefined ||
-    channel === undefined ||
-    store.get(key) !== channel
-  ) {
-    return;
+  if (host.routes.get(endpoint)?.remote === remote.name) {
+    host.routes.delete(endpoint);
   }
+  const store = host.direct.channels;
+  const key = sanitizeEndpoint(endpoint);
+  if (channel === undefined || store.get(key) !== channel) return;
   if (channel.local !== undefined) {
     store.set(key, channel.local);
   } else {
@@ -545,28 +537,19 @@ function release(
   }
 }
 
-function directStore(ctx: CraftContext): Map<string, DirectChannel<Exchange>> {
-  let store = ctx.getStore(ADAPTER_DIRECT_STORE);
-  if (!store) {
-    store = new Map<string, DirectChannel<Exchange>>();
-    ctx.setStore(ADAPTER_DIRECT_STORE, store);
-  }
-  return store;
-}
-
 function target(
-  ctx: CraftContext,
+  host: Host,
   remote: RemoteRuntime,
   endpoint: string,
   id: string,
 ): RemoteTarget {
   return {
-    ctx,
+    logger: host.logger,
     remote: remote.name,
     id,
     endpoint,
     client: remote.client,
     describe: () => remote.definition.url,
-    onMissing: () => refresh(ctx, remote),
+    onMissing: () => refresh(host, remote),
   };
 }
