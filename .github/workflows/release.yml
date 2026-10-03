@@ -111,10 +111,11 @@ jobs:
             echo "Core package was not published in this run; no v* tag."
           fi
 
-      # One GitHub Release per published package (scripts/create-github-releases.mjs).
+      # Tags and GitHub Releases for every version on npm that lacks one
+      # (scripts/create-github-releases.mjs). Runs on every push, so a release
+      # that failed here is repaired by the next one.
       # continue-on-error: the canary and the docs deploy wait on this job.
-      - name: Create GitHub Releases
-        if: steps.changesets.outputs.published == 'true'
+      - name: Push package tags and create GitHub Releases
         continue-on-error: true
         env:
           PUBLISHED: ${{ steps.changesets.outputs.publishedPackages }}

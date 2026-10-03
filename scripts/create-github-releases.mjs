@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 
 /**
- * Create one GitHub Release per package the release job just published.
+ * Push the tag and create the GitHub Release of every package version that
+ * is on npm but has no release yet.
  *
  * The changesets action can do this itself, but when GitHub rejects one
  * release it fails the whole publish step after npm has already published,
@@ -10,9 +11,17 @@
  * created on its own, its body cut to fit (see `lib/release-notes.mjs`), and
  * a release that still fails is reported without failing the others.
  *
+ * With the action's own releases off, nothing else pushes the `name@version`
+ * tags `changeset publish` creates, so this script pushes them. It runs on
+ * every release job, not only on a publish: a version published without its
+ * tag or release (0.7.1 did) is repaired by the next push to main. A missing
+ * tag goes on the commit that set the version, since the published tree is
+ * the same from there to the publish.
+ *
  * Input: `PUBLISHED`, the action's `publishedPackages` output, a JSON array
- * of `{ name, version }`. `GH_TOKEN` authenticates `gh`. `DRY_RUN=1` prints
- * what would be created instead of creating it.
+ * of `{ name, version }`, may be empty or unset; every workspace package's
+ * current version is checked as well. `GH_TOKEN` authenticates `gh`.
+ * `DRY_RUN=1` prints what would be done instead of doing it.
  *
  * Exit status is non-zero when any release was not created, so the step
  * shows red; the workflow marks the step `continue-on-error` so a missing
@@ -53,14 +62,94 @@ function notCreated(message) {
   failed++;
 }
 
+/**
+ * Whether a command exits zero.
+ *
+ * @param {string} cmd
+ * @param {string[]} args
+ */
+function succeeds(cmd, args) {
+  try {
+    execFileSync(cmd, args, { stdio: "ignore" });
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+/** `{ name, version }` of every candidate, published ones first, deduplicated. */
+const candidates = new Map();
 for (const { name, version } of published) {
+  candidates.set(`${name}@${version}`, { name, version, justPublished: true });
+}
+for (const [name, dir] of packageDirs) {
+  const { version, private: isPrivate } = JSON.parse(
+    readFileSync(join(rootDir, dir, "package.json"), "utf8"),
+  );
   const tag = `${name}@${version}`;
+  if (isPrivate || candidates.has(tag)) continue;
+  candidates.set(tag, { name, version, justPublished: false });
+}
+
+for (const [tag, { name, version, justPublished }] of candidates) {
   const dir = packageDirs.get(name);
   if (dir === undefined) {
     notCreated(`${tag}: no workspace package is named ${name}.`);
     continue;
   }
+  if (succeeds("gh", ["release", "view", tag, "--repo", repository])) continue;
+  // A version that never reached npm gets no tag or release: its publish failed.
+  if (
+    !justPublished &&
+    !succeeds("npm", ["view", `${name}@${version}`, "version"])
+  ) {
+    continue;
+  }
   try {
+    if (
+      !succeeds("git", [
+        "ls-remote",
+        "--exit-code",
+        "--tags",
+        "origin",
+        `refs/tags/${tag}`,
+      ])
+    ) {
+      if (
+        !succeeds("git", [
+          "rev-parse",
+          "--verify",
+          "--quiet",
+          `refs/tags/${tag}`,
+        ])
+      ) {
+        const versionCommit = execFileSync(
+          "git",
+          [
+            "log",
+            "-1",
+            "--format=%H",
+            `-G"version": "${version}"`,
+            "--",
+            `${dir}/package.json`,
+          ],
+          { encoding: "utf8" },
+        ).trim();
+        if (dryRun) {
+          console.log(`${tag}: would tag ${versionCommit || "HEAD"}`);
+        } else {
+          execFileSync("git", ["tag", tag, versionCommit || "HEAD"]);
+        }
+      }
+      if (dryRun) {
+        console.log(`${tag}: would push the tag`);
+      } else {
+        execFileSync("git", ["push", "origin", `refs/tags/${tag}`], {
+          stdio: "inherit",
+        });
+      }
+    }
+
     const changelog = readFileSync(join(rootDir, dir, "CHANGELOG.md"), "utf8");
     const fullChangelogUrl = `https://github.com/${repository}/blob/${encodeURIComponent(tag)}/${dir}/CHANGELOG.md`;
     const section = changelogSection(changelog, version);
@@ -93,7 +182,9 @@ for (const { name, version } of published) {
     });
     console.log(`Created the GitHub Release for ${tag}`);
   } catch {
-    notCreated(`${tag} is published and tagged but has no GitHub Release.`);
+    notCreated(
+      `${tag} is published but its tag or GitHub Release was not created.`,
+    );
   }
 }
 
