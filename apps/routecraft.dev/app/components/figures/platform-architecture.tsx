@@ -36,9 +36,9 @@ const ASKED = [
 const UNASKED = [
   'cron and timers',
   'webhooks',
-  'mail arriving',
-  'runtime events',
   'files read at start',
+  'runtime events',
+  'mail arriving',
   'a parked task resuming',
 ]
 
