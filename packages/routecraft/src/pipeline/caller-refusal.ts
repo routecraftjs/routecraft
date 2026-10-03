@@ -209,7 +209,7 @@ export function callerRefusalOf(
       )?.missing;
       return {
         kind: "insufficient_scope",
-        scopes: missing?.scopes ?? [],
+        scopes: [...(missing?.scopes ?? [])],
         anyOf: missing?.mode === "any",
       };
     }

@@ -123,8 +123,13 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
     // server must advertise the union. Static `.defer()` sites are
     // definite; a defer-capable step (an agent) only MAY defer, and the
     // over-approximation is the honest direction for a client.
+    // The context is passed because a registered error handler that may park
+    // can defer ANY route here, including one declaring no defer site of its
+    // own. Without it every such route is under-advertised, and a client
+    // validating results against the declared output rejects the
+    // acknowledgment the route legitimately answered with.
     const definition = context.getRouteById(endpoint)?.definition;
-    if (definition && routeCanDefer(definition)) {
+    if (definition && routeCanDefer(definition, context)) {
       entry.deferrable = true;
     }
 

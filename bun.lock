@@ -38,7 +38,7 @@
     },
     "apps/routecraft.dev": {
       "name": "routecraft.dev",
-      "version": "0.7.0",
+      "version": "0.7.1",
       "dependencies": {
         "@algolia/autocomplete-core": "^1.19.10",
         "@headlessui/react": "^2.2.10",
@@ -128,7 +128,7 @@
     },
     "packages/ai": {
       "name": "@routecraft/ai",
-      "version": "0.7.0",
+      "version": "0.7.1",
       "dependencies": {
         "@standard-schema/spec": "^1.1.0",
         "ai": "^6.0.283",
@@ -186,7 +186,7 @@
     },
     "packages/cli": {
       "name": "@routecraft/cli",
-      "version": "0.7.0",
+      "version": "0.7.1",
       "bin": {
         "craft": "./dist/index.js",
       },
@@ -209,7 +209,7 @@
     },
     "packages/create-routecraft": {
       "name": "create-routecraft",
-      "version": "0.7.0",
+      "version": "0.7.1",
       "bin": {
         "create-routecraft": "./dist/index.js",
       },
@@ -222,7 +222,7 @@
     },
     "packages/eslint-plugin-routecraft": {
       "name": "@routecraft/eslint-plugin-routecraft",
-      "version": "0.7.0",
+      "version": "0.7.1",
       "devDependencies": {
         "@types/eslint": "^9.6.1",
         "tsup": "^8.5.1",
@@ -262,7 +262,7 @@
     },
     "packages/prettier-plugin-routecraft": {
       "name": "@routecraft/prettier-plugin-routecraft",
-      "version": "0.7.0",
+      "version": "0.7.1",
       "devDependencies": {
         "prettier": "^3.9.7",
         "tsup": "^8.5.1",
@@ -275,7 +275,7 @@
     },
     "packages/routecraft": {
       "name": "@routecraft/routecraft",
-      "version": "0.7.0",
+      "version": "0.7.1",
       "dependencies": {
         "@opentelemetry/api": "^1.9.1",
         "@standard-schema/spec": "^1.1.0",
@@ -342,7 +342,7 @@
     },
     "packages/testing": {
       "name": "@routecraft/testing",
-      "version": "0.7.0",
+      "version": "0.7.1",
       "dependencies": {
         "@standard-schema/spec": "^1.1.0",
       },

@@ -59,8 +59,86 @@ craft()
 ```
 
 **Error handling levels:**
-1. **Route level**: `error()` handler catches all errors in the route (including tap errors via events)
-2. **Context level**: Fallback for unhandled errors via `context.on('error', handler)`
+1. **Step level**: an `.error()` wrapper chained after `.from()`, covering one step
+2. **Route level**: this handler, catching everything in the route (including tap errors via events)
+3. **Context level**: a handler registered at the [`error` point](/docs/reference/configuration#handlers), reached only where the two above gave up
+
+The three are consulted innermost first and the first to decide wins. A route that handles its own failures is never overridden by the context.
+
+**The route and context rings run outside the route's resilience wrappers; a step-scope `.error()` does not.** A failure inside a `.retry()`, `.timeout()`, `.circuitBreaker()` or `.concurrency()` segment surfaces to the wrapper first, so those two rings are consulted once the attempts are exhausted rather than once per attempt. That is what a route author declaring `.retry()` means by it, and it is why a park lands after the retries rather than on attempt one: nobody should be asked to approve something an automatic retry would have fixed.
+
+A step-scope wrapper sits in the step list, inside the segment, so it runs on every failed attempt. The two are useful for different jobs: recover a flaky step per attempt with a step-scope `.error()`, and decide what a route's exhausted failure means with the route or context ring.
+
+## Recovery directives
+
+Instead of a recovery body the handler may return a branded directive built with the `recovery` helpers. A plain (unbranded) return value keeps its meaning: it becomes the recovered exchange body.
+
+| Directive | What it does |
+|---|---|
+| `recovery.drop(reason?)` | Discards the exchange. Emits `route:exchange:dropped` with `reason`; `route:exchange:completed` does not fire. |
+| `recovery.rethrow()` | Propagates the original error, exactly as if the handler had thrown it. |
+| `recovery.defer(request)` | Parks the exchange durably and answers with the [`Deferred`](/docs/reference/operations/defer) acknowledgment. |
+
+### `recovery.defer(request)` \{#recovery-defer-request}
+
+Turns an error into a deferral. This is what lets a failure be waited on rather than reported: a handler that recognises an authorization refusal can park the call, have a human lend the missing scope, and let the continuation finish, without the route that refused knowing any of it happened.
+
+The request takes everything `.defer()` declares (`schema`, `ttl`, `meta`, `callBinding`, `stepState`) plus `notify`.
+
+**Where it parks is the framework's decision, not the handler's.** A handler runs outside the step tree and has no position of its own, so the executor resolves one from the step that actually failed:
+
+- **A pipeline failure** parks at that step's position, re-entrantly: the continuation is the failing step and everything after it, so nothing before it runs twice.
+- **A pre-from chain failure** parks at position 0 as an ADMISSION, because nothing in the body has run. Its continuation re-runs `.authorize()` and `.input()`, and only those; every other chain position keeps the answer it gives an ordinary resume.
+
+A park at a position a deferral cannot be revived from (inside a `.split()` fan-out, or a `.multicast()` path or `.dispatch()` target) is refused with [RC5051](/docs/reference/errors#rc-5051), exactly as a `.defer()` there is.
+
+<Callout type="warning" title="An admission park cannot reproduce a source parse">
+An admission park raised while a source-attached parser is still pending is refused with RC5051. A source parser arrives per message and is neither stored with the record nor re-derivable from the route, so the continuation would resume against an unparsed body. Sources that attach one are the file and stream shapes (`json`, `csv`, `xml`, `jsonl`, `html`, `mail`, `carddav`); `http`, `direct` and `mcp` attach none, so an identity-bearing transport is unaffected.
+</Callout>
+
+**Schema is descriptive only.** The request may carry `schema`, and it is folded into the continuation descriptor and rendered onto the acknowledgment, exactly as a re-entrant site's is. No live validation runs at resume and [RC5049](/docs/reference/errors#rc-5049) never fires, because the schema lives in handler code and cannot be read back off the route. The resuming door is the validator.
+
+### `notify`: telling someone, in the right order \{#notify}
+
+A handler that notifies a human and then returns the directive has told someone about a park the framework may still refuse. The site is resolved when the executor receives the directive, which is after the handler's side effects, so the recipient would hold a correctly signed token for a record that will never exist.
+
+So the notification rides the directive and the framework owns the order: **resolve the site** (a refusal ends here, and nothing was sent), **write the record**, **await `notify`** with the same acknowledgment the caller receives, and only then **emit `route:exchange:deferred`**.
+
+The event is last because it is the claim that an exchange IS parked. A `notify` that throws denies the record and fails the run with [RC5067](/docs/reference/errors#rc-5067), so firing it earlier would give one exchange both `route:exchange:deferred` and `route:exchange:failed`, and a subscriber would be looking at a park that was already dead. An exchange gets exactly one terminal event.
+
+**`notify` tells someone; it must not answer on their behalf.** `forward` awaits the route it calls, so a hook that forwards to a resume door resumes the parked exchange before `notify` returns, and therefore before `route:exchange:deferred` fires. A subscriber then sees `route:exchange:resumed` for a park it was never told about, and the caller is handed an acknowledgment whose token is already spent. Neither is worth designing around, because a hook that resumes the deferral it is announcing has not notified anyone: it has done the work, and the route should simply not have parked. Put the decision in the handler, where returning `undefined` declines to park at all.
+
+```ts skip="fragment: isLendable, stepUpDecision, sendStepUpMail are illustrative"
+ctx.registerHandler('error', (error, exchange, forward, ctx) => {
+  const refusal = insufficientAuthorityOf(error)
+  if (!refusal || !refusal.effective) return undefined   // not mine, next handler
+  // Execution two already carries what a human lent; parking it again would
+  // ask for the same scope a second time.
+  if (ctx.execution === 2) return undefined
+  return recovery.defer({
+    schema: stepUpDecision,
+    ttl: '4h',
+    meta: { scopes: refusal.scopes },
+    notify: (ack) => forward(sendStepUpMail, { token: ack.token, scopes: refusal.scopes }),
+  })
+})
+```
+
+Two properties of that example are worth copying deliberately.
+
+**Forward, do not send.** The handler does not render or send anything itself: it forwards to a route the application owns. `forward` carries the parked exchange's principal **by reference**, so the notifying route runs under the same frozen authority the parked work did; copying the principal instead would silently drop its brand. The send is then a route like any other, which means it is retryable, observable and testable without the handler.
+
+**The event carries no token.** `route:exchange:deferred` deliberately carries `deferralId`, `position` and `expiresAt` and nothing else, so an `event()`-sourced route can announce that something is waiting but cannot build the resume link. The directive's own `notify` is the only thing handed the acknowledgment.
+
+`notify` is **bounded** by the deferring route's own abort signal, widened by an enclosing `.timeout()`, because it is awaited inside the executor with a network call in it: an unsettled hook holds the step, which holds `drain()`, and its latency sits in front of the caller's acknowledgment. A throw and an abort are treated alike: the record is denied claim-first, so a token that did go out reads [RC5050](/docs/reference/errors#rc-5050) rather than reviving work whose caller was told it failed, and the run fails with [RC5067](/docs/reference/errors#rc-5067) carrying the hook's own failure as the cause.
+
+<Callout title="Two hooks, two orderings, two names">
+`notify` commits AFTER the record and BEFORE the deferred event. The `announce` callback on an aside deferral commits BEFORE its write, deliberately: an aside deferral carries no expiry, so a crash between the two must leave a reference to release rather than a record nothing points at. One hands an id to an in-process caller, the other hands a token to a person, and in both the commit ordering IS the safety property. They do not share a word for that reason.
+</Callout>
+
+The accepted residue is stated rather than hidden: a crash between the write and the notification leaves a record nobody was told about, which the record's `ttl` retires. The reverse order leaves a dead link in a human's inbox, which nothing retires.
+
+A **step-scope** `.error()` wrapper cannot park and refuses `recovery.defer` with RC5051. Positions are assigned to the entries of the route's step array, which is the outermost wrapper of a stack, so a wrapper inside one has no position to name. Park from the route-scope handler or from a context handler; both see the same failure.
 
 **Note about tap errors:** Tap operations emit errors to the route error handler via events. The main exchange continues (tap is fire-and-forget), but the error is observable for logging and monitoring.
 

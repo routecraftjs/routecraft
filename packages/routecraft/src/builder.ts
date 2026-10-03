@@ -45,11 +45,7 @@ import {
 } from "./operations/from.ts";
 import type { Adapter, Step, Consumer, ConsumerType } from "./types.ts";
 import { OperationType } from "./exchange.ts";
-import {
-  nestedStepsOf,
-  resolveDeferSites,
-  usesResume,
-} from "./deferral/sites.ts";
+import { applyResolvedSites, nestedStepsOf } from "./deferral/sites.ts";
 import { WrapperStep } from "./operations/wrapper.ts";
 import { AuthenticateStep } from "./operations/authenticate.ts";
 import {
@@ -1909,14 +1905,7 @@ export class RouteBuilder<
       // that cannot be revived is refused, so it runs on every build rather
       // than only when the route turns out to defer. It runs BEFORE the
       // cache check, which reads what it resolved.
-      const sites = resolveDeferSites(route);
-      if (sites.deferSteps.length > 0) {
-        route.deferSteps = sites.deferSteps;
-      }
-      if (sites.reentrantDeferSteps.length > 0) {
-        route.reentrantDeferSteps = sites.reentrantDeferSteps;
-      }
-      if (usesResume(route)) route.usesResume = true;
+      applyResolvedSites(route);
       assertRouteScopeCacheCompatibility(route);
       const stepScopeDefaultKey = assignCacheSites(route);
       if (route.postParseFilters.some((f) => f.label === "cache-check")) {

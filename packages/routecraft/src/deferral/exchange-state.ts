@@ -36,6 +36,21 @@ export const DeferralHeaders = {
   RESUMED_BY: "routecraft.deferral.resumedBy",
   /** When the resume was accepted. */
   RESUMED_AT: "routecraft.deferral.resumedAt",
+  /**
+   * The scopes the `RC5038` refusal that parked this exchange named, carried
+   * onto the revived exchange from the record's framework-owned field.
+   *
+   * What it buys is the loop-closing rule: if the continuation is refused
+   * again for scopes a lend was already asked for, the executor refuses to
+   * park a second time, so a lend that does not satisfy the gate cannot ask
+   * a human for the same thing forever. It lives on a header rather than in
+   * run-local state because a continuation can itself defer, and headers are
+   * the exchange's state.
+   *
+   * Always written by a revival, absent value included, so a stale value
+   * from an earlier park can never outrank the record being resumed.
+   */
+  REFUSED_SCOPES: "routecraft.deferral.refusedScopes",
 } as const satisfies Record<string, string>;
 
 declare module "@routecraft/routecraft" {
@@ -45,6 +60,7 @@ declare module "@routecraft/routecraft" {
     "routecraft.deferral.result"?: unknown;
     "routecraft.deferral.resumedBy"?: PrincipalRef;
     "routecraft.deferral.resumedAt"?: Date;
+    "routecraft.deferral.refusedScopes"?: readonly string[];
   }
 }
 
