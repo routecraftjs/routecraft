@@ -70,7 +70,9 @@ loop, a subscription, or a retry-until-available is not bounded: begin it in
 ## 3. Ordering and failure
 
 - Plugins bind and start in **dependency order**: a plugin that requires a
-  port binds after the plugin that provides it, and ties keep list order.
+  port binds after the plugin that provides it, a repeatable plugin binds
+  ahead of every other consumer of the ports it uses, and ties keep list
+  order.
   Default plugins come first, so the application's own plugins keep their
   relative order. Each hook is awaited before the next plugin's runs. A
   cycle is `RC1107` and nothing binds.
@@ -138,7 +140,16 @@ So the install unwinds too, on a failure in a `bind()` OR in
 `registerRoutes()`, through the same reverse-order, failure-tolerant walk,
 and rethrows the original error unchanged. Only plugins whose `bind()`
 RETURNED are stopped: an install that failed at plugin 3 must not ask plugin
-4 to release what it never acquired. Host faults (`RC1101` to `RC1109`) are
+4 to release what it never acquired. The plugin whose `bind()` threw still
+has its disposers run: `onDispose` and `observe` register per acquisition,
+precisely so a bind that fails partway releases what it got. A plugin that
+acquires in `bind` registers each release with `c.onDispose` right after
+acquiring, and then needs no `stop` for it.
+
+A start refused before any route runs (a missing provider, `RC1111`, or an
+unconfigured `.defer()`, `RC5052`) takes the same walk: `build()` succeeded,
+so the plugins hold their resources, and the caller of a failed start has no
+reason to call `stop()` itself. Host faults (`RC1101` to `RC1109`) are
 raised before any plugin binds, so nothing needs releasing at all.
 
 ### What `stop` may assume
