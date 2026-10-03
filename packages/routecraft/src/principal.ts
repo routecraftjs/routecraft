@@ -299,3 +299,13 @@ declare module "@routecraft/routecraft" {
     "routecraft.auth.principal"?: Principal;
   }
 }
+
+/**
+ * Identity claims accepted by {@link authenticate}. Derived from
+ * {@link Principal} so the two never drift: `kind` and `scheme` are optional
+ * (they default), every other `Principal` field is carried through, and
+ * `subject` stays required because every minted identity must name who it
+ * represents.
+ */
+export type PrincipalClaims = Partial<Pick<Principal, "kind" | "scheme">> &
+  Omit<Principal, "kind" | "scheme" | "actor" | "grantId">;

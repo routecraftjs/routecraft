@@ -1,4 +1,4 @@
-import { AUTHORITY } from "../principals/index.ts";
+import { AUTHORITY } from "../../kernel/authority.ts";
 import type { Plugin, PluginContext } from "../../kernel/plugin.ts";
 import { rcError } from "../../error.ts";
 import { type Duration, parseDuration } from "../../shared/duration.ts";

@@ -16,7 +16,7 @@ import {
   DATE_TAG,
   deserializeExchange,
   serializeExchange,
-} from "../src/deferral/index.ts";
+} from "../src/plugins/deferral/public.ts";
 // Not public API: the Secret brand is reserved for #526 and reachable only
 // from inside the package, which is exactly the position the serializer's
 // refusal has to be tested from.

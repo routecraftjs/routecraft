@@ -194,6 +194,6 @@ listener outlives finite routes.
 ## References
 
 - `packages/routecraft/src/context.ts` -- `CraftPlugin`, `startPlugins()`, `whenStarted()`
-- `packages/routecraft/src/deferral/config.ts` -- all three phases on one plugin
+- `packages/routecraft/src/plugins/deferral/index.ts` -- all three phases on one plugin
 - `packages/routecraft/test/plugin-start-hook.bun.test.ts` -- ordering and failure contract
 - [type-safety-and-schemas.md](./type-safety-and-schemas.md#plugin-vs-config-vs-store) -- plugin vs config vs store

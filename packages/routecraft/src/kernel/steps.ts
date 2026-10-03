@@ -273,3 +273,70 @@ export function catalogueOf(plugins: readonly unknown[]): StepCatalogue {
   }
   return catalogue;
 }
+
+/**
+ * The plugin types the root `craft()` is typed by: every plugin
+ * `@routecraft/routecraft` ships that adds route methods or facets. Each
+ * merges itself in under its namespace, so the kernel names none of them.
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- filled by declaration merging
+export interface ShippedPluginTypes {}
+
+/**
+ * The plugin types every application installs by default. A project's
+ * `craft()` always has these.
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- filled by declaration merging
+export interface DefaultPluginTypes {}
+
+/** The union of {@link ShippedPluginTypes}. */
+export type ShippedPlugins = ShippedPluginTypes[keyof ShippedPluginTypes];
+
+/** The union of {@link DefaultPluginTypes}. */
+export type DefaultPlugins = DefaultPluginTypes[keyof DefaultPluginTypes];
+
+const SHIPPED: unique symbol = Symbol.for("routecraft.shipped-steps");
+
+type GlobalWithShipped = typeof globalThis & {
+  [SHIPPED]?: Map<string, Readonly<Record<string, StepFactory>>>;
+};
+
+function shipped(): Map<string, Readonly<Record<string, StepFactory>>> {
+  return ((globalThis as GlobalWithShipped)[SHIPPED] ??= new Map());
+}
+
+/**
+ * Make a shipped plugin's steps methods of the root `craft()`. Called by
+ * the plugin's module when the package loads; keyed on `Symbol.for` so two
+ * copies of the package share one catalogue.
+ *
+ * @internal
+ */
+export function registerShippedSteps(
+  id: string,
+  steps: Readonly<Record<string, StepFactory>>,
+): void {
+  shipped().set(id, steps);
+}
+
+/**
+ * The shipped plugins' steps, as plugin-shaped entries for
+ * {@link catalogueOf}.
+ *
+ * @internal
+ */
+export function shippedSteps(): {
+  readonly id: string;
+  readonly steps: Readonly<Record<string, StepFactory>>;
+}[] {
+  return [...shipped()].map(([id, steps]) => ({ id, steps }));
+}
+
+/**
+ * The step catalogue of every shipped plugin: the root `craft()`'s methods.
+ *
+ * @internal
+ */
+export function shippedCatalogue(): StepCatalogue {
+  return catalogueOf(shippedSteps());
+}

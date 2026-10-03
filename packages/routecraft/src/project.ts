@@ -4,11 +4,14 @@ import type { CraftConfig } from "@routecraft/routecraft";
 import { BRAND, setBrand } from "./brand.ts";
 import { RouteBuilder, type PreFromBuilder } from "./builder.ts";
 import type { Plugin } from "./kernel/plugin.ts";
-import { catalogueOf } from "./kernel/steps.ts";
-import { authSteps } from "./plugins/auth/index.ts";
-import type { DefaultPlugins } from "./plugins/catalogue.ts";
-import { deferralSteps } from "./deferral/steps.ts";
-import type { DeferralPlugin } from "./deferral/config.ts";
+import { getConfigAppliers } from "./config-applier.ts";
+import { defaultPluginsFor } from "./kernel/defaults.ts";
+import {
+  catalogueOf,
+  shippedSteps,
+  type DefaultPlugins,
+} from "./kernel/steps.ts";
+import type { DeferralPlugin } from "./plugins/deferral/index.ts";
 import type { PathState } from "./step-builder-base.ts";
 
 /**
@@ -68,14 +71,20 @@ export function defineProject(
   definition: CraftConfig & { readonly plugins?: readonly Plugin[] },
 ): Project<unknown> {
   const plugins: readonly Plugin[] = definition.plugins ?? [];
+  // The ids this project installs: what it lists, what its config keys
+  // install, and the defaults. A shipped plugin's steps join the catalogue
+  // only when it is one of them.
+  const configRecord = definition as unknown as Record<string, unknown>;
+  const installed = new Set([
+    ...plugins.map((plugin) => plugin.id),
+    ...[...getConfigAppliers()]
+      .filter(([key]) => configRecord[key] !== undefined)
+      .map(([key, factory]) => factory(configRecord[key]).id),
+    ...defaultPluginsFor(plugins).map((plugin) => plugin.id),
+  ]);
   const listed = new Set(plugins.map((plugin) => plugin.id));
   const catalogue = catalogueOf([
-    ...(listed.has("routecraft.auth")
-      ? []
-      : [{ id: "routecraft.auth", steps: authSteps }]),
-    ...(definition.deferral !== undefined && !listed.has("routecraft.deferral")
-      ? [{ id: "routecraft.deferral", steps: deferralSteps }]
-      : []),
+    ...shippedSteps().filter(({ id }) => installed.has(id) && !listed.has(id)),
     ...plugins,
   ]);
   const project: Project<unknown> = {

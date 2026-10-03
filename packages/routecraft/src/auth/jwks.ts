@@ -2,7 +2,7 @@ import type {
   ClaimMappers,
   JwtAudience,
   OAuthValidatorAuthOptions,
-} from "./types.ts";
+} from "../principal.ts";
 import { assertIssuerAudience, principalFromJwtPayload } from "./jwt-utils.ts";
 import { loadOptionalPeer } from "../adapters/shared/optional-peer.ts";
 

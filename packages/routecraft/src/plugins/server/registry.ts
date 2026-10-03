@@ -1,4 +1,5 @@
-import { defaultAuthority, type Authority } from "../principals/index.ts";
+import type { Authority } from "../../kernel/authority.ts";
+import { defaultAuthority } from "../principals/index.ts";
 import {
   requestValidationFailure,
   resolveAllowedHostnames,
@@ -18,7 +19,7 @@ import type {
   PathClaim,
   WebIngress,
 } from "./types.ts";
-import type { ValidatorAuthOptions } from "../../auth/types.ts";
+import type { ValidatorAuthOptions } from "../../principal.ts";
 import {
   createAuthMiddleware,
   type AuthResult,

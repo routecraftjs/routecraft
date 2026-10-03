@@ -12,7 +12,7 @@ import {
   actionFingerprint,
   continuationTailHash,
   describeSchema,
-} from "../src/deferral/index.ts";
+} from "../src/plugins/deferral/public.ts";
 
 /**
  * Build a step whose identity is carried by a transformer callable, which

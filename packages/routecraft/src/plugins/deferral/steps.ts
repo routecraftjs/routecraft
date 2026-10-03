@@ -1,20 +1,22 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import type { Adapter, Step } from "../types.ts";
-import type { DeferralAffordance } from "./exchange-state.ts";
-import type { ResumeAcknowledgment } from "./revive.ts";
-import { DeferStep, type DeferOptions } from "../operations/defer.ts";
+import type { Adapter, Step } from "../../types.ts";
+import { registerShippedSteps } from "../../kernel/steps.ts";
+import type { DeferralPlugin } from "./index.ts";
+import type { DeferralAffordance } from "../../kernel/continuation/exchange-state.ts";
+import type { ResumeAcknowledgment } from "../../kernel/continuation/resume.ts";
+import { DeferStep, type DeferOptions } from "./defer-step.ts";
 import {
   ResumeStep,
   type ResumeMapper,
   type ResumeOptions,
-} from "../operations/resume.ts";
+} from "./resume-step.ts";
 import type {
   BuilderState,
   ExchangeOf,
   Retyped,
   SetBody,
   SetDeferral,
-} from "../step-builder-base.ts";
+} from "../../step-builder-base.ts";
 
 /**
  * The deferral plugin's route methods. Their types are declared through
@@ -35,7 +37,13 @@ export const deferralSteps = {
         new ResumeStep(undefined, mapper ?? options),
 };
 
+registerShippedSteps("routecraft.deferral", deferralSteps);
+
 declare module "@routecraft/routecraft" {
+  interface ShippedPluginTypes {
+    deferral: DeferralPlugin;
+  }
+
   interface FacetTypes<S extends BuilderState> {
     /**
      * Durable-deferral view of this exchange: the id and signed token it

@@ -9,7 +9,7 @@ import {
 } from "../exchange.ts";
 import { rcError } from "../error.ts";
 import { BUILDER_KIND, COLLECT_STEPS, NESTED_STEPS } from "../dsl-symbol.ts";
-import type { NestedSteps } from "../deferral/sites.ts";
+import type { NestedSteps } from "../kernel/continuation/sites.ts";
 import {
   StepBuilderBase,
   type BuilderState,
@@ -19,7 +19,7 @@ import {
 import type { Destination } from "./to.ts";
 import type { Enricher } from "./enrich.ts";
 import type { PluginMethods, StepCatalogue } from "../kernel/steps.ts";
-import type { ShippedPlugins } from "../plugins/catalogue.ts";
+import type { ShippedPlugins } from "../kernel/steps.ts";
 
 /**
  * Predicate that decides whether a choice branch matches an exchange.

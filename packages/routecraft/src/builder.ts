@@ -20,7 +20,7 @@ import {
 } from "./step-builder-base.ts";
 import { BUILDER_KIND, CATALOGUE } from "./dsl-symbol.ts";
 import type { StepCatalogue } from "./kernel/steps.ts";
-import { shippedCatalogue, type ShippedPlugins } from "./plugins/catalogue.ts";
+import { shippedCatalogue, type ShippedPlugins } from "./kernel/steps.ts";
 import {
   type RouteDefinition,
   type ErrorHandler,
@@ -47,7 +47,10 @@ import {
 } from "./operations/from.ts";
 import type { Adapter, Step, Consumer, ConsumerType } from "./types.ts";
 import { OperationType } from "./exchange.ts";
-import { applyResolvedSites, nestedStepsOf } from "./deferral/sites.ts";
+import {
+  applyResolvedSites,
+  nestedStepsOf,
+} from "./kernel/continuation/sites.ts";
 import { WrapperStep } from "./operations/wrapper.ts";
 import { AuthenticateStep } from "./operations/authenticate.ts";
 import {
@@ -77,7 +80,7 @@ import {
   buildDebounceStep,
   type DebounceOptions,
 } from "./operations/debounce.ts";
-import type { AuthorizeOptions } from "./auth/authorize.ts";
+import type { AuthorizeOptions } from "./authorize-options.ts";
 import {
   type CacheOptions,
   assignCacheSites,
@@ -1902,7 +1905,7 @@ export class RouteBuilder<
  */
 export function craft(): PreFromBuilder<RootState> {
   return new RouteBuilder(
-    shippedCatalogue,
+    shippedCatalogue(),
   ) as unknown as PreFromBuilder<RootState>;
 }
 

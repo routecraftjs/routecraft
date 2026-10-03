@@ -9,6 +9,7 @@ import {
   direct,
   noop,
   type Authority,
+  type Principal,
 } from "../src/index.ts";
 
 /**
@@ -37,7 +38,7 @@ describe("the principals port", () => {
         calls.push("mint");
         return defaultAuthority.mint(claims);
       },
-      isAuthentic(principal): principal is never {
+      isAuthentic(principal: unknown): principal is Principal {
         calls.push("isAuthentic");
         return defaultAuthority.isAuthentic(principal);
       },
@@ -77,7 +78,10 @@ describe("the principals port", () => {
   test("a replacement's answer is the gate's answer", async () => {
     const distrusting: Authority = {
       ...defaultAuthority,
-      isAuthentic: (_principal: unknown): _principal is never => false,
+      isAuthentic(principal: unknown): principal is Principal {
+        void principal;
+        return false;
+      },
     };
     const replacement = definePlugin({
       id: "test.distrusting",

@@ -1,6 +1,6 @@
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import { NESTED_STEPS } from "../dsl-symbol.ts";
-import type { NestedSteps } from "../deferral/sites.ts";
+import type { NestedSteps } from "../kernel/continuation/sites.ts";
 import {
   type Exchange,
   OperationType,

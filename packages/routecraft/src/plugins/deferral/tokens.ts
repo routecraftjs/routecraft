@@ -1,6 +1,11 @@
 import { createHmac, randomBytes } from "node:crypto";
-import { rcError } from "../error.ts";
-import { timingSafeStringEqual } from "../auth/timing-safe.ts";
+import { rcError } from "../../error.ts";
+import { timingSafeStringEqual } from "../../auth/timing-safe.ts";
+import type {
+  ResumeTokenPayload,
+  ResumeTokenSigning,
+  SigningSecretSource,
+} from "../../kernel/continuation/port.ts";
 
 /**
  * Environment variable read for the resume-token signing secret when the
@@ -10,51 +15,13 @@ export const DEFERRAL_SECRET_ENV = "ROUTECRAFT_DEFERRAL_SECRET";
 
 /** Token format version, so a future format change is detectable rather than silent. */
 const TOKEN_VERSION = 1;
-
-/**
- * A signed capability naming one deferral.
- *
- * The token proves that whoever holds it was handed it by this deployment.
- * It does NOT prove the holder may resume: authorizing the resuming
- * principal is the resume ingress route's job (`.resume({ authorize })`,
- * sender verification, a per-recipient link), which is where an
- * authenticated principal is available. Nor does the token enforce single use on its own; the store's
- * compare-and-swap does that, so a replayed token finds the deferral
- * already resumed and gets the cached continuation result instead of a second
- * execution.
- */
-export interface ResumeTokenPayload {
-  /** Deferral this token resumes. */
-  readonly id: string;
-  /** Mint time, epoch milliseconds. Carried for audit, not enforced. */
-  readonly iat: number;
-  /**
-   * The call this credential belongs to, when the deferring step can raise
-   * more than one at a time.
-   *
-   * A deferral id names a RECORD; on the agent surface a single record is
-   * reached through whichever tool call won a parallel batch, and every
-   * handler in that batch is handed a credential before the winner is
-   * known. Binding the credential to its own call is what stops the loser's
-   * recipient from resuming the winner's deferral: revive compares this claim
-   * against the record's own `stepState.deferredToolCallId` and refuses a
-   * mismatch before touching the record.
-   *
-   * Absent for a static `.defer()`, which has exactly one logical call.
-   * Both mismatched arms fail closed: a token without this claim cannot
-   * resume a record that has a bound call, and a token carrying it cannot
-   * resume a record that has none.
-   */
-  readonly sub?: string;
-}
-
 /**
  * Mints and verifies resume tokens for one context.
  *
  * HMAC-SHA256 over a compact JSON payload, encoded base64url so a token
  * survives a URL, an email body, and a chat message without escaping.
  */
-export class ResumeTokenSigner {
+export class ResumeTokenSigner implements ResumeTokenSigning {
   readonly #secret: Buffer;
 
   /**
@@ -159,52 +126,6 @@ export class ResumeTokenSigner {
       .update(body, "utf8")
       .digest("base64url");
   }
-}
-
-/** Where a context's signing secret came from. */
-export type SigningSecretSource = "config" | "env" | "ephemeral";
-
-/**
- * Separator between the exchange id and the sequence number.
- *
- * Unreserved in RFC 3986, chosen so the framework's own contribution to the
- * id needs no escaping. `#` would have started a fragment and truncated the
- * id at its first hop through a browser.
- *
- * This does NOT make a deferral id URL-safe on its own: the exchange id it
- * wraps is opaque, and an adapter is free to set `headers["routecraft.id"]`
- * from an upstream message id containing anything at all. A deferral id is
- * an identifier, not a URL component; whoever embeds one in a resume link
- * percent-encodes it there.
- */
-const DEFERRAL_ID_SEPARATOR = "~";
-
-/**
- * Derive the id of a deferral from the exchange that will defer.
- *
- * Deterministic on purpose: `ex.deferral.token` and
- * `ex.deferral.resumeUrl` must be readable by a notification step that
- * runs BEFORE the defer, so the id cannot be minted by the defer step
- * itself. The exchange id is the natural key, and `sequence` distinguishes
- * successive defers of the same exchange, which happens whenever a route
- * defers, resumes, and defers again for a second approval.
- *
- * The sequence is always appended, including for the first deferral. Omitting it
- * at zero looks tidier and collides: an exchange whose id already ends in
- * `~1` (ids are `randomUUID()` by default but an adapter may set
- * `headers["routecraft.id"]` from an upstream message id) would produce the
- * same deferral id as that exchange's second deferral. Two unrelated deferred
- * exchanges sharing an id means one overwrites the other in the store.
- * Appending unconditionally is injective, because the suffix is a canonical
- * decimal after the final separator.
- *
- * @param exchangeId - The deferring exchange's id.
- * @param sequence - How many times this exchange has already deferred.
- *
- * @internal
- */
-export function deferralIdFor(exchangeId: string, sequence: number): string {
-  return `${exchangeId}${DEFERRAL_ID_SEPARATOR}${sequence}`;
 }
 
 /**

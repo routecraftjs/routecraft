@@ -13,7 +13,7 @@ import {
   type DeferralCasResult,
   type DeferralStore,
 } from "../src/index.ts";
-import { DeferralSweeper } from "../src/deferral/sweeper.ts";
+import { ContinuationSweeper } from "../src/kernel/continuation/sweep.ts";
 import { asDeferred, storeWith } from "./helpers/deferral.ts";
 
 const Approval = z.object({ approved: z.boolean() });
@@ -143,7 +143,7 @@ describe("the deferral sweeper", () => {
     // due while the resume, running on the real clock, sees it as live. Both
     // transitions are therefore in flight against one record, which is the
     // race a deadline reached mid-answer produces in production.
-    const sweeper = new DeferralSweeper(t.ctx, store, sweeperOptions);
+    const sweeper = new ContinuationSweeper(t.ctx, store, sweeperOptions);
     const [swept, resumed] = await Promise.allSettled([
       sweeper.sweep(new Date(Date.now() + 2 * 60 * 60 * 1000)),
       t.client.sendDirect("answers", {
@@ -238,7 +238,7 @@ describe("the deferral sweeper", () => {
       await t.client.sendDirect("payout", { amountCents: 1, payee: "acme" }),
     );
 
-    const sweeper = new DeferralSweeper(t.ctx, store, sweeperOptions);
+    const sweeper = new ContinuationSweeper(t.ctx, store, sweeperOptions);
     const sweeping = sweeper.sweep(new Date(Date.now() + 2 * 60 * 60 * 1000));
     await reachedTransition;
 
@@ -288,7 +288,7 @@ describe("the deferral sweeper", () => {
       await store.create(overdue(`def-${index}`));
     }
 
-    const sweeper = new DeferralSweeper(t.ctx, store, sweeperOptions);
+    const sweeper = new ContinuationSweeper(t.ctx, store, sweeperOptions);
     expect(await sweeper.sweep()).toBe(150);
 
     expect(reasked).toHaveLength(150);
@@ -334,7 +334,7 @@ describe("the deferral sweeper", () => {
       await store.create(overdue(id));
     }
 
-    const sweeper = new DeferralSweeper(t.ctx, store, sweeperOptions);
+    const sweeper = new ContinuationSweeper(t.ctx, store, sweeperOptions);
     expect(await sweeper.sweep()).toBe(3);
 
     for (const id of ["def-a", "def-b", "def-c"]) {
@@ -377,7 +377,7 @@ describe("the deferral sweeper", () => {
       await store.create(overdue(id));
     }
 
-    const sweeper = new DeferralSweeper(t.ctx, store, sweeperOptions);
+    const sweeper = new ContinuationSweeper(t.ctx, store, sweeperOptions);
     expect(await sweeper.sweep()).toBe(2);
 
     expect((await store.get("def-a"))?.outcome?.kind).toBe("expired");
@@ -412,7 +412,7 @@ describe("the deferral sweeper", () => {
 
     await store.create(overdue("def-ghost", { routeId: "retired-route" }));
 
-    const sweeper = new DeferralSweeper(t.ctx, store, sweeperOptions);
+    const sweeper = new ContinuationSweeper(t.ctx, store, sweeperOptions);
     expect(await sweeper.sweep()).toBe(0);
 
     expect((await store.get("def-ghost"))?.state).toBe("waiting");
@@ -460,7 +460,7 @@ describe("the deferral sweeper", () => {
     // Raced against a timer rather than left to the runner's timeout: the
     // failure mode is a sweep that never returns, and a test that hangs
     // stalls the suite instead of reporting which assertion broke.
-    const sweeper = new DeferralSweeper(t.ctx, store, sweeperOptions);
+    const sweeper = new ContinuationSweeper(t.ctx, store, sweeperOptions);
     const outcome = await Promise.race([
       sweeper.sweep(),
       sleep(5_000).then(() => "did not terminate" as const),
@@ -791,7 +791,7 @@ describe("the deferral sweeper", () => {
       new Date(Date.now() - 2 * 60 * 60 * 1000),
     );
 
-    const sweeper = new DeferralSweeper(t.ctx, store, sweeperOptions);
+    const sweeper = new ContinuationSweeper(t.ctx, store, sweeperOptions);
     expect(await sweeper.sweep()).toBe(1);
 
     expect((await store.get("def-crashed"))?.outcome?.kind).toBe("expired");
@@ -822,7 +822,7 @@ describe("the deferral sweeper", () => {
     await store.create(overdue("def-claimed"));
     await store.claimExpiry("def-claimed", new Date());
 
-    const sweeper = new DeferralSweeper(t.ctx, store, sweeperOptions);
+    const sweeper = new ContinuationSweeper(t.ctx, store, sweeperOptions);
     expect(await sweeper.sweep()).toBe(0);
 
     const claimed = await store.get("def-claimed");

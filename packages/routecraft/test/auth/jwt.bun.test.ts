@@ -3,7 +3,7 @@ import { createHmac } from "node:crypto";
 import { jwt, type JwtAuthOptions } from "../../src/auth/jwt.ts";
 import { markAuthentic } from "../../src/auth/authentic.ts";
 import { delegate } from "../../src/auth/delegate.ts";
-import type { Principal } from "../../src/auth/types.ts";
+import type { Principal } from "../../src/principal.ts";
 
 /**
  * Sign a JWT with HS256 using the test secret. Returns the full compact

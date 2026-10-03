@@ -12,11 +12,11 @@ import {
   type Exchange,
   type Deferral,
 } from "../src/index.ts";
-import { describeSchema } from "../src/deferral/hash.ts";
+import { describeSchema } from "../src/kernel/continuation/hash.ts";
 import {
   DEFERRED_JSON_SCHEMA,
   deferredSchema,
-} from "../src/deferral/deferred.ts";
+} from "../src/kernel/continuation/deferred.ts";
 import { asDeferred, storeWith, deferring } from "./helpers/deferral.ts";
 
 const SECRET = "defer-authorization-test-secret-0123456789";

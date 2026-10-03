@@ -1325,7 +1325,7 @@ describe("the deferral sequence guard", () => {
    */
   test("a missing header reads as zero", async () => {
     const { readSequence, deferralIdOf } =
-      await import("../src/deferral/exchange-state.ts");
+      await import("../src/kernel/continuation/exchange-state.ts");
     expect(readSequence({})).toBe(0);
     expect(deferralIdOf({}, "ex-1")).toBe("ex-1~0");
   });
@@ -1339,7 +1339,8 @@ describe("the deferral sequence guard", () => {
    *   used, and resume tokens sign the id
    */
   test("a malformed header refuses with RC5057", async () => {
-    const { readSequence } = await import("../src/deferral/exchange-state.ts");
+    const { readSequence } =
+      await import("../src/kernel/continuation/exchange-state.ts");
     const key = "routecraft.deferral.sequence";
     for (const bad of ["3", -1, 1.5, Number.MAX_SAFE_INTEGER + 2]) {
       try {
@@ -1361,7 +1362,8 @@ describe("the deferral sequence guard", () => {
    *   the next read instead of resetting
    */
   test("the exhaustion bound refuses distinguishably from tampering", async () => {
-    const { readSequence } = await import("../src/deferral/exchange-state.ts");
+    const { readSequence } =
+      await import("../src/kernel/continuation/exchange-state.ts");
     const key = "routecraft.deferral.sequence";
     const bound = Number.MAX_SAFE_INTEGER - 1;
     try {

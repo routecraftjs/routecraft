@@ -167,7 +167,7 @@ Using the package specifier attaches the augmentation to the same `RouteBuilder`
 This rule applies to every augmentation block, including:
 
 - `RouteBuilder` sugar (`.log`, `.debug`, `.map`, `.schema`) in `packages/routecraft/src/dsl.ts`
-- `RoutecraftHeaders` entries in `packages/routecraft/src/auth/types.ts` and per-adapter shared files
+- `RoutecraftHeaders` entries in `packages/routecraft/src/principal.ts` and per-adapter shared files
 - `StoreRegistry` entries in per-adapter shared files (cron, direct, mail, split, etc.)
 - Any future augmentation of a type exported from `@routecraft/routecraft`
 

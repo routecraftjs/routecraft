@@ -1,7 +1,7 @@
 import { authorize } from "../../auth/authorize.ts";
-import type { Principal } from "../../auth/types.ts";
+import type { Principal } from "../../principal.ts";
 import { principalOf, type Exchange } from "../../exchange.ts";
-import { step, type Body } from "../../kernel/steps.ts";
+import { registerShippedSteps, step, type Body } from "../../kernel/steps.ts";
 import {
   AuthenticateStep,
   type CallableAuthenticator,
@@ -126,6 +126,17 @@ export function authPlugin(): AuthPlugin {
       c.provide(ENFORCEMENT, enforcementProvider);
     },
   });
+}
+
+registerShippedSteps("routecraft.auth", authSteps);
+
+declare module "@routecraft/routecraft" {
+  interface ShippedPluginTypes {
+    auth: AuthPlugin;
+  }
+  interface DefaultPluginTypes {
+    auth: AuthPlugin;
+  }
 }
 
 /**

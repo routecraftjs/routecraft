@@ -1,5 +1,5 @@
-import type { PluginContext } from "../kernel/plugin.ts";
-import { rcError } from "../error.ts";
+import type { PluginContext } from "../../kernel/plugin.ts";
+import { rcError } from "../../error.ts";
 import {
   DEFAULT_PAGE_SIZE,
   cursorScope,
@@ -7,18 +7,18 @@ import {
   encodeCursor,
   malformedCursor,
   parsePageQuery,
-} from "../plugins/ops/pagination.ts";
-import { registerOpsResource } from "../plugins/ops/store.ts";
-import type { CursorScope } from "../plugins/ops/pagination.ts";
-import type { OpsDeferralSummary, OpsPage } from "../plugins/ops/types.ts";
-import type { DeferralRuntime } from "./config.ts";
-import { summariseDeferral } from "./types.ts";
+} from "../ops/pagination.ts";
+import { registerOpsResource } from "../ops/store.ts";
+import type { CursorScope } from "../ops/pagination.ts";
+import type { OpsDeferralSummary, OpsPage } from "../ops/types.ts";
+import type { DeferralRuntime } from "./index.ts";
+import { summariseDeferral } from "../../kernel/continuation/types.ts";
 import type {
   DeferralListCursor,
   DeferralState,
   DeferralStore,
   DeferralSummary,
-} from "./types.ts";
+} from "../../kernel/continuation/types.ts";
 
 /**
  * The management listing of what an instance is waiting on.

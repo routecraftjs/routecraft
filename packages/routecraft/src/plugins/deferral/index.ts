@@ -1,39 +1,41 @@
-import type { CraftContext } from "../context.ts";
 import {
   definePlugin,
   type Plugin,
   type PluginContext,
-} from "../kernel/plugin.ts";
-import { deferralOf, type Exchange } from "../exchange.ts";
-import type { DeferralAffordance } from "./exchange-state.ts";
+  type PluginLogger,
+} from "../../kernel/plugin.ts";
+import { deferralOf, type Exchange } from "../../exchange.ts";
+import type { DeferralAffordance } from "../../kernel/continuation/exchange-state.ts";
 import { deferralSteps } from "./steps.ts";
-import { registerConfigApplier } from "../config-applier.ts";
-import { CONTINUATIONS } from "./runtime-key.ts";
+import { registerConfigApplier } from "../../config-applier.ts";
+import {
+  CONTINUATIONS,
+  type DeferralRuntime,
+} from "../../kernel/continuation/port.ts";
 import { registerDeferralsResource } from "./ops-resource.ts";
-import { OPS } from "../plugins/ops/store.ts";
+import { OPS } from "../ops/store.ts";
 import { MemoryDeferralStore } from "./memory-store.ts";
 import {
   DEFAULT_DEFERRAL_DB_PATH,
   SqliteDeferralStore,
 } from "./sqlite-store.ts";
-import type { SqliteDriverLoaders } from "../shared/sqlite/driver.ts";
-import { claimDatabasePath, releaseClaimant } from "../shared/sqlite/claims.ts";
-import { rcError } from "../error.ts";
+import type { SqliteDriverLoaders } from "../../shared/sqlite/driver.ts";
 import {
-  type ResumeTokenSigner,
-  DEFERRAL_SECRET_ENV,
-  resolveSigningSecret,
-} from "./tokens.ts";
-import type { DeferralStore } from "./types.ts";
-import { type Duration, parseDuration } from "../shared/duration.ts";
+  claimDatabasePath,
+  releaseClaimant,
+} from "../../shared/sqlite/claims.ts";
+import { rcError } from "../../error.ts";
+import { DEFERRAL_SECRET_ENV, resolveSigningSecret } from "./tokens.ts";
+import type { DeferralStore } from "../../kernel/continuation/types.ts";
+import { type Duration, parseDuration } from "../../shared/duration.ts";
 import {
   DEFAULT_EXPIRY_LEASE,
   DEFAULT_DEFERRAL_RETENTION,
   DEFAULT_SWEEP_INTERVAL,
   DEFAULT_DEFERRAL_TTL,
-  DeferralSweeper,
-} from "./sweeper.ts";
-import { isDevelopmentRuntime } from "../shared/runtime-env.ts";
+} from "../../kernel/continuation/sweep.ts";
+import { isDevelopmentRuntime } from "../../shared/runtime-env.ts";
+import { SweepCadence } from "./cadence.ts";
 
 /**
  * Environment variable naming where deferred exchanges are persisted. Either
@@ -45,7 +47,7 @@ export const DEFERRAL_STORE_ENV = "ROUTECRAFT_DEFERRAL_STORE";
 /** The setting this store's path claim is reported under. */
 const DEFERRAL_CLAIMANT = "deferral: { store }";
 
-export { CONTINUATIONS };
+export { CONTINUATIONS, type DeferralRuntime };
 
 declare module "@routecraft/routecraft" {
   interface CraftConfig {
@@ -153,51 +155,6 @@ export interface DeferralTestSeams {
 }
 
 /**
- * The resolved per-context deferral runtime: one store, one signer.
- */
-export interface DeferralRuntime {
-  readonly store: DeferralStore;
-  readonly signer: ResumeTokenSigner;
-  /**
-   * What the store resolved to, for the startup log line. `custom` is a
-   * store the caller supplied; reporting it as `sqlite` would mislead
-   * exactly the operators who configured a backend deliberately, on the one
-   * field that answers "is this deployment durable, and against what".
-   */
-  readonly backend: "sqlite" | "memory" | "custom";
-  /**
-   * False when the caller supplied the store, in which case they own its
-   * lifecycle and the plugin must not close it on teardown. A user-supplied
-   * backend typically wraps a pool shared with the rest of the application,
-   * or is reused across two contexts in one process (which is how a
-   * restart-durability test is written).
-   */
-  readonly ownsStore: boolean;
-  /**
-   * Milliseconds a deferral stays resumable when `.defer()` names no
-   * `ttl`. Undefined when the context opted out with `defaultTtl: "never"`,
-   * which is the only way to defer something with no deadline at all.
-   */
-  readonly defaultTtlMs?: number;
-  /**
-   * Milliseconds between sweeps. Resolved here rather than in the plugin's
-   * `start()` hook so a malformed duration fails while the context is still
-   * being built, which is the rule the rest of this config already follows.
-   */
-  readonly sweepIntervalMs: number;
-  /** Milliseconds an expiry-delivery claim is honoured before redelivery. */
-  readonly expiryLeaseMs: number;
-  /** Milliseconds settled records are kept. Undefined means keep forever. */
-  readonly retentionMs?: number;
-  /**
-   * The database file the sqlite store opened. Another store that must not
-   * share a file with this one reads it here, through the port, because
-   * the two are resolved by different plugins.
-   */
-  readonly path?: string;
-}
-
-/**
  * Build the deferral runtime for a context.
  *
  * The durability decision happens here, once, and it is deliberately loud
@@ -212,13 +169,14 @@ export interface DeferralRuntime {
  *   cause is a Node install without `better-sqlite3`, and that should not
  *   stop a context whose routes may never defer at all.
  *
- * @param context - Context whose logger reports the outcome.
+ * @param host - Whose logger reports the outcome, and the scope a store's
+ *   file claim is held under: the plugin context, or a context in a test
  * @param config - The `deferral` config block, if any.
  *
  * @internal
  */
 export async function createDeferralRuntime(
-  context: CraftContext,
+  host: { readonly logger: PluginLogger },
   config: DeferralConfig & DeferralTestSeams = {},
 ): Promise<DeferralRuntime> {
   const configuredTtl = config.defaultTtl ?? DEFAULT_DEFERRAL_TTL;
@@ -246,7 +204,7 @@ export async function createDeferralRuntime(
     allowEphemeral: config.allowEphemeralSecret ?? isDevelopmentRuntime(),
   });
   if (signer.source === "ephemeral") {
-    context.logger.warn(
+    host.logger.warn(
       {},
       `Deferral resume tokens are signed with an ephemeral key. Tokens minted by this process become unverifiable when it restarts. Set ${DEFERRAL_SECRET_ENV} before deploying.`,
     );
@@ -288,11 +246,11 @@ export async function createDeferralRuntime(
     typeof configured === "object" &&
     "create" in configured
   ) {
-    releaseClaimant({ scope: context, claimant: DEFERRAL_CLAIMANT });
+    releaseClaimant({ scope: host, claimant: DEFERRAL_CLAIMANT });
     return runtime(configured, "custom", false);
   }
   if (configured === "memory") {
-    releaseClaimant({ scope: context, claimant: DEFERRAL_CLAIMANT });
+    releaseClaimant({ scope: host, claimant: DEFERRAL_CLAIMANT });
     return runtime(new MemoryDeferralStore(), "memory", true);
   }
 
@@ -302,7 +260,7 @@ export async function createDeferralRuntime(
       : ((configured as string | undefined) ?? DEFAULT_DEFERRAL_DB_PATH);
 
   claimDatabasePath({
-    scope: context,
+    scope: host,
     path,
     claimant: DEFERRAL_CLAIMANT,
     onConflict: (conflict) =>
@@ -316,7 +274,7 @@ export async function createDeferralRuntime(
       path,
       ...(config.loaders ? { loaders: config.loaders } : {}),
     });
-    context.logger.debug(
+    host.logger.debug(
       { backend: "sqlite", driver: store.driver, path },
       "Deferral store opened",
     );
@@ -326,8 +284,8 @@ export async function createDeferralRuntime(
     // Nothing opened the file, so nothing may go on holding it: this
     // fallback is a deliberate degradation, and a claim left behind would
     // refuse the next store to ask for a path no store is using.
-    releaseClaimant({ scope: context, claimant: DEFERRAL_CLAIMANT });
-    context.logger.warn(
+    releaseClaimant({ scope: host, claimant: DEFERRAL_CLAIMANT });
+    host.logger.warn(
       { err, path },
       "No durable deferral store available; deferred exchanges will NOT survive a restart. Install better-sqlite3 (Node) or configure deferral: { store } to keep deferrals durable.",
     );
@@ -345,10 +303,10 @@ export function deferralPlugin(config: DeferralConfig = {}): DeferralPlugin {
   // Keyed by the plugin context, not a closure slot: one descriptor can serve
   // two applications in the same process (a `defineConfig` export reused
   // across tests), and a single slot would let the second start overwrite the
-  // first sweeper, leaving its interval running against a store about to close.
+  // first cadence, leaving its interval running against a store about to close.
   const runs = new WeakMap<
     PluginContext,
-    { runtime: DeferralRuntime; sweeper?: DeferralSweeper }
+    { runtime: DeferralRuntime; cadence?: SweepCadence }
   >();
 
   return definePlugin({
@@ -358,36 +316,32 @@ export function deferralPlugin(config: DeferralConfig = {}): DeferralPlugin {
     steps: deferralSteps,
     facet: deferralOf,
     async bind(c: PluginContext) {
-      const ctx = c.context;
       // Registration first: it throws on a name collision, and a bind that
       // throws after opening the store would leave its handle to the unwind.
-      registerDeferralsResource(c, () => ctx.lookup(CONTINUATIONS));
-      const runtime = await createDeferralRuntime(ctx, config);
+      registerDeferralsResource(c, () => runs.get(c)?.runtime);
+      const runtime = await createDeferralRuntime(c, config);
       runs.set(c, { runtime });
       c.provide(CONTINUATIONS, runtime);
     },
     async start(c: PluginContext) {
       const run = runs.get(c);
       if (!run) return;
-      const { runtime } = run;
-      run.sweeper = new DeferralSweeper(c.context, runtime.store, {
-        intervalMs: runtime.sweepIntervalMs,
-        leaseMs: runtime.expiryLeaseMs,
-        ...(runtime.retentionMs !== undefined
-          ? { retentionMs: runtime.retentionMs }
-          : {}),
-      });
       // Before the interval, and awaited: what expired during the outage
       // reaches its routes ahead of anything new arriving.
-      await run.sweeper.scanOnStart();
-      run.sweeper.start();
+      await c.execution.sweep({ boot: true });
+      run.cadence = new SweepCadence(
+        () => c.execution.sweep(),
+        run.runtime.sweepIntervalMs,
+        c.logger,
+      );
+      run.cadence.start();
     },
     async stop(c: PluginContext) {
       const run = runs.get(c);
       if (!run) return;
       runs.delete(c);
-      // Awaited before the store closes; see DeferralSweeper.stop().
-      await run.sweeper?.stop();
+      // Awaited before the store closes, so no pass meets a closed handle.
+      await run.cadence?.stop();
       if (run.runtime.ownsStore) await run.runtime.store.close();
     },
   });

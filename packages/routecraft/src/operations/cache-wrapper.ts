@@ -15,11 +15,11 @@ import { principalIdentity } from "./principal-identity.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import type { RouteDefinition } from "../route.ts";
 import { WrapperStep } from "./wrapper.ts";
-import { nestedStepsOf } from "../deferral/sites.ts";
+import { nestedStepsOf } from "../kernel/continuation/sites.ts";
 import {
   definitionFingerprint,
   stepDefinitionFingerprint,
-} from "../deferral/hash.ts";
+} from "../kernel/continuation/hash.ts";
 import {
   type CacheProvider,
   defaultMemoryCacheProvider,

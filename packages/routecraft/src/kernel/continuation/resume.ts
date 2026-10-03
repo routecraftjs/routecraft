@@ -1,17 +1,17 @@
-import { authorityOf } from "../plugins/principals/index.ts";
+import { authorityOf } from "../authority.ts";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import type { CraftContext } from "../context.ts";
-import { validateAgainst } from "../pipeline/validation.ts";
-import { rcError } from "../error.ts";
+import type { CraftContext } from "../../context.ts";
+import { validateAgainst } from "../../pipeline/validation.ts";
+import { rcError } from "../../error.ts";
 import {
   type Exchange,
   DefaultExchange,
   HeadersKeys,
   setExchangeRoute,
   setResumeStepState,
-} from "../exchange.ts";
-import type { Route } from "../route.ts";
-import type { Adapter, Step } from "../types.ts";
+} from "../../exchange.ts";
+import type { Route } from "../../route.ts";
+import type { Adapter, Step } from "../../types.ts";
 import { continuationTailHash, describeSchema } from "./hash.ts";
 import {
   type ResumeAuthorizer,
@@ -21,17 +21,17 @@ import {
   recordView,
   runAuthorizer,
   runElevator,
-} from "./authorize.ts";
+} from "./door.ts";
 import { DeferralHeaders } from "./exchange-state.ts";
-import { CONTINUATIONS } from "./runtime-key.ts";
+import { CONTINUATIONS } from "./port.ts";
 import {
   decodePersistable,
   deserializeExchange,
   encodePersistable,
 } from "./serialize.ts";
-import type { DetachedKind } from "../pipeline/chain-policy.ts";
+import type { DetachedKind } from "../../pipeline/chain-policy.ts";
 import type { DeferSite } from "./sites.ts";
-import type { Principal } from "../auth/types.ts";
+import type { Principal } from "../../principal.ts";
 import { resumable } from "./types.ts";
 import type {
   PrincipalRef,

@@ -1,5 +1,5 @@
-import type { CraftContext } from "../context.ts";
-import { expireDeferral } from "./revive.ts";
+import type { CraftContext } from "../../context.ts";
+import { expireDeferral } from "./resume.ts";
 import type { ExpiredScanCursor, DeferralStore } from "./types.ts";
 
 /** How often the sweeper looks for overdue deferrals, when unconfigured. */
@@ -59,8 +59,18 @@ const MISSING_ROUTE_REPORT = 20;
 /** How often a sweep pass also purges settled records past retention. */
 const PURGE_CADENCE_MS = 60 * 60 * 1000;
 
+/** What a sweep pass is bounded by. */
+export interface SweeperOptions {
+  readonly leaseMs: number;
+  /** Absent when the context opted out with `retention: "never"`. */
+  readonly retentionMs?: number;
+}
+
 /**
- * Drives expiry for one context.
+ * The kernel's sweep: one pass retires what is overdue, heals claims whose
+ * deliverer died, and purges settled records past retention. A plugin
+ * drives it on a cadence through `execution.sweep()`; the kernel owns what
+ * a pass does.
  *
  * Expiry has to be pushed rather than pulled. A `ttl` exists so a route can
  * react when nobody resumes it, and by definition nobody is going to present a
@@ -74,17 +84,9 @@ const PURGE_CADENCE_MS = 60 * 60 * 1000;
  *
  * @internal
  */
-export interface SweeperOptions {
-  readonly intervalMs: number;
-  readonly leaseMs: number;
-  /** Absent when the context opted out with `retention: "never"`. */
-  readonly retentionMs?: number;
-}
-
-export class DeferralSweeper {
-  private timer: ReturnType<typeof setInterval> | undefined;
-  /** The sweep currently running. See {@link DeferralSweeper.stop}. */
-  private inFlight: Promise<unknown> | undefined;
+export class ContinuationSweeper {
+  /** The sweep currently running. See {@link ContinuationSweeper.stop}. */
+  private inFlight: Promise<number> | undefined;
   /**
    * Set the moment shutdown begins, which is earlier than teardown: routes
    * are aborted and drained before plugins are torn down, so a tick landing
@@ -114,7 +116,19 @@ export class DeferralSweeper {
    * Returns how many this pass retired, which is what makes the startup
    * scan able to say whether a restart had work waiting for it.
    */
-  async sweep(now: Date = new Date()): Promise<number> {
+  sweep(now: Date = new Date()): Promise<number> {
+    if (this.stopping) return Promise.resolve(0);
+    // One pass at a time: a cadence tick landing while a pass runs joins it
+    // rather than racing it for the same records.
+    if (this.inFlight) return this.inFlight;
+    const pass = this.runPass(now).finally(() => {
+      this.inFlight = undefined;
+    });
+    this.inFlight = pass;
+    return pass;
+  }
+
+  private async runPass(now: Date): Promise<number> {
     // Heal before scanning: a claim whose holder died mid-delivery is
     // released once its lease elapses, and the released records are past
     // their deadline, so this same pass redelivers them.
@@ -269,13 +283,10 @@ export class DeferralSweeper {
    * after an outage gets the escalations before the new traffic, which is
    * the order they would have arrived in had the process stayed up.
    */
-  async scanOnStart(): Promise<void> {
-    // Held in the same slot the interval uses, so a shutdown arriving during
-    // the scan waits for it rather than closing the store underneath it.
-    this.inFlight = this.runStartScan().finally(() => {
-      this.inFlight = undefined;
-    });
-    await this.inFlight;
+  async scanOnStart(): Promise<number> {
+    const retired = await this.sweep();
+    await this.reportOnStart(retired);
+    return retired;
   }
 
   /**
@@ -285,8 +296,7 @@ export class DeferralSweeper {
    *
    * @internal
    */
-  private async runStartScan(): Promise<void> {
-    const retired = await this.sweep();
+  private async reportOnStart(retired: number): Promise<void> {
     const summary = await this.store.pending();
     const stranded =
       await this.store.resumedWithoutContinuation(STRANDED_REPORT);
@@ -325,45 +335,18 @@ export class DeferralSweeper {
     }
   }
 
-  /** Begin the periodic sweep. Idempotent. */
-  start(): void {
-    if (this.timer) return;
-    this.timer = setInterval(() => {
-      if (this.inFlight) return;
-      this.inFlight = this.sweep()
-        .catch((err: unknown) => {
-          this.context.logger.error(
-            { err },
-            "Deferral sweep failed; the next tick will retry.",
-          );
-        })
-        .finally(() => {
-          this.inFlight = undefined;
-        });
-    }, this.options.intervalMs);
-    // A sweep must never be the reason a process stays alive: it exists to
-    // serve routes, and a context whose routes have all finished should
-    // exit.
-    this.timer.unref?.();
-  }
-
   /**
-   * Stop the periodic sweep and wait for the one in flight. Idempotent.
+   * Refuse further passes and wait for the one in flight. Idempotent.
    *
-   * Awaiting matters more than clearing the interval: the caller closes the
-   * store next, and a sweep still running would meet a closed handle. Worse,
-   * a retirement that already won its transition would re-enter a route that
-   * has drained, leaving the record `expired` with its approver never told
-   * and nothing left to revisit it.
+   * Awaiting matters: the store closes next, and a pass still running would
+   * meet a closed handle. Worse, a retirement that already won its
+   * transition would re-enter a route that has drained, leaving the record
+   * `expired` with its approver never told and nothing left to revisit it.
    */
   async stop(): Promise<void> {
     this.stopping = true;
     this.offStopping?.();
     this.offStopping = undefined;
-    if (this.timer) {
-      clearInterval(this.timer);
-      this.timer = undefined;
-    }
     try {
       await this.inFlight;
     } catch {

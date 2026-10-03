@@ -1,6 +1,6 @@
-import type { CraftContext } from "../context.ts";
-import { rcError } from "../error.ts";
-import { HOOK_ABORTED, settleOrAbort } from "../shared/abort.ts";
+import type { CraftContext } from "../../context.ts";
+import { rcError } from "../../error.ts";
+import { HOOK_ABORTED, settleOrAbort } from "../../shared/abort.ts";
 import {
   type Exchange,
   DefaultExchange,
@@ -8,7 +8,7 @@ import {
   asideSequenceOf,
   markDeferred,
   noteAsideSequence,
-} from "../exchange.ts";
+} from "../../exchange.ts";
 import type { DeferRequest } from "./sites.ts";
 import {
   actionFingerprint,
@@ -20,7 +20,7 @@ import {
   effectiveSequence,
   deferralIdOf,
 } from "./exchange-state.ts";
-import { CONTINUATIONS } from "./runtime-key.ts";
+import { CONTINUATIONS } from "./port.ts";
 import { serializeExchange } from "./serialize.ts";
 import { type Deferred, createDeferred } from "./deferred.ts";
 import type { NewDeferral } from "./types.ts";

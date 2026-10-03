@@ -39,7 +39,7 @@ export type {
   PrincipalProfile,
   TokenVerifier,
   ValidatorAuthOptions,
-} from "./auth/types.ts";
+} from "./principal.ts";
 
 export {
   DefaultExchange,
@@ -98,12 +98,10 @@ export {
 } from "./plugins/resilience/index.ts";
 export { cachePlugin, cacheProvider } from "./plugins/cache/index.ts";
 export { authPlugin, enforcementProvider } from "./plugins/auth/index.ts";
+export { AUTHORITY, authorityOf, type Authority } from "./kernel/authority.ts";
 export {
-  AUTHORITY,
-  authorityOf,
   defaultAuthority,
   principalsPlugin,
-  type Authority,
 } from "./plugins/principals/index.ts";
 export { directPlugin } from "./plugins/direct/index.ts";
 export {
@@ -159,7 +157,7 @@ import "./adapters/direct/config.ts";
 import "./adapters/mail/config.ts";
 import "./adapters/carddav/config.ts";
 import "./telemetry/config.ts";
-import "./deferral/config.ts";
+import "./plugins/deferral/index.ts";
 
 export { httpPlugin } from "./plugins/http/plugin.ts";
 export { serversPlugin } from "./plugins/server/plugin.ts";
@@ -414,8 +412,11 @@ export {
 
 export { type HeaderSetter } from "./operations/header.ts";
 
-export { type DeferOptions } from "./operations/defer.ts";
-export { type ResumeMapper, type ResumeOptions } from "./operations/resume.ts";
+export { type DeferOptions } from "./plugins/deferral/defer-step.ts";
+export {
+  type ResumeMapper,
+  type ResumeOptions,
+} from "./plugins/deferral/resume-step.ts";
 
 export { type CallableAuthenticator } from "./operations/authenticate.ts";
 
@@ -518,12 +519,17 @@ export {
   type StepMethods,
   type TypedStep,
 } from "./kernel/steps.ts";
-export type { DefaultPlugins, ShippedPlugins } from "./plugins/catalogue.ts";
+export type {
+  DefaultPlugins,
+  DefaultPluginTypes,
+  ShippedPlugins,
+  ShippedPluginTypes,
+} from "./kernel/steps.ts";
 export type { AuthFacet, AuthPlugin } from "./plugins/auth/index.ts";
-export type { DeferralPlugin } from "./deferral/config.ts";
+export type { DeferralPlugin } from "./plugins/deferral/index.ts";
 export { defineProject, type Project } from "./project.ts";
 // The deferral plugin's method and facet types are declared there.
-import "./deferral/steps.ts";
+import "./plugins/deferral/steps.ts";
 
 export {
   RoutecraftError,
@@ -810,9 +816,9 @@ export {
   type SqlitePathConflict,
 } from "./shared/sqlite/claims.ts";
 
-// The deferral engine (hashing, serialization, token minting, runtime
-// resolution) stays behind `./deferral/index.ts`, which is where the
-// executor imports it from. Only the surface a user touches is published:
+// The continuation protocol (hashing, serialization, park and resume) is the
+// kernel's, and the deferral plugin provides storage and token minting over
+// it. Only the surface a user touches is published:
 // configuration, the store contract for anyone writing a backend, the two
 // shipped backends, and the environment-variable names.
 export {
@@ -837,7 +843,7 @@ export {
   stepStateFingerprint,
   deferredSchema,
   deferralPlugin,
-} from "./deferral/index.ts";
+} from "./plugins/deferral/public.ts";
 export type {
   ExpiredScanCursor,
   NewDeferral,
@@ -870,8 +876,12 @@ export type {
   DeferralWaitingFor,
   DeferralStore,
   DeferralStoreConfig,
-} from "./deferral/index.ts";
-export { claimed, resumable, summariseDeferral } from "./deferral/index.ts";
+} from "./plugins/deferral/public.ts";
+export {
+  claimed,
+  resumable,
+  summariseDeferral,
+} from "./plugins/deferral/public.ts";
 export {
   type MailAuth,
   type MailReconnectOptions,

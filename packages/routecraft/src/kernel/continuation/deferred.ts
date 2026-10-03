@@ -1,5 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { BRAND, isBranded, setBrand } from "../brand.ts";
+import { BRAND, isBranded, setBrand } from "../../brand.ts";
 
 /**
  * What execution one returns when a route defers.

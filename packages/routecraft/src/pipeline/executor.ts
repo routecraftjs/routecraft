@@ -19,9 +19,9 @@ import {
   applyDropDirective,
   type RecoveryDefer,
 } from "../recovery.ts";
-import { deferExchange } from "../deferral/defer.ts";
-import { DeferralHeaders } from "../deferral/exchange-state.ts";
-import { insufficientAuthorityOf } from "../auth/authorize.ts";
+import { deferExchange } from "../kernel/continuation/park.ts";
+import { DeferralHeaders } from "../kernel/continuation/exchange-state.ts";
+import { insufficientAuthorityOf } from "../authorization-refusal.ts";
 import { parseDuration } from "../shared/duration.ts";
 import { SPLIT_PARENT_STORE } from "../operations/split.ts";
 import { rcError, RoutecraftError } from "../error.ts";

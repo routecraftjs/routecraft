@@ -3,8 +3,8 @@ import { BRAND, isBranded } from "./brand.ts";
 import type { CraftContext } from "./context.ts";
 import type { Route } from "./route.ts";
 import type { ErrorHandlerScope } from "./types.ts";
-import type { Deferred } from "./deferral/deferred.ts";
-import type { DeferSignalRequest } from "./deferral/signal.ts";
+import type { Deferred } from "./kernel/continuation/deferred.ts";
+import type { DeferSignalRequest } from "./kernel/continuation/signal.ts";
 
 /**
  * Brand key marking a {@link Recovery} directive. Registered in

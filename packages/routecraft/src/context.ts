@@ -15,9 +15,13 @@ import { logger, childBindings } from "./logger.ts";
 import { type AdapterOverride, RC_ADAPTER_OVERRIDES } from "./testing-hooks.ts";
 import { getConfigAppliers } from "./config-applier.ts";
 import { DIRECT } from "./adapters/direct/registry.ts";
-import { CONTINUATIONS } from "./deferral/runtime-key.ts";
-import { applyResolvedSites } from "./deferral/sites.ts";
-import { reviveDeferral, type ResumeRequest } from "./deferral/revive.ts";
+import { CONTINUATIONS } from "./kernel/continuation/port.ts";
+import { ContinuationSweeper } from "./kernel/continuation/sweep.ts";
+import { applyResolvedSites } from "./kernel/continuation/sites.ts";
+import {
+  reviveDeferral,
+  type ResumeRequest,
+} from "./kernel/continuation/resume.ts";
 import { EventBus } from "./event-bus.ts";
 import { CraftClient } from "./client.ts";
 import { PluginHost, type InstalledPlugin } from "./kernel/host.ts";
@@ -575,6 +579,29 @@ export class CraftContext {
     }
   }
 
+  private continuationSweeper: ContinuationSweeper | undefined;
+
+  /**
+   * One pass of the kernel's sweep, against the store `CONTINUATIONS`
+   * provides. The sweeper is the application's, built on first use and
+   * stopped when shutdown begins.
+   */
+  private async sweepContinuations(
+    options: { readonly boot?: boolean } = {},
+  ): Promise<number> {
+    const runtime = this.lookup(CONTINUATIONS);
+    if (!runtime) return 0;
+    this.continuationSweeper ??= new ContinuationSweeper(this, runtime.store, {
+      leaseMs: runtime.expiryLeaseMs,
+      ...(runtime.retentionMs !== undefined
+        ? { retentionMs: runtime.retentionMs }
+        : {}),
+    });
+    return options.boot
+      ? this.continuationSweeper.scanOnStart()
+      : this.continuationSweeper.sweep();
+  }
+
   /**
    * What `ex.<namespace>` reads on this application's exchanges, when an
    * installed plugin declares that facet.
@@ -643,6 +670,8 @@ export class CraftContext {
           headers?: Parameters<CraftClient["sendDirect"]>[2],
         ) => client.sendDirect<unknown, R>(endpoint, body, headers),
         resume: (request: ResumeRequest) => reviveDeferral(this, request),
+        sweep: (options?: { readonly boot?: boolean }) =>
+          this.sweepContinuations(options),
         capabilities: () => this.capabilities(),
         whenStarted: () => this.whenStarted(),
         requestStop: () => {

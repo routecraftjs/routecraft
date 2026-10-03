@@ -1,25 +1,25 @@
-import { rcError } from "../error.ts";
-import { anySignal } from "../shared/abort.ts";
+import { rcError } from "../../error.ts";
+import { anySignal } from "../../shared/abort.ts";
 import {
   type Exchange,
   DefaultExchange,
   OperationType,
   getExchangeContext,
   getExchangeRoute,
-} from "../exchange.ts";
-import { authorityOf } from "../plugins/principals/index.ts";
-import { toSignalContext } from "../types.ts";
-import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
+} from "../../exchange.ts";
+import { authorityOf } from "../../kernel/authority.ts";
+import { toSignalContext } from "../../types.ts";
+import type { Adapter, Step, StepContext, StepOutcome } from "../../types.ts";
 import {
   type ResumeAcknowledgment,
   type ResumeRequest,
   reviveDeferral,
-} from "../deferral/revive.ts";
-import { principalRef } from "../deferral/principal-ref.ts";
+} from "../../kernel/continuation/resume.ts";
+import { principalRef } from "../../kernel/continuation/principal-ref.ts";
 import type {
   ResumeAuthorizer,
   ResumeElevator,
-} from "../deferral/authorize.ts";
+} from "../../kernel/continuation/door.ts";
 
 /**
  * Maps the ingress exchange to the deferral it resumes.

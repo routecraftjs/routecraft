@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { testContext } from "@routecraft/testing";
-import { createDeferralRuntime } from "../src/deferral/config.ts";
+import { createDeferralRuntime } from "../src/plugins/deferral/index.ts";
 import { claimDatabasePath } from "../src/shared/sqlite/claims.ts";
 import {
   DEFAULT_DEFERRAL_DB_PATH,

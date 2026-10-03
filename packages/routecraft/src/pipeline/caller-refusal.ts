@@ -4,8 +4,8 @@ import { formatIssuePath } from "../error.ts";
 import {
   isAuthorizationRefusal,
   type InsufficientAuthority,
-} from "../auth/authorize.ts";
-import type { Principal } from "../auth/types.ts";
+} from "../authorization-refusal.ts";
+import type { Principal } from "../principal.ts";
 import { isInputValidationFailure } from "./validation.ts";
 
 /** One schema issue as a door shows it to a caller: where, and what. */

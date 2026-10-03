@@ -98,7 +98,7 @@ export type StepWrapperFactory = <T extends Adapter>(inner: Step<T>) => Step<T>;
 import type { RouteBuilder } from "./builder.ts";
 import type { PathBuilder } from "./operations/choice.ts";
 import type { FacetsOf, PluginMethods } from "./kernel/steps.ts";
-import type { ShippedPlugins } from "./plugins/catalogue.ts";
+import type { ShippedPlugins } from "./kernel/steps.ts";
 
 /**
  * The type-state bag threaded through the builder chain.

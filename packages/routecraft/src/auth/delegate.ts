@@ -1,10 +1,12 @@
 import { rcError } from "../error.ts";
 import type { PrincipalClaims } from "./authenticate.ts";
-import {
-  defaultAuthority,
-  type Authority,
-} from "../plugins/principals/index.ts";
-import type { ActorMatcher, Principal, PrincipalProfile } from "./types.ts";
+import type { Authority } from "../kernel/authority.ts";
+import { defaultAuthority } from "../plugins/principals/index.ts";
+import type {
+  ActorMatcher,
+  Principal,
+  PrincipalProfile,
+} from "../principal.ts";
 
 /**
  * Options accepted by {@link delegate}.

@@ -1,4 +1,4 @@
-import type { Principal } from "../../auth/types.ts";
+import type { Principal } from "../../principal.ts";
 import { callerRefusalOf } from "../../pipeline/caller-refusal.ts";
 import {
   bearerChallengeHeaders,

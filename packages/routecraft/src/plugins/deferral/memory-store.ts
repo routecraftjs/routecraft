@@ -1,8 +1,12 @@
-import { rcError } from "../error.ts";
-import { compareCodeUnits } from "../shared/compare.ts";
-import { stepStateFingerprint } from "./hash.ts";
-import { encodePersistable } from "./serialize.ts";
-import { claimed, resumable, summariseDeferral } from "./types.ts";
+import { rcError } from "../../error.ts";
+import { compareCodeUnits } from "../../shared/compare.ts";
+import { stepStateFingerprint } from "../../kernel/continuation/hash.ts";
+import { encodePersistable } from "../../kernel/continuation/serialize.ts";
+import {
+  claimed,
+  resumable,
+  summariseDeferral,
+} from "../../kernel/continuation/types.ts";
 import type {
   ExpiredScanCursor,
   NewDeferral,
@@ -15,7 +19,7 @@ import type {
   DeferralResumption,
   DeferralStore,
   DeferralSummary,
-} from "./types.ts";
+} from "../../kernel/continuation/types.ts";
 
 /**
  * In-process deferral store.

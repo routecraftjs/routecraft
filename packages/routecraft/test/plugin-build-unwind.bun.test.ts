@@ -11,7 +11,7 @@ import {
   type DeferralConfig,
   type StopInfo,
 } from "../src/index.ts";
-import type { DeferralTestSeams } from "../src/deferral/config.ts";
+import type { DeferralTestSeams } from "../src/plugins/deferral/index.ts";
 import type { SqliteDriverLoaders } from "../src/shared/sqlite/driver.ts";
 import type { SqliteDatabaseConstructor } from "../src/shared/sqlite/types.ts";
 import { CraftContext } from "../src/context.ts";
