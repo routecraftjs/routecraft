@@ -73,6 +73,16 @@ declare module "@routecraft/routecraft" {
       reason: string;
     };
     /**
+     * An MCP Apps view could not be loaded for `resources/read`: its
+     * `ui.html` loader threw or resolved to something other than a string.
+     * The host shows the tool's text result instead.
+     */
+    "plugin:mcp:ui:failed": {
+      tool: string;
+      uri: string;
+      error: string;
+    };
+    /**
      * An editor opened a connection to the ACP mount and initialized it.
      *
      * `subject` is who the mount's validator admitted, absent on a mount

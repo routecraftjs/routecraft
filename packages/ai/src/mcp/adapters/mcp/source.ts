@@ -10,6 +10,7 @@ import {
   MCP_PLUGIN_REGISTERED,
   type McpLocalToolEntry,
   type McpServerOptions,
+  type McpUiOptions,
 } from "../../types.ts";
 import type { McpMessage } from "./types.ts";
 import { BRAND_MCP_ADAPTER } from "./shared.ts";
@@ -29,6 +30,48 @@ function assertValidMcpToolName(endpoint: string): void {
   }
 }
 
+const UI_CSP_KEYS = [
+  "connectDomains",
+  "resourceDomains",
+  "frameDomains",
+  "baseUriDomains",
+] as const;
+
+/** Reject a malformed `ui` option when `mcp()` is called, not when a host first reads the view. */
+function assertValidUiOptions(ui: McpUiOptions): void {
+  const invalid = (message: string): never => {
+    throw rcError("RC5003", undefined, {
+      message: `mcp(): ${message}`,
+      suggestion:
+        "Pass ui: { html, csp?, prefersBorder? } where html is an HTML string or a function returning one, for example fromFile('./view.html').",
+    });
+  };
+  if (typeof ui !== "object" || ui === null) invalid("ui must be an object");
+  const { html, csp, prefersBorder } = ui;
+  if (typeof html === "string") {
+    if (html.trim().length === 0) invalid("ui.html must not be empty");
+  } else if (typeof html !== "function") {
+    invalid("ui.html must be a string or a function returning one");
+  }
+  if (csp !== undefined) {
+    if (typeof csp !== "object" || csp === null)
+      invalid("ui.csp must be an object");
+    for (const key of UI_CSP_KEYS) {
+      const origins = csp[key];
+      if (
+        origins !== undefined &&
+        (!Array.isArray(origins) ||
+          origins.some((o) => typeof o !== "string" || o.length === 0))
+      ) {
+        invalid(`ui.csp.${key} must be an array of non-empty origin strings`);
+      }
+    }
+  }
+  if (prefersBorder !== undefined && typeof prefersBorder !== "boolean") {
+    invalid("ui.prefersBorder must be a boolean");
+  }
+}
+
 /**
  * McpSourceAdapter exposes a route as an MCP tool.
  *
@@ -37,7 +80,7 @@ function assertValidMcpToolName(endpoint: string): void {
  * from the route's discovery bundle (`.title()` / `.description()` /
  * `.input()` / `.output()`); framework-level input validation is applied
  * before the route handler runs. Adapter options hold only MCP-protocol
- * extras (annotations, icons).
+ * extras (annotations, icons, an MCP Apps view).
  *
  * Maintains its own registry ({@link MCP_LOCAL_TOOL_REGISTRY}) so MCP and
  * direct routes stay fully isolated: a shared endpoint string does not
@@ -50,6 +93,7 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
 
   constructor(options: McpServerOptions = {}) {
     (this as unknown as Record<symbol, boolean>)[BRAND_MCP_ADAPTER] = true;
+    if (options.ui !== undefined) assertValidUiOptions(options.ui);
     this.options = options;
   }
 
@@ -74,6 +118,17 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
         message: `MCP route "${endpoint}" requires a description`,
         suggestion:
           "Set .description('...') on the route builder before .from(mcp()); the MCP protocol requires a non-empty description for each tool.",
+      });
+    }
+
+    if (
+      this.options.ui !== undefined &&
+      discovery?.output?.body === undefined
+    ) {
+      throw rcError("RC5003", undefined, {
+        message: `MCP route "${endpoint}" has a ui view but declares no output`,
+        suggestion:
+          "A view draws from the tool's structured result. Declare .output({ body: schema }) on the route before .from(mcp({ ui })).",
       });
     }
 
@@ -141,6 +196,7 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
     );
     if (annotations !== undefined) entry.annotations = annotations;
     if (this.options.icons !== undefined) entry.icons = this.options.icons;
+    if (this.options.ui !== undefined) entry.ui = this.options.ui;
 
     // Register the cleanup listener before the insert. Any abort from now on
     // (including one dispatched synchronously from inside addEventListener if

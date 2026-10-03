@@ -429,6 +429,7 @@ Listener lifecycle for the MCP HTTP transport is reported by the generic [server
 | `plugin:mcp:tool:deferred` | The route deferred at a durable deferral; execution one answered with the `Deferred` acknowledgment | `{ tool, deferralId }` |
 | `plugin:mcp:tool:failed` | Tool invocation failed | `{ tool, error, proxied?, serverId?, remoteTool? }` |
 | `plugin:mcp:tool:declined` | The route ran and dropped the exchange instead of producing a result | `{ tool, reason }` |
+| `plugin:mcp:ui:failed` | An [MCP Apps view](/docs/reference/adapters/mcp#mcp-apps-views) could not be loaded for `resources/read`; the caller got a generic error naming the tool | `{ tool, uri, error }` |
 
 `deferred` is deliberately not `completed`. A deferred run is neither finished nor failed: the real result belongs to execution two, which flows to the route's destinations when the answer arrives, so counting the deferral as a completion would publish a false receipt to every dashboard. The wire result is an ordinary `isError: false` answer whose `structuredContent` is the acknowledgment. Local routes only: a proxied call has no exchange of ours to defer.
 

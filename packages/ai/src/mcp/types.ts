@@ -115,6 +115,8 @@ export interface McpLocalToolEntry {
   annotations?: McpToolAnnotations;
   /** Icons forwarded to `tools/list` per the MCP spec. */
   icons?: McpIcon[];
+  /** MCP Apps view the host renders the tool's result in. */
+  ui?: McpUiOptions;
   /**
    * Invocation handler. Receives an exchange pre-built by the MCP server
    * (with tool/session/auth headers and the request body) and returns the
@@ -631,6 +633,59 @@ export interface McpServerOptions {
 
   /** Icons forwarded on `tools/list` per the MCP spec. */
   icons?: McpIcon[];
+
+  /**
+   * An MCP Apps view: HTML the host renders the tool's result in, instead of
+   * showing it as JSON. Hosts without MCP Apps support keep reading the text
+   * result, so adding a view changes nothing for them.
+   *
+   * The view draws from the tool's `structuredContent`, so the route must
+   * declare `.output({ body })`. It is served to every client of the server
+   * behind the same auth as the tools, so it must be static: data reaches it
+   * through the tool result, never baked into the HTML.
+   *
+   * @example
+   * ```ts
+   * craft()
+   *   .id("send-mail")
+   *   .description("Send an email")
+   *   .output({ body: SendMailResult })
+   *   .from(mcp({ ui: { html: fromFile("./mail-card.html") } }))
+   * ```
+   *
+   * @see https://github.com/modelcontextprotocol/ext-apps
+   */
+  ui?: McpUiOptions;
+}
+
+/**
+ * Origins an MCP Apps view may reach beyond its own inline content, mirrored
+ * onto the view's sandbox Content Security Policy by the host. Every list
+ * defaults to empty: inline and own-origin only.
+ */
+export interface McpUiCsp {
+  /** Origins the view may `fetch`, XHR, or open a WebSocket to. */
+  connectDomains?: string[];
+  /** Origins the view may load scripts, styles, images, and fonts from. */
+  resourceDomains?: string[];
+  /** Origins the view may embed in a nested iframe. */
+  frameDomains?: string[];
+  /** Origins the view's document base URI may point at. */
+  baseUriDomains?: string[];
+}
+
+/** An MCP Apps view attached to a route's MCP tool. See {@link McpServerOptions.ui}. */
+export interface McpUiOptions {
+  /**
+   * The view's HTML document, or a function that resolves it on every
+   * `resources/read` (`fromFile()` returns one, so edits show without a
+   * restart).
+   */
+  html: string | (() => string | Promise<string>);
+  /** Outside origins the view may load from or connect to. */
+  csp?: McpUiCsp;
+  /** Ask the host to draw a visual border around the view. */
+  prefersBorder?: boolean;
 }
 
 export type McpOptions = McpServerOptions;
@@ -703,6 +758,8 @@ export interface McpTool {
   annotations?: McpToolAnnotations;
   /** Icons forwarded to clients per the MCP spec. */
   icons?: McpIcon[];
+  /** Protocol extension metadata, such as the MCP Apps `ui.resourceUri`. */
+  _meta?: Record<string, unknown>;
 }
 
 /**

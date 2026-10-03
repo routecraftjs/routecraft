@@ -19,6 +19,8 @@ import type {
   CallToolResult,
   ListToolsResult,
   McpHttpHandler,
+  ReadResourceResult,
+  ResourceNotFoundError,
   Server as SdkServer,
 } from "@modelcontextprotocol/server";
 import type { StdioServerHandle } from "@modelcontextprotocol/server/stdio";
@@ -82,6 +84,9 @@ const NEVER_ABORTED = new AbortController().signal;
 /** How to run the HTTP transport over plain http locally, shared by the resource guards. */
 const LOCAL_HTTP_HINT =
   "For local work over plain http, run with NODE_ENV=development; an unset NODE_ENV counts as production.";
+
+/** MIME type the MCP Apps extension requires on a view resource. */
+const MCP_APP_MIME_TYPE = "text/html;profile=mcp-app";
 
 /** True for a plain, non-array, non-null object. */
 function isPlainObject(value: unknown): value is Record<string, unknown> {
@@ -187,7 +192,10 @@ type SdkServerInfo = {
 
 /** The MCP SDK `Server` constructor options arg (the fields we populate). */
 type SdkServerOptions = {
-  capabilities: { tools: Record<string, unknown> };
+  capabilities: {
+    tools: Record<string, unknown>;
+    resources: Record<string, unknown>;
+  };
   instructions?: string;
 };
 
@@ -216,6 +224,7 @@ export class McpServer {
    * so {@link createServerInstance} stays off the dynamic-import path.
    */
   private sdkServerCtor: typeof SdkServer | null = null;
+  private resourceNotFound: typeof ResourceNotFoundError | null = null;
   private serverInfo: SdkServerInfo | null = null;
   private serverOptions: SdkServerOptions | null = null;
   private running = false;
@@ -360,9 +369,15 @@ export class McpServer {
    * Build the MCP `Server` options arg (capabilities plus optional
    * instructions). `instructions` has no default; an empty string opts out,
    * matching the empty-value contract of the serverInfo string fields.
+   *
+   * `resources` is declared whether or not any route has a view: capabilities
+   * are fixed when a stdio connection opens, which can precede the routes
+   * subscribing, and an empty `resources/list` costs a client nothing.
    */
   private buildServerOptions(): SdkServerOptions {
-    const options: SdkServerOptions = { capabilities: { tools: {} } };
+    const options: SdkServerOptions = {
+      capabilities: { tools: {}, resources: {} },
+    };
     const instructions = this.defaultUnlessEmpty(this.options.instructions, "");
     if (instructions !== undefined) {
       options.instructions = instructions;
@@ -721,8 +736,9 @@ export class McpServer {
    * the axis this transport is meant to scale along.
    */
   private async prepareServerFactory(): Promise<void> {
-    const { Server } = await loadMcpServerSdk("mcp");
+    const { Server, ResourceNotFoundError } = await loadMcpServerSdk("mcp");
     this.sdkServerCtor = Server;
+    this.resourceNotFound = ResourceNotFoundError;
     this.serverInfo = this.buildServerInfo();
     this.serverOptions = this.buildServerOptions();
   }
@@ -743,7 +759,12 @@ export class McpServer {
    * result was produced under.
    */
   private createServerInstance(principal: Principal | undefined): SdkServer {
-    if (!this.sdkServerCtor || !this.serverInfo || !this.serverOptions) {
+    if (
+      !this.sdkServerCtor ||
+      !this.resourceNotFound ||
+      !this.serverInfo ||
+      !this.serverOptions
+    ) {
       throw new Error(
         "mcp: server factory used before prepareServerFactory() ran",
       );
@@ -778,7 +799,92 @@ export class McpServer {
       );
     });
 
+    server.setRequestHandler("resources/list", () => ({
+      resources: this.getExposedLocalEntries()
+        .filter((entry) => entry.ui !== undefined)
+        .map((entry) => ({
+          uri: this.uiResourceUri(entry),
+          name: entry.endpoint,
+          ...(entry.title !== undefined ? { title: entry.title } : {}),
+          mimeType: MCP_APP_MIME_TYPE,
+        })),
+    }));
+
+    server.setRequestHandler("resources/templates/list", () => ({
+      resourceTemplates: [],
+    }));
+
+    server.setRequestHandler("resources/read", (request) =>
+      this.readUiResource(request.params.uri),
+    );
+
     return server;
+  }
+
+  /**
+   * The `ui://` URI a tool's view is served at. Derived from the server and
+   * route identities rather than configured, so it cannot collide with
+   * another route's view or drift from the tool that advertises it.
+   */
+  private uiResourceUri(entry: McpLocalToolEntry): string {
+    return `ui://${encodeURIComponent(this.options.name)}/${entry.endpoint}`;
+  }
+
+  /**
+   * Serve one MCP Apps view for `resources/read`. Only views of tools that
+   * pass the `tools` filter resolve, so a hidden tool's view is as invisible
+   * as the tool.
+   *
+   * A loader failure is logged with its cause and answered generically: a
+   * file loader's error names an absolute path on this host, which is the
+   * operator's to see and not the caller's.
+   */
+  private async readUiResource(uri: string): Promise<ReadResourceResult> {
+    const entry = this.getExposedLocalEntries().find(
+      (candidate) =>
+        candidate.ui !== undefined && this.uiResourceUri(candidate) === uri,
+    );
+    const ui = entry?.ui;
+    if (entry === undefined || ui === undefined) {
+      throw new this.resourceNotFound!(uri);
+    }
+
+    let text: string;
+    try {
+      text = typeof ui.html === "string" ? ui.html : await ui.html();
+      if (typeof text !== "string") {
+        throw new TypeError(
+          `ui.html resolved to ${typeof text}, expected an HTML string`,
+        );
+      }
+    } catch (error) {
+      this.context.logger.error(
+        { tool: entry.endpoint, uri, err: error },
+        "MCP App view could not be loaded",
+      );
+      this.context.emit("plugin:mcp:ui:failed", {
+        tool: entry.endpoint,
+        uri,
+        error: toolErrorLogMessage(error),
+      });
+      throw new Error(`View for tool "${entry.endpoint}" could not be loaded`);
+    }
+
+    const meta: Record<string, unknown> = {};
+    if (ui.csp !== undefined) meta["csp"] = ui.csp;
+    if (ui.prefersBorder !== undefined) {
+      meta["prefersBorder"] = ui.prefersBorder;
+    }
+    return {
+      contents: [
+        {
+          uri,
+          mimeType: MCP_APP_MIME_TYPE,
+          text,
+          ...(Object.keys(meta).length > 0 ? { _meta: { ui: meta } } : {}),
+        },
+      ],
+    };
   }
 
   /**
@@ -1136,6 +1242,9 @@ export class McpServer {
     const icons = entry.icons ?? this.resolveServerIcons();
     if (icons.length > 0) {
       tool.icons = icons;
+    }
+    if (entry.ui !== undefined) {
+      tool._meta = { ui: { resourceUri: this.uiResourceUri(entry) } };
     }
     return tool;
   }
