@@ -9,7 +9,10 @@ import {
 import { validateAdvertisedChoices } from "./advertised.ts";
 import { validateAgentOptions, validateBlocks } from "./agent.ts";
 import type { AgentContribution, AgentRegistry } from "./port.ts";
-import type { AgentSessionRuntime } from "./session/runtime.ts";
+import {
+  noContinuationsStore,
+  type AgentSessionRuntime,
+} from "./session/runtime.ts";
 import { AGENT_DEFAULT_OPTION_KEYS } from "./store.ts";
 import { AGENT_TOOL_POLICY_KINDS } from "./tools/policy.ts";
 import type {
@@ -23,8 +26,8 @@ import type { AgentDefaultOptions, AgentRegisteredOptions } from "./types.ts";
 
 /**
  * The agent runtime's registry. Contributions arrive from every
- * `agentPlugin()` install's bind; the runtime seals it when the application
- * starts, after the last bind has returned.
+ * `agentPlugin()` install's bind and are refused once the application froze,
+ * because whatever read them during bind has already used them.
  *
  * @internal
  */
@@ -34,20 +37,25 @@ export class AgentRegistryImpl implements AgentRegistry {
   readonly toolPolicies: AgentToolPolicy[] = [];
   readonly resolvedFunctions = new Map<string, FnOptions>();
   #defaults: AgentDefaultOptions | undefined;
-  #sealed = false;
-  #sessions: AgentSessionRuntime | undefined;
 
-  constructor(private readonly openSessions: () => AgentSessionRuntime) {}
+  /**
+   * @param frozen - Whether the application froze, read on every contribution
+   * @param runtime - The session runtime the application bound, or
+   *   `undefined` when it has no continuations store to hold one on
+   */
+  constructor(
+    private readonly frozen: () => boolean,
+    private readonly runtime: AgentSessionRuntime | undefined,
+  ) {}
 
   get defaults(): AgentDefaultOptions | undefined {
     return this.#defaults;
   }
 
   contribute(contribution: AgentContribution): void {
-    if (this.#sealed) {
+    if (this.frozen()) {
       throw rcError("RC1110", undefined, {
-        message:
-          "An agent contribution arrived after the application started. Contribute agents and functions in bind(c).",
+        message: `An agent contribution (${describeContribution(contribution)}) arrived after the application froze. Contribute agents and functions from a plugin's bind(c), with AGENTS in its requires.`,
       });
     }
     // Validated as a whole before anything is written, so a refused
@@ -87,14 +95,20 @@ export class AgentRegistryImpl implements AgentRegistry {
   }
 
   sessions(): AgentSessionRuntime {
-    this.#sessions ??= this.openSessions();
-    return this.#sessions;
+    if (this.runtime === undefined) throw noContinuationsStore();
+    return this.runtime;
   }
+}
 
-  /** Refuse further contributions: the application is starting. */
-  seal(): void {
-    this.#sealed = true;
-  }
+/** What a late contribution carried, for the refusal to name. */
+function describeContribution(contribution: AgentContribution): string {
+  const parts = [
+    ...Object.keys(contribution.agents ?? {}).map((id) => `agent "${id}"`),
+    ...Object.keys(contribution.functions ?? {}).map((id) => `fn "${id}"`),
+    ...(contribution.defaultOptions !== undefined ? ["defaultOptions"] : []),
+    ...(contribution.toolPolicy !== undefined ? ["toolPolicy"] : []),
+  ];
+  return parts.length === 0 ? "empty" : parts.join(", ");
 }
 
 function validateRegisteredAgent(

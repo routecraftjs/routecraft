@@ -9,7 +9,10 @@ import {
   MemorySessionStore,
   SESSION_STORE,
 } from "../src/agent/session/index.ts";
-import { createSessionStore } from "../src/agent/session/config.ts";
+import {
+  createSessionStore,
+  SESSION_STORE_ENV,
+} from "../src/agent/session/config.ts";
 import { MODEL } from "./helpers/defer-fixtures.ts";
 
 const scratch = mkdtempSync(join(tmpdir(), "rc-agent-ports-"));
@@ -117,6 +120,61 @@ describe("the agent runtime and its ports", () => {
   });
 
   /**
+   * @case A contribution after the application froze but before it started
+   * @preconditions A built, never started context, then a direct call to contribute() on the AGENTS registry
+   * @expectedResult RC1110 naming the late agent, and the registry is unchanged: whatever read the contributions during bind has already used them
+   */
+  test("refuses a contribution once the application froze", async () => {
+    t = await testContext()
+      .with({
+        plugins: [
+          llm(),
+          agentPlugin({
+            agents: { a: { description: "A", model: MODEL, system: "x" } },
+          }),
+        ],
+      })
+      .build();
+    const registry = t.ctx.require(AGENTS);
+    expect(() =>
+      registry.contribute({
+        agents: { late: { description: "L", model: MODEL, system: "x" } },
+      }),
+    ).toThrow(
+      expect.objectContaining({
+        rc: "RC1110",
+        message: expect.stringContaining('agent "late"'),
+      }),
+    );
+    expect(registry.agents.has("late")).toBe(false);
+  });
+
+  /**
+   * @case The session runtime is first asked for after the application stopped
+   * @preconditions A context with a continuations store and an agentPlugin, built and stopped without starting, so nothing asked for sessions() while it ran
+   * @expectedResult sessions() answers the runtime the application bound, already stopped with its store, rather than a fresh runtime on a closed store
+   */
+  test("never opens a session runtime after the application stopped", async () => {
+    const built = await testContext()
+      .with({
+        deferral: { store: new MemoryDeferralStore() },
+        sessions: { store: "memory" },
+        plugins: [
+          llm(),
+          agentPlugin({
+            agents: { a: { description: "A", model: MODEL, system: "x" } },
+          }),
+        ],
+      })
+      .build();
+    const registry = built.ctx.require(AGENTS);
+    await built.stop();
+    const runtime = registry.sessions();
+    expect((runtime as unknown as { stopping: boolean }).stopping).toBe(true);
+    expect(registry.sessions()).toBe(runtime);
+  });
+
+  /**
    * @case The continuations store and the session store configured onto one file through their config keys
    * @preconditions deferral: { store: { path } } and sessions: { store: { path } } with the same path, plus an agentPlugin
    * @expectedResult The build fails with AI1012 naming both settings and the path: the sessions plugin reads where the continuations store opened through the CONTINUATIONS port
@@ -143,6 +201,40 @@ describe("the agent runtime and its ports", () => {
     expect(failure!.message).toContain("sessions: { store }");
     expect(failure!.message).toContain("deferral: { store }");
     expect(failure!.message).toContain(path);
+  });
+
+  /**
+   * @case The default sessions plugin resolves its path from the environment onto the continuations store's file
+   * @preconditions deferral: { store: { path } }, no sessions block, ROUTECRAFT_SESSION_STORE set to the same path, and an agentPlugin
+   * @expectedResult The build fails with AI1012 naming both settings: the unconfigured default checks the continuations path just as the sessions key does
+   */
+  test("refuses a default session store resolved onto the continuations store's file", async () => {
+    const path = join(scratch, "shared-env.db");
+    const previous = process.env[SESSION_STORE_ENV];
+    process.env[SESSION_STORE_ENV] = path;
+    try {
+      const failure = await testContext()
+        .with({
+          deferral: { store: { path } },
+          plugins: [
+            llm(),
+            agentPlugin({
+              agents: { a: { description: "A", model: MODEL, system: "x" } },
+            }),
+          ],
+        })
+        .build()
+        .then(
+          () => undefined,
+          (err: Error) => err,
+        );
+      expect(failure).toMatchObject({ rc: "AI1012" });
+      expect(failure!.message).toContain("sessions: { store }");
+      expect(failure!.message).toContain("deferral: { store }");
+    } finally {
+      if (previous === undefined) delete process.env[SESSION_STORE_ENV];
+      else process.env[SESSION_STORE_ENV] = previous;
+    }
   });
 
   /**
