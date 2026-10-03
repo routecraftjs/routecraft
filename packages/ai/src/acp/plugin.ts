@@ -17,7 +17,7 @@ import {
   type RouteDefinition,
 } from "@routecraft/routecraft";
 import { agent } from "../agent/agent.ts";
-import { ADAPTER_AGENT_REGISTRY } from "../agent/store.ts";
+import { AGENTS } from "../agent/port.ts";
 import "../errors.ts";
 import { AcpRuntime, ACP_ROUTE_PREFIX, promptBodyOf } from "./runtime.ts";
 import { AcpServer, normalizeAcpPath } from "./server.ts";
@@ -58,22 +58,24 @@ export function acpPlugin(options: AcpPluginOptions = {}): Plugin {
 
   return {
     id: "routecraft.ai.acp",
+    requires: [AGENTS],
     async bind(c: PluginContext) {
-      const context = c.context;
-      const agents = context.getStore(ADAPTER_AGENT_REGISTRY);
-      if (agents === undefined || agents.size === 0) {
+      const registry = c.require(AGENTS);
+      const agents = registry.agents;
+      if (agents.size === 0) {
         throw rcError("RC5003", undefined, {
           message:
             "ACP serves the agents this context has registered, and none were registered when it applied. " +
             "Write the agents under `agent:` (or let `craft start` discover them), or list acpPlugin() after the agentPlugin() that registers them in `plugins`.",
         });
       }
-      runtime = new AcpRuntime(context, options);
+      // Surfaces and the web ingress are still keyed on the context.
+      runtime = new AcpRuntime(c, registry, c.context, options);
       runtime.subscribe();
-      context.registerRoutes(...turnRoutes(runtime, [...agents.keys()]));
-      server = new AcpServer(context, runtime, options);
+      c.routes.register(...turnRoutes(runtime, [...agents.keys()]));
+      server = new AcpServer(runtime.surfaceContext, runtime, options);
       await server.prepare();
-      context.logger.info(
+      c.logger.info(
         { path: options.path ?? "/acp", agents: agents.size },
         "ACP mount registered",
       );

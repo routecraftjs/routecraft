@@ -16,6 +16,7 @@ import {
   AgentSessionRuntime,
   DEFAULT_SESSION_DB_PATH,
   MemorySessionStore,
+  SESSION_STORE,
   SESSION_STORE_ENV,
   SqliteSessionStore,
 } from "../src/agent/session/index.ts";
@@ -168,8 +169,8 @@ describe("session store resolution", () => {
   });
 
   /**
-   * @case The sessions config key chooses the context's store, whichever plugin applied first
-   * @preconditions A context with agentPlugin() in plugins and sessions: { store } in config, so the plugin's unconfigured default and the block's choice both apply
+   * @case The sessions config key chooses the context's store over the default the agent runtime brings along
+   * @preconditions A context with agentPlugin() in plugins, which brings the default sessions plugin along, and sessions: { store } in config
    * @expectedResult The context's resolved store is the configured one, reported as custom
    */
   test("the sessions key wins over the plugin's default", async () => {
@@ -186,7 +187,7 @@ describe("session store resolution", () => {
         ],
       })
       .build();
-    const resolved = t.ctx.getStore(ADAPTER_AGENT_SESSION_STORE);
+    const resolved = t.ctx.lookup(SESSION_STORE);
     expect(resolved?.store).toBe(own);
     expect(resolved?.configured).toBe(true);
     expect(resolved?.backend).toBe("custom");
@@ -285,7 +286,7 @@ describe("session store resolution", () => {
         ],
       })
       .build();
-    const resolved = t.ctx.getStore(ADAPTER_AGENT_SESSION_STORE);
+    const resolved = t.ctx.lookup(SESSION_STORE);
     expect(resolved?.configured).toBe(false);
     expect(resolved?.ownsStore).toBe(true);
     expect(resolved?.store).toBeInstanceOf(LazySqliteSessionStore);

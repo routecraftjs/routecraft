@@ -18,6 +18,7 @@ import {
   type FnHandlerContext,
 } from "../src/index.ts";
 import { scriptedLlm } from "./helpers/scripted-llm.ts";
+import { toolHostOf } from "../src/agent/tools/types.ts";
 
 const llm = scriptedLlm([]);
 mock.module("../src/llm/providers/index.ts", () => ({
@@ -315,7 +316,7 @@ describe("cooperative cancellation of agent runs", () => {
     await t.startAndWaitReady();
 
     const deferred = directTool("slow-route");
-    const fn = deferred.resolve(t.ctx, "slowTool");
+    const fn = deferred.resolve(toolHostOf(t.ctx), "slowTool");
     const baseCtx = {
       logger: t.ctx.logger,
       defer: () => {

@@ -4,7 +4,6 @@ import type { Principal, ValidatorAuthOptions } from "@routecraft/routecraft";
 import type { ToolGuard } from "../fn/types.ts";
 import { TOOL_NAME_PATTERN } from "../tool-name.ts";
 import type { McpCorsOptions } from "./cors.ts";
-import type { McpToolRegistry } from "./tool-registry.ts";
 import type { UserinfoOption } from "./userinfo.ts";
 
 /**
@@ -21,7 +20,7 @@ export const MCP_TOOL_NAME_PATTERN = TOOL_NAME_PATTERN;
 
 /**
  * The tool-calling surface of a managed stdio client, as stored under
- * {@link MCP_STDIO_MANAGERS}. `callTool` returns extracted content;
+ * the MCP service's `stdio` map. `callTool` returns extracted content;
  * `callToolRaw` returns the raw MCP result for verbatim passthrough.
  */
 export interface McpStdioToolCaller {
@@ -31,45 +30,6 @@ export interface McpStdioToolCaller {
     args: Record<string, unknown>,
   ): Promise<McpRawToolResult>;
 }
-
-/**
- * Store key set by mcpPlugin() when applied; routes using .from(mcp(...)) require it.
- * @internal
- */
-export const MCP_PLUGIN_REGISTERED = Symbol.for(
-  "routecraft.mcp.plugin.registered",
-);
-
-/**
- * Store key for named remote MCP servers (mcpPlugin({ clients })). Used by McpClient to resolve serverId.
- * @internal
- */
-export const ADAPTER_MCP_CLIENT_SERVERS = Symbol.for(
-  "routecraft.mcp.client.servers",
-);
-
-/**
- * Store key for the unified MCP tool registry. Used by agent adapter for tool discovery.
- * @internal
- */
-export const MCP_TOOL_REGISTRY = Symbol.for("routecraft.mcp.tool.registry");
-
-/**
- * Store key for stdio client managers. Used by destination adapter to call tools on stdio clients.
- * @internal
- */
-export const MCP_STDIO_MANAGERS = Symbol.for("routecraft.mcp.stdio.managers");
-
-/**
- * Store key for the MCP local tool registry. Populated at `mcp()` subscription time
- * with one entry per `.from(mcp(endpoint, options))` route in this context.
- *
- * Kept separate from {@link MCP_TOOL_REGISTRY}, which holds tools discovered from
- * external (stdio/HTTP) client servers and is consumed by the agent adapter.
- */
-export const MCP_LOCAL_TOOL_REGISTRY = Symbol.for(
-  "routecraft.mcp.local-tool-registry",
-);
 
 /**
  * @deprecated Use `RouteSchemas` from `@routecraft/routecraft`. Kept as an
@@ -84,7 +44,13 @@ export type McpInput = import("@routecraft/routecraft").RouteSchemas;
 export type McpOutput = import("@routecraft/routecraft").RouteSchemas;
 
 /**
- * Entry in the {@link MCP_LOCAL_TOOL_REGISTRY}. One per `.from(mcp(endpoint, options))`
+ * What `tools/call` hands a local tool: the request body and the
+ * tool/request/auth headers the MCP server set. An exchange is one.
+ */
+export type McpToolRequest = Pick<Exchange, "body" | "headers">;
+
+/**
+ * Entry in the MCP service's `local` registry. One per `.from(mcp(endpoint, options))`
  * route. Holds the discovery metadata needed for `tools/list` and the invocation
  * handler used by `tools/call`.
  */
@@ -118,25 +84,14 @@ export interface McpLocalToolEntry {
   /** MCP Apps view the host renders the tool's result in. */
   ui?: McpUiOptions;
   /**
-   * Invocation handler. Receives an exchange pre-built by the MCP server
-   * (with tool/session/auth headers and the request body) and returns the
-   * resulting exchange after the route has processed it.
+   * Invocation handler. Receives the request body and the tool/request/auth
+   * headers the MCP server set, runs the route on its own exchange, and
+   * returns that exchange once the route has processed it.
    */
-  handler: (exchange: Exchange) => Promise<Exchange>;
+  handler: (request: McpToolRequest) => Promise<Exchange>;
 }
 
 declare module "@routecraft/routecraft" {
-  interface StoreRegistry {
-    [MCP_PLUGIN_REGISTERED]: boolean;
-    [ADAPTER_MCP_CLIENT_SERVERS]: Map<
-      string,
-      McpClientHttpConfig | McpClientStdioConfig | string
-    >;
-    [MCP_TOOL_REGISTRY]: McpToolRegistry;
-    [MCP_LOCAL_TOOL_REGISTRY]: Map<string, McpLocalToolEntry>;
-    [MCP_STDIO_MANAGERS]: Map<string, McpStdioToolCaller>;
-  }
-
   interface RoutecraftHeaders {
     /** The MCP tool name that triggered this exchange. */
     "routecraft.mcp.tool"?: string;

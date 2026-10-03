@@ -39,6 +39,11 @@ export interface HostEnvironment {
  */
 export interface InstalledPlugin {
   readonly plugin: Plugin;
+  /**
+   * The id this install answers to: the plugin's own, or `id#n` for the
+   * n-th install of a repeatable plugin.
+   */
+  readonly id: string;
   /** Position in dependency order. */
   readonly index: number;
   readonly namespace: string;
@@ -67,20 +72,20 @@ function isPort(value: unknown): value is AnyPort {
   );
 }
 
-function invalidPlugin(index: number, why: string): never {
+function invalidPlugin(where: string, why: string): never {
   throw rcError("RC9901", undefined, {
-    message: `Invalid plugin at index ${index}: ${why}. A plugin is a descriptor built with definePlugin({ id, bind?, start?, stop? }).`,
+    message: `Invalid plugin ${where}: ${why}. A plugin is a descriptor built with definePlugin({ id, bind?, start?, stop? }).`,
   });
 }
 
-function validateShape(plugin: unknown, index: number): Plugin {
+function validateShape(plugin: unknown, where: string): Plugin {
   if (typeof plugin !== "object" || plugin === null) {
-    invalidPlugin(index, "expected an object");
+    invalidPlugin(where, "expected an object");
   }
   const p = plugin as Plugin & { apply?: unknown };
   if (typeof p.id !== "string" || p.id.length === 0) {
     invalidPlugin(
-      index,
+      where,
       typeof p.apply === "function"
         ? "it has apply(ctx), the pre-0.8 shape; declare an id and move apply into bind(c)"
         : "missing a non-empty string id",
@@ -88,7 +93,7 @@ function validateShape(plugin: unknown, index: number): Plugin {
   }
   for (const hook of ["bind", "start", "stop"] as const) {
     if (p[hook] !== undefined && typeof p[hook] !== "function") {
-      invalidPlugin(index, `${hook} must be a function`);
+      invalidPlugin(where, `${hook} must be a function`);
     }
   }
   for (const field of [
@@ -100,10 +105,92 @@ function validateShape(plugin: unknown, index: number): Plugin {
     const ports = p[field];
     if (ports === undefined) continue;
     if (!Array.isArray(ports) || !ports.every(isPort)) {
-      invalidPlugin(index, `${field} must be an array of ports`);
+      invalidPlugin(where, `${field} must be an array of ports`);
+    }
+  }
+  if (p.installs !== undefined && !Array.isArray(p.installs)) {
+    invalidPlugin(where, "installs must be an array of plugins");
+  }
+  if (p.repeatable !== undefined && typeof p.repeatable !== "boolean") {
+    invalidPlugin(where, "repeatable must be a boolean");
+  }
+  if (p.repeatable === true) {
+    const declared = (
+      [
+        ["provides", p.provides?.length ?? 0],
+        ["replaces", p.replaces?.length ?? 0],
+        ["hooks", p.hooks === undefined ? 0 : Object.keys(p.hooks).length],
+        ["points", p.points?.length ?? 0],
+      ] as const
+    ).find(([, count]) => count > 0);
+    if (declared) {
+      invalidPlugin(
+        where,
+        `"${p.id}" is repeatable and declares ${declared[0]}, which every install would declare again; contribute through a port another plugin provides`,
+      );
     }
   }
   return p;
+}
+
+/**
+ * The listed plugins with everything they bring along, each brought plugin
+ * placed ahead of the first plugin that brings it. An id the application
+ * lists itself is never brought: the application's own choice wins.
+ */
+function expand(listed: readonly Plugin[]): Plugin[] {
+  const listedIds = new Set(listed.map((plugin) => plugin.id));
+  const brought = new Set<string>();
+  const result: Plugin[] = [];
+  const bring = (by: Plugin): void => {
+    for (const raw of by.installs ?? []) {
+      const plugin = validateShape(raw, `installed by "${by.id}"`);
+      if (listedIds.has(plugin.id) || brought.has(plugin.id)) continue;
+      brought.add(plugin.id);
+      bring(plugin);
+      result.push(plugin);
+    }
+  };
+  for (const plugin of listed) {
+    bring(plugin);
+    result.push(plugin);
+  }
+  return result;
+}
+
+interface Identified {
+  readonly plugin: Plugin;
+  readonly id: string;
+  readonly namespace: string;
+}
+
+/**
+ * Number the installs of each repeatable plugin in list order.
+ *
+ * @throws RC1101 when one id is installed both repeatable and not
+ */
+function identify(plugins: readonly Plugin[]): Identified[] {
+  const single = new Set(
+    plugins.filter((p) => p.repeatable !== true).map((p) => p.id),
+  );
+  const installs = new Map<string, number>();
+  return plugins.map((plugin) => {
+    if (plugin.repeatable !== true) {
+      return { plugin, id: plugin.id, namespace: namespaceOf(plugin) };
+    }
+    if (single.has(plugin.id)) {
+      throw rcError("RC1101", undefined, {
+        message: `The id "${plugin.id}" is installed both as a repeatable plugin and as a single one. Give the single one an id of its own.`,
+      });
+    }
+    const n = (installs.get(plugin.id) ?? 0) + 1;
+    installs.set(plugin.id, n);
+    return {
+      plugin,
+      id: `${plugin.id}#${n}`,
+      namespace: `${namespaceOf(plugin)}#${n}`,
+    };
+  });
 }
 
 /**
@@ -123,45 +210,53 @@ export class PluginHost {
   private frozen = false;
 
   constructor(plugins: readonly unknown[]) {
-    const shaped = plugins.map((plugin, index) => validateShape(plugin, index));
-    this.checkIdentity(shaped);
-    const ports = this.collectPorts(shaped);
-    const installed = shaped.map((plugin): InstalledPlugin => ({
-      plugin,
-      index: -1,
-      namespace: namespaceOf(plugin),
-      requires: new Set((plugin.requires ?? []).map((p) => p.key)),
-      optional: new Set((plugin.optional ?? []).map((p) => p.key)),
-      provides: new Set((plugin.provides ?? []).map((p) => p.key)),
-      bound: false,
-      started: false,
-      disposers: [],
-    }));
+    const identified = identify(
+      expand(
+        plugins.map((plugin, index) =>
+          validateShape(plugin, `at index ${index}`),
+        ),
+      ),
+    );
+    this.checkIdentity(identified);
+    const ports = this.collectPorts(identified.map(({ plugin }) => plugin));
+    const installed = identified.map(
+      ({ plugin, id, namespace }): InstalledPlugin => ({
+        plugin,
+        id,
+        index: -1,
+        namespace,
+        requires: new Set((plugin.requires ?? []).map((p) => p.key)),
+        optional: new Set((plugin.optional ?? []).map((p) => p.key)),
+        provides: new Set((plugin.provides ?? []).map((p) => p.key)),
+        bound: false,
+        started: false,
+        disposers: [],
+      }),
+    );
     this.resolve(installed, ports);
     this.ordered = this.order(installed).map((entry, index) =>
       Object.assign(entry, { index }),
     );
   }
 
-  private checkIdentity(plugins: readonly Plugin[]): void {
+  private checkIdentity(plugins: readonly Identified[]): void {
     const ids = new Map<string, number>();
     const namespaces = new Map<string, string>();
-    plugins.forEach((plugin, index) => {
-      const seen = ids.get(plugin.id);
+    plugins.forEach(({ id, namespace }, index) => {
+      const seen = ids.get(id);
       if (seen !== undefined) {
         throw rcError("RC1101", undefined, {
-          message: `Two plugins share the id "${plugin.id}" (positions ${seen} and ${index}). An id is installed once; a config key and an explicit plugin for the same feature count as two.`,
+          message: `Two plugins share the id "${id}" (positions ${seen} and ${index}). An id is installed once; a config key and an explicit plugin for the same feature count as two.`,
         });
       }
-      ids.set(plugin.id, index);
-      const namespace = namespaceOf(plugin);
+      ids.set(id, index);
       const owner = namespaces.get(namespace);
       if (owner !== undefined) {
         throw rcError("RC1102", undefined, {
-          message: `Plugins "${owner}" and "${plugin.id}" both claim the namespace "${namespace}". Give one an explicit namespace.`,
+          message: `Plugins "${owner}" and "${id}" both claim the namespace "${namespace}". Give one an explicit namespace.`,
         });
       }
-      namespaces.set(namespace, plugin.id);
+      namespaces.set(namespace, id);
     });
   }
 
@@ -198,7 +293,7 @@ export class PluginHost {
       for (const replaced of entry.plugin.replaces ?? []) {
         if (!entry.provides.has(replaced.key)) {
           throw rcError("RC1106", undefined, {
-            message: `Plugin "${entry.plugin.id}" replaces "${replaced.name}" but does not list it in provides.`,
+            message: `Plugin "${entry.id}" replaces "${replaced.name}" but does not list it in provides.`,
           });
         }
       }
@@ -210,12 +305,12 @@ export class PluginHost {
       );
       if (replacers.length > 1) {
         throw rcError("RC1106", undefined, {
-          message: `Plugins ${replacers.map((r) => `"${r.plugin.id}"`).join(" and ")} both replace "${port.name}". Install one of them.`,
+          message: `Plugins ${replacers.map((r) => `"${r.id}"`).join(" and ")} both replace "${port.name}". Install one of them.`,
         });
       }
       if (replacers.length === 0 && providers.length > 1) {
         throw rcError("RC1105", undefined, {
-          message: `Plugins ${providers.map((p) => `"${p.plugin.id}"`).join(" and ")} both provide "${port.name}" and neither declares replaces. Remove one, or declare replaces: [${port.name}] on the one that should be selected.`,
+          message: `Plugins ${providers.map((p) => `"${p.id}"`).join(" and ")} both provide "${port.name}" and neither declares replaces. Remove one, or declare replaces: [${port.name}] on the one that should be selected.`,
         });
       }
       this.provisions.set(key, {
@@ -229,7 +324,7 @@ export class PluginHost {
       for (const required of entry.plugin.requires ?? []) {
         if (!this.provisions.get(required.key)?.provider) {
           throw rcError("RC1104", undefined, {
-            message: `Plugin "${entry.plugin.id}" requires "${required.name}", which no installed plugin provides.`,
+            message: `Plugin "${entry.id}" requires "${required.name}", which no installed plugin provides.`,
           });
         }
       }
@@ -265,7 +360,7 @@ export class PluginHost {
           .flatMap((entry) =>
             [...dependsOn.get(entry)!]
               .filter((dep) => !done.has(dep))
-              .map((dep) => `${entry.plugin.id} -> ${dep.plugin.id}`),
+              .map((dep) => `${entry.id} -> ${dep.id}`),
           );
         throw rcError("RC1107", undefined, {
           message: `The plugins depend on each other in a cycle: ${edges.join(", ")}.`,
@@ -332,7 +427,7 @@ export class PluginHost {
       const provision = this.provisions.get(key);
       if (provision?.provider === entry && !provision.provided) {
         throw rcError("RC1109", undefined, {
-          message: `Plugin "${entry.plugin.id}" declares it provides "${provision.port.name}" but its bind did not call c.provide() for it.`,
+          message: `Plugin "${entry.id}" declares it provides "${provision.port.name}" but its bind did not call c.provide() for it.`,
         });
       }
     }
@@ -341,7 +436,7 @@ export class PluginHost {
   /** The context a plugin's hooks receive. Built once per plugin. */
   contextFor(entry: InstalledPlugin, env: HostEnvironment): PluginContext {
     if (entry.context) return entry.context;
-    const id = entry.plugin.id;
+    const id = entry.id;
     const declared = (key: symbol): boolean =>
       entry.requires.has(key) || entry.optional.has(key);
     const requirePort = <T>(port: Port<T>): T =>

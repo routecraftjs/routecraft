@@ -9,9 +9,8 @@
 import { craft, noop } from "@routecraft/routecraft";
 import { testContext } from "@routecraft/testing";
 import { z } from "zod";
-import { McpServer } from "../../src/mcp/server.ts";
 import { mcp } from "../../src/index.ts";
-import { MCP_PLUGIN_REGISTERED } from "../../src/mcp/types.ts";
+import { mcpPort, mcpServerFor } from "../helpers/mcp-port.ts";
 
 const t = await testContext()
   .routes([
@@ -26,15 +25,12 @@ const t = await testContext()
       }))
       .to(noop()),
   ])
-  .store(
-    MCP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry,
-    true,
-  )
+  .with({ plugins: [mcpPort()] })
   .build();
 
 await t.startAndWaitReady();
 
-const server = new McpServer(t.ctx, {
+const server = mcpServerFor(t.ctx, {
   name: "stdio-sample",
   version: "1.0.0",
   transport: "stdio",

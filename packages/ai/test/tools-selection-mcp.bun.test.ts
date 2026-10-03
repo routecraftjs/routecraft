@@ -1,16 +1,13 @@
 import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { agentPlugin, tools, type FnHandlerContext } from "../src/index.ts";
-import {
-  MCP_STDIO_MANAGERS,
-  MCP_TOOL_REGISTRY,
-  type McpTool,
-} from "../src/mcp/types.ts";
+import type { McpTool } from "../src/mcp/types.ts";
+import { MCP, createMcpService } from "../src/mcp/port.ts";
 import { McpToolRegistry } from "../src/mcp/tool-registry.ts";
 
 // Exercise handlers without real stdio / HTTP clients by registering a
-// recording manager per server in MCP_STDIO_MANAGERS: the real
-// dispatchMcpCall consults that store first for any serverId, so this
+// recording manager per server in the MCP service: the real
+// dispatchMcpCall consults its stdio managers first for any serverId, so this
 // fakes the transport through the framework's own seam instead of
 // mock.module (which leaks across test files in the same bun process).
 const recordedDispatches: Array<{
@@ -45,8 +42,8 @@ async function buildCtxWithMcp(
         agentPlugin({ functions: options.functions ?? {} }),
         {
           id: "test.mcp-fixture",
+          provides: [MCP],
           bind(c) {
-            const ctx = c.context;
             const registry = new McpToolRegistry();
             for (const e of entries) {
               registry.setToolsForSource(
@@ -60,10 +57,6 @@ async function buildCtxWithMcp(
                 })),
               );
             }
-            ctx.setStore(
-              MCP_TOOL_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry,
-              registry,
-            );
             const managers = new Map<
               string,
               {
@@ -101,7 +94,11 @@ async function buildCtxWithMcp(
                 },
               });
             }
-            ctx.setStore(MCP_STDIO_MANAGERS, managers);
+            c.provide(MCP, {
+              ...createMcpService(),
+              tools: registry,
+              stdio: managers,
+            });
           },
         },
       ],
@@ -457,16 +454,16 @@ describe("tools() resolver - MCP refs", () => {
   });
 
   /**
-   * @case MCP_TOOL_REGISTRY missing throws a helpful "install mcpPlugin" error
+   * @case No MCP plugin installed throws a helpful "install mcpPlugin" error
    * @preconditions Context built without mcpPlugin; user references an MCP tool
    * @expectedResult Throw mentions install hint
    */
-  test("missing MCP_TOOL_REGISTRY throws install hint", async () => {
+  test("a missing MCP plugin throws install hint", async () => {
     t = await testContext()
       .with({ plugins: [agentPlugin({})] })
       .build();
     expect(() => tools(["mcp__Foo__bar"]).resolve(t!.ctx)).toThrow(
-      /no MCP_TOOL_REGISTRY is present/,
+      /no MCP plugin is installed/,
     );
   });
 

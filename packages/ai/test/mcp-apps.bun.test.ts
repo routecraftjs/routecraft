@@ -10,22 +10,16 @@ import { mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { z } from "zod";
-import {
-  craft,
-  type AnyRouteBuilder,
-  type StoreRegistry,
-} from "@routecraft/routecraft";
+import { craft, type AnyRouteBuilder } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
   Client,
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
-import { McpServer } from "../src/mcp/server.ts";
-import { MCP_PLUGIN_REGISTERED } from "../src/mcp/types.ts";
+import type { McpServer } from "../src/mcp/server.ts";
+import { mcpPort, mcpServerFor } from "./helpers/mcp-port.ts";
 import type { McpPluginOptions, McpServerOptions } from "../src/mcp/types.ts";
 import { fromFile, mcp, mcpPlugin } from "../src/index.ts";
-
-const MCP_STORE_KEY = MCP_PLUGIN_REGISTERED as keyof StoreRegistry;
 
 const MAIL_CARD =
   "<!doctype html><html><body><div id=card></div></body></html>";
@@ -75,11 +69,11 @@ describe("MCP Apps views (#857)", () => {
     options: McpPluginOptions = {},
   ): Promise<Client> {
     t = await testContext()
-      .store(MCP_STORE_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
       .routes(routes)
       .build();
-    server = new McpServer(t.ctx, { transport: "http", ...options });
+    server = mcpServerFor(t.ctx, { transport: "http", ...options });
     await server.prepare();
     await t.startAndWaitReady();
     await server.start();
@@ -279,7 +273,7 @@ describe("mcp({ ui }) validation", () => {
    */
   test("ui requires .output()", async () => {
     const t = await testContext()
-      .store(MCP_STORE_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .routes([
         craft()
           .id("no-output")
@@ -339,11 +333,11 @@ describe("mcpPlugin name and the view URI", () => {
    */
   test("an undefined name keeps the default", async () => {
     const t = await testContext()
-      .store(MCP_STORE_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .routes([sendMail({ ui: { html: MAIL_CARD } })])
       .build();
     try {
-      const server = new McpServer(t.ctx, {
+      const server = mcpServerFor(t.ctx, {
         name: undefined,
       } as unknown as McpPluginOptions);
       await t.startAndWaitReady();

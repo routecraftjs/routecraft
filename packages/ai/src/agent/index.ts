@@ -8,10 +8,7 @@ export type { AgentStream } from "./delta-stream.ts";
 export type { AgentDelta, AgentDeltaListener } from "./events.ts";
 export { agents, type AgentMarkdownOverride } from "./loader.ts";
 export { agentPlugin, type AgentPluginOptions } from "./plugin.ts";
-export {
-  ADAPTER_AGENT_DEFAULT_OPTIONS,
-  ADAPTER_AGENT_REGISTRY,
-} from "./store.ts";
+export { AGENTS, type AgentContribution, type AgentRegistry } from "./port.ts";
 export { DeferError, isDeferError } from "./defer.ts";
 export type { AgentDeferOptions, AgentDeferSentinel } from "./defer.ts";
 export type { AgentStepState, ThreadMessage } from "./deferral-state.ts";
@@ -23,6 +20,7 @@ export type {
   AgentSessionScope,
   AgentSessionsConfig,
   AgentSessionSummary,
+  ResolvedSessionStore,
   SessionCasResult,
   SessionStore,
   SessionStoreConfig,
@@ -31,6 +29,7 @@ export type {
 export {
   DEFAULT_SESSION_DB_PATH,
   MemorySessionStore,
+  SESSION_STORE,
   SESSION_STORE_ENV,
   SqliteSessionStore,
   sessionsPlugin,

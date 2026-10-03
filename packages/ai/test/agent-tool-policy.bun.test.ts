@@ -10,11 +10,8 @@ import {
   tools,
   type AgentToolPolicy,
 } from "../src/index.ts";
-import {
-  MCP_TOOL_REGISTRY,
-  type McpToolAnnotations,
-} from "../src/mcp/types.ts";
-import { McpToolRegistry } from "../src/mcp/tool-registry.ts";
+import type { McpToolAnnotations } from "../src/mcp/types.ts";
+import { mcpPort, mcpService } from "./helpers/mcp-port.ts";
 import {
   isGovernableToolKind,
   policiesAdmit,
@@ -63,7 +60,7 @@ function seedMcpRegistry(
     annotations?: Record<string, boolean>;
   }>,
 ): void {
-  const registry = ctx.getStore(MCP_TOOL_REGISTRY) ?? new McpToolRegistry();
+  const registry = mcpService(ctx).tools;
   const bySource = new Map<string, typeof entries>();
   for (const e of entries) {
     const list = bySource.get(e.source) ?? [];
@@ -82,7 +79,6 @@ function seedMcpRegistry(
       })),
     );
   }
-  ctx.setStore(MCP_TOOL_REGISTRY, registry);
 }
 
 /**
@@ -99,6 +95,7 @@ async function buildCtx(opts: {
   const policies = opts.policies ?? [];
   const plugins = [
     llmPlugin({ providers: { anthropic: { apiKey: "test" } } }),
+    mcpPort(),
     agentPlugin({
       functions: {
         localFn: fnEntry("A local fn.", ["read-only"]),

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { ContextBuilder, isRoutecraftError } from "@routecraft/routecraft";
 import { testContext, testFn, type TestContext } from "@routecraft/testing";
 import { agentPlugin, type FnOptions } from "../src/index.ts";
-import { ADAPTER_FN_REGISTRY } from "../src/fn/store.ts";
+import { AGENTS } from "../src/agent/port.ts";
 
 describe("fn registration via agentPlugin", () => {
   let t: TestContext | undefined;
@@ -14,11 +14,11 @@ describe("fn registration via agentPlugin", () => {
   });
 
   /**
-   * @case agentPlugin populates ADAPTER_FN_REGISTRY from the functions record
+   * @case agentPlugin contributes to the AGENTS functions from the functions record
    * @preconditions agentPlugin({ functions: { CurrentTime: {...} } })
-   * @expectedResult ADAPTER_FN_REGISTRY store contains the registered entry keyed by id
+   * @expectedResult the AGENTS registry holds the registered fn keyed by id
    */
-  test("agentPlugin populates ADAPTER_FN_REGISTRY from the functions record", async () => {
+  test("agentPlugin contributes to the AGENTS functions from the functions record", async () => {
     t = await testContext()
       .with({
         plugins: [
@@ -35,7 +35,7 @@ describe("fn registration via agentPlugin", () => {
       })
       .build();
 
-    const registry = t.ctx.getStore(ADAPTER_FN_REGISTRY);
+    const registry = t.ctx.lookup(AGENTS)?.functions;
     expect(registry).toBeInstanceOf(Map);
     expect(registry?.has("CurrentTime")).toBe(true);
     expect((registry?.get("CurrentTime") as FnOptions).description).toBe(
@@ -176,7 +176,7 @@ describe("fn registration via agentPlugin", () => {
       })
       .build();
 
-    const entry = t.ctx.getStore(ADAPTER_FN_REGISTRY)?.get("CurrentTime") as
+    const entry = t.ctx.lookup(AGENTS)?.functions?.get("CurrentTime") as
       FnOptions | undefined;
     expect(entry?.tags).toEqual(["read-only", "idempotent"]);
   });

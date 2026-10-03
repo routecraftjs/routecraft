@@ -1,13 +1,8 @@
-import {
-  isRoutecraftError,
-  rcError,
-  type CraftContext,
-} from "@routecraft/routecraft";
+import { isRoutecraftError, rcError } from "@routecraft/routecraft";
 import { connectMcpHttpClient } from "./sdk.ts";
 import { extractContent } from "./extract-content.ts";
+import type { McpService } from "./port.ts";
 import {
-  ADAPTER_MCP_CLIENT_SERVERS,
-  MCP_STDIO_MANAGERS,
   type McpClientAuthOptions,
   type McpClientHttpConfig,
   type McpRawToolResult,
@@ -20,13 +15,13 @@ import {
  * resolver. Thin wrapper over {@link dispatchMcpCallRaw} so the two
  * dispatch flavours (raw for the proxy, extracted here) can never drift.
  *
- * - For stdio clients (`MCP_STDIO_MANAGERS.get(serverId)`), delegates
+ * - For stdio clients (the service's `stdio` manager), delegates
  *   to the long-lived `StdioClientManager.callToolRaw`.
- * - For HTTP clients (`ADAPTER_MCP_CLIENT_SERVERS.get(serverId).url`),
+ * - For HTTP clients (the url of the service's `clients` entry),
  *   opens a single MCP SDK client connection per call, dispatches,
  *   and closes. The agent path is per-tool-call so latency dominates
  *   over connection setup; if that becomes a problem the http
- *   client cache in `mcpPlugin` can be promoted to a context store
+ *   client cache in `mcpPlugin` can be promoted onto the service
  *   in a follow-up.
  *
  * Throws `RC5003` when the server is not registered, when a stdio
@@ -36,13 +31,13 @@ import {
  * @internal
  */
 export async function dispatchMcpCall(
-  ctx: CraftContext,
+  service: McpService | undefined,
   serverId: string,
   toolName: string,
   args: Record<string, unknown>,
 ): Promise<unknown> {
   return extractContent(
-    await dispatchMcpCallRaw(ctx, serverId, toolName, args),
+    await dispatchMcpCallRaw(service, serverId, toolName, args),
   );
 }
 
@@ -57,13 +52,12 @@ export async function dispatchMcpCall(
  * @internal
  */
 export async function dispatchMcpCallRaw(
-  ctx: CraftContext,
+  service: McpService | undefined,
   serverId: string,
   toolName: string,
   args: Record<string, unknown>,
 ): Promise<McpRawToolResult> {
-  const stdioManagers = ctx.getStore(MCP_STDIO_MANAGERS);
-  const manager = stdioManagers?.get(serverId);
+  const manager = service?.stdio.get(serverId);
   if (manager) {
     try {
       return await manager.callToolRaw(toolName, args);
@@ -75,7 +69,7 @@ export async function dispatchMcpCallRaw(
     }
   }
 
-  const http = resolveHttpConfig(ctx, serverId);
+  const http = resolveHttpConfig(service, serverId);
   return callRemoteToolRaw(http.url, toolName, args, http.auth);
 }
 
@@ -85,11 +79,10 @@ export async function dispatchMcpCallRaw(
  * manager is absent, or has no url.
  */
 function resolveHttpConfig(
-  ctx: CraftContext,
+  service: McpService | undefined,
   serverId: string,
 ): McpClientHttpConfig {
-  const servers = ctx.getStore(ADAPTER_MCP_CLIENT_SERVERS);
-  const config = servers?.get(serverId);
+  const config = service?.clients.get(serverId);
   if (!config) {
     throw rcError("RC5003", undefined, {
       message: `mcp dispatch: server "${serverId}" is not registered. Register it via defineConfig.mcp / mcpPlugin({ clients }).`,

@@ -20,6 +20,7 @@ import { type AdapterOverride, RC_ADAPTER_OVERRIDES } from "./testing-hooks.ts";
 import { getConfigAppliers } from "./config-applier.ts";
 import { CONTINUATIONS } from "./deferral/runtime-key.ts";
 import { applyResolvedSites } from "./deferral/sites.ts";
+import { reviveDeferral, type ResumeRequest } from "./deferral/revive.ts";
 import { EventBus } from "./event-bus.ts";
 import { CraftClient } from "./client.ts";
 import { PluginHost, type InstalledPlugin } from "./kernel/host.ts";
@@ -526,7 +527,7 @@ export class CraftContext {
       // walked the bound set, a plugin bound after it acquires resources
       // nothing will ever release.
       if (this.hasStopped) return;
-      const pluginId = entry.plugin.id;
+      const pluginId = entry.id;
       const pluginIndex = entry.index;
       try {
         this.emit("plugin:binding", { pluginId, pluginIndex });
@@ -616,6 +617,7 @@ export class CraftContext {
           body: unknown,
           headers?: Parameters<CraftClient["sendDirect"]>[2],
         ) => client.sendDirect<unknown, R>(endpoint, body, headers),
+        resume: (request: ResumeRequest) => reviveDeferral(this, request),
         capabilities: () => this.capabilities(),
         whenStarted: () => this.whenStarted(),
         requestStop: () => {
@@ -861,7 +863,7 @@ export class CraftContext {
       if (this.hasStopped) return;
       const start = entry.plugin.start;
       if (typeof start !== "function") continue;
-      const pluginId = entry.plugin.id;
+      const pluginId = entry.id;
       const pluginIndex = entry.index;
       try {
         this.emit("plugin:starting", { pluginId, pluginIndex });
@@ -1614,7 +1616,7 @@ export class CraftContext {
     for (let i = ordered.length - 1; i >= 0; i--) {
       const entry: InstalledPlugin = ordered[i]!;
       if (!entry.bound) continue;
-      const pluginId = entry.plugin.id;
+      const pluginId = entry.id;
       const pluginIndex = entry.index;
       if (entry.plugin.stop) {
         this.emit("plugin:stopping", { pluginId, pluginIndex });

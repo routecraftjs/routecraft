@@ -11,15 +11,12 @@ export type { McpCorsOptions, McpCorsOriginResolver } from "./cors.ts";
 export { mcpPlugin } from "./plugin.ts";
 export { McpServer } from "./server.ts";
 export { McpToolRegistry } from "./tool-registry.ts";
+export { MCP, type McpService } from "./port.ts";
 export {
-  ADAPTER_MCP_CLIENT_SERVERS,
   McpHeadersKeys,
-  MCP_LOCAL_TOOL_REGISTRY,
-  MCP_PLUGIN_REGISTERED,
-  MCP_STDIO_MANAGERS,
   MCP_TOOL_NAME_PATTERN,
-  MCP_TOOL_REGISTRY,
   type McpLocalToolEntry,
+  type McpToolRequest,
   type McpOptions,
   type McpPluginOptions,
   type McpProxyToolConfig,

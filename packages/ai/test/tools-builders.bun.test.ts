@@ -11,8 +11,8 @@ import {
 } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { agentPlugin, directTool, tools, type FnEntry } from "../src/index.ts";
-import { isLazyFn } from "../src/agent/tools/types.ts";
-import { ADAPTER_FN_REGISTRY } from "../src/fn/store.ts";
+import { isLazyFn, toolHostOf } from "../src/agent/tools/types.ts";
+import { AGENTS } from "../src/agent/port.ts";
 
 /** Deferral is not under test in this file; the required slot just refuses. */
 const refuseDefer = (): never => {
@@ -78,13 +78,13 @@ describe("tool builders - directTool", () => {
       .build();
     await t.startAndWaitReady();
 
-    const entry = t.ctx.getStore(ADAPTER_FN_REGISTRY)?.get("fetchOrder") as
+    const entry = t.ctx.lookup(AGENTS)?.functions?.get("fetchOrder") as
       FnEntry | undefined;
     expect(entry).toBeDefined();
     expect(isLazyFn(entry!)).toBe(true);
 
     if (!isLazyFn(entry!)) throw new Error("expected deferred entry");
-    const resolved = entry.resolve(t.ctx, "fetchOrder");
+    const resolved = entry.resolve(toolHostOf(t.ctx), "fetchOrder");
     expect(resolved.description).toBe(
       "Fetch an order by id from the orders DB.",
     );
@@ -125,9 +125,9 @@ describe("tool builders - directTool", () => {
       .build();
     await t.startAndWaitReady();
 
-    const entry = t.ctx.getStore(ADAPTER_FN_REGISTRY)?.get("custom");
+    const entry = t.ctx.lookup(AGENTS)?.functions?.get("custom");
     if (!entry || !isLazyFn(entry)) throw new Error("expected deferred");
-    const resolved = entry.resolve(t.ctx, "custom");
+    const resolved = entry.resolve(toolHostOf(t.ctx), "custom");
     expect(resolved.description).toBe("OVERRIDE description.");
     expect(resolved.input).toBe(overrideSchema);
     // Tags flow through from the underlying route unchanged (no override field).
@@ -250,7 +250,7 @@ describe("tool builders - directTool dispatch", () => {
     await t.startAndWaitReady();
 
     const desc = directTool("orders/fetch");
-    const fn = desc.resolve(t.ctx, "ordersFetch");
+    const fn = desc.resolve(toolHostOf(t.ctx), "ordersFetch");
     const result = await fn.handler(
       { orderId: "abc" },
       {
@@ -298,7 +298,7 @@ describe("tool builders - directTool dispatch", () => {
       scopes: ["orders.read"],
     };
     const desc = directTool("orders/fetch-with-auth");
-    const fn = desc.resolve(t.ctx, "ordersFetchWithAuth");
+    const fn = desc.resolve(toolHostOf(t.ctx), "ordersFetchWithAuth");
     await fn.handler(
       { orderId: "abc" },
       {
@@ -337,7 +337,7 @@ describe("tool builders - directTool dispatch", () => {
     await t.startAndWaitReady();
 
     const fn = directTool("orders/fetch-correlated").resolve(
-      t.ctx,
+      toolHostOf(t.ctx),
       "ordersFetchCorrelated",
     );
     await fn.handler(
@@ -378,7 +378,7 @@ describe("tool builders - directTool dispatch", () => {
     await t.startAndWaitReady();
 
     const desc = directTool("guarded/echo");
-    const fn = desc.resolve(t.ctx, "guardedEcho");
+    const fn = desc.resolve(toolHostOf(t.ctx), "guardedEcho");
     const base = {
       logger: undefined as unknown as Parameters<
         typeof fn.handler
@@ -440,7 +440,7 @@ describe("tool builders - directTool dispatch", () => {
     await t.startAndWaitReady();
 
     const desc = directTool("guarded-admin");
-    const fn = desc.resolve(t.ctx, "guardedAdmin");
+    const fn = desc.resolve(toolHostOf(t.ctx), "guardedAdmin");
     const base = {
       logger: undefined as unknown as Parameters<
         typeof fn.handler

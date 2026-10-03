@@ -1,6 +1,12 @@
-import type { CraftContext } from "@routecraft/routecraft";
+import {
+  CraftClient,
+  type Capability,
+  type CraftContext,
+  type ExchangeHeaders,
+  type PluginLogger,
+} from "@routecraft/routecraft";
 import type { FnOptions } from "../../fn/types.ts";
-import { ADAPTER_FN_RESOLVED } from "../../fn/store.ts";
+import { AgentSessionRuntime } from "../session/runtime.ts";
 
 /**
  * Discriminator value for {@link LazyFn}. Plain symbol so a
@@ -34,7 +40,7 @@ export function isBackgroundFn(fn: FnOptions): boolean {
 /**
  * The kinds of underlying things `tools(...)` can wrap as a deferred
  * fn. Today only `directTool(routeId)` produces a deferred entry;
- * MCP tools are resolved directly from `MCP_TOOL_REGISTRY` at
+ * MCP tools are resolved directly from the MCP plugin's tool registry at
  * selection time, and sub-agent tools are not yet supported. The
  * kind is purely informational at runtime (used for error messages
  * and the prefix-auto-resolution path in `tools()`).
@@ -69,7 +75,47 @@ export interface LazyFn {
    * @param fnId - The fn id this descriptor was registered as (used in
    *   error messages so the user can find the offending config entry)
    */
-  readonly resolve: (ctx: CraftContext, fnId: string) => FnOptions;
+  readonly resolve: (host: ToolHost, fnId: string) => FnOptions;
+}
+
+/**
+ * What resolving and dispatching a deferred tool needs from the
+ * application: the routes it can reach and a way to call them. Built from
+ * the context at dispatch ({@link toolHostOf}), and from the agent
+ * runtime's plugin context at start, so both resolve a tool the same way.
+ *
+ * @internal
+ */
+export interface ToolHost {
+  readonly logger: PluginLogger;
+  /** Discoverable capabilities of the enabled routes. */
+  capabilities(): Capability[];
+  /** Whether a route with this id is registered at all. */
+  hasRoute(routeId: string): boolean;
+  /** Send a body to a direct endpoint and resolve with its reply. */
+  deliver(
+    endpoint: string,
+    body: unknown,
+    headers?: ExchangeHeaders,
+  ): Promise<unknown>;
+  /** The session runtime a background tool reports to. */
+  sessions(): AgentSessionRuntime;
+}
+
+/**
+ * The tool host for a running context.
+ *
+ * @internal
+ */
+export function toolHostOf(ctx: CraftContext): ToolHost {
+  return {
+    logger: ctx.logger,
+    capabilities: () => ctx.capabilities(),
+    hasRoute: (routeId) => ctx.getRouteById(routeId) !== undefined,
+    deliver: (endpoint, body, headers) =>
+      new CraftClient(ctx).sendDirect(endpoint, body, headers),
+    sessions: () => AgentSessionRuntime.for(ctx),
+  };
 }
 
 /**
@@ -105,29 +151,30 @@ export type FnEntry = FnOptions | LazyFn;
  * after context start a lazily-resolved tool answers the same questions
  * an eagerly authored one does.
  *
- * @param ctx - Live context, with registries populated
+ * @param host - The live application, with registries populated
  * @param fnId - The id the entry is registered under, for diagnostics
+ * @param entry - The registered entry
+ * @param memo - Where resolutions are kept: the agent registry's, so one
+ *   made at start is reused at dispatch
  * @throws RC5003 when a deferred entry cannot resolve (the route is
  *   missing, or carries no `.description()` or `.input()`)
  *
  * @internal
  */
 export function resolveFnOptions(
-  ctx: CraftContext,
+  host: ToolHost,
   fnId: string,
   entry: FnEntry,
+  memo: Map<string, FnOptions>,
 ): FnOptions {
   if (!isLazyFn(entry)) return entry;
-  const memo = ctx.getStore(ADAPTER_FN_RESOLVED);
-  const cached = memo?.get(fnId);
+  const cached = memo.get(fnId);
   if (cached) return cached;
-  const resolved = entry.resolve(ctx, fnId);
+  const resolved = entry.resolve(host, fnId);
   // Only successes are memoised. A resolution that failed because a route
   // was not registered yet must be free to succeed later; caching the
   // failure would make a transient ordering problem permanent for the
-  // life of the context.
-  const store = memo ?? new Map<string, FnOptions>();
-  store.set(fnId, resolved);
-  if (!memo) ctx.setStore(ADAPTER_FN_RESOLVED, store);
+  // life of the application.
+  memo.set(fnId, resolved);
   return resolved;
 }

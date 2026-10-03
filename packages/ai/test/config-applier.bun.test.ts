@@ -1,7 +1,7 @@
 import { describe, expect, expectTypeOf, test } from "bun:test";
 import { CraftContext, defineConfig } from "@routecraft/routecraft";
 import { LLM } from "../src/llm/types.ts";
-import { ADAPTER_AGENT_REGISTRY } from "../src/agent/index.ts";
+import { AGENTS } from "../src/agent/port.ts";
 import type { LlmPluginOptions } from "../src/llm/types.ts";
 import type { McpPluginOptions } from "../src/mcp/types.ts";
 import type { EmbeddingPluginOptions } from "../src/embedding/types.ts";
@@ -40,7 +40,7 @@ describe("@routecraft/ai config appliers", () => {
   /**
    * @case Setting `agent` on CraftConfig registers named agents in the store
    * @preconditions Config has `agent: { agents: { reply: { ... } } }`
-   * @expectedResult After initPlugins(), ADAPTER_AGENT_REGISTRY contains "reply"
+   * @expectedResult After initPlugins(), the AGENTS registry contains "reply"
    */
   test("agent key registers agents via the store", async () => {
     const ctx = new CraftContext(
@@ -58,7 +58,7 @@ describe("@routecraft/ai config appliers", () => {
     );
     await ctx.initPlugins();
 
-    const registry = ctx.getStore(ADAPTER_AGENT_REGISTRY);
+    const registry = ctx.lookup(AGENTS)?.agents;
     expect(registry).toBeInstanceOf(Map);
     expect((registry as Map<string, unknown>).has("reply")).toBe(true);
 

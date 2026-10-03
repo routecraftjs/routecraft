@@ -281,8 +281,8 @@ export class AcpConnection implements AgentSurfaceConnection {
   /** Called once the SDK has opened the connection and given us its context. */
   open(client: AgentContext, closed: Promise<void>): void {
     this.client = client;
-    this.retire = registerSurface(this.runtime.context, this.id, this);
-    this.runtime.context.emit("plugin:acp:connection:opened", {
+    this.retire = registerSurface(this.runtime.surfaceContext, this.id, this);
+    this.runtime.plugin.emit("plugin:acp:connection:opened", {
       connectionId: this.id,
       ...(this.principal !== undefined
         ? { subject: this.principal.subject }
@@ -316,7 +316,7 @@ export class AcpConnection implements AgentSurfaceConnection {
     this.retire();
     this.retire = undefined;
     this.client = undefined;
-    this.runtime.context.emit("plugin:acp:connection:closed", {
+    this.runtime.plugin.emit("plugin:acp:connection:closed", {
       connectionId: this.id,
       ...(fault !== undefined ? { fault: faultMessage(fault) } : {}),
     });
@@ -345,7 +345,7 @@ export class AcpConnection implements AgentSurfaceConnection {
     how: "new" | "load" | "resume",
   ): void {
     this.attachedSessions.add(sessionId);
-    this.runtime.context.emit("plugin:acp:session:attached", {
+    this.runtime.plugin.emit("plugin:acp:session:attached", {
       connectionId: this.id,
       sessionId,
       agentName,
@@ -428,9 +428,9 @@ export class AcpConnection implements AgentSurfaceConnection {
         ? err.message
         : "ACP request failed";
     if (err instanceof SurfaceDisconnected) {
-      this.runtime.context.logger.debug(bindings, message);
+      this.runtime.plugin.logger.debug(bindings, message);
     } else {
-      this.runtime.context.logger.error(bindings, message);
+      this.runtime.plugin.logger.error(bindings, message);
     }
   }
 
@@ -477,7 +477,7 @@ export class AcpConnection implements AgentSurfaceConnection {
     if (params.mcpServers.length > 0) {
       // Logged and ignored: a remote instance must not spawn what an
       // editor names. Recorded as a requirement rather than a refusal.
-      this.runtime.context.logger.info(
+      this.runtime.plugin.logger.info(
         { count: params.mcpServers.length },
         "ACP client declared MCP servers; this mount does not connect them",
       );
@@ -610,7 +610,7 @@ export class AcpConnection implements AgentSurfaceConnection {
       throw this.refuse(`No configuration option "${params.configId}".`);
     }
     if (outcome.kind === "refused") {
-      this.runtime.context.logger.warn(
+      this.runtime.plugin.logger.warn(
         {
           agent,
           session: params.sessionId,
@@ -685,7 +685,7 @@ export class AcpConnection implements AgentSurfaceConnection {
     // harness, the same entry it picked to start one.
     const mine = this.agentForNewSession();
     if (agent !== mine) {
-      this.runtime.context.logger.debug(
+      this.runtime.plugin.logger.debug(
         { agent, harnessAgent: mine, session: sessionId },
         "ACP session belongs to another agent than this harness serves",
       );

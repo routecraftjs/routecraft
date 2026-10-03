@@ -8,20 +8,27 @@ import {
   takePage,
   type CraftContext,
   type CursorScope,
+  type DeferralRuntime,
   type EventDetailsMap,
+  type EventName,
   type Exchange,
   type OpsPage,
+  type PluginLogger,
+  type ResumeAcknowledgment,
+  type ResumeRequest,
 } from "@routecraft/routecraft";
 import type { LlmPromptPart } from "../../llm/types.ts";
 import { dispatchIdentityFrom } from "../run.ts";
 import { assertOverridesAdvertised } from "../advertised.ts";
-import { ADAPTER_AGENT_REGISTRY, ADAPTER_AGENT_SESSIONS } from "../store.ts";
+import { AGENTS } from "../port.ts";
+import { ADAPTER_AGENT_SESSIONS } from "../store.ts";
 import type { ThreadMessage } from "../deferral-state.ts";
-import type { AgentResult } from "../types.ts";
+import type { AgentRegisteredOptions, AgentResult } from "../types.ts";
 import { closeUnansweredToolCalls, renderUserMessage } from "./render.ts";
 import { BoundedMap, SESSION_MEMORY_BOUND } from "./bounded.ts";
 import { AgentSessionStore, emptyAgentSession } from "./store.ts";
 import { sessionStoreOf } from "./config.ts";
+import type { ResolvedSessionStore } from "./port.ts";
 import type {
   AgentBackgroundCall,
   AgentInboxMessage,
@@ -32,6 +39,39 @@ import type {
   AgentSessionScope,
   AgentSessionSummary,
 } from "./types.ts";
+
+/**
+ * What the session runtime needs from the application it runs in. The agent
+ * runtime builds one from its plugin context; the inline fallback builds
+ * one from the context, so the runtime itself reaches neither.
+ *
+ * @internal
+ */
+export interface SessionHost {
+  readonly logger: PluginLogger;
+  emit<K extends EventName>(event: K, details: EventDetailsMap[K]): void;
+  /** The continuations store, which holds a turn between messages. */
+  continuations(): DeferralRuntime | undefined;
+  /** Revive a stored continuation by its token. */
+  resume(request: ResumeRequest): Promise<ResumeAcknowledgment>;
+  /** A registered agent, for the overrides it advertises. */
+  agent(name: string): AgentRegisteredOptions | undefined;
+}
+
+/**
+ * The session host for a running context.
+ *
+ * @internal
+ */
+export function sessionHostOf(context: CraftContext): SessionHost {
+  return {
+    logger: context.logger,
+    emit: (event, details) => context.emit(event, details),
+    continuations: () => context.lookup(CONTINUATIONS),
+    resume: (request) => reviveDeferral(context, request),
+    agent: (name) => context.lookup(AGENTS)?.agents.get(name),
+  };
+}
 
 /**
  * What the runtime needs from the agent step to run one turn. Built by the
@@ -180,22 +220,51 @@ export class AgentSessionRuntime {
   private stopping = false;
 
   constructor(
-    private readonly context: CraftContext,
+    private readonly host: SessionHost,
     readonly store: AgentSessionStore,
   ) {}
 
   /**
-   * The runtime for a context, created on first use over the session store
-   * the context resolved and its deferral store. Records live in the
-   * first; the continuation a turn stores between turns is a deferred
-   * exchange and lives in the second, so a context with no `deferral`
-   * block refuses `session` rather than running conversations whose
-   * boundary turns could never be revived.
+   * The runtime an application's agents share. With the agent runtime
+   * installed it is the one its registry holds; an application with only
+   * inline agents gets one bound to the context on first use.
+   *
+   * @throws RC5052 when the application has no continuations store
    */
   static for(context: CraftContext): AgentSessionRuntime {
+    const agents = context.lookup(AGENTS);
+    if (agents) return agents.sessions();
     const existing = context.getStore(ADAPTER_AGENT_SESSIONS);
     if (existing) return existing;
-    const deferral = context.lookup(CONTINUATIONS);
+    const runtime = AgentSessionRuntime.create(
+      sessionHostOf(context),
+      sessionStoreOf(context),
+    );
+    context.setStore(ADAPTER_AGENT_SESSIONS, runtime);
+    // Latched as shutdown begins, before the routes drain, so a completion
+    // or a post landing during the drain starts no turn on it; closing the
+    // store awaits the same stop() again for the revivals in flight.
+    context.on("context:stopping", () => {
+      void runtime.stop();
+    });
+    return runtime;
+  }
+
+  /**
+   * A runtime over a resolved session store and the continuations store.
+   * Records live in the first; the continuation a turn stores between
+   * turns is a deferred exchange and lives in the second, so an application
+   * with no `deferral` block refuses `session` rather than running
+   * conversations whose boundary turns could never be revived. The runtime
+   * is retained on the store, so closing the store stops it first.
+   *
+   * @throws RC5052 when the host has no continuations store
+   */
+  static create(
+    host: SessionHost,
+    store: ResolvedSessionStore,
+  ): AgentSessionRuntime {
+    const deferral = host.continuations();
     if (!deferral) {
       throw rcError("RC5052", undefined, {
         message:
@@ -203,16 +272,10 @@ export class AgentSessionRuntime {
       });
     }
     const runtime = new AgentSessionRuntime(
-      context,
-      new AgentSessionStore(sessionStoreOf(context), deferral.store),
+      host,
+      new AgentSessionStore(store.store, deferral.store),
     );
-    context.setStore(ADAPTER_AGENT_SESSIONS, runtime);
-    // Latched as shutdown begins, before the routes drain, so a completion
-    // or a post landing during the drain starts no turn on it; the plugin's
-    // teardown awaits the same stop() again for the revivals in flight.
-    context.on("context:stopping", () => {
-      void runtime.stop();
-    });
+    store.retain(runtime);
     return runtime;
   }
 
@@ -612,7 +675,7 @@ export class AgentSessionRuntime {
           // the record and the next boot tries again. A deferral the previous
           // process never got as far as writing settles quietly instead.
           released = false;
-          this.context.logger.warn(
+          this.host.logger.warn(
             {
               err,
               agent: record.agent,
@@ -631,7 +694,7 @@ export class AgentSessionRuntime {
               ? withoutDeferring(current)
               : current,
           );
-          this.context.logger.info(
+          this.host.logger.info(
             { agent: record.agent, session: key, deferralId: orphan },
             "Agent session continuation left unnamed by the previous process was released",
           );
@@ -642,7 +705,7 @@ export class AgentSessionRuntime {
       if (record.turn !== undefined || record.background.length > 0) {
         lostBackground += record.background.length;
         next = await this.write(key, record.agent, restoreAfterRestart);
-        this.context.logger.info(
+        this.host.logger.info(
           {
             agent: record.agent,
             session: key,
@@ -855,11 +918,7 @@ export class AgentSessionRuntime {
     agent: string,
     overrides: AgentSessionOverrides,
   ): Promise<AgentSessionRecord> {
-    assertOverridesAdvertised(
-      agent,
-      this.context.getStore(ADAPTER_AGENT_REGISTRY)?.get(agent) ?? {},
-      overrides,
-    );
+    assertOverridesAdvertised(agent, this.host.agent(agent) ?? {}, overrides);
     return this.write(key, agent, (record) => {
       const next = { ...record.overrides, ...overrides };
       // Undefined keys are dropped rather than stored: the store holds
@@ -1141,7 +1200,7 @@ export class AgentSessionRuntime {
       // Without a continuation the queued messages run in process and a
       // completion waits for the next message: the shape sessions had
       // before defers, and the log is what says why this one is on it.
-      this.context.logger.error(
+      this.host.logger.error(
         { err, agent: req.agent, session: req.key },
         "Agent session continuation could not be stored; completions wait for the next message",
       );
@@ -1222,13 +1281,14 @@ export class AgentSessionRuntime {
   ): void {
     const k = key;
     if (this.stopping || this.reviving.has(k) || this.active.has(k)) return;
-    const deferralRuntime = this.context.lookup(CONTINUATIONS);
+    const deferralRuntime = this.host.continuations();
     if (!deferralRuntime) return;
     this.reviving.add(k);
     const token = deferralRuntime.signer.mint(deferral.deferralId, new Date());
-    const run = reviveDeferral(this.context, { token, result: undefined })
+    const run = this.host
+      .resume({ token, result: undefined })
       .catch(async (err: unknown) => {
-        this.context.logger.error(
+        this.host.logger.error(
           {
             err,
             session: key,
@@ -1288,7 +1348,7 @@ export class AgentSessionRuntime {
       route.trackTask(next.outcome);
     } else {
       next.outcome.catch((err: unknown) => {
-        this.context.logger.error(
+        this.host.logger.error(
           { err, agent: req.agent, session: req.key },
           "Agent session follow-up turn failed",
         );
@@ -1308,7 +1368,7 @@ export class AgentSessionRuntime {
     if (!identity) return;
     // The generic cannot be narrowed per arm inside one method; each
     // caller's `details` is checked against its own event above.
-    this.context.emit(name, { ...identity, ...details } as EventDetailsMap[K]);
+    this.host.emit(name, { ...identity, ...details } as EventDetailsMap[K]);
   }
 }
 
