@@ -1,4 +1,3 @@
-import type { CraftContext } from "../context.ts";
 import type { Capability } from "../capabilities.ts";
 import type { Exchange, ExchangeHeaders } from "../exchange.ts";
 import type { logger } from "../logger.ts";
@@ -147,13 +146,6 @@ export interface PluginContext {
   onDispose(dispose: () => void | Promise<void>): void;
   readonly routes: PluginRoutes;
   readonly execution: Execution;
-  /**
-   * The host context, for plugins not yet moved onto ports.
-   *
-   * @internal Staging only: removed before 0.8 ships, once every first-party
-   *   plugin reaches what it needs through ports.
-   */
-  readonly context: CraftContext;
 }
 
 /**

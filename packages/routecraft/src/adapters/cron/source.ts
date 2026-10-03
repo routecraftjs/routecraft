@@ -26,8 +26,8 @@ export const CRON_DEFAULTS = port<Partial<CronOptions>>(
  * Supports standard 5-field cron (minute granularity), extended 6-field
  * (second granularity), and nicknames (`@daily`, `@hourly`, etc.).
  *
- * Options can be set per-adapter or globally via `CraftContext` store
- * using the `cron` config key (the `CRON_DEFAULTS` port). Per-adapter options take precedence.
+ * Options can be set per-adapter or globally with the `cron` config key,
+ * which provides the `CRON_DEFAULTS` port. Per-adapter options take precedence.
  */
 export class CronSourceAdapter
   implements Source<undefined>, MergedOptions<CronOptions>

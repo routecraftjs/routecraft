@@ -8,7 +8,6 @@ import {
   type Execution,
 } from "./plugin.ts";
 import type { AnyPort, Port } from "./port.ts";
-import type { CraftContext } from "../context.ts";
 import type { EventDetailsMap, EventHandler, EventName } from "../types.ts";
 
 /**
@@ -28,7 +27,6 @@ export interface HostEnvironment {
     handler: EventHandler<K>,
   ): () => void;
   emit<K extends EventName>(event: K, details: EventDetailsMap[K]): void;
-  readonly context: CraftContext;
 }
 
 /**
@@ -506,7 +504,13 @@ export class PluginHost {
         provision.value = value;
         provision.provided = true;
       },
-      observe: (event, handler) => env.observe(event, handler),
+      // Released at stop with the plugin's disposers, so a subscription
+      // never outlives the plugin that made it.
+      observe: (event, handler) => {
+        const off = env.observe(event, handler);
+        entry.disposers.push(off);
+        return off;
+      },
       emit: (event, details) => env.emit(event, details),
       onDispose(dispose) {
         entry.disposers.push(dispose);
@@ -520,7 +524,6 @@ export class PluginHost {
         get: (routeId) => env.routes.get(routeId),
       },
       execution: env.execution,
-      context: env.context,
     };
     entry.context = context;
     return context;

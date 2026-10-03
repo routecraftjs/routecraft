@@ -1,6 +1,7 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
+  port,
   craft,
   simple,
   noop,
@@ -21,7 +22,7 @@ describe("Plugin System", () => {
   /**
    * @case Verifies that a plugin's bind receives a plugin context bound to the application
    * @preconditions A plugin with an id is registered in the config
-   * @expectedResult bind is called once with a plugin context carrying the plugin's id, whose staging context field is the built context
+   * @expectedResult bind is called once with a plugin context carrying the plugin's id, and the context never exposes the CraftContext
    */
   test("Plugin receives context", async () => {
     const bindMock = mock<(c: PluginContext) => void>();
@@ -35,7 +36,7 @@ describe("Plugin System", () => {
     expect(bindMock).toHaveBeenCalledTimes(1);
     const received = bindMock.mock.calls[0][0];
     expect(received.id).toBe("test.receiver");
-    expect(received.context).toBe(t.ctx);
+    expect("context" in received).toBe(false);
   });
 
   /**
@@ -84,8 +85,7 @@ describe("Plugin System", () => {
     const plugin: Plugin = {
       id: "test.plugin",
       bind(c) {
-        const ctx = c.context;
-        ctx.on("context:started", eventMock);
+        c.observe("context:started", eventMock);
       },
     };
 
@@ -108,16 +108,17 @@ describe("Plugin System", () => {
   });
 
   /**
-   * @case Verifies that plugins can set up stores
-   * @preconditions A plugin sets a value in the context store
-   * @expectedResult Store value is accessible after plugin runs
+   * @case Verifies that a plugin shares state through a port it provides
+   * @preconditions A plugin declares and provides a port in bind
+   * @expectedResult The application resolves the port to the provided value
    */
-  test("Plugin can set up stores", async () => {
+  test("Plugin can provide a port", async () => {
+    const SHARED = port<{ data: string }>("test.shared@1");
     const plugin: Plugin = {
       id: "test.plugin",
+      provides: [SHARED],
       bind(c) {
-        const ctx = c.context;
-        ctx.setStore("test-plugin-key" as any, { data: "test" });
+        c.provide(SHARED, { data: "test" });
       },
     };
 
@@ -127,21 +128,19 @@ describe("Plugin System", () => {
       })
       .build();
 
-    const stored = t.ctx.getStore("test-plugin-key" as any);
-    expect(stored).toEqual({ data: "test" });
+    expect(t.ctx.lookup(SHARED)).toEqual({ data: "test" });
   });
 
   /**
    * @case Verifies that plugins can dynamically register routes
-   * @preconditions A plugin calls ctx.registerRoutes() during initialization
+   * @preconditions A plugin calls c.routes.register() during bind
    * @expectedResult Routes registered by plugin are available
    */
   test("Plugin can dynamically register routes before routes are registered", async () => {
     const plugin: Plugin = {
       id: "test.plugin",
       bind(c) {
-        const ctx = c.context;
-        ctx.registerRoutes(
+        c.routes.register(
           craft()
             .id("plugin-added-route")
             .from(simple("from-plugin"))
@@ -171,7 +170,7 @@ describe("Plugin System", () => {
 
   /**
    * @case Verifies that plugins run before routes are registered and see zero routes during initialization
-   * @preconditions A plugin reads ctx.getRoutes().length during its run
+   * @preconditions A plugin reads c.routes.list().length during bind
    * @expectedResult Plugin sees 0 routes during init; after build, context has 2 routes
    */
   test("Plugin runs before routes are registered and can access context", async () => {
@@ -180,8 +179,7 @@ describe("Plugin System", () => {
     const plugin: Plugin = {
       id: "test.plugin",
       bind(c) {
-        const ctx = c.context;
-        routeCountInPlugin = ctx.getRoutes().length;
+        routeCountInPlugin = c.routes.list().length;
       },
     };
 
