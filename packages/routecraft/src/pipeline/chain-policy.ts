@@ -34,13 +34,13 @@ type NonChainField =
   | "admissionSite"
   | "usesResume"
   // Metadata mirrored to sources (transport admission), not a chain
-  // position: the authorize steps it describes already answer for
-  // themselves under `preParseFilters`.
+  // position: the authorize gates it describes already answer for
+  // themselves under `authorize`.
   | "requiresPrincipal"
   // A build-time diagnostic flag read once when the route is registered.
   | "volatileCacheKey"
   // An input to the cache-check filter's key, not a position: the filter
-  // itself answers under `postParseFilters`.
+  // itself answers under `cache`.
   | "cachePipeline"
   // Per-route LIFECYCLE, not per-exchange admission: it decides whether the
   // route runs at all, and is evaluated when the route starts rather than
@@ -131,7 +131,7 @@ export const CHAIN_SURVIVAL: Readonly<
       why: "The route still owns the exchange, and a continuation that fails where the original call failed has to reach the same handler, or a lend that did not satisfy the gate would strand the approver with no re-ask.",
     },
   },
-  preParseFilters: {
+  authorize: {
     resume: {
       survives: false,
       why: "authorize (#2). A principal restored from the store fails RC5043 by design (#355), so re-running it would refuse every resume. The resuming principal is authorized live at the resume ingress.",
@@ -149,40 +149,22 @@ export const CHAIN_SURVIVAL: Readonly<
       why: "authorize (#2). This re-entry IS the admission the original call never completed, and the reason the resume column turns it off does not hold: the door's elevate hook supplied a LIVE principal, so RC5043 does not fire and the gate that refused gets to read the lent scope. Without it the lend would never be checked against the gate it was lent for.",
     },
   },
-  postParseFilters: {
+  cache: {
     resume: {
       survives: false,
-      why: "cacheCheck (#9). Refused at build alongside a reachable defer, because a deferral exits the pipeline this filter wraps.",
+      why: "cacheCheck (#9) and cacheStore (#10). Refused at build alongside a reachable defer, because a deferral exits the pipeline the pair wraps.",
     },
     debounce: {
       survives: false,
-      why: "cacheCheck (#9). The release re-enters below it, so a check here would key work that is already in flight.",
+      why: "cacheCheck (#9) and cacheStore (#10). The release re-enters below the check, so a check would key work already in flight and the store would have no key to store against.",
     },
     errorChannel: {
       survives: false,
-      why: "cacheCheck (#9). A failure report is not a cacheable request.",
+      why: "cacheCheck (#9) and cacheStore (#10). A failure report is not a cacheable request, and what a re-ask handler returns is a notification, not a cacheable output.",
     },
     admission: {
       survives: false,
-      why: "cacheCheck (#9). A check below the claim would key work that has already spent an approval. NOT the build refusal that covers a static .defer(): that gates on deferSteps, which an error-path park does not have, so it never sees this route.",
-    },
-  },
-  postFromFilters: {
-    resume: {
-      survives: false,
-      why: "cacheStore (#10). The other half of the same refusal.",
-    },
-    debounce: {
-      survives: false,
-      why: "cacheStore (#10). No key was taken on the way in, so there is nothing to store against.",
-    },
-    errorChannel: {
-      survives: false,
-      why: "cacheStore (#10). What a re-ask handler returns is a notification, not a cacheable output.",
-    },
-    admission: {
-      survives: false,
-      why: "cacheStore (#10). The other half of the cacheCheck refusal above: no key was taken on the way in, because the run that would have taken it never got past the chain.",
+      why: "cacheCheck (#9) and cacheStore (#10). A check below the claim would key work that has already spent an approval. NOT the build refusal that covers a static .defer(): that gates on deferSteps, which an error-path park does not have, so it never sees this route.",
     },
   },
   throttle: {
@@ -291,16 +273,6 @@ const CHAIN_FIELDS = Object.keys(CHAIN_SURVIVAL) as ChainField[];
  */
 export type ExecutedDefinition = Pick<RouteDefinition, ChainField | "steps">;
 
-/** Chain positions whose absence is an empty array rather than undefined. */
-const emptyChain = (): Pick<
-  RouteDefinition,
-  "preParseFilters" | "postParseFilters" | "postFromFilters"
-> => ({
-  preParseFilters: [],
-  postParseFilters: [],
-  postFromFilters: [],
-});
-
 /**
  * Build the definition a detached run executes under, position by position.
  *
@@ -324,5 +296,5 @@ export function detachedDefinition(
     const value = source[field];
     if (value !== undefined) Object.assign(carried, { [field]: value });
   }
-  return { ...emptyChain(), ...carried, steps: [...steps] };
+  return { ...carried, steps: [...steps] };
 }

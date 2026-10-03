@@ -41,31 +41,13 @@ import {
   type DetachedKind,
   detachedDefinition,
 } from "./chain-policy.ts";
-import {
-  DeadlineExceededError,
-  raceWithDeadline,
-} from "../operations/timeout-wrapper.ts";
-import {
-  executeWithRetry,
-  type ResolvedRetryOptions,
-} from "../operations/retry-wrapper.ts";
-import {
-  type CircuitBreakerController,
-  type CircuitBreakerEventScope,
-  circuitBreakerEmitHooks,
-  circuitOpenOutcome,
-  executeWithCircuitBreaker,
-} from "../operations/circuit-breaker-wrapper.ts";
-import {
-  type ConcurrencyController,
-  type ConcurrencyEventScope,
-  concurrencyEmitHooks,
-  executeWithConcurrency,
-} from "../operations/concurrency-wrapper.ts";
+import type { CompiledPositions } from "./positions.ts";
+import type { Position } from "../kernel/positions.ts";
 import type { ForwardFn, Route } from "../route.ts";
 import {
   runExchangeHooks,
   runsOn,
+  type ErrorHook,
   type InstalledHook,
   type RunKind,
   type WrapperHook,
@@ -136,6 +118,15 @@ export interface ExecutorDeps {
    * @internal
    */
   slots?: RouteSlots;
+  /**
+   * The route's positions as its application's providers filled them. Which
+   * of them this run executes is read from {@link ExecutorDeps.definition}:
+   * a position absent there is skipped even when compiled here. A nested
+   * segment carries none.
+   *
+   * @internal
+   */
+  positions?: CompiledPositions;
 }
 
 /**
@@ -199,69 +190,29 @@ export async function runPipeline(
     delete internals.applyValidation;
   }
 
-  // The route's pre-from filter chain (assembled at builder time in
-  // the framework-fixed order documented at
-  // `.standards/pre-from-filter-chain.md`). Parse is dynamic per
-  // exchange (source-attached) and is interleaved between the two
-  // pre-from arrays:
-  //
-  //   preParseFilters    -> .authorize()
-  //   (parse if present) -> source-attached; runs .input() after parse
-  //   (input if present) -> .input() as a standalone step when no parser
-  //   retry segment      -> route-scope .retry() (#7, wraps the tail)
-  //   timeout segment    -> route-scope .timeout() (#8, wraps the tail)
-  //   concurrency segment-> route-scope .concurrency() (bulkhead, innermost
-  //                         resilience layer: wraps the tail INSIDE retry /
-  //                         timeout so a slot is held per attempt only)
-  //   throttle gate      -> route-scope .throttle() (#5, admits once,
-  //                         OUTSIDE the retry / timeout segments)
-  //   postParseFilters   -> .cache() check (#9), future .circuitBreaker() (#6)
-  //   userSteps          -> declaration order, unchanged
-  //   postFromFilters    -> .cache() store
-  //
-  // The route's `.error()` handler wraps the queue loop (filter
-  // position #1 in the chain doc); it is implemented as a try/catch
-  // around the user pipeline, not a step that calls `next()`.
-  //
-  // The cache key flows from cache-check to cache-store via
-  // `internals.cacheKey` on the exchange -- per-invocation, no
-  // shared closure -- so the filter steps can be constructed once
-  // at builder time.
-  // Chain tail below the route-scope resilience wrappers: cacheCheck
-  // (#9), the user pipeline, and cacheStore (#10). Route-scope retry
-  // (#7) and timeout (#8) scope OVER this whole segment (retry re-runs
-  // it; timeout bounds each run), so they cannot be flat entries in
-  // the step array: each becomes a synthetic segment step that runs
-  // the tail via a nested executor invocation. Timeout wraps first so
-  // retry is outermost: every attempt gets its own deadline
-  // (Resilience4J convention, see `.standards/pre-from-filter-chain.md`).
+  // The chain, in the order `.standards/pre-from-filter-chain.md` fixes.
+  // Positions that surround what follows them (circuitBreaker, retry,
+  // timeout, concurrency) wrap the tail from the inside out, each running it
+  // through a nested executor; the error position is this run's catch
+  // boundary, not a step.
+  const positions = deps.positions;
+  const def = deps.definition;
   let tail: Step<Adapter>[] = [
-    ...deps.definition.postParseFilters,
-    ...deps.definition.steps,
-    ...deps.definition.postFromFilters,
+    ...(def.cache && positions?.cacheCheck ? [positions.cacheCheck] : []),
+    ...def.steps,
+    ...(def.cache && positions?.cacheStore ? [positions.cacheStore] : []),
   ];
-  // Route-scope concurrency (bulkhead) is the INNERMOST resilience layer:
-  // it wraps the chain tail BEFORE timeout / retry / breaker so a slot is
-  // acquired per attempt and released between retry backoffs (a scarce slot
-  // is never held while a retry sleeps), and an outer retry can re-acquire
-  // one after a reject-mode RC5026. Multiple controllers (stacked
-  // `.concurrency()` calls) nest; the first declared ends up outermost
-  // among them because each successive wrap goes around the previous.
-  if (deps.definition.concurrency) {
-    for (let i = deps.definition.concurrency.length - 1; i >= 0; i--) {
+  // Innermost so a slot is held per attempt and freed between retry
+  // backoffs; stacked calls nest with the first declared outermost.
+  if (def.concurrency && positions) {
+    for (let i = positions.concurrency.length - 1; i >= 0; i--) {
       tail = [
-        buildConcurrencySegmentStep(
-          deps,
-          tail,
-          deps.definition.concurrency[i]!,
-        ),
+        buildPositionStep(deps, tail, positions.concurrency[i]!, "concurrency"),
       ];
     }
   }
-  if (deps.definition.timeout) {
-    tail = [
-      buildTimeoutSegmentStep(deps, tail, deps.definition.timeout.timeoutMs),
-    ];
+  if (def.timeout && positions?.timeout) {
+    tail = [buildPositionStep(deps, tail, positions.timeout, "timeout")];
   }
   // The `perAttempt` slot sits inside retry and outside timeout: a wrapper
   // there surrounds every attempt, and a deadline applies inside it.
@@ -271,31 +222,19 @@ export async function runPipeline(
   if (wrappers.length > 0) {
     tail = [buildPerAttemptSegmentStep(deps, tail, wrappers)];
   }
-  if (deps.definition.retry) {
-    tail = [buildRetrySegmentStep(deps, tail, deps.definition.retry)];
+  if (def.retry && positions?.retry) {
+    tail = [buildPositionStep(deps, tail, positions.retry, "retry")];
   }
-  // Route-scope circuit breaker (#6) sits OUTSIDE retry / timeout: when
-  // open it fast-fails before they run, so the breaker records ONE failure
-  // per fully exhausted attempt rather than one per retry. Wrapping it
-  // after the retry segment makes it the outer of the two.
-  if (deps.definition.circuitBreaker) {
+  // Outside retry, so one exhausted run of attempts is one breaker failure.
+  if (def.circuitBreaker && positions?.circuitBreaker) {
     tail = [
-      buildCircuitBreakerSegmentStep(
-        deps,
-        tail,
-        deps.definition.circuitBreaker,
-      ),
+      buildPositionStep(deps, tail, positions.circuitBreaker, "circuitBreaker"),
     ];
   }
-  // Route-scope throttle (#5) is the outermost resilience filter: it
-  // admits an exchange ONCE, then the retry / timeout segments (and the
-  // cache-check + user pipeline below them) run. A retried attempt
-  // re-runs only the wrapped tail, so it never re-acquires a token.
-  // Unlike retry / timeout it does not scope over the tail, so each gate
-  // is a flat sibling step prepended here rather than a wrapping segment;
-  // multiple gates (stacked `.throttle()` calls) all run before the tail.
-  if (deps.definition.throttle) {
-    tail = [...deps.definition.throttle, ...tail];
+  // A gate rather than a wrapper: it admits once, so a retried attempt never
+  // takes a second token.
+  if (def.throttle && positions) {
+    tail = [...positions.throttle, ...tail];
   }
 
   // Hoisted rather than inlined into `initialSteps` so the loop can tell
@@ -323,7 +262,7 @@ export async function runPipeline(
   const slots = deps.slots;
   const preAdmission: Step<Adapter>[] = [
     ...(slots?.beforeAuth ? [slots.beforeAuth] : []),
-    ...deps.definition.preParseFilters,
+    ...(def.authorize && positions ? positions.authorize : []),
     ...(slots?.afterAuth ? [slots.afterAuth] : []),
     ...(admissionStep ? [admissionStep] : []),
   ];
@@ -1075,10 +1014,53 @@ async function runContextErrorHandlers(
   // ran. Both rings get their turn at the outermost run, in order, once the
   // segment's attempts are exhausted.
   if (deps.rethrowUnhandled) return undefined;
-  const handlers = deps.context.getHandlers("error", deps.route);
-  if (handlers.length === 0) return undefined;
+  const { observe, decide } = deps.context.errorHooks(deps.route);
+  if (observe.length === 0 && decide.length === 0) return undefined;
+  // The resume stamps `resumedAt` on the revived exchange, so the header IS
+  // the fact: no continuation reaches a hook without it and no first run
+  // carries it.
+  const execution =
+    args.exchange.headers[DeferralHeaders.RESUMED_AT] !== undefined ? 2 : 1;
+  const kind: RunKind =
+    deps.slots?.kind ?? (execution === 2 ? "resume" : "normal");
+  const tags = deps.route.definition.discovery?.tags ?? [];
+  const info = {
+    routeId: deps.routeId,
+    tags,
+    slot: "error",
+    kind,
+    execution,
+    // Bound to the FAILING exchange, the same as a route `.error()`
+    // handler's, so a forward from here carries the parked exchange's
+    // principal and correlation id by reference.
+    forward: deps.buildForward(args.exchange),
+  } as const;
 
-  for (const [index, handler] of handlers.entries()) {
+  // Observe hooks hear the failure and never decide; one that throws is
+  // reported and the rest still hear it.
+  for (const entry of observe) {
+    const hook = entry.hook as ErrorHook;
+    if (!runsOn(hook, kind, "error")) continue;
+    try {
+      const heard = await hook.run(args.originalError, args.exchange, info);
+      if (heard !== undefined) {
+        throw rcError("RC1115", undefined, {
+          message: `Observe hook ${entry.id} in "error" returned a value. An observe hook hears the failure; decide it from a mutate hook.`,
+        });
+      }
+    } catch (thrown) {
+      args.exchange.logger.error(
+        { err: processError(thrown), hook: entry.id },
+        "An error-slot observe hook threw; the failure continues to the rest of the slot.",
+      );
+    }
+  }
+
+  const handlers = decide.filter((entry) =>
+    runsOn(entry.hook as ErrorHook, kind, "error"),
+  );
+  for (const [index, entry] of handlers.entries()) {
+    const handler = entry.hook as ErrorHook;
     deps.context.emit("route:error-handler:invoked", {
       routeId: deps.routeId,
       exchangeId: args.exchange.id,
@@ -1088,24 +1070,7 @@ async function runContextErrorHandlers(
       scope: "context",
     });
     try {
-      const result = await handler(
-        args.originalError,
-        args.exchange,
-        // Bound to the FAILING exchange, the same as a route `.error()`
-        // handler's, so a forward from here carries the parked exchange's
-        // principal and correlation id by reference.
-        deps.buildForward(args.exchange),
-        {
-          route: deps.route,
-          // The resume stamps `resumedAt` on the revived exchange, so the
-          // header IS the fact: no continuation reaches a handler without it
-          // and no first run carries it.
-          execution:
-            args.exchange.headers[DeferralHeaders.RESUMED_AT] !== undefined
-              ? 2
-              : 1,
-        },
-      );
+      const result = await handler.run(args.originalError, args.exchange, info);
       if (result === undefined) continue;
       if (isRecovery(result) && result.kind === "rethrow") {
         // Declines on behalf of the whole chain, not just itself: a handler
@@ -1404,19 +1369,34 @@ async function parkFromErrorPath(
 }
 
 /**
- * Synthetic adapter carriers for the route-scope resilience segment
- * steps. Distinct adapter ids so telemetry correlating by `adapter`
- * can tell retry re-runs (`routecraft.retry`) from deadline guards
- * (`routecraft.timeout`) without parsing the step label. Neither
- * carrier has behaviour; the steps' `execute` does the work.
+ * Synthetic adapter carriers for the positions that surround the chain
+ * tail. Distinct adapter ids so telemetry correlating by `adapter` can tell
+ * retry re-runs (`routecraft.retry`) from deadline guards
+ * (`routecraft.timeout`) without parsing the step label. No carrier has
+ * behaviour; the provider's position does the work.
  */
-const RETRY_SEGMENT_ADAPTER: Adapter = { adapterId: "routecraft.retry" };
-const TIMEOUT_SEGMENT_ADAPTER: Adapter = { adapterId: "routecraft.timeout" };
-const CIRCUIT_BREAKER_SEGMENT_ADAPTER: Adapter = {
-  adapterId: "routecraft.circuitBreaker",
-};
-const CONCURRENCY_SEGMENT_ADAPTER: Adapter = {
-  adapterId: "routecraft.concurrency",
+type PositionName = "circuitBreaker" | "retry" | "timeout" | "concurrency";
+
+const POSITION_CARRIERS: Record<
+  PositionName,
+  { readonly operation: OperationType; readonly adapter: Adapter }
+> = {
+  circuitBreaker: {
+    operation: OperationType.CIRCUIT_BREAKER,
+    adapter: { adapterId: "routecraft.circuitBreaker" },
+  },
+  retry: {
+    operation: OperationType.PROCESS,
+    adapter: { adapterId: "routecraft.retry" },
+  },
+  timeout: {
+    operation: OperationType.PROCESS,
+    adapter: { adapterId: "routecraft.timeout" },
+  },
+  concurrency: {
+    operation: OperationType.CONCURRENCY,
+    adapter: { adapterId: "routecraft.concurrency" },
+  },
 };
 
 /**
@@ -1441,6 +1421,66 @@ function segmentResultToOutcome(result: {
     return { kind: "complete", exchange: result.exchange } as const;
   }
   return { kind: "continue", exchange: result.exchange } as const;
+}
+
+/**
+ * One position that surrounds the chain tail, as a step of the run.
+ *
+ * The provider decides how often, and whether, the tail runs; the executor
+ * owns what one run of it is. `attempt` runs the tail through a nested
+ * executor that rethrows instead of failing the exchange, so the position
+ * sees each failure and the outer run sees only the outcome it returns.
+ *
+ * The abandon signal is read per execution from the step context, never at
+ * build time: an outer timeout mints one per attempt.
+ *
+ * A resumed continuation re-enters its deferring step with the same deferred
+ * state on every attempt, even after a settled step inside an earlier
+ * attempt cleared it, so a later retryable failure does not restart the
+ * deferring step from scratch.
+ */
+function buildPositionStep(
+  deps: ExecutorDeps,
+  segment: Step<Adapter>[],
+  position: Position,
+  name: PositionName,
+): Step<Adapter> {
+  const carrier = POSITION_CARRIERS[name];
+  return {
+    operation: carrier.operation,
+    label: name,
+    adapter: carrier.adapter,
+    skipStepEvents: true,
+    execute(exchange, ctx) {
+      const abandon = ctx?.signal ?? deps.abortSignal;
+      const resumeSnapshot = peekResumeStepState(exchange);
+      return position.run({
+        routeId: deps.routeId,
+        route: deps.route,
+        exchange,
+        signal: anySignal(deps.route.intakeSignal, abandon),
+        ...(abandon ? { abandon } : {}),
+        mustWait: deps.admissionMustWait === true,
+        forward: deps.buildForward(exchange),
+        emit: (event, details) => deps.context.emit(event, details),
+        async attempt(signal) {
+          if (resumeSnapshot !== undefined) {
+            setResumeStepState(exchange, resumeSnapshot);
+          }
+          return segmentResultToOutcome(
+            await runPipeline(
+              nestedDeps(deps, segment, {
+                rethrowUnhandled: true,
+                abortSignal: signal,
+              }),
+              exchange,
+              Date.now(),
+            ),
+          );
+        },
+      });
+    },
+  };
 }
 
 /**
@@ -1481,12 +1521,7 @@ function nestedDeps(
     buildForward: deps.buildForward,
     ...(opts.rethrowUnhandled ? { rethrowUnhandled: true } : {}),
     ...(opts.abortSignal ? { abortSignal: opts.abortSignal } : {}),
-    definition: {
-      preParseFilters: [],
-      postParseFilters: [],
-      steps: segment,
-      postFromFilters: [],
-    },
+    definition: { steps: segment },
   };
 }
 
@@ -1589,6 +1624,7 @@ export function runDetachedPipeline(
       route: deps.route,
       buildForward: deps.buildForward,
       definition: detachedDefinition(routeDefinition, downstream, kind),
+      ...(deps.positions ? { positions: deps.positions } : {}),
       ...(CHAIN_SURVIVAL.concurrency[kind].mustNotRefuse
         ? { admissionMustWait: true }
         : {}),
@@ -1673,84 +1709,6 @@ export interface DetachedResult {
   deferred: boolean;
   exchange: Exchange;
   error?: unknown;
-}
-
-/**
- * Build the route-scope `.timeout()` segment step (pre-from chain
- * position #8). Runs the chain tail via a nested executor invocation
- * raced against the deadline. On expiry, emits `route:timeout:expired`,
- * throws `RC5011`, and aborts the nested run: no further steps are
- * scheduled, the in-flight step's outcome is discarded, and the abort
- * (reason: the RC5011 error) reaches that step through its StepContext
- * `signal` so cancellation-aware IO stops instead of running to
- * completion in the background.
- *
- * `skipStepEvents: true` keeps `runPipeline` from emitting generic
- * lifecycle events for this internal step; the segment emits its own
- * `route:timeout:*` family with `scope: "route"`.
- */
-function buildTimeoutSegmentStep(
-  deps: ExecutorDeps,
-  segment: Step<Adapter>[],
-  timeoutMs: number,
-): Step<Adapter> {
-  return {
-    operation: OperationType.PROCESS,
-    label: "timeout",
-    adapter: TIMEOUT_SEGMENT_ADAPTER,
-    skipStepEvents: true,
-    async execute(exchange) {
-      const correlationId = exchange.headers[
-        HeadersKeys.CORRELATION_ID
-      ] as string;
-      const scoped = {
-        routeId: deps.routeId,
-        exchangeId: exchange.id,
-        correlationId,
-        stepLabel: "route",
-        scope: "route" as const,
-        timeoutMs,
-      };
-      deps.context.emit("route:timeout:started", scoped);
-      const start = Date.now();
-      const abandon = new AbortController();
-      try {
-        const result = await raceWithDeadline(
-          runPipeline(
-            nestedDeps(deps, segment, {
-              rethrowUnhandled: true,
-              abortSignal: abandon.signal,
-            }),
-            exchange,
-            Date.now(),
-          ),
-          timeoutMs,
-        );
-        deps.context.emit("route:timeout:stopped", {
-          ...scoped,
-          elapsed: Date.now() - start,
-        });
-        return segmentResultToOutcome(result);
-      } catch (err) {
-        if (!(err instanceof DeadlineExceededError)) throw err;
-        const timeoutError = rcError("RC5011", undefined, {
-          message: `Route "${deps.routeId}" pipeline exceeded its ${timeoutMs}ms timeout`,
-        });
-        // Stop the abandoned run: the scheduling loop stops queueing
-        // further steps, and the in-flight step sees the abort via its
-        // StepContext signal (exposed by the nested run's stepContext)
-        // so cancellation-aware IO stops instead of running to
-        // completion with a discarded outcome. The RC5011 error rides
-        // as the abort reason.
-        abandon.abort(timeoutError);
-        deps.context.emit("route:timeout:expired", {
-          ...scoped,
-          elapsed: Date.now() - start,
-        });
-        throw timeoutError;
-      }
-    },
-  };
 }
 
 const PER_ATTEMPT_ADAPTER: Adapter = { adapterId: "routecraft.hooks" };
@@ -1862,256 +1820,6 @@ function buildPerAttemptSegmentStep(
         });
       }
       return segmentResultToOutcome(result);
-    },
-  };
-}
-
-/**
- * Build the route-scope `.retry()` segment step (pre-from chain
- * position #7). Re-runs the chain tail (including a nested timeout
- * segment, the cache check, the user pipeline, and the cache store)
- * via nested executor invocations until an attempt succeeds, the error
- * is non-retryable, or attempts are exhausted; then the final error
- * propagates unchanged to the route-scope `.error()` handler or the
- * default error path.
- *
- * A dropped attempt (filter rejection, parse-drop) is a deliberate
- * resolution, not a failure: it is never re-attempted.
- */
-function buildRetrySegmentStep(
-  deps: ExecutorDeps,
-  segment: Step<Adapter>[],
-  options: ResolvedRetryOptions,
-): Step<Adapter> {
-  return {
-    operation: OperationType.PROCESS,
-    label: "retry",
-    adapter: RETRY_SEGMENT_ADAPTER,
-    skipStepEvents: true,
-    async execute(exchange, ctx) {
-      const abandon = ctx?.signal ?? deps.abortSignal;
-      const correlationId = exchange.headers[
-        HeadersKeys.CORRELATION_ID
-      ] as string;
-      const scoped = {
-        routeId: deps.routeId,
-        exchangeId: exchange.id,
-        correlationId,
-        stepLabel: "route",
-        scope: "route" as const,
-      };
-      // A resumed continuation may retry: each attempt must re-enter the
-      // deferring step with the same deferred state, even though a settled
-      // step inside a prior attempt already cleared it (a later step's
-      // retryable failure would otherwise re-run the agent from scratch).
-      const resumeSnapshot = peekResumeStepState(exchange);
-      const result = await executeWithRetry(
-        () => {
-          if (resumeSnapshot !== undefined) {
-            setResumeStepState(exchange, resumeSnapshot);
-          }
-          return runPipeline(
-            nestedDeps(deps, segment, {
-              rethrowUnhandled: true,
-              abortSignal: abandon,
-            }),
-            exchange,
-            Date.now(),
-          );
-        },
-        options,
-        {
-          // Intake, not execution. A backoff cut short surfaces the last
-          // error as a proper terminal outcome; waiting it out burns the
-          // shutdown deadline on attempts that cannot finish and ends in an
-          // abandonment that emits no terminal event at all. An abandoned
-          // run must also stop sleeping between attempts, hence `abandon`:
-          // a backoff outlives the deadline that abandoned it.
-          signal: anySignal(deps.route.intakeSignal, abandon),
-          onStarted: () => {
-            deps.context.emit("route:retry:started", {
-              ...scoped,
-              maxAttempts: options.maxAttempts,
-            });
-          },
-          onAttempt: (attemptNumber, waitMs, lastError) => {
-            deps.context.emit("route:retry:attempt", {
-              ...scoped,
-              attemptNumber,
-              maxAttempts: options.maxAttempts,
-              backoffMs: waitMs,
-              lastError,
-            });
-          },
-          onStopped: (attemptNumber, success, error) => {
-            deps.context.emit("route:retry:stopped", {
-              ...scoped,
-              attemptNumber,
-              success,
-              ...(error !== undefined ? { error } : {}),
-            });
-          },
-        },
-      );
-      return segmentResultToOutcome(result);
-    },
-  };
-}
-
-/**
- * Build the route-scope `.circuitBreaker()` segment step (pre-from chain
- * position #6). Wraps the chain tail (the retry / timeout segments, the
- * cache check, the user pipeline, and the cache store). On each exchange
- * the breaker decides whether to admit the call:
- *
- * - OPEN (cooldown not elapsed) or HALF-OPEN at capacity: fast-fail
- *   WITHOUT running the tail. With a `fallback` the configured value
- *   becomes the body and the pipeline completes; without one it throws
- *   `RC5025` to the route-scope `.error()` handler (or the default error
- *   path).
- * - CLOSED, or HALF-OPEN with a free probe slot: run the tail via a
- *   nested executor invocation (`rethrowUnhandled`, so a failed attempt
- *   surfaces here). A success closes a half-open breaker; a counted
- *   failure trips a closed breaker or re-opens a half-open one.
- *
- * Because it sits OUTSIDE retry, one fully exhausted attempt (after retry
- * gives up) is recorded as a single breaker failure, not one per retry.
- *
- * The breaker `controller` is built once per route definition (in
- * `RouteBuilder.from`) and holds the persistent per-Route state, so it is
- * passed in rather than constructed here. `skipStepEvents: true` keeps
- * `runPipeline` from emitting generic lifecycle events for this internal
- * step; the segment emits its own `route:circuitBreaker:*` family with
- * `scope: "route"`.
- */
-function buildCircuitBreakerSegmentStep(
-  deps: ExecutorDeps,
-  segment: Step<Adapter>[],
-  controller: CircuitBreakerController,
-): Step<Adapter> {
-  return {
-    operation: OperationType.CIRCUIT_BREAKER,
-    label: "circuitBreaker",
-    adapter: CIRCUIT_BREAKER_SEGMENT_ADAPTER,
-    skipStepEvents: true,
-    async execute(exchange, ctx) {
-      const abandon = ctx?.signal ?? deps.abortSignal;
-      const correlationId = exchange.headers[
-        HeadersKeys.CORRELATION_ID
-      ] as string;
-      const scoped: CircuitBreakerEventScope = {
-        routeId: deps.routeId,
-        exchangeId: exchange.id,
-        correlationId,
-        stepLabel: "route",
-        scope: "route",
-        ...(controller.label !== undefined ? { label: controller.label } : {}),
-      };
-      const hooks = circuitBreakerEmitHooks(
-        deps.context,
-        scoped,
-        true,
-        controller.options,
-      );
-
-      const forward = deps.buildForward(exchange);
-
-      return executeWithCircuitBreaker(
-        controller,
-        deps.route,
-        hooks,
-        () =>
-          circuitOpenOutcome(
-            exchange,
-            controller.options,
-            forward,
-            `for route "${deps.routeId}"`,
-          ),
-        async () =>
-          segmentResultToOutcome(
-            await runPipeline(
-              nestedDeps(deps, segment, {
-                rethrowUnhandled: true,
-                abortSignal: abandon,
-              }),
-              exchange,
-              Date.now(),
-            ),
-          ),
-      );
-    },
-  };
-}
-
-/**
- * Build a route-scope `.concurrency()` bulkhead segment step, the
- * INNERMOST resilience layer (inside retry / timeout). Acquires a slot
- * (queueing or fast-failing per mode), runs the chain tail via a nested
- * executor invocation, and releases the slot when that run settles, so a
- * slot is held only for the actual attempt and freed between retry
- * backoffs. A `reject`-mode or queue-full rejection throws `RC5026`, which
- * an outer `.retry()` (sitting outside this segment) can re-attempt.
- *
- * `skipStepEvents: true` keeps `runPipeline` from emitting generic
- * lifecycle events; the segment emits its own `route:concurrency:*` family
- * with `scope: "route"`.
- */
-function buildConcurrencySegmentStep(
-  deps: ExecutorDeps,
-  segment: Step<Adapter>[],
-  controller: ConcurrencyController,
-): Step<Adapter> {
-  return {
-    operation: OperationType.CONCURRENCY,
-    label: "concurrency",
-    adapter: CONCURRENCY_SEGMENT_ADAPTER,
-    skipStepEvents: true,
-    async execute(exchange, ctx) {
-      // The segment step is built once, when the chain is assembled, but an
-      // abandon signal belongs to a single execution: an outer `.timeout()`
-      // mints a fresh controller per attempt and hands it down through the
-      // step context. Reading it from the build-time `deps` would always
-      // read the signal that existed before any attempt started.
-      const abandon = ctx?.signal ?? deps.abortSignal;
-      const correlationId = exchange.headers[
-        HeadersKeys.CORRELATION_ID
-      ] as string;
-      const scoped: ConcurrencyEventScope = {
-        routeId: deps.routeId,
-        exchangeId: exchange.id,
-        correlationId,
-        stepLabel: "route",
-        scope: "route",
-        ...(controller.label !== undefined ? { label: controller.label } : {}),
-      };
-
-      return executeWithConcurrency(
-        controller,
-        exchange,
-        deps.route,
-        {
-          // Intake: a queued segment step is released as soon as shutdown
-          // begins and admitted with a no-op release (see `#joinWaitLine`),
-          // so the drain runs it instead of leaving it deferred behind a slot
-          // that will never free. Also cancelled when an outer segment
-          // abandons this attempt (e.g. a route-scope timeout firing while
-          // this exchange is still deferred in the bulkhead queue).
-          signal: anySignal(deps.route.intakeSignal, abandon),
-          ...concurrencyEmitHooks(deps.context, scoped, true),
-        },
-        async () =>
-          segmentResultToOutcome(
-            await runPipeline(
-              nestedDeps(deps, segment, {
-                rethrowUnhandled: true,
-                abortSignal: abandon,
-              }),
-              exchange,
-              Date.now(),
-            ),
-          ),
-        { mustWait: deps.admissionMustWait === true },
-      );
     },
   };
 }

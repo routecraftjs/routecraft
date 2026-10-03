@@ -22,8 +22,11 @@ import { logger, childBindings } from "./logger.ts";
 import type { Source, Subscription } from "./operations/from.ts";
 import type { ResolvedRetryOptions } from "./operations/retry-wrapper.ts";
 import type { ResolvedTimeoutOptions } from "./operations/timeout-wrapper.ts";
-import type { CircuitBreakerController } from "./operations/circuit-breaker-wrapper.ts";
-import type { ConcurrencyController } from "./operations/concurrency-wrapper.ts";
+import type { ResolvedCircuitBreakerOptions } from "./operations/circuit-breaker-wrapper.ts";
+import type { ResolvedConcurrencyOptions } from "./operations/concurrency-wrapper.ts";
+import type { ResolvedThrottleOptions } from "./operations/throttle-wrapper.ts";
+import type { ResolvedCacheOptions } from "./operations/cache-wrapper.ts";
+import type { AuthorizeOptions } from "./auth/authorize.ts";
 import type {
   Adapter,
   Step,
@@ -52,6 +55,10 @@ import {
   type RouteSlots,
 } from "./pipeline/executor.ts";
 import { buildSlotStep } from "./kernel/hooks.ts";
+import {
+  compilePositions,
+  type CompiledPositions,
+} from "./pipeline/positions.ts";
 import {
   detachedDefinition,
   type DetachedKind,
@@ -143,34 +150,6 @@ export interface ErrorContext {
    */
   readonly execution: 1 | 2;
 }
-
-/**
- * Error handler registered on the CONTEXT rather than on one route.
- *
- * Same signature and same return vocabulary as an {@link ErrorHandler}, plus
- * an {@link ErrorContext}, because a context handler serves every route and
- * cannot otherwise tell which one it is looking at.
- *
- * Returning `undefined` passes to the next registered handler, which is what
- * lets two plugins each own a slice of the failures without either knowing
- * about the other. Every other return value decides.
- *
- * A three-parameter {@link ErrorHandler} stays assignable, so the same
- * function can serve a route and the context.
- *
- * @param error - The thrown error, as the route's own handling left it
- * @param exchange - The exchange at the point of failure, whose headers
- *   carry the principal and the correlation id
- * @param forward - Sends a payload to another route via the direct adapter,
- *   bound to the failing exchange so the target inherits its identity
- * @param ctx - The route the failure belongs to, and which execution it is
- */
-export type ContextErrorHandler = (
-  error: unknown,
-  exchange: Exchange,
-  forward: ForwardFn,
-  ctx: ErrorContext,
-) => unknown | Promise<unknown>;
 
 /**
  * Per-direction schema bundle for discoverable-capability routes. Mirrors the
@@ -280,37 +259,19 @@ export type RouteDefinition<T = unknown> = {
   readonly errorHandler?: ErrorHandler;
 
   /**
-   * Framework-managed filters that run BEFORE the source-attached
-   * parse step (and therefore before everything else). Today: the
-   * `.authorize()` ValidateSteps in declaration order. This is chain
-   * position #2 in `.standards/pre-from-filter-chain.md`.
-   *
-   * @internal
+   * What the `authorize` position checks, one entry per `.authorize()`
+   * call; they AND together in declaration order. The position is filled by
+   * the `ENFORCEMENT` port's provider when the route first runs, so a
+   * definition is plain configuration shared safely across applications.
    */
-  readonly preParseFilters: Step<Adapter>[];
+  readonly authorize?: readonly AuthorizeOptions[];
 
   /**
-   * Framework-managed filters that run AFTER the source-attached parse
-   * step but BEFORE the user pipeline. Today: the route-scope
-   * `cache-check` filter (chain position #9). The future
-   * `circuitBreaker` (#6) slots in once it lands. Route-scope
-   * `throttle` (#5), `retry` (#7), and `timeout` (#8) instead sit
-   * OUTSIDE this array (it is wrapped by the retry / timeout segments),
-   * so they ride on their own definition fields below.
-   *
-   * @internal
+   * Route-scope `.cache()`: the `cacheCheck` position before the pipeline
+   * and the `cacheStore` position after it, both filled by the `CACHE`
+   * port's provider. A hit completes the exchange without the pipeline.
    */
-  readonly postParseFilters: Step<Adapter>[];
-
-  /**
-   * Framework-managed filters that run AFTER the user pipeline.
-   * Today: the route-scope `cache-store` filter (chain position #10)
-   * when `.cache()` is configured. Reached only on miss-success; the
-   * cache-check filter pushes `steps: []` on a hit to short-circuit.
-   *
-   * @internal
-   */
-  readonly postFromFilters: Step<Adapter>[];
+  readonly cache?: ResolvedCacheOptions;
 
   /**
    * Optional route-level discovery bundle: title, description, and input /
@@ -340,71 +301,50 @@ export type RouteDefinition<T = unknown> = {
   readonly requiresPrincipal?: boolean;
 
   /**
-   * Route-scope `.retry()` config (pre-from filter chain position #7).
-   * Unlike the cache filters, retry is not a flat step in
-   * `postParseFilters`: it scopes over the whole chain tail (timeout,
-   * cache-check, user pipeline, cache-store) and re-runs it on
-   * failure, so the pipeline executor wraps the tail in a retry
-   * segment step when this is set. See
-   * `.standards/pre-from-filter-chain.md`.
+   * Route-scope `.retry()` config (pre-from filter chain position #7). It
+   * surrounds the chain tail (timeout, cache, user pipeline) and re-runs it
+   * on failure. See `.standards/pre-from-filter-chain.md`.
    */
   readonly retry?: ResolvedRetryOptions;
 
   /**
    * Route-scope `.timeout()` config (pre-from filter chain position
    * #8). Bounds each run of the chain tail below it with a deadline;
-   * placed inside `retry` so every attempt gets its own deadline. Like
-   * `retry`, realized as a segment step wrapped around the tail by the
-   * pipeline executor rather than a flat `postParseFilters` entry.
+   * placed inside `retry` so every attempt gets its own deadline.
    */
   readonly timeout?: ResolvedTimeoutOptions;
-
   /**
-   * Route-scope `.throttle()` admission gates (pre-from filter chain
-   * position #5), in declaration order. Each is a one-shot gate (a flat
-   * step, not a segment like retry / timeout); the exchange must be
-   * admitted by ALL of them, so stacking `.throttle()` calls AND-combines
-   * independent limits (e.g. a global ceiling plus a per-principal rate).
-   * The pipeline executor places them OUTSIDE the retry (#7) / timeout
-   * (#8) segments (throttle #5 is above them in the chain) and runs them
-   * once per exchange; a retried attempt re-runs only the tail below and
-   * never re-acquires a token.
+   * Route-scope `.throttle()` limits (pre-from filter chain position #5), in
+   * declaration order. Each fills one admission gate and the exchange must
+   * pass ALL of them, so stacking AND-combines independent limits (a global
+   * ceiling plus a per-principal rate). The gates run once per exchange,
+   * outside circuitBreaker / retry / timeout, so a retried attempt never
+   * re-acquires a token.
    *
    * @internal
    */
-  readonly throttle?: Step<Adapter>[];
+  readonly throttle?: readonly ResolvedThrottleOptions[];
 
   /**
-   * Route-scope `.circuitBreaker()` controller (pre-from filter chain
-   * position #6). Unlike retry / timeout (config objects re-built into a
-   * segment per run), the breaker holds persistent per-Route state (the
-   * failure window and the open/half-open machine), so the builder stores
-   * the live {@link CircuitBreakerController} here once at `.from()` time
-   * and the pipeline executor wraps the chain tail in a breaker segment
-   * around it. Sits OUTSIDE the retry (#7) / timeout (#8) segments and
-   * INSIDE the throttle (#5) gate: when open it fast-fails before retry /
-   * timeout run, so one tripped breaker call is recorded per fully
-   * exhausted attempt, not per retry. See
-   * `.standards/pre-from-filter-chain.md`.
+   * Route-scope `.circuitBreaker()` config (pre-from filter chain position
+   * #6). The breaker's failure window and open/half-open machine are per
+   * route, built once by the `RESILIENCE` provider. It sits outside retry and
+   * timeout, so an open breaker fast-fails before they run and one exhausted
+   * run of attempts records one failure, not one per retry.
    *
    * @internal
    */
-  readonly circuitBreaker?: CircuitBreakerController;
+  readonly circuitBreaker?: ResolvedCircuitBreakerOptions;
 
   /**
-   * Route-scope `.concurrency()` bulkhead controllers (one per
-   * `.concurrency()` call; they nest). Like the circuit breaker they hold
-   * persistent per-Route state (the slot pool / semaphores), so the builder
-   * stores the live {@link ConcurrencyController}s here once at `.from()`
-   * time and the pipeline executor wraps the chain tail in a bulkhead
-   * segment per controller. Sits at the INNERMOST resilience position,
-   * INSIDE the retry (#7) / timeout (#8) segments, so a slot is acquired
-   * per attempt and released between retry backoffs (never held while a
-   * retry sleeps). See `.standards/pre-from-filter-chain.md`.
+   * Route-scope `.concurrency()` bulkheads, one per call; they nest with the
+   * first declared outermost. The slot pools are per route, built once by
+   * the `RESILIENCE` provider. Innermost of the resilience positions, so a
+   * slot is held per attempt and never while a retry sleeps.
    *
    * @internal
    */
-  readonly concurrency?: ConcurrencyController[];
+  readonly concurrency?: readonly ResolvedConcurrencyOptions[];
 
   /**
    * Every `.defer()` the route can reach, resolved once at build time and
@@ -912,9 +852,22 @@ export class DefaultRoute implements Route {
       route: this,
       definition: this.definition,
       buildForward: (caller: Exchange) => this.buildForward(caller),
+      positions: this.positions(),
       ...(this.slots() ? { slots: this.slots()! } : {}),
     };
     return this.cachedExecutorDeps;
+  }
+
+  private compiledPositions?: CompiledPositions;
+
+  /**
+   * This route's positions, filled once by its application's providers.
+   *
+   * @throws RC1111 when a configured position has no provider
+   */
+  private positions(): CompiledPositions {
+    this.compiledPositions ??= compilePositions(this.definition, this.context);
+    return this.compiledPositions;
   }
 
   /**
@@ -997,6 +950,9 @@ export class DefaultRoute implements Route {
    */
   async start(): Promise<void> {
     this.assertNotAborted();
+    // A position nobody provides refuses the route here rather than on its
+    // first exchange.
+    this.positions();
     // Lifecycle log is emitted only by context (one log per event).
 
     // Register the shared pipeline handler on every per-source consumer.

@@ -3,6 +3,7 @@ import { rcError } from "../error.ts";
 import { logger } from "../logger.ts";
 import type { CraftContext } from "../context.ts";
 import type { ForwardFn, Route } from "../route.ts";
+import type { RouteKey } from "../kernel/positions.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import { WrapperStep } from "./wrapper.ts";
 import { wrapperEventScope } from "./event-scope.ts";
@@ -352,14 +353,14 @@ export class CircuitBreakerController extends RouteScopedController<CircuitBreak
   }
 
   acquire(
-    route: Route | undefined,
+    route: RouteKey | undefined,
     hooks: CircuitBreakerHooks,
   ): CircuitBreakerDecision {
     return this.stateFor(route).acquire(Date.now(), hooks);
   }
 
   recordSuccess(
-    route: Route | undefined,
+    route: RouteKey | undefined,
     probe: boolean,
     hooks: CircuitBreakerHooks,
   ): void {
@@ -367,7 +368,7 @@ export class CircuitBreakerController extends RouteScopedController<CircuitBreak
   }
 
   recordFailure(
-    route: Route | undefined,
+    route: RouteKey | undefined,
     error: Error,
     probe: boolean,
     hooks: CircuitBreakerHooks,
@@ -410,7 +411,7 @@ export interface CircuitBreakerEventScope {
  * @internal
  */
 export function circuitBreakerEmitHooks(
-  context: CraftContext | undefined,
+  context: Pick<CraftContext, "emit"> | undefined,
   scoped: CircuitBreakerEventScope,
   emit: boolean,
   options: ResolvedCircuitBreakerOptions,
@@ -511,7 +512,7 @@ export async function circuitOpenOutcome(
  */
 export async function executeWithCircuitBreaker(
   controller: CircuitBreakerController,
-  route: Route | undefined,
+  route: RouteKey | undefined,
   hooks: CircuitBreakerHooks,
   onOpen: () => Promise<StepOutcome>,
   run: () => Promise<StepOutcome>,

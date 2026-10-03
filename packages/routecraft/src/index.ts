@@ -64,10 +64,6 @@ export {
   RUNNER_ARGV,
   DEFAULT_SHUTDOWN_TIMEOUT_MS,
   type CraftConfig,
-  type HandlerFor,
-  type HandlerPoint,
-  type HandlerPointRegistry,
-  type HandlerSelector,
   type ShutdownConfig,
   type ShutdownOutcome,
 } from "./context.ts";
@@ -82,6 +78,44 @@ export {
   type StopInfo,
 } from "./kernel/plugin.ts";
 export { port, type AnyPort, type Port } from "./kernel/port.ts";
+export {
+  CACHE,
+  ENFORCEMENT,
+  RESILIENCE,
+  type CachePositions,
+  type EnforcementPositions,
+  type Position,
+  type PositionRun,
+  type ResiliencePositions,
+  type RouteKey,
+} from "./kernel/positions.ts";
+export { registerDefaultPlugin } from "./kernel/defaults.ts";
+export {
+  resiliencePlugin,
+  resilienceProvider,
+} from "./plugins/resilience/index.ts";
+export { cachePlugin, cacheProvider } from "./plugins/cache/index.ts";
+export { authPlugin, enforcementProvider } from "./plugins/auth/index.ts";
+export {
+  refuse,
+  SLOTS,
+  type ErrorHook,
+  type ErrorHookInfo,
+  type ExchangeHook,
+  type ExchangePatch,
+  type HookInfo,
+  type Hooks,
+  type HooksConfig,
+  type MutateHook,
+  type ObserveHook,
+  type Phase,
+  type PointDeclaration,
+  type Refusal,
+  type RunKind,
+  type Slot,
+  type ValidateHook,
+  type WrapperHook,
+} from "./kernel/hooks.ts";
 export {
   type Capability,
   isInternalEndpoint,
@@ -251,7 +285,6 @@ export {
   DefaultRoute,
   type Route,
   type RouteDefinition,
-  type ContextErrorHandler,
   type ErrorContext,
   type ErrorHandler,
   type ForwardFn,

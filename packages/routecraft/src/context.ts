@@ -7,12 +7,7 @@ import {
 } from "./enablement.ts";
 import { randomUUID } from "node:crypto";
 import { BRAND, setBrand } from "./brand.ts";
-import {
-  DefaultRoute,
-  type ContextErrorHandler,
-  type Route,
-  type RouteDefinition,
-} from "./route.ts";
+import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
 import {
   CAPABILITY_REGISTRY,
   snapshotCapability,
@@ -28,8 +23,14 @@ import { applyResolvedSites } from "./deferral/sites.ts";
 import { EventBus } from "./event-bus.ts";
 import { CraftClient } from "./client.ts";
 import { PluginHost, type InstalledPlugin } from "./kernel/host.ts";
+import { defaultPluginsFor } from "./kernel/defaults.ts";
 import type { Plugin, RouteView } from "./kernel/plugin.ts";
-import { HookTable, type HooksConfig } from "./kernel/hooks.ts";
+import {
+  HookTable,
+  type ErrorHook,
+  type HooksConfig,
+  type InstalledHook,
+} from "./kernel/hooks.ts";
 import type { Port } from "./kernel/port.ts";
 
 import type {
@@ -158,7 +159,6 @@ const BASE_CONFIG_KEYS: ReadonlySet<string> = new Set([
   "on",
   "once",
   "plugins",
-  "handlers",
   "shutdown",
   "hooks",
 ]);
@@ -179,111 +179,6 @@ const BASE_CONFIG_KEYS: ReadonlySet<string> = new Set([
  * }
  * ```
  */
-/**
- * Whether a registration applies to a route.
- *
- * `routes` and `tags` are two ways of naming routes, so a selector carrying
- * both matches a route named by EITHER. An empty selector matches every
- * route, which is what a registration with no selector gets.
- *
- * @internal
- */
-function appliesTo(selector: HandlerSelector, route: Route): boolean {
-  const { routes, tags } = selector;
-  if (!routes && !tags) return true;
-  if (routes?.includes(route.definition.id)) return true;
-  const declared = route.definition.discovery?.tags;
-  return declared !== undefined && tags !== undefined
-    ? tags.some((tag) => declared.includes(tag))
-    : false;
-}
-
-/**
- * The points on a route's lifecycle where a handler registered on the
- * CONTEXT, by someone who did not write the route, can decide rather than
- * observe.
- *
- * An interface rather than a union so a package outside core can contribute a
- * point by declaration merging, the same way it contributes an error code or
- * an event. Each key is a point and its value is that point's handler type,
- * so `registerHandler` is typed per point rather than over a lowest common
- * denominator. A second package claiming a name with a different signature is
- * a compile error on the merged interface, which is the right failure.
- *
- * One point today. The rest of the set (`admission`, `entry`, `exit`) is
- * specified in #816 and lands after this; the registry exists from the start
- * so they arrive as keys rather than as three more bespoke registrations.
- *
- * @example
- * ```typescript
- * declare module "@routecraft/routecraft" {
- *   interface HandlerPointRegistry {
- *     myPoint: (ctx: MyPointContext) => MyPointOutcome | undefined;
- *   }
- * }
- * ```
- */
-export interface HandlerPointRegistry {
-  /**
-   * A failure the route's own handling gave up on: no route `.error()`, or
-   * one that rethrew or threw.
-   *
-   * Positional rather than context-shaped, and deliberately: it stays
-   * assignment-compatible with {@link ErrorHandler}, the type the `.error()`
-   * operation already takes, so one function body works in either place and
-   * ignores the extra `route` parameter it gains here.
-   */
-  error: ContextErrorHandler;
-}
-
-/** A point on the route lifecycle a handler can be registered at. */
-export type HandlerPoint = keyof HandlerPointRegistry;
-
-/** The handler a given point takes. */
-export type HandlerFor<P extends HandlerPoint> = HandlerPointRegistry[P];
-
-/**
- * Which routes a registration applies to, and what it may do.
- *
- * A selector on the REGISTRATION rather than an `if` at the top of the
- * handler: a handler opening with `if (route.id === "x")` is a switch
- * statement that grows forever and runs on every exchange of every route.
- *
- * `routes` and `tags` are two ways of naming routes, so a registration
- * carrying both applies to a route matching EITHER. Carrying neither applies
- * to every route.
- */
-export interface HandlerSelector {
-  /** Route ids this handler applies to. */
-  readonly routes?: readonly string[];
-  /** Route tags (`.tag()`) this handler applies to. */
-  readonly tags?: readonly string[];
-  /**
-   * This handler may answer with `recovery.defer()`.
-   *
-   * It makes every route it applies to deferrable, so the context refuses to
-   * start without a deferral runtime (`RC5052`) rather than failing on the
-   * first park, and a transport that advertises deferability advertises it.
-   * Declared rather than detected, because a handler is an opaque closure.
-   */
-  readonly mayDefer?: boolean;
-}
-
-/**
- * One registration of a handler at one point.
- *
- * A record rather than the bare function so two registrations of the same
- * function stay distinguishable; see {@link CraftContext.registerHandler}.
- *
- * @internal
- */
-interface RegisteredHandler {
-  readonly point: HandlerPoint;
-  readonly handler: HandlerFor<HandlerPoint>;
-  readonly selector: HandlerSelector;
-  readonly mayDefer: boolean;
-}
-
 export interface CraftConfig {
   /**
    * Service / application name for this context. Emitted on every log line as
@@ -308,31 +203,6 @@ export interface CraftConfig {
    * keys install, which bind in their registration order.
    */
   plugins?: Plugin[];
-  /**
-   * The application's own handlers, keyed by lifecycle point.
-   *
-   * Sugar for {@link CraftContext.registerHandler}, in the same shape `on`
-   * has for events, and accepting an array per key for the same reason.
-   * Registered while the context is constructed, so these are consulted
-   * BEFORE anything a plugin registers in its `apply()`.
-   *
-   * A config-declared handler applies to every route: a selector is a
-   * registration-time argument, so a scoped handler is declared in a
-   * one-line plugin, which is what plugins are for. A handler that may
-   * answer `recovery.defer()` likewise needs the programmatic form, so the
-   * context can refuse to start without a deferral runtime.
-   *
-   * @example
-   * ```typescript
-   * export default defineConfig({
-   *   handlers: { error: (error, exchange, forward, ctx) => undefined },
-   *   deferral: {},
-   * });
-   * ```
-   */
-  handlers?: Partial<
-    Record<HandlerPoint, HandlerFor<HandlerPoint> | HandlerFor<HandlerPoint>[]>
-  >;
   /** How long a graceful shutdown may drain before it is forced. */
   shutdown?: ShutdownConfig;
   /**
@@ -503,25 +373,6 @@ export class CraftContext {
   /** How long stage one of shutdown may drain; see {@link ShutdownConfig}. */
   private readonly shutdownTimeoutMs: number;
 
-  /**
-   * Handlers registered on the context, in registration order, which is also
-   * consultation order.
-   *
-   * One flat list across every point rather than a map of lists: the order
-   * two registrations were made in is the contract, and a map would keep it
-   * per point while the config form and a plugin's `apply` interleave across
-   * points. Filtering by point on consultation costs nothing at the sizes
-   * this list reaches.
-   */
-  private readonly handlers: RegisteredHandler[] = [];
-
-  /**
-   * How many registered handlers declared `mayDefer`. A count rather than a
-   * flag because unregistering one must not clear the answer while another
-   * still holds it.
-   */
-  private deferringErrorHandlers = 0;
-
   /** Cached shutdown promise so concurrent stop() callers all await the same teardown */
   private shutdownPromise: Promise<ShutdownOutcome> | null = null;
 
@@ -572,18 +423,6 @@ export class CraftContext {
             handler.forEach((h) => this.on(event as EventName, h));
           } else if (handler) {
             this.on(event as EventName, handler);
-          }
-        }
-      }
-
-      // Before the appliers below push any plugin, so the application's own
-      // handlers are consulted ahead of every plugin's: config applies first.
-      if (config.handlers) {
-        for (const [point, declared] of Object.entries(config.handlers)) {
-          for (const handler of Array.isArray(declared)
-            ? declared
-            : [declared]) {
-            if (handler) this.registerHandler(point as HandlerPoint, handler);
           }
         }
       }
@@ -669,7 +508,13 @@ export class CraftContext {
     if (this.pluginsInitialized) return;
     this.pluginsInitialized = true;
     try {
-      this.host = new PluginHost(this.pluginList);
+      // Appended, so an application's own plugins keep their list
+      // positions; the host still binds a default before anything that
+      // requires what it provides.
+      this.host = new PluginHost([
+        ...this.pluginList,
+        ...defaultPluginsFor(this.pluginList),
+      ]);
     } catch (err) {
       this.logger.error({ err }, "Plugins could not be installed.");
       this.emit("context:error", { error: err });
@@ -1143,119 +988,41 @@ export class CraftContext {
   }
 
   /**
-   * Register a handler at one point on the route lifecycle, for routes this
-   * context runs.
-   *
-   * A handler is registered on the CONTEXT, by someone who did not write the
-   * route, and reaches routes that never mention it. That is the whole
-   * definition, and it is what separates a handler from an operation (which
-   * the route author declares, in the chain, at the position it runs) and
-   * from an event (which cannot change what happens next).
-   *
-   * One point exists today, `error`, and it is the outermost of three error
-   * rings. A step's `.error()` wrapper runs first, then the route's own
-   * `.error()`, and this chain is reached only where those gave up: a route
-   * with no handler, or one whose handler rethrew or threw. A route that
-   * handles its own failures is never overridden.
-   *
-   * Handlers are consulted in registration order and the first to return
-   * anything other than `undefined` decides; `undefined` passes to the next.
-   * The `error` point's return vocabulary is a route `.error()` handler's,
-   * unchanged: a body recovers, `recovery.drop()` discards,
-   * `recovery.rethrow()` propagates, and `recovery.defer()` parks the
-   * exchange durably. A handler that throws is reported as
-   * `route:error-handler:failed` with `scope: "context"` and the chain
-   * continues; its throw never replaces the error that reaches the failure
-   * path.
-   *
-   * This is what lets something OUTSIDE a route decide that a failure is
-   * recoverable, which is the point: a plugin can recognise an authorization
-   * refusal, park the exchange, have a human lend the missing scope, and let
-   * the continuation finish, without any route knowing.
-   *
-   * `context:error` and `route:exchange:failed` fire only when nothing
-   * decided. A failure a handler resolves no longer reaches either, which is
-   * a change from before this chain existed.
-   *
-   * @param point - Where on the lifecycle the handler runs
-   * @param handler - Consulted with whatever that point passes. The `error`
-   *   point passes the error, the failing exchange, a `forward` bound to it,
-   *   and the route it belongs to
-   * @param selector - Which routes it applies to, and whether it may park.
-   *   Absent applies it to every route and declares that it never parks
-   * @returns Unregister function, the same shape `ctx.on()` returns
-   *
-   * @example
-   * ```typescript
-   * const off = ctx.registerHandler(
-   *   "error",
-   *   (error, exchange, forward, ctx) =>
-   *     isPoison(error) && ctx.execution === 1
-   *       ? recovery.drop("poison")
-   *       : undefined,
-   *   { tags: ["gated"] },
-   * );
-   * ```
-   */
-  registerHandler<P extends HandlerPoint>(
-    point: P,
-    handler: HandlerFor<P>,
-    selector?: HandlerSelector,
-  ): () => void {
-    if (typeof handler !== "function") {
-      throw rcError("RC5003", undefined, {
-        message: `ctx.registerHandler("${point}", handler) takes a function. The "error" point receives (error, exchange, forward, ctx) and returns a recovery body, a recovery directive, or undefined to pass.`,
-      });
-    }
-    // A per-REGISTRATION record rather than the bare function, so the same
-    // handler registered twice is two entries with their own selector and
-    // their own unregister. Keying on the function would make the second
-    // registration's unregister remove the first's entry.
-    const entry: RegisteredHandler = {
-      point,
-      handler: handler as HandlerFor<HandlerPoint>,
-      selector: selector ?? {},
-      mayDefer: selector?.mayDefer === true,
-    };
-    if (entry.mayDefer) this.deferringErrorHandlers += 1;
-    this.handlers.push(entry);
-    return () => {
-      const at = this.handlers.indexOf(entry);
-      if (at === -1) return;
-      this.handlers.splice(at, 1);
-      if (entry.mayDefer) this.deferringErrorHandlers -= 1;
-    };
-  }
-
-  /**
-   * The handlers registered at one point that apply to one route, in
-   * consultation order.
+   * The `error` slot hooks that apply to one route: the `observe` ones,
+   * which hear the failure, and the `mutate` ones, which may decide it, each
+   * in effective order.
    *
    * @internal
    */
-  getHandlers<P extends HandlerPoint>(
-    point: P,
-    route: Route,
-  ): ReadonlyArray<HandlerFor<P>> {
-    const matching: HandlerFor<P>[] = [];
-    for (const entry of this.handlers) {
-      if (entry.point !== point) continue;
-      if (!appliesTo(entry.selector, route)) continue;
-      matching.push(entry.handler as HandlerFor<P>);
-    }
-    return matching;
+  errorHooks(route: Route): {
+    observe: readonly InstalledHook[];
+    decide: readonly InstalledHook[];
+  } {
+    const table = this.hookTable;
+    if (!table) return { observe: [], decide: [] };
+    const all = table.forRoute(
+      "error",
+      route.definition.id,
+      route.definition.discovery?.tags ?? [],
+    );
+    return {
+      observe: all.filter((e) => (e.hook as ErrorHook).phase === "observe"),
+      decide: all.filter((e) => (e.hook as ErrorHook).phase === "mutate"),
+    };
   }
 
   /**
-   * Whether any registered handler declared it may park an exchange.
+   * Whether any `error` slot hook declared it may park an exchange.
    *
    * Read by the startup runtime check and by `routeCanDefer`, because such a
-   * handler can defer ANY route in the context: a transport that advertises
+   * hook can defer ANY route it applies to: a transport that advertises
    * deferability per route would otherwise under-advertise every route that
    * declares no defer site of its own.
    */
   hasDeferringErrorHandler(): boolean {
-    return this.deferringErrorHandlers > 0;
+    return (this.hookTable?.ordered("error") ?? []).some(
+      (entry) => (entry.hook as ErrorHook).mayDefer === true,
+    );
   }
 
   /**

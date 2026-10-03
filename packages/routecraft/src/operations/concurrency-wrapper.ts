@@ -3,7 +3,7 @@ import type { Exchange } from "../exchange.ts";
 import { rcError } from "../error.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import type { CraftContext } from "../context.ts";
-import type { Route } from "../route.ts";
+import type { RouteKey } from "../kernel/positions.ts";
 import { WrapperStep } from "./wrapper.ts";
 import { wrapperEventScope } from "./event-scope.ts";
 import { SleepAbortedError } from "./cancellable-sleep.ts";
@@ -251,7 +251,7 @@ export interface ConcurrencyEventScope {
  * @internal
  */
 export function concurrencyEmitHooks(
-  context: CraftContext | undefined,
+  context: Pick<CraftContext, "emit"> | undefined,
   scoped: ConcurrencyEventScope,
   emit: boolean,
 ): Pick<
@@ -366,7 +366,7 @@ export class ConcurrencyController extends RouteScopedController<ConcurrencyLimi
    */
   async acquire(
     exchange: Exchange,
-    route: Route | undefined,
+    route: RouteKey | undefined,
     hooks: ConcurrencyHooks,
     opts: { mustWait?: boolean } = {},
   ): Promise<{ release: () => void; key?: string }> {
@@ -453,7 +453,7 @@ export class ConcurrencyController extends RouteScopedController<ConcurrencyLimi
 export async function executeWithConcurrency(
   controller: ConcurrencyController,
   exchange: Exchange,
-  route: Route | undefined,
+  route: RouteKey | undefined,
   hooks: ConcurrencyHooks,
   run: () => Promise<StepOutcome>,
   opts: { mustWait?: boolean } = {},

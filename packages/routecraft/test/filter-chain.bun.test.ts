@@ -2,18 +2,29 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
   craft,
+  definePlugin,
   direct,
   MemoryCacheProvider,
   OperationType,
+  RESILIENCE,
+  resilienceProvider,
   simple,
   noop,
 } from "@routecraft/routecraft";
+import { compilePositions } from "../src/pipeline/positions.ts";
 
 describe("pre-from filter chain assembly", () => {
+  let t: TestContext | undefined;
+
+  afterEach(async () => {
+    if (t) await t.stop();
+    t = undefined;
+  });
+
   /**
-   * @case Builder call order does NOT change the runtime chain order
+   * @case Builder call order does NOT change what the route definition configures
    * @preconditions Two routes declared with different builder orders; both have .authorize(), .cache(), .error()
-   * @expectedResult Both routes produce identical preParseFilters / postParseFilters / postFromFilters arrays
+   * @expectedResult Both definitions carry the same authorize and cache configuration
    */
   test("builder declaration order does not affect chain assembly", () => {
     const [a] = craft()
@@ -34,23 +45,16 @@ describe("pre-from filter chain assembly", () => {
       .to(noop())
       .build();
 
-    expect(a!.preParseFilters.map((f) => f.label)).toEqual(
-      b!.preParseFilters.map((f) => f.label),
-    );
-    expect(a!.postParseFilters.map((f) => f.label)).toEqual(
-      b!.postParseFilters.map((f) => f.label),
-    );
-    expect(a!.postFromFilters.map((f) => f.label)).toEqual(
-      b!.postFromFilters.map((f) => f.label),
-    );
+    expect(a!.authorize).toEqual(b!.authorize);
+    expect(a!.cache?.ttl).toBe(b!.cache?.ttl);
   });
 
   /**
-   * @case Authorize sits in preParseFilters, cache-check in postParseFilters, cache-store in postFromFilters
-   * @preconditions Route declares .authorize().cache().from()
-   * @expectedResult Each filter lands in the documented slot per .standards/pre-from-filter-chain.md
+   * @case The default providers fill authorize with a gate and the cache pair with check and store steps
+   * @preconditions Route declares .authorize().cache().from(); compiled against an application with the default plugins
+   * @expectedResult One validate gate in authorize, a cache-check step, and a cache-store step
    */
-  test("filters land in the documented chain positions", () => {
+  test("filters land in the documented chain positions", async () => {
     const [route] = craft()
       .id("chain-positions")
       .authorize({ roles: ["admin"] })
@@ -58,23 +62,22 @@ describe("pre-from filter chain assembly", () => {
       .from(simple("x"))
       .to(noop())
       .build();
+    t = await testContext().build();
 
-    expect(route!.preParseFilters).toHaveLength(1);
-    expect(route!.preParseFilters[0]!.operation).toBe(OperationType.VALIDATE);
+    const positions = compilePositions(route!, t.ctx);
 
-    expect(route!.postParseFilters.map((f) => f.label)).toEqual([
-      "cache-check",
-    ]);
-
-    expect(route!.postFromFilters.map((f) => f.label)).toEqual(["cache-store"]);
+    expect(positions.authorize).toHaveLength(1);
+    expect(positions.authorize[0]!.operation).toBe(OperationType.VALIDATE);
+    expect(positions.cacheCheck?.label).toBe("cache-check");
+    expect(positions.cacheStore?.label).toBe("cache-store");
   });
 
   /**
-   * @case Multiple .authorize() calls stack in declaration order in preParseFilters
+   * @case Multiple .authorize() calls stack in declaration order
    * @preconditions Route declares two .authorize() calls
-   * @expectedResult preParseFilters has two ValidateSteps in the order declared
+   * @expectedResult The definition carries both in order, and two validate gates compile from them
    */
-  test("stacked .authorize() calls populate preParseFilters in declaration order", () => {
+  test("stacked .authorize() calls fill authorize in declaration order", async () => {
     const [route] = craft()
       .id("stacked-authorize")
       .authorize({ roles: ["admin"] })
@@ -82,23 +85,111 @@ describe("pre-from filter chain assembly", () => {
       .from(simple("x"))
       .to(noop())
       .build();
+    t = await testContext().build();
 
-    expect(route!.preParseFilters).toHaveLength(2);
-    expect(route!.preParseFilters[0]!.operation).toBe(OperationType.VALIDATE);
-    expect(route!.preParseFilters[1]!.operation).toBe(OperationType.VALIDATE);
+    expect(route!.authorize).toEqual([
+      { roles: ["admin"] },
+      { scopes: ["billing:write"] },
+    ]);
+    const positions = compilePositions(route!, t.ctx);
+    expect(positions.authorize.map((gate) => gate.operation)).toEqual([
+      OperationType.VALIDATE,
+      OperationType.VALIDATE,
+    ]);
   });
 
   /**
-   * @case Routes with neither .authorize() nor .cache() have empty filter arrays
+   * @case A route with no chain features configures no positions
    * @preconditions Bare route with just a source and destination
-   * @expectedResult All three filter arrays are empty
+   * @expectedResult No position field is set on the definition, and nothing compiles
    */
-  test("routes with no chain features have empty filter arrays", () => {
+  test("routes with no chain features configure no positions", async () => {
     const [route] = craft().id("bare").from(simple("x")).to(noop()).build();
+    t = await testContext().build();
 
-    expect(route!.preParseFilters).toEqual([]);
-    expect(route!.postParseFilters).toEqual([]);
-    expect(route!.postFromFilters).toEqual([]);
+    for (const field of [
+      "authorize",
+      "cache",
+      "throttle",
+      "circuitBreaker",
+      "retry",
+      "timeout",
+      "concurrency",
+    ] as const) {
+      expect(route![field]).toBeUndefined();
+    }
+    expect(compilePositions(route!, t.ctx)).toEqual({
+      authorize: [],
+      throttle: [],
+      concurrency: [],
+    });
+  });
+
+  /**
+   * @case A configured position whose port nobody provides refuses the route
+   * @preconditions Route declares .retry(); the positions compile against a context whose lookup finds no provider
+   * @expectedResult RC1111 naming the route, the method and the port
+   */
+  test("a position with no provider is RC1111", () => {
+    const [route] = craft()
+      .id("unprovided")
+      .retry({ maxAttempts: 2 })
+      .from(simple("x"))
+      .to(noop())
+      .build();
+
+    expect(() => compilePositions(route!, { lookup: () => undefined })).toThrow(
+      expect.objectContaining({
+        rc: "RC1111",
+        message: expect.stringContaining(
+          'Route "unprovided" uses .retry(), and no installed plugin provides "routecraft.resilience@1"',
+        ),
+      }),
+    );
+  });
+
+  /**
+   * @case An installed plugin that replaces RESILIENCE fills the route's resilience positions
+   * @preconditions A plugin provides and replaces RESILIENCE, delegating to the default provider but counting retry runs; a route declares .retry()
+   * @expectedResult The route's retry position runs through the replacement on every exchange
+   */
+  test("a plugin replacing RESILIENCE fills the retry position", async () => {
+    let runs = 0;
+    const counting = definePlugin({
+      id: "test.counting-resilience",
+      provides: [RESILIENCE],
+      replaces: [RESILIENCE],
+      bind(c) {
+        c.provide(RESILIENCE, {
+          ...resilienceProvider,
+          retry(options) {
+            const inner = resilienceProvider.retry(options);
+            return {
+              run(run) {
+                runs++;
+                return inner.run(run);
+              },
+            };
+          },
+        });
+      },
+    });
+    t = await testContext()
+      .with({ plugins: [counting] })
+      .routes(
+        craft()
+          .id("replaced-retry")
+          .retry({ maxAttempts: 2 })
+          .from(direct())
+          .to(noop()),
+      )
+      .build();
+    await t.startAndWaitReady();
+
+    await t.client.sendDirect("replaced-retry", "a");
+    await t.client.sendDirect("replaced-retry", "b");
+
+    expect(runs).toBe(2);
   });
 });
 

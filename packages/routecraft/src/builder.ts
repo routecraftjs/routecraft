@@ -22,9 +22,6 @@ import {
   type RouteDiscovery,
   type RouteSchemas,
   type Tag,
-  buildCacheCheckStep,
-  buildCacheStoreStep,
-  buildThrottleCheckStep,
 } from "./route.ts";
 import {
   CraftContext,
@@ -75,8 +72,7 @@ import {
   buildDebounceStep,
   type DebounceOptions,
 } from "./operations/debounce.ts";
-import { ValidateStep } from "./operations/validate.ts";
-import { authorize, type AuthorizeOptions } from "./auth/authorize.ts";
+import type { AuthorizeOptions } from "./auth/authorize.ts";
 import {
   type CacheOptions,
   assignCacheSites,
@@ -102,13 +98,11 @@ import {
   type CircuitBreakerOptions,
   type ResolvedCircuitBreakerOptions,
   resolveCircuitBreakerOptions,
-  CircuitBreakerController,
 } from "./operations/circuit-breaker-wrapper.ts";
 import {
   type ConcurrencyOptions,
   type ResolvedConcurrencyOptions,
   resolveConcurrencyOptions,
-  ConcurrencyController,
 } from "./operations/concurrency-wrapper.ts";
 
 /**
@@ -455,10 +449,7 @@ export type RouteOptions = Partial<Pick<RouteDefinition, "consumer">> & {
  * never participates in this check.
  */
 function assertRouteScopeCacheCompatibility(route: RouteDefinition): void {
-  const hasRouteScopeCache = route.postParseFilters.some(
-    (f) => f.label === "cache-check",
-  );
-  if (!hasRouteScopeCache) return;
+  if (route.cache === undefined) return;
 
   if (containsAuthenticate(route.steps)) {
     throw rcError("RC5003", undefined, {
@@ -1415,75 +1406,6 @@ export class RouteBuilder<
       "Creating route definition",
     );
 
-    // Assemble the route's pre-from filter chain. Order is fixed by
-    // `.standards/pre-from-filter-chain.md`:
-    //
-    //   preParseFilters   -> .authorize() (#2)
-    //   parse              (#3; dynamic, source-attached, inserted at runtime)
-    //   .input()           (#4; dynamic like parse -- the consumer handler
-    //                       stashes the validator on exchange internals and
-    //                       runPipeline runs it inside the parse step, or as
-    //                       a standalone synthetic input step for
-    //                       parser-less sources. RC5065 is routable through
-    //                       `.error()` either way; see #447.)
-    //   postParseFilters  -> .cache() check (#9); reserved slot for future
-    //                        .circuitBreaker() (#6). Route-scope .throttle()
-    //                        (#5), .retry() (#7), and .timeout() (#8) sit
-    //                        OUTSIDE this array and ride on RouteDefinition
-    //                        fields instead (see below)
-    //   userSteps         -> declaration order, unchanged
-    //   postFromFilters   -> .cache() store (#10)
-    //
-    // The user does NOT control this order: `.authorize().cache()`
-    // and `.cache().authorize()` produce identical chains.
-    const authorizerSteps = authorizers.map(
-      (opts) => new ValidateStep(authorize(opts)),
-    );
-    const preParseFilters: Step<Adapter>[] = authorizerSteps;
-
-    const postParseFilters: Step<Adapter>[] = cacheConfig
-      ? [buildCacheCheckStep(cacheConfig)]
-      : [];
-
-    // Route-scope throttle (#5) is a one-shot admission gate, not a
-    // segment, but it must sit OUTSIDE the retry (#7) / timeout (#8)
-    // segments so a retried attempt re-runs only the tail below it and
-    // never re-acquires a token. It therefore rides on its own
-    // definition field (like retry / timeout) rather than in
-    // `postParseFilters`, which the executor wraps INSIDE the segments.
-    // One gate per `.throttle()` call (they AND-combine); each gate's
-    // limiter is built per Route at runtime, not shared here.
-    const throttleGates = throttleConfigs?.map((cfg) =>
-      buildThrottleCheckStep(cfg),
-    );
-
-    // Route-scope circuit breaker (#6) holds persistent per-Route state
-    // (the failure window + the open/half-open machine), so unlike retry /
-    // timeout (re-built into a segment per run from a plain config object)
-    // its live controller is built ONCE here and stored on the definition.
-    // The pipeline executor wraps the chain tail in a breaker segment
-    // around this controller, OUTSIDE the retry / timeout segments. The
-    // controller keys its machines by Route, so a definition reused across
-    // contexts gives each Route its own circuit.
-    const circuitBreakerController = circuitBreakerConfig
-      ? new CircuitBreakerController(circuitBreakerConfig)
-      : undefined;
-
-    // Route-scope concurrency (#bulkhead) also holds persistent per-Route
-    // state (the slot pool / semaphores), so its live controllers are built
-    // ONCE here and stored on the definition, like the circuit breaker. The
-    // executor wraps the chain tail in a bulkhead segment per controller at
-    // the INNERMOST resilience position (inside retry / timeout), so a slot
-    // is acquired per attempt and released between backoffs. One controller
-    // per `.concurrency()` call (they nest); each keys its pool by Route.
-    const concurrencyControllers = concurrencyConfigs?.map(
-      (cfg) => new ConcurrencyController(cfg),
-    );
-
-    const postFromFilters: Step<Adapter>[] = cacheConfig
-      ? [buildCacheStoreStep(cacheConfig)]
-      : [];
-
     const normalizedSources: Source<T>[] = sources.map((source) =>
       toSource(source),
     );
@@ -1492,9 +1414,6 @@ export class RouteBuilder<
       id,
       sources: normalizedSources,
       steps: [],
-      preParseFilters,
-      postParseFilters,
-      postFromFilters,
       consumer: {
         type: consumer.type,
         options: consumer.options ?? undefined,
@@ -1502,25 +1421,21 @@ export class RouteBuilder<
       ...(errorHandler ? { errorHandler } : {}),
       ...(discovery ? { discovery } : {}),
       ...(enablement ? { enablement } : {}),
-      ...(authorizers.length > 0 ? { requiresPrincipal: true } : {}),
-      // Route-scope retry (#7) and timeout (#8) scope over the chain
-      // tail rather than running as flat filters, so they live as
-      // definition fields; the pipeline executor wraps the tail in the
-      // matching segment steps. See `.standards/pre-from-filter-chain.md`.
+      // The definition carries what each position should do, never the
+      // thing that does it: providers fill the positions per application,
+      // in the order `.standards/pre-from-filter-chain.md` fixes.
+      ...(authorizers.length > 0
+        ? { authorize: authorizers, requiresPrincipal: true }
+        : {}),
+      ...(cacheConfig ? { cache: cacheConfig } : {}),
       ...(retryConfig ? { retry: retryConfig } : {}),
       ...(timeoutConfig ? { timeout: timeoutConfig } : {}),
-      ...(throttleGates && throttleGates.length > 0
-        ? { throttle: throttleGates }
+      ...(throttleConfigs && throttleConfigs.length > 0
+        ? { throttle: throttleConfigs }
         : {}),
-      // Route-scope circuit breaker (#6): segment-wrapped by the executor
-      // around the persistent controller (see above).
-      ...(circuitBreakerController
-        ? { circuitBreaker: circuitBreakerController }
-        : {}),
-      // Route-scope concurrency (bulkhead): segment-wrapped by the executor
-      // around the persistent controllers, innermost of the resilience tier.
-      ...(concurrencyControllers && concurrencyControllers.length > 0
-        ? { concurrency: concurrencyControllers }
+      ...(circuitBreakerConfig ? { circuitBreaker: circuitBreakerConfig } : {}),
+      ...(concurrencyConfigs && concurrencyConfigs.length > 0
+        ? { concurrency: concurrencyConfigs }
         : {}),
     };
     setBrand(this.currentRoute, BRAND.RouteDefinition);
@@ -1908,7 +1823,7 @@ export class RouteBuilder<
       applyResolvedSites(route);
       assertRouteScopeCacheCompatibility(route);
       const stepScopeDefaultKey = assignCacheSites(route);
-      if (route.postParseFilters.some((f) => f.label === "cache-check")) {
+      if (route.cache !== undefined) {
         route.cachePipeline = pipelineFingerprint(route.steps);
       }
       const routeScopeDefaultKey = this.unnamedRoutes.get(route);

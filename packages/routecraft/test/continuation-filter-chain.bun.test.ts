@@ -450,19 +450,13 @@ describe("the filter chain on a resumed continuation", () => {
       // `admission` is the one kind that runs authorize (#2): the park was
       // raised before the route admitted the exchange, and the door's
       // `elevate` hook supplied a live principal for it to read.
-      preParseFilters: {
+      authorize: {
         resume: false,
         debounce: false,
         errorChannel: false,
         admission: true,
       },
-      postParseFilters: {
-        resume: false,
-        debounce: false,
-        errorChannel: false,
-        admission: false,
-      },
-      postFromFilters: {
+      cache: {
         resume: false,
         debounce: false,
         errorChannel: false,

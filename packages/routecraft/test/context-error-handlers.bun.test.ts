@@ -3,18 +3,43 @@ import { testContext, type TestContext } from "@routecraft/testing";
 import {
   MemoryDeferralStore,
   craft,
+  definePlugin,
   direct,
   noop,
   recovery,
-  type ErrorContext,
-  type ErrorHandler,
-  type Exchange,
+  routeCanDefer,
+  type ErrorHook,
+  type HooksConfig,
+  type Plugin,
 } from "../src/index.ts";
 import { asDeferred } from "./helpers/deferral.ts";
 
 const SECRET = "context-error-handler-test-secret-0123456789";
 
-describe("context handlers: the error point", () => {
+/** A plugin carrying one or more hooks in the `error` slot. */
+function errorPlugin(id: string, hooks: ErrorHook | ErrorHook[]): Plugin {
+  return definePlugin({ id, hooks: { error: hooks } });
+}
+
+/** A route on a direct endpoint whose only step throws `message`. */
+function failing(id: string, message = "boom") {
+  return craft()
+    .id(id)
+    .from(direct())
+    .transform(() => {
+      throw new Error(message);
+    })
+    .to(noop());
+}
+
+/**
+ * The `error` slot: plugin hooks that hear every failure the route's own
+ * `.error()` did not settle. `mutate` hooks decide (first answer wins,
+ * `recovery.rethrow()` declines for the whole slot), `observe` hooks only
+ * hear, and the order is the application's plugin list unless `hooks.order`
+ * says otherwise.
+ */
+describe("the error slot", () => {
   let t: TestContext | undefined;
 
   afterEach(async () => {
@@ -23,71 +48,128 @@ describe("context handlers: the error point", () => {
   });
 
   /**
-   * @case Registration returns an unregister function, the same shape ctx.on() returns
-   * @preconditions A handler registered on a context, then unregistered
-   * @expectedResult It decides while registered and stops being consulted after
+   * @case hooks.disable switches an error hook off without uninstalling its plugin
+   * @preconditions Two plugins with a deciding error hook each; the first is disabled by id
+   * @expectedResult The disabled hook is never consulted and the second decides; with only the disabled hook present, the failure reaches the caller
    */
-  test("registerErrorHandler returns an unregister function", async () => {
+  test("hooks.disable switches an error hook off", async () => {
     const seen: string[] = [];
     t = await testContext()
-      .routes([
-        craft()
-          .id("work")
-          .from(direct())
-          .transform(() => {
-            throw new Error("boom");
-          })
-          .to(noop()),
-      ])
+      .with({
+        plugins: [
+          errorPlugin("test.first", {
+            id: "recover",
+            phase: "mutate",
+            run() {
+              seen.push("first");
+              return { by: "first" };
+            },
+          }),
+          errorPlugin("test.second", {
+            id: "recover",
+            phase: "mutate",
+            run() {
+              seen.push("second");
+              return { by: "second" };
+            },
+          }),
+        ],
+        hooks: { disable: ["test.first/recover"] },
+      })
+      .routes([failing("work")])
       .build();
-    const off = t.ctx.registerHandler("error", (error) => {
-      seen.push("handler");
-      return { recovered: (error as Error).message };
-    });
     await t.startAndWaitReady();
 
-    const first = (await t.client.sendDirect("work", {})) as {
-      recovered: string;
-    };
-    expect(first.recovered).toBe("boom");
-    expect(seen).toEqual(["handler"]);
+    const body = (await t.client.sendDirect("work", {})) as { by: string };
 
-    off();
+    expect(body.by).toBe("second");
+    expect(seen).toEqual(["second"]);
+    await t.stop();
+
+    seen.length = 0;
+    t = await testContext()
+      .with({
+        plugins: [
+          errorPlugin("test.first", {
+            id: "recover",
+            phase: "mutate",
+            run() {
+              seen.push("first");
+              return { by: "first" };
+            },
+          }),
+        ],
+        hooks: { disable: ["test.first/recover"] },
+      })
+      .routes([failing("work")])
+      .build();
+    await t.startAndWaitReady();
+
     await expect(t.client.sendDirect("work", {})).rejects.toThrow("boom");
-    // Not consulted again: the chain no longer holds it.
-    expect(seen).toEqual(["handler"]);
+    expect(seen).toEqual([]);
   });
 
   /**
-   * @case Registration order is consultation order and the first decision wins
-   * @preconditions Three handlers, the first two passing with undefined
-   * @expectedResult All three are consulted in order until one decides, and nothing after the decider runs
+   * @case A hook without an explicit id is addressed by the name of its run function
+   * @preconditions An error hook whose run is a named function, disabled as pluginId/functionName
+   * @expectedResult The name resolves, the build succeeds, and the hook is never consulted
    */
-  test("handlers run in registration order and the first non-undefined decides", async () => {
+  test("a hook's name defaults to the name of its run function", async () => {
+    let consulted = 0;
+    function parkOnFailure(): unknown {
+      consulted += 1;
+      return { by: "hook" };
+    }
+    t = await testContext()
+      .with({
+        plugins: [
+          errorPlugin("test.named", { phase: "mutate", run: parkOnFailure }),
+        ],
+        hooks: { disable: ["test.named/parkOnFailure"] },
+      })
+      .routes([failing("work")])
+      .build();
+    await t.startAndWaitReady();
+
+    await expect(t.client.sendDirect("work", {})).rejects.toThrow("boom");
+    expect(consulted).toBe(0);
+  });
+
+  /**
+   * @case Plugin list order is consultation order and the first decision wins
+   * @preconditions Three plugins with a mutate error hook each, the first passing with undefined
+   * @expectedResult They are consulted in list order until one decides, and nothing after the decider runs
+   */
+  test("hooks run in plugin list order and the first non-undefined decides", async () => {
     const seen: string[] = [];
     t = await testContext()
-      .routes([
-        craft()
-          .id("work")
-          .from(direct())
-          .transform(() => {
-            throw new Error("boom");
-          })
-          .to(noop()),
-      ])
+      .with({
+        plugins: [
+          errorPlugin("test.first", {
+            phase: "mutate",
+            run() {
+              seen.push("first");
+              return undefined;
+            },
+          }),
+          errorPlugin("test.second", {
+            phase: "mutate",
+            run() {
+              seen.push("second");
+              return { by: "second" };
+            },
+          }),
+          errorPlugin("test.third", {
+            phase: "mutate",
+            run() {
+              seen.push("third");
+              return { by: "third" };
+            },
+          }),
+        ],
+      })
+      .routes([failing("work")])
       .build();
-    t.ctx.registerHandler("error", () => {
-      seen.push("first");
-      return undefined;
-    });
-    t.ctx.registerHandler("error", () => {
-      seen.push("second");
-      return { by: "second" };
-    });
-    t.ctx.registerHandler("error", () => {
-      seen.push("third");
-      return { by: "third" };
-    });
     await t.startAndWaitReady();
 
     const body = (await t.client.sendDirect("work", {})) as { by: string };
@@ -97,58 +179,112 @@ describe("context handlers: the error point", () => {
   });
 
   /**
-   * @case The config field registers ahead of anything a plugin registers
-   * @preconditions A handler in config and another registered by a plugin's bind()
-   * @expectedResult The config handler is consulted first, because config applies first
+   * @case The application overrides plugin list order with hooks.order
+   * @preconditions Two plugins whose mutate error hooks both decide, listed a then b, with hooks.order naming b first
+   * @expectedResult b is consulted first and decides; a is never consulted
    */
-  test("CraftConfig.errorHandler is consulted before a plugin's handler", async () => {
+  test("hooks.order overrides plugin list order in the error slot", async () => {
     const seen: string[] = [];
+    const hooks: HooksConfig = {
+      order: { "error/mutate": ["test.b/decide"] },
+    };
     t = await testContext()
       .with({
-        handlers: {
-          error: () => {
-            seen.push("config");
-            return undefined;
-          },
-        },
         plugins: [
-          {
-            id: "test.late",
-            bind(c) {
-              const ctx = c.context;
-              ctx.registerHandler("error", () => {
-                seen.push("plugin");
-                return { by: "plugin" };
-              });
+          errorPlugin("test.a", {
+            id: "decide",
+            phase: "mutate",
+            run() {
+              seen.push("a");
+              return { by: "a" };
             },
-          },
+          }),
+          errorPlugin("test.b", {
+            id: "decide",
+            phase: "mutate",
+            run() {
+              seen.push("b");
+              return { by: "b" };
+            },
+          }),
         ],
+        hooks,
       })
-      .routes([
-        craft()
-          .id("work")
-          .from(direct())
-          .transform(() => {
-            throw new Error("boom");
-          })
-          .to(noop()),
-      ])
+      .routes([failing("work")])
       .build();
     await t.startAndWaitReady();
 
-    await t.client.sendDirect("work", {});
+    const body = (await t.client.sendDirect("work", {})) as { by: string };
 
-    expect(seen).toEqual(["config", "plugin"]);
+    expect(body.by).toBe("b");
+    expect(seen).toEqual(["b"]);
+  });
+
+  /**
+   * @case An observe hook hears the failure but never decides it
+   * @preconditions An observe hook listed before a mutate hook, and a second observe hook that wrongly returns a value
+   * @expectedResult Both observe hooks hear the failure before the mutate hook runs; the returned value is reported, not taken as a decision, and the mutate hook decides
+   */
+  test("observe hooks hear the failure first and never decide", async () => {
+    const seen: string[] = [];
+    t = await testContext()
+      .with({
+        plugins: [
+          errorPlugin("test.decider", {
+            phase: "mutate",
+            run() {
+              seen.push("mutate");
+              return { by: "mutate" };
+            },
+          }),
+          errorPlugin("test.listener", [
+            {
+              id: "hear",
+              phase: "observe",
+              run(error) {
+                seen.push(`observe:${(error as Error).message}`);
+              },
+            },
+            {
+              id: "talksBack",
+              phase: "observe",
+              run() {
+                seen.push("observe:returns");
+                return { by: "observer" };
+              },
+            },
+          ]),
+        ],
+      })
+      .routes([failing("work")])
+      .build();
+    await t.startAndWaitReady();
+
+    const body = (await t.client.sendDirect("work", {})) as { by: string };
+
+    expect(body.by).toBe("mutate");
+    expect(seen).toEqual(["observe:boom", "observe:returns", "mutate"]);
   });
 
   /**
    * @case A route that handles its own failures is never overridden
-   * @preconditions A route whose .error() recovers, and a context handler that would decide otherwise
-   * @expectedResult The route's recovery stands and the context chain is never consulted
+   * @preconditions A route whose .error() recovers, and an error hook that would decide otherwise
+   * @expectedResult The route's recovery stands and the slot is never consulted
    */
-  test("the route's own handler wins and the chain is not consulted", async () => {
+  test("the route's own handler wins and the slot is not consulted", async () => {
     let consulted = 0;
     t = await testContext()
+      .with({
+        plugins: [
+          errorPlugin("test.ctx", {
+            phase: "mutate",
+            run() {
+              consulted += 1;
+              return { by: "context" };
+            },
+          }),
+        ],
+      })
       .routes([
         craft()
           .id("work")
@@ -160,10 +296,6 @@ describe("context handlers: the error point", () => {
           .to(noop()),
       ])
       .build();
-    t.ctx.registerHandler("error", () => {
-      consulted += 1;
-      return { by: "context" };
-    });
     await t.startAndWaitReady();
 
     const body = (await t.client.sendDirect("work", {})) as { by: string };
@@ -173,12 +305,20 @@ describe("context handlers: the error point", () => {
   });
 
   /**
-   * @case The chain is reached where the route's handler gave up
-   * @preconditions A route whose .error() rethrows, and a context handler that recovers
-   * @expectedResult The context handler decides, which is the case the chain exists for
+   * @case The slot is reached where the route's handler gave up
+   * @preconditions A route whose .error() rethrows, and an error hook that recovers
+   * @expectedResult The hook decides, which is the case the slot exists for
    */
-  test("a route handler that rethrows hands the failure to the chain", async () => {
+  test("a route handler that rethrows hands the failure to the slot", async () => {
     t = await testContext()
+      .with({
+        plugins: [
+          errorPlugin("test.ctx", {
+            phase: "mutate",
+            run: () => ({ by: "context" }),
+          }),
+        ],
+      })
       .routes([
         craft()
           .id("work")
@@ -190,7 +330,6 @@ describe("context handlers: the error point", () => {
           .to(noop()),
       ])
       .build();
-    t.ctx.registerHandler("error", () => ({ by: "context" }));
     await t.startAndWaitReady();
 
     const body = (await t.client.sendDirect("work", {})) as { by: string };
@@ -198,22 +337,67 @@ describe("context handlers: the error point", () => {
   });
 
   /**
-   * @case A handler receives the failing route and a forward bound to the failing exchange
-   * @preconditions A handler forwarding to another route, on a route it can name
-   * @expectedResult It is handed the route the failure belongs to, and the forward reaches its target
+   * @case recovery.rethrow() from a hook declines for the whole slot
+   * @preconditions A first mutate hook answering recovery.rethrow() and a second that would recover
+   * @expectedResult The second is never consulted and the original error reaches the caller
    */
-  test("a handler receives the route and a forward bound to the failing exchange", async () => {
+  test("recovery.rethrow() declines on behalf of every later hook", async () => {
+    const seen: string[] = [];
+    t = await testContext()
+      .with({
+        plugins: [
+          errorPlugin("test.decline", {
+            phase: "mutate",
+            run() {
+              seen.push("decline");
+              return recovery.rethrow();
+            },
+          }),
+          errorPlugin("test.recover", {
+            phase: "mutate",
+            run() {
+              seen.push("recover");
+              return { by: "recover" };
+            },
+          }),
+        ],
+      })
+      .routes([failing("work")])
+      .build();
+    await t.startAndWaitReady();
+
+    await expect(t.client.sendDirect("work", {})).rejects.toThrow("boom");
+    expect(seen).toEqual(["decline"]);
+  });
+
+  /**
+   * @case A hook learns the failing route and is handed a forward bound to the failing exchange
+   * @preconditions A hook forwarding to another route
+   * @expectedResult info names the route the failure belongs to, its run kind and slot, and the forward reaches its target
+   */
+  test("a hook receives the route and a forward bound to the failing exchange", async () => {
     let named: string | undefined;
+    let slot: string | undefined;
+    let kind: string | undefined;
     let forwarded: unknown;
     t = await testContext()
+      .with({
+        plugins: [
+          errorPlugin("test.report", {
+            phase: "mutate",
+            async run(_error, exchange, info) {
+              if (info.routeId !== "work") return undefined;
+              named = info.routeId;
+              slot = info.slot;
+              kind = info.kind;
+              await info.forward("report" as never, { about: exchange.id });
+              return { handled: true };
+            },
+          }),
+        ],
+      })
       .routes([
-        craft()
-          .id("work")
-          .from(direct())
-          .transform(() => {
-            throw new Error("boom");
-          })
-          .to(noop()),
+        failing("work"),
         craft()
           .id("report")
           .from(direct())
@@ -224,39 +408,40 @@ describe("context handlers: the error point", () => {
           .to(noop()),
       ])
       .build();
-    t.ctx.registerHandler(
-      "error",
-      async (_error, exchange: Exchange, forward, ctx: ErrorContext) => {
-        named = ctx.route.definition.id;
-        await forward("report" as never, { about: exchange.id });
-        return { handled: true };
-      },
-    );
     await t.startAndWaitReady();
 
     await t.client.sendDirect("work", {});
 
     expect(named).toBe("work");
+    expect(slot).toBe("error");
+    expect(kind).toBe("normal");
     expect(forwarded).toEqual({ about: expect.any(String) });
   });
 
   /**
-   * @case A handler that throws does not take the chain down with it
-   * @preconditions A first handler that throws and a second that recovers
-   * @expectedResult The throw is reported with scope "context" and the chain continues to the second
+   * @case A hook that throws does not take the slot down with it
+   * @preconditions A first mutate hook that throws and a second that recovers
+   * @expectedResult The throw is reported with scope "context" and handlerIndex 0, and the slot continues to the second
    */
-  test("a handler that throws is reported and the chain continues", async () => {
+  test("a hook that throws is reported and the slot continues", async () => {
     const failures: Array<{ scope?: string; handlerIndex?: number }> = [];
+    const invoked: Array<string | undefined> = [];
     t = await testContext()
-      .routes([
-        craft()
-          .id("work")
-          .from(direct())
-          .transform(() => {
-            throw new Error("boom");
-          })
-          .to(noop()),
-      ])
+      .with({
+        plugins: [
+          errorPlugin("test.broken", {
+            phase: "mutate",
+            run() {
+              throw new Error("the hook itself broke");
+            },
+          }),
+          errorPlugin("test.recover", {
+            phase: "mutate",
+            run: () => ({ by: "second" }),
+          }),
+        ],
+      })
+      .routes([failing("work")])
       .build();
     t.ctx.on("route:error-handler:failed", ({ details }) => {
       failures.push({
@@ -266,38 +451,37 @@ describe("context handlers: the error point", () => {
           : {}),
       });
     });
-    t.ctx.registerHandler("error", () => {
-      throw new Error("the handler itself broke");
+    t.ctx.on("route:error-handler:invoked", ({ details }) => {
+      invoked.push(details.scope);
     });
-    t.ctx.registerHandler("error", () => ({ by: "second" }));
     await t.startAndWaitReady();
 
     const body = (await t.client.sendDirect("work", {})) as { by: string };
 
     expect(body.by).toBe("second");
     expect(failures).toEqual([{ scope: "context", handlerIndex: 0 }]);
+    expect(invoked).toEqual(["context", "context"]);
   });
 
   /**
-   * @case A chain that decides nothing leaves the original error to the failure path
-   * @preconditions A single handler that throws, and no other handler
-   * @expectedResult The step's own error reaches the caller, not the handler's
+   * @case A slot that decides nothing leaves the original error to the failure path
+   * @preconditions A single mutate hook that throws, and no other hook
+   * @expectedResult The step's own error reaches the caller, not the hook's
    */
-  test("a handler's throw never replaces the error that reaches the failure path", async () => {
+  test("a hook's throw never replaces the error that reaches the failure path", async () => {
     t = await testContext()
-      .routes([
-        craft()
-          .id("work")
-          .from(direct())
-          .transform(() => {
-            throw new Error("the original");
-          })
-          .to(noop()),
-      ])
+      .with({
+        plugins: [
+          errorPlugin("test.broken", {
+            phase: "mutate",
+            run() {
+              throw new Error("the hook itself broke");
+            },
+          }),
+        ],
+      })
+      .routes([failing("work", "the original")])
       .build();
-    t.ctx.registerHandler("error", () => {
-      throw new Error("the handler itself broke");
-    });
     await t.startAndWaitReady();
 
     await expect(t.client.sendDirect("work", {})).rejects.toThrow(
@@ -307,21 +491,22 @@ describe("context handlers: the error point", () => {
 
   /**
    * @case A decided failure no longer reaches context:error or exchange:failed
-   * @preconditions A handler that recovers, with both terminal events watched
-   * @expectedResult Neither fires, which is the user-visible change this chain introduces
+   * @preconditions A hook that recovers one route and passes on another, with both terminal events watched
+   * @expectedResult Neither fires for the decided failure; both fire for the undecided one
    */
   test("context:error and route:exchange:failed fire only when nothing decided", async () => {
     const fired: string[] = [];
     t = await testContext()
-      .routes([
-        craft()
-          .id("work")
-          .from(direct())
-          .transform(() => {
-            throw new Error("boom");
-          })
-          .to(noop()),
-      ])
+      .with({
+        plugins: [
+          errorPlugin("test.ctx", {
+            phase: "mutate",
+            run: (_error, _exchange, info) =>
+              info.routeId === "decided" ? { by: "context" } : undefined,
+          }),
+        ],
+      })
+      .routes([failing("decided"), failing("undecided")])
       .build();
     t.ctx.on("context:error", () => {
       fired.push("context:error");
@@ -329,46 +514,40 @@ describe("context handlers: the error point", () => {
     t.ctx.on("route:exchange:failed", () => {
       fired.push("route:exchange:failed");
     });
-    const off = t.ctx.registerHandler("error", () => ({ by: "context" }));
     await t.startAndWaitReady();
 
-    await t.client.sendDirect("work", {});
+    await t.client.sendDirect("decided", {});
     expect(fired).toEqual([]);
 
-    // With nothing deciding, both fire exactly as they did before the chain
-    // existed.
-    off();
-    await expect(t.client.sendDirect("work", {})).rejects.toThrow("boom");
+    await expect(t.client.sendDirect("undecided", {})).rejects.toThrow("boom");
     expect(fired).toEqual(["context:error", "route:exchange:failed"]);
   });
 
   /**
-   * @case A handler can drop the exchange as well as recover it
-   * @preconditions A handler answering recovery.drop
+   * @case A hook can drop the exchange as well as recover it
+   * @preconditions A hook answering recovery.drop
    * @expectedResult The exchange is dropped, with the reason on the drop event
    */
-  test("a handler may drop the failing exchange", async () => {
+  test("a hook may drop the failing exchange", async () => {
     const dropped: string[] = [];
     t = await testContext()
-      .routes([
-        craft()
-          .id("work")
-          .from(direct())
-          .transform(() => {
-            throw new Error("boom");
-          })
-          .to(noop()),
-      ])
+      .with({
+        plugins: [
+          errorPlugin("test.drop", {
+            phase: "mutate",
+            run: () => recovery.drop("poison"),
+          }),
+        ],
+      })
+      .routes([failing("work")])
       .build();
     t.ctx.on("route:exchange:dropped", ({ details }) => {
       dropped.push(details.reason);
     });
-    t.ctx.registerHandler("error", () => recovery.drop("poison"));
     await t.startAndWaitReady();
 
     // A dropped exchange has no response body, so a request/reply caller is
-    // told so rather than handed one: the same RC5031 a route .error() drop
-    // produces.
+    // told so: the same RC5031 a route .error() drop produces.
     await expect(t.client.sendDirect("work", {})).rejects.toThrow(
       /dropped the exchange instead of completing it/,
     );
@@ -376,28 +555,28 @@ describe("context handlers: the error point", () => {
   });
 
   /**
-   * @case A handler can park the exchange, which is the reason the chain exists
-   * @preconditions A handler answering recovery.defer on a route that declares no defer site at all
+   * @case A hook can park the exchange, which is the reason the slot can defer
+   * @preconditions A mayDefer hook answering recovery.defer on a route that declares no defer site
    * @expectedResult The run answers with the Deferred acknowledgment and the record exists
    */
-  test("a handler may park a route that declares no defer of its own", async () => {
+  test("a hook may park a route that declares no defer of its own", async () => {
     const store = new MemoryDeferralStore();
     t = await testContext()
-      .with({ deferral: { store, secret: SECRET } })
+      .with({
+        deferral: { store, secret: SECRET },
+        plugins: [
+          errorPlugin("test.park", {
+            phase: "mutate",
+            mayDefer: true,
+            run: () => recovery.defer({ ttl: "1h" }),
+          }),
+        ],
+      })
       .routes([
-        craft()
-          .id("work")
-          .from(direct())
-          .transform(() => {
-            throw new Error("needs a human");
-          })
-          .to(noop()),
+        failing("work", "needs a human"),
         craft().id("answers").from(direct()).resume(),
       ])
       .build();
-    t.ctx.registerHandler("error", () => recovery.defer({ ttl: "1h" }), {
-      mayDefer: true,
-    });
     await t.startAndWaitReady();
 
     const deferred = asDeferred(await t.client.sendDirect("work", {}));
@@ -405,81 +584,101 @@ describe("context handlers: the error point", () => {
   });
 
   /**
-   * @case A handler that may park makes the whole context require a runtime
-   * @preconditions A deferring handler registered with no deferral runtime configured
-   * @expectedResult start() fails with RC5052 naming the config line, rather than the first park failing
+   * @case A hook that may park makes the whole context require a runtime
+   * @preconditions A mayDefer error hook installed with no deferral runtime configured
+   * @expectedResult start() fails with RC5052, rather than the first park failing
    */
-  test("a deferring handler with no runtime fails the start with RC5052", async () => {
+  test("a mayDefer hook with no runtime fails the start with RC5052", async () => {
     t = await testContext()
+      .with({
+        plugins: [
+          errorPlugin("test.park", {
+            phase: "mutate",
+            mayDefer: true,
+            run: () => recovery.defer({ ttl: "1h" }),
+          }),
+        ],
+      })
       .routes([craft().id("work").from(direct()).to(noop())])
       .build();
-    t.ctx.registerHandler("error", () => recovery.defer({ ttl: "1h" }), {
-      mayDefer: true,
-    });
 
-    await expect(t.ctx.start()).rejects.toThrow(/RC5052|deferral runtime/);
+    await expect(t.ctx.start()).rejects.toMatchObject({ rc: "RC5052" });
   });
 
   /**
-   * @case A handler that declares no parking leaves the boot check alone
-   * @preconditions An ordinary handler registered with no deferral runtime
-   * @expectedResult The context starts, because nothing in it can park
+   * @case A hook that declares no parking leaves the boot check alone
+   * @preconditions An ordinary error hook installed with no deferral runtime
+   * @expectedResult The context starts, because nothing in it can park, and no route is advertised as deferrable
    */
-  test("an ordinary handler does not make the context require a runtime", async () => {
+  test("an ordinary hook does not make the context require a runtime", async () => {
     t = await testContext()
+      .with({
+        plugins: [
+          errorPlugin("test.pass", { phase: "mutate", run: () => undefined }),
+        ],
+      })
       .routes([craft().id("work").from(direct()).to(noop())])
       .build();
-    t.ctx.registerHandler("error", () => undefined);
 
     await t.startAndWaitReady();
     expect(t.ctx.hasDeferringErrorHandler()).toBe(false);
+    const route = t.ctx.getRoutes().find((r) => r.definition.id === "work")!;
+    expect(routeCanDefer(route.definition, t.ctx)).toBe(false);
   });
 
   /**
-   * @case Unregistering the last deferring handler releases the requirement
-   * @preconditions Two deferring handlers registered, then one unregistered
-   * @expectedResult The context still reports it can park while the second holds it, and stops once both are gone
+   * @case mayDefer advertises every route as deferrable, and disabling the hook withdraws it
+   * @preconditions A route with no defer site; once with a mayDefer hook installed, once with the same hook in hooks.disable
+   * @expectedResult routeCanDefer is true while the hook is live and false once it is disabled, and the disabled hook no longer demands a runtime
    */
-  test("the deferring answer is held by a count, not a flag", async () => {
-    t = await testContext()
-      .with({ deferral: { store: new MemoryDeferralStore(), secret: SECRET } })
-      .routes([craft().id("work").from(direct()).to(noop())])
-      .build();
-    const offFirst = t.ctx.registerHandler("error", () => undefined, {
+  test("mayDefer is read from the live hooks, so hooks.disable withdraws it", async () => {
+    const park = errorPlugin("test.park", {
+      id: "park",
+      phase: "mutate",
       mayDefer: true,
-    });
-    const offSecond = t.ctx.registerHandler("error", () => undefined, {
-      mayDefer: true,
+      run: () => undefined,
     });
 
+    t = await testContext()
+      .with({
+        deferral: { store: new MemoryDeferralStore(), secret: SECRET },
+        plugins: [park],
+      })
+      .routes([craft().id("work").from(direct()).to(noop())])
+      .build();
+    let route = t.ctx.getRoutes().find((r) => r.definition.id === "work")!;
     expect(t.ctx.hasDeferringErrorHandler()).toBe(true);
-    offFirst();
-    expect(t.ctx.hasDeferringErrorHandler()).toBe(true);
-    offSecond();
+    expect(routeCanDefer(route.definition, t.ctx)).toBe(true);
+    expect(routeCanDefer(route.definition)).toBe(false);
+    await t.stop();
+
+    t = await testContext()
+      .with({ plugins: [park], hooks: { disable: ["test.park/park"] } })
+      .routes([craft().id("work").from(direct()).to(noop())])
+      .build();
+    route = t.ctx.getRoutes().find((r) => r.definition.id === "work")!;
     expect(t.ctx.hasDeferringErrorHandler()).toBe(false);
+    expect(routeCanDefer(route.definition, t.ctx)).toBe(false);
+    await t.startAndWaitReady();
   });
 
   /**
    * @case A park the framework refuses does not swallow the exchange's terminal event
-   * @preconditions A context handler parking a failure raised inside a .split() fan-out, which RC5051 refuses
-   * @expectedResult The refusal does not escape the executor: the exchange still reaches the ordinary failure path with the ORIGINAL error, and route:exchange:failed fires exactly once
+   * @preconditions A hook that parks without declaring mayDefer, in a context with no deferral runtime, so the park itself fails with RC5052
+   * @expectedResult The refusal does not escape the executor: the ORIGINAL error reaches the caller and route:exchange:failed fires exactly once
    */
   test("a failed park still leaves exactly one terminal event", async () => {
     const terminals: string[] = [];
-    // No deferral runtime, and the handler does not declare `mayDefer`, so
-    // the boot check does not catch it: the park fails with RC5052 the first
-    // time a failure reaches the handler. That is the misconfiguration this
-    // guard exists to keep loud rather than swallow.
     t = await testContext()
-      .routes([
-        craft()
-          .id("work")
-          .from(direct())
-          .transform(() => {
-            throw new Error("the original");
-          })
-          .to(noop()),
-      ])
+      .with({
+        plugins: [
+          errorPlugin("test.park", {
+            phase: "mutate",
+            run: () => recovery.defer({ ttl: "1h" }),
+          }),
+        ],
+      })
+      .routes([failing("work", "the original")])
       .build();
     for (const name of [
       "route:exchange:failed",
@@ -491,11 +690,8 @@ describe("context handlers: the error point", () => {
         terminals.push(name);
       });
     }
-    t.ctx.registerHandler("error", () => recovery.defer({ ttl: "1h" }));
     await t.startAndWaitReady();
 
-    // The ORIGINAL failure reaches the caller, not the refusal of the
-    // recovery attempted for it, and not nothing at all.
     await expect(t.client.sendDirect("work", {})).rejects.toThrow(
       "the original",
     );
@@ -505,21 +701,28 @@ describe("context handlers: the error point", () => {
 
   /**
    * @case A route handler that throws its own error does not downgrade the park to an admission
-   * @preconditions A route .error() that throws a fresh error, and a context handler that parks the result
+   * @preconditions A route .error() that throws a fresh error, and an error hook that parks the result
    * @expectedResult The park lands at the step that actually failed, not at position 0 with the whole body as its continuation
    */
   test("a park after a route handler threw still lands at the failing step", async () => {
     const store = new MemoryDeferralStore();
     const ran: string[] = [];
     t = await testContext()
-      .with({ deferral: { store, secret: SECRET } })
+      .with({
+        deferral: { store, secret: SECRET },
+        plugins: [
+          errorPlugin("test.park", {
+            phase: "mutate",
+            mayDefer: true,
+            run: () => recovery.defer({ ttl: "1h" }),
+          }),
+        ],
+      })
       .routes([
         craft()
           .id("work")
           .error(() => {
-            // A fresh error the failing-step map has never seen. Inferring
-            // the position from it alone would find nothing and read that
-            // absence as "the failure came from outside the step tree".
+            // A fresh error the failing-step map has never seen.
             throw new Error("the compensation also failed");
           })
           .from(direct())
@@ -534,9 +737,6 @@ describe("context handlers: the error point", () => {
         craft().id("answers").from(direct()).resume(),
       ])
       .build();
-    t.ctx.registerHandler("error", () => recovery.defer({ ttl: "1h" }), {
-      mayDefer: true,
-    });
     await t.startAndWaitReady();
 
     const deferred = asDeferred(await t.client.sendDirect("work", {}));
@@ -548,9 +748,9 @@ describe("context handlers: the error point", () => {
   });
 
   /**
-   * @case A hand-written route definition can still be parked by a context handler
-   * @preconditions A RouteDefinition built as a literal rather than through craft().build(), and a deferring handler
-   * @expectedResult It parks, rather than being refused for having no resolved site
+   * @case A hand-written route definition can still be parked by an error hook
+   * @preconditions A RouteDefinition built as a literal rather than through craft().build(), and a deferring hook
+   * @expectedResult It parks at the failing step, rather than being refused for having no resolved site
    */
   test("a definition that did not come from the builder still carries its park sites", async () => {
     const store = new MemoryDeferralStore();
@@ -565,25 +765,26 @@ describe("context handlers: the error point", () => {
       })
       .to(noop())
       .build();
-    // What `ContextBuilder.routes()` accepts is a definition, and nothing
-    // says it came from a builder. Stripping what the builder resolved is
-    // how a hand-written one arrives.
     const raw = { ...built! };
     delete (raw as { errorPathSites?: unknown }).errorPathSites;
     delete (raw as { admissionSite?: unknown }).admissionSite;
 
     t = await testContext()
-      .with({ deferral: { store, secret: SECRET } })
+      .with({
+        deferral: { store, secret: SECRET },
+        plugins: [
+          errorPlugin("test.park", {
+            phase: "mutate",
+            mayDefer: true,
+            run: () => recovery.defer({ ttl: "1h" }),
+          }),
+        ],
+      })
       .routes([raw as never, craft().id("answers").from(direct()).resume()])
       .build();
-    t.ctx.registerHandler("error", () => recovery.defer({ ttl: "1h" }), {
-      mayDefer: true,
-    });
     await t.startAndWaitReady();
 
     const deferred = asDeferred(await t.client.sendDirect("work", {}));
-    // Existence alone would still pass if the site fell back to admission at
-    // position 0, which is the regression this test exists to catch.
     const record = await store.get(deferred.deferralId);
     expect(record?.errorPath?.origin).toBe("step");
     expect(record?.position).toBe(1);
@@ -602,9 +803,6 @@ describe("context handlers: the error point", () => {
       .defer({})
       .to(noop())
       .build();
-    // Everything the builder's walk wrote, removed. Copying only some of it
-    // back is silent: `deferSteps` is what the startup deferral-runtime check
-    // reads and what a revival walks to find its static parked site.
     const raw = { ...built! };
     delete (raw as { errorPathSites?: unknown }).errorPathSites;
     delete (raw as { admissionSite?: unknown }).admissionSite;
@@ -640,8 +838,6 @@ describe("context handlers: the error point", () => {
     const raw = { ...built! } as Record<string, unknown>;
     delete raw["errorPathSites"];
     delete raw["admissionSite"];
-    // Nothing in `steps` can defer, so startup demanding a deferral runtime
-    // for this route, and a revival walking this list, would both be wrong.
     raw["deferSteps"] = [{ index: 0 }];
     raw["usesResume"] = true;
 
@@ -660,29 +856,38 @@ describe("context handlers: the error point", () => {
 
   /**
    * @case A forward out of a continuation does not make the target look like one
-   * @preconditions A parked route whose continuation forwards to a second route, with a handler recording what each run reports
-   * @expectedResult The target route runs as execution one, with no resume payload and no refusal carried from the exchange that parked
+   * @preconditions A parked route whose continuation forwards to a second failing route, with a hook recording what each run reports
+   * @expectedResult The target route runs as execution one, with no resume payload carried from the exchange that parked
    */
   test("deferral state does not travel through a forward into another route", async () => {
     const store = new MemoryDeferralStore();
     const seen: { route: string; execution: number; result: unknown }[] = [];
     t = await testContext()
-      .with({ deferral: { store, secret: SECRET } })
+      .with({
+        deferral: { store, secret: SECRET },
+        plugins: [
+          errorPlugin("test.park", {
+            phase: "mutate",
+            mayDefer: true,
+            async run(_error, exchange, info) {
+              seen.push({
+                route: info.routeId,
+                execution: info.execution,
+                result: exchange.deferral?.result,
+              });
+              if (info.routeId === "downstream") return { done: true };
+              if (info.execution === 1) return recovery.defer({ ttl: "1h" });
+              await info.forward("downstream" as never, {
+                from: "the continuation",
+              });
+              return { done: true };
+            },
+          }),
+        ],
+      })
       .routes([
-        craft()
-          .id("work")
-          .from(direct())
-          .transform(() => {
-            throw new Error("needs a human");
-          })
-          .to(noop()),
-        craft()
-          .id("downstream")
-          .from(direct())
-          .transform(() => {
-            throw new Error("downstream is broken too");
-          })
-          .to(noop()),
+        failing("work", "needs a human"),
+        failing("downstream", "downstream is broken too"),
         craft()
           .id("answers")
           .from(direct())
@@ -692,30 +897,11 @@ describe("context handlers: the error point", () => {
           })),
       ])
       .build();
-    t.ctx.registerHandler(
-      "error",
-      async (_error, exchange: Exchange, forward, ctx: ErrorContext) => {
-        seen.push({
-          route: ctx.route.definition.id,
-          execution: ctx.execution,
-          result: exchange.deferral?.result,
-        });
-        if (ctx.route.definition.id === "downstream") return { done: true };
-        if (ctx.execution === 1) return recovery.defer({ ttl: "1h" });
-        await forward("downstream" as never, { from: "the continuation" });
-        return { done: true };
-      },
-      { mayDefer: true },
-    );
     await t.startAndWaitReady();
 
     const deferred = asDeferred(await t.client.sendDirect("work", {}));
     await t.client.sendDirect("answers", { token: deferred.token });
 
-    // An ingress is a new exchange. Carrying the deferral keys through a
-    // forward would tell the target it is execution two, hand it another
-    // exchange's resume payload, and suppress its own park with a refusal
-    // recorded against work it has nothing to do with.
     expect(seen).toEqual([
       { route: "work", execution: 1, result: undefined },
       { route: "work", execution: 2, result: { approved: true } },
@@ -724,14 +910,25 @@ describe("context handlers: the error point", () => {
   });
 
   /**
-   * @case A resilience segment does not hand the context ring the route's turn
-   * @preconditions A route with .retry(), its own .error(), and a context handler
-   * @expectedResult The retry runs every attempt and the route's own handler decides; the context handler is never consulted
+   * @case A resilience segment does not hand the error slot the route's turn
+   * @preconditions A route with .retry(), its own .error(), and an error hook
+   * @expectedResult The retry runs every attempt and the route's own handler decides; the hook is never consulted
    */
-  test("a context handler does not pre-empt the route ring inside a retry segment", async () => {
+  test("an error hook does not pre-empt the route's handler inside a retry segment", async () => {
     const order: string[] = [];
     let attempts = 0;
     t = await testContext()
+      .with({
+        plugins: [
+          errorPlugin("test.ctx", {
+            phase: "mutate",
+            run() {
+              order.push("context");
+              return { by: "context" };
+            },
+          }),
+        ],
+      })
       .routes([
         craft()
           .id("work")
@@ -748,41 +945,44 @@ describe("context handlers: the error point", () => {
           .to(noop()),
       ])
       .build();
-    t.ctx.registerHandler("error", () => {
-      order.push("context");
-      return { by: "context" };
-    });
     await t.startAndWaitReady();
 
     const result = await t.client.sendDirect("work", {});
 
-    // Both halves of the same defect. The route's own handler is what a
-    // reader of the route file expects to decide, and the declared retry
-    // policy is what a nested run exists to serve: a context handler
-    // deciding inside the segment takes both away, invisibly.
     expect(result).toEqual({ by: "route" });
     expect(attempts).toBe(3);
     expect(order).toEqual(["route"]);
   });
 
   /**
-   * @case The handler can tell a resumed continuation from the original run
-   * @preconditions A step that fails on both executions, and a handler that parks on the first and recovers on the second
-   * @expectedResult The handler sees execution 1 then 2, and the resumed failure is recovered rather than parked a second time
+   * @case A hook can tell a resumed continuation from the original run
+   * @preconditions A step that fails on both executions, and a hook that parks on the first and recovers on the second
+   * @expectedResult The hook sees execution 1 (kind normal) then 2 (kind resume), and the resumed failure is recovered rather than parked a second time
    */
-  test("ctx.execution separates the continuation from the original run", async () => {
+  test("info.execution separates the continuation from the original run", async () => {
     const store = new MemoryDeferralStore();
     const executions: (1 | 2)[] = [];
+    const kinds: string[] = [];
     t = await testContext()
-      .with({ deferral: { store, secret: SECRET } })
+      .with({
+        deferral: { store, secret: SECRET },
+        plugins: [
+          errorPlugin("test.park", {
+            phase: "mutate",
+            mayDefer: true,
+            routes: ["work"],
+            run(_error, _exchange, info) {
+              executions.push(info.execution);
+              kinds.push(info.kind);
+              return info.execution === 1
+                ? recovery.defer({ ttl: "1h" })
+                : { gaveUp: true };
+            },
+          }),
+        ],
+      })
       .routes([
-        craft()
-          .id("work")
-          .from(direct())
-          .transform(() => {
-            throw new Error("needs a human");
-          })
-          .to(noop()),
+        failing("work", "needs a human"),
         craft()
           .id("answers")
           .from(direct())
@@ -792,19 +992,6 @@ describe("context handlers: the error point", () => {
           })),
       ])
       .build();
-    t.ctx.registerHandler(
-      "error",
-      (_error, _exchange, _forward, ctx: ErrorContext) => {
-        executions.push(ctx.execution);
-        // Parking again on the continuation would ask the same human the same
-        // question a second time, which is the mistake the flag exists to
-        // make visible.
-        return ctx.execution === 1
-          ? recovery.defer({ ttl: "1h" })
-          : { gaveUp: true };
-      },
-      { routes: ["work"], mayDefer: true },
-    );
     await t.startAndWaitReady();
 
     const deferred = asDeferred(await t.client.sendDirect("work", {}));
@@ -813,60 +1000,111 @@ describe("context handlers: the error point", () => {
     })) as { continuation: { status: string; body?: unknown } };
 
     expect(executions).toEqual([1, 2]);
+    expect(kinds).toEqual(["normal", "resume"]);
     expect(ack.continuation.status).toBe("completed");
     expect(ack.continuation.body).toEqual({ gaveUp: true });
   });
 
   /**
-   * @case A selector by route id applies the handler to those routes and no others
-   * @preconditions Two failing routes, with a handler registered for one of them by id
-   * @expectedResult Only the named route is recovered; the other reaches the ordinary failure path
+   * @case An error hook that names its run kinds is not consulted on the others
+   * @preconditions A parked exchange whose continuation fails again; one hook parks with every run kind, a second declares runs: ["normal"]
+   * @expectedResult The normal-only hook hears the first failure and not the resumed one, while the default hook hears both
+   */
+  test("runs narrows an error hook to the run kinds it names", async () => {
+    const store = new MemoryDeferralStore();
+    const heard: string[] = [];
+    t = await testContext()
+      .with({
+        deferral: { store, secret: SECRET },
+        plugins: [
+          errorPlugin("test.normalOnly", {
+            phase: "observe",
+            runs: ["normal"],
+            run(_error, _exchange, info) {
+              heard.push(`normalOnly:${info.kind}`);
+            },
+          }),
+          errorPlugin("test.park", {
+            phase: "mutate",
+            mayDefer: true,
+            run(_error, _exchange, info) {
+              heard.push(`every:${info.kind}`);
+              return info.execution === 1
+                ? recovery.defer({ ttl: "1h" })
+                : { gaveUp: true };
+            },
+          }),
+        ],
+      })
+      .routes([
+        failing("work", "needs a human"),
+        craft()
+          .id("answers")
+          .from(direct())
+          .resume((ex) => ({
+            token: (ex.body as { token: string }).token,
+            result: { approved: true },
+          })),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const deferred = asDeferred(await t.client.sendDirect("work", {}));
+    await t.client.sendDirect("answers", { token: deferred.token });
+
+    expect(heard).toEqual([
+      "normalOnly:normal",
+      "every:normal",
+      "every:resume",
+    ]);
+  });
+
+  /**
+   * @case A selector by route id applies the hook to those routes and no others
+   * @preconditions Two failing routes, with a hook selecting one of them by id
+   * @expectedResult Only the named route is recovered; the other is never consulted and reaches the ordinary failure path
    */
   test("a selector matches by route id", async () => {
     const seen: string[] = [];
     t = await testContext()
-      .routes([
-        craft()
-          .id("mine")
-          .from(direct())
-          .transform(() => {
-            throw new Error("boom");
-          })
-          .to(noop()),
-        craft()
-          .id("theirs")
-          .from(direct())
-          .transform(() => {
-            throw new Error("boom");
-          })
-          .to(noop()),
-      ])
+      .with({
+        plugins: [
+          errorPlugin("test.mine", {
+            phase: "mutate",
+            routes: ["mine"],
+            run(_error, _exchange, info) {
+              seen.push(info.routeId);
+              return { by: "context" };
+            },
+          }),
+        ],
+      })
+      .routes([failing("mine"), failing("theirs")])
       .build();
-    t.ctx.registerHandler(
-      "error",
-      (_error, _exchange, _forward, ctx: ErrorContext) => {
-        seen.push(ctx.route.definition.id);
-        return { by: "context" };
-      },
-      { routes: ["mine"] },
-    );
     await t.startAndWaitReady();
 
     await t.client.sendDirect("mine", {});
     await expect(t.client.sendDirect("theirs", {})).rejects.toThrow("boom");
 
-    // Not merely unrecovered: never consulted at all, which is the point of
-    // a selector over an `if` at the top of the handler.
     expect(seen).toEqual(["mine"]);
   });
 
   /**
-   * @case A selector by tag applies the handler to every route carrying it
+   * @case A selector by tag applies the hook to every route carrying it
    * @preconditions A tagged failing route and an untagged one
    * @expectedResult The tagged route is recovered and the untagged one is not
    */
   test("a selector matches by tag", async () => {
     t = await testContext()
+      .with({
+        plugins: [
+          errorPlugin("test.gated", {
+            phase: "mutate",
+            tags: ["gated"],
+            run: () => ({ by: "context" }),
+          }),
+        ],
+      })
       .routes([
         craft()
           .id("gated")
@@ -876,18 +1114,9 @@ describe("context handlers: the error point", () => {
             throw new Error("boom");
           })
           .to(noop()),
-        craft()
-          .id("open")
-          .from(direct())
-          .transform(() => {
-            throw new Error("boom");
-          })
-          .to(noop()),
+        failing("open"),
       ])
       .build();
-    t.ctx.registerHandler("error", () => ({ by: "context" }), {
-      tags: ["gated"],
-    });
     await t.startAndWaitReady();
 
     const body = (await t.client.sendDirect("gated", {})) as { by: string };
@@ -897,19 +1126,23 @@ describe("context handlers: the error point", () => {
 
   /**
    * @case A selector carrying both keys names routes two ways rather than intersecting them
-   * @preconditions A handler selecting one route by id and another by tag
+   * @preconditions A hook selecting one route by id and another by tag
    * @expectedResult Both are recovered, because routes and tags are alternatives
    */
   test("routes and tags in one selector are alternatives", async () => {
     t = await testContext()
+      .with({
+        plugins: [
+          errorPlugin("test.both", {
+            phase: "mutate",
+            routes: ["by-id"],
+            tags: ["gated"],
+            run: () => ({ by: "context" }),
+          }),
+        ],
+      })
       .routes([
-        craft()
-          .id("by-id")
-          .from(direct())
-          .transform(() => {
-            throw new Error("boom");
-          })
-          .to(noop()),
+        failing("by-id"),
         craft()
           .id("by-tag")
           .tag("gated")
@@ -918,19 +1151,9 @@ describe("context handlers: the error point", () => {
             throw new Error("boom");
           })
           .to(noop()),
-        craft()
-          .id("neither")
-          .from(direct())
-          .transform(() => {
-            throw new Error("boom");
-          })
-          .to(noop()),
+        failing("neither"),
       ])
       .build();
-    t.ctx.registerHandler("error", () => ({ by: "context" }), {
-      routes: ["by-id"],
-      tags: ["gated"],
-    });
     await t.startAndWaitReady();
 
     expect(await t.client.sendDirect<unknown, unknown>("by-id", {})).toEqual({
@@ -943,59 +1166,37 @@ describe("context handlers: the error point", () => {
   });
 
   /**
-   * @case A function written for the .error() operation is assignable to the error point unchanged
-   * @preconditions One handler body used both as a route .error() and as a registered handler
-   * @expectedResult Both compile and both decide, which is why the point is positional rather than context-shaped
+   * @case A malformed error hook is refused when the hooks are placed, not at the first failure
+   * @preconditions One plugin whose error hook has no run function, another whose error hook declares the validate phase
+   * @expectedResult Each build fails with RC1115
    */
-  test("an ErrorHandler body works at the error point unchanged", async () => {
-    const handler: ErrorHandler = (error) => ({
-      recovered: (error as Error).message,
-    });
+  test("a malformed error hook is refused at build with RC1115", async () => {
+    await expect(
+      testContext()
+        .with({
+          plugins: [
+            definePlugin({
+              id: "test.norun",
+              hooks: { error: { phase: "mutate" } as never },
+            }),
+          ],
+        })
+        .build(),
+    ).rejects.toMatchObject({ rc: "RC1115" });
 
-    t = await testContext()
-      .routes([
-        craft()
-          .id("route-scope")
-          .error(handler)
-          .from(direct())
-          .transform(() => {
-            throw new Error("boom");
-          })
-          .to(noop()),
-        craft()
-          .id("context-scope")
-          .from(direct())
-          .transform(() => {
-            throw new Error("boom");
-          })
-          .to(noop()),
-      ])
-      .build();
-    // The same value, at the other ring. The point takes an extra `route`
-    // parameter this body simply ignores.
-    t.ctx.registerHandler("error", handler);
-    await t.startAndWaitReady();
-
-    expect(
-      await t.client.sendDirect<unknown, unknown>("route-scope", {}),
-    ).toEqual({ recovered: "boom" });
-    expect(
-      await t.client.sendDirect<unknown, unknown>("context-scope", {}),
-    ).toEqual({ recovered: "boom" });
-  });
-
-  /**
-   * @case A non-function registration is refused rather than failing at the first error
-   * @preconditions registerErrorHandler called with something that is not a function
-   * @expectedResult RC5003 naming the expected shape
-   */
-  test("a non-function handler is refused at registration", async () => {
-    t = await testContext()
-      .routes([craft().id("work").from(direct()).to(noop())])
-      .build();
-
-    expect(() =>
-      t!.ctx.registerHandler("error", "not a handler" as never),
-    ).toThrow(/registerHandler/);
+    await expect(
+      testContext()
+        .with({
+          plugins: [
+            definePlugin({
+              id: "test.validates",
+              hooks: {
+                error: { phase: "validate", run: () => undefined } as never,
+              },
+            }),
+          ],
+        })
+        .build(),
+    ).rejects.toMatchObject({ rc: "RC1115" });
   });
 });

@@ -864,9 +864,8 @@ export interface EventDetailsMap {
      * `"route"` for the route-level (`.error()` before `.from()`)
      * catch-all handler; `"step"` for a wrapper-scope handler
      * attached to a single step (`.error()` after `.from()`);
-     * `"context"` for a handler registered on the context with
-     * `ctx.registerHandler("error", ...)` or the `handlers` config key,
-     * which is consulted only where the route's own handling gave up.
+     * `"context"` for a plugin's `error` slot hook, which is consulted
+     * only where the route's own handling gave up.
      */
     scope?: ErrorHandlerScope;
     /** Step label when `scope === "step"`. */
