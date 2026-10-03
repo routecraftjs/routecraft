@@ -12,7 +12,7 @@ sample(options: { every: number } | { interval: Duration }): RouteBuilder<Curren
 
 Reduce data volume from a high-frequency source by passing a representative subset of exchanges and dropping the rest. A dropped exchange is discarded silently, exactly like a `filter` predicate returning `false`.
 
-Pass exactly one of `every` or `interval`; they are mutually exclusive (a sampler is either count-based or time-based). Sampler state (the counter or the window timestamp) is per-route.
+Pass exactly one of `every` or `interval`; they are mutually exclusive (a sampler is either count-based or time-based). Sampler state (the counter or the window timestamp) is per-route and shared by every caller: `sample` takes no `key`, so it cannot sample each caller separately.
 
 ```ts skip="fragment: not a complete statement on its own"
 // Count-based: take every 5th exchange

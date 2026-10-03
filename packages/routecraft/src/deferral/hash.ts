@@ -241,6 +241,20 @@ export function stepDefinitionFingerprint(step: Step<Adapter>): string {
 }
 
 /**
+ * Digest of a definition value that lives outside a step's adapter: a
+ * wrapper's options as its `describeOptions()` reports them, or the
+ * predicate selecting a `.choice()` branch. The same projection a step's
+ * adapter options go through, so callables contribute their verbatim
+ * source and anything the projection cannot represent collapses to its
+ * stable placeholder.
+ *
+ * @internal
+ */
+export function definitionFingerprint(value: unknown): string {
+  return sha256(canonical(describable(value)));
+}
+
+/**
  * Reduce a step to the parts that define what it will do.
  *
  * Two kinds of own property carry that definition, and both have to be in

@@ -1,7 +1,7 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { BRAND, isBranded, setBrand } from "../brand.ts";
 import { rcError } from "../error.ts";
-import { OperationType } from "../exchange.ts";
+import { type Exchange, OperationType } from "../exchange.ts";
 import { NESTED_STEPS, DEFER_HOST } from "../dsl-symbol.ts";
 import type { Adapter, Step } from "../types.ts";
 import type { RouteDefinition } from "../route.ts";
@@ -201,6 +201,12 @@ export interface DeferrableStep extends Step<Adapter> {
 export interface NestedSteps {
   readonly steps: ReadonlyArray<Step<Adapter>>;
   readonly rejoins: boolean;
+  /**
+   * The predicate that selects this sub-pipeline, when one does (a
+   * `.choice()` branch). It decides which branch shapes the body, so a
+   * fingerprint of the pipeline has to see it.
+   */
+  readonly predicate?: (exchange: Exchange) => boolean;
 }
 
 /** A step that carries nested sub-pipelines. @internal */

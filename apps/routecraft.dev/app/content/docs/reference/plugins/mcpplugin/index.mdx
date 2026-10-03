@@ -108,6 +108,8 @@ When `auth` is set and `transport` is `'http'`, every request to `/mcp` must inc
 
 When `auth` is omitted, the named server's validator (if any) is inherited as the wall. `auth: false` removes the wall: the surface never demands credentials, requires no scopes, and issues no challenge, but the inherited validator stays reachable, so a valid token still attaches a principal to tool calls (which is how a tool's `.authorize()` admits on a public mount), an invalid or expired one is treated as absent, and a validator infrastructure failure still maps to 500.
 
+A tool's `.authorize()` refusing the caller answers the call with a fixed reason rather than the error message: insufficient permissions, the missing scopes, an expired credential, or, on a mount with a validator that served the call anonymously, that the tool needs an authenticated caller. Arguments the tool's `.input()` schema refuses come back with each issue's path and message, and a result body that breaks the advertised output schema names the failing fields; every other failure carries the tool name and the error code only. See [Failed calls](/docs/reference/adapters/mcp) for the texts.
+
 | Field | Type | Description |
 |-------|------|-------------|
 | `validator` | `(token: string) => AuthPrincipal \| null \| Promise<AuthPrincipal \| null>` | Validates the bearer token and returns the caller's identity, or `null` to reject with 401. |

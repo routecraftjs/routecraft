@@ -114,7 +114,7 @@ export interface ThrottleOptions {
    *
    * @example Per authenticated principal
    * ```ts
-   * .throttle({ rate: 10, key: (ex) => ex.principal?.sub ?? "anonymous" })
+   * .throttle({ rate: 10, key: (ex) => ex.principal?.subject ?? "anonymous" })
    * ```
    */
   key?: (exchange: Exchange) => string;
@@ -538,11 +538,17 @@ export class ThrottleController extends RouteScopedController<ThrottleLimiter> {
 export class ThrottleWrapperStep<
   T extends Adapter = Adapter,
 > extends WrapperStep<T> {
+  readonly #options: ResolvedThrottleOptions;
   readonly #controller: ThrottleController;
 
   constructor(inner: Step<T>, options: ThrottleOptions) {
     super(inner);
-    this.#controller = new ThrottleController(resolveThrottleOptions(options));
+    this.#options = resolveThrottleOptions(options);
+    this.#controller = new ThrottleController(this.#options);
+  }
+
+  protected override describeOptions(): unknown {
+    return this.#options;
   }
 
   protected override async runInner(

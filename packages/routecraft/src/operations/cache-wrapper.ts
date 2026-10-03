@@ -10,12 +10,15 @@ import { wrapperEventScope } from "./event-scope.ts";
 import { rcError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
 import { hashExchangeBody } from "./hash-body.ts";
+import { principalIdentity } from "./principal-identity.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import type { RouteDefinition } from "../route.ts";
-import type { Principal } from "../auth/types.ts";
 import { WrapperStep } from "./wrapper.ts";
 import { nestedStepsOf } from "../deferral/sites.ts";
-import { stepDefinitionFingerprint } from "../deferral/hash.ts";
+import {
+  definitionFingerprint,
+  stepDefinitionFingerprint,
+} from "../deferral/hash.ts";
 import {
   type CacheProvider,
   defaultMemoryCacheProvider,
@@ -32,8 +35,9 @@ export interface CacheOptions<Current = unknown> {
    * Derive the cache key from the exchange. The returned string is the
    * identity used by the provider's `get` / `set`.
    *
-   * When omitted, the key is a SHA-256 over the route id (and, at step
-   * scope, the cache's site: see `CacheKeyScope`), the principal's
+   * When omitted, the key is a SHA-256 over the route id (plus, at step
+   * scope, the cache's site, and at route scope, a fingerprint of the
+   * cached pipeline: see `CacheKeyScope`), the principal's
    * `issuer` and `subject` plus those of every `actor` hop when the
    * exchange carries one, and a SHA-256 of `JSON.stringify(body)`. Two routes, two cached steps, or two
    * callers therefore never share an entry by accident. The route id is
@@ -86,22 +90,41 @@ export interface CacheOptions<Current = unknown> {
  *
  * `site` is the JSON of `[index, stackIndex, below, fingerprint]`: the
  * step's pre-order index in the route's step tree, the cache's index in
- * that step's full wrapper stack, the kinds of the wrappers between the
- * cache and the innermost step, and a fingerprint of the innermost step's
- * definition (operation, label, adapter id and options, callable source).
- * It derives from the route definition alone, so every process running the
- * same route source computes the same site and shares entries in an
- * external provider. Moving a step, reordering its wrappers, or changing
- * its definition changes the site, so those edits cause misses rather than
- * reads of another cache's entries. The fingerprint does not cover what a
- * callable closes over, external config, or a wrapper's own options (an
- * `.error()` handler's body); put those in an explicit key when they change
- * the output.
+ * that step's full wrapper stack, `[kind, optionsFingerprint]` for each
+ * wrapper between the cache and the innermost step, and a fingerprint of
+ * the innermost step's definition (operation, label, adapter id and
+ * options, callable source). It derives from the route definition alone,
+ * so every process running the same route source computes the same site
+ * and shares entries in an external provider. Moving a step, reordering
+ * its wrappers, or changing its definition or the options of a wrapper
+ * below the cache (an `.error()` handler, a `.retry()` policy) changes the
+ * site, so those edits cause misses rather than replays of entries the old
+ * definition produced.
+ *
+ * Wrappers above the cache contribute their count (through `stackIndex`)
+ * but not their options: they run outside the cached computation and none
+ * rewrites the exchange it passes inward, so they cannot change what is
+ * stored for a key. The fingerprints do not cover what a callable closes
+ * over or config read at run time; put those in an explicit key when they
+ * change the output.
+ *
+ * At route scope there is no site; `pipeline` is the
+ * {@link pipelineFingerprint} of every step a hit skips, nested branches
+ * and wrapper options included, so editing any of them misses rather than
+ * replaying what the old pipeline produced. The route's `.input()` and
+ * `.output()` schemas stay out: input validation runs before the cache
+ * check (its result is the body the key hashes) and output validation runs
+ * after the pipeline on a hit as on a miss, so neither shapes a stored
+ * entry.
  *
  * @internal
  */
 export type CacheKeyScope =
-  | { readonly kind: "route"; readonly routeId: string }
+  | {
+      readonly kind: "route";
+      readonly routeId: string;
+      readonly pipeline: string;
+    }
   | { readonly kind: "step"; readonly routeId: string; readonly site: string };
 
 /**
@@ -144,7 +167,7 @@ export function resolveCacheOptions<Current = unknown>(
 
 /**
  * The default cache key: a SHA-256 over the JSON tuple
- * `[scope.kind, routeId, site | null, principalChain | null, bodyHash]`,
+ * `[scope.kind, routeId, site | pipeline, principalChain | null, bodyHash]`,
  * where `principalChain` is `[issuer | null, subject]` for the principal
  * and each `actor` hop.
  * Encoding the tuple as JSON keeps the fields from running into each
@@ -167,7 +190,8 @@ export function defaultCacheKey(
         "routecraft.http.query headers, which the default key does not read. Supply a key, e.g. " +
         "cache({ key: (ex) => JSON.stringify([ex.headers['routecraft.route'], ex.principal?.issuer, " +
         "ex.principal?.subject, ex.headers['routecraft.http.params'], ex.headers['routecraft.http.query']]) }). " +
-        "A custom key is used verbatim: drop the principal only when every caller sees the same answer.",
+        "A custom key is used verbatim: drop the principal only when every caller sees the same answer, " +
+        "and on a route that admits delegation add each ex.principal.actor hop as well.",
     });
   }
   let bodyHash: string;
@@ -183,39 +207,11 @@ export function defaultCacheKey(
   const identity = JSON.stringify([
     scope.kind,
     scope.routeId,
-    scope.kind === "step" ? scope.site : null,
+    scope.kind === "step" ? scope.site : scope.pipeline,
     principalIdentity(exchange.principal),
     bodyHash,
   ]);
   return createHash("sha256").update(identity).digest("hex");
-}
-
-/**
- * `[issuer, subject]` for the principal and then for every `actor` hop,
- * outermost first. The actor chain is part of who is asking: a delegate
- * acting for the same subject can be authorized differently, so it must
- * not read another delegate's entries.
- *
- * A hand-assembled self-referential chain ends in the index of the hop it
- * loops back to, so it neither spins nor keys like the same chain without
- * the loop.
- */
-function principalIdentity(
-  principal: Principal | undefined,
-): Array<[string | null, string] | number> | null {
-  if (!principal) return null;
-  const chain: Array<[string | null, string] | number> = [];
-  const seen = new Map<Principal, number>();
-  for (let hop: Principal | undefined = principal; hop; hop = hop.actor) {
-    const loop = seen.get(hop);
-    if (loop !== undefined) {
-      chain.push(loop);
-      break;
-    }
-    seen.set(hop, chain.length);
-    chain.push([hop.issuer ?? null, hop.subject]);
-  }
-  return chain;
 }
 
 /**
@@ -233,16 +229,11 @@ export function assignCacheSites(route: RouteDefinition): boolean {
   const visit = (steps: ReadonlyArray<Step<Adapter>>): void => {
     for (const step of steps) {
       const position = next++;
-      const stack: WrapperStep<Adapter>[] = [];
-      let innermost: Step<Adapter> = step;
-      while (innermost instanceof WrapperStep) {
-        stack.push(innermost);
-        innermost = innermost.wrapped;
-      }
+      const { stack, innermost } = unwrapStack(step);
       const fingerprint = stepDefinitionFingerprint(innermost);
       stack.forEach((wrapper, index) => {
         if (!(wrapper instanceof CacheWrapperStep)) return;
-        const below = stack.slice(index + 1).map((w) => w.constructor.name);
+        const below = stack.slice(index + 1).map(wrapperIdentity);
         wrapper.assignSite(
           JSON.stringify([position, index, below, fingerprint]),
         );
@@ -253,6 +244,63 @@ export function assignCacheSites(route: RouteDefinition): boolean {
   };
   visit(route.steps);
   return usesDefaultKey;
+}
+
+/**
+ * Fingerprint of a whole pipeline, which a route-scope cache folds into
+ * its default key because a hit skips every step in it. Each step
+ * contributes `[kind, optionsFingerprint]` for every wrapper in its stack,
+ * the innermost step's definition fingerprint, and, for every nested
+ * sub-pipeline, the fingerprint of the predicate selecting it (a
+ * `.choice()` branch) and the nested pipeline's own description. Derived
+ * from the definition alone, so every process running the same route
+ * source computes the same digest.
+ *
+ * @internal
+ */
+export function pipelineFingerprint(
+  steps: ReadonlyArray<Step<Adapter>>,
+): string {
+  return createHash("sha256")
+    .update(JSON.stringify(describePipeline(steps)))
+    .digest("hex");
+}
+
+function describePipeline(steps: ReadonlyArray<Step<Adapter>>): unknown[] {
+  return steps.map((step) => {
+    const { stack, innermost } = unwrapStack(step);
+    return [
+      stack.map(wrapperIdentity),
+      stepDefinitionFingerprint(innermost),
+      nestedStepsOf(step).map((nested) => [
+        nested.predicate === undefined
+          ? null
+          : definitionFingerprint(nested.predicate),
+        describePipeline(nested.steps),
+      ]),
+    ];
+  });
+}
+
+/** A step's wrapper stack, outermost first, and the step it folds around. */
+function unwrapStack(step: Step<Adapter>): {
+  stack: WrapperStep<Adapter>[];
+  innermost: Step<Adapter>;
+} {
+  const stack: WrapperStep<Adapter>[] = [];
+  let innermost: Step<Adapter> = step;
+  while (innermost instanceof WrapperStep) {
+    stack.push(innermost);
+    innermost = innermost.wrapped;
+  }
+  return { stack, innermost };
+}
+
+function wrapperIdentity(wrapper: WrapperStep<Adapter>): [string, string] {
+  return [
+    wrapper.constructor.name,
+    definitionFingerprint(wrapper.fingerprintOptions),
+  ];
 }
 
 /**
@@ -315,11 +363,19 @@ export class CacheWrapperStep<
   T extends Adapter = Adapter,
 > extends WrapperStep<T> {
   readonly #options: ResolvedCacheOptions;
+  // The resolved `key` wraps a custom key in one adapter lambda whose
+  // source is the same for every cache, so fingerprint the original.
+  readonly #customKey: CacheOptions["key"];
   #site: string | undefined;
 
   constructor(inner: Step<T>, options: CacheOptions = {}) {
     super(inner);
     this.#options = resolveCacheOptions(options);
+    this.#customKey = options.key;
+  }
+
+  protected override describeOptions(): unknown {
+    return { key: this.#customKey ?? null, ttl: this.#options.ttl ?? null };
   }
 
   /**

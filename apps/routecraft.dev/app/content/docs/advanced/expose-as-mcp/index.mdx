@@ -283,6 +283,12 @@ A tool whose route can defer at a durable [`.defer()`](/docs/reference/operation
 
 The advertised union over-approximates for agent-bearing routes: the framework cannot rule deferral out statically, so a client of such a tool must handle the acknowledgment even if a given deployment never defers. Note that `oneOf` is exact-match: a declared output schema loose enough to also accept the acknowledgment shape (an open passthrough object) makes a strict client's validation of a deferral ambiguous, so keep `.output()` closed.
 
+## Failed calls
+
+A tool call whose route fails comes back as `isError: true` carrying the tool name and the error code, such as `Tool "search-orders" failed (RC5001).`, and never the error message: messages carry hostnames, file paths and upstream response text an agent has no business seeing. The message is in your log and on the `plugin:mcp:tool:failed` event.
+
+An agent can still correct itself when the fault is its own. A call the tool's `.input()` schema rejects lists the failing fields, a call the tool's `.authorize()` refuses says why in a fixed phrase (insufficient permissions, a missing scope, an expired credential, no credential at all), and a result that breaks the declared `.output()` names the fields it broke. See [Failed calls](/docs/reference/adapters/mcp) in the adapter reference for each text.
+
 ## Production
 
 Pin the CLI version so your capabilities do not break on package updates:

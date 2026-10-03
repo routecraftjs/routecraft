@@ -86,6 +86,9 @@ describe(".error() step scope: dual-mode wrapper", () => {
     // Two minimal trace wrappers that just record their own position in the stack.
     const calls: string[] = [];
     class TraceWrapperOuter extends WrapperStep {
+      protected override describeOptions(): unknown {
+        return null;
+      }
       protected override async runInner(
         exchange: Exchange,
         ctx: StepContext,
@@ -97,6 +100,9 @@ describe(".error() step scope: dual-mode wrapper", () => {
       }
     }
     class TraceWrapperInner extends WrapperStep {
+      protected override describeOptions(): unknown {
+        return null;
+      }
       protected override async runInner(
         exchange: Exchange,
         ctx: StepContext,
@@ -487,6 +493,9 @@ describe(".error() step scope: dual-mode wrapper", () => {
     const events: string[] = [];
     // Custom outer wrapper that recovers the inner failure.
     class RecoveringOuter extends WrapperStep {
+      protected override describeOptions(): unknown {
+        return null;
+      }
       protected override async runInner(
         exchange: Exchange,
         ctx: StepContext,
@@ -509,6 +518,9 @@ describe(".error() step scope: dual-mode wrapper", () => {
     }
     // Inner wrapper that always throws (forces the cascade).
     class ThrowingInner extends WrapperStep {
+      protected override describeOptions(): unknown {
+        return null;
+      }
       protected override async runInner(): Promise<StepOutcome> {
         throw new Error("inner-failed");
       }

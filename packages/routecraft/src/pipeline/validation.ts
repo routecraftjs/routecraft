@@ -104,7 +104,10 @@ export async function validateAgainst<S extends StandardSchemaV1>(
     return {
       ok: false,
       message: formatSchemaIssues(issues),
-      issues: issues as readonly StandardSchemaV1.Issue[],
+      // A non-array `issues` breaks the spec; report the failure without them.
+      issues: Array.isArray(issues)
+        ? (issues as readonly StandardSchemaV1.Issue[])
+        : [],
     };
   }
   const successResult = result as { value?: unknown };
@@ -224,15 +227,84 @@ export interface InputValidationFailure extends Error {
 export function isInputValidationFailure(
   value: unknown,
 ): value is InputValidationFailure {
-  if (!(value instanceof Error)) return false;
-  const invalid = (value as { invalid?: unknown }).invalid;
-  if (typeof invalid !== "object" || invalid === null) return false;
-  const detail = invalid as Record<string, unknown>;
   return (
-    (detail["in"] === "body" || detail["in"] === "headers") &&
-    Array.isArray(detail["issues"]) &&
-    typeof detail["routeId"] === "string"
+    value instanceof Error &&
+    isValidationDetail((value as { invalid?: unknown }).invalid)
   );
+}
+
+function isValidationDetail(detail: unknown): boolean {
+  if (typeof detail !== "object" || detail === null) return false;
+  const fields = detail as Record<string, unknown>;
+  return (
+    (fields["in"] === "body" || fields["in"] === "headers") &&
+    Array.isArray(fields["issues"]) &&
+    typeof fields["routeId"] === "string"
+  );
+}
+
+/**
+ * Machine-readable detail attached to the cause of an error raised because a
+ * result broke its declared output schema: which part failed, the schema's
+ * own issues, and the route or tool. Read it off `error.cause` through
+ * {@link isOutputValidationFailure}.
+ *
+ * Two checks attach it: a route's `.output()` (`RC5002`) and the MCP
+ * server's check of a tool result against the `outputSchema` it advertised
+ * (`AI2001`, for a tool the pipeline did not validate). `RC5002` also covers
+ * a mid-pipeline `.validate()` and an empty aggregation, whose causes carry
+ * no such detail, so its presence is what tells a door the result broke a
+ * declared contract. The MCP server sends the body issues to the caller,
+ * because the tool advertised that schema.
+ *
+ * In-process only, like {@link InputValidationFailure}.
+ */
+export interface OutputValidationFailure extends Error {
+  invalidOutput: {
+    /** Which part of the result the schema refused. */
+    in: "body" | "headers";
+    /** The schema's issues, as it returned them. */
+    issues: readonly StandardSchemaV1.Issue[];
+    /**
+     * The route whose `.output()` refused, or the tool whose advertised
+     * schema refused. A route calling another through `direct()` receives
+     * the callee's RC5002 as its own step failure.
+     */
+    routeId: string;
+  };
+}
+
+/**
+ * Whether `value` (typically an RC5002 error's `cause`) carries the
+ * {@link OutputValidationFailure} detail.
+ *
+ * @param value - Any value, usually `error.cause`
+ * @returns `true` when the value is an Error carrying a well-formed `invalidOutput` detail
+ */
+export function isOutputValidationFailure(
+  value: unknown,
+): value is OutputValidationFailure {
+  return (
+    value instanceof Error &&
+    isValidationDetail((value as { invalidOutput?: unknown }).invalidOutput)
+  );
+}
+
+/**
+ * The cause of an output RC5002. A schema that failed without issues broke
+ * its own contract rather than the route's output, so it gets no detail and
+ * no door reports it as a declared-schema violation.
+ */
+function outputValidationFailure(
+  message: string,
+  part: "body" | "headers",
+  issues: readonly StandardSchemaV1.Issue[],
+  routeId: string,
+): Error {
+  const cause = new Error(message);
+  return issues.length === 0
+    ? cause
+    : Object.assign(cause, { invalidOutput: { in: part, issues, routeId } });
 }
 
 /**
@@ -242,7 +314,8 @@ export function isInputValidationFailure(
  * step failure (`route:step:failed` -> the error-handler-or-failed path).
  *
  * The error's cause is an {@link InputValidationFailure} naming the part
- * that failed and the schema's issues.
+ * that failed and the schema's issues, unless the schema failed without
+ * any, which is the schema's fault and carries no detail.
  *
  * On success returns a (possibly new) exchange with validated / coerced
  * values; validated headers are merged over the originals so caller
@@ -299,15 +372,21 @@ export async function validateInputOrThrow(
   return current;
 }
 
+/**
+ * The cause of an RC5065. A schema that failed without issues broke its own
+ * contract rather than refused the caller, so it gets no detail and no door
+ * answers it as a caller refusal.
+ */
 function inputValidationFailure(
   message: string,
   part: "body" | "headers",
   issues: readonly StandardSchemaV1.Issue[],
   routeId: string,
-): InputValidationFailure {
-  return Object.assign(new Error(message), {
-    invalid: { in: part, issues, routeId },
-  });
+): Error {
+  const cause = new Error(message);
+  return issues.length === 0
+    ? cause
+    : Object.assign(cause, { invalid: { in: part, issues, routeId } });
 }
 
 /**
@@ -401,9 +480,13 @@ export async function applyOutputValidation(
   if (schemas.body) {
     const res = await validateAgainst(schemas.body, current.body);
     if (!res.ok) {
-      throw rcError("RC5002", new Error(res.message), {
-        message: `Output body validation failed for route "${deps.routeId}"`,
-      });
+      throw rcError(
+        "RC5002",
+        outputValidationFailure(res.message, "body", res.issues, deps.routeId),
+        {
+          message: `Output body validation failed for route "${deps.routeId}"`,
+        },
+      );
     }
     current = DefaultExchange.rewrap(current, { body: res.value });
     markOutputValidated(current, schemas.body);
@@ -411,9 +494,18 @@ export async function applyOutputValidation(
   if (schemas.headers) {
     const res = await validateAgainst(schemas.headers, current.headers);
     if (!res.ok) {
-      throw rcError("RC5002", new Error(res.message), {
-        message: `Output header validation failed for route "${deps.routeId}"`,
-      });
+      throw rcError(
+        "RC5002",
+        outputValidationFailure(
+          res.message,
+          "headers",
+          res.issues,
+          deps.routeId,
+        ),
+        {
+          message: `Output header validation failed for route "${deps.routeId}"`,
+        },
+      );
     }
     const headerValue = res.value as ExchangeHeaders | undefined;
     if (headerValue !== undefined) {

@@ -68,8 +68,10 @@ Today (as of #112 / #395 / 0.6.0):
 - The cache key flows from `cache-check` to `cache-store` via
   `internals.cacheKey` on the exchange (per-invocation, no shared
   closure). `cache-check` derives it after `authorize` and `input`
-  have run; the default key hashes the route id, the principal's
-  issuer and subject with each `actor` hop, and the validated body,
+  have run; the default key hashes the route id, a fingerprint of
+  the pipeline a hit skips (`RouteDefinition.cachePipeline`, set at
+  build), the principal's issuer and subject with each `actor` hop,
+  and the validated body,
   and a custom `key` is used verbatim (see `.standards/security.md`
   § 4). Because `cache-check` runs before the pipeline, a route whose
   pipeline contains `.authenticate()` refuses route-scope `.cache()`

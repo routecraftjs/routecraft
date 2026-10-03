@@ -94,6 +94,24 @@ One exception to "advertises that schema": a route that can defer at a durable d
 
 A route that drops the exchange (a `.filter()` rejecting, a `.choice()` matching no branch, an error handler returning `recovery.drop()`) has produced no result. The call comes back as `isError: true` saying the tool declined the request (`AI2002`), which mirrors [RC5031](/docs/reference/errors#rc-5031) on the direct and forward surfaces. This applies to every tool, declared output or not.
 
+**Failed calls:**
+
+A call whose route fails comes back as `isError: true` with a single text block. The error code crosses the wire and the error message does not: a route failure is whatever its steps threw, and error messages routinely carry hostnames, file paths, route ids and upstream response text. The full message goes to the log and to the [`plugin:mcp:tool:failed`](/docs/reference/events) event, where the operator reads it.
+
+A failure the caller caused on the tool's own route keeps a reason an agent can act on:
+
+| Failure | Text the caller receives |
+|---------|--------------------------|
+| The tool's `.input()` schema refuses the arguments ([RC5065](/docs/reference/errors#rc-5065)) | `Tool "search" rejected its arguments (RC5065): "query": Too small: ...` with each issue's path and message, at most 20, the rest counted as `and N more` |
+| The tool's `.authorize()` refuses a role, a predicate or a delegation (RC5015, RC5034, RC5035, RC5036) | `Tool "archive" refused the call: insufficient permissions.` |
+| The tool's `.authorize()` finds a scope missing ([RC5038](/docs/reference/errors#rc-5038)) | `Tool "archive" refused the call: insufficient scope, missing: orders:write.` (or `requires one of:` for `anyScope`) |
+| The caller's credential expired before `.authorize()` ran ([RC5020](/docs/reference/errors#rc-5020)) | `Tool "archive" refused the call: the credential expired. Refresh it and retry.` |
+| `.authorize()` finds no principal on an HTTP mount with a validator ([RC5012](/docs/reference/errors#rc-5012)) | `Tool "archive" requires an authenticated caller. Connect with a credential and retry.` |
+| The result body breaks the declared output schema (RC5002, AI2001); a headers violation answers the generic text, since the headers schema is not advertised | `MCP tool "list-users" returned a body that does not match its declared output schema (RC5002): "users.0.id": ...` |
+| Anything else | `Tool "search" failed (RC5001).` |
+
+Every line is prefixed with `Error: `. Attribution is by where the failure came from, never by code alone. An input refusal or an authorization refusal raised by a route the tool calls through `direct()` is the tool's own fault, not the caller's, and answers with the generic line. So does an `authorize()` check of an identity the pipeline swapped in (`.authenticate()`, a delegation), and the same codes thrown by an adapter for an upstream login refused. A missing principal is the caller's to fix only where a credential could have supplied one: on stdio, or on an HTTP mount with no validator, it is the generic line. The four permission codes share one text so a caller cannot tell which check it tripped.
+
 **McpToolAnnotations (optional hint fields, all booleans unless noted):**
 
 These mirror the [MCP specification (2025-03-26) `ToolAnnotations`](https://modelcontextprotocol.io/specification/2025-03-26/server/tools#annotations) shape. They are hints only; clients must not rely on them for correctness or safety.

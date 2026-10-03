@@ -13,7 +13,7 @@
 import { CraftClient } from "../../client";
 import { isInternalEndpoint } from "../../capabilities";
 import type { CraftContext } from "../../context";
-import { rcError } from "../../error";
+import { isRemoteAbsence } from "../remotes/channel";
 import { HeadersKeys } from "../../exchange";
 import type { ExchangeHeaders } from "../../exchange";
 import { rcCodeOf } from "../../brand";
@@ -55,6 +55,23 @@ import type {
  */
 const JSON_SCHEMA_TARGET = "draft-2020-12";
 
+/**
+ * A dispatch refused because of the id the caller named, before any route
+ * ran: no route answers to it, or the route has no door a dispatch can use.
+ *
+ * Returned rather than thrown so a door can never mistake a route's own
+ * failure for one. The codes that name these conditions, `RC5004` and
+ * `RC5060`, also come out of pipelines (a nested `direct()` to an endpoint
+ * nothing answers is the common case), and such a failure is the
+ * instance's: it answers 500, and the name of the missing endpoint is not
+ * the caller's to read. Everything `dispatch` throws is the route's.
+ *
+ * @internal
+ */
+export type OpsDispatchRefusal =
+  | { outcome: "refused"; reason: "unknown" }
+  | { outcome: "refused"; reason: "not-dispatchable"; message: string };
+
 /** What the management handlers need from a running context. */
 export interface ManagementApi {
   listRoutes(query: OpsRouteQuery): OpsPage<OpsRouteSummary>;
@@ -63,7 +80,7 @@ export interface ManagementApi {
     id: string,
     body: unknown,
     principal: Principal | undefined,
-  ): Promise<OpsDispatchOutcome>;
+  ): Promise<OpsDispatchOutcome | OpsDispatchRefusal>;
   tailEvents(signal: AbortSignal): AsyncIterable<OpsEventTailItem>;
   /**
    * A contributed resource by name, read per request so a plugin applied
@@ -306,7 +323,7 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
       id: string,
       body: unknown,
       principal: Principal | undefined,
-    ): Promise<OpsDispatchOutcome> {
+    ): Promise<OpsDispatchOutcome | OpsDispatchRefusal> {
       const capabilities = capabilityIndex();
       const route = remoteAnswers(id, capabilities)
         ? undefined
@@ -317,38 +334,14 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
       // this door is intentional, exactly as a tool fronting an
       // authenticated REST call re-exposes that call.
       if (!route && !remoteIndex().has(id)) {
-        throw rcError("RC5004", undefined, {
-          message: `No route "${id}" is registered in this instance.`,
-        });
+        return { outcome: "refused", reason: "unknown" };
       }
       if (route && !capabilities.has(id)) {
-        // Two different refusals behind one absence: a route that declared
-        // `direct({ internal: true })` HAS a direct source, so telling its
-        // caller to add one would be wrong advice. The internal registry is
-        // what remembers the difference.
-        if (isInternalEndpoint(ctx, id)) {
-          throw rcError("RC5060", undefined, {
-            message: `Route "${id}" is declared internal (direct({ internal: true })) and not dispatchable. It is only composable from another route; dispatch to a boundary route that fronts it instead.`,
-          });
-        }
-        const kinds = sourceKinds(route.definition);
-        // A third refusal, for a route that HAS the door and is not
-        // standing behind it. The capability lives exactly as long as the
-        // subscription, so a stopped or disabled route leaves none, and
-        // the advice below would tell its caller to add a source the route
-        // already declares.
-        if (kinds.includes("direct")) {
-          throw rcError("RC5060", undefined, {
-            message: ctx.isRouteEnabled(id)
-              ? `Route "${id}" has a direct() door but is not running, so nothing answers it. Start the route on that instance before dispatching to it.`
-              : `Route "${id}" has a direct() door and is disabled by its .enabled() predicate, so nothing answers it. Enable it before dispatching to it.`,
-          });
-        }
-        throw rcError("RC5060", undefined, {
-          message: `Route "${id}" has no dispatch door: its sources are ${
-            kinds.join(", ") || "(none)"
-          }, and only a direct() ingress makes a route id dispatchable. Add .from(direct()) to the route, or dispatch to one that has it.`,
-        });
+        return {
+          outcome: "refused",
+          reason: "not-dispatchable",
+          message: notDispatchable(ctx, id, route.definition),
+        };
       }
 
       // The principal is passed through exactly as the mount's validator
@@ -377,10 +370,44 @@ export function createManagementApi(ctx: CraftContext): ManagementApi {
             message: (error as Error).message,
           };
         }
+        // The remote's door said the id is gone, which is this door's
+        // answer too: the channel is the only door an imported route has.
+        if (isRemoteAbsence(error, id)) {
+          return { outcome: "refused", reason: "unknown" };
+        }
         throw error;
       }
     },
   };
+}
+
+/**
+ * Why a route that exists cannot take a dispatch, phrased as the remedy.
+ *
+ * Three refusals behind one absent capability. A route that declared
+ * `direct({ internal: true })` HAS a direct source, so telling its caller
+ * to add one would be wrong advice; the internal registry remembers the
+ * difference. A route with a direct source and no capability is stopped or
+ * disabled, since the capability lives exactly as long as the subscription.
+ * Only the rest genuinely lack the door.
+ */
+function notDispatchable(
+  ctx: CraftContext,
+  id: string,
+  definition: RouteDefinition,
+): string {
+  if (isInternalEndpoint(ctx, id)) {
+    return `Route "${id}" is declared internal (direct({ internal: true })) and not dispatchable. It is only composable from another route; dispatch to a boundary route that fronts it instead.`;
+  }
+  const kinds = sourceKinds(definition);
+  if (kinds.includes("direct")) {
+    return ctx.isRouteEnabled(id)
+      ? `Route "${id}" has a direct() door but is not running, so nothing answers it. Start the route on that instance before dispatching to it.`
+      : `Route "${id}" has a direct() door and is disabled by its .enabled() predicate, so nothing answers it. Enable it before dispatching to it.`;
+  }
+  return `Route "${id}" has no dispatch door: its sources are ${
+    kinds.join(", ") || "(none)"
+  }, and only a direct() ingress makes a route id dispatchable. Add .from(direct()) to the route, or dispatch to one that has it.`;
 }
 
 /**

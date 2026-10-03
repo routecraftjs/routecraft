@@ -158,6 +158,8 @@ Framework-enforced schema validation failed on something the instance itself pro
 
 The route's `.input()` schema is [RC5065](#rc-5065) instead, because a caller's bad payload is the caller's fault and this code's cases are the instance's. A transport that answers a request maps the two to different statuses.
 
+Only the `.output()` failure carries structured detail on its cause: `isOutputValidationFailure(err.cause)` narrows it to `{ invalidOutput: { in, issues, routeId } }`. The [MCP server](/docs/reference/adapters/mcp) uses it to name the failing fields of a tool's result, because that schema is the tool's advertised `outputSchema`; every other RC5002 reaches an MCP caller as the code alone.
+
 **Suggestion**  
 Adjust the schema or coerce input; check data shapes. For Zod: use `z.object()`, `z.looseObject()`, or `z.strictObject()` as appropriate.
 
@@ -619,7 +621,7 @@ A surface update did not match the protocol
 MCP tool output violated its declared schema
 
 **Why it happens**  
-A route exposed with `.from(mcp())` declares `.output({ body })`, which the MCP server advertises as that tool's `outputSchema`, and the body it returned does not satisfy it. Clients parse `structuredContent` against the advertised schema, so the server refuses to publish the result and returns `isError: true` with the failing fields instead.
+A route exposed with `.from(mcp())` declares `.output({ body })`, which the MCP server advertises as that tool's `outputSchema`, and the body it returned does not satisfy it. Clients parse `structuredContent` against the advertised schema, so the server refuses to publish the result and returns `isError: true` with the failing fields instead: each issue's path and the schema's message, never the error message.
 
 The route's own output validation reports a violation it catches as [RC5002](#rc-5002). `AI2001` is the same contract enforced at the boundary that advertised the schema, covering results that reached the server without passing through that validation: a tool registered directly in the local tool registry, rather than by a `.from(mcp())` route. A body the route already validated is not re-checked, because validation replaces the body with the schema's output and a transforming schema rejects its own output.
 
@@ -706,16 +708,25 @@ Return one of the supported outcomes from your step: `continue`, `complete`, `dr
 Dedupe key derivation failed
 
 **Why it happens**  
-The default `.dedupe()` key hashes `JSON.stringify(body)`, which fails on bodies containing functions, symbols, circular references, or `BigInt`. Also raised when a custom `key` function throws.
+The default `.dedupe()` key hashes the caller's principal together with `JSON.stringify(body)`, so it needs a body. It fails when the body is `undefined`, which is every bodiless request such as an `http()` GET (its input lives in the `routecraft.http.params` and `routecraft.http.query` headers, which the default key does not read), and when `JSON.stringify(body)` cannot represent the body (functions, symbols, circular references, or `BigInt`). Also raised when a custom `key` function throws or returns a non-string.
 
 **Suggestion**  
-Supply an explicit `key` function that returns a stable string identifier:
+Supply an explicit `key` function that returns a stable string identifier. A custom key is used verbatim: the default key's principal is not added, so include the caller's identity when callers must not dedupe each other:
 
 ```ts skip="fragment: a chain shown without its route"
-.dedupe({ key: (e) => String((e.body as { id: unknown }).id) })
+.dedupe({
+  key: (e) =>
+    JSON.stringify([
+      e.principal?.issuer,
+      e.principal?.subject,
+      (e.body as { id: unknown }).id,
+    ]),
+})
 ```
 
-This error is not retryable: the same body fails key derivation the same way every time.
+On a route that admits delegation, add the current actor (`e.principal?.actor?.issuer`, `e.principal?.actor?.subject`) as well. See [dedupe](/docs/reference/operations/dedupe).
+
+This error is not retryable: the same exchange fails key derivation the same way every time.
 
 ## RC5034
 Actor not permitted
@@ -1055,7 +1066,7 @@ Request validation failed
 **Why it happens**  
 A payload a caller supplied did not satisfy the route's `.input()` schema, on the body or on the headers. Validation runs at filter chain position #4, before any step of the pipeline, so nothing of the route has executed when this is raised and a route-scope `.error()` can recover it like any other chain failure.
 
-This is the caller's fault rather than the instance's, which is the whole reason it is not [RC5002](#rc-5002). RC5002 also covers `.output()` validation, a mid-pipeline `validate()` step and an empty aggregation, none of which the caller can do anything about. Splitting them lets a transport answer the two differently: the [`http()` source](/docs/reference/adapters/http) and the [ops dispatch mount](/docs/reference/plugins/opsplugin) answer this code with a 400, where a route failure is a 500.
+This is the caller's fault rather than the instance's, which is the whole reason it is not [RC5002](#rc-5002). RC5002 also covers `.output()` validation, a mid-pipeline `validate()` step and an empty aggregation, none of which the caller can do anything about. Splitting them lets a transport answer the two differently: the [`http()` source](/docs/reference/adapters/http) and the [ops dispatch mount](/docs/reference/plugins/opsplugin) answer this code with a 400, where a route failure is a 500, and the [MCP server](/docs/reference/adapters/mcp) answers it with the issues where any other failure carries only its code.
 
 The 400 carries the part that failed and the schema's issues, never the error's message, which names the route:
 
@@ -1072,9 +1083,9 @@ Each issue's `message` is the schema's own text, sent verbatim. A custom message
 
 At most 20 issues are sent. When the schema reported more, the body adds `"truncated": <number left out>`, so a payload with thousands of bad array items cannot make the answer proportionally large.
 
-Only an RC5065 the dispatched route's own `.input()` raised answers 400. One raised by a route the dispatched one calls through `direct()` stays a 500, since what that route refused was the outer route's output, not anything the caller sent; so does one a step throws itself, which says nothing about the caller's payload.
+Only an RC5065 the dispatched route's own `.input()` raised answers 400. One raised by a route the dispatched one calls through `direct()` stays a 500, since what that route refused was the outer route's output, not anything the caller sent; so does one a step throws itself, which says nothing about the caller's payload. So does one whose schema failed without reporting a single issue: that schema broke its own contract, so the cause carries no detail and it answers as a route failure. The MCP server applies the same rule: all three answer with the generic failure text.
 
-The structured detail is on the error's `cause` in process. `isInputValidationFailure(err.cause)` narrows it to `{ invalid: { in, issues, routeId } }`, for a surface of your own that wants to answer the same way.
+The structured detail is on the error's `cause` in process. `isInputValidationFailure(err.cause)` narrows it to `{ invalid: { in, issues, routeId } }`. A surface of your own that wants to answer the same way calls `callerRefusalOf(err, { routeId, principal })`, the classification every built-in door uses: it returns the input refusal with its issues already capped, or the authorization refusal class, only for a failure the caller caused on that route.
 
 **Suggestion**  
 Read the issues: each names the field and the rule that rejected it. `craft ops routes <id>` prints the route's full input schema on a running instance. Retrying an unchanged payload cannot succeed, which is why this code is not retryable.
