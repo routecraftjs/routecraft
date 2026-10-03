@@ -1,13 +1,14 @@
 import {
-  OPS_RESOURCES,
+  OPS,
+  REMOTES,
   parsePageQuery,
   rcCodeOf,
   rcError,
-  registerOpsResource,
   type CraftContext,
   type Plugin,
   type PluginContext,
   type OpsPage,
+  type OpsService,
 } from "@routecraft/routecraft";
 import { AgentSessionRuntime } from "./session/runtime.ts";
 import type {
@@ -195,6 +196,9 @@ export function agentPlugin(options: AgentPluginOptions = {}): Plugin {
   const toolPolicy = validateToolPolicy(options.toolPolicy);
   return {
     id,
+    // REMOTES orders the remotes plugin first, so its imported routes are
+    // capabilities by the time start() resolves directTool references.
+    optional: [OPS, REMOTES],
     async bind(c: PluginContext) {
       const ctx = c.context;
       // Merge into an existing registry when present so multiple
@@ -290,8 +294,9 @@ export function agentPlugin(options: AgentPluginOptions = {}): Plugin {
       // Once per context, whichever install applies first: the resource
       // reads the shared session runtime, so a second install has nothing
       // more to contribute and would collide on the name.
-      if (ctx.getStore(OPS_RESOURCES)?.has(SESSIONS_RESOURCE) !== true) {
-        registerSessionsResource(ctx);
+      const ops = c.lookup(OPS);
+      if (ops !== undefined && !ops.hasResource(SESSIONS_RESOURCE)) {
+        registerSessionsResource(ctx, ops);
       }
 
       // The default session store, unless a `sessions` block chose one (or
@@ -413,7 +418,7 @@ function driveSessionsAtBoot(ctx: CraftContext): void {
   boots.set(ctx, drive);
 }
 
-function registerSessionsResource(ctx: CraftContext): void {
+function registerSessionsResource(ctx: CraftContext, ops: OpsService): void {
   const runtime = (): AgentSessionRuntime | undefined => {
     try {
       return AgentSessionRuntime.for(ctx);
@@ -422,7 +427,7 @@ function registerSessionsResource(ctx: CraftContext): void {
       throw err;
     }
   };
-  registerOpsResource<AgentSessionSummary>(ctx, {
+  ops.registerResource<AgentSessionSummary>({
     name: SESSIONS_RESOURCE,
     async list(query): Promise<OpsPage<AgentSessionSummary>> {
       const sessions = runtime();

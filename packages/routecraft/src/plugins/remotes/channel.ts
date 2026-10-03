@@ -13,7 +13,12 @@
 
 import type { CraftContext } from "../../context";
 import { rcError } from "../../error";
-import { DefaultExchange, type Exchange } from "../../exchange";
+import {
+  DefaultExchange,
+  getExchangeContext,
+  type Exchange,
+} from "../../exchange";
+import type { PluginLogger } from "../../kernel/plugin.ts";
 import type { DirectChannel } from "../../adapters/direct/types";
 import { InMemoryDirectChannel } from "../../adapters/direct/shared";
 import { createDeferred } from "../../deferral/deferred";
@@ -44,7 +49,7 @@ export function isRemoteAbsence(error: unknown, endpoint: string): boolean {
 
 /** What a channel needs to know about the route it fronts. */
 export interface RemoteTarget {
-  ctx: CraftContext;
+  logger: PluginLogger;
   /** The remote's name in `defineConfig({ remotes })`. */
   remote: string;
   /** The route id on the remote. */
@@ -87,8 +92,8 @@ export class RemoteDirectChannel implements DirectChannel<Exchange> {
 
   async send(endpoint: string, exchange: Exchange): Promise<Exchange> {
     if (this.local !== undefined) {
-      const { ctx, remote, id, endpoint: local } = this.target;
-      ctx.logger.warn(
+      const { logger, remote, id, endpoint: local } = this.target;
+      logger.warn(
         { endpoint: local, remote, remoteRouteId: id },
         `Direct endpoint "${local}" is answered by the local route; the route "${id}" of remote "${remote}" is shadowed and stays reachable as "${remote}:${id}"`,
       );
@@ -115,7 +120,13 @@ export class RemoteDirectChannel implements DirectChannel<Exchange> {
   }
 
   private async dispatch(exchange: Exchange): Promise<Exchange> {
-    const { ctx, remote, id, client } = this.target;
+    const { remote, id, client } = this.target;
+    const ctx = getExchangeContext(exchange);
+    if (ctx === undefined) {
+      throw new Error(
+        `Remote channel for "${this.target.endpoint}": the exchange has no context binding, so the answer cannot be built. Send through CraftClient, forward() or a direct() destination.`,
+      );
+    }
     let outcome: Awaited<ReturnType<OpsHttpClient["dispatch"]>>;
     try {
       outcome = await client.dispatch(id, exchange.body);

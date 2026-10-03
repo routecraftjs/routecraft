@@ -1,58 +1,22 @@
 import type { CraftContext } from "../../context";
-import { port } from "../../kernel/port.ts";
 import { registerCapability, type Capability } from "../../capabilities";
 import { rcError } from "../../error";
 import type { RouteDiscovery } from "../../route";
-import type {
-  DirectChannel,
-  DirectChannelType,
-  DirectBaseOptions,
-} from "./types";
+import type { DirectChannel, DirectBaseOptions } from "./types";
 import type { Exchange } from "../../exchange";
-
-/**
- * Store key for the direct channel map (endpoint name -> channel instance).
- * @internal
- */
-export const ADAPTER_DIRECT_STORE = Symbol.for(
-  "routecraft.adapter.direct.store",
-);
-
-/**
- * The context-level direct channel type, provided by the `direct` config
- * key to swap every direct endpoint to a custom channel implementation
- * (e.g. Kafka, Redis) instead of in-memory.
- */
-export const DIRECT_DEFAULTS = port<Pick<DirectBaseOptions, "channelType">>(
-  "routecraft.direct.defaults@1",
-);
-
-declare module "@routecraft/routecraft" {
-  interface StoreRegistry {
-    [ADAPTER_DIRECT_STORE]: Map<string, DirectChannel<Exchange>>;
-  }
-}
-
-/**
- * Resolve the channel type to use for a given endpoint. Checks the
- * per-adapter options first, then falls back to the context-level default
- * set via `CraftConfig.direct`.
- */
-function resolveChannelType(
-  context: CraftContext,
-  adapterOptions: Partial<DirectBaseOptions>,
-): DirectChannelType<DirectChannel> | undefined {
-  if (adapterOptions.channelType) return adapterOptions.channelType;
-  return context.lookup(DIRECT_DEFAULTS)?.channelType;
-}
+import { DIRECT } from "./registry.ts";
 
 /**
  * Get or create the direct channel for the given endpoint.
+ *
+ * The channel type is the adapter's own when it set one, else the
+ * application-wide `CraftConfig.direct` default, else in-memory.
  *
  * @param context - The CraftContext
  * @param endpoint - The sanitized endpoint name
  * @param options - Per-adapter options that may contain a custom channel type
  * @returns The DirectChannel instance for this endpoint
+ * @throws RC1104 when the context has not installed its plugins
  * @internal
  */
 export function getDirectChannel<T>(
@@ -60,30 +24,16 @@ export function getDirectChannel<T>(
   endpoint: string,
   options: Partial<DirectBaseOptions>,
 ): DirectChannel<Exchange<T>> {
-  let store = context.getStore(ADAPTER_DIRECT_STORE) as
-    Map<string, DirectChannel<Exchange<T>>> | undefined;
-
-  // If the store is not set, create a new one
-  if (!store) {
-    store = new Map<string, DirectChannel<Exchange<T>>>();
-    context.setStore(ADAPTER_DIRECT_STORE, store);
+  const registry = context.require(DIRECT);
+  let channel = registry.channels.get(endpoint);
+  if (!channel) {
+    const ChannelCtor = options.channelType ?? registry.channelType;
+    channel = ChannelCtor
+      ? (new ChannelCtor(endpoint) as DirectChannel<Exchange>)
+      : new InMemoryDirectChannel<Exchange>();
+    registry.channels.set(endpoint, channel);
   }
-
-  // If the endpoint is not in the store, create a new one
-  if (!store.has(endpoint)) {
-    const ChannelCtor = resolveChannelType(context, options);
-    if (ChannelCtor) {
-      store.set(
-        endpoint,
-        new ChannelCtor(endpoint) as DirectChannel<Exchange<T>>,
-      );
-    } else {
-      // Fallback to a default in-memory implementation
-      store.set(endpoint, new InMemoryDirectChannel<Exchange<T>>());
-    }
-  }
-
-  return store.get(endpoint) as DirectChannel<Exchange<T>>;
+  return channel as DirectChannel<Exchange<T>>;
 }
 
 /**

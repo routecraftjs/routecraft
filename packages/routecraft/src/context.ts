@@ -8,16 +8,13 @@ import {
 import { randomUUID } from "node:crypto";
 import { BRAND, setBrand } from "./brand.ts";
 import { DefaultRoute, type Route, type RouteDefinition } from "./route.ts";
-import {
-  CAPABILITY_REGISTRY,
-  snapshotCapability,
-  type Capability,
-} from "./capabilities.ts";
+import { snapshotCapability, type Capability } from "./capabilities.ts";
 import { rcError, RC } from "./error.ts";
 import { isRoutecraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
 import { type AdapterOverride, RC_ADAPTER_OVERRIDES } from "./testing-hooks.ts";
 import { getConfigAppliers } from "./config-applier.ts";
+import { DIRECT } from "./adapters/direct/registry.ts";
 import { CONTINUATIONS } from "./deferral/runtime-key.ts";
 import { applyResolvedSites } from "./deferral/sites.ts";
 import { EventBus } from "./event-bus.ts";
@@ -1209,7 +1206,7 @@ export class CraftContext {
    *   the registry.
    */
   capabilities(): Capability[] {
-    const registry = this.getStore(CAPABILITY_REGISTRY);
+    const registry = this.lookup(DIRECT);
     if (!registry) return [];
     // Filtered by enablement, which is what makes "the agent cannot use
     // this until I supply credentials" true by construction: the tool
@@ -1222,7 +1219,7 @@ export class CraftContext {
     // a local route only while it holds the endpoint the local route gave
     // up, and filtering it on the local predicate would hide the one that
     // answers.
-    return [...registry.values()]
+    return [...registry.capabilities()]
       .filter(
         (capability) =>
           capability.remote !== undefined ||

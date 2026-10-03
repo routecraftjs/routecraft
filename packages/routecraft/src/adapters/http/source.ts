@@ -1,11 +1,6 @@
 import { rcError } from "../../error";
 import type { Source, Subscription } from "../../operations/from";
-import {
-  HTTP_MOUNTS,
-  HTTP_PLUGIN_REGISTERED,
-  type HttpMountRuntime,
-  type HttpRouteEntry,
-} from "../../plugins/http/registry";
+import { HTTP, type HttpRouteEntry } from "../../plugins/http/registry";
 import { compilePathMatcher } from "../../plugins/http/path-matcher";
 import { METHODS_WITHOUT_BODY } from "../../plugins/http/body-parser";
 import { invalidSignatureOptionsReason } from "../../plugins/http/webhook-signature";
@@ -123,19 +118,11 @@ export class HttpSourceAdapter implements Source<HttpRequestBody> {
 
   async subscribe(sub: Subscription<HttpRequestBody>): Promise<void> {
     const { context, meta } = sub;
-    const registered = context.getStore(HTTP_PLUGIN_REGISTERED);
-    if (registered !== true) {
-      throw rcError("RC5003", undefined, {
-        message:
-          "http() source requires the http plugin. Add `servers: { default: { port: 8080 } }, http: {}` to defineConfig({...}).",
-      });
-    }
-    const mounts: ReadonlyMap<string, HttpMountRuntime> | undefined =
-      context.getStore(HTTP_MOUNTS);
+    const mounts = context.lookup(HTTP)?.mounts;
     if (!mounts) {
       throw rcError("RC5003", undefined, {
         message:
-          "http() source: mount table missing from context store. The http plugin failed to initialise.",
+          "http() source requires the http plugin. Add `servers: { default: { port: 8080 } }, http: {}` to defineConfig({...}).",
       });
     }
 
