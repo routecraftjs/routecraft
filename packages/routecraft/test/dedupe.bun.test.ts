@@ -9,6 +9,7 @@ import {
   type Exchange,
   type Principal,
   type Source,
+  principalOf,
 } from "@routecraft/routecraft";
 
 /** Sleep for `ms` milliseconds. */
@@ -348,7 +349,7 @@ describe("dedupe (.dedupe())", () => {
       .build();
     await t.test();
 
-    expect(s.received.map((e) => e.principal?.subject)).toEqual([
+    expect(s.received.map((e) => principalOf(e)?.subject)).toEqual([
       "alice",
       "bob",
     ]);
@@ -378,7 +379,7 @@ describe("dedupe (.dedupe())", () => {
       .build();
     await t.test();
 
-    expect(s.received.map((e) => e.principal?.subject)).toEqual([
+    expect(s.received.map((e) => principalOf(e)?.subject)).toEqual([
       "alice",
       "bob",
     ]);
@@ -408,7 +409,7 @@ describe("dedupe (.dedupe())", () => {
       .build();
     await t.test();
 
-    expect(s.received.map((e) => e.principal?.actor?.subject)).toEqual([
+    expect(s.received.map((e) => principalOf(e)?.actor?.subject)).toEqual([
       "agent-1",
       "agent-2",
     ]);
@@ -435,7 +436,7 @@ describe("dedupe (.dedupe())", () => {
     await t.test();
 
     expect(t.errors).toHaveLength(0);
-    expect(s.received.map((e) => e.principal?.actor !== undefined)).toEqual([
+    expect(s.received.map((e) => principalOf(e)?.actor !== undefined)).toEqual([
       true,
       false,
     ]);
@@ -459,7 +460,7 @@ describe("dedupe (.dedupe())", () => {
       .build();
     await t.test();
 
-    expect(s.received.map((e) => e.principal?.subject)).toEqual(["alice"]);
+    expect(s.received.map((e) => principalOf(e)?.subject)).toEqual(["alice"]);
   });
 
   /**

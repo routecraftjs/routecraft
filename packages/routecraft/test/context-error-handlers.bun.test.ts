@@ -11,6 +11,7 @@ import {
   type ErrorHook,
   type HooksConfig,
   type Plugin,
+  deferralOf,
 } from "../src/index.ts";
 import { asDeferred } from "./helpers/deferral.ts";
 
@@ -873,7 +874,7 @@ describe("the error slot", () => {
               seen.push({
                 route: info.routeId,
                 execution: info.execution,
-                result: exchange.deferral?.result,
+                result: deferralOf(exchange)?.result,
               });
               if (info.routeId === "downstream") return { done: true };
               if (info.execution === 1) return recovery.defer({ ttl: "1h" });

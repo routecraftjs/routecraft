@@ -3,7 +3,7 @@ import { rcError } from "../../error";
 import { bearerChallenge } from "../server/protected-resource.ts";
 import { classifyRejectionReason } from "../../auth/error-classification";
 import { isPrincipalExpired } from "../../auth/expiry";
-import { markAuthentic } from "../../auth/authentic";
+import { defaultAuthority, type Authority } from "../principals/index.ts";
 import type { Principal, TokenVerifier } from "../../auth/types";
 import type {
   ApiKeyAuthOptions,
@@ -247,6 +247,7 @@ function syntheticApiKeyPrincipal(
  */
 export function createAuthMiddleware(
   auth: HttpAuth | undefined,
+  authority: Authority = defaultAuthority,
 ): HttpAuthMiddleware | undefined {
   if (auth === undefined) return undefined;
 
@@ -303,7 +304,9 @@ export function createAuthMiddleware(
         }
         return {
           kind: "admit",
-          principal: markAuthentic(syntheticApiKeyPrincipal(raw, auth.scopes)),
+          principal: authority.brand(
+            syntheticApiKeyPrincipal(raw, auth.scopes),
+          ),
           credential: raw,
           // An api key is compared, never dated: this path applies no
           // tolerance, so anything inheriting the verdict applies none either.
@@ -317,7 +320,7 @@ export function createAuthMiddleware(
         }
         return {
           kind: "admit",
-          principal: markAuthentic(principal),
+          principal: authority.brand(principal),
           credential: raw,
           clockToleranceSec: 0,
         };
@@ -365,7 +368,7 @@ export function createAuthMiddleware(
         }
         return {
           kind: "admit",
-          principal: markAuthentic(principal),
+          principal: authority.brand(principal),
           credential: token,
           clockToleranceSec,
         };

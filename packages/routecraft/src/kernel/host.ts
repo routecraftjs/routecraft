@@ -78,6 +78,15 @@ function invalidPlugin(where: string, why: string): never {
   });
 }
 
+/** What an exchange already is; a facet cannot be one of them. */
+const RESERVED_FACETS: ReadonlySet<string> = new Set([
+  "id",
+  "headers",
+  "body",
+  "logger",
+  "context",
+]);
+
 function validateShape(plugin: unknown, where: string): Plugin {
   if (typeof plugin !== "object" || plugin === null) {
     invalidPlugin(where, "expected an object");
@@ -95,6 +104,17 @@ function validateShape(plugin: unknown, where: string): Plugin {
     if (p[hook] !== undefined && typeof p[hook] !== "function") {
       invalidPlugin(where, `${hook} must be a function`);
     }
+  }
+  if (p.facet !== undefined && typeof p.facet !== "function") {
+    invalidPlugin(where, "facet must be a function");
+  }
+  if (
+    p.steps !== undefined &&
+    (typeof p.steps !== "object" ||
+      p.steps === null ||
+      !Object.values(p.steps).every((f) => typeof f === "function"))
+  ) {
+    invalidPlugin(where, "steps must be an object of step factories");
   }
   for (const field of [
     "requires",
@@ -121,6 +141,8 @@ function validateShape(plugin: unknown, where: string): Plugin {
         ["replaces", p.replaces?.length ?? 0],
         ["hooks", p.hooks === undefined ? 0 : Object.keys(p.hooks).length],
         ["points", p.points?.length ?? 0],
+        ["steps", p.steps === undefined ? 0 : Object.keys(p.steps).length],
+        ["a facet", p.facet === undefined ? 0 : 1],
       ] as const
     ).find(([, count]) => count > 0);
     if (declared) {
@@ -242,7 +264,7 @@ export class PluginHost {
   private checkIdentity(plugins: readonly Identified[]): void {
     const ids = new Map<string, number>();
     const namespaces = new Map<string, string>();
-    plugins.forEach(({ id, namespace }, index) => {
+    plugins.forEach(({ plugin, id, namespace }, index) => {
       const seen = ids.get(id);
       if (seen !== undefined) {
         throw rcError("RC1101", undefined, {
@@ -257,6 +279,11 @@ export class PluginHost {
         });
       }
       namespaces.set(namespace, id);
+      if (plugin.facet !== undefined && RESERVED_FACETS.has(namespace)) {
+        throw rcError("RC1114", undefined, {
+          message: `Plugin "${id}" declares a facet named "${namespace}", which every exchange already has. Give the plugin an explicit namespace.`,
+        });
+      }
     });
   }
 

@@ -2,9 +2,8 @@ import { HeadersKeys, type Exchange } from "../exchange.ts";
 import { rcError, type RoutecraftError } from "../error.ts";
 import { rcCodeOf } from "../brand.ts";
 import type { CallableValidator } from "../operations/validate.ts";
-import { isAuthentic } from "./authentic.ts";
 import { isPrincipalExpired } from "./expiry.ts";
-import { isRestored } from "./restored.ts";
+import { authorityOf } from "../plugins/principals/index.ts";
 import { actorMatches } from "./delegate.ts";
 import type { ActorMatcher, Principal, PrincipalProfile } from "./types.ts";
 
@@ -536,7 +535,8 @@ export function authorize(
   return (exchange: Exchange<unknown>) => {
     const refuse = (...args: Parameters<typeof rcError>): RoutecraftError =>
       refusal(exchange, rcError(...args));
-    const principal = exchange.principal;
+    const authority = authorityOf(exchange);
+    const principal = authority.read(exchange);
     if (!principal) {
       throw refuse("RC5012", new Error("No authenticated principal"), {
         message: "Authorization failed: no authenticated principal",
@@ -555,7 +555,7 @@ export function authorize(
     // a self-asserted one. Both are rejected, but the caller's next move
     // differs: a restored identity needs re-verification against the live
     // credential, not a mint.
-    if (isRestored(principal)) {
+    if (authority.isRestored(principal)) {
       throw refuse(
         "RC5043",
         new Error("Principal was restored from a deferral"),
@@ -568,7 +568,7 @@ export function authorize(
       );
     }
 
-    if (!isAuthentic(principal)) {
+    if (!authority.isAuthentic(principal)) {
       throw refuse("RC5023", new Error("Principal is not authentic"), {
         message:
           "Authorization failed: principal was not established by a trusted origin",

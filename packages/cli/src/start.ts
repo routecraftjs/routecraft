@@ -2,6 +2,7 @@ import { join, resolve } from "node:path";
 import {
   ContextBuilder,
   getProjectDiscoverers,
+  isProject,
   isRouteBuilder,
   isRouteDefinition,
   logger,
@@ -94,7 +95,7 @@ export async function startCommand(
   const configPath = findConfigFile(root);
   if (configPath === undefined) {
     return fail(
-      `No ${CONFIG_STEM}.ts found in "${root}". A project needs one at its root: it is what pulls plugins and ecosystem packages into the module graph. Create it with \`export const craftConfig = defineConfig({ ... })\`, or run a single file with \`craft run <file>\`.`,
+      `No ${CONFIG_STEM}.ts found in "${root}". A project needs one at its root: it is what pulls plugins and ecosystem packages into the module graph. Create it with \`export default defineProject({ ... })\`, or run a single file with \`craft run <file>\`.`,
     );
   }
 
@@ -208,25 +209,22 @@ export async function startCommand(
 }
 
 /**
- * Read the project configuration from its module. The named
- * `craftConfig` export is the shape the runtime and the scaffolder
- * both use; a default export is accepted with a warning so the form
- * that older docs showed is not a silent failure.
+ * Read the project configuration from its module: a default-exported
+ * `defineProject(...)`, or a plain config as the default export or as the
+ * named `craftConfig` export.
  */
 async function loadConfig(configPath: string): Promise<CraftConfig> {
   const module = (await import(configPath)) as {
     craftConfig?: CraftConfig;
     default?: unknown;
   };
-  if (module.craftConfig !== undefined) return module.craftConfig;
-  if (isConfigObject(module.default)) {
-    logger.warn(
-      `${configPath}: found a default export but no "craftConfig" export. Rename it to \`export const craftConfig = defineConfig({ ... })\`; the default export is read for compatibility only.`,
-    );
-    return module.default;
+  if (isProject(module.default)) {
+    return (module.default as { config: CraftConfig }).config;
   }
+  if (module.craftConfig !== undefined) return module.craftConfig;
+  if (isConfigObject(module.default)) return module.default;
   throw new Error(
-    `exports neither "craftConfig" nor a config object as default. Add \`export const craftConfig = defineConfig({ ... })\`; without it no plugin or ecosystem package this project needs is in the module graph.`,
+    `exports neither a project nor a config. Add \`export default defineProject({ ... })\`; without it no plugin or ecosystem package this project needs is in the module graph.`,
   );
 }
 

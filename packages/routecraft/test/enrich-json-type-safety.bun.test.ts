@@ -1,7 +1,7 @@
 import { describe, expectTypeOf, test } from "bun:test";
 import { z } from "zod";
 import { craft, simple, only, json } from "../src/index.ts";
-import type { RouteBuilder } from "../src/builder.ts";
+import { expectBodyOf } from "./helpers/types.ts";
 
 describe("schema() type safety", () => {
   const nameSchema = z.object({ name: z.string() });
@@ -9,15 +9,13 @@ describe("schema() type safety", () => {
   /**
    * @case schema(standardSchema) narrows body type to schema output
    * @preconditions .from(simple({ id: 0 })).schema(nameSchema)
-   * @expectedResult RouteBuilder<{ body: { name: string }; deferral?: unknown }> (StandardSchemaV1.InferOutput of schema)
+   * @expectedResult Body type is { name: string } (StandardSchemaV1.InferOutput of schema)
    */
-  test("schema(standardSchema) infers RouteBuilder with schema output type", () => {
+  test("schema(standardSchema) infers the schema output as body type", () => {
     const route = craft()
       .from(simple({ id: 0 }))
       .schema(nameSchema);
-    expectTypeOf(route).toEqualTypeOf<
-      RouteBuilder<{ body: { name: string }; deferral?: unknown }>
-    >();
+    expectBodyOf(route).toEqualTypeOf<{ name: string }>();
   });
 });
 
@@ -25,29 +23,25 @@ describe("validate() type safety", () => {
   /**
    * @case validate(callable) narrows body type via generic R
    * @preconditions .from(simple("42")).validate<number>(...)
-   * @expectedResult RouteBuilder<{ body: number; deferral?: unknown }>
+   * @expectedResult Body type is number
    */
-  test("validate(callable) infers RouteBuilder with return type R", () => {
+  test("validate(callable) infers return type R as body type", () => {
     const route = craft()
       .from(simple("42"))
       .validate<number>((exchange) => Number(exchange.body));
-    expectTypeOf(route).toEqualTypeOf<
-      RouteBuilder<{ body: number; deferral?: unknown }>
-    >();
+    expectBodyOf(route).toEqualTypeOf<number>();
   });
 
   /**
    * @case validate(Validator adapter) narrows body type via generic R
    * @preconditions .from(simple("hello")).validate<string>({ validate: ... })
-   * @expectedResult RouteBuilder<{ body: string; deferral?: unknown }>
+   * @expectedResult Body type is string
    */
-  test("validate(adapter) infers RouteBuilder with return type R", () => {
+  test("validate(adapter) infers return type R as body type", () => {
     const route = craft()
       .from(simple("hello"))
       .validate<string>({ validate: (ex) => ex.body.toUpperCase() });
-    expectTypeOf(route).toEqualTypeOf<
-      RouteBuilder<{ body: string; deferral?: unknown }>
-    >();
+    expectBodyOf(route).toEqualTypeOf<string>();
   });
 });
 
@@ -55,15 +49,13 @@ describe("enrich() without aggregator type safety", () => {
   /**
    * @case enrich(enricher) with no aggregator infers the replacement body R
    * @preconditions .from(simple({ userId: 1 })).enrich(async () => ({ links: [...] }))
-   * @expectedResult RouteBuilder<{ body: { links: string[] }; deferral?: unknown }>
+   * @expectedResult Body type is { links: string[] }
    */
   test("bare enrich(enricher) infers the replacement body R", () => {
     const route = craft()
       .from(simple({ userId: 1 }))
       .enrich(async () => ({ links: ["a", "b"] as string[] }));
-    expectTypeOf(route).toEqualTypeOf<
-      RouteBuilder<{ body: { links: string[] }; deferral?: unknown }>
-    >();
+    expectBodyOf(route).toEqualTypeOf<{ links: string[] }>();
   });
 
   /**
@@ -71,19 +63,14 @@ describe("enrich() without aggregator type safety", () => {
    *   body in the union (undefined means "no value, body unchanged" at
    *   runtime, so the static claim must include the previous body)
    * @preconditions Enricher typed to return { hit: string } | undefined (a cache miss)
-   * @expectedResult RouteBuilder<{ body: { userId: number } | { hit: string }; deferral?: unknown }>
+   * @expectedResult Body type is { userId: number } | { hit: string }
    */
   test("bare enrich with a nullable enricher unions the previous body", () => {
     const cache = new Map<number, { hit: string }>();
     const route = craft()
       .from(simple({ userId: 1 }))
       .enrich(async (ex) => cache.get(ex.body.userId));
-    expectTypeOf(route).toEqualTypeOf<
-      RouteBuilder<{
-        body: { userId: number } | { hit: string };
-        deferral?: unknown;
-      }>
-    >();
+    expectBodyOf(route).toEqualTypeOf<{ userId: number } | { hit: string }>();
   });
 });
 
@@ -91,7 +78,7 @@ describe("only() and json() type safety", () => {
   /**
    * @case only(getValue, into) with string literal into: enrich infers body type as Current & { [into]: V }
    * @preconditions only((r) => r.links, "links") with r typed
-   * @expectedResult Route after .enrich(..., only(..., "links")) is RouteBuilder<{ body: { userId: number } & { links: string[] }; deferral?: unknown }>
+   * @expectedResult Route after .enrich(..., only(..., "links")) has body type { userId: number } & { links: string[] }
    */
   test("enrich with only(..., literal into) infers merged body type", () => {
     const enricher = async () => ({ links: ["a", "b"] as string[] });
@@ -102,11 +89,8 @@ describe("only() and json() type safety", () => {
         only((r: { links: string[] }) => r.links, "links"),
       );
 
-    expectTypeOf(route).toEqualTypeOf<
-      RouteBuilder<{
-        body: { userId: number } & { links: string[] };
-        deferral?: unknown;
-      }>
+    expectBodyOf(route).toEqualTypeOf<
+      { userId: number } & { links: string[] }
     >();
   });
 

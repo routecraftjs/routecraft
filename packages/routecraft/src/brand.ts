@@ -7,6 +7,7 @@ export const BRAND = {
   CraftContext: Symbol.for("routecraft.CraftContext"),
   DefaultRoute: Symbol.for("routecraft.DefaultRoute"),
   RouteBuilder: Symbol.for("routecraft.RouteBuilder"),
+  Project: Symbol.for("routecraft.Project"),
   RouteDefinition: Symbol.for("routecraft.RouteDefinition"),
   RoutecraftError: Symbol.for("routecraft.RoutecraftError"),
   Exchange: Symbol.for("routecraft.Exchange"),
@@ -116,6 +117,11 @@ export function isRoute(obj: unknown): boolean {
 /**
  * Returns true if the value is a RouteBuilder instance (has .build()).
  */
+/** Whether a value is a project built by `defineProject`. */
+export function isProject(obj: unknown): boolean {
+  return isBranded(obj, BRAND.Project);
+}
+
 export function isRouteBuilder(obj: unknown): boolean {
   return isBranded(obj, BRAND.RouteBuilder);
 }

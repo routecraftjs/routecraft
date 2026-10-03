@@ -1,4 +1,6 @@
 import {
+  deferralOf,
+  principalOf,
   getExchangeContext,
   getExchangeRoute,
   markDeferCapable,
@@ -221,12 +223,12 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
     const deferral: AgentRunDeferral | undefined =
       dispatchIdentity && agentIdentity !== undefined && merged.stream !== true
         ? {
-            id: exchange.deferral.id,
+            id: deferralOf(exchange).id,
             // Lazy: minting reads the context's signer and throws RC5052
             // without a deferral runtime; a handler that never builds a
             // resume link should not pay for or fail on it.
             mintToken: (callBinding: string) =>
-              exchange.deferral.tokenFor(callBinding),
+              deferralOf(exchange).tokenFor(callBinding),
             agentId: agentIdentity,
           }
         : undefined;
@@ -245,7 +247,11 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
       : undefined;
     const resume: AgentRunResume | undefined =
       resumeRaw !== undefined && revivedDeferral === undefined
-        ? rehydrateSession(resumeRaw, agentIdentity, exchange.deferral.result)
+        ? rehydrateSession(
+            resumeRaw,
+            agentIdentity,
+            deferralOf(exchange).result,
+          )
         : undefined;
 
     const userTools = resolveAgentTools(
@@ -282,7 +288,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
     const system = appendPrincipalToSystem(
       withBlocks,
       merged.principal,
-      exchange.principal,
+      principalOf(exchange),
       exchange,
     );
 
@@ -405,7 +411,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
         key: sessionKey,
         agent: agentIdentity,
         exchange,
-        by: exchange.principal?.subject ?? null,
+        by: principalOf(exchange)?.subject ?? null,
         ...(revivedDeferral === undefined ? { message: user } : {}),
         ...(defer !== undefined ? { defer } : {}),
         ...(revivedDeferral !== undefined

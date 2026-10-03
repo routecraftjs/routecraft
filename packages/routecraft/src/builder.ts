@@ -14,8 +14,13 @@ import { BRAND, setBrand } from "./brand.ts";
 import {
   StepBuilderBase,
   type BuilderState,
+  type PathState,
+  type Retyped,
   type SetBody,
 } from "./step-builder-base.ts";
+import { BUILDER_KIND, CATALOGUE } from "./dsl-symbol.ts";
+import type { StepCatalogue } from "./kernel/steps.ts";
+import { shippedCatalogue, type ShippedPlugins } from "./plugins/catalogue.ts";
 import {
   type RouteDefinition,
   type ErrorHandler,
@@ -646,16 +651,17 @@ export interface PreFromTypedBuilder<
    * anyway (RC2001), so every channel validates to this one type. The
    * spread forms of {@link RouteBuilder.from} apply here too.
    */
-  from(...sources: SourceList): RouteBuilder<S>;
+  from(...sources: SourceList): Retyped<RouteBuilder<S>, S>;
   /**
    * Open the route with an explicit body type, overriding the staged one.
    */
-  from<T>(...sources: SourceList): RouteBuilder<SetBody<S, T>>;
+  from<T>(...sources: SourceList): Retyped<RouteBuilder<S>, SetBody<S, T>>;
 }
 
 export class RouteBuilder<
   S extends BuilderState = BuilderState,
 > extends StepBuilderBase<S> {
+  declare readonly [BUILDER_KIND]: "route";
   protected currentRoute?: RouteDefinition;
   protected routes: RouteDefinition[] = [];
   /**
@@ -685,8 +691,8 @@ export class RouteBuilder<
       }
     | undefined;
 
-  constructor() {
-    super();
+  constructor(catalogue?: StepCatalogue) {
+    super(catalogue);
     setBrand(this, BRAND.RouteBuilder);
   }
 
@@ -702,7 +708,7 @@ export class RouteBuilder<
    * craft().id('ingest-api').from(http({ path: '/ingest', method: 'POST' })).to(log()).build();
    * ```
    */
-  id(id: string): PreFromBuilder {
+  id(id: string): PreFromBuilder<NextRouteState<S>> {
     this.assertNoPendingWrappers("id");
     this.pendingOptions = { ...(this.pendingOptions ?? {}), id };
     logger.trace({ route: id }, "Staging route id for next route");
@@ -714,7 +720,7 @@ export class RouteBuilder<
    * direct / mcp registries so discovery consumers (agents, docs) can
    * display it alongside the id.
    */
-  title(value: string): PreFromBuilder {
+  title(value: string): PreFromBuilder<NextRouteState<S>> {
     this.mergeDiscovery({ title: value });
     return this.prelude();
   }
@@ -724,7 +730,7 @@ export class RouteBuilder<
    * discovery-aware adapters when exposing the route to external consumers
    * (agents, MCP clients).
    */
-  description(value: string): PreFromBuilder {
+  description(value: string): PreFromBuilder<NextRouteState<S>> {
     this.mergeDiscovery({ description: value });
     return this.prelude();
   }
@@ -774,7 +780,7 @@ export class RouteBuilder<
   enabled(
     predicate: EnablementPredicate,
     options?: EnablementOptions,
-  ): PreFromBuilder {
+  ): PreFromBuilder<NextRouteState<S>> {
     if (typeof predicate !== "function") {
       throw rcError("RC2001", undefined, {
         message: `.enabled() takes a predicate function returning true or a reason string, got ${typeof predicate}.`,
@@ -849,10 +855,12 @@ export class RouteBuilder<
   input<Schema extends StandardSchemaV1>(
     schemas: Schema | (RouteSchemas & { body: Schema }),
   ): PreFromTypedBuilder<SetBody<S, StandardSchemaV1.InferOutput<Schema>>>;
-  input(schemas: RouteSchemas): PreFromBuilder;
+  input(schemas: RouteSchemas): PreFromBuilder<NextRouteState<S>>;
   input(
     schemas: RouteSchemas | StandardSchemaV1,
-  ): PreFromBuilder | PreFromTypedBuilder<SetBody<S, unknown>> {
+  ):
+    | PreFromBuilder<NextRouteState<S>>
+    | PreFromTypedBuilder<SetBody<S, unknown>> {
     this.mergeDiscovery({ input: this.normalizeSchemas(schemas) });
     return this.prelude();
   }
@@ -864,7 +872,9 @@ export class RouteBuilder<
    * either a bundle (`{ body, headers }`) or a bare Standard Schema as a
    * body-only shorthand.
    */
-  output(schemas: RouteSchemas | StandardSchemaV1): PreFromBuilder {
+  output(
+    schemas: RouteSchemas | StandardSchemaV1,
+  ): PreFromBuilder<NextRouteState<S>> {
     this.mergeDiscovery({ output: this.normalizeSchemas(schemas) });
     return this.prelude();
   }
@@ -882,7 +892,7 @@ export class RouteBuilder<
    * `destructiveHint`, `idempotentHint`, `openWorldHint`), so the same fact is
    * declared once; explicit `annotations` on `mcp()` still override per-key.
    */
-  tag(value: Tag | Tag[]): PreFromBuilder {
+  tag(value: Tag | Tag[]): PreFromBuilder<NextRouteState<S>> {
     const incoming = (Array.isArray(value) ? value : [value]).map((t) => {
       if (typeof t !== "string" || t.trim() === "") {
         throw rcError("RC2001", undefined, {
@@ -934,7 +944,10 @@ export class RouteBuilder<
    * craft().batch({ size: 10, flushInterval: "1s" }).from(timer({ interval: "1s" })).to(log()).build();
    * ```
    */
-  batch(options?: { size?: number; flushInterval?: Duration }): PreFromBuilder {
+  batch(options?: {
+    size?: number;
+    flushInterval?: Duration;
+  }): PreFromBuilder<NextRouteState<S>> {
     rejectStaleOptions(options, "batch");
     const mapped = {
       size: options?.size,
@@ -1310,7 +1323,7 @@ export class RouteBuilder<
    *   .id('admin').authorize({ roles: ['admin'] }).from(adminSrc).to(noop())
    * ```
    */
-  authorize(options?: AuthorizeOptions): PreFromBuilder {
+  authorize(options?: AuthorizeOptions): PreFromBuilder<NextRouteState<S>> {
     const next = this.pendingOptions ?? {};
     const existing = next.authorizers ?? [];
     this.pendingOptions = {
@@ -1362,10 +1375,10 @@ export class RouteBuilder<
    * {@link PreFromTypedBuilder.from} instead, where the staged schema type
    * seeds the body so multi-ingress is typed without an explicit generic.
    */
-  from<T>(source: SourceLike<T>): RouteBuilder<SetBody<S, T>>;
+  from<T>(source: SourceLike<T>): Retyped<this, SetBody<S, T>>;
   // Stays last so a single source still resolves to the inferring overload above.
-  from<T>(...sources: SourceList): RouteBuilder<SetBody<S, T>>;
-  from<T>(...sources: Array<SourceLike<T>>): RouteBuilder<SetBody<S, T>> {
+  from<T>(...sources: SourceList): Retyped<this, SetBody<S, T>>;
+  from<T>(...sources: Array<SourceLike<T>>): Retyped<this, SetBody<S, T>> {
     this.assertNoPendingWrappers("from");
     if (sources.length === 0) {
       throw rcError("RC2001", undefined, {
@@ -1459,8 +1472,8 @@ export class RouteBuilder<
    * the base class: there is one runtime object, and position in the chain
    * decides which type-level surface is reachable.
    */
-  private prelude(): PreFromBuilder {
-    return this as unknown as PreFromBuilder;
+  private prelude(): PreFromBuilder<NextRouteState<S>> {
+    return this as unknown as PreFromBuilder<NextRouteState<S>>;
   }
 
   /**
@@ -1545,7 +1558,7 @@ export class RouteBuilder<
   split<ItemType = S["body"] extends Array<infer U> ? U : S["body"]>(
     splitter?:
       Splitter<S["body"], ItemType> | CallableSplitter<S["body"], ItemType>,
-  ): RouteBuilder<SetBody<S, ItemType>> {
+  ): Retyped<this, SetBody<S, ItemType>> {
     // If no splitter is provided, use default splitter: arrays are split, non-arrays as single item
     if (!splitter) {
       const defaultSplitter: CallableSplitter<S["body"], ItemType> = (
@@ -1589,7 +1602,7 @@ export class RouteBuilder<
     aggregator?:
       | Aggregator<S["body"], ResultType>
       | CallableAggregator<S["body"], ResultType>,
-  ): RouteBuilder<SetBody<S, ResultType>> {
+  ): Retyped<this, SetBody<S, ResultType>> {
     if (!aggregator) {
       // Use default aggregator which collects bodies into an array
       this.pushStep(
@@ -1645,10 +1658,13 @@ export class RouteBuilder<
    * ```
    */
   choice<Out = S["body"]>(
-    ...descriptors: ChoiceDescriptor<S["body"], Out>[]
-  ): RouteBuilder<SetBody<S, Out>> {
+    ...descriptors: ChoiceDescriptor<S["body"], Out, S["plugins"]>[]
+  ): Retyped<this, SetBody<S, Out>> {
     this.pushStep(
-      buildChoiceStep(descriptors as ChoiceDescriptor<unknown, unknown>[]),
+      buildChoiceStep(
+        descriptors as ChoiceDescriptor<unknown, unknown, unknown>[],
+        this[CATALOGUE],
+      ),
     );
     return this.retype<Out>();
   }
@@ -1700,8 +1716,14 @@ export class RouteBuilder<
    * .to(next); // runs on the original exchange after all paths settle
    * ```
    */
-  multicast(...paths: Path<S["body"], unknown>[]): RouteBuilder<S> {
-    this.pushStep(new MulticastStep(paths.map((path) => compilePath(path))));
+  multicast(...paths: Path<S["body"], unknown, S["plugins"]>[]): this {
+    this.pushStep(
+      new MulticastStep(
+        paths.map((path) =>
+          compilePath(path as Path<unknown, unknown, unknown>, this[CATALOGUE]),
+        ),
+      ),
+    );
     return this;
   }
 
@@ -1746,12 +1768,13 @@ export class RouteBuilder<
    */
   dispatch(
     strategy: DispatchStrategy<S["body"]>,
-    ...targets: DispatchTarget<S["body"], unknown>[]
-  ): RouteBuilder<S> {
+    ...targets: DispatchTarget<S["body"], unknown, S["plugins"]>[]
+  ): this {
     this.pushStep(
       buildDispatchStep(
         strategy as DispatchStrategy<unknown>,
-        targets as DispatchTarget<unknown, unknown>[],
+        targets as DispatchTarget<unknown, unknown, unknown>[],
+        this[CATALOGUE],
       ),
     );
     return this;
@@ -1786,7 +1809,7 @@ export class RouteBuilder<
    * .process(reloadConfig)
    * ```
    */
-  debounce(options: DebounceOptions<S["body"]>): RouteBuilder<S> {
+  debounce(options: DebounceOptions<S["body"]>): this {
     this.pushStep(buildDebounceStep(options));
     return this;
   }
@@ -1877,6 +1900,24 @@ export class RouteBuilder<
  *   .to(log())
  * ```
  */
-export function craft(): PreFromBuilder {
-  return new RouteBuilder();
+export function craft(): PreFromBuilder<RootState> {
+  return new RouteBuilder(
+    shippedCatalogue,
+  ) as unknown as PreFromBuilder<RootState>;
 }
+
+/**
+ * The state the root `craft()` starts a route in: typed by every plugin
+ * `@routecraft/routecraft` ships. A route that uses a step of a plugin its
+ * application does not install refuses to start (`RC1111`).
+ */
+export type RootState = PathState<unknown, ShippedPlugins>;
+
+/**
+ * The state a staging method (`.id()`, `.title()`, ...) opens the next route
+ * in: a fresh body, the same plugins.
+ */
+export type NextRouteState<S extends BuilderState> = PathState<
+  unknown,
+  S["plugins"]
+>;

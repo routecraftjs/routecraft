@@ -1,6 +1,6 @@
 import type { CraftContext } from "../context.ts";
 import type { Capability } from "../capabilities.ts";
-import type { ExchangeHeaders } from "../exchange.ts";
+import type { Exchange, ExchangeHeaders } from "../exchange.ts";
 import type { logger } from "../logger.ts";
 import type { RouteDefinition } from "../route.ts";
 import type { EventDetailsMap, EventHandler, EventName } from "../types.ts";
@@ -10,6 +10,7 @@ import type {
 } from "../deferral/revive.ts";
 import type { AnyPort, Port } from "./port.ts";
 import type { Hooks, PointDeclaration } from "./hooks.ts";
+import type { StepFactory } from "./steps.ts";
 
 /** The logger every plugin context carries. */
 export type PluginLogger = ReturnType<typeof logger.child>;
@@ -203,6 +204,19 @@ export interface Plugin {
    * (`ctx.invoke(name, exchange)`), where other plugins add hooks.
    */
   readonly points?: readonly PointDeclaration[];
+  /**
+   * Route methods this plugin adds, by name. Each entry takes the method's
+   * arguments and returns the step, built with `step<In, Out>()` so the
+   * method is typed by the body it accepts and leaves. A route that uses one
+   * refuses to start unless this plugin is installed (`RC1111`).
+   */
+  readonly steps?: Readonly<Record<string, StepFactory>>;
+  /**
+   * `ex.<namespace>`: what this plugin makes readable on every exchange.
+   * Computed from the exchange on each read and never stored, so it can
+   * never disagree with the body and headers it derives from.
+   */
+  readonly facet?: (exchange: Exchange) => unknown;
   /** Require, provide, observe, register routes. Runs in dependency order. */
   bind?(context: PluginContext): void | Promise<void>;
   /**

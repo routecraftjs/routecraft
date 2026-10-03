@@ -24,6 +24,7 @@ import {
   type Principal,
   type Source,
   type RouteBuilder,
+  principalOf,
 } from "../../src/index.ts";
 import { missingScopes } from "../../src/auth/authorize.ts";
 
@@ -58,7 +59,7 @@ describe("authorize() validator", () => {
   /**
    * @case Validator returns body unchanged when an authenticated principal is present
    * @preconditions Route .process() attaches a principal then .validate(authorize()) runs
-   * @expectedResult Spy destination receives the body, exchange.principal is preserved
+   * @expectedResult Spy destination receives the body, ex.auth.principal is preserved
    */
   test("passes through when principal is present", async () => {
     const s = spy<string>();
@@ -81,12 +82,12 @@ describe("authorize() validator", () => {
     await t.test();
 
     expect(s.receivedBodies()).toEqual(["hello"]);
-    expect(s.lastReceived().principal).toEqual(principal);
+    expect(principalOf(s.lastReceived())).toEqual(principal);
   });
 
   /**
    * @case Validator throws RC5012 when no principal is attached to the exchange
-   * @preconditions Route uses .validate(authorize()) but never sets exchange.principal
+   * @preconditions Route uses .validate(authorize()) but never sets ex.auth.principal
    * @expectedResult exchange:failed event fires with an RC5012-coded error and the destination is skipped
    */
   test("rejects with RC5012 when no principal is present", async () => {
@@ -620,7 +621,7 @@ describe(".authorize() positional rules", () => {
   });
 });
 
-describe("exchange.principal propagation", () => {
+describe("ex.auth.principal propagation", () => {
   let t: TestContext;
 
   afterEach(async () => {
@@ -652,7 +653,7 @@ describe("exchange.principal propagation", () => {
       .build();
     await t.test();
 
-    expect(s.lastReceived().principal).toEqual(principal);
+    expect(principalOf(s.lastReceived())).toEqual(principal);
   });
 
   /**
@@ -681,7 +682,7 @@ describe("exchange.principal propagation", () => {
     await t.test();
 
     expect(s.receivedBodies()).toEqual(["hello!"]);
-    expect(s.lastReceived().principal).toEqual(principal);
+    expect(principalOf(s.lastReceived())).toEqual(principal);
   });
 
   /**
@@ -707,7 +708,7 @@ describe("exchange.principal propagation", () => {
       .build();
     await t.test();
 
-    expect(s.lastReceived().principal).toEqual(principal);
+    expect(principalOf(s.lastReceived())).toEqual(principal);
   });
 
   /**
@@ -736,8 +737,8 @@ describe("exchange.principal propagation", () => {
       .build();
     await t.test();
 
-    expect(main.lastReceived().principal).toEqual(principal);
-    expect(tapped.lastReceived().principal).toEqual(principal);
+    expect(principalOf(main.lastReceived())).toEqual(principal);
+    expect(principalOf(tapped.lastReceived())).toEqual(principal);
   });
 
   /**
@@ -781,7 +782,7 @@ describe("exchange.principal propagation", () => {
             // does not isolate nested mutations of structured header
             // values. The mutation leaks into the tap snapshot because
             // they share the same `principal` object reference.
-            (ex.principal!.claims as { tenant: string }).tenant = "after";
+            (ex.auth.principal!.claims as { tenant: string }).tenant = "after";
             return ex;
           })
           .to(main),
@@ -790,10 +791,10 @@ describe("exchange.principal propagation", () => {
     await t.test();
 
     expect(
-      (main.lastReceived().principal!.claims as { tenant: string }).tenant,
+      (principalOf(main.lastReceived())!.claims as { tenant: string }).tenant,
     ).toBe("after");
     expect(
-      (tapped.lastReceived().principal!.claims as { tenant: string }).tenant,
+      (principalOf(tapped.lastReceived())!.claims as { tenant: string }).tenant,
     ).toBe("after");
   });
 });
@@ -1127,7 +1128,10 @@ describe("authorize() anyScope", () => {
   ): unknown {
     const check = authorize(options);
     try {
-      check({ body: "x", principal } as unknown as Parameters<typeof check>[0]);
+      check({
+        body: "x",
+        headers: { [HeadersKeys.AUTH_PRINCIPAL]: principal },
+      } as unknown as Parameters<typeof check>[0]);
       return undefined;
     } catch (err) {
       return err;

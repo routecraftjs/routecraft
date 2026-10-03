@@ -123,7 +123,7 @@ describe("agent blocks: resolver client.forward()", () => {
           .authorize({ scopes: ["kb:read"] })
           .from(direct())
           .transform(
-            (_body: unknown, ex) => `Notes for ${ex.principal?.subject}`,
+            (_body: unknown, ex) => `Notes for ${ex.auth.principal?.subject}`,
           ),
         craft()
           .id("guarded-chat")

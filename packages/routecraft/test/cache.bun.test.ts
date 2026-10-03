@@ -1771,7 +1771,10 @@ describe(".cache() default key identity", () => {
           .cache({ provider: new MemoryCacheProvider() })
           .process((ex) =>
             DefaultExchange.rewrap(ex, {
-              body: { subject: ex.principal?.subject ?? null, run: ++runs },
+              body: {
+                subject: ex.auth.principal?.subject ?? null,
+                run: ++runs,
+              },
             }),
           )
           .to(sink),
@@ -2206,7 +2209,7 @@ describe(".cache() default key identity", () => {
           .process((ex) =>
             DefaultExchange.rewrap(ex, {
               body: {
-                actor: ex.principal?.actor?.subject ?? null,
+                actor: ex.auth.principal?.actor?.subject ?? null,
                 run: ++runs,
               },
             }),
@@ -2323,7 +2326,7 @@ describe(".cache() default key identity", () => {
         .from(http({ path: "/me", method: "POST" }))
         .process((ex) =>
           DefaultExchange.rewrap(ex, {
-            body: { subject: ex.principal?.subject ?? null, run: ++runs },
+            body: { subject: ex.auth.principal?.subject ?? null, run: ++runs },
           }),
         )
         .to(noop()),

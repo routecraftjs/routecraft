@@ -45,6 +45,7 @@ export {
   DefaultExchange,
   type Exchange,
   type ExchangeHeaders,
+  deferralOf,
   getExchangeContext,
   getExchangeRoute,
   HeadersKeys,
@@ -53,6 +54,7 @@ export {
   isDropped,
   OperationType,
   peekResumeStepState,
+  principalOf,
   wasOutputValidated,
   type RoutecraftHeaders,
 } from "./exchange.ts";
@@ -96,6 +98,13 @@ export {
 } from "./plugins/resilience/index.ts";
 export { cachePlugin, cacheProvider } from "./plugins/cache/index.ts";
 export { authPlugin, enforcementProvider } from "./plugins/auth/index.ts";
+export {
+  AUTHORITY,
+  authorityOf,
+  defaultAuthority,
+  principalsPlugin,
+  type Authority,
+} from "./plugins/principals/index.ts";
 export { directPlugin } from "./plugins/direct/index.ts";
 export {
   refuse,
@@ -384,6 +393,7 @@ export {
   PathBuilder,
   when,
   otherwise,
+  type BranchBuilder,
   type ChoicePredicate,
   type Path,
   type WhenDescriptor,
@@ -474,15 +484,12 @@ export {
 
 /**
  * Type-only re-exports of the shared builder base and its type-state
- * machinery. Exposed so that `registerDsl` can augment a single interface
- * (`StepBuilderBase<S extends BuilderState>`) and have both `RouteBuilder`
- * and `PathBuilder` inherit the augmentation via class-interface
- * inheritance; `SetBody`, `SetDeferral` and `Retyped` are the helpers
- * type-changing sugar uses to advance the bag. `ExchangeOf` and `PathState`
- * are published for the same reason: both appear in signatures a user can
- * see (`ExchangeOf` in every callable-taking builder method, `PathState` in
- * the exported `Path` / `when()` / `otherwise()` types), so naming them has
- * to be possible without re-declaring them. The class value is deliberately
+ * machinery. `SetBody`, `SetDeferral` and `Retyped` are what a plugin's
+ * `StepMethods` declaration types a call-site-generic method with.
+ * `ExchangeOf` and `PathState` appear in signatures a user can see
+ * (`ExchangeOf` in every callable-taking builder method, `PathState` in the
+ * exported `Path` / `when()` / `otherwise()` types), so naming them has to
+ * be possible without re-declaring them. The class value is deliberately
  * not re-exported: the base is not a public extension point and the
  * closed-world `Retyped` helper falls through to `never` for any subclass
  * outside the framework-owned set.
@@ -494,6 +501,7 @@ export type {
   PathState,
   SetBody,
   SetDeferral,
+  BodyOf,
   FetchedBody,
   Retyped,
 } from "./step-builder-base.ts";
@@ -501,12 +509,21 @@ export type {
 export { CraftClient } from "./client.ts";
 
 export {
-  registerDsl,
-  type PrimitiveKind,
-  type DslRegistration,
-} from "./dsl.ts";
-// Side-effect import: triggers built-in sugar registrations (.log, .debug, .map, .schema)
-import "./dsl.ts";
+  step,
+  type Body,
+  type FacetsOf,
+  type FacetTypes,
+  type PluginMethods,
+  type StepFactory,
+  type StepMethods,
+  type TypedStep,
+} from "./kernel/steps.ts";
+export type { DefaultPlugins, ShippedPlugins } from "./plugins/catalogue.ts";
+export type { AuthFacet, AuthPlugin } from "./plugins/auth/index.ts";
+export type { DeferralPlugin } from "./deferral/config.ts";
+export { defineProject, type Project } from "./project.ts";
+// The deferral plugin's method and facet types are declared there.
+import "./deferral/steps.ts";
 
 export {
   RoutecraftError,
@@ -553,6 +570,7 @@ export type { Duration, DurationUnit } from "./shared/duration.ts";
 export {
   isCraftContext,
   isRoute,
+  isProject,
   isRouteBuilder,
   isRouteDefinition,
   isRoutecraftError,

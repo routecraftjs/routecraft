@@ -13,7 +13,8 @@ import {
   isRoutecraftError,
   isDeferred,
   isDevelopmentRuntime,
-  markAuthentic,
+  defaultAuthority,
+  type Authority,
   rcError,
   requireWebIngress,
   type CallerRefusalOrigin,
@@ -220,6 +221,11 @@ export interface McpServerHost {
    * server: the plugin context, which declares the port optional.
    */
   readonly ingress: IngressLookup;
+  /**
+   * Brands the identities the server verifies, for the gates to trust. The
+   * default authority when absent.
+   */
+  readonly authority?: Authority;
 }
 
 /** Anything that can look a port up: a plugin context, or a context. */
@@ -1397,7 +1403,7 @@ export class McpServer {
         [McpHeadersKeys.REQUEST]: crypto.randomUUID(),
       };
       if (principal) {
-        admitted = markAuthentic(principal);
+        admitted = (this.host.authority ?? defaultAuthority).brand(principal);
         headers[HeadersKeys.AUTH_PRINCIPAL] = admitted;
       }
 
@@ -1532,6 +1538,10 @@ export class McpServer {
           proxied.exposedName,
           NEVER_ABORTED,
           principal,
+          undefined,
+          undefined,
+          undefined,
+          this.host.authority ?? defaultAuthority,
         );
         await guard(args, guardCtx);
       }

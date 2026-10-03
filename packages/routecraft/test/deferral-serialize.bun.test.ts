@@ -8,6 +8,7 @@ import {
   isAuthentic,
   isRestored,
   type Exchange,
+  principalOf,
 } from "../src/index.ts";
 // The serializer is engine machinery, not public API: it is reached through
 // the intra-package barrel the executor uses, not the package index.
@@ -451,9 +452,9 @@ describe("restored principals", () => {
       ),
     );
 
-    expect(revived.principal?.subject).toBe("user:jaco");
-    expect(isRestored(revived.principal)).toBe(true);
-    expect(isAuthentic(revived.principal)).toBe(false);
+    expect(principalOf(revived)?.subject).toBe("user:jaco");
+    expect(isRestored(principalOf(revived))).toBe(true);
+    expect(isAuthentic(principalOf(revived))).toBe(false);
   });
 
   /**
@@ -493,7 +494,7 @@ describe("restored principals", () => {
       context,
       serializeExchange(exchangeWith({ amountCents: 1 })),
     );
-    expect(revived.principal).toBeUndefined();
+    expect(principalOf(revived)).toBeUndefined();
   });
 
   /**
@@ -513,7 +514,7 @@ describe("restored principals", () => {
     );
     const twice = deserializeExchange(context, serializeExchange(once));
 
-    expect(isRestored(twice.principal)).toBe(true);
-    expect(isAuthentic(twice.principal)).toBe(false);
+    expect(isRestored(principalOf(twice))).toBe(true);
+    expect(isAuthentic(principalOf(twice))).toBe(false);
   });
 });

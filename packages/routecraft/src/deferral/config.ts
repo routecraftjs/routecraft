@@ -1,5 +1,12 @@
 import type { CraftContext } from "../context.ts";
-import type { Plugin, PluginContext } from "../kernel/plugin.ts";
+import {
+  definePlugin,
+  type Plugin,
+  type PluginContext,
+} from "../kernel/plugin.ts";
+import { deferralOf, type Exchange } from "../exchange.ts";
+import type { DeferralAffordance } from "./exchange-state.ts";
+import { deferralSteps } from "./steps.ts";
 import { registerConfigApplier } from "../config-applier.ts";
 import { CONTINUATIONS } from "./runtime-key.ts";
 import { registerDeferralsResource } from "./ops-resource.ts";
@@ -334,7 +341,7 @@ export async function createDeferralRuntime(
  * signing secret fails at startup, and closes the store during teardown,
  * but only a store it opened itself.
  */
-export function deferralPlugin(config: DeferralConfig = {}): Plugin {
+export function deferralPlugin(config: DeferralConfig = {}): DeferralPlugin {
   // Keyed by the plugin context, not a closure slot: one descriptor can serve
   // two applications in the same process (a `defineConfig` export reused
   // across tests), and a single slot would let the second start overwrite the
@@ -344,10 +351,12 @@ export function deferralPlugin(config: DeferralConfig = {}): Plugin {
     { runtime: DeferralRuntime; sweeper?: DeferralSweeper }
   >();
 
-  return {
+  return definePlugin({
     id: "routecraft.deferral",
     provides: [CONTINUATIONS],
     optional: [OPS],
+    steps: deferralSteps,
+    facet: deferralOf,
     async bind(c: PluginContext) {
       const ctx = c.context;
       // Registration first: it throws on a name collision, and a bind that
@@ -381,7 +390,18 @@ export function deferralPlugin(config: DeferralConfig = {}): Plugin {
       await run.sweeper?.stop();
       if (run.runtime.ownsStore) await run.runtime.store.close();
     },
-  };
+  });
+}
+
+/**
+ * The deferral plugin's descriptor type, for typing a project's routes.
+ * Declared rather than inferred from {@link deferralPlugin}, so typing a
+ * route never depends on the plugin's implementation.
+ */
+export interface DeferralPlugin extends Plugin {
+  readonly id: "routecraft.deferral";
+  readonly steps: typeof deferralSteps;
+  readonly facet: (exchange: Exchange) => DeferralAffordance;
 }
 
 registerConfigApplier("deferral", (options) => deferralPlugin(options));

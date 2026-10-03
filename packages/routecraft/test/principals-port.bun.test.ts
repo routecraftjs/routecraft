@@ -1,0 +1,108 @@
+import { afterEach, describe, expect, test } from "bun:test";
+import { testContext, type TestContext } from "@routecraft/testing";
+import {
+  AUTHORITY,
+  authorize,
+  craft,
+  defaultAuthority,
+  definePlugin,
+  direct,
+  noop,
+  type Authority,
+} from "../src/index.ts";
+
+/**
+ * Every mint and every trust check goes through the application's
+ * `AUTHORITY`, so a replacement decides both sides and a gate never
+ * disagrees with the step that minted.
+ */
+describe("the principals port", () => {
+  let t: TestContext | undefined;
+
+  afterEach(async () => {
+    if (t) await t.stop();
+    t = undefined;
+  });
+
+  /**
+   * @case A replaced authority mints in .authenticate() and is consulted by .authorize()
+   * @preconditions A plugin replaces AUTHORITY with one that delegates to the default and records mint and isAuthentic calls; a route authenticates then validates with authorize()
+   * @expectedResult The exchange passes the gate, and both the mint and the trust check reached the replacement
+   */
+  test("a replacement authority both mints and decides trust", async () => {
+    const calls: string[] = [];
+    const recording: Authority = {
+      ...defaultAuthority,
+      mint(claims) {
+        calls.push("mint");
+        return defaultAuthority.mint(claims);
+      },
+      isAuthentic(principal): principal is never {
+        calls.push("isAuthentic");
+        return defaultAuthority.isAuthentic(principal);
+      },
+    };
+    const replacement = definePlugin({
+      id: "test.authority",
+      provides: [AUTHORITY],
+      replaces: [AUTHORITY],
+      bind(c) {
+        c.provide(AUTHORITY, recording);
+      },
+    });
+
+    t = await testContext()
+      .with({ plugins: [replacement] })
+      .routes(
+        craft()
+          .id("gated")
+          .from(direct())
+          .authenticate(() => ({ scheme: "test", subject: "ada" }))
+          .validate(authorize())
+          .to(noop()),
+      )
+      .build();
+    await t.startAndWaitReady();
+
+    await t.client.sendDirect("gated", "x");
+    expect(calls).toContain("mint");
+    expect(calls).toContain("isAuthentic");
+  });
+
+  /**
+   * @case A principal the default authority branded is not trusted by a replacement that does not recognise it
+   * @preconditions A replacement authority whose isAuthentic always answers false; a route authenticates then validates with authorize()
+   * @expectedResult The gate refuses with RC5023, because trust is the application's authority's call alone
+   */
+  test("a replacement's answer is the gate's answer", async () => {
+    const distrusting: Authority = {
+      ...defaultAuthority,
+      isAuthentic: (_principal: unknown): _principal is never => false,
+    };
+    const replacement = definePlugin({
+      id: "test.distrusting",
+      provides: [AUTHORITY],
+      replaces: [AUTHORITY],
+      bind(c) {
+        c.provide(AUTHORITY, distrusting);
+      },
+    });
+
+    t = await testContext()
+      .with({ plugins: [replacement] })
+      .routes(
+        craft()
+          .id("refused")
+          .from(direct())
+          .authenticate(() => ({ scheme: "test", subject: "ada" }))
+          .validate(authorize())
+          .to(noop()),
+      )
+      .build();
+    await t.startAndWaitReady();
+
+    await expect(t.client.sendDirect("refused", "x")).rejects.toMatchObject({
+      rc: "RC5023",
+    });
+  });
+});

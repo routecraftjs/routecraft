@@ -1,8 +1,7 @@
 import { randomUUID } from "node:crypto";
 import {
   HeadersKeys,
-  isAuthentic,
-  markAuthentic,
+  type Authority,
   rcCodeOf,
   rcError,
   type Capability,
@@ -15,6 +14,7 @@ import type {
   FnOptions,
   ReadonlyPrincipal,
 } from "../../fn/types.ts";
+import { authorityOfHandler } from "../../fn/handler-context.ts";
 import type { BackgroundOutcome } from "../session/runtime.ts";
 import {
   LAZY_FN_BRAND,
@@ -44,14 +44,17 @@ import { isDownstreamDeferred } from "../downstream-deferred.ts";
  * agent -> tool boundary. The agent layer never mints or escalates: it only
  * forwards the identity it was handed.
  */
-function cloneFrozenPrincipal(rp: ReadonlyPrincipal): Principal {
+function cloneFrozenPrincipal(
+  rp: ReadonlyPrincipal,
+  authority: Authority,
+): Principal {
   const out: Principal = { ...rp } as Principal;
   if (rp.audience) out.audience = [...rp.audience];
   if (rp.scopes) out.scopes = [...rp.scopes];
   if (rp.roles) out.roles = [...rp.roles];
   if (rp.claims)
     out.claims = structuredClone(rp.claims) as Record<string, unknown>;
-  return isAuthentic(rp) ? markAuthentic(out) : out;
+  return authority.isAuthentic(rp) ? authority.brand(out) : out;
 }
 
 /**
@@ -232,7 +235,10 @@ function dispatchHeaders(hctx: FnHandlerContext): Record<string, unknown> {
     headers[HeadersKeys.CORRELATION_ID] = hctx.correlationId;
   }
   if (hctx.principal) {
-    headers[HeadersKeys.AUTH_PRINCIPAL] = cloneFrozenPrincipal(hctx.principal);
+    headers[HeadersKeys.AUTH_PRINCIPAL] = cloneFrozenPrincipal(
+      hctx.principal,
+      authorityOfHandler(hctx),
+    );
   }
   return headers;
 }

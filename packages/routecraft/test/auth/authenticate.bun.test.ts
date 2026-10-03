@@ -9,6 +9,7 @@ import {
   simple,
   type EventName,
   type Principal,
+  principalOf,
 } from "../../src/index.ts";
 
 type FailedEventDetails = { details: { error: unknown } };
@@ -159,8 +160,8 @@ describe(".authenticate() operation and authorize() authenticity gate", () => {
     await t.test();
 
     expect(s.receivedBodies()).toEqual(["hello"]);
-    expect(s.lastReceived().principal?.subject).toBe("user-1");
-    expect(isAuthentic(s.lastReceived().principal)).toBe(true);
+    expect(principalOf(s.lastReceived())?.subject).toBe("user-1");
+    expect(isAuthentic(principalOf(s.lastReceived()))).toBe(true);
   });
 
   /**
@@ -263,7 +264,7 @@ describe(".authenticate() operation and authorize() authenticity gate", () => {
             headers: {
               ...ex.headers,
               "routecraft.auth.principal": {
-                ...(ex.principal as Principal),
+                ...(ex.auth.principal as Principal),
                 roles: ["admin"],
               },
             },
@@ -306,7 +307,7 @@ describe(".authenticate() operation and authorize() authenticity gate", () => {
           .from(simple("hello"))
           .authenticate(() => ({ subject: "user-1", roles: ["user"] }))
           .process((ex) => {
-            const real = ex.principal as object;
+            const real = ex.auth.principal as object;
             const forged: Record<string | symbol, unknown> = {
               kind: "custom",
               scheme: "x",

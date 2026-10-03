@@ -15,11 +15,13 @@ import {
   authorize,
   craft,
   delegate,
+  HeadersKeys,
   isAuthentic,
   markAuthentic,
   simple,
   type Principal,
   type PrincipalClaims,
+  principalOf,
 } from "../../src/index.ts";
 
 const EYWA_ISS = "https://agents.example.com";
@@ -279,7 +281,7 @@ describe("delegation state cannot be forged", () => {
   /**
    * @case The actor chain and mayAct of an authentic principal cannot be mutated in place
    * @preconditions Authentic principal carrying a two-hop chain and a mayAct entry
-   * @expectedResult Rewriting the current actor, a nested actor, or pushing to mayAct all throw, so a holder of ex.principal cannot rewrite policy inputs
+   * @expectedResult Rewriting the current actor, a nested actor, or pushing to mayAct all throw, so a holder of ex.auth.principal cannot rewrite policy inputs
    */
   test("freezes the chain and the consent list", () => {
     const withConsent = authenticate({
@@ -309,7 +311,7 @@ describe("delegation state cannot be forged", () => {
   /**
    * @case The subject's own policy arrays are frozen on any authentic principal
    * @preconditions Plain authenticate() mint carrying roles and scopes
-   * @expectedResult Pushing onto principal.roles or principal.scopes throws, so a holder of ex.principal cannot escalate an authentic identity in place
+   * @expectedResult Pushing onto principal.roles or principal.scopes throws, so a holder of ex.auth.principal cannot escalate an authentic identity in place
    */
   test("freezes the subject's own roles and scopes", () => {
     const principal = authenticate({
@@ -417,9 +419,10 @@ describe("delegation state cannot be forged", () => {
     const check = authorize({ actor: "any" });
     expect(
       thrownString(() =>
-        check({ body: "x", principal } as unknown as Parameters<
-          typeof check
-        >[0]),
+        check({
+          body: "x",
+          headers: { [HeadersKeys.AUTH_PRINCIPAL]: principal },
+        } as unknown as Parameters<typeof check>[0]),
       ),
     ).toContain("RC5036");
   });
@@ -672,7 +675,10 @@ describe("authorize() delegation awareness", () => {
     const check = authorize({ scopes: ["mail:send", "employees:read"] });
     let caught: unknown;
     try {
-      check({ body: "x", principal } as unknown as Parameters<typeof check>[0]);
+      check({
+        body: "x",
+        headers: { [HeadersKeys.AUTH_PRINCIPAL]: principal },
+      } as unknown as Parameters<typeof check>[0]);
     } catch (err) {
       caught = err;
     }
@@ -825,7 +831,7 @@ describe(".delegate() builder step", () => {
   /**
    * @case The builder step mints the delegated principal onto the exchange
    * @preconditions .authenticate() mints the user, .delegate() returns zoe claims with a ceiling
-   * @expectedResult Downstream exchange.principal has subject user, actor zoe, intersected scopes
+   * @expectedResult Downstream ex.auth.principal has subject user, actor zoe, intersected scopes
    */
   test("delegates mid-route", async () => {
     const s = spy<string>();
@@ -847,7 +853,7 @@ describe(".delegate() builder step", () => {
     await t.test();
 
     expect(s.receivedBodies()).toEqual(["hello"]);
-    const principal = s.lastReceived().principal;
+    const principal = principalOf(s.lastReceived());
     expect(principal?.subject).toBe("user_jaco");
     expect(principal?.actor?.subject).toBe("agent:zoe");
     expect(principal?.scopes).toEqual(["mail:send"]);
@@ -903,7 +909,7 @@ describe(".delegate() builder step", () => {
     await t.test();
 
     expect(s.receivedBodies()).toEqual(["hello"]);
-    expect(s.lastReceived().principal).toBeUndefined();
+    expect(principalOf(s.lastReceived())).toBeUndefined();
   });
 
   /**
@@ -927,8 +933,8 @@ describe(".delegate() builder step", () => {
     await t.test();
 
     expect(s.receivedBodies()).toEqual(["hello"]);
-    expect(s.lastReceived().principal?.subject).toBe("user_jaco");
-    expect(s.lastReceived().principal?.actor).toBeUndefined();
+    expect(principalOf(s.lastReceived())?.subject).toBe("user_jaco");
+    expect(principalOf(s.lastReceived())?.actor).toBeUndefined();
   });
 
   /**
@@ -951,7 +957,7 @@ describe(".delegate() builder step", () => {
     await t.test();
 
     expect(s.receivedBodies()).toEqual(["hello"]);
-    expect(s.lastReceived().principal?.subject).toBe("agent:zoe");
+    expect(principalOf(s.lastReceived())?.subject).toBe("agent:zoe");
   });
 
   /**
@@ -975,7 +981,7 @@ describe(".delegate() builder step", () => {
     await t.test();
 
     expect(s.receivedBodies()).toEqual(["hello"]);
-    const principal = s.lastReceived().principal;
+    const principal = principalOf(s.lastReceived());
     expect(principal?.subject).toBe("user_jaco");
     expect(principal?.actor?.subject).toBe("agent:zoe");
   });
@@ -999,7 +1005,7 @@ describe(".delegate() builder step", () => {
     await t.test();
 
     expect(s.receivedBodies()).toEqual(["hello"]);
-    expect(s.lastReceived().principal).toBeUndefined();
+    expect(principalOf(s.lastReceived())).toBeUndefined();
   });
 
   /**

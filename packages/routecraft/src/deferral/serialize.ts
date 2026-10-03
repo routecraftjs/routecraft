@@ -1,3 +1,4 @@
+import { authorityOf } from "../plugins/principals/index.ts";
 import { BRAND, isBranded } from "../brand.ts";
 import { rcError } from "../error.ts";
 import {
@@ -7,7 +8,6 @@ import {
   HeadersKeys,
 } from "../exchange.ts";
 import type { CraftContext } from "../context.ts";
-import { markRestored } from "../auth/restored.ts";
 import type { Principal } from "../auth/types.ts";
 import type { SerializedExchange } from "./types.ts";
 
@@ -106,7 +106,9 @@ export function deserializeExchange(
     typeof principal === "object" &&
     principal !== null
   ) {
-    headers[HeadersKeys.AUTH_PRINCIPAL] = markRestored(principal as Principal);
+    headers[HeadersKeys.AUTH_PRINCIPAL] = authorityOf(context).restore(
+      principal as Principal,
+    );
   }
   return new DefaultExchange(context, {
     body: decode(serialized.body),

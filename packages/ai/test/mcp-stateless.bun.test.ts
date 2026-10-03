@@ -350,7 +350,7 @@ describe("MCP 2026-07-28 stateless revision", () => {
         .description("Report the caller")
         .from(mcp())
         .process((ex) => {
-          sink.principal = ex.principal;
+          sink.principal = ex.auth.principal;
           return ex;
         })
         .to(noop()) as AnyRouteBuilder;

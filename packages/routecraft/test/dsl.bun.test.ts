@@ -1,32 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { z } from "zod";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
-import {
-  craft,
-  simple,
-  noop,
-  registerDsl,
-  mapper,
-  schema,
-} from "../src/index.ts";
-import { TransformStep } from "../src/operations/transform.ts";
-
-describe("registerDsl", () => {
-  /**
-   * @case Registering a method that already exists on RouteBuilder throws
-   * @preconditions RouteBuilder.prototype already has "transform"
-   * @expectedResult Throws with collision message
-   */
-  test("throws on collision with existing builder method", () => {
-    expect(() =>
-      registerDsl("transform", {
-        kind: "transform",
-        label: "transform",
-        factory: () => new TransformStep((x: unknown) => x),
-      }),
-    ).toThrow('Cannot register DSL method "transform"');
-  });
-});
+import { craft, simple, noop, mapper, schema } from "../src/index.ts";
 
 describe(".log() sugar", () => {
   let t: TestContext;

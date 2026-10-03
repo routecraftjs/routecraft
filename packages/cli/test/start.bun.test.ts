@@ -299,11 +299,11 @@ describe("CLI start command", () => {
   });
 
   /**
-   * @case A default-exported config is accepted with a warning
+   * @case A default-exported plain config is accepted
    * @preconditions craft.config.ts default-exports the config object
-   * @expectedResult Start succeeds and the warning names the craftConfig export
+   * @expectedResult Start succeeds without a warning about the export
    */
-  test("accepts a default-exported config with a warning", async () => {
+  test("accepts a default-exported config", async () => {
     const root = makeProject({
       "craft.config.ts": `export default { name: "app" };\n`,
       "capabilities/health.ts": routeFile("health"),
@@ -312,7 +312,31 @@ describe("CLI start command", () => {
     expect(result).toMatchObject({ success: true });
     const warned =
       warn?.mock.calls.map((c: unknown[]) => String(c[0])).join("\n") ?? "";
-    expect(warned).toMatch(/craftConfig/);
+    expect(warned).not.toMatch(/craftConfig/);
+  });
+
+  /**
+   * @case A default-exported defineProject is the project's configuration
+   * @preconditions craft.config.ts default-exports defineProject with one plugin whose bind records that it ran
+   * @expectedResult Start succeeds and the project's plugin was installed
+   */
+  test("loads a default-exported defineProject", async () => {
+    const root = makeProject({
+      "craft.config.ts": [
+        `import { defineProject } from "@routecraft/routecraft";`,
+        `export default defineProject({`,
+        `  plugins: [{ id: "test.marker", bind() { (globalThis as Record<string, unknown>).__projectBound = true; } }],`,
+        `});`,
+        ``,
+      ].join("\n"),
+      "capabilities/health.ts": routeFile("health"),
+    });
+    delete (globalThis as Record<string, unknown>)["__projectBound"];
+    const result = await startCommand(root, { once: true });
+    expect(result).toMatchObject({ success: true });
+    expect((globalThis as Record<string, unknown>)["__projectBound"]).toBe(
+      true,
+    );
   });
 
   /**
@@ -373,7 +397,7 @@ describe("CLI start command", () => {
     const result = await startCommand(root);
     expect(result).toMatchObject({ success: false });
     expect(result.success === false && result.message).toMatch(
-      /exports neither "craftConfig" nor a config object/,
+      /exports neither a project nor a config/,
     );
   });
 

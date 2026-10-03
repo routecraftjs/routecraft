@@ -5,7 +5,8 @@ import {
   DefaultExchange,
   HeadersKeys,
 } from "../exchange.ts";
-import { authenticate, type PrincipalClaims } from "../auth/authenticate.ts";
+import type { PrincipalClaims } from "../auth/authenticate.ts";
+import { authorityOf } from "../plugins/principals/index.ts";
 
 /**
  * Resolve identity claims for the current exchange. Return claims to mint and
@@ -40,7 +41,7 @@ export class AuthenticateStep<T = unknown> implements Step<Adapter> {
         : DefaultExchange.rewrap<T>(exchange, {
             headers: {
               ...exchange.headers,
-              [HeadersKeys.AUTH_PRINCIPAL]: authenticate(claims),
+              [HeadersKeys.AUTH_PRINCIPAL]: authorityOf(exchange).mint(claims),
             },
           });
     return { kind: "continue", exchange: next };

@@ -219,12 +219,12 @@ export type ExchangeHeaders = Readonly<
  * 1. **Stored fields** (`body`, `headers`) carry the data and metadata that
  *    must survive halt/continue. Persistence serializes exactly these two
  *    slots; rehydration constructs a new instance around them.
- * 2. **Derived accessors** (`id`, `principal`, `logger`) read from
- *    `headers` (or runtime services) and look like properties at the call
- *    site. They are not stored separately. `id` reads
- *    `headers["routecraft.id"]`; `principal` reads
- *    `headers["routecraft.auth.principal"]`; `logger` builds a child logger
- *    lazily from the framework's logger and the exchange's id.
+ * 2. **Derived accessors** (`id`, `logger`, and each installed plugin's
+ *    facet, `ex.<namespace>`) read from `headers` (or runtime services)
+ *    and look like properties at the call site. They are not stored
+ *    separately. `id` reads `headers["routecraft.id"]`; `logger` builds a
+ *    child logger lazily from the framework's logger and the exchange's id;
+ *    `ex.auth.principal` reads `headers["routecraft.auth.principal"]`.
  *
  * Cross-cutting concerns (auth, tracing, tenancy) all live as keys in
  * `headers` rather than as top-level fields. This keeps the serialization
@@ -256,21 +256,6 @@ export type Exchange<T = unknown> = {
   readonly body: T;
 
   /**
-   * Authenticated principal for this exchange, when one has been resolved.
-   *
-   * Sugar over `headers["routecraft.auth.principal"]`. Set automatically by
-   * source adapters that perform authentication (e.g. the MCP server when
-   * `auth:` is configured) by writing the principal into headers. Routes
-   * may also assign a custom principal in `.process()` by spreading new
-   * headers with this key.
-   *
-   * Propagates naturally because it lives in `headers`: any operation that
-   * spreads `prev.headers` keeps the principal sticky-set automatically,
-   * with no special-case plumbing.
-   */
-  readonly principal?: Principal | undefined;
-
-  /**
    * Logger for this exchange (pino child logger).
    *
    * Built lazily from the framework's base logger and the exchange's id /
@@ -278,21 +263,38 @@ export type Exchange<T = unknown> = {
    * exchanges build a fresh child logger on first access.
    */
   readonly logger: ReturnType<typeof logger.child>;
-
-  /**
-   * Durable-deferral view of this exchange: the id and signed token it
-   * would defer as, and (after a resume) the payload that revived it.
-   *
-   * Sugar over the `routecraft.deferral.*` headers plus the context's
-   * token signer, in the same shape as `principal` and `logger`. Readable
-   * before the `.defer()` runs, which is what lets a notification step
-   * earlier in the pipeline send a working resume link.
-   *
-   * `result` is `unknown` here; `.defer({ schema })` narrows it to the
-   * schema's output type for every step after the defer.
-   */
-  readonly deferral: DeferralAffordance;
 };
+
+/**
+ * The authenticated principal of an exchange, when one has been resolved.
+ *
+ * What `ex.auth.principal` reads, for library code that holds a plain
+ * {@link Exchange} rather than a route's typed one. Lives in headers, so
+ * any operation that spreads `prev.headers` keeps it.
+ */
+export function principalOf(exchange: {
+  readonly headers: ExchangeHeaders;
+}): Principal | undefined {
+  return exchange.headers[HeadersKeys.AUTH_PRINCIPAL] as Principal | undefined;
+}
+
+/**
+ * The durable-deferral view of an exchange: the id and signed token it would
+ * defer as, and after a resume the payload that revived it.
+ *
+ * What `ex.deferral` reads, for library code that holds a plain
+ * {@link Exchange}. Built per call rather than cached, because a resume
+ * rewrites the headers it derives from; minting a token runs only if the
+ * caller reads `token`.
+ */
+export function deferralOf(exchange: Exchange): DeferralAffordance {
+  return deferralAffordance(
+    getExchangeContext(exchange),
+    exchange.headers,
+    exchange.id,
+    asideSequenceOf(exchange),
+  );
+}
 
 /**
  * Internal state for exchanges.
@@ -1007,14 +1009,6 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
   }
 
   /**
-   * Authenticated principal, when one has been resolved. Sugar over
-   * `headers["routecraft.auth.principal"]`.
-   */
-  get principal(): Principal | undefined {
-    return this.headers[HeadersKeys.AUTH_PRINCIPAL] as Principal | undefined;
-  }
-
-  /**
    * Pino child logger scoped to this exchange. Built lazily from the
    * framework's base logger; rebuilt on a rehydrated exchange because the
    * logger is not part of the serializable state.
@@ -1024,23 +1018,6 @@ export class DefaultExchange<T = unknown> implements Exchange<T> {
       this.#logger = logger.child(childBindings(this));
     }
     return this.#logger;
-  }
-
-  /**
-   * Durable-deferral view of this exchange. See {@link Exchange.deferral}.
-   *
-   * Built per access rather than cached: the view derives from `headers`,
-   * which a resume rewrites, so a cached one would go stale exactly when it
-   * matters. It is a small object of getters, and the expensive part
-   * (minting a token) only runs if the caller reads `token`.
-   */
-  get deferral(): DeferralAffordance {
-    return deferralAffordance(
-      getExchangeContext(this),
-      this.headers,
-      this.id,
-      asideSequenceOf(this),
-    );
   }
 
   /**

@@ -1,7 +1,6 @@
+import type { Authority } from "../plugins/principals/index.ts";
 import type { CraftContext } from "../context.ts";
 import type { Principal } from "../auth/types.ts";
-import { isAuthentic } from "../auth/authentic.ts";
-import { markRestored } from "../auth/restored.ts";
 import { HeadersKeys } from "../exchange.ts";
 import { rcError } from "../error.ts";
 import { rcCodeOf } from "../brand.ts";
@@ -118,12 +117,15 @@ export type ResumeElevator = (
  *
  * @internal
  */
-export function deferredPrincipal(deferral: Deferral): Principal | undefined {
+export function deferredPrincipal(
+  deferral: Deferral,
+  authority: Authority,
+): Principal | undefined {
   const stored = deferral.exchange.headers[HeadersKeys.AUTH_PRINCIPAL];
   if (stored === undefined || typeof stored !== "object" || stored === null) {
     return undefined;
   }
-  return markRestored(decodePersistable(stored) as Principal);
+  return authority.restore(decodePersistable(stored) as Principal);
 }
 
 /**
@@ -273,7 +275,8 @@ export async function runElevator(
   input: ResumeAuthorizerInput,
   logger: CraftContext["logger"],
   bound: readonly string[] | undefined,
-  signal?: AbortSignal,
+  signal: AbortSignal | undefined,
+  authority: Authority,
 ): Promise<Principal> {
   const refused = refusalOf("elevate", input, logger);
   let elevated: Principal;
@@ -291,7 +294,7 @@ export async function runElevator(
   // something it read out of storage, which is the laundering `markRestored`
   // exists to stop; `isAuthentic` is the positive check, and the two are not
   // each other's inverse, so a self-asserted plain object fails here too.
-  if (!isAuthentic(elevated)) {
+  if (!authority.isAuthentic(elevated)) {
     throw refused("returned a principal that was not verified live");
   }
   const deviation = elevationDeviation(input.deferred, elevated, bound);

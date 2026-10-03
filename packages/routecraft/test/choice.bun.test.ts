@@ -838,7 +838,7 @@ describe("choice operation", () => {
   /**
    * @case Sugar methods (log / map) are callable inside a branch at both runtime and type level
    * @preconditions Branch uses .map() to reshape body, then downstream sink receives mapped shape
-   * @expectedResult Sugar methods registered via registerDsl on the shared base work inside branches
+   * @expectedResult Sugar methods on the shared builder base work inside branches
    */
   test("sugar methods (.map, .log) work inside a branch", async () => {
     const downstream = spy<{ label: string }>();

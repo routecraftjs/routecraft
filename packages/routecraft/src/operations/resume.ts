@@ -7,7 +7,7 @@ import {
   getExchangeContext,
   getExchangeRoute,
 } from "../exchange.ts";
-import { isRestored } from "../auth/restored.ts";
+import { authorityOf } from "../plugins/principals/index.ts";
 import { toSignalContext } from "../types.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import {
@@ -188,10 +188,10 @@ export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
     // party. A revived exchange carries its deferred principal back marked
     // restored, so a route that both defers and resumes would otherwise
     // hand the hook storage data under a contract that says verified live.
+    const authority = authorityOf(exchange);
+    const claimed = authority.read(exchange);
     const live =
-      exchange.principal && !isRestored(exchange.principal)
-        ? exchange.principal
-        : undefined;
+      claimed && !authority.isRestored(claimed) ? claimed : undefined;
     const request = this.mapper
       ? await this.mapper(exchange as Exchange<In>, signalCtx)
       : fromBody(exchange);
