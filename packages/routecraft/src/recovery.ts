@@ -149,21 +149,30 @@ export const recovery = {
    * acknowledgment.
    *
    * Turns an error into a deferral, which is what lets something OUTSIDE
-   * the route decide that a failure is worth waiting on: a context handler
-   * recognising an `RC5038` refusal can park the call, have a human lend the
+   * the route decide that a failure is worth waiting on: a plugin's `error`
+   * slot hook recognising an `RC5038` refusal can park the call, have a human lend the
    * missing scope, and let the continuation finish, without the route that
    * refused knowing any of it happened.
    *
    * @example
    * ```ts
-   * ctx.registerHandler("error", (error, exchange, forward) => {
-   *   const refusal = insufficientAuthorityOf(error);
-   *   if (!refusal) return undefined;
-   *   return recovery.defer({
-   *     schema: decision,
-   *     ttl: "4h",
-   *     notify: (ack) => forward(sendStepUpMail, { token: ack.token }),
-   *   });
+   * definePlugin({
+   *   id: "acme.step-up",
+   *   hooks: {
+   *     error: {
+   *       phase: "mutate",
+   *       mayDefer: true,
+   *       run(error, exchange, { forward }) {
+   *         const refusal = insufficientAuthorityOf(error);
+   *         if (!refusal) return undefined;
+   *         return recovery.defer({
+   *           schema: decision,
+   *           ttl: "4h",
+   *           notify: (ack) => forward(sendStepUpMail, { token: ack.token }),
+   *         });
+   *       },
+   *     },
+   *   },
    * });
    * ```
    */

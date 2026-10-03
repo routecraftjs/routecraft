@@ -358,10 +358,54 @@ describe("Plugin System", () => {
       .with({ plugins: [plugin] })
       .build();
 
-    expect(seen).toEqual([
+    expect(seen.filter((e) => e.pluginId === "test.my-plugin")).toEqual([
       { event: "binding", pluginId: "test.my-plugin" },
       { event: "bound", pluginId: "test.my-plugin" },
     ]);
+  });
+
+  /**
+   * @case The framework's positions are filled by default plugins, and an application's plugin with the same id takes a default's place
+   * @preconditions One context with no plugins; one context installing a plugin with the id "routecraft.cache"
+   * @expectedResult The first binds routecraft.resilience, routecraft.cache and routecraft.auth; the second binds its own routecraft.cache once and no default one
+   */
+  test("default plugins install unless the application installs the same id", async () => {
+    const bound: string[] = [];
+    t = await testContext()
+      .on("plugin:bound", ({ details }) => {
+        bound.push(details.pluginId);
+      })
+      .build();
+    expect(bound).toEqual(
+      expect.arrayContaining([
+        "routecraft.resilience",
+        "routecraft.cache",
+        "routecraft.auth",
+      ]),
+    );
+    await t.stop();
+
+    const overridden: string[] = [];
+    let ownBound = false;
+    t = await testContext()
+      .on("plugin:bound", ({ details }) => {
+        overridden.push(details.pluginId);
+      })
+      .with({
+        plugins: [
+          {
+            id: "routecraft.cache",
+            bind: () => {
+              ownBound = true;
+            },
+          },
+        ],
+      })
+      .build();
+    expect(ownBound).toBe(true);
+    expect(overridden.filter((id) => id === "routecraft.cache")).toHaveLength(
+      1,
+    );
   });
 
   /**

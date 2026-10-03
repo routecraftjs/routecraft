@@ -241,6 +241,7 @@ export class HookTable {
   private readonly bySlot = new Map<string, InstalledHook[]>();
   private readonly points = new Map<string, string>();
   private readonly warned = new Set<string>();
+  private readonly declaredConflicts = new Set<string>();
 
   constructor(
     plugins: readonly {
@@ -361,12 +362,15 @@ export class HookTable {
 
   /** Two mutate hooks declaring one header in one slot: the later wins, said now. */
   private reportDeclaredConflicts(): void {
-    for (const [slot, entries] of this.bySlot) {
+    for (const slot of this.bySlot.keys()) {
       const writers = new Map<string, string>();
       for (const entry of this.ordered(slot, "mutate")) {
         for (const header of (entry.hook as MutateHook).writes ?? []) {
           const earlier = writers.get(header);
           if (earlier !== undefined) {
+            this.declaredConflicts.add(
+              `${slot}\0${header}\0${earlier}\0${entry.id}`,
+            );
             this.logger.warn(
               { slot, header, earlier, later: entry.id },
               `${slot}/mutate: ${earlier} and ${entry.id} both write ${header}; ${entry.id} wins (it runs later). Settle it with hooks.order or hooks.disable.`,
@@ -375,7 +379,6 @@ export class HookTable {
           writers.set(header, entry.id);
         }
       }
-      void entries;
     }
   }
 
@@ -426,6 +429,12 @@ export class HookTable {
     earlier: string,
     later: string,
   ): void {
+    // Declared up front, so already said once at build.
+    if (
+      this.declaredConflicts.has(`${slot}\0${header}\0${earlier}\0${later}`)
+    ) {
+      return;
+    }
     const key = `${routeId}\0${slot}\0${header}\0${earlier}\0${later}`;
     if (this.warned.has(key)) return;
     this.warned.add(key);
@@ -450,12 +459,27 @@ function appliesTo(
   );
 }
 
-/** Whether a hook applies to a kind of run. */
+const EVERY_RUN: readonly RunKind[] = [
+  "normal",
+  "resume",
+  "debounce",
+  "errorChannel",
+];
+
+/**
+ * Whether a hook applies to a kind of run. A hook that declares no `runs`
+ * applies to normal runs only, except in the `error` slot, which hears every
+ * failure that escapes the chain on any run and tells its hooks which one
+ * through `info.execution`.
+ */
 export function runsOn(
   hook: { runs?: readonly RunKind[] },
   kind: RunKind,
+  slot?: string,
 ): boolean {
-  return (hook.runs ?? ["normal"]).includes(kind);
+  return (hook.runs ?? (slot === "error" ? EVERY_RUN : ["normal"])).includes(
+    kind,
+  );
 }
 
 /**

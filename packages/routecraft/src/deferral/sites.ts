@@ -305,7 +305,7 @@ export interface ResolvedDeferSites {
 /**
  * Whether a built route can raise a durable deferral: statically (a
  * declared `.defer()`), at runtime (a defer-capable step that MAY defer),
- * or from the error path (a context error handler that may answer with
+ * or from the error path (an error-slot hook that may answer with
  * `recovery.defer()`). The predicate transports key on to advertise a
  * `Deferred` acknowledgment arm, owned here next to the fields it reads so
  * a new way for a route to defer updates every consumer in one edit.

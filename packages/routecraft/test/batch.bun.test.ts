@@ -12,9 +12,6 @@ function createRouteDefinition(id: string): RouteDefinition {
     id,
     sources: [{ subscribe: async () => {} }],
     steps: [],
-    preParseFilters: [],
-    postParseFilters: [],
-    postFromFilters: [],
     consumer: { type: BatchConsumer, options: {} },
   } as RouteDefinition;
 }

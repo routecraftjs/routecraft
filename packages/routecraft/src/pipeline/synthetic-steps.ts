@@ -271,9 +271,8 @@ const CACHE_STORE_STEP_ADAPTER: Adapter = {
  * true` keeps `runPipeline` from emitting generic `route:step:started` /
  * `route:step:completed` for this internal step.
  *
- * @internal Exported only so `RouteBuilder.from()` can assemble it into
- * `RouteDefinition.postParseFilters`. Not part of the public API; the
- * signature may change without notice.
+ * @internal Exported for the default `CACHE` provider, which fills the
+ * `cacheCheck` position with it.
  */
 export function buildCacheCheckStep(
   cacheConfig: ResolvedCacheOptions,
@@ -410,9 +409,8 @@ export function buildCacheCheckStep(
  * `skipStepEvents: true` keeps `runPipeline` from emitting generic
  * lifecycle events for this internal step.
  *
- * @internal Exported only so `RouteBuilder.from()` can assemble it into
- * `RouteDefinition.postFromFilters`. Not part of the public API; the
- * signature may change without notice.
+ * @internal Exported for the default `CACHE` provider, which fills the
+ * `cacheStore` position with it.
  */
 export function buildCacheStoreStep(
   cacheConfig: ResolvedCacheOptions,
@@ -487,12 +485,10 @@ const THROTTLE_CHECK_STEP_ADAPTER: Adapter = {
  *
  * Unlike `.retry()` / `.timeout()`, throttle does not scope OVER the
  * chain tail (it neither re-runs nor bounds it): it is a one-shot gate.
- * Because it must sit OUTSIDE the retry / timeout segments (which wrap
- * `postParseFilters`), it rides on the dedicated `RouteDefinition.throttle`
- * field rather than in `postParseFilters`; the executor prepends it to
- * the tail AFTER those segments wrap, so a retried attempt re-runs only
- * the tail below it and never re-acquires a token. Multiple `.throttle()`
- * calls produce multiple gates that all must admit the exchange.
+ * The executor places it outside the circuitBreaker / retry / timeout
+ * positions, so a retried attempt re-runs only the tail below it and never
+ * re-acquires a token. Multiple `.throttle()` calls produce multiple gates
+ * that all must admit the exchange.
  *
  * The {@link ThrottleController} keys its buckets by Route, so the same
  * definition registered into several contexts gives each Route its own
@@ -503,9 +499,8 @@ const THROTTLE_CHECK_STEP_ADAPTER: Adapter = {
  * keeps `runPipeline` from emitting generic lifecycle events for this
  * internal step.
  *
- * @internal Exported only so `RouteBuilder.from()` can assemble it onto
- * `RouteDefinition.throttle`. Not part of the public API; the signature
- * may change without notice.
+ * @internal Exported for the default `RESILIENCE` provider, which fills
+ * the `throttle` position with it.
  */
 export function buildThrottleCheckStep(
   options: ResolvedThrottleOptions,
