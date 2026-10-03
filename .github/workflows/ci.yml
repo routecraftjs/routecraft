@@ -12,6 +12,11 @@ on:
   # and the required check then waits forever. `changes` skips the heavy jobs.
   pull_request:
     branches: ["main"]
+  # The merge queue runs CI on the exact result of the merge, at merge time, so
+  # a check whose inputs moved after the PR's last run (a new CVE in the live
+  # database, a release-shaped commit) fails in the queue rather than on main.
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
@@ -28,13 +33,15 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
-      packages: ${{ steps.filter.outputs.packages }}
-      docs: ${{ steps.filter.outputs.docs }}
+      # The queue runs everything: it is the last check before main.
+      packages: ${{ github.event_name == 'merge_group' || steps.filter.outputs.packages }}
+      docs: ${{ github.event_name == 'merge_group' || steps.filter.outputs.docs }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Detect changed paths
+        if: github.event_name != 'merge_group'
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
         with:
