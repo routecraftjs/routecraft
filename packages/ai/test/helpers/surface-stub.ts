@@ -8,9 +8,33 @@
  */
 
 import {
+  craft,
+  direct,
+  noop,
+  type CraftConfig,
+  type CraftContext,
+} from "@routecraft/routecraft";
+import {
   AGENT_SURFACE_HEADER,
+  SURFACES,
+  surfacesPlugin,
   type AgentSurfaceConnection,
+  type SurfaceState,
 } from "../../src/surface/index.ts";
+
+/**
+ * The config that installs the surfaces runtime on its own, which the ACP
+ * mount otherwise brings along, so a test can publish a surface without
+ * standing up an editor.
+ */
+export function surfacing(): CraftConfig {
+  return { plugins: [surfacesPlugin()] };
+}
+
+/** The surfaces a test context holds, for `registerSurface` and the cancel helpers. */
+export function surfacesOf(t: { readonly ctx: CraftContext }): SurfaceState {
+  return t.ctx.require(SURFACES);
+}
 
 /** The connection name `SURFACED` points at, for `registerSurface`. */
 export const SURFACE_CONNECTION = "conn-1";
@@ -46,3 +70,10 @@ export function scriptedSurface(
       parts.notify === undefined ? Promise.resolve() : parts.notify(update),
   };
 }
+
+/**
+ * A route that only keeps the application running. An application whose
+ * routes have all completed stops, and stopping releases the surfaces
+ * lifecycle, so a test that drives that lifecycle by hand needs one.
+ */
+export const keepAlive = craft().id("keep-alive").from(direct()).to(noop());

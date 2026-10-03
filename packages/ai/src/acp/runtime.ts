@@ -20,7 +20,6 @@ import {
   HeadersKeys,
   rcCodeOf,
   rcError,
-  type CraftContext,
   type EventPayload,
   type Exchange,
   type ExchangeHeaders,
@@ -39,8 +38,8 @@ import type {
 import type { AgentRegisteredOptions, AgentResult } from "../agent/types.ts";
 import {
   AGENT_SURFACE_HEADER,
-  AGENT_SURFACES,
   registerTurn,
+  type SurfaceState,
   type AgentSurfaceRef,
 } from "../surface/index.ts";
 import {
@@ -122,14 +121,14 @@ export class AcpRuntime {
    * @param plugin - The ACP plugin's context: logging, events, and the
    *   deliveries a prompt is
    * @param registry - The agents served, and their session runtime
-   * @param surfaceContext - Where live surfaces are registered, which is still
-   *   keyed on the context
+   * @param surfaces - Where this mount publishes its connections and turns,
+   *   and where `surface()` steps find them
    * @param options - The plugin's options
    */
   constructor(
     readonly plugin: PluginContext,
     private readonly registry: AgentRegistry,
-    readonly surfaceContext: CraftContext,
+    readonly surfaces: SurfaceState,
     private readonly options: AcpPluginOptions,
   ) {}
 
@@ -354,11 +353,7 @@ export class AcpRuntime {
     });
     // The turn is findable by its correlation id as well as by the header,
     // so a route the agent calls as a hand can reach the person too.
-    const forgetTurn = registerTurn(
-      this.surfaceContext,
-      correlationId,
-      surface,
-    );
+    const forgetTurn = registerTurn(this.surfaces, correlationId, surface);
     const headers: ExchangeHeaders = {
       [HeadersKeys.CORRELATION_ID]: correlationId,
       [AGENT_SURFACE_HEADER]: surface,
@@ -425,10 +420,7 @@ export class AcpRuntime {
     session: string | undefined,
   ): LiveTurn[] {
     const own = this.turns.get(correlationId);
-    if (
-      own !== undefined &&
-      isSurfaceLive(this.surfaceContext, own.connection)
-    ) {
+    if (own !== undefined && isSurfaceLive(this.surfaces, own.connection)) {
       return [own];
     }
     if (session === undefined) return [];
@@ -439,7 +431,7 @@ export class AcpRuntime {
         !perConnection.has(turn.connection) &&
         // A request whose editor has gone stays in the table until its
         // turn ends; the reply goes to the editor that is still there.
-        isSurfaceLive(this.surfaceContext, turn.connection)
+        isSurfaceLive(this.surfaces, turn.connection)
       ) {
         perConnection.set(turn.connection, turn);
       }
@@ -475,8 +467,8 @@ export class AcpRuntime {
 }
 
 /** Whether the connection is still registered as a surface, which it is until it closes. */
-function isSurfaceLive(context: CraftContext, connection: string): boolean {
-  return context.getStore(AGENT_SURFACES)?.has(connection) === true;
+function isSurfaceLive(surfaces: SurfaceState, connection: string): boolean {
+  return surfaces.surfaces.has(connection);
 }
 
 /**

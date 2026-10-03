@@ -30,11 +30,13 @@ export {
   hasSurface,
   surface,
   SurfaceDisconnected,
+  SURFACES,
 } from "./surface/index.ts";
 export type {
   AgentSurfaceConnection,
   AgentSurfaceKind,
   AgentSurfaceRef,
+  SurfaceState,
   SurfaceMethod,
   SurfaceRequest,
   SurfaceRequestParams,
@@ -57,6 +59,8 @@ export {
   llm,
   LlmEnricherAdapter,
   llmPlugin,
+  LLM,
+  type LlmService,
 } from "./llm/index.ts";
 export type {
   CustomLanguageModel,
@@ -284,6 +288,8 @@ export {
   EmbeddingEnricherAdapter,
   embeddingPlugin,
   disposeEmbeddingPipelineCache,
+  EMBEDDING,
+  type EmbeddingService,
 } from "./embedding/index.ts";
 export type {
   EmbeddingModelConfig,

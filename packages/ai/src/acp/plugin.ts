@@ -19,6 +19,7 @@ import {
 } from "@routecraft/routecraft";
 import { agent } from "../agent/agent.ts";
 import { AGENTS } from "../agent/port.ts";
+import { SURFACES, surfacesPlugin } from "../surface/index.ts";
 import "../errors.ts";
 import { AcpRuntime, ACP_ROUTE_PREFIX, promptBodyOf } from "./runtime.ts";
 import { AcpServer, normalizeAcpPath } from "./server.ts";
@@ -54,12 +55,17 @@ export function acpPlugin(options: AcpPluginOptions = {}): Plugin {
     throw new TypeError("acpPlugin: server name must not be empty");
   }
 
-  let runtime: AcpRuntime | undefined;
-  let server: AcpServer | undefined;
+  // Keyed by the plugin context: one descriptor can serve two applications
+  // in one process (a config reused across tests).
+  const mounts = new WeakMap<
+    PluginContext,
+    { runtime: AcpRuntime; server?: AcpServer }
+  >();
 
   return {
     id: "routecraft.ai.acp",
-    requires: [AGENTS],
+    requires: [AGENTS, SURFACES],
+    installs: [surfacesPlugin()],
     optional: [WEB_INGRESS],
     async bind(c: PluginContext) {
       const registry = c.require(AGENTS);
@@ -71,20 +77,24 @@ export function acpPlugin(options: AcpPluginOptions = {}): Plugin {
             "Write the agents under `agent:` (or let `craft start` discover them), or list acpPlugin() after the agentPlugin() that registers them in `plugins`.",
         });
       }
-      // Live surfaces are still registered on the context.
-      runtime = new AcpRuntime(c, registry, c.context, options);
+      const runtime = new AcpRuntime(c, registry, c.require(SURFACES), options);
+      const mount: { runtime: AcpRuntime; server?: AcpServer } = { runtime };
+      mounts.set(c, mount);
       runtime.subscribe();
       c.routes.register(...turnRoutes(runtime, [...agents.keys()]));
-      server = new AcpServer(c, runtime, options);
+      const server = new AcpServer(c, runtime, options);
+      mount.server = server;
       await server.prepare();
       c.logger.info(
         { path: options.path ?? "/acp", agents: agents.size },
         "ACP mount registered",
       );
     },
-    async stop() {
-      runtime?.unsubscribe();
-      await server?.stop();
+    async stop(c: PluginContext) {
+      const mount = mounts.get(c);
+      mounts.delete(c);
+      mount?.runtime.unsubscribe();
+      await mount?.server?.stop();
     },
   };
 }

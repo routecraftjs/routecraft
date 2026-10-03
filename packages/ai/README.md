@@ -27,7 +27,7 @@ import { craft, ContextBuilder, http } from '@routecraft/routecraft';
 import { z } from 'zod';
 
 const ctx = new ContextBuilder()
-  .plugins([mcpPlugin()])
+  .with({ plugins: [mcpPlugin()] })
   .routes([
     craft()
       .id('fetch-webpage')
@@ -59,12 +59,14 @@ import { craft, ContextBuilder, http } from '@routecraft/routecraft';
 import { z } from 'zod';
 
 const ctx = new ContextBuilder()
-  .plugins([
-    mcpPlugin(),
-    llmPlugin({
-      providers: { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY! } },
-    }),
-  ])
+  .with({
+    plugins: [
+      mcpPlugin(),
+      llmPlugin({
+        providers: { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY! } },
+      }),
+    ],
+  })
   .routes([
     craft()
       .id('summarize-webpage')

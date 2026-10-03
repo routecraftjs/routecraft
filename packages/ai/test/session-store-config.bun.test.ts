@@ -3,6 +3,7 @@ import { existsSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import {
+  CONTINUATIONS,
   claimDatabasePath,
   MemoryDeferralStore,
   resolveSqliteDriver,
@@ -464,9 +465,16 @@ describe("session store resolution", () => {
       .with({ deferral: { store: { path } } })
       .build();
 
-    const failure = await createSessionStore(t.ctx, {
-      store: { path },
-    }).then(
+    // The host the sessions plugin builds: its logger, and the file the
+    // continuations store opened, read through the port.
+    const continuationsPath = t.ctx.lookup(CONTINUATIONS)?.path;
+    const failure = await createSessionStore(
+      {
+        logger: t.ctx.logger,
+        ...(continuationsPath !== undefined ? { continuationsPath } : {}),
+      },
+      { store: { path } },
+    ).then(
       () => undefined,
       (err: Error) => err,
     );

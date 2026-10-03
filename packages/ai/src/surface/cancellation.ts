@@ -48,11 +48,17 @@
 import {
   HeadersKeys,
   getExchangeContext,
-  type CraftContext,
   type Exchange,
+  type PluginContext,
 } from "@routecraft/routecraft";
 import type { AgentSurfaceRef } from "./header.ts";
 import { surfaceFor } from "./registry.ts";
+import {
+  SURFACES,
+  type SurfaceCleanup,
+  type SurfaceRegistration,
+  type SurfaceState,
+} from "./state.ts";
 import {
   withSession,
   type AgentSurfaceConnection,
@@ -69,36 +75,6 @@ import {
  * @internal
  */
 export const CLEANUP_TIMEOUT_MS = 5_000;
-
-/** @internal */
-export const AGENT_SURFACE_TURN_SIGNALS: unique symbol = Symbol.for(
-  "routecraft.agent.surface-turn-signals",
-);
-
-/** @internal */
-export const AGENT_SURFACE_PINS: unique symbol = Symbol.for(
-  "routecraft.agent.surface-pins",
-);
-
-/** @internal */
-export const AGENT_SURFACE_CLEANUPS: unique symbol = Symbol.for(
-  "routecraft.agent.surface-cleanups",
-);
-
-/** @internal */
-export const AGENT_SURFACE_LIFECYCLE: unique symbol = Symbol.for(
-  "routecraft.agent.surface-lifecycle",
-);
-
-/** @internal */
-export const AGENT_SURFACE_PENDING_CANCELS: unique symbol = Symbol.for(
-  "routecraft.agent.surface-pending-cancels",
-);
-
-/** @internal */
-export const AGENT_SURFACE_CANCELLED_TURNS: unique symbol = Symbol.for(
-  "routecraft.agent.surface-cancelled-turns",
-);
 
 /**
  * How many cancelled turns are remembered after their signal is evicted.
@@ -133,86 +109,6 @@ export const CANCELLED_TURNS_REMEMBERED = 1024;
  */
 export const SETTLE_TIMEOUT_MS = 10_000;
 
-/** One call the framework makes for a route whose turn was cancelled. */
-interface Cleanup {
-  readonly ref: AgentSurfaceRef;
-  readonly connection: AgentSurfaceConnection;
-  readonly request: SurfaceRequest;
-}
-
-/**
- * What one exchange registered, and the turn it registered under.
- *
- * Keyed by exchange rather than by conversation, so the frequent operation
- * (an exchange ending, which holds only its own id) is a single delete, and
- * the rare one (a cancel) is a scan bounded by the live surfaced exchanges.
- */
-interface Registration {
-  readonly session: string;
-  /** The turn this exchange belongs to, which alone may send it. */
-  readonly turn: string;
-  entries: Cleanup[];
-}
-
-/**
- * The signal one turn's requests ride, and the conversation it belongs to.
- *
- * Keyed by the turn rather than by the conversation. A route the turn
- * dispatched outlives the turn, and a later turn on the same conversation
- * must not hand that route a fresh un-aborted signal: it was cancelled, and
- * it stays cancelled for as long as it runs. The conversation is kept only
- * so eviction can name it in a log.
- */
-interface TurnSignal {
-  readonly session: string;
-  readonly controller: AbortController;
-}
-
-/** What an exchange pinned: its surface, and the turn it is running for. */
-interface SurfacePin {
-  readonly ref: AgentSurfaceRef;
-  readonly turn: string;
-}
-
-/**
- * A cancel whose cleanup is waiting for the cancelled turn to finish.
- *
- * Keyed by the turn's own exchange id, which is what the interrupt event
- * carries and what the exchange's terminal event will name.
- */
-interface PendingCancel {
-  readonly session: string;
-  /** Claimed at the cancel, so a route's own withdrawal cannot race it. */
-  readonly due: ReadonlyArray<readonly [string, Registration]>;
-  readonly fallback: ReturnType<typeof setTimeout>;
-}
-
-declare module "@routecraft/routecraft" {
-  interface StoreRegistry {
-    [AGENT_SURFACE_TURN_SIGNALS]: Map<string, TurnSignal>;
-    [AGENT_SURFACE_PINS]: Map<string, SurfacePin>;
-    [AGENT_SURFACE_CLEANUPS]: Map<string, Registration>;
-    [AGENT_SURFACE_LIFECYCLE]: true;
-    [AGENT_SURFACE_PENDING_CANCELS]: Map<string, PendingCancel>;
-    [AGENT_SURFACE_CANCELLED_TURNS]: Set<string>;
-  }
-}
-
-function turnSignals(context: CraftContext): Map<string, TurnSignal> {
-  const signals =
-    context.getStore(AGENT_SURFACE_TURN_SIGNALS) ??
-    new Map<string, TurnSignal>();
-  context.setStore(AGENT_SURFACE_TURN_SIGNALS, signals);
-  return signals;
-}
-
-function registrations(context: CraftContext): Map<string, Registration> {
-  const registered =
-    context.getStore(AGENT_SURFACE_CLEANUPS) ?? new Map<string, Registration>();
-  context.setStore(AGENT_SURFACE_CLEANUPS, registered);
-  return registered;
-}
-
 /**
  * Which turn an exchange belongs to.
  *
@@ -229,28 +125,6 @@ export function turnIdOf(exchange: Exchange<unknown>, session: string): string {
   return typeof correlation === "string" ? correlation : `session:${session}`;
 }
 
-function cancelledTurns(context: CraftContext): Set<string> {
-  const cancelled =
-    context.getStore(AGENT_SURFACE_CANCELLED_TURNS) ?? new Set<string>();
-  context.setStore(AGENT_SURFACE_CANCELLED_TURNS, cancelled);
-  return cancelled;
-}
-
-function pendingCancels(context: CraftContext): Map<string, PendingCancel> {
-  const pending =
-    context.getStore(AGENT_SURFACE_PENDING_CANCELS) ??
-    new Map<string, PendingCancel>();
-  context.setStore(AGENT_SURFACE_PENDING_CANCELS, pending);
-  return pending;
-}
-
-function pins(context: CraftContext): Map<string, SurfacePin> {
-  const pinned =
-    context.getStore(AGENT_SURFACE_PINS) ?? new Map<string, SurfacePin>();
-  context.setStore(AGENT_SURFACE_PINS, pinned);
-  return pinned;
-}
-
 /**
  * The controller one turn's requests ride, minted on first use.
  *
@@ -262,20 +136,19 @@ function pins(context: CraftContext): Map<string, SurfacePin> {
  * already settles.
  */
 function controllerFor(
-  context: CraftContext,
+  state: SurfaceState,
   session: string,
   turn: string,
 ): AbortController {
-  const signals = turnSignals(context);
-  const current = signals.get(turn);
+  const current = state.signals.get(turn);
   if (current !== undefined) return current.controller;
   const controller = new AbortController();
   // Born aborted when the turn was cancelled and its signal has since been
   // evicted. A route the turn dispatched that had not yet reached the
   // surface holds nothing for the eviction to see, and would otherwise be
   // handed a live signal for a turn the person stopped.
-  if (cancelledTurns(context).has(turn)) controller.abort();
-  signals.set(turn, { session, controller });
+  if (state.cancelledTurns.has(turn)) controller.abort();
+  state.signals.set(turn, { session, controller });
   return controller;
 }
 
@@ -288,11 +161,11 @@ function controllerFor(
  * @internal
  */
 export function turnSignalOf(
-  context: CraftContext,
+  state: SurfaceState,
   session: string,
   turn: string,
 ): AbortSignal {
-  return controllerFor(context, session, turn).signal;
+  return controllerFor(state, session, turn).signal;
 }
 
 /**
@@ -300,12 +173,14 @@ export function turnSignalOf(
  * cleanup that turn's routes registered.
  *
  * The signal aborts here, so nothing new reaches the editor from this
- * moment. The cleanup does not go out here: it waits for the cancelled
- * turn's own exchange to settle, so the editor is told the turn ended
- * before it is asked to close what the turn left open. An interrupt is
- * raised while that turn is still unwinding, and dispatching from it put
- * a `terminal/kill` on the wire ahead of the `cancelled` the prompt had
- * yet to answer.
+ * moment. A turn with no signal yet gets none: remembering it is what makes
+ * one minted later born aborted, and minting one here would leave an entry
+ * no exchange's end ever evicts. The cleanup does not go out here: it waits
+ * for the cancelled turn's own exchange to settle, so the editor is told
+ * the turn ended before it is asked to close what the turn left open. An
+ * interrupt is raised while that turn is still unwinding, and dispatching
+ * from it put a `terminal/kill` on the wire ahead of the `cancelled` the
+ * prompt had yet to answer.
  *
  * Nothing awaits the cleanup either way: `session/prompt` answers on its
  * own clock, and a slow editor must not hold that answer.
@@ -316,29 +191,28 @@ export function turnSignalOf(
  * @internal
  */
 export function cancelSurfaceTurn(
-  context: CraftContext,
+  state: SurfaceState,
   session: string,
   turn: string,
   turnExchangeId?: string,
 ): void {
-  remember(context, turn);
-  controllerFor(context, session, turn).abort();
+  remember(state, turn);
+  state.signals.get(turn)?.controller.abort();
   // Claimed here rather than when it is sent. A route that discharges its
   // own cleanup withdraws the registration on its way out, and after a
   // cancel that withdrawal would otherwise race the send and win, leaving
   // the terminal the route could no longer release to nobody.
-  const due = claimCleanups(context, session, turn);
+  const due = claimCleanups(state, session, turn);
   if (due.length === 0) return;
   if (turnExchangeId === undefined) {
-    void sendCleanups(context, session, due);
+    void sendCleanups(state, session, due);
     return;
   }
-  const pending = pendingCancels(context);
+  const pending = state.pendingCancels;
   const already = pending.get(turnExchangeId);
   if (already !== undefined) clearTimeout(already.fallback);
   const fallback = setTimeout(() => {
-    if (pending.delete(turnExchangeId))
-      void sendCleanups(context, session, due);
+    if (pending.delete(turnExchangeId)) void sendCleanups(state, session, due);
   }, SETTLE_TIMEOUT_MS);
   // Nothing here should keep a process alive: the cleanup is owed to an
   // editor that is still connected, and one that is not has nothing to
@@ -352,8 +226,8 @@ export function cancelSurfaceTurn(
  *
  * Insertion order is a Set's own, so the oldest is its first key.
  */
-function remember(context: CraftContext, turn: string): void {
-  const cancelled = cancelledTurns(context);
+function remember(state: SurfaceState, turn: string): void {
+  const cancelled = state.cancelledTurns;
   cancelled.delete(turn);
   cancelled.add(turn);
   while (cancelled.size > CANCELLED_TURNS_REMEMBERED) {
@@ -367,13 +241,12 @@ function remember(context: CraftContext, turn: string): void {
  * Release the cleanup a cancel parked on this exchange, if it is the
  * cancelled turn's own exchange settling.
  */
-function releaseCancel(context: CraftContext, exchangeId: string): void {
-  const pending = context.getStore(AGENT_SURFACE_PENDING_CANCELS);
-  const waiting = pending?.get(exchangeId);
+function releaseCancel(state: SurfaceState, exchangeId: string): void {
+  const waiting = state.pendingCancels.get(exchangeId);
   if (waiting === undefined) return;
-  pending?.delete(exchangeId);
+  state.pendingCancels.delete(exchangeId);
   clearTimeout(waiting.fallback);
-  void sendCleanups(context, waiting.session, waiting.due);
+  void sendCleanups(state, waiting.session, waiting.due);
 }
 
 /**
@@ -382,16 +255,15 @@ function releaseCancel(context: CraftContext, exchangeId: string): void {
  * @internal
  */
 export function pinSurface(
-  context: CraftContext,
+  state: SurfaceState,
   exchangeId: string,
   ref: AgentSurfaceRef,
   turn: string,
 ): void {
-  const pinned = pins(context);
   // Set once: the turn an exchange belongs to is decided by its first
   // resolution and must not drift under it, which is the whole point of a
   // pin.
-  if (!pinned.has(exchangeId)) pinned.set(exchangeId, { ref, turn });
+  if (!state.pins.has(exchangeId)) state.pins.set(exchangeId, { ref, turn });
 }
 
 /**
@@ -400,18 +272,18 @@ export function pinSurface(
  * @internal
  */
 export function pinnedSurfaceOf(
-  context: CraftContext,
+  state: SurfaceState,
   exchangeId: string,
 ): AgentSurfaceRef | undefined {
-  return context.getStore(AGENT_SURFACE_PINS)?.get(exchangeId)?.ref;
+  return state.pins.get(exchangeId)?.ref;
 }
 
 /** The turn an exchange pinned when it first resolved a surface. @internal */
 export function pinnedTurnOf(
-  context: CraftContext,
+  state: SurfaceState,
   exchangeId: string,
 ): string | undefined {
-  return context.getStore(AGENT_SURFACE_PINS)?.get(exchangeId)?.turn;
+  return state.pins.get(exchangeId)?.turn;
 }
 
 /**
@@ -427,10 +299,10 @@ export function registerCleanup(
   connection: AgentSurfaceConnection,
   requests: readonly SurfaceRequest[],
 ): () => void {
-  const context = getExchangeContext(exchange);
-  if (context === undefined) return () => undefined;
-  const registered = registrations(context);
-  const added: Cleanup[] = requests.map((request) => ({
+  const state = getExchangeContext(exchange)?.lookup(SURFACES);
+  if (state === undefined) return () => undefined;
+  const registered = state.cleanups;
+  const added: SurfaceCleanup[] = requests.map((request) => ({
     ref,
     connection,
     request,
@@ -442,8 +314,7 @@ export function registerCleanup(
       // The turn this exchange pinned, not whichever is running now: a
       // route that outlives its turn registers under the turn that
       // dispatched it, so only that turn's cancel sends it.
-      turn:
-        pinnedTurnOf(context, exchange.id) ?? turnIdOf(exchange, ref.session),
+      turn: pinnedTurnOf(state, exchange.id) ?? turnIdOf(exchange, ref.session),
       entries: [...added],
     });
   } else {
@@ -461,29 +332,27 @@ export function registerCleanup(
  * Forget what an exchange pinned and registered, once it is over, and drop
  * the conversation's signal when nothing surfaced is left on it.
  *
- * The signal is the one store with no natural owner: a conversation is not
+ * The signal is the one map with no natural owner: a conversation is not
  * an object with a lifetime here. Evicting it once the conversation holds
  * no pin and no registration and is running no turn keeps the map bounded
  * by live work rather than by every conversation the instance ever served.
  */
-function releaseExchange(context: CraftContext, exchangeId: string): void {
-  const pinned = context.getStore(AGENT_SURFACE_PINS);
-  const registered = context.getStore(AGENT_SURFACE_CLEANUPS);
-  const turn =
-    pinned?.get(exchangeId)?.turn ?? registered?.get(exchangeId)?.turn;
-  pinned?.delete(exchangeId);
-  registered?.delete(exchangeId);
+function releaseExchange(state: SurfaceState, exchangeId: string): void {
+  const { pins, cleanups } = state;
+  const turn = pins.get(exchangeId)?.turn ?? cleanups.get(exchangeId)?.turn;
+  pins.delete(exchangeId);
+  cleanups.delete(exchangeId);
   if (turn === undefined) return;
   // A turn's signal outlives the turn on purpose: it is what keeps the
   // routes it dispatched refused while they wind down. It goes when the
   // last of them has.
-  for (const pin of pinned?.values() ?? []) {
+  for (const pin of pins.values()) {
     if (pin.turn === turn) return;
   }
-  for (const entry of registered?.values() ?? []) {
+  for (const entry of cleanups.values()) {
     if (entry.turn === turn) return;
   }
-  context.getStore(AGENT_SURFACE_TURN_SIGNALS)?.delete(turn);
+  state.signals.delete(turn);
 }
 
 /**
@@ -494,12 +363,12 @@ function releaseExchange(context: CraftContext, exchangeId: string): void {
  * they make sense in: a terminal is killed before it is released.
  */
 function claimCleanups(
-  context: CraftContext,
+  state: SurfaceState,
   session: string,
   cancelled: string,
-): Array<[string, Registration]> {
-  const registered = registrations(context);
-  const due: Array<[string, Registration]> = [];
+): Array<[string, SurfaceRegistration]> {
+  const registered = state.cleanups;
+  const due: Array<[string, SurfaceRegistration]> = [];
   for (const [exchangeId, entry] of registered) {
     if (entry.session !== session) continue;
     // A route another turn dispatched can still be running. Its terminal is
@@ -521,9 +390,9 @@ function claimCleanups(
  * editor that left took its terminal with it.
  */
 async function sendCleanups(
-  context: CraftContext,
+  state: SurfaceState,
   session: string,
-  due: ReadonlyArray<readonly [string, Registration]>,
+  due: ReadonlyArray<readonly [string, SurfaceRegistration]>,
 ): Promise<void> {
   for (const [exchangeId, entry] of due) {
     for (const { ref, connection, request } of entry.entries) {
@@ -533,8 +402,8 @@ async function sendCleanups(
         method: request.method,
         source: "surface",
       };
-      if (surfaceFor(context, ref) !== connection) {
-        context.logger.debug(
+      if (surfaceFor(state, ref) !== connection) {
+        state.logger.debug(
           detail,
           "Cleanup registered for a cancelled turn was skipped: the editor has gone",
         );
@@ -551,7 +420,7 @@ async function sendCleanups(
           request.method,
         );
       } catch (err: unknown) {
-        context.logger.warn(
+        state.logger.warn(
           { ...detail, err },
           "Cleanup registered for a cancelled turn failed",
         );
@@ -589,38 +458,52 @@ function withDeadline<T>(work: Promise<T>, method: string): Promise<T> {
 }
 
 /**
- * Subscribe the lifecycle once per context: an interrupt cancels the
- * conversation's turn, and an exchange ending releases what it held.
+ * Subscribe the lifecycle: an interrupt cancels the conversation's turn,
+ * and an exchange ending releases what it held.
  *
- * Called by `registerSurface`, so a backend cannot publish a surface
- * without it. Installed there rather than left to each backend because the
- * failure of forgetting it is silent: ordinary calls keep working, and
- * only cancellation, cleanup and eviction quietly never happen.
+ * Called once, from the bind of the plugin that provides the state, so it
+ * exists exactly when the state does and a backend cannot publish a
+ * surface without it. The failure of forgetting it is silent: ordinary
+ * calls keep working, and only cancellation, cleanup and eviction quietly
+ * never happen. Released with that plugin, along with any cleanup still
+ * waiting on a turn that never settled: by then the drain is over, and a
+ * cut exchange's cleanup is not sent, as core states for a forced stop.
  *
  * @internal
  */
-export function ensureSurfaceLifecycle(context: CraftContext): void {
-  if (context.getStore(AGENT_SURFACE_LIFECYCLE) === true) return;
-  context.setStore(AGENT_SURFACE_LIFECYCLE, true);
-  context.on("route:agent:session:interrupted", ({ details }) => {
-    cancelSurfaceTurn(
-      context,
-      details.session,
-      details.correlationId,
-      details.exchangeId,
-    );
-  });
+export function bindSurfaceLifecycle(
+  state: SurfaceState,
+  c: Pick<PluginContext, "observe" | "onDispose">,
+): void {
+  c.onDispose(
+    c.observe("route:agent:session:interrupted", ({ details }) => {
+      cancelSurfaceTurn(
+        state,
+        details.session,
+        details.correlationId,
+        details.exchangeId,
+      );
+    }),
+  );
   for (const ended of [
     "route:exchange:completed",
     "route:exchange:failed",
     "route:exchange:dropped",
   ] as const) {
-    context.on(ended, ({ details }) => {
-      // The cleanup first: a cancelled turn's own exchange settling is what
-      // releases it, and it must claim its registrations before the same
-      // exchange ending drops anything.
-      releaseCancel(context, details.exchangeId);
-      releaseExchange(context, details.exchangeId);
-    });
+    c.onDispose(
+      c.observe(ended, ({ details }) => {
+        // The cleanup first: a cancelled turn's own exchange settling is
+        // what releases it, and it must claim its registrations before the
+        // same exchange ending drops anything.
+        releaseCancel(state, details.exchangeId);
+        releaseExchange(state, details.exchangeId);
+      }),
+    );
   }
+  c.onDispose(() => {
+    for (const waiting of state.pendingCancels.values()) {
+      clearTimeout(waiting.fallback);
+    }
+    state.pendingCancels.clear();
+  });
 }
