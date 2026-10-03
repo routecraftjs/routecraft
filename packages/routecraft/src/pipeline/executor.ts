@@ -788,8 +788,7 @@ export async function runPipeline(
         };
       }
 
-      // No route handler, the other place the executor used to give up, so
-      // the context chain gets its turn here too. Above the
+      // No route handler, so the context chain gets its turn here. Above the
       // `rethrowUnhandled` escape deliberately: a nested resilience segment
       // rethrows so the WRAPPING segment can react, and a context handler
       // that parks the exchange has already resolved it, so surfacing the
@@ -1026,7 +1025,7 @@ async function runContextErrorHandlers(
   },
 ): Promise<ErrorDecision | undefined> {
   // A run that exists to surface its failure to a wrapping resilience segment
-  // consults NO error ring, which is what it did before this chain existed.
+  // consults NO error ring.
   // `nestedDeps` builds the nested definition without `errorHandler`, so the
   // route ring cannot fire inside a `.retry()`, `.timeout()`, `.circuitBreaker()`
   // or `.concurrency()` segment; consulting the context ring there would let a

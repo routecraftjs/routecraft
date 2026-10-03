@@ -7,10 +7,9 @@ cannot. This standard is the contract that claim rests on: what the kernel
 owns, what a plugin declares, how the route chain is ordered, and where every
 first-party feature now lives.
 
-The direction documents on the `validation/round-six` branch
-(`spikes/plugin-architecture/docs/direction/`) explain the model to a
-consumer. This standard says how it is built, and records every migration
-decision that page 07 of those documents left open.
+The [plugins reference](../apps/routecraft.dev/app/content/docs/reference/plugins/index.mdx)
+explains the model to a consumer. This standard says how it is built, and
+records every migration decision the design left open.
 
 ---
 

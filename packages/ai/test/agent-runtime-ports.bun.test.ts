@@ -264,9 +264,9 @@ describe("the agent runtime and its ports", () => {
   /**
    * @case ACP installed with no agent runtime at all
    * @preconditions acpPlugin() in plugins, no agentPlugin and no agent key
-   * @expectedResult The build fails with RC1104 naming the AGENTS port, before anything binds
+   * @expectedResult The build fails with RC5003 naming every way to register an agent: ACP brings the runtime, so the refusal is about the missing agents rather than a bare missing port
    */
-  test("ACP requires the agents port", async () => {
+  test("ACP with no agents names the fix", async () => {
     await expect(
       testContext()
         .with({
@@ -275,8 +275,8 @@ describe("the agent runtime and its ports", () => {
         })
         .build(),
     ).rejects.toMatchObject({
-      rc: "RC1104",
-      message: expect.stringContaining("routecraft.ai.agents@1"),
+      rc: "RC5003",
+      message: expect.stringContaining("agentPlugin()"),
     });
   });
 });

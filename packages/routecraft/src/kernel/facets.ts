@@ -8,6 +8,26 @@ import { rcError } from "../error.ts";
 /** Names this module put on the exchange prototype. */
 const installed = new Set<string>();
 
+/** Fields every exchange carries as its own, not on its prototype. */
+const OWN_FIELDS: ReadonlySet<string> = new Set([
+  "id",
+  "headers",
+  "body",
+  "logger",
+  "context",
+]);
+
+/**
+ * Whether a facet name is already something every exchange is: one of its
+ * own fields or a member of its prototype.
+ *
+ * @internal
+ */
+export function isReservedFacet(namespace: string): boolean {
+  if (installed.has(namespace)) return false;
+  return OWN_FIELDS.has(namespace) || namespace in DefaultExchange.prototype;
+}
+
 /**
  * Make `ex.<namespace>` readable on every exchange.
  *
@@ -22,7 +42,7 @@ const installed = new Set<string>();
  */
 export function installFacet(namespace: string): void {
   if (installed.has(namespace)) return;
-  if (namespace in DefaultExchange.prototype) {
+  if (isReservedFacet(namespace)) {
     throw rcError("RC1114", undefined, {
       message: `A plugin declares a facet named "${namespace}", which every exchange already has. Give the plugin an explicit namespace.`,
     });

@@ -14,7 +14,7 @@ import { isRoutecraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
 import { type AdapterOverride, RC_ADAPTER_OVERRIDES } from "./testing-hooks.ts";
 import { configuredPlugins, getConfigAppliers } from "./config-applier.ts";
-import { DIRECT } from "./adapters/direct/registry.ts";
+import { DIRECT } from "./kernel/direct.ts";
 import { CONTINUATIONS } from "./kernel/continuation/port.ts";
 import { ContinuationSweeper } from "./kernel/continuation/sweep.ts";
 import { applyResolvedSites } from "./kernel/continuation/sites.ts";

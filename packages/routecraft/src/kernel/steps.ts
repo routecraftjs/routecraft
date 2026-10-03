@@ -189,6 +189,8 @@ type StepMethod<F, S extends BuilderState, This> = F extends (
 /**
  * The methods a plugin's `steps` become at state `S`: one per entry whose
  * input the body satisfies. Exported so a declaration file can name it.
+ *
+ * @internal
  */
 export type DerivedStepMethods<St, S extends BuilderState, This> = {
   [
@@ -210,6 +212,7 @@ type MethodsOfPlugin<P, S extends BuilderState, This> = P extends {
  * @template S - The route's state, whose `plugins` field lists the installed
  *   plugin types
  * @template This - The builder the methods return a retyped copy of
+ * @internal
  */
 export type PluginMethods<S extends BuilderState, This> = UnionToIntersection<
   MethodsOfPlugin<PluginsOf<S>, S, This>
@@ -228,6 +231,8 @@ type FacetOfPlugin<P, S extends BuilderState> = P extends {
 /**
  * The facets the installed plugins add to an exchange at state `S`:
  * `ex.<namespace>` for each plugin that declares one.
+ *
+ * @internal
  */
 export type FacetsOf<S extends BuilderState> = UnionToIntersection<
   FacetOfPlugin<PluginsOf<S>, S>
@@ -283,13 +288,19 @@ export function catalogueOf(plugins: readonly unknown[]): StepCatalogue {
  * The plugin types the root `craft()` is typed by: every plugin
  * `@routecraft/routecraft` ships that adds route methods or facets. Each
  * merges itself in under its namespace, so the kernel names none of them.
+ * First-party only: its runtime twin is `registerShippedPlugin`.
+ *
+ * @internal
  */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type -- filled by declaration merging
 export interface ShippedPluginTypes {}
 
 /**
  * The plugin types every application installs by default. A project's
- * `craft()` always has these.
+ * `craft()` always has these. First-party only, like
+ * {@link ShippedPluginTypes}.
+ *
+ * @internal
  */
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type -- filled by declaration merging
 export interface DefaultPluginTypes {}

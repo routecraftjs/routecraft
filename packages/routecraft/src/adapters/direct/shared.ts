@@ -4,7 +4,7 @@ import { rcError } from "../../error";
 import type { RouteDiscovery } from "../../route";
 import type { DirectChannel, DirectBaseOptions } from "./types";
 import type { Exchange } from "../../exchange";
-import { DIRECT } from "./registry.ts";
+import { DIRECT } from "../../kernel/direct.ts";
 
 /**
  * Get or create the direct channel for the given endpoint.
@@ -24,16 +24,9 @@ export function getDirectChannel<T>(
   endpoint: string,
   options: Partial<DirectBaseOptions>,
 ): DirectChannel<Exchange<T>> {
-  const registry = context.require(DIRECT);
-  let channel = registry.channels.get(endpoint);
-  if (!channel) {
-    const ChannelCtor = options.channelType ?? registry.channelType;
-    channel = ChannelCtor
-      ? (new ChannelCtor(endpoint) as DirectChannel<Exchange>)
-      : new InMemoryDirectChannel<Exchange>();
-    registry.channels.set(endpoint, channel);
-  }
-  return channel as DirectChannel<Exchange<T>>;
+  return context
+    .require(DIRECT)
+    .channel(endpoint, options.channelType) as DirectChannel<Exchange<T>>;
 }
 
 /**

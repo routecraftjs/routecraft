@@ -1,3 +1,4 @@
+import { DIRECT } from "./kernel/direct.ts";
 import { randomUUID } from "node:crypto";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { CraftContext } from "./context.ts";
@@ -1520,12 +1521,10 @@ export class DefaultRoute implements Route {
       endpoint: RegisteredDirectEndpoint,
       payload: unknown,
     ): Promise<unknown> => {
-      const { getDirectChannel, sanitizeEndpoint } =
-        await import("./adapters/direct/shared.ts");
-      const sanitized = sanitizeEndpoint(endpoint as string);
-      const channel = getDirectChannel(this.context, sanitized, {});
       const forwardExchange = this.buildExchange(payload, caller.headers);
-      const result = await channel.send(sanitized, forwardExchange);
+      const result = await this.context
+        .require(DIRECT)
+        .send(endpoint as string, forwardExchange);
       // Mirror CraftClient.sendDirect: a dropped exchange has no result,
       // and resolving with its body would echo the forwarded payload back
       // as if the target route produced it.

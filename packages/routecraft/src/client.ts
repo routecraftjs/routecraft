@@ -3,7 +3,7 @@ import type { Exchange, ExchangeHeaders } from "./exchange.ts";
 import { DefaultExchange, isDropped } from "./exchange.ts";
 import { rcError } from "./error.ts";
 import { sanitizeEndpoint } from "./adapters/direct/shared.ts";
-import { DIRECT } from "./adapters/direct/registry.ts";
+import { DIRECT } from "./kernel/direct.ts";
 
 /**
  * Programmatic client for dispatching messages into running routes.

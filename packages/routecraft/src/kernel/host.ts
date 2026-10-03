@@ -1,3 +1,4 @@
+import { isReservedFacet } from "./facets.ts";
 import { rcError } from "../error.ts";
 import {
   namespaceOf,
@@ -73,15 +74,6 @@ function invalidPlugin(where: string, why: string): never {
     message: `Invalid plugin ${where}: ${why}. A plugin is a descriptor built with definePlugin({ id, bind?, start?, stop? }).`,
   });
 }
-
-/** What an exchange already is; a facet cannot be one of them. */
-const RESERVED_FACETS: ReadonlySet<string> = new Set([
-  "id",
-  "headers",
-  "body",
-  "logger",
-  "context",
-]);
 
 function validateShape(plugin: unknown, where: string): Plugin {
   if (typeof plugin !== "object" || plugin === null) {
@@ -288,7 +280,7 @@ export class PluginHost {
         });
       }
       namespaces.set(namespace, id);
-      if (plugin.facet !== undefined && RESERVED_FACETS.has(namespace)) {
+      if (plugin.facet !== undefined && isReservedFacet(namespace)) {
         throw rcError("RC1114", undefined, {
           message: `Plugin "${id}" declares a facet named "${namespace}", which every exchange already has. Give the plugin an explicit namespace.`,
         });
