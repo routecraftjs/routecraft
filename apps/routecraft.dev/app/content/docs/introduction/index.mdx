@@ -106,7 +106,7 @@ This is also why the local harness is safe to hand to every engineer: on a lapto
 
 - **An integration framework such as Apache Camel.** The same model: routes, exchanges, adapters, a fluent DSL. Routecraft is that model in TypeScript, with MCP, the editor protocol and agents as first-class sources and steps, so you do not need a second system for the AI side.
 - **An agent framework such as LangGraph.** Those build the agent. Routecraft builds the tools the agent uses, and can host the agent too, as a capability with the same validation, authorisation and telemetry as every other call. Your agents in Claude, Copilot or Cursor keep working, with hands.
-- **The plain MCP SDK.** Routecraft is an MCP server whose tools are capabilities, so input validation, authorisation, service credentials, an audit record and restart-safe human approval are there to switch on in the same model rather than to build per tool. A new project validates input; the rest you configure as a tool needs them. The other doors sit beside it on the same instance, so the tool you wrote for an agent is also an endpoint and a scheduled job.
+- **The plain MCP SDK.** Routecraft is an MCP server whose tools are capabilities, so input validation, authorisation, service credentials, an audit record and restart-safe human approval are there to switch on in the same model rather than to build per tool. A new project validates input; you switch on the rest as a tool needs it. The other doors sit beside it on the same instance, so the tool you wrote for an agent is also an endpoint and a scheduled job.
 
 ## Where most teams stand
 

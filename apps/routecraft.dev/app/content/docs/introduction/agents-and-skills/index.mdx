@@ -3,12 +3,12 @@ title: Agents and skills
 ---
 
 <Lead>
-An agent is a model working in a loop with the tools you gave it, and only those. In Routecraft the tools are capabilities, so everything the agent can do is code you can read. This page builds one agent on the project from [Tools for agents](/docs/introduction/tools-for-agents): a model, two capabilities granted as tools, one skill, and a capability that calls it.
+An agent is a model working in a loop with the tools you gave it, and only those. Most of those tools are your own capabilities, so what the agent can do is code you can read; a tool granted from another MCP server runs on that server. This page builds one agent on the project from [Tools for agents](/docs/introduction/tools-for-agents): a model, two capabilities granted as tools, one skill, and a capability that calls it.
 </Lead>
 
 ## 1. Give the project a model
 
-An agent needs a model provider and that provider's key. Add the provider's SDK and declare it in `craft.config.ts`:
+An agent needs a model provider, and a hosted provider needs its key. Add the provider's SDK and declare it in `craft.config.ts`:
 
 ```bash
 bun add @ai-sdk/anthropic
@@ -52,11 +52,11 @@ do not have.
 
 ## 3. Grant it capabilities
 
-`tools` is an allowlist. `Direct(find-overdue-invoices)` grants the capability you built in Tools for agents, and `Direct(greet)` the one the scaffold ships; the agent is offered those two and nothing else. A capability can be granted this way when it has a `direct()` source, a `.description()` and an `.input({ body })` schema, which both of these do: the description and schema are what the model is shown.
+`tools` is an allowlist. `Direct(find-overdue-invoices)` grants the capability you built in Tools for agents, and `Direct(greet)` the one the scaffold ships; those are the only capabilities it is offered. Skills, below, add a loader tool each, for the model to read a skill when it needs one. A capability can be granted this way when it has a `direct()` source, a `.description()` and an `.input({ body })` schema, which both of these do: the description and schema are what the model is shown.
 
 A tool call is an ordinary call to the capability. Its `.input()` schema checks the arguments the model chose, a call it refuses goes back to the model as an error naming the field, and the model can correct itself. The capability's `.authorize()` rule, where it has one, judges the caller the agent is acting for. Nothing about a call changes because a model made it.
 
-Tools are not only your own capabilities: an agent can be granted another MCP server's tools, a capability on the team harness through a remote, or an inline function. The [agent tools reference](/docs/reference/plugins/agentplugin#agent-tools) has every form, and the [tool policy](/docs/reference/plugins/agentplugin#tool-policy) sets rules no single agent file can loosen.
+Tools are not only your own capabilities: an agent can be granted another MCP server's tools, a dispatchable capability (one with a `direct()` source) on the team harness through a remote, or an inline function. The [agent tools reference](/docs/reference/plugins/agentplugin#agent-tools) has every form, and the [tool policy](/docs/reference/plugins/agentplugin#tool-policy) sets rules no single agent file can loosen.
 
 ## 4. Add a skill
 

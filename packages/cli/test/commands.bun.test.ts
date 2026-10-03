@@ -123,7 +123,16 @@ describe("the craft command surface", () => {
         [ENTRY, "acp", "--project", project, "--profile", "editor"],
         {
           cwd: elsewhere,
-          env: { ...process.env, HOME: home, CRAFT_LOG_LEVEL: "silent" },
+          // An inherited CRAFT_* variable would outrank the profile.
+          env: {
+            ...process.env,
+            HOME: home,
+            CRAFT_LOG_LEVEL: "silent",
+            CRAFT_URL: "",
+            CRAFT_TOKEN: "",
+            CRAFT_PROFILE: "",
+            CRAFT_AGENT: "",
+          },
           input: `${initialize}\n`,
           encoding: "utf8",
           timeout: 20_000,
