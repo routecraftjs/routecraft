@@ -1,5 +1,10 @@
 import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
-import { testContext, type TestContext } from "@routecraft/testing";
+import { mcp } from "@routecraft/ai";
+import {
+  mockAdapter,
+  testContext,
+  type TestContext,
+} from "@routecraft/testing";
 import capabilities from "./route.js";
 
 describe("Hello World Routes", () => {
@@ -19,7 +24,7 @@ describe("Hello World Routes", () => {
 
   /**
    * @case Verifies that the simple route dispatches to the direct "greet" route, which fetches and greets the user by name
-   * @preconditions Both routes are registered, the MCP door is served over HTTP on a port the OS picks so the mcp() source can subscribe, and fetch is mocked to return a JSON Placeholder user
+   * @preconditions Both routes are registered, the mcp() source is mocked so no MCP transport starts, and fetch is mocked to return a JSON Placeholder user
    * @expectedResult greet route fetches the user and logs "Hello, [name]!" via the LogAdapter
    */
   test("dispatches from simple route into direct route and greets by name", async () => {
@@ -39,10 +44,7 @@ describe("Hello World Routes", () => {
     });
 
     t = await testContext({ fn: mock })
-      .with({
-        servers: { default: { port: 0 } },
-        mcp: { transport: "http", auth: false },
-      })
+      .override(mockAdapter(mcp, { source: [] }))
       .routes(capabilities)
       .build();
     await t.test();

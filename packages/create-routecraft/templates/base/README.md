@@ -33,32 +33,30 @@ claude mcp add PROJECT_NAME -- bunx craft start --log-file craft.log
 
 Then ask it: "greet user 1".
 
-Cursor (`.cursor/mcp.json`) and Claude Desktop use the same shape:
+Clients configured in JSON (Cursor, Claude Desktop, VS Code and Copilot) do not start the
+server from this folder, so give them absolute paths: the project's own `craft`, the project
+folder, and the log file. Cursor (`.cursor/mcp.json`) and Claude Desktop
+(`claude_desktop_config.json`):
 
 ```json
 {
   "mcpServers": {
     "PROJECT_NAME": {
-      "command": "bunx",
-      "args": ["craft", "start", "--log-file", "craft.log"]
+      "command": "/absolute/path/to/PROJECT_NAME/node_modules/.bin/craft",
+      "args": [
+        "start",
+        "/absolute/path/to/PROJECT_NAME",
+        "--log-file",
+        "/absolute/path/to/PROJECT_NAME/craft.log"
+      ]
     }
   }
 }
 ```
 
-VS Code and Copilot (`.vscode/mcp.json`):
-
-```json
-{
-  "servers": {
-    "PROJECT_NAME": {
-      "type": "stdio",
-      "command": "bunx",
-      "args": ["craft", "start", "--log-file", "craft.log"]
-    }
-  }
-}
-```
+VS Code and Copilot (`.vscode/mcp.json`) take the same command and arguments under
+`"servers"`, with `"type": "stdio"`. `craft` runs on Bun, so a client that does not inherit
+your shell's `PATH` needs Bun on its own.
 
 A team shares the tool by running the project always on, serving MCP over HTTP behind
 authentication, on service credentials no person holds. That is a config change, not a code

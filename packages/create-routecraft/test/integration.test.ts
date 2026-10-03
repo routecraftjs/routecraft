@@ -223,6 +223,93 @@ async function runUntilOutput(
   });
 }
 
+/**
+ * Talk to a project over MCP stdio the way a client does: start it with the
+ * command the README registers, send `initialize`, list the tools and call
+ * one, and return the raw responses by request id. Lines that are not JSON
+ * fail the run, because anything else on stdout corrupts the protocol.
+ */
+async function mcpStdioRoundTrip(opts: {
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+  call: { name: string; arguments: Record<string, unknown> };
+  timeoutMs: number;
+}): Promise<Map<number, Record<string, unknown>>> {
+  const child = spawn(
+    "/bin/sh",
+    ["-c", "bunx craft start --log-file craft.log"],
+    { cwd: opts.cwd, stdio: ["pipe", "pipe", "pipe"], env: opts.env },
+  );
+  const send = (message: Record<string, unknown>) =>
+    child.stdin?.write(JSON.stringify({ jsonrpc: "2.0", ...message }) + "\n");
+  const responses = new Map<number, Record<string, unknown>>();
+  let buffer = "";
+  let stderr = "";
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () =>
+          reject(
+            new Error(
+              `Timed out after ${opts.timeoutMs}ms with responses for ids [${[...responses.keys()].join(", ")}].\nstderr:\n${stderr}`,
+            ),
+          ),
+        opts.timeoutMs,
+      );
+      child.stderr?.on("data", (d) => {
+        stderr += d.toString();
+      });
+      child.on("exit", (code) => {
+        clearTimeout(timer);
+        reject(new Error(`Server exited with ${code}.\nstderr:\n${stderr}`));
+      });
+      child.stdout?.on("data", (d) => {
+        buffer += d.toString();
+        let newline = buffer.indexOf("\n");
+        while (newline !== -1) {
+          const line = buffer.slice(0, newline).trim();
+          buffer = buffer.slice(newline + 1);
+          newline = buffer.indexOf("\n");
+          if (line === "") continue;
+          let message: Record<string, unknown>;
+          try {
+            message = JSON.parse(line) as Record<string, unknown>;
+          } catch {
+            clearTimeout(timer);
+            reject(new Error(`Non-protocol line on stdout: ${line}`));
+            return;
+          }
+          if (typeof message["id"] !== "number") continue;
+          responses.set(message["id"], message);
+          if (message["id"] === 1) {
+            send({ method: "notifications/initialized" });
+            send({ id: 2, method: "tools/list", params: {} });
+            send({ id: 3, method: "tools/call", params: opts.call });
+          }
+          if (responses.has(2) && responses.has(3)) {
+            clearTimeout(timer);
+            resolve();
+          }
+        }
+      });
+      send({
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "integration-test", version: "0.0.0" },
+        },
+      });
+    });
+  } finally {
+    child.removeAllListeners("exit");
+    child.stdin?.end();
+    child.kill("SIGTERM");
+  }
+  return responses;
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function makeOptions(
@@ -404,6 +491,55 @@ describe(`integration (${pm.id}): scaffolded project compiles`, () => {
           timeoutMs: 60_000,
           env,
         });
+      });
+    },
+  );
+
+  /**
+   * @case A scaffolded project answers an MCP client over stdio, started the way its README registers it
+   * @preconditions Hello-world project scaffolded and installed via the selected package manager; the client starts it with `bunx craft start --log-file craft.log`
+   * @expectedResult `initialize` succeeds, `tools/list` names `greet` with an input schema requiring `userId`, and calling `greet` with `{ userId: 1 }` returns "Hello, Leanne Graham!" with nothing but protocol messages on stdout
+   */
+  integrationTest.concurrent(
+    "hello-world project lists and calls its tool over MCP stdio",
+    { timeout: 180_000 },
+    async (ctx) => {
+      if (pm.start === null) {
+        ctx.skip();
+        return;
+      }
+      await withProjectDir(async (projectDir) => {
+        await generateProjectStructure(projectDir, makeOptions());
+        await patchDepsToLocal(projectDir);
+
+        await runInstall(projectDir);
+
+        const env = { ...process.env };
+        for (const name of LOG_ENV) delete env[name];
+        const responses = await mcpStdioRoundTrip({
+          cwd: projectDir,
+          env,
+          call: { name: "greet", arguments: { userId: 1 } },
+          timeoutMs: 60_000,
+        });
+
+        expect(responses.get(1)?.["error"]).toBeUndefined();
+        const tools = (
+          responses.get(2)?.["result"] as {
+            tools: Array<{
+              name: string;
+              inputSchema: { required?: string[] };
+            }>;
+          }
+        ).tools;
+        const greet = tools.find((tool) => tool.name === "greet");
+        expect(greet?.inputSchema.required).toContain("userId");
+        const call = responses.get(3)?.["result"] as {
+          isError?: boolean;
+          content: Array<{ type: string; text?: string }>;
+        };
+        expect(call.isError).not.toBe(true);
+        expect(JSON.stringify(call.content)).toContain("Hello, Leanne Graham!");
       });
     },
   );
