@@ -23,7 +23,7 @@ import {
 import { McpServer } from "../src/mcp/server.ts";
 import { MCP_PLUGIN_REGISTERED } from "../src/mcp/types.ts";
 import type { McpPluginOptions, McpServerOptions } from "../src/mcp/types.ts";
-import { fromFile, mcp } from "../src/index.ts";
+import { fromFile, mcp, mcpPlugin } from "../src/index.ts";
 
 const MCP_STORE_KEY = MCP_PLUGIN_REGISTERED as keyof StoreRegistry;
 
@@ -97,7 +97,7 @@ describe("MCP Apps views (#857)", () => {
   /**
    * @case A tool with a view round-trips list, resource read, and call the way a host drives it
    * @preconditions send-mail route with .output() and mcp({ ui: { html, csp, prefersBorder } }) on a server named "eywa"; the real SDK client over HTTP
-   * @expectedResult tools/list carries _meta.ui.resourceUri ui://eywa/send-mail; resources/list names it with the MCP App MIME type; resources/read returns the HTML with csp and prefersBorder under _meta.ui; tools/call returns structuredContent beside the text fallback
+   * @expectedResult tools/list carries _meta.ui.resourceUri ui://eywa/send-mail; resources/list names it with the MCP App MIME type; resources/read returns the HTML with csp and prefersBorder under _meta.ui and emits plugin:mcp:ui:served once; tools/call returns structuredContent beside the text fallback
    */
   test("list, read resource, and call round-trip over HTTP", async () => {
     const csp = { resourceDomains: ["https://cdn.example.com"] };
@@ -122,6 +122,10 @@ describe("MCP Apps views (#857)", () => {
       },
     ]);
 
+    const served: Array<Record<string, unknown>> = [];
+    t!.ctx.on("plugin:mcp:ui:served", (event) => {
+      served.push(event.details);
+    });
     const read = await connected.readResource({ uri: "ui://eywa/send-mail" });
     expect(read.contents).toEqual([
       {
@@ -131,6 +135,7 @@ describe("MCP Apps views (#857)", () => {
         _meta: { ui: { csp, prefersBorder: true } },
       },
     ]);
+    expect(served).toEqual([{ tool: "send-mail", uri: "ui://eywa/send-mail" }]);
 
     const result = await connected.callTool({
       name: "send-mail",
@@ -307,6 +312,43 @@ describe("mcp({ ui }) validation", () => {
       expect(() => mcp({ ui } as unknown as McpServerOptions)).toThrow(
         expect.objectContaining({ rc: "RC5003" }),
       );
+    }
+  });
+});
+
+describe("mcpPlugin name and the view URI", () => {
+  /**
+   * @case An empty or blank server name is refused, since it would leave the ui:// URI without an authority
+   * @preconditions mcpPlugin({ name: "" }) and mcpPlugin({ name: "  " })
+   * @expectedResult Both throw a TypeError naming the option
+   */
+  test("mcpPlugin rejects an empty name", () => {
+    expect(() => mcpPlugin({ name: "" })).toThrow(/name must not be empty/);
+    expect(() => mcpPlugin({ name: "  " })).toThrow(/name must not be empty/);
+  });
+
+  /**
+   * @case An explicit undefined name falls back to the default instead of spreading over it
+   * @preconditions McpServer constructed with { name: undefined }, as untyped config produces from an unset environment variable
+   * @expectedResult tools/list advertises ui://routecraft/send-mail, not ui://undefined/send-mail
+   */
+  test("an undefined name keeps the default", async () => {
+    const t = await testContext()
+      .store(MCP_STORE_KEY, true)
+      .routes([sendMail({ ui: { html: MAIL_CARD } })])
+      .build();
+    try {
+      const server = new McpServer(t.ctx, {
+        name: undefined,
+      } as unknown as McpPluginOptions);
+      await t.startAndWaitReady();
+      const tool = server
+        .getAvailableTools()
+        .find((candidate) => candidate.name === "send-mail");
+      expect(tool?._meta?.ui?.resourceUri).toBe("ui://routecraft/send-mail");
+      await server.stop();
+    } finally {
+      await t.stop();
     }
   });
 });
