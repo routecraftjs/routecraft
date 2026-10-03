@@ -8,7 +8,8 @@ name: Release
 # touches the registry.
 #
 # Triggered by CI completing on a main push (not by the push itself), so
-# nothing is ever published from a commit whose tests or smokes failed.
+# nothing is ever published to npm from a commit whose tests or smokes failed;
+# the docs deploy needs only the site's own CI jobs to have passed.
 # workflow_dispatch redeploys the docs only (no npm publish).
 on:
   workflow_run:
@@ -222,24 +223,56 @@ jobs:
           bun run build
           bunx changeset publish --tag canary --no-git-tag
 
+  # Whether the CI jobs that check the site passed. The site deploys on that,
+  # not on the whole run: a CVE in an adapter's optional peer must not freeze
+  # the docs. npm still publishes only from a fully green run (the jobs above).
+  site-checks:
+    if: >-
+      github.event_name == 'workflow_run'
+      && github.event.workflow_run.event == 'push'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: read
+    outputs:
+      passed: ${{ steps.check.outputs.passed }}
+    steps:
+      - name: Read the site jobs of the CI run
+        id: check
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -eo pipefail
+          # Skipped counts as passed: the paths filter skips the site jobs when
+          # the push touched nothing the site is built from. `changes` itself
+          # must have succeeded, or the skips prove nothing.
+          VERDICT="$(gh api --paginate "repos/$GITHUB_REPOSITORY/actions/runs/$RUN_ID/jobs" \
+            --jq '.jobs[] | select(.name | IN("changes", "docs-site", "docs-release-shape", "site-image-security"))
+              | "\(.name)=\(.conclusion)"' | sort)"
+          echo "$VERDICT"
+          if echo "$VERDICT" | grep -qx 'changes=success' \
+            && ! echo "$VERDICT" | grep -vqE '=(success|skipped)$'; then
+            echo "passed=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "passed=false" >> "$GITHUB_OUTPUT"
+          fi
+
   # Docs deploy as the LAST stage of the release flow: by the time this runs,
   # the release job has already pushed any fresh v* tag, so the freeze below
   # always sees the just-released version. No race, no double deploy, and the
   # docs never move when a release attempt failed. Docs-only pushes still
-  # deploy on the main cadence because this workflow runs for every green
-  # main push; workflow_dispatch covers manual redeploys.
+  # deploy on the main cadence because this workflow runs for every main push
+  # whose site checks passed; workflow_dispatch covers manual redeploys.
   build-and-deploy-docs:
-    needs: [release]
-    # `!failure()` (rather than the default success()) lets the manual
-    # dispatch path run while the release job is skipped.
+    needs: [release, site-checks]
+    # `!failure()` (rather than the default success()) lets the deploy run
+    # while the release job is skipped: on a manual dispatch, and on a push
+    # whose CI failed outside the site.
     if: >-
       !failure() && !cancelled()
       && (
         github.event_name == 'workflow_dispatch'
-        || (
-          github.event.workflow_run.conclusion == 'success'
-          && github.event.workflow_run.event == 'push'
-        )
+        || needs.site-checks.outputs.passed == 'true'
       )
     # ARM64, because the deploy target is an ARM64 host and an amd64 image dies
     # there as `exec format error`. GitHub's hosted ARM runners are free on
