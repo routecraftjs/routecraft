@@ -44,8 +44,9 @@ export function navigationFor(channel: DocsChannelName) {
  * release still finds its section at the address the release serves it from.
  */
 export function docsSectionTitle(pathname: string): string | undefined {
-  const bare = stripDocsChannel(pathname)
-  return navigationFor(docsChannelFromPathname(pathname)).find((section) =>
-    section.links.some((link) => link.href === bare),
+  const bare = stripDocsChannel(pathname).replace(/\/+$/, '')
+  return navigationFor(docsChannelFromPathname(pathname)).find(
+    (section) =>
+      section.href === bare || section.links.some((link) => link.href === bare),
   )?.title
 }
