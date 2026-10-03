@@ -1,0 +1,211 @@
+name: Site preview
+
+# One preview of the site per pull request, on the Dokploy preview environment.
+# Replaces Dokploy's own preview deployments, which built pull-request code on
+# the Dokploy host with no scan.
+#
+# The pull request's code runs only in `build`, which holds no write token and
+# no secret. `publish` scans the built image with the same gate as production
+# and pushes it to GHCR; `deploy` asks Dokploy to pull it. Both check out the
+# base commit, so the scripts they run are the reviewed ones. Pull requests
+# from forks get no preview.
+#
+# MAINTAINER SETUP: a `preview` environment holding the secrets DOKPLOY_URL and
+# DOKPLOY_PREVIEW_API_KEY (optionally GHCR_PULL_USER and GHCR_PULL_TOKEN for a
+# private image) and the variables DOKPLOY_PREVIEW_ENVIRONMENT_ID and
+# PREVIEW_DOMAIN. See .github/scripts/dokploy-preview.sh.
+on:
+  pull_request:
+    types: [opened, synchronize, reopened, closed]
+    branches: ["main"]
+    paths:
+      - "apps/routecraft.dev/**"
+      - "packages/**"
+      - "bun.lock"
+      - ".github/workflows/site-preview.yml"
+      - ".github/scripts/dokploy-preview.sh"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: site-preview-${{ github.event.pull_request.number }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    if: >-
+      github.event.action != 'closed'
+      && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-24.04-arm
+    steps:
+      - name: Checkout
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+
+      - name: Build the site image
+        env:
+          PR: ${{ github.event.pull_request.number }}
+          PREVIEW_DOMAIN: ${{ vars.PREVIEW_DOMAIN }}
+        run: |
+          set -eo pipefail
+          docker build \
+            --platform linux/arm64 \
+            --file apps/routecraft.dev/Dockerfile \
+            --build-arg VITE_DOC_VERSION="pr-$PR" \
+            --build-arg VITE_BASE_URL="https://routecraft-pr-$PR.$PREVIEW_DOMAIN" \
+            --tag routecraft-site:preview \
+            .
+          docker save routecraft-site:preview | gzip > "$RUNNER_TEMP/site-image.tar.gz"
+
+      - name: Upload the image
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: site-image
+          path: ${{ runner.temp }}/site-image.tar.gz
+          retention-days: 1
+
+  publish:
+    needs: [build]
+    runs-on: ubuntu-24.04-arm
+    permissions:
+      contents: read
+      packages: write
+    outputs:
+      image: ${{ steps.push.outputs.image }}
+    steps:
+      - name: Checkout the base
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: Download the image
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8.0.1
+        with:
+          name: site-image
+          path: ${{ runner.temp }}
+
+      - name: Load the image
+        run: gunzip -c "$RUNNER_TEMP/site-image.tar.gz" | docker load
+
+      # Only db/: Trivy writes its layer cache as root-only files the cache
+      # step cannot read back.
+      - name: Date the Trivy database
+        id: trivy-db
+        run: echo "day=$(date -u +%F)" >> "$GITHUB_OUTPUT"
+
+      - name: Restore the Trivy database
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/trivy/db
+          key: trivy-db-${{ steps.trivy-db.outputs.day }}
+          restore-keys: trivy-db-
+
+      - name: "Gate: scan the site image"
+        run: |
+          .github/scripts/trivy.sh gate image --scanners vuln,secret \
+            routecraft-site:preview
+
+      # A pr-* tag only: the moving `latest` that production pulls is never
+      # written from a pull request.
+      - name: Push the image
+        id: push
+        env:
+          REGISTRY_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          set -eo pipefail
+          printf '%s' "$REGISTRY_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          OWNER="$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')"
+          IMAGE="ghcr.io/$OWNER/routecraft.dev:pr-$PR-${SHA:0:7}"
+          docker tag routecraft-site:preview "$IMAGE"
+          docker push "$IMAGE"
+          echo "image=$IMAGE" >> "$GITHUB_OUTPUT"
+
+  deploy:
+    needs: [publish]
+    runs-on: ubuntu-latest
+    environment:
+      name: preview
+      url: ${{ steps.deploy.outputs.url }}
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout the base
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: Deploy the preview
+        id: deploy
+        env:
+          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_PREVIEW_API_KEY }}
+          DOKPLOY_PREVIEW_ENVIRONMENT_ID: ${{ vars.DOKPLOY_PREVIEW_ENVIRONMENT_ID }}
+          PREVIEW_DOMAIN: ${{ vars.PREVIEW_DOMAIN }}
+          GHCR_PULL_USER: ${{ secrets.GHCR_PULL_USER }}
+          GHCR_PULL_TOKEN: ${{ secrets.GHCR_PULL_TOKEN }}
+          PR: ${{ github.event.pull_request.number }}
+          IMAGE: ${{ needs.publish.outputs.image }}
+        run: |
+          set -eo pipefail
+          # Until the environment is set up, and on the pull request that adds
+          # the script to the base, there is nothing to deploy with.
+          if [ -z "$DOKPLOY_URL" ] || [ ! -x .github/scripts/dokploy-preview.sh ]; then
+            echo "::warning title=No preview deployed::The preview environment or the base's dokploy-preview.sh is missing; $IMAGE was pushed but not deployed."
+            exit 0
+          fi
+          URL="$(.github/scripts/dokploy-preview.sh deploy "$PR" "$IMAGE")"
+          echo "url=$URL" >> "$GITHUB_OUTPUT"
+
+      # One comment per pull request, edited on every deploy.
+      - name: Comment the preview URL
+        if: steps.deploy.outputs.url != ''
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          URL: ${{ steps.deploy.outputs.url }}
+          IMAGE: ${{ needs.publish.outputs.image }}
+        run: |
+          set -eo pipefail
+          MARKER="<!-- site-preview -->"
+          BODY="$(printf '%s\n**Site preview:** %s\n\nImage `%s`, scanned before deploy. It can take a minute to come up after this comment.' "$MARKER" "$URL" "$IMAGE")"
+          ID="$(gh api --paginate "repos/$GITHUB_REPOSITORY/issues/$PR/comments" \
+            --jq ".[] | select(.body | startswith(\"$MARKER\")) | .id" | head -n1)"
+          if [ -n "$ID" ]; then
+            gh api -X PATCH "repos/$GITHUB_REPOSITORY/issues/comments/$ID" -f body="$BODY" >/dev/null
+          else
+            gh api -X POST "repos/$GITHUB_REPOSITORY/issues/$PR/comments" -f body="$BODY" >/dev/null
+          fi
+
+  destroy:
+    if: >-
+      github.event.action == 'closed'
+      && github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    environment: preview
+    steps:
+      - name: Checkout the base
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.event.pull_request.base.sha }}
+          persist-credentials: false
+
+      - name: Remove the preview
+        env:
+          DOKPLOY_URL: ${{ secrets.DOKPLOY_URL }}
+          DOKPLOY_API_KEY: ${{ secrets.DOKPLOY_PREVIEW_API_KEY }}
+          DOKPLOY_PREVIEW_ENVIRONMENT_ID: ${{ vars.DOKPLOY_PREVIEW_ENVIRONMENT_ID }}
+          PREVIEW_DOMAIN: ${{ vars.PREVIEW_DOMAIN }}
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          if [ -z "$DOKPLOY_URL" ] || [ ! -x .github/scripts/dokploy-preview.sh ]; then
+            echo "The preview environment is not set up; nothing to remove."
+            exit 0
+          fi
+          .github/scripts/dokploy-preview.sh destroy "$PR"
