@@ -1,5 +1,56 @@
 # @routecraft/cli
 
+## 0.7.1
+
+### Patch Changes
+
+- [#833](https://github.com/routecraftjs/routecraft/pull/833) [`ea96e05`](https://github.com/routecraftjs/routecraft/commit/ea96e05a00a69a754b9e8257f70fdac43760ebbb) Thanks [@ex0b1t](https://github.com/ex0b1t)! - The CLI no longer installs adapter dependencies it never uses. It declared thirteen packages it does not import: `agent-browser`, `execa`, `shescape`, `croner`, `imapflow`, `mailparser`, `nodemailer`, `cheerio`, `fast-xml-parser`, `papaparse`, `tsdav`, `jose` and `@opentelemetry/sdk-trace-base`. Because `craft start` runs in production, every deployed image carried all of them, `agent-browser` 0.17 with `playwright-core` and `webdriverio` included, whether or not a route used the adapter. They never served a globally installed CLI either: routes run on the project's copy of core, which looks for these packages in the project.
+
+  A project that uses one of these adapters without listing its package now fails with `RC5017` and the install command: when the route starts for a source such as `cron()`, and the first time the adapter runs for a destination or transformer such as `mail()` or `html()`. Add the package the adapter needs before upgrading:
+
+  | Adapter                                | Package                                |
+  | -------------------------------------- | -------------------------------------- |
+  | `cron()`, `.enabled({ refresh })`      | `croner`                               |
+  | `mail()`                               | `imapflow`, `mailparser`, `nodemailer` |
+  | `html()`                               | `cheerio`                              |
+  | `xml()`                                | `fast-xml-parser`                      |
+  | `csv()`                                | `papaparse`                            |
+  | `carddav()`                            | `tsdav`                                |
+  | JWT verification against a JWKS        | `jose`                                 |
+  | OpenTelemetry tracing                  | `@opentelemetry/sdk-trace-base`        |
+  | `shell()` from `@routecraft/os`        | `execa`, `shescape`                    |
+  | `agentBrowser()` from `@routecraft/os` | `agent-browser`                        |
+
+  Shipped as a patch by decision, although a project that relied on the CLI to bring one of these in must now list it: the failure names the fix, and the gain is every production image.
+
+- [#829](https://github.com/routecraftjs/routecraft/pull/829) [`62503d5`](https://github.com/routecraftjs/routecraft/commit/62503d5db7ad1c6ae8e5d860a6db3541418ad532) Thanks [@ex0b1t](https://github.com/ex0b1t)! - `--log-level` and `--log-file` take effect again. In 0.7.0 the CLI loaded core for its Bun version check before any command had applied the logging flags, which built the logger from the defaults: both flags were ignored, and `--log-file` left every log line on stdout, where it corrupts an MCP stdio transport. The version check now runs after the flags are applied.
+
+- [#832](https://github.com/routecraftjs/routecraft/pull/832) [`e2d6111`](https://github.com/routecraftjs/routecraft/commit/e2d61113b1c34a42a64447b4e3935419ec031a5a) Thanks [@ex0b1t](https://github.com/ex0b1t)! - `LOG_LEVEL` and `LOG_FILE` set in an env file now reach the logger. `run` and `start` loaded `.env.<profile>`, a profile's `env:`, and the file `--env` names only after core had built its logger, so log settings there were ignored; only a plain `.env` appeared to work, because Bun loads it at process start. The selected environment is now loaded before core, and `--log-level` / `--log-file` still beat it.
+
+  A log file the logger cannot open for appending now stops the command with exit code 2 and a message naming the path and where it came from: `--log-file`, `LOG_FILE`, `CRAFT_LOG_FILE`, or a `craft.log.js` / `craft.log.cjs` file. Before, the command ran on and its logs went to a file of the same name in the system temporary directory, where nobody looked for them.
+
+- [#832](https://github.com/routecraftjs/routecraft/pull/832) [`e2d6111`](https://github.com/routecraftjs/routecraft/commit/e2d61113b1c34a42a64447b4e3935419ec031a5a) Thanks [@ex0b1t](https://github.com/ex0b1t)! - A missing or unreadable env file named with `--env <path>`, or by a profile's `env: "<file>"`, stops the command with exit code `2` and the path, instead of being skipped with an info-level note hidden at the default log level. In the conventional `.env` / `.env.<profile>` / `.env.local` cascade a missing file is still skipped, but one that exists and cannot be read stops the command the same way.
+
+- [#833](https://github.com/routecraftjs/routecraft/pull/833) [`ea96e05`](https://github.com/routecraftjs/routecraft/commit/ea96e05a00a69a754b9e8257f70fdac43760ebbb) Thanks [@ex0b1t](https://github.com/ex0b1t)! - `craft run` runs a file that sits outside any project. In a directory with no `node_modules`, Bun switched the whole process to auto-install, so the file's import of `@routecraft/routecraft`, and the CLI's own, resolved into Bun's download cache: a `cron()` file could not find `croner`, and even a file with no adapter dependency crashed in the logger's worker. Where core is not installed, the CLI now starts itself again with auto-install off and looks up packages in the working directory's `node_modules` first and its own install after. A lone file runs on the core that ships with the CLI, and a package an adapter asks for is found next to the file (`bun add croner`) or next to a global CLI (`bun add -g croner`). A project with core installed behaves as before.
+
+- [#832](https://github.com/routecraftjs/routecraft/pull/832) [`e2d6111`](https://github.com/routecraftjs/routecraft/commit/e2d61113b1c34a42a64447b4e3935419ec031a5a) Thanks [@ex0b1t](https://github.com/ex0b1t)! - `craft start --once` names `shutdown.timeout` when a forced shutdown tells you to raise the drain deadline. It named the 0.6 `shutdown.timeoutMs`, which 0.7 refuses with `RC5003`.
+
+- [#838](https://github.com/routecraftjs/routecraft/pull/838) [`1c31c13`](https://github.com/routecraftjs/routecraft/commit/1c31c13edf78fe363e78f35944c1a37e635121d4) Thanks [@ex0b1t](https://github.com/ex0b1t)! - `craft tui` now runs on Ink 7 and React 19. Nothing changes in how it looks or which keys it takes. The CLI used to install its own React 18, so a project on React 19 carried both majors; it now depends on React `^19.2.0` and shares a project's React 19.2 or later.
+
+- [#850](https://github.com/routecraftjs/routecraft/pull/850) [`3ba3fda`](https://github.com/routecraftjs/routecraft/commit/3ba3fda4f575996940ca4b3c572296a38b0ccfd7) Thanks [@ex0b1t](https://github.com/ex0b1t)! - The `http()` source and the ops dispatch door now answer a route failure the caller caused with a client status, through one shared mapping, instead of a 500.
+
+  - A payload the route's `.input()` schema refuses answers 400 on both doors (it was 500 on the `http()` source): `{ "error": "bad request", "code": "RC5065", "in": "body" | "headers", "issues": [{ "path", "message" }] }`, at most 20 issues with the rest counted in `truncated`. Issue messages are the schema's own text, sent verbatim, so a custom refinement message is client-facing. Only an RC5065 the dispatched route's own `.input()` raised maps: one raised by a route it calls through `direct()`, or thrown by a step, stays a 500.
+  - A refusal by the route's own `.authorize()` answers 401 or 403 on both doors (it was 500): an expired principal is `401 expired` with an `invalid_token` challenge, a role, predicate, subject or actor refusal is `403 insufficient_permissions`, and a missing scope is `403 insufficient_scope` naming the scopes, in the shape the ops tier check already answers, with its challenge. A missing principal answers 401 only where a credential could have supplied one (the ops door on an open tier with a validator). Only refusals `authorize()` itself raised about the principal the door admitted are mapped: a check of an identity the pipeline swapped in (`.authenticate()`, a delegation) stays a 500, and the same codes thrown by an adapter for an upstream failure stay a 500.
+
+  **Response shape change on the ops dispatch door.** Its RC5065 400 no longer carries `message`, which named the route and concatenated schema-author text; it carries `in` and `issues` instead. A client reading `message` off that response reads `issues`. The ops client and `craft exec` render the issues.
+
+  New exports: `isAuthorizationRefusal(err, { routeId, principal }?)` tells a refusal `authorize()` raised apart from the same code thrown elsewhere, and with a caller given, a refusal of that caller apart from one of an identity the pipeline swapped in, and `isInputValidationFailure(err.cause)` narrows an RC5065's cause to its structured `{ invalid: { in, issues, routeId } }` detail.
+
+  **`craft exec` exit code.** A dispatch the route's own `.authorize()` refuses now exits with `refused` (4) instead of `failed` (1), the same code a door-level refusal already used. A script branching on exit 1 for a refused call needs to check for 4. A remote dispatch refused by the route likewise surfaces as `RC5063` (refused) instead of `RC5064` (failed).
+
+- Updated dependencies [[`a188d17`](https://github.com/routecraftjs/routecraft/commit/a188d17c1fbe6b2dbefda7b2d7d6b1fe8a28bba8), [`0a016fb`](https://github.com/routecraftjs/routecraft/commit/0a016fbf65704e569b7b19c2059a2c30db071d5c), [`e3bcd7d`](https://github.com/routecraftjs/routecraft/commit/e3bcd7dbc3fbfb256ee9b1d75d60675ec735c15b), [`e2d6111`](https://github.com/routecraftjs/routecraft/commit/e2d61113b1c34a42a64447b4e3935419ec031a5a), [`e3bcd7d`](https://github.com/routecraftjs/routecraft/commit/e3bcd7dbc3fbfb256ee9b1d75d60675ec735c15b), [`e2d6111`](https://github.com/routecraftjs/routecraft/commit/e2d61113b1c34a42a64447b4e3935419ec031a5a), [`e2d6111`](https://github.com/routecraftjs/routecraft/commit/e2d61113b1c34a42a64447b4e3935419ec031a5a), [`62e3b43`](https://github.com/routecraftjs/routecraft/commit/62e3b4374e2c371f77b67203db2a0a87d68b961a), [`3ba3fda`](https://github.com/routecraftjs/routecraft/commit/3ba3fda4f575996940ca4b3c572296a38b0ccfd7), [`e3bcd7d`](https://github.com/routecraftjs/routecraft/commit/e3bcd7dbc3fbfb256ee9b1d75d60675ec735c15b), [`df7f018`](https://github.com/routecraftjs/routecraft/commit/df7f018770e1fe669b68189f630d4873cc1e1545), [`3ba3fda`](https://github.com/routecraftjs/routecraft/commit/3ba3fda4f575996940ca4b3c572296a38b0ccfd7), [`df7f018`](https://github.com/routecraftjs/routecraft/commit/df7f018770e1fe669b68189f630d4873cc1e1545), [`e3bcd7d`](https://github.com/routecraftjs/routecraft/commit/e3bcd7dbc3fbfb256ee9b1d75d60675ec735c15b), [`e3bcd7d`](https://github.com/routecraftjs/routecraft/commit/e3bcd7dbc3fbfb256ee9b1d75d60675ec735c15b), [`b846a82`](https://github.com/routecraftjs/routecraft/commit/b846a821b1a4e41f304f0bd74add91902de0a669)]:
+  - @routecraft/routecraft@0.7.1
+
 ## 0.7.0
 
 ### Minor Changes
