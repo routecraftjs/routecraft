@@ -760,7 +760,7 @@ describe("recovery.defer: parking an exchange from the error path", () => {
       "utf8",
     );
     const aside = await readFile(
-      new URL("../src/deferral/defer.ts", import.meta.url),
+      new URL("../src/kernel/continuation/park.ts", import.meta.url),
       "utf8",
     );
 

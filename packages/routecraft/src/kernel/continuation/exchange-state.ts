@@ -1,8 +1,8 @@
-import type { CraftContext } from "../context.ts";
-import type { ExchangeHeaders } from "../exchange.ts";
-import { rcError } from "../error.ts";
-import { CONTINUATIONS } from "./runtime-key.ts";
-import { deferralIdFor } from "./tokens.ts";
+import type { CraftContext } from "../../context.ts";
+import type { ExchangeHeaders } from "../../exchange.ts";
+import { rcError } from "../../error.ts";
+import { CONTINUATIONS } from "./port.ts";
+import { deferralIdFor } from "./port.ts";
 import type { PrincipalRef } from "./types.ts";
 
 /**

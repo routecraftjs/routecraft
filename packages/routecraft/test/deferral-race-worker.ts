@@ -10,7 +10,7 @@
  * synchronous, so two `markResumed` calls issued from one process can never
  * interleave and would pass even against a naive read-then-write.
  */
-import { SqliteDeferralStore } from "../src/deferral/index.ts";
+import { SqliteDeferralStore } from "../src/plugins/deferral/public.ts";
 
 const [path, id, startAt, subject] = process.argv.slice(2) as [
   string,

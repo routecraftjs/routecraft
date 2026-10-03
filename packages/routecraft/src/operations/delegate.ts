@@ -1,4 +1,4 @@
-import { authorityOf } from "../plugins/principals/index.ts";
+import { authorityOf } from "../kernel/authority.ts";
 import type { Adapter, Step, StepOutcome } from "../types.ts";
 import {
   type Exchange,

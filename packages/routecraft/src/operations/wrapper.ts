@@ -14,7 +14,7 @@ import {
   type DeferCapableStep,
   nestedStepsOf,
   deferHostOf,
-} from "../deferral/sites.ts";
+} from "../kernel/continuation/sites.ts";
 
 /**
  * Operation kinds that resilience wrappers cannot safely wrap. Validated
@@ -181,7 +181,7 @@ export abstract class WrapperStep<
    * controller, bucket or other live object (those hash as `[opaque]` and
    * add nothing). Return `null` when the wrapper takes no options. The
    * value goes through the same projection as an adapter's options in
-   * `deferral/hash.ts`, so the same carriers and depth bound apply.
+   * `kernel/continuation/hash.ts`, so the same carriers and depth bound apply.
    *
    * Abstract so a new wrapper cannot silently opt out of the cache key.
    */

@@ -13,7 +13,7 @@ import type { ResolvedThrottleOptions } from "../operations/throttle-wrapper.ts"
 import type { ResolvedCircuitBreakerOptions } from "../operations/circuit-breaker-wrapper.ts";
 import type { ResolvedConcurrencyOptions } from "../operations/concurrency-wrapper.ts";
 import type { ResolvedCacheOptions } from "../operations/cache-wrapper.ts";
-import type { AuthorizeOptions } from "../auth/authorize.ts";
+import type { AuthorizeOptions } from "../authorize-options.ts";
 import { port } from "./port.ts";
 
 /**

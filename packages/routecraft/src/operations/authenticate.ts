@@ -6,7 +6,7 @@ import {
   HeadersKeys,
 } from "../exchange.ts";
 import type { PrincipalClaims } from "../auth/authenticate.ts";
-import { authorityOf } from "../plugins/principals/index.ts";
+import { authorityOf } from "../kernel/authority.ts";
 
 /**
  * Resolve identity claims for the current exchange. Return claims to mint and

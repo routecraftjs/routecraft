@@ -7,7 +7,7 @@ import type { EventDetailsMap, EventHandler, EventName } from "../types.ts";
 import type {
   ResumeAcknowledgment,
   ResumeRequest,
-} from "../deferral/revive.ts";
+} from "./continuation/resume.ts";
 import type { AnyPort, Port } from "./port.ts";
 import type { Hooks, PointDeclaration } from "./hooks.ts";
 import type { StepFactory } from "./steps.ts";
@@ -84,6 +84,19 @@ export interface Execution {
    * @throws RC5052 when no plugin provides continuations
    */
   resume(request: ResumeRequest): Promise<ResumeAcknowledgment>;
+  /**
+   * Run one pass of the kernel's sweep over parked exchanges: heal claims
+   * whose deliverer died, purge settled records past retention, and retire
+   * what is overdue through each route's error channel. The plugin that
+   * provides continuations calls it on its cadence; the pass is the
+   * kernel's. A pass already running is joined, not repeated.
+   *
+   * @param options - `boot` also reports what the store holds and any
+   *   continuation a crash stranded, once, at start
+   * @returns How many parked exchanges this pass retired; zero when no
+   *   plugin provides continuations or the application is stopping
+   */
+  sweep(options?: { readonly boot?: boolean }): Promise<number>;
   /** Discoverable capabilities of the enabled routes. */
   capabilities(): Capability[];
   /** Resolves once every route signalled readiness and every start returned. */

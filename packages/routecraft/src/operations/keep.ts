@@ -1,6 +1,6 @@
 import type { Exchange } from "../exchange.ts";
-import type { Principal } from "../auth/types.ts";
-import { authorityOf } from "../plugins/principals/index.ts";
+import type { Principal } from "../principal.ts";
+import { authorityOf } from "../kernel/authority.ts";
 import type { FieldTransform } from "./transform.ts";
 import { deletePath, hasPath, pickPaths } from "./field-paths.ts";
 

@@ -1,6 +1,6 @@
 import type { Duration } from "../../shared/duration.ts";
 import type { HttpAuth, HttpMethod } from "../../adapters/http/types.ts";
-import type { ValidatorAuthOptions } from "../../auth/types.ts";
+import type { ValidatorAuthOptions } from "../../principal.ts";
 import type { AuthResult } from "../http/auth.ts";
 import type { PathMatcher } from "../http/path-matcher.ts";
 

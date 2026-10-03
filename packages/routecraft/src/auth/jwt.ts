@@ -5,7 +5,7 @@ import type {
   JwtAudience,
   OAuthPrincipal,
   OAuthValidatorAuthOptions,
-} from "./types.ts";
+} from "../principal.ts";
 import { assertIssuerAudience, principalFromJwtPayload } from "./jwt-utils.ts";
 
 /**

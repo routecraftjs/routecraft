@@ -10,13 +10,13 @@ import { logger, childBindings } from "./logger.ts";
 import type { Route } from "./route.ts";
 import type { Adapter, Step } from "./types.ts";
 import type { OnParseError } from "./adapters/shared/parse.ts";
-import type { Principal } from "./auth/types.ts";
+import type { Principal } from "./principal.ts";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import {
   type DeferralAffordance,
   DeferralHeaders,
   deferralAffordance,
-} from "./deferral/exchange-state.ts";
+} from "./kernel/continuation/exchange-state.ts";
 
 /**
  * Local alias so the clone path reads at a glance. See

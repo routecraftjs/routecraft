@@ -3,8 +3,9 @@ import { rcError } from "../../error";
 import { bearerChallenge } from "../server/protected-resource.ts";
 import { classifyRejectionReason } from "../../auth/error-classification";
 import { isPrincipalExpired } from "../../auth/expiry";
-import { defaultAuthority, type Authority } from "../principals/index.ts";
-import type { Principal, TokenVerifier } from "../../auth/types";
+import type { Authority } from "../../kernel/authority.ts";
+import { defaultAuthority } from "../principals/index.ts";
+import type { Principal, TokenVerifier } from "../../principal";
 import type {
   ApiKeyAuthOptions,
   HttpAuth,

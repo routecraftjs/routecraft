@@ -1,11 +1,11 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { BRAND, isBranded, setBrand } from "../brand.ts";
-import { rcError } from "../error.ts";
-import { type Exchange, OperationType } from "../exchange.ts";
-import { NESTED_STEPS, DEFER_HOST } from "../dsl-symbol.ts";
-import type { Adapter, Step } from "../types.ts";
-import type { CraftContext } from "../context.ts";
-import type { RouteDefinition } from "../route.ts";
+import { BRAND, isBranded, setBrand } from "../../brand.ts";
+import { rcError } from "../../error.ts";
+import { type Exchange, OperationType } from "../../exchange.ts";
+import { NESTED_STEPS, DEFER_HOST } from "../../dsl-symbol.ts";
+import type { Adapter, Step } from "../../types.ts";
+import type { CraftContext } from "../../context.ts";
+import type { RouteDefinition } from "../../route.ts";
 import type { Deferred } from "./deferred.ts";
 import type { ErrorPathRecord } from "./types.ts";
 
@@ -393,7 +393,7 @@ export function resolveDeferSites(route: RouteDefinition): ResolvedDeferSites {
  * answers, and copying four of them at one site is a silent failure: the
  * startup deferral-runtime check reads `deferSteps` (`context.ts`), and a
  * revival finds its static parked site by walking the same list
- * (`deferral/revive.ts`), so a definition missing it starts without a
+ * (`kernel/continuation/resume.ts`), so a definition missing it starts without a
  * runtime and then cannot be resumed.
  *
  * Callers guard on whether the work is already done; this always does it.

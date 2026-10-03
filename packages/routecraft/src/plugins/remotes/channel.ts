@@ -21,7 +21,7 @@ import {
 import type { PluginLogger } from "../../kernel/plugin.ts";
 import type { DirectChannel } from "../../adapters/direct/types";
 import { InMemoryDirectChannel } from "../../adapters/direct/shared";
-import { createDeferred } from "../../deferral/deferred";
+import { createDeferred } from "../../kernel/continuation/deferred";
 import { OpsClientError, type OpsHttpClient } from "../ops/client";
 
 /**

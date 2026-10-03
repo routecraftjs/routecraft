@@ -1,11 +1,11 @@
 import { createHash } from "node:crypto";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { getAdapterArgs } from "../adapters/shared/factory-tag.ts";
-import type { Adapter, Step } from "../types.ts";
+import { getAdapterArgs } from "../../adapters/shared/factory-tag.ts";
+import type { Adapter, Step } from "../../types.ts";
 import {
   renderJsonSchemaArm,
   standardExtensionOf,
-} from "../shared/standard-schema.ts";
+} from "../../shared/standard-schema.ts";
 import type { SerializedExchange, DeferralSchema } from "./types.ts";
 
 /**

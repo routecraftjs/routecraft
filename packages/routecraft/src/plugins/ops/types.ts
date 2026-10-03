@@ -8,12 +8,12 @@
 
 import type { Duration } from "../../shared/duration.ts";
 import type { HttpAuth } from "../../adapters/http/types";
-import type { Deferred } from "../../deferral/deferred";
+import type { Deferred } from "../../kernel/continuation/deferred";
 import type {
   DeferralOutcome,
   DeferralState,
   DeferralWaitingFor,
-} from "../../deferral/types.ts";
+} from "../../kernel/continuation/types.ts";
 
 /**
  * The four-member health vocabulary.

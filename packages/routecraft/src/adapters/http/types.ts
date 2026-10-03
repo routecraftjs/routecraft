@@ -4,7 +4,7 @@ import type {
   OAuthValidatorAuthOptions,
   Principal,
   ValidatorAuthOptions,
-} from "../../auth/types";
+} from "../../principal";
 import type { HttpOpenApiInfo } from "../../plugins/http/openapi";
 import type {
   HttpWebhookSignatureOptions,

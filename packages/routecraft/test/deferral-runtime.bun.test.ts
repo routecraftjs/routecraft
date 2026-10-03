@@ -18,7 +18,7 @@ import {
   type DeferralRuntime,
 } from "../src/index.ts";
 // Engine machinery, reached through the intra-package barrel.
-import { createDeferralRuntime } from "../src/deferral/index.ts";
+import { createDeferralRuntime } from "../src/plugins/deferral/public.ts";
 import type { SqliteDriverLoaders } from "../src/shared/sqlite/driver.ts";
 
 const scratch = mkdtempSync(join(tmpdir(), "rc-deferral-runtime-"));

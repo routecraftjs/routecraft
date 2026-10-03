@@ -4,8 +4,8 @@ import type { CraftContext } from "./context.ts";
 import type { RouteDefinition } from "./route.ts";
 import type { Route } from "./route.ts";
 import type { OnParseError } from "./adapters/shared/parse.ts";
-import type { DeferRequest } from "./deferral/sites.ts";
-import type { PrincipalRef } from "./deferral/types.ts";
+import type { DeferRequest } from "./kernel/continuation/sites.ts";
+import type { PrincipalRef } from "./kernel/continuation/types.ts";
 import type { HealthChange } from "./plugins/ops/types.ts";
 
 /**

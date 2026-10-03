@@ -26,7 +26,7 @@ import type { ResolvedCircuitBreakerOptions } from "./operations/circuit-breaker
 import type { ResolvedConcurrencyOptions } from "./operations/concurrency-wrapper.ts";
 import type { ResolvedThrottleOptions } from "./operations/throttle-wrapper.ts";
 import type { ResolvedCacheOptions } from "./operations/cache-wrapper.ts";
-import type { AuthorizeOptions } from "./auth/authorize.ts";
+import type { AuthorizeOptions } from "./authorize-options.ts";
 import type {
   Adapter,
   Step,
@@ -68,10 +68,10 @@ import type {
   DeferrableStep,
   DeferSite,
   ErrorPathSite,
-} from "./deferral/sites.ts";
-import { nestedStepsOf } from "./deferral/sites.ts";
+} from "./kernel/continuation/sites.ts";
+import { nestedStepsOf } from "./kernel/continuation/sites.ts";
 import { STEP_PLUGIN } from "./dsl-symbol.ts";
-import { DeferralHeaders } from "./deferral/exchange-state.ts";
+import { DeferralHeaders } from "./kernel/continuation/exchange-state.ts";
 import type { RouteEnablement } from "./enablement.ts";
 
 // Re-exported for existing imports (builder.ts and @internal consumers).

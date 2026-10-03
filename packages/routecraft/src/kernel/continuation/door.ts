@@ -1,10 +1,10 @@
-import type { Authority } from "../plugins/principals/index.ts";
-import type { CraftContext } from "../context.ts";
-import type { Principal } from "../auth/types.ts";
-import { HeadersKeys } from "../exchange.ts";
-import { rcError } from "../error.ts";
-import { rcCodeOf } from "../brand.ts";
-import { HOOK_ABORTED, settleOrAbort } from "../shared/abort.ts";
+import type { Authority } from "../authority.ts";
+import type { CraftContext } from "../../context.ts";
+import type { Principal } from "../../principal.ts";
+import { HeadersKeys } from "../../exchange.ts";
+import { rcError } from "../../error.ts";
+import { rcCodeOf } from "../../brand.ts";
+import { HOOK_ABORTED, settleOrAbort } from "../../shared/abort.ts";
 import { decodePersistable } from "./serialize.ts";
 import type { Deferral } from "./types.ts";
 

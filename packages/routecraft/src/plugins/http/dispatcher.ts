@@ -9,9 +9,9 @@ import {
 } from "../../exchange";
 import { isRoutecraftError } from "../../brand";
 import { rcError } from "../../error";
-import { isDeferred } from "../../deferral/deferred";
+import { isDeferred } from "../../kernel/continuation/deferred";
 import { principalExpirySignal } from "../../auth/expiry.ts";
-import type { Principal } from "../../auth/types";
+import type { Principal } from "../../principal";
 import type {
   HttpMethod,
   HttpResponseDescriptor,

@@ -1,4 +1,4 @@
-import type { Principal } from "./types.ts";
+import type { Principal } from "../principal.ts";
 
 /**
  * Module-private registry of restored principals.

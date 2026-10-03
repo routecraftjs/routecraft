@@ -1,14 +1,14 @@
-import { authorityOf } from "../plugins/principals/index.ts";
-import { BRAND, isBranded } from "../brand.ts";
-import { rcError } from "../error.ts";
+import { authorityOf } from "../authority.ts";
+import { BRAND, isBranded } from "../../brand.ts";
+import { rcError } from "../../error.ts";
 import {
   type Exchange,
   type ExchangeHeaders,
   DefaultExchange,
   HeadersKeys,
-} from "../exchange.ts";
-import type { CraftContext } from "../context.ts";
-import type { Principal } from "../auth/types.ts";
+} from "../../exchange.ts";
+import type { CraftContext } from "../../context.ts";
+import type { Principal } from "../../principal.ts";
 import type { SerializedExchange } from "./types.ts";
 
 /**

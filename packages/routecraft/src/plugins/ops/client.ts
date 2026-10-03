@@ -21,7 +21,7 @@
  * (where the address came from, and what to do when refused).
  */
 
-import type { DeferralState } from "../../deferral/types.ts";
+import type { DeferralState } from "../../kernel/continuation/types.ts";
 import {
   compareRuntimeVersion,
   parseRuntimeVersion,

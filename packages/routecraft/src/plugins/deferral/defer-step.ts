@@ -1,10 +1,13 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import { rcError } from "../error.ts";
-import { type Exchange, OperationType } from "../exchange.ts";
-import type { Adapter, StepOutcome } from "../types.ts";
-import type { Duration } from "../shared/duration.ts";
-import { parseDuration } from "../shared/duration.ts";
-import type { DeferSite, DeferrableStep } from "../deferral/sites.ts";
+import { rcError } from "../../error.ts";
+import { type Exchange, OperationType } from "../../exchange.ts";
+import type { Adapter, StepOutcome } from "../../types.ts";
+import type { Duration } from "../../shared/duration.ts";
+import { parseDuration } from "../../shared/duration.ts";
+import type {
+  DeferSite,
+  DeferrableStep,
+} from "../../kernel/continuation/sites.ts";
 
 /**
  * Options for `.defer()`.

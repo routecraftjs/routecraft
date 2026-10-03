@@ -14,12 +14,12 @@ import { isRemoteAbsence } from "../remotes/channel";
 import { HeadersKeys } from "../../exchange";
 import type { ExchangeHeaders } from "../../exchange";
 import { rcCodeOf } from "../../brand";
-import type { Principal } from "../../auth/types";
+import type { Principal } from "../../principal";
 import type { Capability } from "../../capabilities";
 import type { RouteDefinition } from "../../route";
 import { getAdapterLabel } from "../../types";
 import type { Adapter } from "../../types";
-import { isDeferred } from "../../deferral/deferred";
+import { isDeferred } from "../../kernel/continuation/deferred";
 import {
   renderJsonSchemaArm,
   standardExtensionOf,

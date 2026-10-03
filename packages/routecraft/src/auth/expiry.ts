@@ -1,4 +1,4 @@
-import type { Principal } from "./types.ts";
+import type { Principal } from "../principal.ts";
 
 /**
  * Whether a verified principal's expiry has passed.

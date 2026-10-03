@@ -10,7 +10,7 @@
  */
 
 import { missingScopes } from "../../auth/authorize";
-import type { Principal } from "../../auth/types";
+import type { Principal } from "../../principal";
 import type { HttpMountContext } from "../server/types";
 import type { OpsTier, OpsTiers } from "./types";
 

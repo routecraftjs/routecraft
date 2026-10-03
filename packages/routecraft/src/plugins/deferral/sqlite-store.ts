@@ -1,9 +1,9 @@
 import { mkdirSync } from "node:fs";
 import { dirname } from "node:path";
-import { rcError } from "../error.ts";
-import { isRoutecraftError } from "../brand.ts";
-import { stepStateFingerprint } from "./hash.ts";
-import { encodePersistable } from "./serialize.ts";
+import { rcError } from "../../error.ts";
+import { isRoutecraftError } from "../../brand.ts";
+import { stepStateFingerprint } from "../../kernel/continuation/hash.ts";
+import { encodePersistable } from "../../kernel/continuation/serialize.ts";
 import {
   assertListCursor,
   assertScanCursor,
@@ -14,15 +14,15 @@ import {
   type SqliteDatabase,
   type SqliteDriverLoaders,
   resolveSqliteDriver,
-} from "../shared/sqlite/driver.ts";
+} from "../../shared/sqlite/driver.ts";
 import {
   describeSqliteFile,
   isSqliteBusy,
   migrateSqlite,
   resolveDatabasePath,
   SQLITE_APPLICATION_IDS,
-} from "../shared/sqlite/database.ts";
-import { claimIsOutstanding } from "./types.ts";
+} from "../../shared/sqlite/database.ts";
+import { claimIsOutstanding } from "../../kernel/continuation/types.ts";
 import type {
   ErrorPathRecord,
   ExpiredScanCursor,
@@ -41,7 +41,7 @@ import type {
   DeferralStore,
   DeferralSummary,
   DeferralWaitingFor,
-} from "./types.ts";
+} from "../../kernel/continuation/types.ts";
 
 /**
  * Default location of the deferral database, relative to the working

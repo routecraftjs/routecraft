@@ -5,11 +5,11 @@ import { wrapperEventScope } from "./event-scope.ts";
 import { rcError } from "../error.ts";
 import { type Path, compilePath } from "./choice.ts";
 import type { StepCatalogue } from "../kernel/steps.ts";
-import type { ShippedPlugins } from "../plugins/catalogue.ts";
+import type { ShippedPlugins } from "../kernel/steps.ts";
 
 const EMPTY_CATALOGUE: StepCatalogue = new Map();
 import { NESTED_STEPS } from "../dsl-symbol.ts";
-import type { NestedSteps } from "../deferral/sites.ts";
+import type { NestedSteps } from "../kernel/continuation/sites.ts";
 import { RouteScopedController } from "./route-scoped-controller.ts";
 import { DEFAULT_MAX_KEYS, validateMaxKeys } from "./max-keys.ts";
 

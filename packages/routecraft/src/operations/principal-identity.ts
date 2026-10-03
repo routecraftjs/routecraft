@@ -1,4 +1,4 @@
-import type { Principal } from "../auth/types.ts";
+import type { Principal } from "../principal.ts";
 
 /**
  * Who is asking, as a JSON-encodable chain: see {@link principalIdentity}.

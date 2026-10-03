@@ -5,7 +5,7 @@ import {
   ResumeTokenSigner,
   resolveSigningSecret,
   deferralIdFor,
-} from "../src/deferral/index.ts";
+} from "../src/plugins/deferral/public.ts";
 
 // At least 32 bytes: resolveSigningSecret enforces a floor, and a
 // fixture below it would be testing the guard rather than the signer.
