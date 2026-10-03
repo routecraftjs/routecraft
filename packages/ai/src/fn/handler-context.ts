@@ -1,6 +1,6 @@
 import {
   logger as frameworkLogger,
-  defaultAuthority,
+  authorityOf,
   isStandardSchema,
   type Authority,
   parseDuration,
@@ -71,10 +71,10 @@ export function makeFnHandlerContext(
   toolName: string,
   abortSignal: AbortSignal,
   principal: Principal | undefined,
-  deferral?: FnDeferralWiring,
-  session?: FnSessionView,
-  correlationId?: string,
-  authority: Authority = defaultAuthority,
+  deferral: FnDeferralWiring | undefined,
+  session: FnSessionView | undefined,
+  correlationId: string | undefined,
+  authority: Authority,
 ): FnHandlerContext {
   const hctx: FnHandlerContext = {
     logger: frameworkLogger.child({ tool: toolName }),
@@ -177,7 +177,7 @@ function makeDeferRefusal(
  */
 export function freezePrincipal(
   principal: Principal,
-  authority: Authority = defaultAuthority,
+  authority: Authority,
 ): Principal {
   // Capture the trusted-origin signal before cloning: the spread below
   // produces a fresh object the authority has not branded, so authenticity
@@ -222,7 +222,7 @@ const handlerAuthorities = new WeakMap<FnHandlerContext, Authority>();
  * @internal
  */
 export function authorityOfHandler(hctx: FnHandlerContext): Authority {
-  return handlerAuthorities.get(hctx) ?? defaultAuthority;
+  return handlerAuthorities.get(hctx) ?? authorityOf(undefined);
 }
 
 /**

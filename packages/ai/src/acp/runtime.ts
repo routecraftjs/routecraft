@@ -362,11 +362,12 @@ export class AcpRuntime {
         : {}),
     };
     try {
-      const result = await this.plugin.execution.deliver<AgentResult>(
+      // The turn route is ACP's own, built to end in the agent's result.
+      const result = (await this.plugin.execution.deliver(
         `${ACP_ROUTE_PREFIX}${agent}`,
         { session: key, message } satisfies AcpPromptBody,
         headers,
-      );
+      )) as AgentResult;
       // A turn that ran with a delta listener has already said its reply
       // (the run hands the listener the whole text). One that ran on
       // another route's continuation, with no listener, has said nothing,

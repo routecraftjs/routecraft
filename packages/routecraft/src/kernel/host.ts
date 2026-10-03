@@ -18,9 +18,7 @@ import type { EventDetailsMap, EventHandler, EventName } from "../types.ts";
  */
 export interface HostEnvironment {
   readonly logger: PluginLogger;
-  readonly routes: Omit<PluginRoutes, "register"> & {
-    register(...definitions: Parameters<PluginRoutes["register"]>): void;
-  };
+  readonly routes: PluginRoutes;
   readonly execution: Execution;
   observe<K extends EventName>(
     event: K | "*",

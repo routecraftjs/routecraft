@@ -13,7 +13,7 @@ import {
   testContext,
   type TestContext,
 } from "@routecraft/testing";
-import type { Plugin } from "@routecraft/routecraft";
+import { authorityOf, type Plugin } from "@routecraft/routecraft";
 import {
   DeferError,
   agent,
@@ -787,6 +787,9 @@ describe("agent durable deferral (ctx.defer)", () => {
       new AbortController().signal,
       undefined,
       { id: "def-1", mintToken: () => "token" },
+      undefined,
+      undefined,
+      authorityOf(undefined),
     );
 
     expect(() => ctx.defer({ ttl: "3 days" as never })).toThrow();

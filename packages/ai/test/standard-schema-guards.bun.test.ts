@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import { authorityOf } from "@routecraft/routecraft";
 import { validateWithSchema } from "../src/mcp/validate-options.ts";
 import { toAiInputSchema } from "../src/llm/structured-output.ts";
 import { validateFnOptions } from "../src/fn/fn.ts";
@@ -132,6 +133,9 @@ describe("Standard Schema guards after adopting isStandardSchema", () => {
         attempt: 1,
         deadline: undefined,
       } as never,
+      undefined,
+      undefined,
+      authorityOf(undefined),
     );
 
     expect(() => ctx.defer?.({ schema: noValidator })).toThrow(
