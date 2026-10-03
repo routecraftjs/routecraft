@@ -71,11 +71,11 @@ export interface Execution {
    *
    * @throws RC5004 when no route listens on the endpoint
    */
-  deliver<R = unknown>(
+  deliver(
     endpoint: string,
     body: unknown,
     headers?: ExchangeHeaders,
-  ): Promise<R>;
+  ): Promise<unknown>;
   /**
    * Resume a parked exchange by its token, on the plugin's own behalf: no
    * ingress door, so no door policy and no live principal.

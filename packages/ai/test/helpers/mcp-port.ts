@@ -1,4 +1,5 @@
 import type { CraftContext, Plugin } from "@routecraft/routecraft";
+import { authorityOf } from "@routecraft/routecraft";
 import { MCP, createMcpService, type McpService } from "../../src/mcp/port.ts";
 import { McpServer } from "../../src/mcp/server.ts";
 import type { McpPluginOptions } from "../../src/mcp/types.ts";
@@ -45,6 +46,7 @@ export function mcpServerFor(
       observe: (event, handler) => ctx.on(event, handler),
       service: ctx.lookup(MCP) ?? createMcpService(),
       ingress: ctx,
+      authority: authorityOf(ctx),
     },
     options,
   );

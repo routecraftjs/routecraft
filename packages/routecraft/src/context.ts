@@ -24,7 +24,11 @@ import {
 } from "./kernel/continuation/resume.ts";
 import { EventBus } from "./event-bus.ts";
 import { CraftClient } from "./client.ts";
-import { PluginHost, type InstalledPlugin } from "./kernel/host.ts";
+import {
+  PluginHost,
+  type HostEnvironment,
+  type InstalledPlugin,
+} from "./kernel/host.ts";
 import { defaultPluginsFor } from "./kernel/defaults.ts";
 import { installFacet } from "./kernel/facets.ts";
 import type { Exchange } from "./exchange.ts";
@@ -634,7 +638,11 @@ export class CraftContext {
    * What the kernel host needs from this context to build plugin contexts.
    * Built per call: it is read once per plugin.
    */
-  private hostEnvironment() {
+  private hostEnv?: HostEnvironment;
+
+  /** What the host hands every plugin of this application, built once. */
+  private hostEnvironment(): HostEnvironment {
+    if (this.hostEnv) return this.hostEnv;
     const view = (route: Route): RouteView => {
       const reason = this.enablement.disabled().get(route.definition.id);
       return {
@@ -645,7 +653,7 @@ export class CraftContext {
       };
     };
     const client = new CraftClient(this);
-    return {
+    this.hostEnv = {
       logger: this.logger,
       observe: <K extends EventName>(
         event: K | "*",
@@ -663,11 +671,11 @@ export class CraftContext {
         },
       },
       execution: {
-        deliver: <R = unknown>(
+        deliver: (
           endpoint: string,
           body: unknown,
           headers?: Parameters<CraftClient["sendDirect"]>[2],
-        ) => client.sendDirect<unknown, R>(endpoint, body, headers),
+        ) => client.sendDirect(endpoint, body, headers),
         resume: (request: ResumeRequest) => reviveDeferral(this, request),
         sweep: (options?: { readonly boot?: boolean }) =>
           this.sweepContinuations(options),
@@ -678,6 +686,7 @@ export class CraftContext {
         },
       },
     };
+    return this.hostEnv;
   }
 
   /**
