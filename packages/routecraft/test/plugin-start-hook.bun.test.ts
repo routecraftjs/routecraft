@@ -1,6 +1,12 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
-import { craft, direct, noop, type Plugin } from "../src/index.ts";
+import {
+  craft,
+  direct,
+  noop,
+  type Plugin,
+  type StopInfo,
+} from "../src/index.ts";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
@@ -214,6 +220,36 @@ describe("the plugin start hook", () => {
     const ready = context.ctx.whenStarted();
     await expect(context.ctx.start()).rejects.toThrow();
     await expect(ready).rejects.toThrow();
+  });
+
+  /**
+   * @case A start refused before any route runs still releases the bound plugins
+   * @preconditions A plugin bound at build that records its stop; a route that can reach .defer() with no deferral block, so start() refuses its config with RC5052
+   * @expectedResult start() rejects and the plugin is stopped with partial set. build() succeeded, so the plugins hold their resources, and the caller of a failed start has no reason to call stop() itself
+   */
+  test("a config refusal at start stops the plugins bound at build", async () => {
+    const stops: StopInfo[] = [];
+    const holder: Plugin = {
+      id: "test.holder",
+      bind() {},
+      stop(_c, info) {
+        stops.push(info);
+      },
+    };
+
+    const context = (t = await testContext()
+      .with({ plugins: [holder] })
+      .routes([
+        craft()
+          .id("payout")
+          .from(direct())
+          .defer({ schema: { "~standard": undefined } as never })
+          .to(noop()),
+      ])
+      .build());
+
+    await expect(context.ctx.start()).rejects.toThrow();
+    expect(stops).toEqual([{ partial: true, started: false }]);
   });
 
   /**

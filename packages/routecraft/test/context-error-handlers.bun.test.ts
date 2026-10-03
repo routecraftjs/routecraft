@@ -1,12 +1,14 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
+  DefaultExchange,
   MemoryDeferralStore,
   craft,
   definePlugin,
   direct,
   noop,
   recovery,
+  refuse,
   routeCanDefer,
   type ErrorHook,
   type HooksConfig,
@@ -1004,6 +1006,64 @@ describe("the error slot", () => {
     expect(kinds).toEqual(["normal", "resume"]);
     expect(ack.continuation.status).toBe("completed");
     expect(ack.continuation.body).toEqual({ gaveUp: true });
+  });
+
+  /**
+   * @case An error-channel re-entry runs as its own kind of run, below admission
+   * @preconditions A plugin with a beforeAuth validate hook that refuses everything, an error hook narrowed to runs: ["errorChannel"] and one narrowed to runs: ["normal"]; the route's error channel entered directly, the way the sweeper retires an expired deferral
+   * @expectedResult The admission hook never runs, the errorChannel hook hears the original failure with kind errorChannel, and the normal-only hook stays silent. A re-entry labelled normal would let an admission hook refuse a stored exchange and replace the expiry error, and would notify a normal-only hook twice for one failure
+   */
+  test("an error-channel re-entry skips admission hooks and reports its kind", async () => {
+    const heard: string[] = [];
+    let admissionRuns = 0;
+    t = await testContext()
+      .with({
+        plugins: [
+          definePlugin({
+            id: "test.kinds",
+            hooks: {
+              beforeAuth: {
+                phase: "validate",
+                run: () => {
+                  admissionRuns++;
+                  return refuse("ingress only");
+                },
+              },
+              error: [
+                {
+                  id: "channel",
+                  phase: "observe",
+                  runs: ["errorChannel"],
+                  run: (error, _exchange, info) => {
+                    heard.push(`${info.kind}:${(error as Error).message}`);
+                  },
+                },
+                {
+                  id: "normal",
+                  phase: "observe",
+                  runs: ["normal"],
+                  run: () => {
+                    heard.push("normal");
+                  },
+                },
+              ],
+            },
+          }),
+        ],
+      })
+      .routes([craft().id("work").from(direct()).to(noop())])
+      .build();
+    await t.startAndWaitReady();
+
+    const route = t.ctx.getRoutes().find((r) => r.definition.id === "work")!;
+    await route.enterErrorChannel(
+      new DefaultExchange(t.ctx, { body: {} }),
+      new Error("expired"),
+      "expire",
+    );
+
+    expect(admissionRuns).toBe(0);
+    expect(heard).toEqual(["errorChannel:expired"]);
   });
 
   /**

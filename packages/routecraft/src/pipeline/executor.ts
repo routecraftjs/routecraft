@@ -119,6 +119,15 @@ export interface ExecutorDeps {
    */
   slots?: RouteSlots;
   /**
+   * The kind of run this is, which decides the hooks that apply to it.
+   * Absent on a normal run. Carried apart from {@link ExecutorDeps.slots}
+   * because a run with no hooks of its own still reports its kind to the
+   * `error` slot and to points.
+   *
+   * @internal
+   */
+  runKind?: RunKind;
+  /**
    * The route's positions as its application's providers filled them. Which
    * of them this run executes is read from {@link ExecutorDeps.definition}:
    * a position absent there is skipped even when compiled here. A nested
@@ -141,8 +150,20 @@ export interface RouteSlots {
   readonly afterAuth?: Step<Adapter>;
   readonly admitted?: Step<Adapter>;
   readonly perAttempt: readonly InstalledHook[];
-  readonly kind: RunKind;
   readonly tags: readonly string[];
+}
+
+/**
+ * The slots a detached run carries: the `perAttempt` wrappers alone, since
+ * it re-enters below admission. Absent when no wrapper hooks the route.
+ *
+ * @internal
+ */
+export function detachedSlots(deps: ExecutorDeps): RouteSlots | undefined {
+  const tags = deps.route.definition.discovery?.tags ?? [];
+  const perAttempt =
+    deps.context.hooks?.forRoute("perAttempt", deps.routeId, tags) ?? [];
+  return perAttempt.length > 0 ? { perAttempt, tags } : undefined;
 }
 
 /**
@@ -217,7 +238,7 @@ export async function runPipeline(
   // The `perAttempt` slot sits inside retry and outside timeout: a wrapper
   // there surrounds every attempt, and a deadline applies inside it.
   const wrappers = (deps.slots?.perAttempt ?? []).filter((entry) =>
-    runsOn(entry.hook as WrapperHook, deps.slots!.kind),
+    runsOn(entry.hook as WrapperHook, deps.runKind ?? "normal"),
   );
   if (wrappers.length > 0) {
     tail = [buildPerAttemptSegmentStep(deps, tail, wrappers)];
@@ -400,7 +421,7 @@ export async function runPipeline(
           routeId: deps.routeId,
           tags,
           slot: point,
-          kind: deps.slots?.kind ?? "normal",
+          kind: deps.runKind ?? "normal",
         },
       );
     },
@@ -1021,8 +1042,7 @@ async function runContextErrorHandlers(
   // carries it.
   const execution =
     args.exchange.headers[DeferralHeaders.RESUMED_AT] !== undefined ? 2 : 1;
-  const kind: RunKind =
-    deps.slots?.kind ?? (execution === 2 ? "resume" : "normal");
+  const kind: RunKind = deps.runKind ?? (execution === 2 ? "resume" : "normal");
   const tags = deps.route.definition.discovery?.tags ?? [];
   const info = {
     routeId: deps.routeId,
@@ -1521,6 +1541,7 @@ function nestedDeps(
     buildForward: deps.buildForward,
     ...(opts.rethrowUnhandled ? { rethrowUnhandled: true } : {}),
     ...(opts.abortSignal ? { abortSignal: opts.abortSignal } : {}),
+    ...(deps.runKind ? { runKind: deps.runKind } : {}),
     definition: { steps: segment },
   };
 }
@@ -1615,9 +1636,8 @@ export function runDetachedPipeline(
       correlationId,
     });
     const routeDefinition = deps.route.definition;
-    const tags = routeDefinition.discovery?.tags ?? [];
-    const perAttempt =
-      deps.context.hooks?.forRoute("perAttempt", deps.routeId, tags) ?? [];
+    const slots = detachedSlots(deps);
+    const runKind: RunKind = kind === "admission" ? "resume" : kind;
     const nested: ExecutorDeps = {
       routeId: deps.routeId,
       context: deps.context,
@@ -1628,25 +1648,12 @@ export function runDetachedPipeline(
       ...(CHAIN_SURVIVAL.concurrency[kind].mustNotRefuse
         ? { admissionMustWait: true }
         : {}),
-      // A continuation re-enters below the admission slots; only the
-      // wrappers around each attempt apply, filtered by the run kind.
-      ...(perAttempt.length > 0
-        ? {
-            slots: {
-              perAttempt,
-              kind: kind === "admission" ? "resume" : kind,
-              tags,
-            },
-          }
-        : {}),
+      ...(slots ? { slots } : {}),
+      // An admission park resumes like any other continuation.
+      runKind,
     };
     let result = await runPipeline(nested, releaseExchange, start);
-    // An admission park resumes like any other continuation.
-    result = await applyExitSlot(
-      nested,
-      result,
-      kind === "admission" ? "resume" : kind,
-    );
+    result = await applyExitSlot(nested, result, runKind);
 
     // The released exchange carries the route's final output, so the same
     // output stage the source-driven path uses runs here too.
@@ -1796,24 +1803,42 @@ function buildPerAttemptSegmentStep(
         routeId: deps.routeId,
         tags: deps.slots?.tags ?? [],
         slot: "perAttempt",
-        kind: deps.slots?.kind ?? ("normal" as const),
+        kind: deps.runKind ?? ("normal" as const),
       };
-      let proceed = async (): Promise<void> => {
-        result = await runPipeline(
+      let attempt: Promise<void> | undefined;
+      let proceed = (): Promise<void> => {
+        if (attempt) {
+          throw rcError("RC1115", undefined, {
+            message: `A perAttempt wrapper on route "${deps.routeId}" called proceed() twice. A wrapper surrounds one attempt; retrying is the retry position's job.`,
+          });
+        }
+        attempt = runPipeline(
           nestedDeps(deps, segment, {
             rethrowUnhandled: true,
             abortSignal: ctx?.signal ?? deps.abortSignal,
           }),
           exchange,
           Date.now(),
-        );
+        ).then((outcome) => {
+          result = outcome;
+        });
+        return attempt;
       };
       for (let i = wrappers.length - 1; i >= 0; i--) {
         const wrapper = wrappers[i]!.hook as WrapperHook;
         const inner = proceed;
         proceed = () => wrapper.wrap(inner, exchange, info);
       }
-      await proceed();
+      // An attempt the wrapper started is settled before this step settles,
+      // whether or not the wrapper awaited it: retry must never begin a
+      // second attempt while the first still runs.
+      try {
+        await proceed();
+      } catch (err) {
+        await attempt?.catch(() => undefined);
+        throw err;
+      }
+      await attempt;
       if (!result) {
         throw rcError("RC1115", undefined, {
           message: `A perAttempt wrapper on route "${deps.routeId}" returned without calling proceed(). A wrapper surrounds the attempt; to stop it, throw.`,
