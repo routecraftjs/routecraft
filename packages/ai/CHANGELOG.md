@@ -1,5 +1,25 @@
 # @routecraft/ai
 
+## 0.7.1
+
+### Patch Changes
+
+- [#853](https://github.com/routecraftjs/routecraft/pull/853) [`e3bcd7d`](https://github.com/routecraftjs/routecraft/commit/e3bcd7dbc3fbfb256ee9b1d75d60675ec735c15b) Thanks [@ex0b1t](https://github.com/ex0b1t)! - The ACP mount no longer sends a failure's message to the editor. A failed turn or a store outage on any request answered `-32603` with the error's message in `data`, which routinely names hosts, file paths and upstream responses. It now answers `-32603` carrying only the RC code (`{ "code": "RC5001" }`), or no `data` when the failure has none, and logs the full error at error level. The mount's own refusals (`-32002` for a session the caller cannot see, `-32602` for a request it cannot act on) and the SDK's parameter checks are unchanged. A `session/cancel` whose session lookup fails is now logged rather than printed to the console.
+
+- [#832](https://github.com/routecraftjs/routecraft/pull/832) [`e2d6111`](https://github.com/routecraftjs/routecraft/commit/e2d61113b1c34a42a64447b4e3935419ec031a5a) Thanks [@ex0b1t](https://github.com/ex0b1t)! - A missing or non-HTTPS `resource.url` on the MCP HTTP transport outside `development` and `test`, or one that is not an absolute URL, fails with `RC5003` and a suggestion naming the fix, instead of a bare `TypeError`. The stdio transport, which ignores `resource`, no longer validates it. The `McpResourceOptions.url` and `resource` documentation no longer promises a default that production does not apply.
+
+- [#853](https://github.com/routecraftjs/routecraft/pull/853) [`e3bcd7d`](https://github.com/routecraftjs/routecraft/commit/e3bcd7dbc3fbfb256ee9b1d75d60675ec735c15b) Thanks [@ex0b1t](https://github.com/ex0b1t)! - A failed local MCP tool call no longer puts the error message on the wire. It used to answer with the RC message and its cause, which carry whatever the route's steps threw: hostnames, file paths, upstream response text, the route id. Any caller who could make a tool fail could read them. The call now answers `isError: true` with the tool name and the error code, such as `Error: Tool "search" failed (RC5001).`, and the message stays in the log and on the `plugin:mcp:tool:failed` event, as before.
+
+  **This changes what agents see on a failed call.** It ships as a patch because it closes an information disclosure, the same rule the `http()` source and the ops dispatch door follow. A failure the caller caused on the tool's own route still answers with something an agent can act on:
+
+  - An `.input()` refusal (`RC5065`) lists each issue's path and message, at most 20 with the rest counted and each clipped to 256 characters, without the RC message that named the route. The same bounds now apply to the `http()` source's and the ops door's 400.
+  - An `.authorize()` refusal of the caller answers with a fixed reason: insufficient permissions (`RC5015`, `RC5034`, `RC5035`, `RC5036`), the missing scopes (`RC5038`), an expired credential (`RC5020`), or, on an HTTP mount with a validator that served the call anonymously, that the tool needs an authenticated caller (`RC5012`).
+  - A result body that breaks the tool's declared `.output()` (`RC5002`, `AI2001`) names the failing fields, as the docs promised, without the route id. That schema is published as the tool's `outputSchema`; the output headers schema is not, so a headers violation answers the generic text.
+
+  Attribution is by where the failure came from, never by code: an input or authorization refusal raised by a route the tool calls through `direct()`, a check of an identity the pipeline swapped in, and the same codes thrown by an adapter all answer with the generic text. The decline text (`AI2002`) is unchanged.
+
+  New exports from `@routecraft/routecraft`, for a door of your own: `callerRefusalOf(err, { routeId, principal, credentialCouldHelp? })` classifies a route failure the caller caused (the classification the `http()` source, the ops dispatch door and the MCP server now share), `wireIssues(issues)` bounds schema issues for the wire, and `isOutputValidationFailure(err.cause)` narrows the cause of an `.output()` RC5002 (or an MCP AI2001) to its `{ invalidOutput: { in, issues, routeId } }` detail.
+
 ## 0.7.0
 
 ### Minor Changes
