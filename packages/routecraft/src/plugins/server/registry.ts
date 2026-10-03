@@ -1,5 +1,4 @@
 import type { Authority } from "../../kernel/authority.ts";
-import { defaultAuthority } from "../principals/index.ts";
 import {
   requestValidationFailure,
   resolveAllowedHostnames,
@@ -48,9 +47,9 @@ export interface IngressHost {
   emit<K extends EventName>(event: K, details: EventDetailsMap[K]): void;
   /**
    * Brands the identities a mount verifies, so they are authentic to the
-   * same authority the gates check. The default authority when absent.
+   * same authority the gates check.
    */
-  readonly authority?: Authority;
+  readonly authority: Authority;
 }
 
 const ALL_METHODS: readonly HttpMethod[] = [
@@ -328,7 +327,7 @@ export class HttpMountRegistry implements WebIngress {
       const auth = this.effectiveAuthOf(mount);
       this.authByMount.set(
         mount.id,
-        createAuthMiddleware(auth, this.host.authority ?? defaultAuthority),
+        createAuthMiddleware(auth, this.host.authority),
       );
       const issuer = issuerOf(auth);
       this.authPolicyByMount.set(

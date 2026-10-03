@@ -181,7 +181,7 @@ The ports the framework ships:
 
 `RESILIENCE`, `CACHE` and `ENFORCEMENT` fill the chain's positions. The default providers are exported as `resilienceProvider`, `cacheProvider` and `enforcementProvider`, so a replacement can delegate to them.
 
-`AUTHORITY` decides who an exchange acts for and whether to trust it. It provides `mint(claims)`, `brand(principal)`, `isAuthentic(principal)`, `restore(record)`, `isRestored(principal)` and `read(exchange)`. `authorityOf(exchangeOrContext)` returns the application's authority. The standalone helpers `markAuthentic`, `isAuthentic`, `markRestored` and `isRestored` remain exported.
+`AUTHORITY` decides who an exchange acts for and whether to trust it. It provides `mint(claims)`, `brand(principal)`, `isAuthentic(principal)`, `restore(record)`, `isRestored(principal)` and `read(exchange)`. `authorityOf(exchangeOrContext)` returns the application's authority. Every mint and every check goes through it, so a replacement decides both sides; `delegate()` and the ingress mounts take the authority explicitly rather than assuming the default.
 
 ## Default plugins
 

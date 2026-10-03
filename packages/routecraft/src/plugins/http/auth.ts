@@ -4,7 +4,6 @@ import { bearerChallenge } from "../server/protected-resource.ts";
 import { classifyRejectionReason } from "../../auth/error-classification";
 import { isPrincipalExpired } from "../../auth/expiry";
 import type { Authority } from "../../kernel/authority.ts";
-import { defaultAuthority } from "../principals/index.ts";
 import type { Principal, TokenVerifier } from "../../principal";
 import type {
   ApiKeyAuthOptions,
@@ -248,7 +247,7 @@ function syntheticApiKeyPrincipal(
  */
 export function createAuthMiddleware(
   auth: HttpAuth | undefined,
-  authority: Authority = defaultAuthority,
+  authority: Authority,
 ): HttpAuthMiddleware | undefined {
   if (auth === undefined) return undefined;
 

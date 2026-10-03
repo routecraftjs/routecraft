@@ -2,6 +2,7 @@ import type { PrincipalClaims } from "../principal.ts";
 import type { CraftContext } from "../context.ts";
 import { getExchangeContext, type Exchange } from "../exchange.ts";
 import type { Principal } from "../principal.ts";
+import { rcError } from "../error.ts";
 import { port } from "./port.ts";
 
 /**
@@ -20,11 +21,18 @@ export interface Authority {
    * Returns the trusted copy; never assume the argument was branded in place.
    */
   brand<P extends Principal>(principal: P): P;
-  /** Whether this authority established the principal: minted or branded. */
+  /**
+   * Whether this authority established the principal: minted or branded.
+   * Never true for a {@link Authority.restore restored} record: `keep()`
+   * and `delegate()` trust on this check alone, so an authority that
+   * restores by branding in place would let a stored identity act as a
+   * live one.
+   */
   isAuthentic(principal: unknown): principal is Principal;
   /**
    * A principal read back from durable storage: a recorded shape with no
-   * live credential behind it, which no gate trusts as authentic.
+   * live credential behind it, which no gate trusts as authentic. Returns a
+   * new object, disjoint from every authentic principal.
    */
   restore(record: Principal): Principal;
   /** Whether a principal is a {@link Authority.restore restored} record. */
@@ -36,19 +44,18 @@ export interface Authority {
 /** The principals: who an exchange acts for and whether it is trusted. */
 export const AUTHORITY = port<Authority>("routecraft.principals@1");
 
-const FALLBACK: unique symbol = Symbol.for("routecraft.fallback-authority");
-
-type GlobalWithFallback = typeof globalThis & { [FALLBACK]?: Authority };
+let fallback: Authority | undefined;
 
 /**
  * The authority used where there is no application at all (a plain
  * exchange in a unit test), set by the principals plugin's module when the
- * package loads.
+ * package loads. Module-local: a second copy of the package keeps its own,
+ * so its principals are never trusted by the first copy's gates.
  *
  * @internal
  */
 export function setFallbackAuthority(authority: Authority): void {
-  (globalThis as GlobalWithFallback)[FALLBACK] = authority;
+  fallback = authority;
 }
 
 /**
@@ -66,12 +73,11 @@ export function authorityOf(
       : from !== undefined
         ? getExchangeContext(from)
         : undefined;
-  const found =
-    context?.lookup(AUTHORITY) ?? (globalThis as GlobalWithFallback)[FALLBACK];
+  const found = context?.lookup(AUTHORITY) ?? fallback;
   if (found === undefined) {
-    throw new Error(
-      "No principals authority is installed; import @routecraft/routecraft so its default plugins register.",
-    );
+    throw rcError("RC1104", undefined, {
+      message: `No plugin provides "${AUTHORITY.name}". The default routecraft.principals plugin provides it unless a plugin replaced it without providing a value.`,
+    });
   }
   return found;
 }

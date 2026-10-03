@@ -493,7 +493,7 @@ The check is distinct from `RC5012` (no principal at all), `RC5015` (an authenti
 **Suggestion**  
 - Mint the identity with the `.authenticate()` operation (or the `authenticate()` helper for mid-pipeline / custom-source use), which brands and freezes the principal.
 - Let a source verifier attach it: `mcp({ auth: jwt(...) })` / `jwks(...)` / `oauth(...)`.
-- In a custom source adapter that verifies identity itself, brand the resolved principal with `markAuthentic` before attaching it.
+- In a custom source adapter that verifies identity itself, brand the resolved principal through the application's authority, `authorityOf(context).brand(principal)`, before attaching it.
 - Do not assign a plain object to the principal header and do not spread an existing principal to change its roles; both produce a non-authentic principal.
 
 ## RC5024
@@ -511,7 +511,7 @@ Both are distinct from `RC5023`, which fires later at `authorize()` when a princ
 
 **Suggestion**  
 - Pass a non-empty `subject`: `authenticate({ subject: sender.address, roles: [...] })`.
-- To delegate, mint first and then delegate: `delegate(authenticate(claims), actorClaims, { scopes, grantId })`.
+- To delegate, mint first and then delegate: `delegate(authenticate(claims), actorClaims, { scopes, grantId }, authorityOf(exchange))`.
 - If the source cannot identify the caller, return `undefined` from the `.authenticate()` resolver to leave the exchange anonymous instead of minting an empty identity.
 
 ## RC5025

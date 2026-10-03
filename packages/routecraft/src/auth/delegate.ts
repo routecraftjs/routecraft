@@ -1,7 +1,6 @@
 import { rcError } from "../error.ts";
 import type { PrincipalClaims } from "./authenticate.ts";
 import type { Authority } from "../kernel/authority.ts";
-import { defaultAuthority } from "../plugins/principals/index.ts";
 import type {
   ActorMatcher,
   Principal,
@@ -137,17 +136,19 @@ function intersect(
  *
  * @example
  * ```ts
- * const delegated = delegate(ex.auth.principal, zoeIdentity, {
- *   scopes: grant.scopes,
- *   grantId: grant.id,
- * })
+ * const delegated = delegate(
+ *   ex.auth.principal,
+ *   zoeIdentity,
+ *   { scopes: grant.scopes, grantId: grant.id },
+ *   authorityOf(ex),
+ * )
  * ```
  */
 export function delegate(
   subject: Principal,
   actor: PrincipalClaims,
-  options: DelegateOptions = {},
-  authority: Authority = defaultAuthority,
+  options: DelegateOptions,
+  authority: Authority,
 ): Principal {
   if (!authority.isAuthentic(subject)) {
     throw rcError("RC5023", new Error("Subject principal is not authentic"), {

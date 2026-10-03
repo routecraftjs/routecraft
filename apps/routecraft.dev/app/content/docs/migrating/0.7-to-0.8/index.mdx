@@ -79,7 +79,7 @@ craft()
   .to(log())
 ```
 
-`ex.deferral` is unchanged in route callables; outside them, read `deferralOf(exchange)`. The principal authority (`mint`, `brand`, `isAuthentic`, `restore`, `isRestored`, `read`) is the `AUTHORITY` port the default `routecraft.principals` plugin provides; `markAuthentic` and the other standalone helpers remain.
+`ex.deferral` is unchanged in route callables; outside them, read `deferralOf(exchange)`. The principal authority (`mint`, `brand`, `isAuthentic`, `restore`, `isRestored`, `read`) is the `AUTHORITY` port the default `routecraft.principals` plugin provides. Brand and check through `authorityOf(exchangeOrContext)` instead of `markAuthentic`, `isAuthentic`, `markRestored` and `isRestored`, which are now internal. `delegate()` takes the authority as its fourth argument: `delegate(subject, actor, options, authorityOf(exchange))`.
 
 ## 3. `defineProject` \{#3-define-project}
 

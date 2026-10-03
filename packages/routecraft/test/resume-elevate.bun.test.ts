@@ -5,7 +5,6 @@ import {
   MemoryDeferralStore,
   authenticate,
   craft,
-  delegate,
   direct,
   noop,
   recovery,
@@ -13,6 +12,7 @@ import {
   type Exchange,
   type Principal,
 } from "../src/index.ts";
+import { delegate } from "./helpers/authority.ts";
 import { insufficientAuthorityOf } from "../src/auth/authorize.ts";
 import { isAuthentic } from "../src/auth/authentic.ts";
 import { isRestored } from "../src/auth/restored.ts";

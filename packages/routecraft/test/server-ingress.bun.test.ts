@@ -14,6 +14,7 @@ import {
   staticPathPrefix,
 } from "../src/plugins/http/path-matcher.ts";
 import { HttpMountRegistry } from "../src/plugins/server/registry.ts";
+import { ingressHostOf } from "./helpers/authority.ts";
 
 /**
  * Named server ingress owns cross-surface routing and validation.
@@ -26,7 +27,7 @@ describe("named server ingress", () => {
    */
   test("dispatches exact mounts ahead of the HTTP fallback", async () => {
     const context = (await testContext().build()).ctx;
-    const ingress = new HttpMountRegistry("public", context);
+    const ingress = new HttpMountRegistry("public", ingressHostOf(context));
     ingress.mountHttp({
       id: "http",
       claims: () => [{ kind: "prefix", path: "/" }],
@@ -58,7 +59,7 @@ describe("named server ingress", () => {
    */
   test("detects late dynamic route conflicts", async () => {
     const context = (await testContext().build()).ctx;
-    const ingress = new HttpMountRegistry("public", context);
+    const ingress = new HttpMountRegistry("public", ingressHostOf(context));
     const routes = [compilePathMatcher("/status/:id")];
     ingress.mountHttp({
       id: "http",
@@ -90,7 +91,7 @@ describe("named server ingress", () => {
    */
   test("allows a literal root route beside another mount", async () => {
     const context = (await testContext().build()).ctx;
-    const ingress = new HttpMountRegistry("public", context);
+    const ingress = new HttpMountRegistry("public", ingressHostOf(context));
     const matcher = compilePathMatcher("/");
     ingress.mountHttp({
       id: "http",
@@ -121,7 +122,7 @@ describe("named server ingress", () => {
    */
   test("allows a shallow pattern beside a deeper prefix mount", async () => {
     const context = (await testContext().build()).ctx;
-    const ingress = new HttpMountRegistry("public", context);
+    const ingress = new HttpMountRegistry("public", ingressHostOf(context));
     const matcher = compilePathMatcher("/status/:id");
     ingress.mountHttp({
       id: "http",
@@ -226,7 +227,7 @@ describe("named server ingress", () => {
   test("inherits server auth and verifies each request once", async () => {
     const context = (await testContext().build()).ctx;
     let calls = 0;
-    const ingress = new HttpMountRegistry("secure", context, {
+    const ingress = new HttpMountRegistry("secure", ingressHostOf(context), {
       validator: (token) => {
         calls++;
         return { kind: "custom", scheme: "bearer", subject: token };
@@ -263,7 +264,7 @@ describe("named server ingress", () => {
   test("keeps the inherited validator reachable on an opted-out mount", async () => {
     const context = (await testContext().build()).ctx;
     let calls = 0;
-    const ingress = new HttpMountRegistry("secure", context, {
+    const ingress = new HttpMountRegistry("secure", ingressHostOf(context), {
       validator: () => {
         calls++;
         return { kind: "custom", scheme: "bearer", subject: "pulled" };
@@ -324,7 +325,7 @@ describe("named server ingress", () => {
       }
       return original(first as never, second as never);
     }) as typeof context.logger.info;
-    const ingress = new HttpMountRegistry("secure", context, {
+    const ingress = new HttpMountRegistry("secure", ingressHostOf(context), {
       validator: () => ({
         kind: "custom",
         scheme: "bearer",
@@ -358,7 +359,7 @@ describe("named server ingress", () => {
     built.ctx.on("auth:rejected", ({ details }) => {
       rejections.push(details as Record<string, unknown>);
     });
-    const ingress = new HttpMountRegistry("secure", built.ctx, {
+    const ingress = new HttpMountRegistry("secure", ingressHostOf(built.ctx), {
       validator: () => {
         throw new TypeError("fetch failed", {
           cause: Object.assign(new Error("refused"), { code: "ECONNREFUSED" }),
@@ -399,7 +400,7 @@ describe("named server ingress", () => {
     const context = (await testContext().build()).ctx;
     let path = "/before";
     let evaluations = 0;
-    const ingress = new HttpMountRegistry("stable", context);
+    const ingress = new HttpMountRegistry("stable", ingressHostOf(context));
     ingress.mountHttp({
       id: "stable",
       claims: () => {
@@ -544,7 +545,7 @@ describe("named server ingress", () => {
    */
   test("unmount prunes the evaluated dispatch state", async () => {
     const context = (await testContext().build()).ctx;
-    const ingress = new HttpMountRegistry("draining", context);
+    const ingress = new HttpMountRegistry("draining", ingressHostOf(context));
     const unmount = ingress.mountHttp({
       id: "surface",
       claims: () => [{ kind: "exact", path: "/gone" }],
@@ -574,7 +575,7 @@ describe("named server ingress", () => {
         exempted.push(new URL(req.url).pathname);
       },
     };
-    const ingress = new HttpMountRegistry("streams", context);
+    const ingress = new HttpMountRegistry("streams", ingressHostOf(context));
     ingress.mountHttp({
       id: "mcp",
       longLived: true,
@@ -600,7 +601,7 @@ describe("named server ingress", () => {
    */
   test("rejects a second catch-all fallback mount", async () => {
     const context = (await testContext().build()).ctx;
-    const ingress = new HttpMountRegistry("shadowed", context);
+    const ingress = new HttpMountRegistry("shadowed", ingressHostOf(context));
     ingress.mountHttp({
       id: "first",
       claims: () => [{ kind: "prefix", path: "/" }],
@@ -621,7 +622,7 @@ describe("named server ingress", () => {
    */
   test("rejects mounts registered after validation", async () => {
     const context = (await testContext().build()).ctx;
-    const ingress = new HttpMountRegistry("late", context);
+    const ingress = new HttpMountRegistry("late", ingressHostOf(context));
     ingress.mountHttp({
       id: "early",
       claims: () => [{ kind: "exact", path: "/early" }],

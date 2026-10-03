@@ -14,7 +14,6 @@ import {
   HeadersKeys,
   insufficientAuthorityOf,
   craft,
-  delegate,
   type InsufficientAuthority,
   isAuthorizationRefusal,
   markAuthentic,
@@ -26,6 +25,7 @@ import {
   type RouteBuilder,
   principalOf,
 } from "../../src/index.ts";
+import { delegate } from "../helpers/authority.ts";
 import { missingScopes } from "../../src/auth/authorize.ts";
 
 type FailedEventDetails = { details: { error: unknown } };

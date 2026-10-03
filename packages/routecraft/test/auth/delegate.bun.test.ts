@@ -14,7 +14,6 @@ import {
   authenticate,
   authorize,
   craft,
-  delegate,
   HeadersKeys,
   isAuthentic,
   markAuthentic,
@@ -23,6 +22,7 @@ import {
   type PrincipalClaims,
   principalOf,
 } from "../../src/index.ts";
+import { delegate } from "../helpers/authority.ts";
 
 const EYWA_ISS = "https://agents.example.com";
 
