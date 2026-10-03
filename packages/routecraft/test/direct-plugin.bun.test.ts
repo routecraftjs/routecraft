@@ -1,8 +1,10 @@
 import { describe, expect, mock, test } from "bun:test";
 import {
-  ADAPTER_DIRECT_OPTIONS,
+  DIRECT_DEFAULTS,
   getDirectChannel,
 } from "../src/adapters/direct/shared.ts";
+// Registers the `direct` config applier, which importing the context alone does not.
+import "../src/adapters/direct/config.ts";
 import { CraftContext } from "../src/context.ts";
 import type {
   DirectChannel,
@@ -26,9 +28,7 @@ function mockContext(
   channelType?: DirectChannelType<DirectChannel>,
 ): CraftContext {
   const store = new Map();
-  if (channelType) {
-    store.set(ADAPTER_DIRECT_OPTIONS, { channelType });
-  }
+  const defaults = channelType ? { channelType } : undefined;
   return {
     logger: {
       trace: mock(),
@@ -40,35 +40,37 @@ function mockContext(
     },
     getStore: (key: symbol) => store.get(key),
     setStore: (key: symbol, value: unknown) => store.set(key, value),
+    lookup: (port: unknown) =>
+      port === DIRECT_DEFAULTS ? defaults : undefined,
   } as unknown as CraftContext;
 }
 
 describe("CraftConfig.direct defaults", () => {
   /**
-   * @case CraftContext stores direct channelType when config.direct is provided
+   * @case CraftContext provides the direct channelType when config.direct is set
    * @preconditions CraftConfig includes a direct field; initPlugins() has run
-   *   (the direct config applier seeds the store during plugin init)
-   * @expectedResult The context store contains the channelType under ADAPTER_DIRECT_OPTIONS
+   *   (the direct config applier provides the DIRECT_DEFAULTS port during bind)
+   * @expectedResult Looking up DIRECT_DEFAULTS yields the configured channelType
    */
-  test("stores channelType in the context store", async () => {
+  test("provides channelType through the DIRECT_DEFAULTS port", async () => {
     const ctx = new CraftContext({
       direct: { channelType: MockChannelType },
     });
     await ctx.initPlugins();
 
-    const stored = ctx.getStore(ADAPTER_DIRECT_OPTIONS);
+    const stored = ctx.lookup(DIRECT_DEFAULTS);
     expect(stored).toHaveProperty("channelType", MockChannelType);
   });
 
   /**
-   * @case CraftContext does not set store when config.direct is omitted
+   * @case CraftContext provides no direct defaults when config.direct is omitted
    * @preconditions CraftConfig does not include a direct field
-   * @expectedResult The context store returns undefined for ADAPTER_DIRECT_OPTIONS
+   * @expectedResult Looking up DIRECT_DEFAULTS returns undefined
    */
-  test("does not set store when config.direct is omitted", () => {
+  test("provides no defaults when config.direct is omitted", () => {
     const ctx = new CraftContext({});
 
-    const stored = ctx.getStore(ADAPTER_DIRECT_OPTIONS);
+    const stored = ctx.lookup(DIRECT_DEFAULTS);
     expect(stored).toBeUndefined();
   });
 });
@@ -76,7 +78,7 @@ describe("CraftConfig.direct defaults", () => {
 describe("resolveChannelType via getDirectChannel", () => {
   /**
    * @case getDirectChannel uses context-level channelType when per-adapter is absent
-   * @preconditions Context store has channelType, adapter options are empty
+   * @preconditions Context provides a DIRECT_DEFAULTS channelType, adapter options are empty
    * @expectedResult Channel is an instance of the context-level channel type
    */
   test("uses context-level channelType when per-adapter is absent", () => {
@@ -88,7 +90,7 @@ describe("resolveChannelType via getDirectChannel", () => {
 
   /**
    * @case getDirectChannel prefers per-adapter channelType over context default
-   * @preconditions Both context store and per-adapter options have channelType
+   * @preconditions Both the context defaults and per-adapter options have channelType
    * @expectedResult Channel is an instance of the per-adapter channel type, not the context one
    */
   test("prefers per-adapter channelType over context default", () => {
@@ -115,11 +117,11 @@ describe("resolveChannelType via getDirectChannel", () => {
 
   /**
    * @case getDirectChannel falls back to in-memory when no channelType is set
-   * @preconditions Neither context store nor per-adapter options have channelType
+   * @preconditions Neither the context defaults nor per-adapter options have channelType
    * @expectedResult Channel is created (in-memory default), not an instance of MockDirectChannel
    */
   test("falls back to in-memory channel when no channelType is set", () => {
-    const ctx = mockContext(); // no channelType in store
+    const ctx = mockContext(); // no context-level channelType
 
     const channel = getDirectChannel(ctx, "test-endpoint", {});
     expect(channel).toBeDefined();

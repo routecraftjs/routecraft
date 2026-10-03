@@ -150,7 +150,7 @@ export class ContextBuilder {
   >();
   protected eventHandlers = new Map<EventName, Set<EventHandler<EventName>>>();
   protected onceHandlers = new Map<EventName, Set<EventHandler<EventName>>>();
-  protected plugins: Array<import("./context.ts").CraftPlugin> = [];
+  protected plugins: Array<import("./kernel/plugin.ts").Plugin> = [];
 
   constructor() {}
 

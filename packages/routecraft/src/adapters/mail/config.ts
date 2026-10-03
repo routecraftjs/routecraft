@@ -1,7 +1,7 @@
 import { registerConfigApplier } from "../../config-applier.ts";
-import type { StoreRegistry } from "../../context.ts";
+import { definePlugin } from "../../kernel/plugin.ts";
 import { MailClientManager } from "./client-manager.ts";
-import { MAIL_CLIENT_MANAGER } from "./shared.ts";
+import { MAIL } from "./shared.ts";
 import type { MailContextConfig } from "./types.ts";
 
 declare module "@routecraft/routecraft" {
@@ -19,15 +19,14 @@ declare module "@routecraft/routecraft" {
  * `packages/routecraft/src/index.ts`. Keeps the core context free of
  * mail adapter knowledge.
  */
-registerConfigApplier("mail", (options) => {
-  let manager: MailClientManager | undefined;
-  return {
-    apply(ctx) {
-      manager = new MailClientManager(options);
-      ctx.setStore(MAIL_CLIENT_MANAGER as keyof StoreRegistry, manager);
+registerConfigApplier("mail", (options) =>
+  definePlugin({
+    id: "routecraft.mail",
+    provides: [MAIL],
+    bind(c) {
+      const manager = new MailClientManager(options);
+      c.provide(MAIL, manager);
+      c.onDispose(() => manager.drain());
     },
-    async teardown() {
-      await manager?.drain();
-    },
-  };
-});
+  }),
+);

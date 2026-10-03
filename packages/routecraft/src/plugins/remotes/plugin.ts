@@ -18,7 +18,8 @@
  * bearer is the identity every imported route runs under.
  */
 
-import type { CraftContext, CraftPlugin } from "../../context";
+import type { CraftContext } from "../../context";
+import type { Plugin, PluginContext } from "../../kernel/plugin.ts";
 import { rcError } from "../../error";
 import {
   CAPABILITY_REGISTRY,
@@ -185,14 +186,15 @@ function validate(options: RemotesPluginOptions): void {
  * its routes appear on the refresh that first reaches it. `teardown`
  * clears the timers and removes every endpoint this plugin installed.
  */
-export function remotesPlugin(options: RemotesPluginOptions): CraftPlugin {
+export function remotesPlugin(options: RemotesPluginOptions): Plugin {
   validate(options);
   const runtimes = new WeakMap<CraftContext, Runtime>();
 
   return {
-    name: "remotes",
+    id: "routecraft.remotes",
 
-    apply(ctx: CraftContext) {
+    bind(c: PluginContext) {
+      const ctx = c.context;
       const remotes: RemoteRuntime[] = Object.entries(options).map(
         ([name, definition]) => {
           const client = createOpsHttpClient({
@@ -252,7 +254,8 @@ export function remotesPlugin(options: RemotesPluginOptions): CraftPlugin {
       }
     },
 
-    async start(ctx: CraftContext) {
+    async start(c: PluginContext) {
+      const ctx = c.context;
       const runtime = runtimes.get(ctx);
       if (!runtime) return;
       await Promise.all(runtime.remotes.map((remote) => refresh(ctx, remote)));
@@ -266,7 +269,8 @@ export function remotesPlugin(options: RemotesPluginOptions): CraftPlugin {
       }
     },
 
-    async teardown(ctx: CraftContext) {
+    async stop(c: PluginContext) {
+      const ctx = c.context;
       const runtime = runtimes.get(ctx);
       if (!runtime) return;
       runtimes.delete(ctx);

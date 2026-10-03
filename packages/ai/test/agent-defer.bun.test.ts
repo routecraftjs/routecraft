@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
 import {
   DefaultExchange,
-  DEFERRAL_RUNTIME,
+  CONTINUATIONS,
   craft,
   direct,
   noop,
@@ -13,7 +13,7 @@ import {
   testContext,
   type TestContext,
 } from "@routecraft/testing";
-import type { CraftPlugin } from "@routecraft/routecraft";
+import type { Plugin } from "@routecraft/routecraft";
 import {
   DeferError,
   agent,
@@ -40,7 +40,7 @@ mock.module("../src/llm/providers/index.ts", () => ({
 type PluginFns = NonNullable<
   NonNullable<Parameters<typeof agentPlugin>[0]>["functions"]
 >;
-function plugins(functions: PluginFns): CraftPlugin[] {
+function plugins(functions: PluginFns): Plugin[] {
   return [
     llmPlugin({ providers: { anthropic: { apiKey: "sk-test" } } }),
     agentPlugin({ functions }),
@@ -122,7 +122,7 @@ describe("agent durable deferral (ctx.defer)", () => {
     expect(Object.keys(deferred)).not.toContain("meta");
     expect(JSON.stringify(deferred)).not.toContain("pay acme?");
 
-    const store = t.ctx.getStore(DEFERRAL_RUNTIME)!.store;
+    const store = t.ctx.require(CONTINUATIONS).store;
     const record = await store.get(deferred.deferralId);
     // The acknowledgment saying "deferred" and the record being resumable are
     // two claims, and only the second one is what a resume will act on.
@@ -298,7 +298,7 @@ describe("agent durable deferral (ctx.defer)", () => {
     await t.startAndWaitReady();
 
     const deferred = asDeferred(await t.client.sendDirect("assistant", "go"));
-    const runtime = t.ctx.getStore(DEFERRAL_RUNTIME)!;
+    const runtime = t.ctx.require(CONTINUATIONS);
     const record = await runtime.store.get(deferred.deferralId);
     expect(
       (record?.stepState as { usage?: { totalTokens?: number } })?.usage
@@ -433,7 +433,7 @@ describe("agent durable deferral (ctx.defer)", () => {
 
     const deferred = asDeferred(await t.client.sendDirect("assistant", "go"));
 
-    const runtime = t.ctx.getStore(DEFERRAL_RUNTIME)!;
+    const runtime = t.ctx.require(CONTINUATIONS);
     const pending = await runtime.store.pending();
     expect(pending.count).toBe(1);
     const record = await runtime.store.get(deferred.deferralId);
@@ -556,7 +556,7 @@ describe("agent durable deferral (ctx.defer)", () => {
     const deferred = asDeferred(await t.client.sendDirect("assistant", "go"));
     expect(tokens["ask"]).not.toBe(tokens["ask2"]);
 
-    const runtime = t.ctx.getStore(DEFERRAL_RUNTIME)!;
+    const runtime = t.ctx.require(CONTINUATIONS);
     // One record, one deferral, two credentials: they name the calls, not the
     // deferral, which is exactly what makes the losing one refusable.
     const record = await runtime.store.get(deferred.deferralId);
@@ -767,7 +767,7 @@ describe("agent durable deferral (ctx.defer)", () => {
     expect(result.toolCalls).toHaveLength(1);
     expect(result.toolCalls![0]!.error).toMatchObject({ rc: "AI1006" });
 
-    const runtime = t.ctx.getStore(DEFERRAL_RUNTIME)!;
+    const runtime = t.ctx.require(CONTINUATIONS);
     const pending = await runtime.store.pending();
     expect(pending.count).toBe(0);
   });

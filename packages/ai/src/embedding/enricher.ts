@@ -11,10 +11,7 @@ import type {
   EmbeddingOptions,
   EmbeddingResult,
 } from "./types.ts";
-import {
-  ADAPTER_EMBEDDING_OPTIONS,
-  ADAPTER_EMBEDDING_PROVIDERS,
-} from "./types.ts";
+import { EMBEDDING } from "./types.ts";
 
 function parseProviderModel(id: string): {
   providerId: string;
@@ -41,7 +38,7 @@ function resolveProviderAndModel(
       `Embedding adapter: model id "${modelId}" requires a context to resolve. Ensure the exchange has context (e.g. from a route) so embedding providers can be read.`,
     );
   }
-  const store = context.getStore(ADAPTER_EMBEDDING_PROVIDERS);
+  const store = context.lookup(EMBEDDING)?.providers;
   if (!store) {
     throw new Error(
       "Embedding provider not found: no providers registered. Add embeddingPlugin({ providers: { huggingface: {} } }) to your config.",
@@ -86,7 +83,7 @@ export class EmbeddingEnricherAdapter<T = unknown>
   public options: Partial<EmbeddingOptions>;
 
   mergedOptions(context: CraftContext): EmbeddingOptions {
-    const store = context.getStore(ADAPTER_EMBEDDING_OPTIONS);
+    const store = context.lookup(EMBEDDING)?.defaults;
     return { ...store, ...this.options } as EmbeddingOptions;
   }
 

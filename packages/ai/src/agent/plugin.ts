@@ -5,7 +5,8 @@ import {
   rcError,
   registerOpsResource,
   type CraftContext,
-  type CraftPlugin,
+  type Plugin,
+  type PluginContext,
   type OpsPage,
 } from "@routecraft/routecraft";
 import { AgentSessionRuntime } from "./session/runtime.ts";
@@ -176,13 +177,26 @@ function validateRegisteredAgent(
  * });
  * ```
  */
-export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
+/**
+ * Installs composed by one application each need their own id; the first is
+ * `routecraft.ai.agent`, later ones are numbered in creation order.
+ */
+let agentInstalls = 0;
+
+export function agentPlugin(options: AgentPluginOptions = {}): Plugin {
+  agentInstalls += 1;
+  const id =
+    agentInstalls === 1
+      ? "routecraft.ai.agent"
+      : `routecraft.ai.agent-${agentInstalls}`;
   const agents = options.agents ?? {};
   const functions = options.functions ?? {};
   const defaultOptions = validatePluginDefaults(options.defaultOptions);
   const toolPolicy = validateToolPolicy(options.toolPolicy);
   return {
-    async apply(ctx: CraftContext) {
+    id,
+    async bind(c: PluginContext) {
+      const ctx = c.context;
       // Merge into an existing registry when present so multiple
       // `agentPlugin({...})` entries compose instead of overwriting.
       const existingAgents = ctx.getStore(ADAPTER_AGENT_REGISTRY);
@@ -306,7 +320,8 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
      * here fails `context.start()` and unwinds cleanly, where a throw
      * inside a `once()` handler has no such contract.
      */
-    start(ctx: CraftContext) {
+    start(c: PluginContext) {
+      const ctx = c.context;
       resolveLazyTools(ctx, functions);
       emitRegistrations(ctx, agents, functions);
       driveSessionsAtBoot(ctx);
@@ -317,7 +332,8 @@ export function agentPlugin(options: AgentPluginOptions = {}): CraftPlugin {
      * sessions onto routes that are draining and write the store after
      * the context let go of it; it is told to stop and waited for.
      */
-    async teardown(ctx: CraftContext) {
+    async stop(c: PluginContext) {
+      const ctx = c.context;
       await boots.get(ctx);
       boots.delete(ctx);
       // After the boot walk, so a revival the walk was starting when the

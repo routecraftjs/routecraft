@@ -44,11 +44,14 @@ import {
   type ValidationDeps,
 } from "./pipeline/validation.ts";
 import {
+  applyExitSlot,
   runDetachedPipeline,
   runPipeline,
   type DetachedResult,
   type ExecutorDeps,
+  type RouteSlots,
 } from "./pipeline/executor.ts";
+import { buildSlotStep } from "./kernel/hooks.ts";
 import {
   detachedDefinition,
   type DetachedKind,
@@ -909,8 +912,35 @@ export class DefaultRoute implements Route {
       route: this,
       definition: this.definition,
       buildForward: (caller: Exchange) => this.buildForward(caller),
+      ...(this.slots() ? { slots: this.slots()! } : {}),
     };
     return this.cachedExecutorDeps;
+  }
+
+  /**
+   * The plugin hooks that apply to this route, placed once. Absent before
+   * the application froze and when no plugin hooks this route.
+   */
+  private slots(): RouteSlots | undefined {
+    const table = this.context.hooks;
+    if (!table) return undefined;
+    const id = this.definition.id;
+    const tags = this.definition.discovery?.tags ?? [];
+    const beforeAuth = buildSlotStep(table, "beforeAuth", id, tags);
+    const afterAuth = buildSlotStep(table, "afterAuth", id, tags);
+    const admitted = buildSlotStep(table, "admitted", id, tags);
+    const perAttempt = table.forRoute("perAttempt", id, tags);
+    if (!beforeAuth && !afterAuth && !admitted && perAttempt.length === 0) {
+      return undefined;
+    }
+    return {
+      ...(beforeAuth ? { beforeAuth } : {}),
+      ...(afterAuth ? { afterAuth } : {}),
+      ...(admitted ? { admitted } : {}),
+      perAttempt,
+      kind: "normal",
+      tags,
+    };
   }
 
   /** Assemble the deps object for the pipeline validation helpers (memoized, see {@link executorDeps}). */
@@ -1292,7 +1322,8 @@ export class DefaultRoute implements Route {
       this.executorDeps(),
       exchange,
       startTime,
-    ).then(async (result) => {
+    ).then(async (piped) => {
+      const result = await applyExitSlot(this.executorDeps(), piped, "normal");
       // Framework-level output validation runs on successful, non-dropped
       // exchanges before we declare completion. A failure falls through the
       // same path as a thrown step: errorHandler if set, else a failed result.

@@ -64,15 +64,24 @@ export {
   RUNNER_ARGV,
   DEFAULT_SHUTDOWN_TIMEOUT_MS,
   type CraftConfig,
-  type CraftPlugin,
   type HandlerFor,
   type HandlerPoint,
   type HandlerPointRegistry,
   type HandlerSelector,
   type ShutdownConfig,
   type ShutdownOutcome,
-  type TeardownInfo,
 } from "./context.ts";
+export {
+  definePlugin,
+  type Execution,
+  type Plugin,
+  type PluginContext,
+  type PluginLogger,
+  type PluginRoutes,
+  type RouteView,
+  type StopInfo,
+} from "./kernel/plugin.ts";
+export { port, type AnyPort, type Port } from "./kernel/port.ts";
 export {
   type Capability,
   isInternalEndpoint,
@@ -744,7 +753,7 @@ export {
   DEFAULT_DEFERRAL_DB_PATH,
   MemoryDeferralStore,
   DEFERRED_JSON_SCHEMA,
-  DEFERRAL_RUNTIME,
+  CONTINUATIONS,
   DEFERRAL_SECRET_ENV,
   DEFERRAL_STORE_ENV,
   SqliteDeferralStore,
@@ -835,7 +844,7 @@ export {
 export {
   CarddavAdapter,
   CarddavClientManager,
-  CARDDAV_CLIENT_MANAGER,
+  CARDDAV,
   DEFAULT_CARDDAV_SERVER_URL,
   CarddavHeaders,
   VCard,

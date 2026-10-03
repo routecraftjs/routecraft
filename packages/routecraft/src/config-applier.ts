@@ -1,4 +1,4 @@
-import type { CraftPlugin } from "./context.ts";
+import type { Plugin } from "./kernel/plugin.ts";
 // Self-reference via the published specifier so ecosystem augmentations
 // (`declare module "@routecraft/routecraft" { interface CraftConfig { ... } }`)
 // propagate into this module's view of `CraftConfig`. Importing through
@@ -7,7 +7,7 @@ import type { CraftPlugin } from "./context.ts";
 import type { CraftConfig } from "@routecraft/routecraft";
 
 /**
- * Build a {@link CraftPlugin} from the value found at a given key on
+ * Build a {@link Plugin} from the value found at a given key on
  * {@link CraftConfig}. Receives the non-undefined value of `config[K]` and
  * returns a plugin whose `apply` and (optional) `teardown` participate in the
  * standard plugin lifecycle.
@@ -16,13 +16,13 @@ import type { CraftConfig } from "@routecraft/routecraft";
  */
 export type ConfigApplier<K extends keyof CraftConfig> = (
   options: NonNullable<CraftConfig[K]>,
-) => CraftPlugin;
+) => Plugin;
 
 /**
  * Internal applier signature used by the registry. Public callers go through
  * {@link registerConfigApplier} which preserves the typed `K`.
  */
-type AnyConfigApplier = (options: unknown) => CraftPlugin;
+type AnyConfigApplier = (options: unknown) => Plugin;
 
 /**
  * Cross-instance registry. `Symbol.for` so multiple copies of the package in

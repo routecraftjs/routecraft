@@ -281,7 +281,7 @@ export type {
 } from "./types.ts";
 
 // Re-export store key and client manager
-export { MAIL_CLIENT_MANAGER } from "./shared.ts";
+export { MAIL } from "./shared.ts";
 export { MailClientManager } from "./client-manager.ts";
 
 // Re-export the `routecraft.mail.*` header key object so consumers reading

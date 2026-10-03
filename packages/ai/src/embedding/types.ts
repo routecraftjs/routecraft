@@ -1,21 +1,13 @@
-import type { Exchange } from "@routecraft/routecraft";
+import { port, type Exchange } from "@routecraft/routecraft";
 
-/** Store key for plugin-registered embedding providers (provider id → EmbeddingModelConfig). */
-export const ADAPTER_EMBEDDING_PROVIDERS = Symbol.for(
-  "routecraft.adapter.embedding.providers",
-);
-
-/** Store key for context-level default embedding options. */
-export const ADAPTER_EMBEDDING_OPTIONS = Symbol.for(
-  "routecraft.adapter.embedding.options",
-);
-
-declare module "@routecraft/routecraft" {
-  interface StoreRegistry {
-    [ADAPTER_EMBEDDING_PROVIDERS]: Map<string, EmbeddingModelConfig>;
-    [ADAPTER_EMBEDDING_OPTIONS]: Partial<EmbeddingOptions>;
-  }
+/** What the `embedding` plugin provides: its providers by id, and context-level defaults. */
+export interface EmbeddingService {
+  readonly providers: ReadonlyMap<string, EmbeddingModelConfig>;
+  readonly defaults?: Partial<EmbeddingOptions>;
 }
+
+/** The embedding providers and defaults the `embedding` plugin provides. */
+export const EMBEDDING = port<EmbeddingService>("routecraft.ai.embedding@1");
 
 export interface EmbeddingModelConfigHuggingFace {
   provider: "huggingface";

@@ -119,7 +119,7 @@ export type {
 // Re-export constants for registry access
 export {
   ADAPTER_DIRECT_STORE,
-  ADAPTER_DIRECT_OPTIONS,
+  DIRECT_DEFAULTS,
   getDirectChannel,
   sanitizeEndpoint,
 } from "./shared";

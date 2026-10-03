@@ -1,4 +1,3 @@
-import type { CraftPlugin } from "../../context";
 import { rcError } from "../../error";
 import type { Source, Subscription } from "../../operations/from";
 import {
@@ -66,11 +65,6 @@ function joinMountPath(mountPath: string, routePath: string): string {
   const suffix = routePath.startsWith("/") ? routePath : `/${routePath}`;
   return `${prefix}${suffix}` || "/";
 }
-
-// Surface CraftPlugin in the public types of this module so consumers that
-// only import the source adapter still see the symbol (without re-exporting
-// the whole plugin entry point).
-export type { CraftPlugin };
 
 /**
  * Source adapter exposed by `http({ path, method })` when used with

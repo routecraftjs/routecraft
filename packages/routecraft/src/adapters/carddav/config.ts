@@ -1,7 +1,7 @@
 import { registerConfigApplier } from "../../config-applier.ts";
-import type { StoreRegistry } from "../../context.ts";
+import { definePlugin } from "../../kernel/plugin.ts";
 import { CarddavClientManager } from "./client-manager.ts";
-import { CARDDAV_CLIENT_MANAGER } from "./shared.ts";
+import { CARDDAV } from "./shared.ts";
 import type { CarddavContextConfig } from "./types.ts";
 
 declare module "@routecraft/routecraft" {
@@ -19,15 +19,14 @@ declare module "@routecraft/routecraft" {
  * `packages/routecraft/src/index.ts`. Keeps the core context free of
  * CardDAV adapter knowledge.
  */
-registerConfigApplier("carddav", (options) => {
-  let manager: CarddavClientManager | undefined;
-  return {
-    apply(ctx) {
-      manager = new CarddavClientManager(options);
-      ctx.setStore(CARDDAV_CLIENT_MANAGER as keyof StoreRegistry, manager);
+registerConfigApplier("carddav", (options) =>
+  definePlugin({
+    id: "routecraft.carddav",
+    provides: [CARDDAV],
+    bind(c) {
+      const manager = new CarddavClientManager(options);
+      c.provide(CARDDAV, manager);
+      c.onDispose(() => manager.drain());
     },
-    async teardown() {
-      await manager?.drain();
-    },
-  };
-});
+  }),
+);

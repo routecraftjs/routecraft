@@ -12,8 +12,8 @@ import {
   craft,
   direct,
   rcError,
-  type CraftContext,
-  type CraftPlugin,
+  type Plugin,
+  type PluginContext,
   type RouteDefinition,
 } from "@routecraft/routecraft";
 import { agent } from "../agent/agent.ts";
@@ -45,7 +45,7 @@ import type { AcpPluginOptions } from "./types.ts";
  * security here, hands are, and each one authorizes the caller on every
  * call under the principal of the person who typed the prompt.
  */
-export function acpPlugin(options: AcpPluginOptions = {}): CraftPlugin {
+export function acpPlugin(options: AcpPluginOptions = {}): Plugin {
   // Validated at construction, so a bad path fails where it was written
   // rather than at the first request.
   if (options.path !== undefined) normalizeAcpPath(options.path);
@@ -57,7 +57,9 @@ export function acpPlugin(options: AcpPluginOptions = {}): CraftPlugin {
   let server: AcpServer | undefined;
 
   return {
-    async apply(context: CraftContext) {
+    id: "routecraft.ai.acp",
+    async bind(c: PluginContext) {
+      const context = c.context;
       const agents = context.getStore(ADAPTER_AGENT_REGISTRY);
       if (agents === undefined || agents.size === 0) {
         throw rcError("RC5003", undefined, {
@@ -76,7 +78,7 @@ export function acpPlugin(options: AcpPluginOptions = {}): CraftPlugin {
         "ACP mount registered",
       );
     },
-    async teardown() {
+    async stop() {
       runtime?.unsubscribe();
       await server?.stop();
     },

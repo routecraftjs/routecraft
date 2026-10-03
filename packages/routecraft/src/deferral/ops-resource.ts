@@ -11,7 +11,7 @@ import {
 import { registerOpsResource } from "../plugins/ops/store.ts";
 import type { CursorScope } from "../plugins/ops/pagination.ts";
 import type { OpsDeferralSummary, OpsPage } from "../plugins/ops/types.ts";
-import { DEFERRAL_RUNTIME } from "./runtime-key.ts";
+import { CONTINUATIONS } from "./runtime-key.ts";
 import { summariseDeferral } from "./types.ts";
 import type {
   DeferralListCursor,
@@ -193,7 +193,7 @@ export function registerDeferralsResource(ctx: CraftContext): void {
   registerOpsResource<OpsDeferralSummary>(ctx, {
     name: DEFERRALS_RESOURCE,
     async list(query): Promise<OpsPage<OpsDeferralSummary>> {
-      const runtime = ctx.getStore(DEFERRAL_RUNTIME);
+      const runtime = ctx.lookup(CONTINUATIONS);
       // Not an empty page. This resource is registered by the deferral
       // plugin's own `apply()`, immediately after it sets the runtime, so
       // there is no state in which it is served without one; and an empty
@@ -238,7 +238,7 @@ export function registerDeferralsResource(ctx: CraftContext): void {
       // One segment: a deferral is named by its id alone. The id contains
       // a `#`, which the mount has already decoded out of the path.
       if (segments.length !== 1) return undefined;
-      const runtime = ctx.getStore(DEFERRAL_RUNTIME);
+      const runtime = ctx.lookup(CONTINUATIONS);
       // Undefined here is a 404, which is the right answer for an id
       // lookup and is why this arm diverges from the collection's throw:
       // "no such deferral" is what a reader asked about, and it is true.

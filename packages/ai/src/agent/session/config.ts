@@ -6,7 +6,8 @@ import {
   resolveDatabasePath,
   resolveSqliteDriver,
   type CraftContext,
-  type CraftPlugin,
+  type Plugin,
+  type PluginContext,
   type SqliteDriverLoaders,
 } from "@routecraft/routecraft";
 import {
@@ -284,10 +285,11 @@ export function sessionStoreOf(context: CraftContext): SessionStore {
  * opened fails at startup, and closes it at teardown after the session
  * runtime has stopped, so no revival in flight writes to a closed store.
  */
-export function sessionsPlugin(config: AgentSessionsConfig = {}): CraftPlugin {
+export function sessionsPlugin(config: AgentSessionsConfig = {}): Plugin {
   return {
-    name: "agent-sessions",
-    async apply(ctx: CraftContext) {
+    id: "routecraft.ai.sessions",
+    async bind(c: PluginContext) {
+      const ctx = c.context;
       const existing = ctx.getStore(ADAPTER_AGENT_SESSION_STORE);
       if (existing?.configured) {
         throw rcError("RC5003", undefined, {
@@ -301,7 +303,7 @@ export function sessionsPlugin(config: AgentSessionsConfig = {}): CraftPlugin {
         await createSessionStore(ctx, config),
       );
     },
-    teardown: stopSessions,
+    stop: (c) => stopSessions(c.context),
   };
 }
 

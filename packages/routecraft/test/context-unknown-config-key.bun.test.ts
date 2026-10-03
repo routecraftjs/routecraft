@@ -62,7 +62,8 @@ describe("CraftContext unknown config keys", () => {
    */
   test("does not warn for base keys or registered applier keys", () => {
     registerConfigApplier("unknownKeyTestApplier" as keyof CraftConfig, () => ({
-      apply: () => {},
+      id: "test.unknown-key-applier",
+      bind: () => {},
     }));
     try {
       const calls = constructCapturingWarns({

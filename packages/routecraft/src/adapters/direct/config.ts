@@ -1,6 +1,6 @@
 import { registerConfigApplier } from "../../config-applier.ts";
-import type { StoreRegistry } from "../../context.ts";
-import { ADAPTER_DIRECT_OPTIONS } from "./shared.ts";
+import { definePlugin } from "../../kernel/plugin.ts";
+import { DIRECT_DEFAULTS } from "./shared.ts";
 import type { DirectBaseOptions } from "./types.ts";
 
 declare module "@routecraft/routecraft" {
@@ -16,8 +16,12 @@ declare module "@routecraft/routecraft" {
  * import from `packages/routecraft/src/index.ts` so users do not have to
  * wire it manually. Keeps the core context free of direct adapter knowledge.
  */
-registerConfigApplier("direct", (options) => ({
-  apply(ctx) {
-    ctx.setStore(ADAPTER_DIRECT_OPTIONS as keyof StoreRegistry, options);
-  },
-}));
+registerConfigApplier("direct", (options) =>
+  definePlugin({
+    id: "routecraft.direct",
+    provides: [DIRECT_DEFAULTS],
+    bind(c) {
+      c.provide(DIRECT_DEFAULTS, options);
+    },
+  }),
+);

@@ -468,7 +468,7 @@ describe("the ops plugin", () => {
   /**
    * @case Two ops surfaces on one server are refused
    * @preconditions Two opsPlugin instances pointed at the same named server
-   * @expectedResult The build is refused. The second apply() would otherwise replace the published ledger and rebind every indicator to it, leaving the handler that is actually mounted reporting from a ledger nothing writes to
+   * @expectedResult The build is refused with RC1101 before either binds: one plugin id is installed once, so a second ops surface can never replace the published ledger and leave the mounted handler reporting from a ledger nothing writes to
    */
   test("refuses a second ops surface on the same server", async () => {
     const builder = testContext()
@@ -478,9 +478,7 @@ describe("the ops plugin", () => {
       })
       .routes([craft().id("worker").from(direct()).to(noop())]);
 
-    await expect(builder.build()).rejects.toThrow(
-      /already carries an ops mount/,
-    );
+    await expect(builder.build()).rejects.toMatchObject({ rc: "RC1101" });
   });
 
   /**

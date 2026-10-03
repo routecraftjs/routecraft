@@ -11,7 +11,7 @@ import type {
   LlmSamplingOptionsMerged,
   LlmUserPromptSource,
 } from "./types.ts";
-import { ADAPTER_LLM_PROVIDERS } from "./types.ts";
+import { LLM } from "./types.ts";
 
 /**
  * Sampling defaults for every model call the framework makes, `llm()` and
@@ -118,11 +118,11 @@ export function resolveModel(
 
   if (!context) {
     throw new Error(
-      `LLM model id "${model}" requires a context to resolve. Ensure the exchange has context (e.g. from a route) so store "${ADAPTER_LLM_PROVIDERS.description}" can be read.`,
+      `LLM model id "${model}" requires a context to resolve. Ensure the exchange has context (e.g. from a route) so the providers the llm plugin registered can be read.`,
     );
   }
 
-  const store = context.getStore(ADAPTER_LLM_PROVIDERS);
+  const store = context.lookup(LLM)?.providers;
   if (!store) {
     throw new Error(
       `LLM provider not found: no providers registered. Add llmPlugin({ providers: { ollama: { provider: "ollama" }, ... } }) to your config.`,

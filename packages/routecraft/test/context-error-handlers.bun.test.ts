@@ -6,7 +6,6 @@ import {
   direct,
   noop,
   recovery,
-  type CraftContext,
   type ErrorContext,
   type ErrorHandler,
   type Exchange,
@@ -99,7 +98,7 @@ describe("context handlers: the error point", () => {
 
   /**
    * @case The config field registers ahead of anything a plugin registers
-   * @preconditions A handler in config and another registered by a plugin's apply()
+   * @preconditions A handler in config and another registered by a plugin's bind()
    * @expectedResult The config handler is consulted first, because config applies first
    */
   test("CraftConfig.errorHandler is consulted before a plugin's handler", async () => {
@@ -114,8 +113,9 @@ describe("context handlers: the error point", () => {
         },
         plugins: [
           {
-            name: "late",
-            apply(ctx: CraftContext) {
+            id: "test.late",
+            bind(c) {
+              const ctx = c.context;
               ctx.registerHandler("error", () => {
                 seen.push("plugin");
                 return { by: "plugin" };

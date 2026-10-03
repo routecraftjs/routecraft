@@ -335,6 +335,7 @@ describe(".error() step scope: dual-mode wrapper", () => {
       runPaths: async () => {},
       runPath: async () => ({ failed: false, dropped: false }),
       captureDownstream: () => async () => ({ failed: false, dropped: false }),
+      invoke: async (_point, exchange) => exchange,
     };
 
     // Build N synthetic exchanges, identifiable by body.

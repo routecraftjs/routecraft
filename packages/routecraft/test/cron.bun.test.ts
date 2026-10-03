@@ -45,6 +45,7 @@ function mockContext(): CraftContext {
     },
     getStore: (key: symbol) => store.get(key),
     setStore: (key: symbol, value: unknown) => store.set(key, value),
+    lookup: () => undefined,
   } as unknown as CraftContext;
 }
 

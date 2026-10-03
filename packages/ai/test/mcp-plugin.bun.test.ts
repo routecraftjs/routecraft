@@ -98,25 +98,25 @@ describe("MCP Plugin Integration", () => {
   /**
    * @case Verifies that mcpPlugin can filter tools
    * @preconditions Multiple tools are defined and filter is applied
-   * @expectedResult Plugin is an object with apply and optional teardown
+   * @expectedResult Plugin is a descriptor with bind and stop hooks
    */
   test("mcpPlugin() can filter tools by name", () => {
     const p = mcpPlugin({ tools: ["allowed-tool"] });
-    expect(typeof p.apply).toBe("function");
-    expect(p).toHaveProperty("teardown");
+    expect(typeof p.bind).toBe("function");
+    expect(p).toHaveProperty("stop");
   });
 
   /**
    * @case Verifies that mcpPlugin can filter tools by function
    * @preconditions Custom filter function is provided operating on McpLocalToolEntry
-   * @expectedResult Plugin is an object with apply and optional teardown
+   * @expectedResult Plugin is a descriptor with bind and stop hooks
    */
   test("mcpPlugin() can filter tools by function", () => {
     const p = mcpPlugin({
       tools: (entry) => entry.annotations?.readOnlyHint === true,
     });
-    expect(typeof p.apply).toBe("function");
-    expect(p).toHaveProperty("teardown");
+    expect(typeof p.bind).toBe("function");
+    expect(p).toHaveProperty("stop");
   });
 
   /**
@@ -515,15 +515,15 @@ describe("MCP Plugin Integration", () => {
         restartBackoffMultiplier: 1.5,
         toolRefreshInterval: 30000,
       });
-      expect(typeof p.apply).toBe("function");
+      expect(typeof p.bind).toBe("function");
     });
 
     /**
-     * @case Validation rejects an invalid cors.origin shape at plugin-apply time
+     * @case Validation rejects an invalid cors.origin shape at plugin creation time
      * @preconditions transport: 'http', cors: { origin: 42 } cast through unknown to bypass TypeScript
      * @expectedResult TypeError thrown by `validateMcpPluginOptions`, not deferred to server start; surfaces alongside `auth`/`port`/`host` shape errors
      */
-    test("rejects invalid cors.origin shape at apply time", () => {
+    test("rejects invalid cors.origin shape at creation time", () => {
       expect(() =>
         mcpPlugin({
           transport: "http",
@@ -584,7 +584,7 @@ describe("MCP Plugin Integration", () => {
         restartDelay: 100,
         restartBackoffMultiplier: 2,
       });
-      expect(typeof p.apply).toBe("function");
+      expect(typeof p.bind).toBe("function");
     });
 
     /**
@@ -603,7 +603,7 @@ describe("MCP Plugin Integration", () => {
           },
         },
       });
-      expect(typeof p.apply).toBe("function");
+      expect(typeof p.bind).toBe("function");
     });
   });
 
@@ -624,7 +624,7 @@ describe("MCP Plugin Integration", () => {
           }),
         },
       });
-      expect(typeof p.apply).toBe("function");
+      expect(typeof p.bind).toBe("function");
     });
 
     /**

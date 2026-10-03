@@ -1,4 +1,5 @@
 import type { CraftContext } from "../../context.ts";
+import { port } from "../../kernel/port.ts";
 import type { Exchange, ExchangeHeaders } from "../../exchange.ts";
 import { rcError } from "../../error.ts";
 import { isRoutecraftError } from "../../brand.ts";
@@ -22,20 +23,8 @@ import {
 // Store keys
 // ---------------------------------------------------------------------------
 
-/**
- * Store key for the mail client manager.
- * Set by the ContextBuilder when `mail` config is present.
- * @internal
- */
-export const MAIL_CLIENT_MANAGER = Symbol.for(
-  "routecraft.adapter.mail.client-manager",
-);
-
-declare module "@routecraft/routecraft" {
-  interface StoreRegistry {
-    [MAIL_CLIENT_MANAGER]: MailClientManager;
-  }
-}
+/** The mail client manager, provided by the `mail` config key. */
+export const MAIL = port<MailClientManager>("routecraft.mail@1");
 
 // ---------------------------------------------------------------------------
 // Header constants
@@ -100,10 +89,7 @@ export function getClientManager(
   context: CraftContext | undefined,
 ): MailClientManager | null {
   if (!context) return null;
-  return (
-    (context.getStore(MAIL_CLIENT_MANAGER) as MailClientManager | undefined) ??
-    null
-  );
+  return context.lookup(MAIL) ?? null;
 }
 
 /**

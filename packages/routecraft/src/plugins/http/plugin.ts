@@ -1,4 +1,4 @@
-import type { CraftContext, CraftPlugin } from "../../context";
+import type { Plugin, PluginContext } from "../../kernel/plugin.ts";
 import { rcError } from "../../error";
 import type {
   HttpAuth,
@@ -59,7 +59,7 @@ interface ResolvedMount {
  *     store, and mount each dispatcher on its mount's named server.
  *   - `teardown(ctx)`: unmount the dispatchers and clear the registries.
  */
-export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
+export function httpPlugin(options: HttpPluginOptions): Plugin {
   const { mounts: mountsResolved, maxBodySize } = validate(options);
 
   const perRequestEnabled = options.events?.perRequest ?? true;
@@ -117,7 +117,9 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
   });
 
   return {
-    async apply(ctx: CraftContext) {
+    id: "routecraft.http",
+    async bind(c: PluginContext) {
+      const ctx = c.context;
       ctx.setStore(HTTP_PLUGIN_REGISTERED, true);
       ctx.setStore(HTTP_MOUNTS, mountRuntimes);
 
@@ -306,7 +308,8 @@ export function httpPlugin(options: HttpPluginOptions): CraftPlugin {
         );
       }
     },
-    async teardown(ctx: CraftContext) {
+    async stop(c: PluginContext) {
+      const ctx = c.context;
       for (const unmount of unmounts.splice(0)) {
         try {
           unmount();

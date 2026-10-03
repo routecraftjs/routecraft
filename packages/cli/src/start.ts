@@ -10,7 +10,7 @@ import {
   RUNNER_ARGV,
   type CraftConfig,
   type CraftContext,
-  type CraftPlugin,
+  type Plugin,
   type AnyRouteBuilder,
   type RouteDefinition,
 } from "@routecraft/routecraft";
@@ -321,14 +321,14 @@ async function applyDiscoverers(
  * Import every module under `plugins/` and collect the plugin each one
  * default-exports.
  */
-async function loadPlugins(root: string, dir: string): Promise<CraftPlugin[]> {
-  const out: CraftPlugin[] = [];
+async function loadPlugins(root: string, dir: string): Promise<Plugin[]> {
+  const out: Plugin[] = [];
   for (const file of discoverPluginModules(dir)) {
     const where = displayPath(root, file);
     const module = await importModule(file, where);
     const exported = module.default;
     if (isPluginInstance(exported)) {
-      out.push(exported as CraftPlugin);
+      out.push(exported);
       logger.info(`Plugin: loaded from "${where}".`);
       continue;
     }
@@ -338,7 +338,7 @@ async function loadPlugins(root: string, dir: string): Promise<CraftPlugin[]> {
       );
     }
     throw new Error(
-      `${where} must default-export a plugin (an object with an \`apply\` function). Got ${describe(exported)}.`,
+      `${where} must default-export a plugin (a descriptor built with \`definePlugin({ id, ... })\`). Got ${describe(exported)}.`,
     );
   }
   return out;

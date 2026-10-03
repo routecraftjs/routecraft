@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import {
-  DEFERRAL_RUNTIME,
+  CONTINUATIONS,
   decodeCursor,
   getExchangeRoute,
   rcError,
@@ -195,7 +195,7 @@ export class AgentSessionRuntime {
   static for(context: CraftContext): AgentSessionRuntime {
     const existing = context.getStore(ADAPTER_AGENT_SESSIONS);
     if (existing) return existing;
-    const deferral = context.getStore(DEFERRAL_RUNTIME);
+    const deferral = context.lookup(CONTINUATIONS);
     if (!deferral) {
       throw rcError("RC5052", undefined, {
         message:
@@ -1222,7 +1222,7 @@ export class AgentSessionRuntime {
   ): void {
     const k = key;
     if (this.stopping || this.reviving.has(k) || this.active.has(k)) return;
-    const deferralRuntime = this.context.getStore(DEFERRAL_RUNTIME);
+    const deferralRuntime = this.context.lookup(CONTINUATIONS);
     if (!deferralRuntime) return;
     this.reviving.add(k);
     const token = deferralRuntime.signer.mint(deferral.deferralId, new Date());
