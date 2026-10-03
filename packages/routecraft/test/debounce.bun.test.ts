@@ -1,7 +1,7 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { z } from "zod";
 import { testContext, spy, type TestContext } from "@routecraft/testing";
-import { craft, type Source } from "@routecraft/routecraft";
+import { craft, definePlugin, type Source } from "@routecraft/routecraft";
 
 type Change = { path: string; rev: number };
 
@@ -518,5 +518,56 @@ describe("debounce operation", () => {
         .debounce({ wait: 500, maxWait: 100 })
         .build(),
     ).toThrow();
+  });
+  /**
+   * @case A failed debounce release reports its own run kind to the error slot
+   * @preconditions A debounced route whose step after the hold throws; an error hook narrowed to runs: ["debounce"], another to runs: ["normal"]; no perAttempt wrapper installed
+   * @expectedResult Only the debounce hook hears the failure. The release is a detached run, and its kind must not depend on whether some unrelated plugin happens to wrap attempts
+   */
+  test("a failed release reaches error hooks as a debounce run", async () => {
+    const heard: string[] = [];
+
+    t = await testContext()
+      .with({
+        plugins: [
+          definePlugin({
+            id: "test.kinds",
+            hooks: {
+              error: [
+                {
+                  id: "debounce",
+                  phase: "observe",
+                  runs: ["debounce"],
+                  run: () => {
+                    heard.push("debounce");
+                  },
+                },
+                {
+                  id: "normal",
+                  phase: "observe",
+                  runs: ["normal"],
+                  run: () => {
+                    heard.push("normal");
+                  },
+                },
+              ],
+            },
+          }),
+        ],
+      })
+      .routes(
+        craft()
+          .id("debounce-kind")
+          .from(items<Change>([change("a", 1)]))
+          .debounce({ wait: 10_000 })
+          .process(() => {
+            throw new Error("release failed");
+          }),
+      )
+      .build();
+    await t.startAndWaitReady();
+    await t.drain();
+
+    expect(heard).toEqual(["debounce"]);
   });
 });

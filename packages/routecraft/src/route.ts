@@ -48,6 +48,7 @@ import {
 } from "./pipeline/validation.ts";
 import {
   applyExitSlot,
+  detachedSlots,
   runDetachedPipeline,
   runPipeline,
   type DetachedResult,
@@ -856,15 +857,18 @@ export class DefaultRoute implements Route {
    * the per-exchange hot path.
    */
   private executorDeps(): ExecutorDeps {
-    this.cachedExecutorDeps ??= {
-      routeId: this.definition.id,
-      context: this.context,
-      route: this,
-      definition: this.definition,
-      buildForward: (caller: Exchange) => this.buildForward(caller),
-      positions: this.positions(),
-      ...(this.slots() ? { slots: this.slots()! } : {}),
-    };
+    if (!this.cachedExecutorDeps) {
+      const slots = this.slots();
+      this.cachedExecutorDeps = {
+        routeId: this.definition.id,
+        context: this.context,
+        route: this,
+        definition: this.definition,
+        buildForward: (caller: Exchange) => this.buildForward(caller),
+        positions: this.positions(),
+        ...(slots ? { slots } : {}),
+      };
+    }
     return this.cachedExecutorDeps;
   }
 
@@ -941,7 +945,6 @@ export class DefaultRoute implements Route {
       ...(afterAuth ? { afterAuth } : {}),
       ...(admitted ? { admitted } : {}),
       perAttempt,
-      kind: "normal",
       tags,
     };
   }
@@ -1441,6 +1444,9 @@ export class DefaultRoute implements Route {
       exchangeId: exchange.id,
       correlationId,
     });
+    const routeDeps: ExecutorDeps = { ...this.executorDeps() };
+    delete routeDeps.slots;
+    const slots = detachedSlots(routeDeps);
     const deps: ExecutorDeps = {
       // The memoised deps carry the route's own `buildForward`, so the
       // re-ask handler forwards as the DEFERRED exchange: its `forward()`
@@ -1449,7 +1455,9 @@ export class DefaultRoute implements Route {
       // declaring `.authorize()` refuses it for that reason (RC5043), which
       // is the correct answer: nothing re-verified that identity across the
       // deferral.
-      ...this.executorDeps(),
+      ...routeDeps,
+      ...(slots ? { slots } : {}),
+      runKind: "errorChannel",
       definition: detachedDefinition(
         this.definition,
         [

@@ -765,6 +765,83 @@ describe("chain hooks", () => {
   });
 
   /**
+   * @case A wrapper that starts the attempt without awaiting it
+   * @preconditions A perAttempt wrapper that calls proceed() and returns at once; the route's step takes a moment
+   * @expectedResult The exchange completes with the step's output once, rather than failing while the attempt still runs. Failing early would let a retry start a second attempt beside the first, both with side effects
+   */
+  test("a perAttempt wrapper that does not await proceed still yields the attempt", async () => {
+    let runs = 0;
+    t = await testContext()
+      .with({
+        plugins: [
+          plugin("test.fireAndForget", {
+            perAttempt: {
+              id: "fireAndForget",
+              wrap(proceed) {
+                void proceed();
+                return Promise.resolve();
+              },
+            },
+          }),
+        ],
+      })
+      .routes([
+        craft()
+          .id("work")
+          .from(direct())
+          .transform(async () => {
+            runs++;
+            await sleep(10);
+            return "done";
+          }),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    expect(await t.client.sendDirect("work", {})).toBe("done");
+    expect(runs).toBe(1);
+  });
+
+  /**
+   * @case A wrapper that calls proceed twice
+   * @preconditions A perAttempt wrapper that awaits proceed() two times
+   * @expectedResult The second call fails with RC1115 and the step ran once. Running the attempt twice from inside one attempt is a retry nobody configured
+   */
+  test("a perAttempt wrapper that calls proceed twice fails with RC1115", async () => {
+    let runs = 0;
+    t = await testContext()
+      .with({
+        plugins: [
+          plugin("test.twice", {
+            perAttempt: {
+              id: "twice",
+              async wrap(proceed) {
+                await proceed();
+                await proceed();
+              },
+            },
+          }),
+        ],
+      })
+      .routes([
+        craft()
+          .id("work")
+          .from(direct())
+          .transform((body) => {
+            runs++;
+            return body;
+          }),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    await expect(t.client.sendDirect("work", {})).rejects.toMatchObject({
+      rc: "RC1115",
+    });
+    expect(runs).toBe(1);
+  });
+
+  /**
    * @case exit hooks run over completed exchanges only and may change what the caller receives
    * @preconditions An exit mutate hook stamping the body; one route that completes, one whose filter drops, one whose step fails
    * @expectedResult Only the completed route reaches the hook, and its caller receives the stamped body

@@ -1385,6 +1385,22 @@ export class CraftContext {
     return this.startInFlight;
   }
 
+  /**
+   * Stop a context whose start failed. The unwind's own failure is logged
+   * and never replaces the start error: the operator needs the cause of the
+   * failed start, not what the cleanup hit on the way out.
+   */
+  private async stopAfterFailedStart(): Promise<void> {
+    try {
+      await this.stop();
+    } catch (stopErr) {
+      this.logger.error(
+        { err: stopErr },
+        "Shutdown after a failed start also failed; reporting the start error.",
+      );
+    }
+  }
+
   private async run(): Promise<void> {
     const started = this.ensureStartedGate();
     try {
@@ -1394,12 +1410,20 @@ export class CraftContext {
       if (!this.pluginsInitialized) {
         await this.initPlugins();
       }
-      this.assertDeferralConfigured();
-      for (const route of this.routes) route.compile();
+      // A stop during bind left the plugins half-bound and the host
+      // unfrozen; compiling now would report a missing provider for what
+      // was a clean shutdown.
+      if (!this.hasStopped) {
+        this.assertDeferralConfigured();
+        for (const route of this.routes) route.compile();
+      }
     } catch (err) {
       // Every exit settles the deferred: a readiness probe waiting on a
       // context that refused its config must see the refusal.
       started.reject(err);
+      // Plugins bound at build hold their resources until something stops
+      // them, and the caller of a failed start has no reason to.
+      await this.stopAfterFailedStart();
       throw err;
     }
 
@@ -1516,17 +1540,7 @@ export class CraftContext {
       if (!this.hasStopped) await this.enablement.startRefreshing(this.routes);
     } catch (err) {
       started.reject(err);
-      try {
-        await this.stop();
-      } catch (stopErr) {
-        // The unwind's own failure must not replace the boot error: the
-        // operator needs the cause of the failed start, not what the
-        // cleanup hit on the way out.
-        this.logger.error(
-          { err: stopErr },
-          "Shutdown after a failed start also failed; reporting the start error.",
-        );
-      }
+      await this.stopAfterFailedStart();
       await running;
       throw err;
     }
