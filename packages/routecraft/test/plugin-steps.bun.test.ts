@@ -308,9 +308,9 @@ describe("plugin facets", () => {
   });
 
   /**
-   * @case An exchange of an application that does not install the plugin has no facet value
+   * @case An exchange of an application that does not install the plugin reads its facet
    * @preconditions One context installs tenant; a second context in the same process does not; both read ex.tenant
-   * @expectedResult The first reads the facet; the second reads undefined rather than the first application's facet
+   * @expectedResult The first reads the facet; the second fails with RC1111, never reading the first application's facet and never handing a route an undefined to fail on later
    */
   test("a facet answers from the exchange's own application", async () => {
     let seen: unknown = "unset";
@@ -332,10 +332,13 @@ describe("plugin facets", () => {
     expect(seen).toEqual({ id: undefined });
     await withTenant.stop();
 
+    seen = "unset";
     t = await testContext().routes(reader).build();
     await t.startAndWaitReady();
-    await t.client.sendDirect("reader", "x");
-    expect(seen).toBeUndefined();
+    await expect(t.client.sendDirect("reader", "x")).rejects.toMatchObject({
+      rc: "RC1111",
+    });
+    expect(seen).toBe("unset");
   });
 
   /**

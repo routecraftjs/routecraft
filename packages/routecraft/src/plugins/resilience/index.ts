@@ -1,7 +1,7 @@
 import { rcError } from "../../error.ts";
 import { HeadersKeys } from "../../exchange.ts";
 import { definePlugin } from "../../kernel/plugin.ts";
-import { registerDefaultPlugin } from "../../kernel/defaults.ts";
+import { registerShippedPlugin } from "../../kernel/defaults.ts";
 import {
   RESILIENCE,
   type Position,
@@ -196,4 +196,4 @@ export function resiliencePlugin() {
   });
 }
 
-registerDefaultPlugin("routecraft.resilience", resiliencePlugin);
+registerShippedPlugin(resiliencePlugin, { default: true });

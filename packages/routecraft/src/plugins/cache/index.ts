@@ -1,5 +1,5 @@
 import { definePlugin } from "../../kernel/plugin.ts";
-import { registerDefaultPlugin } from "../../kernel/defaults.ts";
+import { registerShippedPlugin } from "../../kernel/defaults.ts";
 import { CACHE, type CachePositions } from "../../kernel/positions.ts";
 import {
   buildCacheCheckStep,
@@ -26,4 +26,4 @@ export function cachePlugin() {
   });
 }
 
-registerDefaultPlugin("routecraft.cache", cachePlugin);
+registerShippedPlugin(cachePlugin, { default: true });

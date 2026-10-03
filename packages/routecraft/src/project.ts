@@ -4,14 +4,14 @@ import type { CraftConfig } from "@routecraft/routecraft";
 import { BRAND, setBrand } from "./brand.ts";
 import { RouteBuilder, type PreFromBuilder } from "./builder.ts";
 import type { Plugin } from "./kernel/plugin.ts";
-import { getConfigAppliers } from "./config-applier.ts";
+import { configuredPlugins } from "./config-applier.ts";
 import { defaultPluginsFor } from "./kernel/defaults.ts";
+import { installedPlugins } from "./kernel/host.ts";
 import {
   catalogueOf,
-  shippedSteps,
+  type ConfigKeyPlugins,
   type DefaultPlugins,
 } from "./kernel/steps.ts";
-import type { DeferralPlugin } from "./plugins/deferral/index.ts";
 import type { PathState } from "./step-builder-base.ts";
 
 /**
@@ -33,12 +33,34 @@ export interface Project<Installed> {
   readonly plugins: readonly Plugin[];
 }
 
+/** What a project definition is: a configuration, plugins included. */
+type ProjectDefinition = CraftConfig & { readonly plugins?: readonly Plugin[] };
+
+/** The plugin types the config keys a definition sets install. */
+type ConfigKeyPluginsOf<D> = {
+  [K in keyof ConfigKeyPlugins]: K extends keyof D
+    ? undefined extends D[K]
+      ? never
+      : ConfigKeyPlugins[K]
+    : never;
+}[keyof ConfigKeyPlugins];
+
+/** The plugin types a definition lists in `plugins`. */
+type ListedPluginsOf<D> = D extends { readonly plugins: readonly (infer P)[] }
+  ? P
+  : never;
+
 /**
  * Declare a project: its plugins and configuration, and the `craft()` its
  * routes are built with. `craft.config.ts` default-exports it.
  *
+ * The routes are typed by what the application will install: the listed
+ * plugins, the defaults, and the plugin each set config key brings that
+ * declares itself in `ConfigKeyPlugins`.
+ *
  * @param definition - The configuration, with the plugins the project
- *   installs in `plugins`
+ *   installs in `plugins`. A key `CraftConfig` does not have is a compile
+ *   error.
  * @returns The project
  *
  * @example
@@ -56,41 +78,25 @@ export interface Project<Installed> {
  *   .to(sink);
  * ```
  */
-// Overloads rather than a generic config, so a misspelled key is still an
-// error: excess properties are checked only against a concrete type.
-export function defineProject<const P extends readonly Plugin[] = []>(
-  definition: CraftConfig & {
-    readonly plugins?: P;
-    readonly deferral: NonNullable<CraftConfig["deferral"]>;
-  },
-): Project<P[number] | DefaultPlugins | DeferralPlugin>;
-export function defineProject<const P extends readonly Plugin[] = []>(
-  definition: CraftConfig & { readonly plugins?: P },
-): Project<P[number] | DefaultPlugins>;
-export function defineProject(
-  definition: CraftConfig & { readonly plugins?: readonly Plugin[] },
-): Project<unknown> {
+export function defineProject<const D extends ProjectDefinition>(
+  // The mapped `never` restores the excess-key check a generic parameter
+  // would otherwise lose: a misspelled key is still an error.
+  definition: D & Record<Exclude<keyof D, keyof ProjectDefinition>, never>,
+): Project<ListedPluginsOf<D> | DefaultPlugins | ConfigKeyPluginsOf<D>> {
+  const configured = configuredPlugins(definition);
+  const catalogue = catalogueOf(
+    installedPlugins([...defaultPluginsFor(configured), ...configured]),
+  );
   const plugins: readonly Plugin[] = definition.plugins ?? [];
-  // The ids this project installs: what it lists, what its config keys
-  // install, and the defaults. A shipped plugin's steps join the catalogue
-  // only when it is one of them.
-  const configRecord = definition as unknown as Record<string, unknown>;
-  const installed = new Set([
-    ...plugins.map((plugin) => plugin.id),
-    ...[...getConfigAppliers()]
-      .filter(([key]) => configRecord[key] !== undefined)
-      .map(([key, factory]) => factory(configRecord[key]).id),
-    ...defaultPluginsFor(plugins).map((plugin) => plugin.id),
-  ]);
-  const listed = new Set(plugins.map((plugin) => plugin.id));
-  const catalogue = catalogueOf([
-    ...shippedSteps().filter(({ id }) => installed.has(id) && !listed.has(id)),
-    ...plugins,
-  ]);
-  const project: Project<unknown> = {
+  const project: Project<
+    ListedPluginsOf<D> | DefaultPlugins | ConfigKeyPluginsOf<D>
+  > = {
     craft: () =>
       new RouteBuilder(catalogue) as unknown as PreFromBuilder<
-        PathState<unknown, unknown>
+        PathState<
+          unknown,
+          ListedPluginsOf<D> | DefaultPlugins | ConfigKeyPluginsOf<D>
+        >
       >,
     config: { ...definition, plugins: [...plugins] },
     plugins,

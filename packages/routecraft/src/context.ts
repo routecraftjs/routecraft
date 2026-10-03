@@ -13,7 +13,7 @@ import { rcError, RC } from "./error.ts";
 import { isRoutecraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
 import { type AdapterOverride, RC_ADAPTER_OVERRIDES } from "./testing-hooks.ts";
-import { getConfigAppliers } from "./config-applier.ts";
+import { configuredPlugins, getConfigAppliers } from "./config-applier.ts";
 import { DIRECT } from "./adapters/direct/registry.ts";
 import { CONTINUATIONS } from "./kernel/continuation/port.ts";
 import { ContinuationSweeper } from "./kernel/continuation/sweep.ts";
@@ -446,33 +446,11 @@ export class CraftContext {
           }
         }
       }
-      // Walk registered config appliers. ALL first-class config keys go
-      // through this registry: core keys (`http`, `cron`, `direct`, `mail`,
-      // `telemetry`) are registered by side-effect imports in index.ts, and
-      // ecosystem packages (e.g. @routecraft/ai promotes `llm`, `mcp`,
-      // `embedding`, `agent`) extend it the same way. The core context has
-      // no knowledge of any adapter or plugin internals.
-      //
-      // Install order, which the host keeps wherever dependencies allow:
-      //   1. registered appliers, in registration order (core keys first,
-      //      since index.ts imports run before ecosystem modules load)
-      //   2. user config.plugins
-      //
-      // The applier guard is strictly `value !== undefined`, not a truthy
-      // check. The applier registry is an open extension point: ecosystem
-      // packages can register appliers for any value shape, including
-      // primitives where `false`, `0`, or `""` are valid. "Not set" must
-      // mean only `undefined` so applier authors can rely on a stable
-      // contract regardless of value type.
+      // Every first-class config key goes through the applier registry, so
+      // the context knows no adapter or plugin by name.
       const configRecord = config as unknown as Record<string, unknown>;
-      const applierKeys = new Set<string>();
-      for (const [key, factory] of getConfigAppliers()) {
-        applierKeys.add(key);
-        const value = configRecord[key];
-        if (value !== undefined) {
-          this.pluginList.push(factory(value));
-        }
-      }
+      const applierKeys = new Set(getConfigAppliers().keys());
+      this.pluginList.push(...configuredPlugins(config));
 
       // A set config key that is neither a base key nor a registered applier
       // is dead weight: a typo (`htttp`), or an applier whose registering
@@ -488,10 +466,6 @@ export class CraftContext {
           `Unknown config key "${key}": no config applier is registered for it, so it has no effect. ` +
             `Check the spelling, and ensure the package that provides the key is imported before the context is created.`,
         );
-      }
-
-      if (config.plugins?.length) {
-        this.pluginList.push(...config.plugins);
       }
     }
   }

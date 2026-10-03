@@ -7,7 +7,7 @@ import {
   setFallbackAuthority,
   type Authority,
 } from "../../kernel/authority.ts";
-import { registerDefaultPlugin } from "../../kernel/defaults.ts";
+import { registerShippedPlugin } from "../../kernel/defaults.ts";
 import { definePlugin } from "../../kernel/plugin.ts";
 
 /**
@@ -38,4 +38,4 @@ export function principalsPlugin() {
 }
 
 setFallbackAuthority(defaultAuthority);
-registerDefaultPlugin("routecraft.principals", principalsPlugin);
+registerShippedPlugin(principalsPlugin, { default: true });

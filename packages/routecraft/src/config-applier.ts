@@ -9,8 +9,9 @@ import type { CraftConfig } from "@routecraft/routecraft";
 /**
  * Build a {@link Plugin} from the value found at a given key on
  * {@link CraftConfig}. Receives the non-undefined value of `config[K]` and
- * returns a plugin whose `apply` and (optional) `teardown` participate in the
- * standard plugin lifecycle.
+ * returns the plugin's descriptor. Pure: it may be called more than once for
+ * one configuration (by `defineProject` and by the application), so any work
+ * belongs in the plugin's `bind`.
  *
  * @template K - Key on `CraftConfig` this applier handles
  */
@@ -99,13 +100,30 @@ export function registerConfigApplier<K extends keyof CraftConfig>(
 /**
  * Get the registered config appliers in registration order.
  *
- * Consumed by `CraftContext` and `ContextBuilder` to convert first-class
- * config keys into plugins at construction time. Iteration order matches
- * registration order, which the constructor relies on to position ecosystem
- * appliers between core inline conversions and `config.plugins`.
- *
  * @internal
  */
 export function getConfigAppliers(): ReadonlyMap<string, AnyConfigApplier> {
   return getRegistry();
+}
+
+/**
+ * The plugins a configuration installs before the defaults: one per config
+ * key that is set, in applier registration order, then `plugins` as listed.
+ * The application and `defineProject` both compose from this, so the plugins
+ * a project's routes are typed by are the ones its application installs.
+ *
+ * The guard is strictly `value !== undefined`: appliers are an open
+ * registry, and a key whose valid value is `false`, `0` or `""` is still set.
+ *
+ * @internal
+ */
+export function configuredPlugins(config: CraftConfig): unknown[] {
+  const record = config as unknown as Record<string, unknown>;
+  const plugins: unknown[] = [];
+  for (const [key, factory] of getRegistry()) {
+    const value = record[key];
+    if (value !== undefined) plugins.push(factory(value));
+  }
+  plugins.push(...(config.plugins ?? []));
+  return plugins;
 }
