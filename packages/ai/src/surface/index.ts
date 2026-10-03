@@ -6,14 +6,14 @@ export {
   type AgentSurfaceKind,
   type AgentSurfaceRef,
 } from "./header.ts";
+export { surfacesPlugin } from "./plugin.ts";
 export {
-  AGENT_SURFACES,
-  AGENT_SURFACE_TURNS,
   registerSurface,
   registerTurn,
   surfaceFor,
   turnSurfaceOf,
 } from "./registry.ts";
+export { SURFACES, type SurfaceState } from "./state.ts";
 export type {
   AgentSurfaceConnection,
   SurfaceMethod,

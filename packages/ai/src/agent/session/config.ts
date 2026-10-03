@@ -267,9 +267,19 @@ export function sessionStoreOf(context: CraftContext): ResolvedSessionStore {
   if (provided) return provided;
   const existing = context.getStore(ADAPTER_AGENT_SESSION_STORE);
   if (existing) return existing;
-  const fallback = new LazyResolvedSessionStore(() =>
-    createSessionStore(context, {}, false),
-  );
+  const fallback = new LazyResolvedSessionStore(() => {
+    // The same path check the sessions plugin makes: a store resolved from
+    // the environment must not open the file the continuations store holds.
+    const continuationsPath = context.lookup(CONTINUATIONS)?.path;
+    return createSessionStore(
+      {
+        logger: context.logger,
+        ...(continuationsPath !== undefined ? { continuationsPath } : {}),
+      },
+      {},
+      false,
+    );
+  });
   context.setStore(ADAPTER_AGENT_SESSION_STORE, fallback);
   context.on("context:stopped", () => {
     void fallback.close();

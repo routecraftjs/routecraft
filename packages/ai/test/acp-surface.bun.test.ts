@@ -42,6 +42,9 @@ import {
   SURFACE_CONNECTION,
   SURFACED,
   scriptedSurface,
+  keepAlive,
+  surfacesOf,
+  surfacing,
 } from "./helpers/surface-stub.ts";
 import { MODEL } from "./helpers/defer-fixtures.ts";
 
@@ -280,13 +283,16 @@ describe("surface(), reaching the editor from a route", () => {
    * @expectedResult AI1014, distinct from AI1013, because the fix is different: there is nothing to retry against on this exchange
    */
   test("a surface that disconnected is AI1014", async () => {
-    const t = await testContext().routes([readFileRoute]).build();
+    const t = await testContext()
+      .with(surfacing())
+      .routes([readFileRoute])
+      .build();
     await t.startAndWaitReady();
     try {
       // Reachable first: with the connection registered, the call goes out.
       const answered = { asked: 0 };
       const retire = registerSurface(
-        t.ctx,
+        surfacesOf(t),
         SURFACE_CONNECTION,
         scriptedSurface({
           request: async () => {
@@ -314,12 +320,15 @@ describe("surface(), reaching the editor from a route", () => {
    * @expectedResult AI1015 naming the capability, and the call is never sent, so the client is not left to answer something it does not serve
    */
   test("a capability the client never offered is AI1015", async () => {
-    const t = await testContext().routes([readFileRoute]).build();
+    const t = await testContext()
+      .with(surfacing())
+      .routes([readFileRoute])
+      .build();
     await t.startAndWaitReady();
     try {
       let sent = 0;
       registerSurface(
-        t.ctx,
+        surfacesOf(t),
         SURFACE_CONNECTION,
         scriptedSurface({
           supports: () => false,
@@ -344,11 +353,14 @@ describe("surface(), reaching the editor from a route", () => {
    * @expectedResult AI1014 rather than AI1016, because the fixes differ: nothing to retry against, where a refusal is a person's answer to handle
    */
   test("a drop while the call is outstanding is AI1014", async () => {
-    const t = await testContext().routes([readFileRoute]).build();
+    const t = await testContext()
+      .with(surfacing())
+      .routes([readFileRoute])
+      .build();
     await t.startAndWaitReady();
     try {
       registerSurface(
-        t.ctx,
+        surfacesOf(t),
         SURFACE_CONNECTION,
         scriptedSurface({
           request: () =>
@@ -424,6 +436,7 @@ describe("surface(), reaching the editor from a route", () => {
    */
   test("a revived turn has no editor, and is told so", async () => {
     const t = await testContext()
+      .with(surfacing())
       .with(deferring())
       .routes([
         craft()
@@ -438,7 +451,7 @@ describe("surface(), reaching the editor from a route", () => {
     await t.startAndWaitReady();
     try {
       const retire = registerSurface(
-        t.ctx,
+        surfacesOf(t),
         SURFACE_CONNECTION,
         scriptedSurface({ request: async () => ({ content: "here" }) }),
       );
@@ -469,12 +482,12 @@ describe("surface(), reaching the editor from a route", () => {
    * @expectedResult The second call reaches the same surface. The routes a turn called are still running when the mount forgets the turn, and a route that had a surface is never told it did not
    */
   test("a resolved surface stays the exchange's for its life", async () => {
-    const t = await testContext().routes([]).build();
+    const t = await testContext().with(surfacing()).routes([keepAlive]).build();
     await t.startAndWaitReady();
     try {
       let asked = 0;
       registerSurface(
-        t.ctx,
+        surfacesOf(t),
         SURFACE_CONNECTION,
         scriptedSurface({
           request: async () => {
@@ -483,7 +496,7 @@ describe("surface(), reaching the editor from a route", () => {
           },
         }),
       );
-      const forget = registerTurn(t.ctx, "turn-1", {
+      const forget = registerTurn(surfacesOf(t), "turn-1", {
         kind: "acp",
         session: "s",
         connection: SURFACE_CONNECTION,
@@ -622,11 +635,14 @@ describe("surface(), reaching the editor from a route", () => {
    * @expectedResult AI1016 carrying the client's own message as its cause, which is what a route branches on with .error()
    */
   test("a client that refuses is AI1016", async () => {
-    const t = await testContext().routes([readFileRoute]).build();
+    const t = await testContext()
+      .with(surfacing())
+      .routes([readFileRoute])
+      .build();
     await t.startAndWaitReady();
     try {
       registerSurface(
-        t.ctx,
+        surfacesOf(t),
         SURFACE_CONNECTION,
         scriptedSurface({
           request: () => Promise.reject(new Error("the person said no")),
@@ -646,11 +662,14 @@ describe("surface(), reaching the editor from a route", () => {
    * @expectedResult hasSurface answers true and false, so the same route can serve an editor and a schedule without an error path between them
    */
   test("hasSurface is the guard a route branches on", async () => {
-    const t = await testContext().routes([readFileRoute]).build();
+    const t = await testContext()
+      .with(surfacing())
+      .routes([readFileRoute])
+      .build();
     await t.startAndWaitReady();
     try {
       registerSurface(
-        t.ctx,
+        surfacesOf(t),
         SURFACE_CONNECTION,
         scriptedSurface({ request: async () => ({}) }),
       );
@@ -680,7 +699,7 @@ describe("cleanup after a cancelled turn", () => {
    * @expectedResult Only the second turn's release reaches the editor. A route the previous turn dispatched can still be running, and killing its terminal would take away work the person never stopped
    */
   test("a cancel sends only the cancelled turn's cleanup", async () => {
-    const t = await testContext().routes([]).build();
+    const t = await testContext().with(surfacing()).routes([keepAlive]).build();
     await t.startAndWaitReady();
     try {
       const sent: Array<{ method: string; params: unknown }> = [];
@@ -690,7 +709,7 @@ describe("cleanup after a cancelled turn", () => {
           return {};
         },
       });
-      registerSurface(t.ctx, SURFACE_CONNECTION, connection);
+      registerSurface(surfacesOf(t), SURFACE_CONNECTION, connection);
       const ref = {
         kind: "acp" as const,
         session: "s",
@@ -715,7 +734,7 @@ describe("cleanup after a cancelled turn", () => {
         { method: "terminal/release", params: { terminalId: "from-turn-b" } },
       ]);
 
-      cancelSurfaceTurn(t.ctx, "s", "turn-b");
+      cancelSurfaceTurn(surfacesOf(t), "s", "turn-b");
       await until(() => sent.length >= 1);
       await sleep(50);
       // Both turns registered "terminal/release", so the method alone
@@ -734,7 +753,7 @@ describe("cleanup after a cancelled turn", () => {
    * @expectedResult Nothing reaches the editor until the turn's exchange settles, then the release does. An interrupt is raised while the turn is still unwinding, so dispatching from it put a cleanup call on the wire ahead of the "cancelled" the prompt had yet to answer, which is the ordering the reference page states
    */
   test("cleanup waits for the cancelled turn to settle", async () => {
-    const t = await testContext().routes([]).build();
+    const t = await testContext().with(surfacing()).routes([keepAlive]).build();
     await t.startAndWaitReady();
     try {
       const sent: string[] = [];
@@ -744,7 +763,7 @@ describe("cleanup after a cancelled turn", () => {
           return {};
         },
       });
-      registerSurface(t.ctx, SURFACE_CONNECTION, connection);
+      registerSurface(surfacesOf(t), SURFACE_CONNECTION, connection);
       const ref = {
         kind: "acp" as const,
         session: "s",
@@ -758,7 +777,12 @@ describe("cleanup after a cancelled turn", () => {
         { method: "terminal/release", params: { terminalId: "t-1" } },
       ]);
 
-      cancelSurfaceTurn(t.ctx, "s", turnIdOf(exchange, "s"), "turn-exchange");
+      cancelSurfaceTurn(
+        surfacesOf(t),
+        "s",
+        turnIdOf(exchange, "s"),
+        "turn-exchange",
+      );
       await sleep(50);
       expect(sent).toEqual([]);
 
@@ -783,16 +807,16 @@ describe("cleanup after a cancelled turn", () => {
    * @expectedResult AI1016 rather than the answer. The signal handed to a backend is a request to cancel rather than a deadline, so a client that answers regardless would otherwise reach a route whose person already said stop
    */
   test("an answer arriving after a cancel is refused, not used", async () => {
-    const t = await testContext().routes([]).build();
+    const t = await testContext().with(surfacing()).routes([keepAlive]).build();
     await t.startAndWaitReady();
     try {
       registerSurface(
-        t.ctx,
+        surfacesOf(t),
         SURFACE_CONNECTION,
         scriptedSurface({
           request: async () => {
             // The editor answers, but the person stopped while it thought.
-            cancelSurfaceTurn(t.ctx, "s", turnIdOf(exchange, "s"));
+            cancelSurfaceTurn(surfacesOf(t), "s", turnIdOf(exchange, "s"));
             return { content: "answered anyway" };
           },
         }),
@@ -823,12 +847,12 @@ describe("cleanup after a cancelled turn", () => {
    * @expectedResult AI1016. The signal belongs to the turn rather than to the conversation, so a route that outlives its turn cannot be handed the live signal of the turn that replaced it and go on reaching a person who pressed stop
    */
   test("a cancelled turn's route is refused after the next turn starts", async () => {
-    const t = await testContext().routes([]).build();
+    const t = await testContext().with(surfacing()).routes([keepAlive]).build();
     await t.startAndWaitReady();
     try {
       const sent: string[] = [];
       registerSurface(
-        t.ctx,
+        surfacesOf(t),
         SURFACE_CONNECTION,
         scriptedSurface({
           request: async (method) => {
@@ -846,7 +870,7 @@ describe("cleanup after a cancelled turn", () => {
         headers: { ...SURFACED, [HeadersKeys.CORRELATION_ID]: "turn-b" },
       });
 
-      cancelSurfaceTurn(t.ctx, "s", "turn-a");
+      cancelSurfaceTurn(surfacesOf(t), "s", "turn-a");
       // The next turn is live and its own calls still go through.
       await Promise.resolve(
         surface("fs/read_text_file", { path: "/b" }).fetch(followUp),
@@ -874,7 +898,7 @@ describe("cleanup after a cancelled turn", () => {
    * @expectedResult AI1016 rather than the answer. Checking an answer is asynchronous, so it is a second gap on the same path as the send, and an answer validated after a stop would otherwise reach the route
    */
   test("a cancel during validation refuses the answer", async () => {
-    const t = await testContext().routes([]).build();
+    const t = await testContext().with(surfacing()).routes([keepAlive]).build();
     await t.startAndWaitReady();
     try {
       const exchange = new DefaultExchange(t.ctx, {
@@ -882,7 +906,7 @@ describe("cleanup after a cancelled turn", () => {
         headers: { ...SURFACED, [HeadersKeys.CORRELATION_ID]: "turn-a" },
       });
       registerSurface(
-        t.ctx,
+        surfacesOf(t),
         SURFACE_CONNECTION,
         scriptedSurface({
           request: async () => {
@@ -894,7 +918,9 @@ describe("cleanup after a cancelled turn", () => {
             // which the send path catches, and this case is about the gap
             // after it. Flatten it and the test stops proving anything.
             queueMicrotask(() =>
-              queueMicrotask(() => cancelSurfaceTurn(t.ctx, "s", "turn-a")),
+              queueMicrotask(() =>
+                cancelSurfaceTurn(surfacesOf(t), "s", "turn-a"),
+              ),
             );
             return { content: "checked after the stop" };
           },
@@ -921,7 +947,7 @@ describe("cleanup after a cancelled turn", () => {
    * @expectedResult The second call arrives. The signal handed to a backend is a request to cancel rather than a deadline, so without a local one a wedged editor holds the sequential loop forever and the release that follows a kill is never sent
    */
   test("a cleanup that is never answered does not strand the ones after it", async () => {
-    const t = await testContext().routes([]).build();
+    const t = await testContext().with(surfacing()).routes([keepAlive]).build();
     await t.startAndWaitReady();
     try {
       const sent: string[] = [];
@@ -936,7 +962,7 @@ describe("cleanup after a cancelled turn", () => {
           return {};
         },
       });
-      registerSurface(t.ctx, SURFACE_CONNECTION, connection);
+      registerSurface(surfacesOf(t), SURFACE_CONNECTION, connection);
       const ref = {
         kind: "acp" as const,
         session: "s",
@@ -947,7 +973,7 @@ describe("cleanup after a cancelled turn", () => {
         { method: "terminal/release", params: { terminalId: "t-1" } },
       ]);
 
-      cancelSurfaceTurn(t.ctx, "s", turnIdOf(exchange, "s"));
+      cancelSurfaceTurn(surfacesOf(t), "s", turnIdOf(exchange, "s"));
       await until(
         () => sent.includes("terminal/release"),
         CLEANUP_TIMEOUT_MS * 2,
@@ -964,12 +990,12 @@ describe("cleanup after a cancelled turn", () => {
    * @expectedResult AI1016. A route that had not yet touched the surface holds no pin for the eviction to see, so the turn is remembered by id and a signal minted for it is born aborted rather than live
    */
   test("a late first call on a cancelled turn is refused after eviction", async () => {
-    const t = await testContext().routes([]).build();
+    const t = await testContext().with(surfacing()).routes([keepAlive]).build();
     await t.startAndWaitReady();
     try {
       const sent: string[] = [];
       registerSurface(
-        t.ctx,
+        surfacesOf(t),
         SURFACE_CONNECTION,
         scriptedSurface({
           request: async (method) => {
@@ -989,7 +1015,7 @@ describe("cleanup after a cancelled turn", () => {
         surface("fs/read_text_file", { path: "/first" }).fetch(turnExchange),
       );
 
-      cancelSurfaceTurn(t.ctx, "s", "turn-a");
+      cancelSurfaceTurn(surfacesOf(t), "s", "turn-a");
       // It settles, and with nothing else holding the turn its signal goes.
       t.ctx.emit(
         "route:exchange:completed" as never,
@@ -1027,11 +1053,11 @@ describe("cleanup after a cancelled turn", () => {
    * @expectedResult AI1015 at the registration rather than a silent failure at cancel time, which is the same answer a call gets and for the same reason
    */
   test("a registration is checked against the client's capabilities", async () => {
-    const t = await testContext().routes([]).build();
+    const t = await testContext().with(surfacing()).routes([keepAlive]).build();
     await t.startAndWaitReady();
     try {
       registerSurface(
-        t.ctx,
+        surfacesOf(t),
         SURFACE_CONNECTION,
         scriptedSurface({
           supports: () => false,

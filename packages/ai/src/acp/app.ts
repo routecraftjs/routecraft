@@ -281,7 +281,7 @@ export class AcpConnection implements AgentSurfaceConnection {
   /** Called once the SDK has opened the connection and given us its context. */
   open(client: AgentContext, closed: Promise<void>): void {
     this.client = client;
-    this.retire = registerSurface(this.runtime.surfaceContext, this.id, this);
+    this.retire = registerSurface(this.runtime.surfaces, this.id, this);
     this.runtime.plugin.emit("plugin:acp:connection:opened", {
       connectionId: this.id,
       ...(this.principal !== undefined
