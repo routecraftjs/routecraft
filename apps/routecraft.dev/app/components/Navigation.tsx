@@ -4,6 +4,7 @@ import clsx from 'clsx'
 
 import { navigation } from '@/lib/navigation'
 import { documentsHref } from '@/lib/docs-catalogue'
+import { earlierDocsHref } from '@/lib/docs-moves'
 import {
   docsChannelFromPathname,
   docsChannelPrefix,
@@ -32,7 +33,9 @@ export function Navigation({
   // The config is shell, so it lists every page main knows about. Drop the
   // entries this channel has no page for: on the released channel that is a
   // page written after the release, which would otherwise be a 404 in the
-  // sidebar. Sections that end up empty disappear with their links.
+  // sidebar. A page that moved since the release keeps its entry, pointed at
+  // the address the channel still has. Sections that end up empty disappear
+  // with their links.
   const channel = docsChannelFromPathname(trimmed)
   // The section's own href needs the same test as its children: an unfiltered
   // header link is still a link to a page this channel does not carry. Dropping
@@ -44,7 +47,11 @@ export function Navigation({
         section.href && documentsHref(channel, section.href)
           ? section.href
           : undefined,
-      links: section.links.filter((link) => documentsHref(channel, link.href)),
+      links: section.links.flatMap((link) => {
+        if (documentsHref(channel, link.href)) return [link]
+        const earlier = earlierDocsHref(channel, link.href)
+        return earlier ? [{ ...link, href: earlier }] : []
+      }),
     }))
     .filter((section) => section.links.length > 0)
 

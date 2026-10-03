@@ -17,13 +17,16 @@ import "@routecraft/ai";
 
 export const craftConfig = defineConfig({
   servers: { default: { port: 8080 } },
-  http: {}, //                      http() routes, at /
-  mcp: { transport: "http" }, //    MCP, at /mcp
-  ops: {}, //                       health and the ops API, at /health and /ops
+  http: {}, // http() routes, at /
+  mcp: {
+    transport: "http", // MCP, at /mcp
+    resource: { url: "https://mcp.example.com/mcp" },
+  },
+  ops: {}, // health and the ops API, at /health and /ops
 });
 ```
 
-One port, three doors. The listener is not implied: a surface that mounts HTTP on a server nobody declared stops the start with [`RC5003`](/docs/reference/errors#rc-5003), naming the server and the line to add. A project that serves nothing over HTTP needs no server at all, which is why a new project, serving MCP over stdio, has none.
+One port, three doors. MCP over HTTP also names its public `resource.url`, which it requires outside `NODE_ENV=development` and `test`; [Expose to an agent](/docs/introduction/expose-to-an-agent#over-http-for-a-team) has the full block with authentication. The listener is not implied: a surface that mounts HTTP on a server nobody declared stops the start with [`RC5003`](/docs/reference/errors#rc-5003), naming the server and the line to add. A project that serves nothing over HTTP needs no server at all, which is why a new project, serving MCP over stdio, has none.
 
 ## What mounts where
 
@@ -51,12 +54,13 @@ export const craftConfig = defineConfig({
     internal: { host: "0.0.0.0", port: 9090 },
   },
   http: {},
-  mcp: { transport: "http" },
+  mcp: {
+    transport: "http",
+    resource: { url: "https://mcp.example.com/mcp" },
+  },
   ops: { server: "internal" },
 });
 ```
-
-Outside development, MCP over HTTP also needs its public `resource.url`; [Expose to an agent](/docs/introduction/expose-to-an-agent#over-http-for-a-team) has the full block.
 
 `mcp`, `acp`, `ops` and `http` all take `server`. A named server that ends up with no mount on it is a configuration mistake and fails the start, and two servers cannot claim the same `host:port`. Splitting is a deployment choice, not a different kind of instance: the same capabilities answer on whichever port their door is mounted.
 

@@ -286,8 +286,15 @@ file under `_data`, an entry in `CATALOGUES`, and registration in the MDX provid
 
 **The pinned set is `PINNED` in `freeze-docs.ts`**, and nothing else. Today that is
 `app/content/docs` (pages plus `_data`), `app/content/cheat-sheet`, and `public/screenshots`
-(the only assets docs pages embed; `public/images` is blog-only). Anything a docs page renders
-that is not in that list builds from main. When you add a surface the released channel must
+(the only versioned assets docs pages embed). Anything a docs page renders that is not in that
+list builds from main.
+
+**Figures are the deliberate exception.** A docs page may embed a figure with `<Diagram>`, and
+the figure's drawing, its words in `manifest.mjs` and its PNGs under `public/images/figures`
+are shell, so the released channel renders whatever main draws. That is acceptable because a
+docs figure shows the platform's shape, not a version's API. When a drawing has to change in a
+way that would be wrong for the released docs, add a figure under a new id and point the next
+channel's page at it, rather than editing the one released pages embed. When you add a surface the released channel must
 pin, add it to that list and give it a next-channel mirror, the way screenshots have one. The
 list in the script, the one the verify gate reads, and the one named here are one list.
 

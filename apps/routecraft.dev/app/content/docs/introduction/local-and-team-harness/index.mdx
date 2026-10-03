@@ -20,28 +20,13 @@ The split is the whole security model in one sentence: on a laptop a capability 
 
 A capability starts local. You write it, run it against the real systems on your own access, and test it the way the [testing guide](/docs/introduction/testing) describes. When it works, promoting it means deploying the same folder to the team harness, with the service credentials its adapters read from the environment, and a `.authorize()` rule that says which roles, scopes or agents may call it.
 
-Promotion is not a cut-over. With a [remote](#remotes-one-surface) configured, the moment a capability exists on your laptop and on the team harness at once is handled: the local copy answers your own calls, the team copy answers everyone else's, the overlap is logged, and when you delete the local copy the team harness takes the endpoint back. Nothing is torn down to put the new thing up.
+Promotion is not a cut-over. With a [remote](#remotes-one-surface) configured, a capability can exist on your laptop and on the team harness at once while you compare them, and deleting the local copy hands the name to the team's. [Connecting harnesses](/docs/advanced/connecting-harnesses#4-promote-a-capability) has the mechanics.
 
 ## Remotes: one surface
 
-A local harness names the team harness in its config, and every dispatchable capability on the team harness becomes a direct endpoint on the laptop.
+A local harness can name the team harness as a remote. From then on every capability the team harness exposes is callable on your laptop as if it were local: from your routes, from your agents' tool lists, and with `craft exec`. Validation runs where the schema lives, at the team harness's door.
 
-```ts
-import { defineConfig } from "@routecraft/routecraft";
-
-export const craftConfig = defineConfig({
-  remotes: {
-    default: {
-      url: "https://routecraft.example.internal",
-      auth: { token: () => process.env.RC_REMOTE_TOKEN },
-    },
-  },
-});
-```
-
-From then on `direct('find-overdue-invoices')` in a local route, `Direct(find-overdue-invoices)` in a local agent's tool list, and `craft exec find-overdue-invoices` all reach the team harness's capability as if it were local, with its input schema advertised to your agents exactly as the team harness renders it. Validation runs where the schema lives: at the team harness's door.
-
-Two rules keep this safe. The credential is the environment's: `auth.token` is read per request from wherever the deployment keeps it, so a rotated token is picked up without a restart. And your local identity is never forwarded: the remote capability runs under the identity the token carries, which is this instance's, not yours. [Connecting harnesses](/docs/advanced/connecting-harnesses) is the setup on both sides, and the [remotes reference](/docs/reference/plugins/remotesplugin) covers names, shadowing and outcomes.
+Your identity does not travel with the call. The remote capability runs under the identity of the token your harness presents, so the team harness keeps its own `.authorize()` rules without trusting every laptop. [Connecting harnesses](/docs/advanced/connecting-harnesses) is the setup on both sides, and the [remotes reference](/docs/reference/plugins/remotesplugin) covers names, shadowing and outcomes.
 
 ## What travels between harnesses
 

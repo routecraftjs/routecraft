@@ -52,20 +52,27 @@ export const craftConfig = defineConfig({
 });
 ```
 
-Register the project with your client, from the project folder. Claude Code:
+Claude Code starts the server from the folder you register it in, so the short form works. From the project folder:
 
 ```bash
 claude mcp add my-tools -- bunx craft start --log-file craft.log
 ```
 
-Cursor (`.cursor/mcp.json`) and Claude Desktop (`claude_desktop_config.json`):
+The log goes to a file because standard output is the protocol.
+
+Clients configured in JSON do not start the server from the project folder, so give them absolute paths: the project's own `craft`, the project folder, and the log file. Using the project's installed `craft` also pins the version to the one in its `package.json`. Cursor (`.cursor/mcp.json`) and Claude Desktop (`claude_desktop_config.json`):
 
 ```json
 {
   "mcpServers": {
     "my-tools": {
-      "command": "bunx",
-      "args": ["craft", "start", "--log-file", "craft.log"]
+      "command": "/absolute/path/to/my-tools/node_modules/.bin/craft",
+      "args": [
+        "start",
+        "/absolute/path/to/my-tools",
+        "--log-file",
+        "/absolute/path/to/my-tools/craft.log"
+      ]
     }
   }
 }
@@ -78,14 +85,19 @@ VS Code and Copilot (`.vscode/mcp.json`):
   "servers": {
     "my-tools": {
       "type": "stdio",
-      "command": "bunx",
-      "args": ["craft", "start", "--log-file", "craft.log"]
+      "command": "/absolute/path/to/my-tools/node_modules/.bin/craft",
+      "args": [
+        "start",
+        "/absolute/path/to/my-tools",
+        "--log-file",
+        "/absolute/path/to/my-tools/craft.log"
+      ]
     }
   }
 }
 ```
 
-The log goes to a file because standard output is the protocol. A client that starts the process from somewhere other than the project folder needs absolute paths: the project's own `node_modules/.bin/craft` as the command, and `start /absolute/path/to/project` as the arguments. Using the project's installed `craft` also pins the version to the one in its `package.json`.
+`craft` runs on Bun, so a client that does not inherit your shell's `PATH` needs Bun on its own.
 
 ## Over HTTP, for a team
 
@@ -158,60 +170,6 @@ The HTTP transport is stateless. Following [MCP revision 2026-07-28](https://mod
 
 Clients that only speak the 2025 revision keep working unchanged; they are served through the stateless 2025 path and do not get the newer revision's features.
 
-## Server identity and branding
-
-When a client like Claude adds your server, it renders the server's identity from `serverInfo`, returned by `server/discover` for 2026-07-28 clients and by the `initialize` handshake for 2025-era ones. Configure it on the `mcp` key:
-
-```ts
-// craft.config.ts
-import { defineConfig } from '@routecraft/routecraft'
-import '@routecraft/ai'
-
-export const craftConfig = defineConfig({
-  mcp: {
-    name: 'acme-bot',                          // serverInfo.name (machine id)
-    title: 'Acme Bot',                         // serverInfo.title (display name)
-    version: '2.1.0',                          // serverInfo.version
-    description: 'Acme operations over MCP.',  // serverInfo.description
-    websiteUrl: 'https://acme.example.com',    // serverInfo.websiteUrl
-    instructions: 'Call orders_search before orders_refund.', // server capabilities, not serverInfo
-    icons: [
-      { src: 'https://acme.example.com/icon.svg', mimeType: 'image/svg+xml' },
-      { src: 'data:image/png;base64,...', mimeType: 'image/png', sizes: ['48x48'], theme: 'light' },
-    ],
-  },
-})
-```
-
-`instructions` is server-wide guidance the client may add to the model's context (advisory per the spec). It complements each tool's own `.description()`, which is the per-tool equivalent.
-
-### Defaults and how to opt out
-
-When you do not set them, Routecraft fills in a "powered by Routecraft" identity. Each default is overridable with your own value or suppressible with an empty value:
-
-| Field | Default when unset | Suppress with |
-| --- | --- | --- |
-| `icons` | Routecraft logo (PNG and SVG, light and dark variants) | `icons: []` |
-| `description` | `"Powered by Routecraft.dev"` | `description: ""` |
-| `websiteUrl` | `"https://routecraft.dev"` | `websiteUrl: ""` |
-| `instructions` | none (omitted) | `instructions: ""` |
-
-### Per-tool icons and inheritance
-
-A capability can carry its own icon via the `mcp()` source. The icon shape follows the MCP `Icon` spec (`src`, optional `mimeType`, `sizes` as a string array, and an optional `theme`):
-
-```ts
-craft()
-  .id('orders_search')
-  .description('Search orders')
-  .from(mcp({
-    annotations: { readOnlyHint: true },
-    icons: [{ src: 'https://acme.example.com/search.svg', mimeType: 'image/svg+xml', sizes: ['48x48'] }],
-  }))
-```
-
-Icons resolve with the same rule at both levels: omit `icons` to inherit (a tool with no icon of its own shows the server's icon, including the Routecraft default), set `icons: [...]` for a custom icon, or set `icons: []` to show none.
-
 ## Failed calls
 
 A tool call whose route fails comes back as `isError: true` carrying the tool name and the error code, such as `Tool "search-orders" failed (RC5001).`, and never the error message: messages carry hostnames, file paths and upstream response text an agent has no business seeing. The message is in your log and on the `plugin:mcp:tool:failed` event.
@@ -220,8 +178,9 @@ An agent can still correct itself when the fault is its own. A call the tool's `
 
 ## Going further
 
+- **Name and brand the server.** What a client shows when it adds your server, and per-tool icons: [mcpPlugin, server identity and branding](/docs/reference/plugins/mcpplugin#server-identity-and-branding).
 - **Re-expose another server's tools** without writing a capability per tool: [Calling an MCP, proxying](/docs/advanced/call-an-mcp#re-exposing-a-clients-tools).
-- **Tools that wait for a person.** A tool whose capability can defer answers with an acknowledgment instead of its output: [Durable agents, over MCP](/docs/advanced/durable-agents#over-mcp).
+- **Tools that wait for a person.** A tool whose capability can defer answers with an acknowledgment instead of its output: the [`mcp()` adapter reference](/docs/reference/adapters/mcp) has the contract, and [Durable agents](/docs/advanced/durable-agents#over-mcp) covers agents that wait.
 
 ---
 

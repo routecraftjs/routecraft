@@ -32,3 +32,23 @@ export function movedDocsPage(
   if (!target) return undefined
   return (pagesByChannel[channel] ?? []).includes(target) ? target : undefined
 }
+
+/**
+ * The address a moved page still has on this channel, for a sidebar entry
+ * whose href names its new one.
+ *
+ * The sidebar builds from main, so after a move it names the new address. The
+ * released channel only has the old one until the next tag, and filtering the
+ * entry out would leave a released page with no way in from the sidebar.
+ */
+export function earlierDocsHref(
+  channel: DocsChannelName,
+  href: string,
+): string | undefined {
+  const route = href.replace(/^\/docs\//, '').replace(/\/$/, '')
+  const pages = pagesByChannel[channel] ?? []
+  const earlier = Object.keys(MOVED).find(
+    (old) => MOVED[old] === route && pages.includes(old),
+  )
+  return earlier ? `/docs/${earlier}` : undefined
+}

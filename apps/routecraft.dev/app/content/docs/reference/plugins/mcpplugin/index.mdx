@@ -61,7 +61,7 @@ export const craftConfig: CraftConfig = {
 | `description` | `string` | `'Powered by Routecraft.dev'` | `serverInfo.description`; pass `''` to omit |
 | `websiteUrl` | `string` | `'https://routecraft.dev'` | `serverInfo.websiteUrl`; pass `''` to omit |
 | `instructions` | `string` | -- | Server-wide usage guidance on the `initialize` result; pass `''` (or omit) to send none |
-| `icons` | `McpIcon[]` | Routecraft logo | `serverInfo.icons`, inherited by tools that set none of their own; pass `[]` to omit. See [Server identity and branding](/docs/introduction/expose-to-an-agent#server-identity-and-branding). |
+| `icons` | `McpIcon[]` | Routecraft logo | `serverInfo.icons`, inherited by tools that set none of their own; pass `[]` to omit. See [Server identity and branding](#server-identity-and-branding). |
 | `transport` | `'http' \| 'stdio'` | `'stdio'` | Transport protocol for the MCP server |
 | `server` | `string` | `'default'` | Named entry under `defineConfig({ servers })` to mount the HTTP transport on (http transport only) |
 | `path` | `string` | `'/mcp'` | HTTP path for the MCP endpoint on the shared listener (http transport only) |
@@ -137,6 +137,49 @@ Subtypes:
 | `'custom'` | `name?`, `email?`, `roles?`, `scopes?`, `expiresAt?`, `claims?` |
 
 The populated principal rides on the exchange as a single structured header (`routecraft.auth.principal`) and is exposed ergonomically via the `ex.principal` getter; read fields with `ex.principal?.subject`, `ex.principal?.scopes`, `ex.principal?.claims`, etc.
+
+## Server identity and branding
+
+When a client like Claude adds your server, it renders the server's identity from `serverInfo`, returned by `server/discover` for 2026-07-28 clients and by the `initialize` handshake for 2025-era ones. Configure it on the `mcp` key; the option table above has each field's default and how to suppress it:
+
+```ts
+// craft.config.ts
+import { defineConfig } from '@routecraft/routecraft'
+import '@routecraft/ai'
+
+export const craftConfig = defineConfig({
+  mcp: {
+    name: 'acme-bot',                          // serverInfo.name (machine id)
+    title: 'Acme Bot',                         // serverInfo.title (display name)
+    version: '2.1.0',                          // serverInfo.version
+    description: 'Acme operations over MCP.',  // serverInfo.description
+    websiteUrl: 'https://acme.example.com',    // serverInfo.websiteUrl
+    instructions: 'Call orders_search before orders_refund.', // server capabilities, not serverInfo
+    icons: [
+      { src: 'https://acme.example.com/icon.svg', mimeType: 'image/svg+xml' },
+      { src: 'data:image/png;base64,...', mimeType: 'image/png', sizes: ['48x48'], theme: 'light' },
+    ],
+  },
+})
+```
+
+`instructions` is server-wide guidance the client may add to the model's context (advisory per the spec). It complements each tool's own `.description()`, which is the per-tool equivalent.
+
+### Per-tool icons and inheritance
+
+A capability can carry its own icon via the `mcp()` source. The icon shape follows the MCP `Icon` spec (`src`, optional `mimeType`, `sizes` as a string array, and an optional `theme`):
+
+```ts
+craft()
+  .id('orders_search')
+  .description('Search orders')
+  .from(mcp({
+    annotations: { readOnlyHint: true },
+    icons: [{ src: 'https://acme.example.com/search.svg', mimeType: 'image/svg+xml', sizes: ['48x48'] }],
+  }))
+```
+
+Icons resolve with the same rule at both levels: omit `icons` to inherit (a tool with no icon of its own shows the server's icon, including the Routecraft default), set `icons: [...]` for a custom icon, or set `icons: []` to show none.
 
 ## Built-in `jwt()` helper
 

@@ -35,40 +35,13 @@ The capability's own test mocks `fetch`, runs the same two routes, and asserts t
 
 `greet` has a second door: `mcp()`. The project's `craft.config.ts` serves every capability with that source as an MCP tool over stdio, so a client spawns the project and talks to it on its standard streams. No port, no credential. Run the client from the project folder.
 
-Claude Code:
+Claude Code, from the project folder:
 
 ```bash
 claude mcp add my-tools -- bunx craft start --log-file craft.log
 ```
 
-Cursor (`.cursor/mcp.json`) and Claude Desktop take the same command in JSON:
-
-```json
-{
-  "mcpServers": {
-    "my-tools": {
-      "command": "bunx",
-      "args": ["craft", "start", "--log-file", "craft.log"]
-    }
-  }
-}
-```
-
-VS Code and Copilot (`.vscode/mcp.json`):
-
-```json
-{
-  "servers": {
-    "my-tools": {
-      "type": "stdio",
-      "command": "bunx",
-      "args": ["craft", "start", "--log-file", "craft.log"]
-    }
-  }
-}
-```
-
-The log goes to a file because standard output is the protocol.
+The log goes to a file because standard output is the protocol. Cursor, Claude Desktop and VS Code take the same command in JSON, with absolute paths because they do not start the server from the project folder: [Expose to an agent](/docs/introduction/expose-to-an-agent#over-stdio-on-your-laptop) has each client's file.
 
 ## 4. Call it
 

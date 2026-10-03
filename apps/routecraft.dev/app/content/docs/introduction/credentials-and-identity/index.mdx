@@ -60,7 +60,7 @@ When an agent exercises a person's authority, the principal records both: `subje
 
 <Diagram id="four-gates" />
 
-Every call, through every door, falls through the same gates in order: the **input** schema, the **policy** you wrote in `.authorize()` and `.filter()`, the **identity** the door verified, and the **declared intent** of the capability, which is the description and schema an agent was shown before it chose to call. What survives all four reaches your code. A model's decision is never one of the gates.
+Every call, through every door, has to pass the same four kinds of check: the **input** schema, the **policy** you wrote in `.authorize()` and `.filter()`, the **identity** the door verified, and the **declared intent** of the capability, which is the description and schema an agent was shown before it chose to call. What survives all four reaches your code. A model's decision is never one of the gates. The order they run in is fixed by the platform; [Filter chain](/docs/advanced/filter-chain) has it.
 
 ## On record
 

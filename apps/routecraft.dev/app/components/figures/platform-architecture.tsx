@@ -1,10 +1,13 @@
 import type { CSSProperties, ReactNode } from 'react'
 
 import {
+  ArrowheadMarker,
   Conclusion,
+  EDITORIAL,
   FigureCanvas,
   LayerName,
   LayerSub,
+  MONO,
   StoreMark,
 } from '@/components/figures/primitives'
 import type { FigurePalette } from '@/components/figures/palette'
@@ -16,8 +19,6 @@ import type {
 
 const WIDTH = 1600
 const HEIGHT = 1500
-
-const MONO = 'var(--font-mono)'
 
 const at = (left: number, top: number): CSSProperties => ({
   position: 'absolute',
@@ -377,7 +378,7 @@ function PlatformArchitectureFigure({ palette }: FigureProps) {
         >
           <span
             style={{
-              fontFamily: 'var(--font-editorial)',
+              fontFamily: EDITORIAL,
               fontSize: 26,
               lineHeight: 1.1,
               fontWeight: 500,
@@ -693,38 +694,14 @@ function PlatformArchitectureFigure({ palette }: FigureProps) {
         }}
       >
         <defs>
-          <marker
+          <ArrowheadMarker
             id="platform-architecture-ink"
-            viewBox="0 0 10 10"
-            refX="9"
-            refY="5"
-            markerWidth="8"
-            markerHeight="8"
-            orient="auto-start-reverse"
-          >
-            <path
-              d="M1 1L9 5L1 9"
-              fill="none"
-              stroke={palette.ink60}
-              strokeWidth="1.5"
-            />
-          </marker>
-          <marker
+            colour={palette.ink60}
+          />
+          <ArrowheadMarker
             id="platform-architecture-accent"
-            viewBox="0 0 10 10"
-            refX="9"
-            refY="5"
-            markerWidth="8"
-            markerHeight="8"
-            orient="auto-start-reverse"
-          >
-            <path
-              d="M1 1L9 5L1 9"
-              fill="none"
-              stroke={palette.accent}
-              strokeWidth="1.5"
-            />
-          </marker>
+            colour={palette.accent}
+          />
         </defs>
         <g stroke={palette.ink60} markerEnd="url(#platform-architecture-ink)">
           <line x1="435" y1="230" x2="435" y2="308" />
