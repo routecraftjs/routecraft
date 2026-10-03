@@ -5,11 +5,11 @@ import {
   type Source,
   type Subscription,
 } from "@routecraft/routecraft";
-import {
-  MCP_LOCAL_TOOL_REGISTRY,
-  MCP_PLUGIN_REGISTERED,
-  type McpLocalToolEntry,
-  type McpServerOptions,
+import { MCP } from "../../port.ts";
+import type {
+  McpLocalToolEntry,
+  McpServerOptions,
+  McpToolRequest,
 } from "../../types.ts";
 import type { McpMessage } from "./types.ts";
 import { BRAND_MCP_ADAPTER } from "./shared.ts";
@@ -39,7 +39,7 @@ function assertValidMcpToolName(endpoint: string): void {
  * before the route handler runs. Adapter options hold only MCP-protocol
  * extras (annotations, icons).
  *
- * Maintains its own registry ({@link MCP_LOCAL_TOOL_REGISTRY}) so MCP and
+ * Registers in the MCP service's own `local` registry so MCP and
  * direct routes stay fully isolated: a shared endpoint string does not
  * collide, and direct routes never leak into MCP `tools/list`.
  */
@@ -77,18 +77,13 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
       });
     }
 
-    const registered = context.getStore(MCP_PLUGIN_REGISTERED);
-    if (registered !== true) {
+    const service = context.lookup(MCP);
+    if (!service) {
       throw new Error(
         "MCP plugin required: routes using .from(mcp(...)) require the MCP plugin. Add mcpPlugin() to your config: plugins: [mcpPlugin()].",
       );
     }
-
-    let registry = context.getStore(MCP_LOCAL_TOOL_REGISTRY);
-    if (!registry) {
-      registry = new Map<string, McpLocalToolEntry>();
-      context.setStore(MCP_LOCAL_TOOL_REGISTRY, registry);
-    }
+    const registry = service.local;
 
     if (registry.has(endpoint)) {
       throw rcError("RC5003", undefined, {
@@ -103,10 +98,10 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
     // principal (set by the MCP server when auth is configured) rides
     // through on headers["routecraft.auth.principal"], the single source
     // of truth for identity.
-    const entryHandler = async (exchange: Exchange): Promise<Exchange> => {
+    const entryHandler = async (request: McpToolRequest): Promise<Exchange> => {
       return sub.emit({
-        message: exchange.body as McpMessage<undefined>,
-        headers: exchange.headers,
+        message: request.body as McpMessage<undefined>,
+        headers: request.headers,
       });
     };
 
@@ -153,8 +148,7 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
     sub.signal.addEventListener(
       "abort",
       () => {
-        const current = context.getStore(MCP_LOCAL_TOOL_REGISTRY);
-        current?.delete(endpoint);
+        registry.delete(endpoint);
       },
       { once: true },
     );

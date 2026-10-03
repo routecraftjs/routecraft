@@ -4,6 +4,10 @@ import type { ExchangeHeaders } from "../exchange.ts";
 import type { logger } from "../logger.ts";
 import type { RouteDefinition } from "../route.ts";
 import type { EventDetailsMap, EventHandler, EventName } from "../types.ts";
+import type {
+  ResumeAcknowledgment,
+  ResumeRequest,
+} from "../deferral/revive.ts";
 import type { AnyPort, Port } from "./port.ts";
 import type { Hooks, PointDeclaration } from "./hooks.ts";
 
@@ -72,6 +76,13 @@ export interface Execution {
     body: unknown,
     headers?: ExchangeHeaders,
   ): Promise<R>;
+  /**
+   * Resume a parked exchange by its token, on the plugin's own behalf: no
+   * ingress door, so no door policy and no live principal.
+   *
+   * @throws RC5052 when no plugin provides continuations
+   */
+  resume(request: ResumeRequest): Promise<ResumeAcknowledgment>;
   /** Discoverable capabilities of the enabled routes. */
   capabilities(): Capability[];
   /** Resolves once every route signalled readiness and every start returned. */
@@ -150,6 +161,25 @@ export interface Plugin {
   readonly optional?: readonly AnyPort[];
   /** Ports this plugin provides in `bind`. */
   readonly provides?: readonly AnyPort[];
+  /**
+   * Plugins this one brings along. Each is installed with it, ahead of it
+   * in list order, unless the application lists a plugin with the same id
+   * itself; however many plugins bring one id, it is installed once.
+   *
+   * What lets a feature split into one runtime and the contributions that
+   * feed it: every contribution brings the runtime, and the application
+   * lists only the contributions.
+   */
+  readonly installs?: readonly Plugin[];
+  /**
+   * Several installs of this plugin may coexist in one application, each
+   * contributing through a port another plugin provides. The host names
+   * them `id#1`, `id#2`, ... in list order, in events and faults alike.
+   *
+   * A repeatable plugin cannot provide or replace a port, or declare hooks
+   * or points: two installs would collide on every one of them.
+   */
+  readonly repeatable?: boolean;
   /**
    * Ports whose other provider this plugin displaces. It must also list them
    * in `provides`. The displaced plugin still binds; its provision of the

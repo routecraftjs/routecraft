@@ -21,6 +21,7 @@ import {
   type FnHandlerContext,
 } from "../src/index.ts";
 import { AgentSessionRuntime } from "../src/agent/session/index.ts";
+import { sessionHostOf } from "../src/agent/session/runtime.ts";
 import { recordsFor, updateRecord } from "./helpers/session-stores.ts";
 import { AgentSessionStore } from "../src/agent/session/store.ts";
 import { INTERRUPTED_TOOL_MESSAGE } from "../src/agent/run.ts";
@@ -428,7 +429,7 @@ describe("agent sessions", () => {
     llm.script.push({ text: "ok" });
     await send(t, { session: "s", message: "first" });
     const runtimeA = new AgentSessionRuntime(
-      t.ctx,
+      sessionHostOf(t.ctx),
       new AgentSessionStore(recordsFor(store), store),
     );
     await runtimeA.post("s", "max", {
@@ -740,7 +741,7 @@ describe("agent sessions", () => {
       },
     });
     const runtime = new AgentSessionRuntime(
-      t.ctx,
+      sessionHostOf(t.ctx),
       new AgentSessionStore(failing, store),
     );
     let runs = 0;
@@ -792,7 +793,7 @@ describe("agent sessions", () => {
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
-    const runtime = new AgentSessionRuntime(t.ctx, sessions);
+    const runtime = new AgentSessionRuntime(sessionHostOf(t.ctx), sessions);
     let runs = 0;
     // The abort is honoured late, which is the window a real tool call
     // takes to notice its signal and the window the test clears the inbox in.
@@ -1162,7 +1163,7 @@ describe("agent sessions", () => {
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
-    const runtime = new AgentSessionRuntime(t.ctx, sessions);
+    const runtime = new AgentSessionRuntime(sessionHostOf(t.ctx), sessions);
     const key = "deleted-deferral";
     await updateRecord(sessions, key, "max", (r) => ({
       ...r,
@@ -1241,7 +1242,7 @@ describe("agent sessions", () => {
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
-    const runtime = new AgentSessionRuntime(t.ctx, sessions);
+    const runtime = new AgentSessionRuntime(sessionHostOf(t.ctx), sessions);
     const key = "failed-deferral";
     await updateRecord(sessions, key, "max", (r) => ({
       ...r,
@@ -1343,7 +1344,7 @@ describe("agent sessions", () => {
     store.claimExpiry = () => {
       throw new Error("the deferral store is unreachable");
     };
-    const runtime = new AgentSessionRuntime(t.ctx, sessions);
+    const runtime = new AgentSessionRuntime(sessionHostOf(t.ctx), sessions);
     await runtime.driveBoot();
     expect((await sessions.load(key))?.deferring?.deferralId).toBe(deferralId);
     expect((await store.get(deferralId))?.state).toBe("waiting");
@@ -1386,7 +1387,7 @@ describe("agent sessions", () => {
         deferring: { deferralId: "started-under-the-boot", routeId: "chat" },
       }));
     };
-    await new AgentSessionRuntime(t.ctx, sessions).driveBoot();
+    await new AgentSessionRuntime(sessionHostOf(t.ctx), sessions).driveBoot();
     expect((await sessions.load(key))?.deferring?.deferralId).toBe(
       "started-under-the-boot",
     );
@@ -1403,7 +1404,7 @@ describe("agent sessions", () => {
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
-    const runtime = new AgentSessionRuntime(t.ctx, sessions);
+    const runtime = new AgentSessionRuntime(sessionHostOf(t.ctx), sessions);
     const key = "unreleasable-turn";
     await updateRecord(sessions, key, "max", (r) => ({
       ...r,
@@ -1487,7 +1488,7 @@ describe("agent sessions", () => {
       deferring: { deferralId: "never-created", routeId: "chat" },
     }));
     expect((await store.get(deferralId))?.state).toBe("waiting");
-    const runtime = new AgentSessionRuntime(t.ctx, sessions);
+    const runtime = new AgentSessionRuntime(sessionHostOf(t.ctx), sessions);
     await runtime.driveBoot();
     expect((await store.get(deferralId))?.outcome?.kind).toBe("denied");
     expect((await sessions.load(orphan))?.deferring).toBeUndefined();
@@ -1526,7 +1527,7 @@ describe("agent sessions", () => {
       }
       return record;
     };
-    const runtime = new AgentSessionRuntime(t.ctx, sessions);
+    const runtime = new AgentSessionRuntime(sessionHostOf(t.ctx), sessions);
     const seen: unknown[] = [];
     const executor = {
       run: (messages: unknown) => {
@@ -1571,7 +1572,7 @@ describe("agent sessions", () => {
       }
       return realLoad(key);
     };
-    const runtime = new AgentSessionRuntime(t.ctx, sessions);
+    const runtime = new AgentSessionRuntime(sessionHostOf(t.ctx), sessions);
     const seen: unknown[] = [];
     let inRun = 0;
     let overlap = 0;
@@ -1645,7 +1646,7 @@ describe("agent sessions", () => {
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const runtime = new AgentSessionRuntime(
-      t.ctx,
+      sessionHostOf(t.ctx),
       new AgentSessionStore(recordsFor(store), store),
     );
     const seen: unknown[] = [];
@@ -1690,7 +1691,7 @@ describe("agent sessions", () => {
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
-    const runtime = new AgentSessionRuntime(t.ctx, sessions);
+    const runtime = new AgentSessionRuntime(sessionHostOf(t.ctx), sessions);
     let runs = 0;
     const executor = {
       run: () => {
@@ -1733,7 +1734,7 @@ describe("agent sessions", () => {
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
-    const runtime = new AgentSessionRuntime(t.ctx, sessions);
+    const runtime = new AgentSessionRuntime(sessionHostOf(t.ctx), sessions);
     let runs = 0;
     const executor = {
       run: () => {
@@ -1778,7 +1779,7 @@ describe("agent sessions", () => {
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
     const { realLoad, gates, entered } = gateLoads(sessions);
-    const runtime = new AgentSessionRuntime(t.ctx, sessions);
+    const runtime = new AgentSessionRuntime(sessionHostOf(t.ctx), sessions);
     let runs = 0;
     const executor = {
       run: (_messages: unknown, interrupt: AbortSignal) =>
@@ -1845,7 +1846,7 @@ describe("agent sessions", () => {
       await releasing.wait;
       return realRelease(id, reason);
     };
-    const runtime = new AgentSessionRuntime(t.ctx, sessions);
+    const runtime = new AgentSessionRuntime(sessionHostOf(t.ctx), sessions);
     let runs = 0;
     const executor = {
       run: (_messages: unknown, interrupt: AbortSignal) =>
@@ -1908,7 +1909,7 @@ describe("agent sessions", () => {
     t = await contextWith(store, spy()).build();
     await t.startAndWaitReady();
     const sessions = new AgentSessionStore(recordsFor(store), store);
-    const runtime = new AgentSessionRuntime(t.ctx, sessions);
+    const runtime = new AgentSessionRuntime(sessionHostOf(t.ctx), sessions);
     let runs = 0;
     let releaseRun: (() => void) | undefined;
     const executor = {

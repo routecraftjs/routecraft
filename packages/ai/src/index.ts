@@ -122,9 +122,11 @@ export {
   mcpPlugin,
   McpServer,
   McpToolRegistry,
-  MCP_LOCAL_TOOL_REGISTRY,
+  MCP,
   validateWithSchema,
   type McpLocalToolEntry,
+  type McpService,
+  type McpToolRequest,
   type McpOptions,
   type McpPluginOptions,
   type McpProxyToolConfig,
@@ -163,6 +165,7 @@ export type {
 // For by-name use, register agents via `agentPlugin({ agents: { name: {...} } })`.
 export {
   agent,
+  AGENTS,
   AgentCancellationCause,
   AgentEnricherAdapter,
   agentPlugin,
@@ -174,12 +177,15 @@ export {
   // shipped backends, and the contract for a backend of your own.
   DEFAULT_SESSION_DB_PATH,
   MemorySessionStore,
+  SESSION_STORE,
   SESSION_STORE_ENV,
   SqliteSessionStore,
   sessionsPlugin,
 } from "./agent/index.ts";
 export type {
+  AgentContribution,
   AgentDefaultOptions,
+  AgentRegistry,
   AgentByNameOverrides,
   AgentDelta,
   AgentInboxMessage,
@@ -198,6 +204,7 @@ export type {
   AgentInterruptSource,
   AgentSessionSource,
   AgentSessionSummary,
+  ResolvedSessionStore,
   SessionCasResult,
   SessionStore,
   SessionStoreConfig,

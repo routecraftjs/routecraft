@@ -1,14 +1,11 @@
 import { randomUUID } from "node:crypto";
 import {
-  CraftClient,
   HeadersKeys,
   isAuthentic,
-  isInternalEndpoint,
   markAuthentic,
   rcCodeOf,
   rcError,
   type Capability,
-  type CraftContext,
   type ExchangeHeaders,
   type Principal,
 } from "@routecraft/routecraft";
@@ -18,11 +15,13 @@ import type {
   FnOptions,
   ReadonlyPrincipal,
 } from "../../fn/types.ts";
+import type { BackgroundOutcome } from "../session/runtime.ts";
 import {
-  AgentSessionRuntime,
-  type BackgroundOutcome,
-} from "../session/runtime.ts";
-import { LAZY_FN_BRAND, FN_BACKGROUND, type LazyFn } from "./types.ts";
+  LAZY_FN_BRAND,
+  FN_BACKGROUND,
+  type LazyFn,
+  type ToolHost,
+} from "./types.ts";
 import { isDownstreamDeferred } from "../downstream-deferred.ts";
 
 /**
@@ -176,8 +175,8 @@ export function directTool<TIn = unknown>(
     [LAZY_FN_BRAND]: true,
     kind: "direct",
     targetId: routeId,
-    resolve(ctx, fnId): FnOptions {
-      const route = readDirectRoute(ctx, routeId, fnId);
+    resolve(host, fnId): FnOptions {
+      const route = readDirectRoute(host, routeId, fnId);
       const description = overrides?.description ?? route.description;
       if (typeof description !== "string" || description.trim() === "") {
         throw rcError("RC5003", undefined, {
@@ -196,7 +195,7 @@ export function directTool<TIn = unknown>(
       if (overrides?.background === true) {
         const handler = ((input, hctx) =>
           dispatchBackground(
-            ctx,
+            host,
             hctx,
             routeId,
             fnId,
@@ -211,7 +210,7 @@ export function directTool<TIn = unknown>(
         } as FnOptions;
       }
       const handler = ((input, hctx) =>
-        dispatchDirect(ctx, hctx, routeId, input)) as FnOptions["handler"];
+        dispatchDirect(host, hctx, routeId, input)) as FnOptions["handler"];
       return {
         description,
         input,
@@ -250,7 +249,7 @@ function dispatchHeaders(hctx: FnHandlerContext): Record<string, unknown> {
  * @internal
  */
 async function dispatchBackground<TIn>(
-  ctx: CraftContext,
+  host: ToolHost,
   hctx: FnHandlerContext,
   routeId: string,
   toolName: string,
@@ -268,7 +267,7 @@ async function dispatchBackground<TIn>(
   if (hctx.abortSignal.aborted) {
     throw abortError(routeId, hctx.abortSignal.reason);
   }
-  const runtime = AgentSessionRuntime.for(ctx);
+  const runtime = host.sessions();
   const key = session.id;
   const dispatchId = randomUUID();
   const handle = `${routeId}:${dispatchId}`;
@@ -292,7 +291,7 @@ async function dispatchBackground<TIn>(
     runtime
       .settleBackground(key, session.agent, outcome)
       .catch((err: unknown) => {
-        ctx.logger.error(
+        host.logger.error(
           { err, agent: session.agent, session: key, handle, tool: toolName },
           "Background tool result could not be delivered to the session inbox",
         );
@@ -300,7 +299,7 @@ async function dispatchBackground<TIn>(
   };
   // Deliberately not awaited: the turn continues, and the settlement is
   // the runtime's business.
-  void new CraftClient(ctx).sendDirect(routeId, input, headers).then(
+  void host.deliver(routeId, input, headers).then(
     (result) => {
       let downstreamDeferred: boolean;
       try {
@@ -369,19 +368,18 @@ async function dispatchBackground<TIn>(
 }
 
 function readDirectRoute(
-  ctx: CraftContext,
+  host: ToolHost,
   routeId: string,
   fnId: string,
 ): Capability {
-  const capabilities = ctx.capabilities();
+  const capabilities = host.capabilities();
   const route = capabilities.find((c) => c.endpoint === routeId);
   if (!route) {
-    // An internal route is absent from the capability registry on purpose,
-    // so "unknown route id" would be a lie and "register it" wrong advice.
-    // This fails context.start(), the same moment a missing route does.
-    if (isInternalEndpoint(ctx, routeId)) {
+    // A route that exists without a capability is not a typo, so "unknown
+    // route id" would be a lie and "register it" wrong advice.
+    if (host.hasRoute(routeId)) {
       throw rcError("RC5003", undefined, {
-        message: `directTool: route "${routeId}" is declared internal (direct({ internal: true })) and cannot be exposed as a tool (referenced as fn "${fnId}"). Expose a boundary route carrying .input(), .description() and .authorize() instead, and point the tool at that.`,
+        message: `directTool: route "${routeId}" exists but is not a discoverable direct() capability: it is declared internal (direct({ internal: true })), is disabled, or has no direct() source, so it cannot be exposed as a tool (referenced as fn "${fnId}"). Expose a boundary route carrying .input(), .description() and .authorize() instead, and point the tool at that.`,
       });
     }
     const known = capabilities.map((c) => c.endpoint).sort();
@@ -397,7 +395,7 @@ function readDirectRoute(
 }
 
 async function dispatchDirect<TIn>(
-  ctx: CraftContext,
+  host: ToolHost,
   hctx: FnHandlerContext,
   routeId: string,
   input: TIn,
@@ -418,7 +416,7 @@ async function dispatchDirect<TIn>(
   // attach a different principal; the tool handler's own snapshot
   // stays frozen and unaffected.
   const headers = dispatchHeaders(hctx);
-  const dispatch = new CraftClient(ctx).sendDirect(
+  const dispatch = host.deliver(
     routeId,
     input,
     Object.keys(headers).length > 0 ? headers : undefined,

@@ -1,3 +1,4 @@
+import { port } from "@routecraft/routecraft";
 import type { AgentSessionKey } from "./types.ts";
 
 /**
@@ -78,3 +79,49 @@ export interface SessionStore {
   /** Release what the store holds open. Idempotent. */
   close(): Promise<void>;
 }
+
+/** Something writing to a session store that must stop before it closes. */
+export interface SessionWriter {
+  stop(): Promise<void>;
+}
+
+/**
+ * The store an application resolved, with what it resolved to for the log
+ * line and whether the application owns its lifecycle.
+ */
+export interface ResolvedSessionStore {
+  readonly store: SessionStore;
+  /**
+   * `custom` is a store the caller supplied; reporting it as `sqlite` would
+   * mislead exactly the operator who configured a backend deliberately.
+   * `unresolved` is the lazy form before anything touched it, which is the
+   * one state where the answer is not yet known.
+   */
+  readonly backend: "sqlite" | "memory" | "custom" | "unresolved";
+  /** Which sqlite driver opened it, where one did. */
+  readonly driver?: string;
+  /**
+   * False when the caller supplied the store, in which case they own its
+   * lifecycle and teardown must not close it.
+   */
+  readonly ownsStore: boolean;
+  /** Whether a `sessions` block chose this store rather than the default. */
+  readonly configured: boolean;
+  /**
+   * Hold the store open for a session runtime. {@link close} stops every
+   * retained writer before it releases the store: a revival still in
+   * flight must not write to a closed one.
+   */
+  retain(writer: SessionWriter): void;
+  /** Stop the retained writers, then close the store if it is owned. Idempotent. */
+  close(): Promise<void>;
+}
+
+/**
+ * Where an application's agent sessions live. Provided by the sessions
+ * plugin: the `sessions` key, or the default the agent runtime brings
+ * along. Adapters reach it with `context.lookup(SESSION_STORE)`.
+ */
+export const SESSION_STORE = port<ResolvedSessionStore>(
+  "routecraft.ai.session-store@1",
+);

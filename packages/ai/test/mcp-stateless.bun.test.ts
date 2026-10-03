@@ -11,7 +11,8 @@
  */
 import { describe, test, expect, afterEach } from "bun:test";
 import { createHmac } from "node:crypto";
-import { McpServer } from "../src/mcp/server.ts";
+import type { McpServer } from "../src/mcp/server.ts";
+import { mcpPort, mcpServerFor } from "./helpers/mcp-port.ts";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
   craft,
@@ -21,14 +22,11 @@ import {
   type Principal,
 } from "@routecraft/routecraft";
 import { mcp } from "../src/index.ts";
-import { MCP_PLUGIN_REGISTERED, McpHeadersKeys } from "../src/mcp/types.ts";
+import { McpHeadersKeys } from "../src/mcp/types.ts";
 import { Client } from "@modelcontextprotocol/client";
 import { StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { z } from "zod";
 import { rpcBody } from "./fixtures/rpc-body.ts";
-
-const MCP_STORE_KEY =
-  MCP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry;
 
 const ISSUER = "https://idp.test.example";
 const AUDIENCE = "https://mcp.test.example";
@@ -91,10 +89,10 @@ describe("MCP 2026-07-28 stateless revision", () => {
   ): Promise<{ port: number; url: string }> {
     t = await testContext()
       .routes(routes)
-      .store(MCP_STORE_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
       .build();
-    server = new McpServer(t.ctx, {
+    server = mcpServerFor(t.ctx, {
       transport: "http",
       ...options,
     });

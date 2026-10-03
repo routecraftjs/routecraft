@@ -1,20 +1,11 @@
 import { afterEach, describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
-import {
-  mcp,
-  McpHeadersKeys,
-  MCP_LOCAL_TOOL_REGISTRY,
-  type McpLocalToolEntry,
-} from "../src/index.ts";
-import { MCP_PLUGIN_REGISTERED } from "../src/mcp/types.ts";
+import { mcp, McpHeadersKeys } from "../src/index.ts";
+import { mcpPort, mcpService } from "./helpers/mcp-port.ts";
+import { MCP, createMcpService, type McpService } from "../src/mcp/port.ts";
 import { McpEnricherAdapter } from "../src/mcp/adapters/mcp/enricher.ts";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { craft, simple, direct, DefaultExchange } from "@routecraft/routecraft";
-
-const MCP_LOCAL_KEY =
-  MCP_LOCAL_TOOL_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry;
-const MCP_PLUGIN_KEY =
-  MCP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry;
 
 /** Helper: invoke an mcp() route by calling its registered handler directly. */
 async function invokeTool(
@@ -23,8 +14,7 @@ async function invokeTool(
   body: unknown,
   headers: Record<string, unknown> = {},
 ): Promise<void> {
-  const registry = t.ctx.getStore(MCP_LOCAL_KEY) as
-    Map<string, McpLocalToolEntry> | undefined;
+  const registry = mcpService(t.ctx).local;
   const entry = registry?.get(endpoint);
   if (!entry) throw new Error(`Tool not found: ${endpoint}`);
   const exchange = new DefaultExchange(t.ctx, { body, headers });
@@ -39,7 +29,7 @@ describe("mcp() DSL function", () => {
   });
 
   /**
-   * @case mcp() consumer receives invocations through MCP_LOCAL_TOOL_REGISTRY
+   * @case mcp() consumer receives invocations through the MCP service local registry
    * @preconditions One route defines .from(mcp("my-tool", { description })); entry looked up in the local tool registry
    * @expectedResult Handler forwards the body to the route consumer
    */
@@ -54,7 +44,7 @@ describe("mcp() DSL function", () => {
           .from(mcp())
           .to(consumer),
       ])
-      .store(MCP_PLUGIN_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .build();
 
     await t.startAndWaitReady();
@@ -86,7 +76,7 @@ describe("mcp() DSL function", () => {
           .from(simple({ origin: "direct" }))
           .to(direct("shared")),
       ])
-      .store(MCP_PLUGIN_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .build();
 
     await t.startAndWaitReady();
@@ -120,7 +110,7 @@ describe("mcp() DSL function", () => {
           .from(mcp())
           .to(consumer),
       ])
-      .store(MCP_PLUGIN_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .build();
 
     await t.startAndWaitReady();
@@ -148,7 +138,7 @@ describe("mcp() DSL function", () => {
           .from(mcp())
           .to(mock()),
       ])
-      .store(MCP_PLUGIN_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .build();
 
     await t.startAndWaitReady();
@@ -159,7 +149,7 @@ describe("mcp() DSL function", () => {
   });
 
   /**
-   * @case mcp() registers entry in MCP_LOCAL_TOOL_REGISTRY with the full tool shape
+   * @case mcp() registers entry in the MCP service local registry with the full tool shape
    * @preconditions Route uses mcp() with title, description, schema, outputSchema, annotations, and icons
    * @expectedResult Registry contains entry with every tool-shape field
    */
@@ -183,12 +173,11 @@ describe("mcp() DSL function", () => {
           .from(mcp({ annotations: { readOnlyHint: true }, icons }))
           .to(mock()),
       ])
-      .store(MCP_PLUGIN_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .build();
 
     await t.startAndWaitReady();
-    const registry = t.ctx.getStore(MCP_LOCAL_KEY) as
-      Map<string, McpLocalToolEntry> | undefined;
+    const registry = mcpService(t.ctx).local;
     expect(registry).toBeDefined();
     expect(registry?.has("search-tool")).toBe(true);
     const entry = registry?.get("search-tool");
@@ -224,7 +213,7 @@ describe("mcp() DSL function", () => {
           .from(mcp())
           .to(consumer),
       ])
-      .store(MCP_PLUGIN_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .build();
 
     await t.startAndWaitReady();
@@ -281,12 +270,11 @@ describe("mcp() DSL function", () => {
           )
           .to(mock()),
       ])
-      .store(MCP_PLUGIN_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .build();
 
     await t.startAndWaitReady();
-    const registry = t.ctx.getStore(MCP_LOCAL_KEY) as
-      Map<string, McpLocalToolEntry> | undefined;
+    const registry = mcpService(t.ctx).local;
     const entry = registry?.get("list-items");
     expect(entry?.annotations).toEqual({
       readOnlyHint: true,
@@ -310,12 +298,11 @@ describe("mcp() DSL function", () => {
           .from(mcp())
           .to(mock()),
       ])
-      .store(MCP_PLUGIN_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .build();
 
     await t.startAndWaitReady();
-    const registry = t.ctx.getStore(MCP_LOCAL_KEY) as
-      Map<string, McpLocalToolEntry> | undefined;
+    const registry = mcpService(t.ctx).local;
     const entry = registry?.get("plain-tool");
     expect(entry?.annotations).toBeUndefined();
   });
@@ -323,9 +310,9 @@ describe("mcp() DSL function", () => {
   /**
    * @case direct() routes never appear in the MCP local tool registry
    * @preconditions One direct() route and one mcp() route coexist
-   * @expectedResult MCP_LOCAL_TOOL_REGISTRY contains only the mcp() entry; the capability list holds the direct entry
+   * @expectedResult the MCP service local registry contains only the mcp() entry; the capability list holds the direct entry
    */
-  test("direct() routes are absent from MCP_LOCAL_TOOL_REGISTRY", async () => {
+  test("direct() routes are absent from the MCP local registry", async () => {
     t = await testContext()
       .routes([
         craft()
@@ -335,13 +322,12 @@ describe("mcp() DSL function", () => {
           .to(mock()),
         craft().id("internal").from(direct()).to(mock()),
       ])
-      .store(MCP_PLUGIN_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .build();
 
     await t.startAndWaitReady();
 
-    const mcpRegistry = t.ctx.getStore(MCP_LOCAL_KEY) as
-      Map<string, McpLocalToolEntry> | undefined;
+    const mcpRegistry = mcpService(t.ctx).local;
     expect(Array.from(mcpRegistry?.keys() ?? [])).toEqual(["exposed"]);
 
     const endpoints = t.ctx.capabilities().map((c) => c.endpoint);
@@ -360,7 +346,7 @@ describe("mcp() DSL function", () => {
         craft().id("dup-tool").description("First").from(mcp()).to(mock()),
         craft().id("dup-tool").description("Second").from(mcp()).to(mock()),
       ])
-      .store(MCP_PLUGIN_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .build();
     await expect(builder).rejects.toMatchObject({ rc: "RC1002" });
   });
@@ -368,7 +354,7 @@ describe("mcp() DSL function", () => {
   /**
    * @case Aborting an mcp() subscription removes the entry from the registry
    * @preconditions mcp() route is started, then context is stopped
-   * @expectedResult After stop, the entry is gone from MCP_LOCAL_TOOL_REGISTRY
+   * @expectedResult After stop, the entry is gone from the MCP service local registry
    */
   test("aborting mcp() subscription clears the registry entry", async () => {
     t = await testContext()
@@ -379,17 +365,15 @@ describe("mcp() DSL function", () => {
           .from(mcp())
           .to(mock()),
       ])
-      .store(MCP_PLUGIN_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .build();
 
     await t.startAndWaitReady();
-    const before = t.ctx.getStore(MCP_LOCAL_KEY) as
-      Map<string, McpLocalToolEntry> | undefined;
+    const before = mcpService(t.ctx).local;
     expect(before?.has("ephemeral")).toBe(true);
 
     await t.stop();
-    const after = t.ctx.getStore(MCP_LOCAL_KEY) as
-      Map<string, McpLocalToolEntry> | undefined;
+    const after = mcpService(t.ctx).local;
     expect(after?.has("ephemeral")).toBe(false);
   });
 
@@ -433,7 +417,7 @@ describe("mcp() DSL function", () => {
     for (const id of invalid) {
       const ctx = await testContext()
         .routes([craft().id(id).description("invalid").from(mcp()).to(mock())])
-        .store(MCP_PLUGIN_KEY, true)
+        .with({ plugins: [mcpPort()] })
         .build();
       await expect(ctx.startAndWaitReady()).rejects.toMatchObject({
         rc: "RC5003",
@@ -446,11 +430,10 @@ describe("mcp() DSL function", () => {
       .routes([
         craft().id("good_name-1").description("ok").from(mcp()).to(mock()),
       ])
-      .store(MCP_PLUGIN_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .build();
     await okCtx.startAndWaitReady();
-    const registry = okCtx.ctx.getStore(MCP_LOCAL_KEY) as
-      Map<string, McpLocalToolEntry> | undefined;
+    const registry = mcpService(okCtx.ctx).local;
     expect(registry?.has("good_name-1")).toBe(true);
     await okCtx.stop();
   });
@@ -463,7 +446,7 @@ describe("mcp() DSL function", () => {
   test("mcp() source requires a route-level description", async () => {
     const ctx = await testContext()
       .routes([craft().id("missing-desc").from(mcp()).to(mock())])
-      .store(MCP_PLUGIN_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .build();
     await expect(ctx.startAndWaitReady()).rejects.toMatchObject({
       rc: "RC5003",
@@ -480,7 +463,6 @@ describe("dispatchMcpCall: RC5003 error wrapping", () => {
    */
   test("wraps stdio dispatch errors as RC5003 with cause", async () => {
     const { dispatchMcpCall } = await import("../src/mcp/dispatch.ts");
-    const { MCP_STDIO_MANAGERS } = await import("../src/mcp/types.ts");
     const { isRoutecraftError } = await import("@routecraft/routecraft");
     const original = new TypeError("simulated SDK fault");
     const t = await testContext()
@@ -488,8 +470,8 @@ describe("dispatchMcpCall: RC5003 error wrapping", () => {
         plugins: [
           {
             id: "test.mcp-fixture",
+            provides: [MCP],
             bind(c) {
-              const ctx = c.context;
               const managers = new Map<
                 string,
                 import("../src/mcp/types.ts").McpStdioToolCaller
@@ -502,10 +484,7 @@ describe("dispatchMcpCall: RC5003 error wrapping", () => {
                   throw original;
                 },
               });
-              ctx.setStore(
-                MCP_STDIO_MANAGERS as keyof import("@routecraft/routecraft").StoreRegistry,
-                managers,
-              );
+              c.provide(MCP, { ...createMcpService(), stdio: managers });
             },
           },
         ],
@@ -514,7 +493,7 @@ describe("dispatchMcpCall: RC5003 error wrapping", () => {
     try {
       let caught: unknown;
       try {
-        await dispatchMcpCall(t.ctx, "Nuclino", "list_teams", {});
+        await dispatchMcpCall(t.ctx.lookup(MCP), "Nuclino", "list_teams", {});
       } catch (err) {
         caught = err;
       }
@@ -534,7 +513,6 @@ describe("dispatchMcpCall: RC5003 error wrapping", () => {
    */
   test("does not double-wrap an inner RoutecraftError", async () => {
     const { dispatchMcpCall } = await import("../src/mcp/dispatch.ts");
-    const { MCP_STDIO_MANAGERS } = await import("../src/mcp/types.ts");
     const { rcError } = await import("@routecraft/routecraft");
     const original = rcError("RC5021", undefined, {
       message: "userinfo enrichment failed",
@@ -544,8 +522,8 @@ describe("dispatchMcpCall: RC5003 error wrapping", () => {
         plugins: [
           {
             id: "test.mcp-fixture",
+            provides: [MCP],
             bind(c) {
-              const ctx = c.context;
               const managers = new Map<
                 string,
                 import("../src/mcp/types.ts").McpStdioToolCaller
@@ -558,10 +536,7 @@ describe("dispatchMcpCall: RC5003 error wrapping", () => {
                   throw original;
                 },
               });
-              ctx.setStore(
-                MCP_STDIO_MANAGERS as keyof import("@routecraft/routecraft").StoreRegistry,
-                managers,
-              );
+              c.provide(MCP, { ...createMcpService(), stdio: managers });
             },
           },
         ],
@@ -570,7 +545,7 @@ describe("dispatchMcpCall: RC5003 error wrapping", () => {
     try {
       let caught: unknown;
       try {
-        await dispatchMcpCall(t.ctx, "Nuclino", "list_teams", {});
+        await dispatchMcpCall(t.ctx.lookup(MCP), "Nuclino", "list_teams", {});
       } catch (err) {
         caught = err;
       }
@@ -587,24 +562,17 @@ describe("dispatchMcpCall: RC5003 error wrapping", () => {
    */
   test("malformed serverUrl throws RC5003 (URL construction is inside the try)", async () => {
     const { dispatchMcpCall } = await import("../src/mcp/dispatch.ts");
-    const { ADAPTER_MCP_CLIENT_SERVERS } = await import("../src/mcp/types.ts");
     const { isRoutecraftError } = await import("@routecraft/routecraft");
     const t = await testContext()
       .with({
         plugins: [
           {
             id: "test.mcp-fixture",
+            provides: [MCP],
             bind(c) {
-              const ctx = c.context;
-              const servers = new Map<
-                string,
-                { url: string; auth?: undefined }
-              >();
+              const servers: McpService["clients"] = new Map();
               servers.set("bad", { url: "not a url" });
-              ctx.setStore(
-                ADAPTER_MCP_CLIENT_SERVERS as keyof import("@routecraft/routecraft").StoreRegistry,
-                servers,
-              );
+              c.provide(MCP, { ...createMcpService(), clients: servers });
             },
           },
         ],
@@ -613,7 +581,7 @@ describe("dispatchMcpCall: RC5003 error wrapping", () => {
     try {
       let caught: unknown;
       try {
-        await dispatchMcpCall(t.ctx, "bad", "anything", {});
+        await dispatchMcpCall(t.ctx.lookup(MCP), "bad", "anything", {});
       } catch (err) {
         caught = err;
       }

@@ -422,3 +422,214 @@ describe("the kernel host", () => {
     expect(String(error)).toContain("bind(c)");
   });
 });
+
+/**
+ * A plugin may bring others along (`installs`), and a contribution may be
+ * installed several times (`repeatable`). Together they let a feature be one
+ * runtime fed by any number of contributions, with the application listing
+ * only the contributions.
+ */
+describe("the kernel host: installs and repeatable", () => {
+  let t: TestContext | undefined;
+
+  afterEach(async () => {
+    if (t) await t.stop();
+    t = undefined;
+  });
+
+  /** A runtime providing STORE, recording when it binds. */
+  function runtime(order: string[], kind = "brought"): Plugin {
+    return definePlugin({
+      id: "test.runtime",
+      provides: [STORE],
+      bind(c) {
+        order.push(`runtime:${kind}`);
+        c.provide(STORE, { kind });
+      },
+    });
+  }
+
+  /**
+   * @case A plugin brings along the provider it requires
+   * @preconditions "test.consumer" requires STORE and installs the runtime that provides it; only the consumer is listed
+   * @expectedResult The runtime is installed and binds first; the consumer reads its value
+   */
+  test("installs what a plugin brings along", async () => {
+    const order: string[] = [];
+    let seen: Store | undefined;
+    t = await testContext()
+      .with({
+        plugins: [
+          definePlugin({
+            id: "test.consumer",
+            requires: [STORE],
+            installs: [runtime(order)],
+            bind(c) {
+              order.push("consumer");
+              seen = c.require(STORE);
+            },
+          }),
+        ],
+      })
+      .build();
+    expect(order).toEqual(["runtime:brought", "consumer"]);
+    expect(seen).toEqual({ kind: "brought" });
+  });
+
+  /**
+   * @case Several plugins bring the same id
+   * @preconditions Two consumers each installing a fresh runtime descriptor with the id "test.runtime"
+   * @expectedResult One runtime binds, the first brought; no RC1101 for the brought copies
+   */
+  test("installs a brought id once", async () => {
+    const order: string[] = [];
+    const consumer = (id: string, kind: string): Plugin =>
+      definePlugin({
+        id,
+        requires: [STORE],
+        installs: [runtime(order, kind)],
+      });
+    t = await testContext()
+      .with({
+        plugins: [consumer("test.a", "first"), consumer("test.b", "second")],
+      })
+      .build();
+    expect(order).toEqual(["runtime:first"]);
+    expect(t.ctx.require(STORE)).toEqual({ kind: "first" });
+  });
+
+  /**
+   * @case The application lists a plugin with the id another one brings
+   * @preconditions A consumer installing a runtime, and the application listing its own runtime with the same id after it
+   * @expectedResult The application's runtime is the one installed; the brought copy never binds
+   */
+  test("prefers the application's own plugin to a brought one", async () => {
+    const order: string[] = [];
+    t = await testContext()
+      .with({
+        plugins: [
+          definePlugin({
+            id: "test.consumer",
+            requires: [STORE],
+            installs: [runtime(order, "brought")],
+          }),
+          runtime(order, "listed"),
+        ],
+      })
+      .build();
+    expect(order).toEqual(["runtime:listed"]);
+    expect(t.ctx.require(STORE)).toEqual({ kind: "listed" });
+  });
+
+  /**
+   * @case A brought plugin is not a plugin
+   * @preconditions A plugin whose installs holds a string
+   * @expectedResult RC9901 naming the plugin that brought it
+   */
+  test("refuses a malformed brought plugin", async () => {
+    const error = await refusal([
+      definePlugin({
+        id: "test.bringer",
+        installs: ["not a plugin" as unknown as Plugin],
+      }),
+    ]);
+    expect(error).toMatchObject({ rc: "RC9901" });
+    expect(String(error)).toContain('installed by "test.bringer"');
+  });
+
+  /**
+   * @case A repeatable plugin is installed three times
+   * @preconditions Three installs of one repeatable contribution, each requiring STORE, beside its provider
+   * @expectedResult All three bind in list order under the ids id#1, id#2, id#3, and the lifecycle events carry those ids
+   */
+  test("numbers the installs of a repeatable plugin", async () => {
+    const order: string[] = [];
+    const bound: string[] = [];
+    const contribution = (n: number): Plugin =>
+      definePlugin({
+        id: "test.contribution",
+        repeatable: true,
+        requires: [STORE],
+        installs: [runtime(order)],
+        bind(c) {
+          order.push(`${c.id}:${n}`);
+        },
+      });
+    t = await testContext()
+      .with({
+        on: {
+          "plugin:bound": ({ details }) => {
+            const { pluginId } = details as { pluginId: string };
+            if (pluginId.startsWith("test.")) bound.push(pluginId);
+          },
+        },
+        plugins: [contribution(1), contribution(2), contribution(3)],
+      })
+      .build();
+    expect(order).toEqual([
+      "runtime:brought",
+      "test.contribution#1:1",
+      "test.contribution#2:2",
+      "test.contribution#3:3",
+    ]);
+    expect(bound).toEqual([
+      "test.runtime",
+      "test.contribution#1",
+      "test.contribution#2",
+      "test.contribution#3",
+    ]);
+  });
+
+  /**
+   * @case One id installed both repeatable and as a single plugin
+   * @preconditions A repeatable "test.mixed" and a plain "test.mixed"
+   * @expectedResult RC1101 naming the id
+   */
+  test("refuses an id installed both repeatable and single", async () => {
+    const error = await refusal([
+      definePlugin({ id: "test.mixed", repeatable: true }),
+      definePlugin({ id: "test.mixed" }),
+    ]);
+    expect(error).toMatchObject({ rc: "RC1101" });
+    expect(String(error)).toContain("test.mixed");
+  });
+
+  /**
+   * @case A repeatable plugin declares what every install would declare again
+   * @preconditions A repeatable plugin that provides a port
+   * @expectedResult RC9901 naming provides, before anything binds
+   */
+  test("refuses a repeatable plugin that provides", async () => {
+    const error = await refusal([
+      definePlugin({ id: "test.greedy", repeatable: true, provides: [STORE] }),
+    ]);
+    expect(error).toMatchObject({ rc: "RC9901" });
+    expect(String(error)).toContain("provides");
+  });
+
+  /**
+   * @case A plugin resumes a parked exchange through execution
+   * @preconditions No deferral plugin installed, and a plugin calling c.execution.resume in start
+   * @expectedResult The resume rejects with RC5052, the same refusal the kernel's resume gives every caller without continuations
+   */
+  test("resumes through execution with the kernel's refusals", async () => {
+    let refused: unknown;
+    t = await testContext()
+      .with({
+        plugins: [
+          definePlugin({
+            id: "test.resumer",
+            async start(c) {
+              refused = await c.execution
+                .resume({ token: "nope", result: undefined })
+                .catch((error: unknown) => error);
+            },
+          }),
+        ],
+      })
+      .routes([craft().id("idle").from(direct()).to(noop())])
+      .build();
+    await t.startAndWaitReady();
+    expect(refused).toMatchObject({ rc: "RC5052" });
+  });
+});

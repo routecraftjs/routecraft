@@ -67,7 +67,7 @@ interface ConnectionRecord {
 /**
  * The ACP HTTP surface for one context.
  *
- * Built in the plugin's `apply()` so a misconfiguration fails the context
+ * Built in the plugin's `bind()` so a misconfiguration fails the context
  * build, and mounted before any listener binds, exactly as the MCP server
  * does it.
  */
@@ -152,7 +152,7 @@ export class AcpServer {
           cors !== null &&
           corsHeaders["Access-Control-Allow-Origin"] === undefined
         ) {
-          this.context.logger.debug(
+          this.runtime.plugin.logger.debug(
             { origin, source: "acp" },
             "ACP request refused: origin is not allowed by this mount's CORS policy",
           );
@@ -177,7 +177,7 @@ export class AcpServer {
         const auth = await mountContext.authenticate();
         const refusal = refuseBearer(auth, mountContext.auth, {
           source: "acp",
-          context: this.context,
+          context: this.runtime.plugin,
           corsHeaders,
           // `bearerChallenge` is what appends the RFC 9728 `resource_metadata`
           // URL the CLI follows to name the issuer and the scope a caller is
@@ -199,7 +199,7 @@ export class AcpServer {
             record !== undefined &&
             record.owner !== (principal?.subject ?? null)
           ) {
-            this.context.logger.warn(
+            this.runtime.plugin.logger.warn(
               { connectionId: existing, source: "acp" },
               "ACP request presented a credential for another connection's owner",
             );

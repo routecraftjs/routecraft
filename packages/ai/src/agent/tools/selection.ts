@@ -1,19 +1,18 @@
 import { rcError, type CraftContext, type Tag } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { wrapJsonSchemaAsStandard } from "../../llm/structured-output.ts";
-import { ADAPTER_FN_REGISTRY } from "../../fn/store.ts";
 import type { FnOptions, ToolGuard } from "../../fn/types.ts";
 import { dispatchMcpCall } from "../../mcp/dispatch.ts";
-import {
-  MCP_TOOL_REGISTRY,
-  type McpToolRegistryEntry,
-} from "../../mcp/types.ts";
+import { MCP } from "../../mcp/port.ts";
+import type { McpToolRegistryEntry } from "../../mcp/types.ts";
 import type { McpToolRegistry } from "../../mcp/tool-registry.ts";
+import { AGENTS } from "../port.ts";
 import { directTool } from "./builders.ts";
 import {
   isBackgroundFn,
   isLazyFn,
   resolveFnOptions,
+  toolHostOf,
   type FnEntry,
 } from "./types.ts";
 import {
@@ -113,7 +112,7 @@ export type { ToolGuard } from "../../fn/types.ts";
  *   expands to every route imported from that remote;
  *   `MCP(server:tool)` / `MCP(server)` and the raw `mcp__server__tool`
  *   / `mcp__server` / `mcp__server__*` forms resolve against
- *   `MCP_TOOL_REGISTRY` (populated by `defineConfig.mcp` /
+ *   the MCP plugin's tool registry (populated by `defineConfig.mcp` /
  *   `mcpPlugin({ clients })`).
  * - `{ name, guard?, description? }`: same lookup, with optional
  *   per-binding overrides. The `description` override applies only to
@@ -283,7 +282,7 @@ export function isToolSelection(value: unknown): value is ToolSelection {
  *   LLM-facing tool name becomes `direct__<routeId>`).
  *   `MCP(server:tool)` / `MCP(server)` and the raw `mcp__server__tool`
  *   / `mcp__server` / `mcp__server__*` forms resolve against
- *   `MCP_TOOL_REGISTRY`.
+ *   the MCP plugin's tool registry.
  *
  * Two grammars, deliberately distinct. `Direct(<routeId>)` and
  * `MCP(server:tool)` are what a developer writes, here and in markdown
@@ -426,8 +425,7 @@ export function tools(arg: ToolsItem[] | ToolsBuilder): ToolSelection {
  */
 function buildCatalog(ctx: CraftContext): ToolsCatalog {
   const fns: ToolsCatalog["fns"][number][] = [];
-  const fnRegistry = ctx.getStore(ADAPTER_FN_REGISTRY) as
-    Map<string, FnEntry> | undefined;
+  const fnRegistry = ctx.lookup(AGENTS)?.functions;
   if (fnRegistry) {
     for (const [name, entry] of fnRegistry) {
       // Resolve before reading. A deferred entry read raw carries no
@@ -436,7 +434,7 @@ function buildCatalog(ctx: CraftContext): ToolsCatalog {
       // Every deferred entry resolved during the plugin's start(), so
       // this reads the memoized result; one that could not resolve
       // failed the boot rather than reaching here.
-      const declared = resolveFnOptions(ctx, name, entry);
+      const declared = declaredFn(ctx, name, entry);
       const tags =
         declared.tags && declared.tags.length > 0
           ? Object.freeze([...declared.tags])
@@ -471,7 +469,7 @@ function buildCatalog(ctx: CraftContext): ToolsCatalog {
   }
 
   const mcp: ToolsCatalog["mcp"][number][] = [];
-  const mcpRegistry = ctx.getStore(MCP_TOOL_REGISTRY);
+  const mcpRegistry = ctx.lookup(MCP)?.tools;
   if (mcpRegistry) {
     for (const entry of mcpRegistry.getTools()) {
       const tags =
@@ -528,8 +526,7 @@ function runBuilder(builder: ToolsBuilder, catalog: ToolsCatalog): ToolsItem[] {
  * @internal
  */
 function fnRegistryHas(ctx: CraftContext, name: string): boolean {
-  const fnRegistry = ctx.getStore(ADAPTER_FN_REGISTRY) as
-    Map<string, FnEntry> | undefined;
+  const fnRegistry = ctx.lookup(AGENTS)?.functions;
   return fnRegistry?.has(name) ?? false;
 }
 
@@ -543,8 +540,7 @@ function resolveByName(
       message: `tools(): tool name must be a non-empty string.`,
     });
   }
-  const fnRegistry = ctx.getStore(ADAPTER_FN_REGISTRY) as
-    Map<string, FnEntry> | undefined;
+  const fnRegistry = ctx.lookup(AGENTS)?.functions;
   const fnEntry = fnRegistry?.get(name);
   if (fnEntry) {
     return resolveFnEntry(ctx, name, fnEntry, guard);
@@ -630,7 +626,7 @@ function resolveDirect(
       : `${DIRECT_TOOL_PREFIX}${routeId}`;
   assertValidDirectToolName(ref, routeId, toolName);
   const wrapper = directTool(routeId);
-  const fn = wrapper.resolve(ctx, toolName);
+  const fn = wrapper.resolve(toolHostOf(ctx), toolName);
   return toResolvedTool(toolName, fn, guard, directSource(routeId, remote));
 }
 
@@ -725,7 +721,10 @@ function resolveRemoteRefs(
       }
       continue;
     }
-    const fn = directTool(capability.endpoint).resolve(ctx, toolName);
+    const fn = directTool(capability.endpoint).resolve(
+      toolHostOf(ctx),
+      toolName,
+    );
     out.push(
       toResolvedTool(
         toolName,
@@ -757,6 +756,20 @@ function record(out: Map<string, ResolvedTool>, tool: ResolvedTool): void {
   });
 }
 
+/** A registered fn's declared shape, through the registry's resolution memo. */
+function declaredFn(
+  ctx: CraftContext,
+  name: string,
+  entry: FnEntry,
+): FnOptions {
+  return resolveFnOptions(
+    toolHostOf(ctx),
+    name,
+    entry,
+    ctx.lookup(AGENTS)?.resolvedFunctions ?? new Map<string, FnOptions>(),
+  );
+}
+
 function resolveFnEntry(
   ctx: CraftContext,
   name: string,
@@ -764,7 +777,7 @@ function resolveFnEntry(
   guard: ToolGuard | undefined,
 ): ResolvedTool {
   if (isLazyFn(entry)) {
-    const fn = resolveFnOptions(ctx, name, entry);
+    const fn = declaredFn(ctx, name, entry);
     // Derived from `entry.kind`, never asserted. `isLazyFn` is a
     // brand check only, so hardcoding "direct" here would silently
     // classify a future deferred kind (a sub-agent tool is the named
@@ -906,10 +919,10 @@ function resolveMcpRefs(
   guard: ToolGuard | undefined,
 ): ResolvedTool[] {
   const { clientName, toolName } = parseMcpRef(ref);
-  const registry = ctx.getStore(MCP_TOOL_REGISTRY);
+  const registry = ctx.lookup(MCP)?.tools;
   if (!registry) {
     throw rcError("RC5003", undefined, {
-      message: `tools(): MCP reference "${ref}" but no MCP_TOOL_REGISTRY is present. Install mcpPlugin (defineConfig.mcp) so external clients populate the registry.`,
+      message: `tools(): MCP reference "${ref}" but no MCP plugin is installed. Install mcpPlugin (defineConfig.mcp) so external clients populate the registry.`,
     });
   }
   const clientTools = registry.getToolsByServer(clientName);
@@ -1062,7 +1075,7 @@ function mcpEntryToResolvedTool(
       });
     }
     const args = rawInput as Record<string, unknown>;
-    return dispatchMcpCall(ctx, entry.source, entry.name, args);
+    return dispatchMcpCall(ctx.lookup(MCP), entry.source, entry.name, args);
   };
   const tool: ResolvedTool = {
     name,
@@ -1094,9 +1107,7 @@ function listKnownMcpClients(registry: McpToolRegistry): string[] {
 }
 
 function listKnownNames(ctx: CraftContext): string[] {
-  const fnNames = [
-    ...(ctx.getStore(ADAPTER_FN_REGISTRY) ?? new Map<string, FnEntry>()).keys(),
-  ];
+  const fnNames = [...(ctx.lookup(AGENTS)?.functions.keys() ?? [])];
   const capabilities = ctx.capabilities();
   const routeNames = capabilities.map((c) => `Direct(${c.endpoint})`);
   const remoteNames = [

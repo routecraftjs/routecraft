@@ -29,15 +29,10 @@ import {
   Client,
   StreamableHTTPClientTransport,
 } from "@modelcontextprotocol/client";
-import { McpServer } from "../src/mcp/server.ts";
-import {
-  MCP_LOCAL_TOOL_REGISTRY,
-  MCP_PLUGIN_REGISTERED,
-} from "../src/mcp/types.ts";
+import type { McpServer } from "../src/mcp/server.ts";
+import { mcpPort, mcpServerFor, mcpService } from "./helpers/mcp-port.ts";
+import {} from "../src/mcp/types.ts";
 import { mcp } from "../src/index.ts";
-
-const MCP_STORE_KEY =
-  MCP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry;
 
 describe("MCP structured output (#574)", () => {
   let t: TestContext | undefined;
@@ -63,11 +58,11 @@ describe("MCP structured output (#574)", () => {
     config: CraftConfig = {},
   ): Promise<Client> {
     t = await testContext()
-      .store(MCP_STORE_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .with({ ...config, servers: { default: { host: "127.0.0.1", port: 0 } } })
       .routes(routes)
       .build();
-    server = new McpServer(t.ctx, { transport: "http" });
+    server = mcpServerFor(t.ctx, { transport: "http" });
     await server.prepare();
     await t.startAndWaitReady();
     await server.start();
@@ -235,7 +230,7 @@ describe("MCP structured output (#574)", () => {
    */
   test("the result carries the schema it was produced under", async () => {
     t = await testContext()
-      .store(MCP_STORE_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .with(deferring())
       .routes([
         craft()
@@ -248,7 +243,7 @@ describe("MCP structured output (#574)", () => {
       ])
       .build();
     await t.startAndWaitReady();
-    server = new McpServer(t.ctx);
+    server = mcpServerFor(t.ctx);
 
     const testable = server as unknown as {
       handleToolCall(
@@ -268,10 +263,7 @@ describe("MCP structured output (#574)", () => {
     const carried = result.advertisedOutputSchema;
     expect(Array.isArray(carried?.["oneOf"])).toBe(true);
 
-    const registry = t.ctx.getStore(
-      MCP_LOCAL_TOOL_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry,
-    ) as Map<string, unknown> | undefined;
-    registry?.delete("approve-payout");
+    mcpService(t.ctx).local.delete("approve-payout");
 
     expect(result.advertisedOutputSchema).toBe(carried);
     expect(Array.isArray(result.advertisedOutputSchema?.["oneOf"])).toBe(true);

@@ -1,8 +1,7 @@
 import {
-  OPS_RESOURCES,
+  CONTINUATIONS,
   parsePageQuery,
   rcCodeOf,
-  rcError,
   registerOpsResource,
   type CraftContext,
   type Plugin,
@@ -14,33 +13,22 @@ import type {
   AgentSessionScope,
   AgentSessionSummary,
 } from "./session/types.ts";
-import { validateAgentOptions, validateBlocks } from "./agent.ts";
-import { validateAdvertisedChoices } from "./advertised.ts";
+import { defaultSessionsPlugin } from "./session/config.ts";
+import { SESSION_STORE } from "./session/port.ts";
+import { AGENTS, type AgentContribution } from "./port.ts";
 import {
-  ADAPTER_AGENT_DEFAULT_OPTIONS,
-  ADAPTER_AGENT_REGISTRY,
-  ADAPTER_AGENT_SESSION_STORE,
-  ADAPTER_AGENT_SESSIONS_BOOT,
-  ADAPTER_AGENT_TOOL_POLICIES,
-  AGENT_DEFAULT_OPTION_KEYS,
-} from "./store.ts";
-import { createSessionStore, stopSessions } from "./session/config.ts";
-import { AGENT_TOOL_POLICY_KINDS } from "./tools/policy.ts";
-import type {
-  AgentToolPolicy,
-  AgentToolPolicyKind,
-  AgentToolRule,
-} from "./tools/policy.ts";
-import { validateFnOptions } from "../fn/fn.ts";
-import { ADAPTER_FN_REGISTRY } from "../fn/store.ts";
-import { parseProviderModel } from "../llm/shared.ts";
+  AgentRegistryImpl,
+  validatePluginDefaults,
+  validateToolPolicy,
+} from "./registry.ts";
+import type { AgentToolPolicy } from "./tools/policy.ts";
 import type { AgentDefaultOptions, AgentRegisteredOptions } from "./types.ts";
-import { isLazyFn, resolveFnOptions, type FnEntry } from "./tools/types.ts";
-import { isToolSelection } from "./tools/selection.ts";
 import {
-  describeToolNameViolation,
-  TOOL_NAME_PATTERN_SOURCE,
-} from "../tool-name.ts";
+  isLazyFn,
+  resolveFnOptions,
+  type FnEntry,
+  type ToolHost,
+} from "./tools/types.ts";
 
 export interface AgentPluginOptions {
   /**
@@ -113,46 +101,17 @@ export interface AgentPluginOptions {
   toolPolicy?: AgentToolPolicy;
 }
 
-function validateRegisteredAgent(
-  id: string,
-  options: AgentRegisteredOptions,
-): void {
-  if (
-    typeof options.description !== "string" ||
-    options.description.trim() === ""
-  ) {
-    throw rcError("RC5003", undefined, {
-      message:
-        `agentPlugin: agent "${id}" is missing a non-empty "description". ` +
-        `Registered agents carry their own description because they are not ` +
-        `backed by a route.`,
-    });
-  }
-  // A registered agent is reached through `agent("id")`, whose overloads
-  // declare `AgentResult`: there is no literal in the options object for the
-  // widening overload to see. Accepting `stream` here would type every
-  // by-name call as the consolidated result while the dispatch handed back
-  // an iterable. It is also the wrong home for the option, because whether a
-  // route's output is a stream belongs to that route, not to a definition
-  // shared across every caller.
-  if (options.stream !== undefined) {
-    throw rcError("RC5003", undefined, {
-      message:
-        `agentPlugin: agent "${id}" sets "stream", which is a call-site decision rather than a registered one. ` +
-        `Use agent({ ...options, stream: true }) inline on the route that streams.`,
-    });
-  }
-  validateAgentOptions(options);
-  validateAdvertisedChoices(`agentPlugin: agent "${id}"`, options);
-}
-
 /**
- * Agent plugin: registers agents and functions in the context store so
+ * Agent plugin: contributes agents and functions to the application, so
  * routes can reference agents by name via `agent("id")` and so fns are
  * available to tool-using agents (the agent tool loop dispatches them
- * directly; there is no public dispatch API). Throws on duplicate id
- * (within agents, within fns, or across multiple plugin installs) at
- * context init.
+ * directly; there is no public dispatch API).
+ *
+ * Install it as often as the application needs: every install is one
+ * contribution to the agent runtime, which each install brings along and
+ * the application gets once. Contributions compose. A duplicate agent or
+ * fn id, or a default set by two installs, fails the build; tool policies
+ * from several installs all apply.
  *
  * @example
  * ```typescript
@@ -177,174 +136,163 @@ function validateRegisteredAgent(
  * });
  * ```
  */
-/**
- * Installs composed by one application each need their own id; the first is
- * `routecraft.ai.agent`, later ones are numbered in creation order.
- */
-let agentInstalls = 0;
-
 export function agentPlugin(options: AgentPluginOptions = {}): Plugin {
-  agentInstalls += 1;
-  const id =
-    agentInstalls === 1
-      ? "routecraft.ai.agent"
-      : `routecraft.ai.agent-${agentInstalls}`;
-  const agents = options.agents ?? {};
-  const functions = options.functions ?? {};
   const defaultOptions = validatePluginDefaults(options.defaultOptions);
   const toolPolicy = validateToolPolicy(options.toolPolicy);
+  const contribution: AgentContribution = {
+    ...(options.agents !== undefined ? { agents: options.agents } : {}),
+    ...(options.functions !== undefined
+      ? { functions: options.functions }
+      : {}),
+    ...(defaultOptions !== undefined ? { defaultOptions } : {}),
+    ...(toolPolicy !== undefined ? { toolPolicy } : {}),
+  };
   return {
-    id,
-    async bind(c: PluginContext) {
-      const ctx = c.context;
-      // Merge into an existing registry when present so multiple
-      // `agentPlugin({...})` entries compose instead of overwriting.
-      const existingAgents = ctx.getStore(ADAPTER_AGENT_REGISTRY);
-      const agentMap =
-        existingAgents ?? new Map<string, AgentRegisteredOptions>();
-      for (const [id, entry] of Object.entries(agents)) {
-        if (id.trim() === "") {
-          throw rcError("RC5003", undefined, {
-            message: `agentPlugin: agent id must be a non-empty string.`,
-          });
-        }
-        if (entry === null || typeof entry !== "object") {
-          throw rcError("RC5003", undefined, {
-            message: `agentPlugin: agent "${id}" entry must be an object with description, model, and system.`,
-          });
-        }
-        if (entry.tools !== undefined && !isToolSelection(entry.tools)) {
-          throw rcError("RC5003", undefined, {
-            message: `agentPlugin: agent "${id}" "tools" must be the result of tools([...]).`,
-          });
-        }
-        validateRegisteredAgent(id, entry);
-        if (agentMap.has(id)) {
-          throw rcError("RC5003", undefined, {
-            message: `agentPlugin: duplicate agent id "${id}". Each agent id must be unique within a context.`,
-          });
-        }
-        agentMap.set(id, entry);
-      }
-      if (!existingAgents) {
-        ctx.setStore(ADAPTER_AGENT_REGISTRY, agentMap);
-      }
-
-      const existingFns = ctx.getStore(ADAPTER_FN_REGISTRY);
-      const fnMap = existingFns ?? new Map<string, FnEntry>();
-      for (const [id, entry] of Object.entries(functions)) {
-        if (id.trim() === "") {
-          throw rcError("RC5003", undefined, {
-            message: `agentPlugin: fn id must be a non-empty string.`,
-          });
-        }
-        // A fn id IS the tool name the model sees, with no prefix and no
-        // encoding in between, so the provider charset applies to it
-        // directly. Checking at registration turns what was an opaque
-        // provider-side rejection on the first dispatch into a startup
-        // error naming the offending id.
-        const idViolation = describeToolNameViolation(id);
-        if (idViolation !== undefined) {
-          throw rcError("RC5003", undefined, {
-            message: `agentPlugin: fn id "${id}" is not usable as a tool name: ${idViolation}.`,
-            suggestion: `A fn id reaches the model provider verbatim as the tool name, so it must match ${TOOL_NAME_PATTERN_SOURCE}. Rename the fn.`,
-          });
-        }
-        if (entry === null || typeof entry !== "object") {
-          throw rcError("RC5003", undefined, {
-            message: `agentPlugin: fn "${id}" entry must be an object with description, input, and handler.`,
-          });
-        }
-        if (!isLazyFn(entry)) {
-          validateFnOptions(id, entry);
-        }
-        if (fnMap.has(id)) {
-          throw rcError("RC5003", undefined, {
-            message: `agentPlugin: duplicate fn id "${id}". Each fn id must be unique within a context.`,
-          });
-        }
-        fnMap.set(id, entry);
-      }
-      if (!existingFns) {
-        ctx.setStore(ADAPTER_FN_REGISTRY, fnMap);
-      }
-
-      if (defaultOptions !== undefined) {
-        const existing = ctx.getStore(ADAPTER_AGENT_DEFAULT_OPTIONS);
-        const merged = mergePluginDefaults(existing, defaultOptions);
-        ctx.setStore(ADAPTER_AGENT_DEFAULT_OPTIONS, merged);
-      }
-
-      if (toolPolicy !== undefined) {
-        // Appended, never merged. Policies compose with AND at
-        // evaluation time, so two installs that disagree narrow rather
-        // than conflict, and neither needs to know about the other.
-        const existingPolicies = ctx.getStore(ADAPTER_AGENT_TOOL_POLICIES);
-        if (existingPolicies) {
-          existingPolicies.push(toolPolicy);
-        } else {
-          ctx.setStore(ADAPTER_AGENT_TOOL_POLICIES, [toolPolicy]);
-        }
-      }
-
-      // Once per context, whichever install applies first: the resource
-      // reads the shared session runtime, so a second install has nothing
-      // more to contribute and would collide on the name.
-      if (ctx.getStore(OPS_RESOURCES)?.has(SESSIONS_RESOURCE) !== true) {
-        registerSessionsResource(ctx);
-      }
-
-      // The default session store, unless a `sessions` block chose one (or
-      // will: its plugin replaces an unconfigured default whichever applied
-      // first). Resolved here so the driver is probed at boot.
-      if (ctx.getStore(ADAPTER_AGENT_SESSION_STORE) === undefined) {
-        ctx.setStore(
-          ADAPTER_AGENT_SESSION_STORE,
-          await createSessionStore(ctx, {}, false),
-        );
-      }
-    },
-
-    /**
-     * Resolve every deferred tool, then announce what this install
-     * registered.
-     *
-     * Both belong in `start()` rather than in an event handler. A direct
-     * route registers its capability when its source subscribes, and core
-     * emits `context:started` BEFORE routes start (see its own note on
-     * `CraftContext.start`), so a deferred entry genuinely cannot resolve
-     * at that moment. `start()` runs after `routes.ready`, which is the
-     * first point where every registry a `directTool` depends on is live.
-     *
-     * It is also the only one of the two with failure semantics: a throw
-     * here fails `context.start()` and unwinds cleanly, where a throw
-     * inside a `once()` handler has no such contract.
-     */
-    start(c: PluginContext) {
-      const ctx = c.context;
-      resolveLazyTools(ctx, functions);
-      emitRegistrations(ctx, agents, functions);
-      driveSessionsAtBoot(ctx);
-    },
-
-    /**
-     * A boot drive still walking the store at shutdown would revive
-     * sessions onto routes that are draining and write the store after
-     * the context let go of it; it is told to stop and waited for.
-     */
-    async stop(c: PluginContext) {
-      const ctx = c.context;
-      await boots.get(ctx);
-      boots.delete(ctx);
-      // After the boot walk, so a revival the walk was starting when the
-      // stop landed is in the set the runtime waits for.
-      await stopSessions(ctx);
+    id: "routecraft.ai.agent.contribution",
+    namespace: "agent-contribution",
+    repeatable: true,
+    requires: [AGENTS],
+    installs: [agentRuntimePlugin()],
+    bind(c: PluginContext) {
+      c.require(AGENTS).contribute(contribution);
     },
   };
 }
 
-/** The boot drive per context, for teardown to wait on. */
-const boots = new WeakMap<CraftContext, Promise<void>>();
+/** What the runtime holds for one application. */
+interface AgentRun {
+  readonly registry: AgentRegistryImpl;
+  readonly tools: ToolHost;
+  boot?: Promise<void> | undefined;
+}
+
+/**
+ * The agent runtime: provides the {@link AGENTS} registry every
+ * `agentPlugin()` contributes to, owns the session runtime the agents hold
+ * their conversations in, and brings along the default sessions plugin a
+ * `sessions` block replaces. Brought along by every `agentPlugin()`, so an
+ * application never lists it.
+ *
+ * @internal
+ */
+export function agentRuntimePlugin(): Plugin {
+  // Keyed by the plugin context: one descriptor can serve two applications
+  // in one process (a config reused across tests).
+  const runs = new WeakMap<PluginContext, AgentRun>();
+  return {
+    id: "routecraft.ai.agent",
+    provides: [AGENTS],
+    requires: [SESSION_STORE],
+    optional: [CONTINUATIONS],
+    installs: [defaultSessionsPlugin()],
+    bind(c: PluginContext) {
+      const store = c.require(SESSION_STORE);
+      const registry: AgentRegistryImpl = new AgentRegistryImpl(() => {
+        const runtime = AgentSessionRuntime.create(
+          {
+            logger: c.logger,
+            emit: (event, details) => c.emit(event, details),
+            continuations: () => c.lookup(CONTINUATIONS),
+            resume: (request) => c.execution.resume(request),
+            agent: (name) => registry.agents.get(name),
+          },
+          store,
+        );
+        // Latched as shutdown begins, before the routes drain, so a
+        // completion or a post landing during the drain starts no turn on
+        // it; closing the store awaits the same stop() for the revivals.
+        c.observe("context:stopping", () => {
+          void runtime.stop();
+        });
+        return runtime;
+      });
+      const tools: ToolHost = {
+        logger: c.logger,
+        capabilities: () => c.execution.capabilities(),
+        hasRoute: (routeId) => c.routes.get(routeId) !== undefined,
+        deliver: (endpoint, body, headers) =>
+          c.execution.deliver(endpoint, body, headers),
+        sessions: () => registry.sessions(),
+      };
+      runs.set(c, { registry, tools });
+      c.provide(AGENTS, registry);
+      const context = c.context;
+      registerSessionsResource(context);
+    },
+
+    /**
+     * Seal the registry, resolve every deferred tool, announce what was
+     * registered, and drive what the previous process left in sessions.
+     *
+     * Resolution belongs in `start()` rather than in an event handler. A
+     * direct route registers its capability when its source subscribes,
+     * and core emits `context:started` BEFORE routes start, so a deferred
+     * entry genuinely cannot resolve at that moment. `start()` runs after
+     * `routes.ready`, the first point where every registry a `directTool`
+     * depends on is live, and a throw here fails `context.start()` and
+     * unwinds cleanly, where a throw inside an event handler has no such
+     * contract.
+     */
+    start(c: PluginContext) {
+      const run = runs.get(c);
+      if (!run) return;
+      run.registry.seal();
+      resolveLazyTools(run);
+      emitRegistrations(c, run);
+      run.boot = driveSessionsAtBoot(c, run.registry);
+    },
+
+    /**
+     * A boot drive still walking the store at shutdown would revive
+     * sessions onto routes that are draining and write the store after the
+     * application let go of it, so it is waited for. The session runtime
+     * itself stops when the sessions plugin closes the store it is retained
+     * on, which happens after this, in reverse install order.
+     */
+    async stop(c: PluginContext) {
+      const run = runs.get(c);
+      runs.delete(c);
+      await run?.boot;
+    },
+  };
+}
+
+/**
+ * What a previous process left in sessions is driven from here, after the
+ * routes are live: background calls it was waiting on become lost results
+ * and the stored continuations they were for are revived, so a lost build
+ * reaches the model as a turn rather than waiting for a message. Begun and
+ * returned rather than awaited, because it reads every session the store
+ * holds; an application with no continuations store has nothing to drive.
+ */
+function driveSessionsAtBoot(
+  c: PluginContext,
+  registry: AgentRegistryImpl,
+): Promise<void> | undefined {
+  let runtime: AgentSessionRuntime;
+  try {
+    runtime = registry.sessions();
+  } catch (err) {
+    if (rcCodeOf(err) === "RC5052") return undefined;
+    throw err;
+  }
+  return runtime.driveBoot().then(
+    ({ revived, lostBackground }) => {
+      if (revived > 0 || lostBackground > 0) {
+        c.logger.info(
+          { revived, lostBackground },
+          "Agent sessions left by the previous process were driven",
+        );
+      }
+    },
+    (err: unknown) => {
+      c.logger.error(
+        { err },
+        "Agent sessions left by the previous process could not be driven; each is restored by its next message instead",
+      );
+    },
+  );
+}
 
 /**
  * The `agent-sessions` management resource: every named session the
@@ -373,45 +321,6 @@ const SESSIONS_RESOURCE = "agent-sessions";
  * "who owns this session and where is it bound" an answerable question.
  */
 const OPS_SCOPE: AgentSessionScope = "operator";
-
-/**
- * What a previous process left in sessions is driven from here, after
- * the routes are live: background calls it was waiting on become lost
- * results and the stored continuations they were for are revived, so a
- * lost build reaches the model as a turn rather than waiting for a
- * message. Begun and returned rather than awaited, because it reads every
- * session the store holds; a context with no deferral store has nothing
- * to drive. Once per context, keyed on the first install like the
- * resource registration.
- */
-function driveSessionsAtBoot(ctx: CraftContext): void {
-  if (ctx.getStore(ADAPTER_AGENT_SESSIONS_BOOT) === true) return;
-  ctx.setStore(ADAPTER_AGENT_SESSIONS_BOOT, true);
-  let runtime: AgentSessionRuntime;
-  try {
-    runtime = AgentSessionRuntime.for(ctx);
-  } catch (err) {
-    if (rcCodeOf(err) === "RC5052") return;
-    throw err;
-  }
-  const drive = runtime.driveBoot().then(
-    ({ revived, lostBackground }) => {
-      if (revived > 0 || lostBackground > 0) {
-        ctx.logger.info(
-          { revived, lostBackground },
-          "Agent sessions left by the previous process were driven",
-        );
-      }
-    },
-    (err: unknown) => {
-      ctx.logger.error(
-        { err },
-        "Agent sessions left by the previous process could not be driven; each is restored by its next message instead",
-      );
-    },
-  );
-  boots.set(ctx, drive);
-}
 
 function registerSessionsResource(ctx: CraftContext): void {
   const runtime = (): AgentSessionRuntime | undefined => {
@@ -449,64 +358,57 @@ function registerSessionsResource(ctx: CraftContext): void {
  *
  * A tool naming a route that does not exist, or one carrying no
  * `.description()` or `.input()`, is a configuration error. Left to
- * dispatch it surfaces as a tool failure mid-conversation, at whatever
- * hour the agent first reaches for it. Resolved here it fails the
- * startup that introduced it.
+ * dispatch it surfaces as a tool failure mid-conversation, at whatever hour
+ * the agent first reaches for it. Resolved here it fails the startup that
+ * introduced it.
  *
- * The result is memoized per context, so dispatch reuses this resolution
- * rather than repeating it.
+ * The result is memoized on the registry, so dispatch reuses this
+ * resolution rather than repeating it.
  *
  * @throws RC5003 when a deferred entry cannot resolve
- *
- * @internal
  */
-function resolveLazyTools(
-  ctx: CraftContext,
-  functions: Record<string, FnEntry>,
-): void {
-  for (const [id, entry] of Object.entries(functions)) {
-    if (isLazyFn(entry)) resolveFnOptions(ctx, id, entry);
+function resolveLazyTools({ registry, tools }: AgentRun): void {
+  for (const [id, entry] of registry.functions) {
+    if (isLazyFn(entry)) {
+      resolveFnOptions(tools, id, entry, registry.resolvedFunctions);
+    }
   }
 }
 
 /**
- * Announce the agents and fns this plugin install registered, so that
- * generic observability (the telemetry plugin / TUI) can list them even
- * before any of them runs. Inline agents are not announced here: they
- * only exist at dispatch inside a route and surface via their
- * `route:agent:started` event instead.
+ * Announce the registered agents and fns, so that generic observability
+ * (the telemetry plugin / TUI) can list them even before any of them runs.
+ * Inline agents are not announced here: they only exist at dispatch inside
+ * a route and surface via their `route:agent:started` event instead.
  *
- * The events fire from `start()` rather than inside `apply()` so the
- * telemetry plugin has already subscribed regardless of plugin install
- * order (mirroring how `route:registered` fires after plugins are
- * applied). When the context is never started there is nothing running
- * to observe, so emitting nothing is correct.
- *
- * @internal
+ * The events fire from `start()` rather than in `bind()` so the telemetry
+ * plugin has already subscribed regardless of plugin install order. When
+ * the application is never started there is nothing running to observe,
+ * so emitting nothing is correct.
  */
 function emitRegistrations(
-  ctx: CraftContext,
-  agents: Record<string, AgentRegisteredOptions>,
-  functions: Record<string, FnEntry>,
+  c: PluginContext,
+  { registry, tools }: AgentRun,
 ): void {
-  const agentEntries = Object.entries(agents);
-  const fnEntries = Object.entries(functions);
-  if (agentEntries.length === 0 && fnEntries.length === 0) return;
-
-  for (const [id, entry] of agentEntries) {
-    ctx.emit("agent:registered", {
+  for (const [id, entry] of registry.agents) {
+    c.emit("agent:registered", {
       agentId: id,
       description: entry.description,
       ...(typeof entry.model === "string" && { model: entry.model }),
       source: "registered",
     });
   }
-  for (const [id, entry] of fnEntries) {
+  for (const [id, entry] of registry.functions) {
     // Resolved, so a route-backed tool announces the same shape a
-    // hand-written one does. Every deferred entry resolved during
-    // start(), so this reads the memoized result and cannot fail here.
-    const declared = resolveFnOptions(ctx, id, entry);
-    ctx.emit("agent:tool:registered", {
+    // hand-written one does. Every deferred entry resolved just before
+    // this, so it reads the memoized result and cannot fail here.
+    const declared = resolveFnOptions(
+      tools,
+      id,
+      entry,
+      registry.resolvedFunctions,
+    );
+    c.emit("agent:tool:registered", {
       toolName: id,
       description: declared.description,
       ...(Array.isArray(declared.tags) &&
@@ -514,172 +416,4 @@ function emitRegistrations(
       source: "registered",
     });
   }
-}
-
-/**
- * Validate the shape of `agentPlugin({ defaultOptions: ... })` at
- * plugin-construction time. Returns the validated value (with no
- * mutations) or undefined when no defaults were supplied.
- *
- * @internal
- */
-function validatePluginDefaults(
-  raw: AgentDefaultOptions | undefined,
-): AgentDefaultOptions | undefined {
-  if (raw === undefined) return undefined;
-  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
-    throw rcError("RC5003", undefined, {
-      message: `agentPlugin: "defaultOptions" must be an object with optional "model" / "tools".`,
-    });
-  }
-  if (raw.model !== undefined) {
-    if (typeof raw.model !== "string" || raw.model.trim() === "") {
-      throw rcError("RC5003", undefined, {
-        message: `agentPlugin: "defaultOptions.model" must be a non-empty "providerId:modelName" string.`,
-      });
-    }
-    try {
-      parseProviderModel(raw.model);
-    } catch {
-      throw rcError("RC5003", undefined, {
-        message: `agentPlugin: "defaultOptions.model" must be in "providerId:modelName" form (e.g. anthropic:claude-opus-4-7). Got: "${raw.model}"`,
-      });
-    }
-  }
-  if (raw.tools !== undefined && !isToolSelection(raw.tools)) {
-    throw rcError("RC5003", undefined, {
-      message: `agentPlugin: "defaultOptions.tools" must be the result of tools([...]).`,
-    });
-  }
-  if (raw.blocks !== undefined) {
-    // Run the same validation as AgentOptions.blocks (blank names, the
-    // reserved `_block_` namespace, provider-unsafe / over-long loader
-    // names, flatten collisions, malformed BlockBody values) at plugin
-    // construction rather than at agent dispatch. The `defaultsLabel`
-    // argument additionally rejects `false` at every nesting level,
-    // because defaults are the base layer and cannot remove themselves;
-    // the error names the offending entry by its flattened path.
-    validateBlocks(raw.blocks, "defaultOptions.blocks");
-  }
-  return raw;
-}
-
-/**
- * Validate the shape of `agentPlugin({ toolPolicy })` at plugin
- * construction. Every entry must be a boolean or a function; anything
- * else is a config mistake that would otherwise surface as a silent
- * denial on the first dispatch (a non-callable rule cannot admit
- * anything), which is exactly the failure mode a policy must not have.
- *
- * An empty object is accepted and is meaningful: it denies every kind,
- * because a present policy is an allowlist.
- *
- * @internal
- */
-function validateToolPolicy(
-  raw: AgentToolPolicy | undefined,
-): AgentToolPolicy | undefined {
-  if (raw === undefined) return undefined;
-  if (raw === null || typeof raw !== "object" || Array.isArray(raw)) {
-    throw rcError("RC5003", undefined, {
-      message: `agentPlugin: "toolPolicy" must be an object carrying a rule for each of "fn" / "direct" / "mcp".`,
-    });
-  }
-  const known = AGENT_TOOL_POLICY_KINDS;
-  const missing = known.filter(
-    (k) => !Object.prototype.hasOwnProperty.call(raw, k),
-  );
-  if (missing.length > 0) {
-    throw rcError("RC5003", undefined, {
-      message: `agentPlugin: "toolPolicy" is missing a rule for ${missing.map((k) => `"${k}"`).join(", ")}.`,
-      suggestion:
-        `A policy is an allowlist, so an unlisted kind is denied. Decide each kind explicitly ` +
-        `(\`true\`, \`false\`, or a predicate) rather than omitting it, so a partial policy cannot ` +
-        `silently strip tools you meant to keep.`,
-    });
-  }
-  for (const key of Object.keys(raw)) {
-    if (!known.includes(key as AgentToolPolicyKind)) {
-      throw rcError("RC5003", undefined, {
-        message: `agentPlugin: "toolPolicy.${key}" is not a known tool kind. Valid keys: ${known.join(", ")}.`,
-        suggestion: `Block loader tools are framework machinery and are deliberately not policy-governed, so there is no "block" key.`,
-      });
-    }
-    const rule = raw[key as AgentToolPolicyKind] as AgentToolRule | undefined;
-    // An explicit `undefined` is rejected, not skipped. Owning the key
-    // with an undefined value satisfies the missing-key check above
-    // while `ruleAdmits` treats it as a denial at dispatch, which is
-    // precisely the silent strip that requiring every key exists to
-    // prevent. There is no reading of `mcp: undefined` where dropping
-    // every MCP tool with only a warn line is what the author meant.
-    if (typeof rule !== "boolean" && typeof rule !== "function") {
-      throw rcError("RC5003", undefined, {
-        message: `agentPlugin: "toolPolicy.${key}" must be a boolean or a (tool, ctx) => boolean predicate (got ${typeof rule}).`,
-      });
-    }
-  }
-  // Shallow-copied so a caller holding a reference cannot add or
-  // remove kinds after the context installed the policy. Predicates
-  // stay caller-owned by design; this only closes the key-level
-  // mutation path, which would otherwise contradict the promise that
-  // a policy is not overridable once set.
-  return { ...raw };
-}
-
-/**
- * Merge a freshly-supplied `defaultOptions` into the value already
- * stored by a previous `agentPlugin` install. Per-field conflicts
- * throw so a context cannot accidentally end up with two competing
- * defaults for the same field.
- *
- * @internal
- */
-function mergePluginDefaults(
-  existing: AgentDefaultOptions | undefined,
-  next: AgentDefaultOptions,
-): AgentDefaultOptions {
-  if (!existing) return { ...next };
-  if (next.model !== undefined && existing.model !== undefined) {
-    throw rcError("RC5003", undefined, {
-      message: `agentPlugin: "defaultOptions.model" is already set on this context. A context can have only one default model.`,
-    });
-  }
-  if (next.tools !== undefined && existing.tools !== undefined) {
-    throw rcError("RC5003", undefined, {
-      message: `agentPlugin: "defaultOptions.tools" is already set on this context. Combine selectors into a single tools([...]) call.`,
-    });
-  }
-  // Blocks merge additively across multiple `agentPlugin` installs:
-  // each install contributes named entries, and a name set in two
-  // installs throws so we never silently pick one. This differs from
-  // `model` / `tools` (single-valued) and matches how blocks compose
-  // per-agent: independent named contributions.
-  let mergedBlocks: typeof existing.blocks | undefined;
-  if (existing.blocks !== undefined || next.blocks !== undefined) {
-    mergedBlocks = { ...(existing.blocks ?? {}) };
-    if (next.blocks !== undefined) {
-      for (const [name, body] of Object.entries(next.blocks)) {
-        if (Object.prototype.hasOwnProperty.call(mergedBlocks, name)) {
-          throw rcError("RC5003", undefined, {
-            message: `agentPlugin: "defaultOptions.blocks" already contains "${name}" from a previous install. Each block name may be defined once across all installs.`,
-          });
-        }
-        mergedBlocks[name] = body;
-      }
-    }
-  }
-  const merged: AgentDefaultOptions = { ...existing };
-  for (const key of AGENT_DEFAULT_OPTION_KEYS) {
-    const value = next[key];
-    if (value === undefined) continue;
-    // `model` and `tools` already threw above with their own wording.
-    if (existing[key] !== undefined) {
-      throw rcError("RC5003", undefined, {
-        message: `agentPlugin: "defaultOptions.${key}" is already set on this context. A context can have only one default for it.`,
-      });
-    }
-    Object.assign(merged, { [key]: value });
-  }
-  if (mergedBlocks !== undefined) merged.blocks = mergedBlocks;
-  return merged;
 }

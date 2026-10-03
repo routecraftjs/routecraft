@@ -1,8 +1,14 @@
-import type { CraftContext } from "@routecraft/routecraft";
+import type {
+  CraftContext,
+  EventDetailsMap,
+  EventHandler,
+  EventName,
+  ExchangeHeaders,
+  PluginLogger,
+} from "@routecraft/routecraft";
 import {
   buildProtectedResourceMetadata,
   callerRefusalOf,
-  DefaultExchange,
   HeadersKeys,
   isRoutecraftError,
   isDeferred,
@@ -28,11 +34,8 @@ import type {
   Principal,
   ValidatorAuthOptions,
 } from "@routecraft/routecraft";
-import {
-  MCP_LOCAL_TOOL_REGISTRY,
-  MCP_TOOL_REGISTRY,
-  McpHeadersKeys,
-} from "./types.ts";
+import { McpHeadersKeys } from "./types.ts";
+import type { McpService } from "./port.ts";
 import type {
   McpIcon,
   McpLocalToolEntry,
@@ -192,6 +195,23 @@ type SdkServerOptions = {
 };
 
 /**
+ * What the MCP server needs from the application: the MCP plugin's own
+ * context for logging and events, and the service it serves and proxies.
+ */
+export interface McpServerHost {
+  readonly logger: PluginLogger;
+  emit<K extends EventName>(event: K, details: EventDetailsMap[K]): void;
+  observe<K extends EventName>(event: K, handler: EventHandler<K>): () => void;
+  /** The tools this application serves, and the clients it proxies. */
+  readonly service: McpService;
+  /**
+   * The context the HTTP mount resolves its named server through, until web
+   * ingress is reached through a port.
+   */
+  readonly context: CraftContext;
+}
+
+/**
  * McpServer wraps the MCP SDK and bridges it to Routecraft's DirectChannel
  * infrastructure. It reads the MCP route registry lazily (on first `tools/list`
  * request) to ensure routes have subscribed.
@@ -205,6 +225,8 @@ type SdkServerOptions = {
  * an optional peer dependency, not because of any type incompatibility.
  */
 export class McpServer {
+  private readonly host: McpServerHost;
+  private readonly service: McpService;
   private context: CraftContext;
   private options: McpServerResolvedOptions;
   private mcpHandler: McpHttpHandler | null = null;
@@ -264,8 +286,10 @@ export class McpServer {
    * request. `null` until the HTTP transport starts.
    */
 
-  constructor(context: CraftContext, options: McpPluginOptions = {}) {
-    this.context = context;
+  constructor(host: McpServerHost, options: McpPluginOptions = {}) {
+    this.host = host;
+    this.service = host.service;
+    this.context = host.context;
     this.options = {
       name: "routecraft",
       version: "1.0.0",
@@ -275,7 +299,7 @@ export class McpServer {
       ...options,
     };
     this.validateResourceConfig();
-    this.stopListeningForServer = context.on(
+    this.stopListeningForServer = host.observe(
       "server:listening",
       ({ details }) => {
         if (details.server !== this.options.server) return;
@@ -413,7 +437,7 @@ export class McpServer {
    */
   async start(): Promise<void> {
     if (this.running) {
-      this.context.logger.warn({}, "MCP server already running");
+      this.host.logger.warn({}, "MCP server already running");
       return;
     }
 
@@ -432,7 +456,7 @@ export class McpServer {
       // requireWebIngress.
 
       this.running = true;
-      this.context.logger.info(
+      this.host.logger.info(
         {
           name: this.options.name,
           version: this.options.version,
@@ -447,7 +471,7 @@ export class McpServer {
         : error instanceof Error
           ? error.message
           : "Failed to start MCP server";
-      this.context.logger.error({ err: error }, msg);
+      this.host.logger.error({ err: error }, msg);
       throw error;
     }
   }
@@ -483,7 +507,7 @@ export class McpServer {
         ),
       {
         onerror: (error: Error) => {
-          this.context.logger.error({ err: error }, "MCP handler error");
+          this.host.logger.error({ err: error }, "MCP handler error");
         },
       },
     );
@@ -630,7 +654,7 @@ export class McpServer {
   ): Response | null {
     const refusal = refuseBearer(auth, mountAuth, {
       source: "mcp",
-      context: this.context,
+      context: this.host,
       corsHeaders,
       challenge: (params) =>
         this.buildWebWwwAuthenticateHeader(ingress, path, params),
@@ -645,8 +669,8 @@ export class McpServer {
         scheme: "bearer",
         source: "mcp",
       };
-      this.context.logger.warn(detail, "Auth rejected: insufficient scope");
-      this.context.emit("auth:rejected", detail);
+      this.host.logger.warn(detail, "Auth rejected: insufficient scope");
+      this.host.emit("auth:rejected", detail);
       return Response.json(
         { error: "insufficient_scope" },
         {
@@ -933,10 +957,7 @@ export class McpServer {
     try {
       this.unmountHttp?.();
     } catch (error) {
-      this.context.logger.error(
-        { err: error },
-        "Failed to unmount MCP handler",
-      );
+      this.host.logger.error({ err: error }, "Failed to unmount MCP handler");
     } finally {
       this.unmountHttp = null;
     }
@@ -944,7 +965,7 @@ export class McpServer {
       try {
         await this.mcpHandler.close();
       } catch (error) {
-        this.context.logger.error(
+        this.host.logger.error(
           { err: error },
           "Failed to close mounted MCP handler",
         );
@@ -958,7 +979,7 @@ export class McpServer {
         try {
           await this.stdioHandle.close();
         } catch (error) {
-          this.context.logger.error(
+          this.host.logger.error(
             { err: error },
             "Failed to close MCP stdio transport",
           );
@@ -967,14 +988,14 @@ export class McpServer {
         }
       }
       this.running = false;
-      this.context.logger.info({}, "MCP server stopped");
+      this.host.logger.info({}, "MCP server stopped");
     } catch (error) {
       const msg = isRoutecraftError(error)
         ? (error as unknown as { meta: { message: string } }).meta.message
         : error instanceof Error
           ? error.message
           : "Error stopping MCP server";
-      this.context.logger.error({ err: error }, msg);
+      this.host.logger.error({ err: error }, msg);
     }
   }
 
@@ -987,8 +1008,8 @@ export class McpServer {
     if (tools.length === 0) return;
     const names = tools.map((t) => t.name);
     const exposedDetail = { tools: names, count: names.length };
-    this.context.logger.info(exposedDetail, "Exposing MCP tools");
-    this.context.emit("plugin:mcp:server:tools:exposed", exposedDetail);
+    this.host.logger.info(exposedDetail, "Exposing MCP tools");
+    this.host.emit("plugin:mcp:server:tools:exposed", exposedDetail);
     this.toolsListLogged = true;
   }
 
@@ -1042,8 +1063,7 @@ export class McpServer {
    * Local route tool entries after the `tools` filter, for `tools/list`.
    */
   private getExposedLocalEntries(): McpLocalToolEntry[] {
-    const registry = this.context.getStore(MCP_LOCAL_TOOL_REGISTRY) as
-      Map<string, McpLocalToolEntry> | undefined;
+    const registry = this.service.local;
 
     if (!registry) {
       return [];
@@ -1059,8 +1079,7 @@ export class McpServer {
    * `tools` filter (a filtered-out tool is not callable).
    */
   private lookupLocalEntry(toolName: string): McpLocalToolEntry | undefined {
-    const registry = this.context.getStore(MCP_LOCAL_TOOL_REGISTRY) as
-      Map<string, McpLocalToolEntry> | undefined;
+    const registry = this.service.local;
     const entry = registry?.get(toolName);
     if (!entry || !this.passesToolsFilter(entry)) return undefined;
     return entry;
@@ -1078,7 +1097,7 @@ export class McpServer {
     if (!this.options.proxy || this.options.proxy.length === 0) {
       return new Map();
     }
-    const registry = this.context.getStore(MCP_TOOL_REGISTRY);
+    const registry = this.service.tools;
     const version = registry?.version ?? -1;
     if (registry && version === this.proxyResolvedVersion) {
       return this.proxyResolved;
@@ -1091,7 +1110,7 @@ export class McpServer {
       this.proxyWarnings.clear();
     }
     const resolved = resolveProxiedTools(
-      this.context,
+      this.service,
       this.options.proxy,
       (key, msg) => this.warnProxyOnce(key, msg),
     );
@@ -1106,7 +1125,7 @@ export class McpServer {
   private warnProxyOnce(key: string, message: string): void {
     if (this.proxyWarnings.has(key)) return;
     this.proxyWarnings.add(key);
-    this.context.logger.warn({}, message);
+    this.host.logger.warn({}, message);
   }
 
   /**
@@ -1200,10 +1219,7 @@ export class McpServer {
           ? out
           : { type: "object" };
       } catch (error) {
-        this.context.logger.debug(
-          error,
-          "Standard JSON Schema conversion failed",
-        );
+        this.host.logger.debug(error, "Standard JSON Schema conversion failed");
         return { type: "object" };
       }
     }
@@ -1226,8 +1242,8 @@ export class McpServer {
    */
   private declineToolCall(toolName: string, error: Error): McpToolCallResult {
     const message = toolErrorLogMessage(error);
-    this.context.logger.warn({ tool: toolName, err: error }, message);
-    this.context.emit(`plugin:mcp:tool:declined`, {
+    this.host.logger.warn({ tool: toolName, err: error }, message);
+    this.host.emit(`plugin:mcp:tool:declined`, {
       tool: toolName,
       reason: message,
     });
@@ -1261,14 +1277,14 @@ export class McpServer {
           return await this.handleProxiedToolCall(proxied, body, principal);
         }
         const err = new Error(`Tool not found: ${toolName}`);
-        this.context.emit(`plugin:mcp:tool:failed`, {
+        this.host.emit(`plugin:mcp:tool:failed`, {
           tool: toolName,
           error: err.message,
         });
         return toolErrorResult(err.message);
       }
 
-      this.context.logger.debug(
+      this.host.logger.debug(
         { bodyType: typeof body, body },
         "MCP tool call exchange body",
       );
@@ -1290,19 +1306,17 @@ export class McpServer {
         headers[HeadersKeys.AUTH_PRINCIPAL] = admitted;
       }
 
-      const exchange = new DefaultExchange(this.context, {
-        body,
-        headers,
-      });
-
-      this.context.emit(`plugin:mcp:tool:called`, {
+      this.host.emit(`plugin:mcp:tool:called`, {
         tool: toolName,
         // Deep snapshot: the live body is handed to the route handler next
         // and may be mutated (including nested values) after emission.
         args: structuredClone(body),
       });
 
-      const resultExchange = await entry.handler(exchange);
+      const resultExchange = await entry.handler({
+        body,
+        headers: headers as ExchangeHeaders,
+      });
 
       // A decline is the route's answer, not a failure, so it returns here
       // rather than throwing into the catch below.
@@ -1327,12 +1341,12 @@ export class McpServer {
       // same honesty rule that gave SerializedOutcome its distinct
       // "deferred" status and declines their own event (#576).
       if (isDeferred(publishedBody)) {
-        this.context.emit(`plugin:mcp:tool:deferred`, {
+        this.host.emit(`plugin:mcp:tool:deferred`, {
           tool: toolName,
           deferralId: publishedBody.deferralId,
         });
       } else {
-        this.context.emit(`plugin:mcp:tool:completed`, {
+        this.host.emit(`plugin:mcp:tool:completed`, {
           tool: toolName,
         });
       }
@@ -1369,8 +1383,8 @@ export class McpServer {
           ? undefined
           : classified;
       const level = refusal === undefined ? "error" : "debug";
-      this.context.logger[level]({ tool: toolName, err: error }, logMsg);
-      this.context.emit(`plugin:mcp:tool:failed`, {
+      this.host.logger[level]({ tool: toolName, err: error }, logMsg);
+      this.host.emit(`plugin:mcp:tool:failed`, {
         tool: toolName,
         error: logMsg,
       });
@@ -1411,7 +1425,7 @@ export class McpServer {
     };
     // Deep snapshot: the live args object is handed to the guard and remote
     // dispatch next and may be mutated (including nested values) after emission.
-    this.context.emit(`plugin:mcp:tool:called`, {
+    this.host.emit(`plugin:mcp:tool:called`, {
       ...detail,
       args: structuredClone(args),
     });
@@ -1428,19 +1442,19 @@ export class McpServer {
       }
 
       const raw: McpRawToolResult = await dispatchMcpCallRaw(
-        this.context,
+        this.service,
         proxied.serverId,
         proxied.toolName,
         args,
       );
 
       if (raw.isError) {
-        this.context.emit(`plugin:mcp:tool:failed`, {
+        this.host.emit(`plugin:mcp:tool:failed`, {
           ...detail,
           error: "Remote tool returned an error result",
         });
       } else {
-        this.context.emit(`plugin:mcp:tool:completed`, detail);
+        this.host.emit(`plugin:mcp:tool:completed`, detail);
       }
 
       // The remote's own advertisement is what `tools/list` re-publishes under
@@ -1458,8 +1472,8 @@ export class McpServer {
       return result;
     } catch (error) {
       const logMsg = toolErrorLogMessage(error);
-      this.context.logger.error({ ...detail, err: error }, logMsg);
-      this.context.emit(`plugin:mcp:tool:failed`, { ...detail, error: logMsg });
+      this.host.logger.error({ ...detail, err: error }, logMsg);
+      this.host.emit(`plugin:mcp:tool:failed`, { ...detail, error: logMsg });
 
       // A framework error here is a dispatch/transport failure (RC5003),
       // whose message and cause can carry the configured upstream URL,

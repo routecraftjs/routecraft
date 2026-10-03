@@ -1,5 +1,6 @@
 import { describe, test, expect, afterEach } from "bun:test";
 import { McpServer } from "../src/mcp/server.ts";
+import { mcpPort, mcpServerFor, mcpService } from "./helpers/mcp-port.ts";
 import { deferring, testContext, type TestContext } from "@routecraft/testing";
 import {
   craft,
@@ -12,20 +13,13 @@ import {
   type Principal,
 } from "@routecraft/routecraft";
 import { mcp, mcpPlugin } from "../src/index.ts";
-import {
-  MCP_LOCAL_TOOL_REGISTRY,
-  MCP_PLUGIN_REGISTERED,
-  type McpLocalToolEntry,
-} from "../src/mcp/types.ts";
+import type { McpLocalToolEntry } from "../src/mcp/types.ts";
 import { ROUTECRAFT_DEFAULT_ICONS } from "../src/mcp/default-icon.ts";
 import { buildAuthHeaders } from "../src/mcp/build-auth-headers.ts";
 import { z } from "zod";
 import http from "node:http";
 import { rpcBody } from "./fixtures/rpc-body.ts";
 import { callTool } from "./helpers/mcp-tool-call.ts";
-
-const MCP_STORE_KEY =
-  MCP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry;
 
 /** Shared JSON-RPC params for MCP tests. */
 const INIT_PARAMS = {
@@ -61,9 +55,12 @@ describe("McpServer", () => {
     routes: AnyRouteBuilder[] = [],
     options?: ConstructorParameters<typeof McpServer>[1],
   ): Promise<McpServer> {
-    t = await testContext().routes(routes).store(MCP_STORE_KEY, true).build();
+    t = await testContext()
+      .routes(routes)
+      .with({ plugins: [mcpPort()] })
+      .build();
     await t.startAndWaitReady();
-    server = new McpServer(t.ctx, options);
+    server = mcpServerFor(t.ctx, options);
     return server;
   }
 
@@ -74,10 +71,10 @@ describe("McpServer", () => {
    */
   test("initializes with default and custom options", async () => {
     t = await testContext().build();
-    server = new McpServer(t.ctx);
+    server = mcpServerFor(t.ctx);
     expect(server).toBeDefined();
     await server.stop();
-    server = new McpServer(t.ctx, {
+    server = mcpServerFor(t.ctx, {
       name: "custom-server",
       version: "2.0.0",
     });
@@ -105,17 +102,17 @@ describe("McpServer", () => {
           .from(mcp({ annotations: { destructiveHint: true } }))
           .to(noop()),
       ])
-      .store(MCP_STORE_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .build();
 
-    server = new McpServer(t.ctx, { tools: ["tool1"] });
+    server = mcpServerFor(t.ctx, { tools: ["tool1"] });
     expect(server).toBeDefined();
     await t.startAndWaitReady();
     let names = server.getAvailableTools().map((tool) => tool.name);
     expect(names).toEqual(["tool1"]);
     await server.stop();
 
-    server = new McpServer(t.ctx, {
+    server = mcpServerFor(t.ctx, {
       tools: (entry) => entry.annotations?.readOnlyHint === true,
     });
     await server.start();
@@ -147,10 +144,10 @@ describe("McpServer", () => {
           .from(mcp())
           .to(noop()),
       ])
-      .store(MCP_STORE_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .build();
 
-    server = new McpServer(t.ctx);
+    server = mcpServerFor(t.ctx);
     expect(server).toBeDefined();
     await t.startAndWaitReady();
     const names = server.getAvailableTools().map((tool) => tool.name);
@@ -173,9 +170,9 @@ describe("McpServer", () => {
           .to(noop()),
         craft().id("internal-direct").from(direct()).to(noop()),
       ])
-      .store(MCP_STORE_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .build();
-    server = new McpServer(t.ctx);
+    server = mcpServerFor(t.ctx);
     expect(server).toBeDefined();
     await t.startAndWaitReady();
     const names = server.getAvailableTools().map((tool) => tool.name);
@@ -203,9 +200,9 @@ describe("McpServer", () => {
           )
           .to(noop()),
       ])
-      .store(MCP_STORE_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .build();
-    server = new McpServer(t.ctx);
+    server = mcpServerFor(t.ctx);
     await t.startAndWaitReady();
     const tools = server.getAvailableTools();
     expect(tools).toHaveLength(1);
@@ -229,9 +226,9 @@ describe("McpServer", () => {
           .from(mcp())
           .to(noop()),
       ])
-      .store(MCP_STORE_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .build();
-    server = new McpServer(t.ctx);
+    server = mcpServerFor(t.ctx);
     await t.startAndWaitReady();
     const tools = server.getAvailableTools();
     expect(tools).toHaveLength(1);
@@ -253,9 +250,9 @@ describe("McpServer", () => {
           .from(mcp())
           .to(noop()),
       ])
-      .store(MCP_STORE_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .build();
-    server = new McpServer(t.ctx);
+    server = mcpServerFor(t.ctx);
     await t.startAndWaitReady();
     const tools = server.getAvailableTools();
     expect(tools).toHaveLength(1);
@@ -280,9 +277,9 @@ describe("McpServer", () => {
           .from(mcp())
           .to(noop()),
       ])
-      .store(MCP_STORE_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .build();
-    server = new McpServer(t.ctx);
+    server = mcpServerFor(t.ctx);
     await t.startAndWaitReady();
     const tools = server.getAvailableTools();
     expect(tools[0].annotations).toEqual({
@@ -308,9 +305,9 @@ describe("McpServer", () => {
           .from(mcp({ annotations: { readOnlyHint: false } }))
           .to(noop()),
       ])
-      .store(MCP_STORE_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .build();
-    server = new McpServer(t.ctx);
+    server = mcpServerFor(t.ctx);
     await t.startAndWaitReady();
     const tools = server.getAvailableTools();
     expect(tools[0].annotations).toEqual({ readOnlyHint: false });
@@ -378,9 +375,9 @@ describe("McpServer", () => {
       .routes([
         craft().id("plain").description("No icons").from(mcp()).to(noop()),
       ])
-      .store(MCP_STORE_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .build();
-    server = new McpServer(t.ctx);
+    server = mcpServerFor(t.ctx);
     await t.startAndWaitReady();
     const tools = server.getAvailableTools();
     expect(tools[0].icons).toEqual(ROUTECRAFT_DEFAULT_ICONS);
@@ -399,9 +396,9 @@ describe("McpServer", () => {
       .routes([
         craft().id("plain").description("No icons").from(mcp()).to(noop()),
       ])
-      .store(MCP_STORE_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .build();
-    server = new McpServer(t.ctx, { icons: serverIcons });
+    server = mcpServerFor(t.ctx, { icons: serverIcons });
     await t.startAndWaitReady();
     const tools = server.getAvailableTools();
     expect(tools[0].icons).toEqual(serverIcons);
@@ -424,9 +421,9 @@ describe("McpServer", () => {
           .from(mcp({ icons: toolIcons }))
           .to(noop()),
       ])
-      .store(MCP_STORE_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .build();
-    server = new McpServer(t.ctx, {
+    server = mcpServerFor(t.ctx, {
       icons: [{ src: "https://acme.example.com/server.svg" }],
     });
     await t.startAndWaitReady();
@@ -448,9 +445,9 @@ describe("McpServer", () => {
           .from(mcp({ icons: [] }))
           .to(noop()),
       ])
-      .store(MCP_STORE_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .build();
-    server = new McpServer(t.ctx);
+    server = mcpServerFor(t.ctx);
     await t.startAndWaitReady();
     const tools = server.getAvailableTools();
     expect(tools[0]).not.toHaveProperty("icons");
@@ -466,9 +463,9 @@ describe("McpServer", () => {
       .routes([
         craft().id("plain").description("No icons").from(mcp()).to(noop()),
       ])
-      .store(MCP_STORE_KEY, true)
+      .with({ plugins: [mcpPort()] })
       .build();
-    server = new McpServer(t.ctx, { icons: [] });
+    server = mcpServerFor(t.ctx, { icons: [] });
     await t.startAndWaitReady();
     const tools = server.getAvailableTools();
     expect(tools[0]).not.toHaveProperty("icons");
@@ -2876,10 +2873,10 @@ describe("McpServer", () => {
         });
 
         t = await testContext()
-          .store(MCP_STORE_KEY, true)
+          .with({ plugins: [mcpPort()] })
           .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
           .build();
-        server = new McpServer(t.ctx, {
+        server = mcpServerFor(t.ctx, {
           transport: "http",
           auth: authConfig,
           resource: { url: "http://localhost:9999" },
@@ -3251,10 +3248,10 @@ describe("McpServer", () => {
         .routes([
           craft().id("exposed-evt").description("test").from(mcp()).to(noop()),
         ])
-        .store(MCP_STORE_KEY, true)
+        .with({ plugins: [mcpPort()] })
         .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
         .build();
-      server = new McpServer(t.ctx, {
+      server = mcpServerFor(t.ctx, {
         transport: "http",
       });
 
@@ -3303,10 +3300,10 @@ describe("McpServer", () => {
             .from(mcp())
             .to(noop()),
         ])
-        .store(MCP_STORE_KEY, true)
+        .with({ plugins: [mcpPort()] })
         .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
         .build();
-      server = new McpServer(t.ctx, {
+      server = mcpServerFor(t.ctx, {
         transport: "http",
       });
 
@@ -3424,10 +3421,10 @@ describe("McpServer", () => {
         .routes([
           craft().id("exists-evt").description("test").from(mcp()).to(noop()),
         ])
-        .store(MCP_STORE_KEY, true)
+        .with({ plugins: [mcpPort()] })
         .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
         .build();
-      server = new McpServer(t.ctx, {
+      server = mcpServerFor(t.ctx, {
         transport: "http",
       });
 
@@ -3538,10 +3535,10 @@ describe("McpServer", () => {
             .from(mcp())
             .to(noop()),
         ])
-        .store(MCP_STORE_KEY, true)
+        .with({ plugins: [mcpPort()] })
         .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
         .build();
-      server = new McpServer(t.ctx, {
+      server = mcpServerFor(t.ctx, {
         transport: "http",
       });
 
@@ -3651,10 +3648,10 @@ describe("McpServer", () => {
      */
     test("emits auth:success on valid token", async () => {
       t = await testContext()
-        .store(MCP_STORE_KEY, true)
+        .with({ plugins: [mcpPort()] })
         .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
         .build();
-      server = new McpServer(t.ctx, {
+      server = mcpServerFor(t.ctx, {
         transport: "http",
         auth: {
           validator: (token) => {
@@ -3724,10 +3721,10 @@ describe("McpServer", () => {
      */
     test("emits auth:rejected on invalid token", async () => {
       t = await testContext()
-        .store(MCP_STORE_KEY, true)
+        .with({ plugins: [mcpPort()] })
         .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
         .build();
-      server = new McpServer(t.ctx, {
+      server = mcpServerFor(t.ctx, {
         transport: "http",
         auth: {
           validator: () => {
@@ -3793,10 +3790,10 @@ describe("McpServer", () => {
     test("does not leak the bearer from a validator error message into auth:rejected", async () => {
       const token = "super-secret-bearer-token";
       t = await testContext()
-        .store(MCP_STORE_KEY, true)
+        .with({ plugins: [mcpPort()] })
         .with({ servers: { default: { host: "127.0.0.1", port: 0 } } })
         .build();
-      server = new McpServer(t.ctx, {
+      server = mcpServerFor(t.ctx, {
         transport: "http",
         auth: {
           validator: (tok: string) => {
@@ -3863,21 +3860,15 @@ describe("McpServer", () => {
      */
     async function serveUnvalidated(body: unknown): Promise<McpServer> {
       const srv = await serve();
-      t.ctx.setStore(
-        MCP_LOCAL_TOOL_REGISTRY,
-        new Map([
-          [
-            "unchecked",
-            {
-              endpoint: "unchecked",
-              description: "Returns a body nobody validated",
-              output: { body: z.object({ total: z.number() }) },
-              handler: async (exchange) =>
-                DefaultExchange.rewrap(exchange, { body }),
-            } satisfies McpLocalToolEntry,
-          ],
-        ]),
-      );
+      const local = mcpService(t.ctx).local;
+      local.clear();
+      local.set("unchecked", {
+        endpoint: "unchecked",
+        description: "Returns a body nobody validated",
+        output: { body: z.object({ total: z.number() }) },
+        handler: async (request) =>
+          new DefaultExchange(t.ctx, { ...request, body }),
+      } satisfies McpLocalToolEntry);
       return srv;
     }
 
@@ -3887,30 +3878,25 @@ describe("McpServer", () => {
      * @expectedResult The published body carries the transformed value, so a client parsing structuredContent against the advertised schema sees what it was promised rather than the input shape
      */
     test("publishes the validated value when the boundary does the validating", async () => {
-      t = await testContext().store(MCP_STORE_KEY, true).build();
+      t = await testContext()
+        .with({ plugins: [mcpPort()] })
+        .build();
       await t.startAndWaitReady();
-      t.ctx.setStore(
-        MCP_LOCAL_TOOL_REGISTRY,
-        new Map([
-          [
-            "unchecked",
-            {
-              endpoint: "unchecked",
-              description: "Returns a body nobody validated",
-              output: {
-                body: z.object({
-                  at: z.string().transform((s) => new Date(s)),
-                }),
-              },
-              handler: async (exchange) =>
-                DefaultExchange.rewrap(exchange, {
-                  body: { at: "2026-01-01T00:00:00.000Z" },
-                }),
-            } satisfies McpLocalToolEntry,
-          ],
-        ]),
-      );
-      server = new McpServer(t.ctx);
+      mcpService(t.ctx).local.set("unchecked", {
+        endpoint: "unchecked",
+        description: "Returns a body nobody validated",
+        output: {
+          body: z.object({
+            at: z.string().transform((s) => new Date(s)),
+          }),
+        },
+        handler: async (request) =>
+          new DefaultExchange(t.ctx, {
+            ...request,
+            body: { at: "2026-01-01T00:00:00.000Z" },
+          }),
+      } satisfies McpLocalToolEntry);
+      server = mcpServerFor(t.ctx);
 
       const result = await callTool(server, "unchecked", {});
 
@@ -4062,8 +4048,8 @@ describe("McpServer", () => {
      */
     test("publishes the acknowledgment when the route defers", async () => {
       t = await testContext()
+        .with({ plugins: [mcpPort()] })
         .with(deferring())
-        .store(MCP_STORE_KEY, true)
         .routes([
           craft()
             .id("approve-payout")
@@ -4075,7 +4061,7 @@ describe("McpServer", () => {
         ])
         .build();
       await t.startAndWaitReady();
-      server = new McpServer(t.ctx);
+      server = mcpServerFor(t.ctx);
 
       const result = await callTool(server, "approve-payout", { amount: 100 });
 

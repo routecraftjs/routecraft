@@ -2,12 +2,9 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { craft, direct, isRoutecraftError, noop } from "@routecraft/routecraft";
 import { mcp, mcpPlugin } from "@routecraft/ai";
-import { MCP_TOOL_REGISTRY } from "../src/mcp/types.ts";
+import { MCP } from "../src/mcp/port.ts";
 import type { McpToolRegistry } from "@routecraft/ai";
 import { z } from "zod";
-
-const MCP_TOOL_REGISTRY_KEY =
-  MCP_TOOL_REGISTRY as keyof import("@routecraft/routecraft").StoreRegistry;
 
 describe("MCP Plugin Integration", () => {
   let t: TestContext;
@@ -166,11 +163,11 @@ describe("MCP Plugin Integration", () => {
   });
 
   /**
-   * @case mcpPlugin stores MCP_TOOL_REGISTRY in context store
+   * @case mcpPlugin provides the MCP port with its tool registry
    * @preconditions Plugin is applied
-   * @expectedResult Context store has McpToolRegistry instance
+   * @expectedResult The MCP service is provided and holds a McpToolRegistry instance
    */
-  test("mcpPlugin stores MCP_TOOL_REGISTRY in context store", async () => {
+  test("mcpPlugin provides the MCP port with its tool registry", async () => {
     t = await testContext()
       .routes(craft().id("test").description("test").from(mcp()).to(noop()))
       .with({
@@ -178,8 +175,7 @@ describe("MCP Plugin Integration", () => {
       })
       .build();
 
-    const registry = t.ctx.getStore(MCP_TOOL_REGISTRY_KEY) as
-      McpToolRegistry | undefined;
+    const registry: McpToolRegistry | undefined = t.ctx.lookup(MCP)?.tools;
     expect(registry).toBeDefined();
     expect(typeof registry!.getTools).toBe("function");
     expect(typeof registry!.getTool).toBe("function");
@@ -204,7 +200,7 @@ describe("MCP Plugin Integration", () => {
 
     await t.test();
 
-    const registry = t.ctx.getStore(MCP_TOOL_REGISTRY_KEY) as McpToolRegistry;
+    const registry = t.ctx.require(MCP).tools;
     const tools = registry.getTools();
     // Local routes should not appear in the MCP tool registry.
     // The registry is for external tools (stdio/HTTP clients) only.

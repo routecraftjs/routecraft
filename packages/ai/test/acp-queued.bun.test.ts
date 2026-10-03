@@ -13,7 +13,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
 import { craft, direct } from "@routecraft/routecraft";
 import { agent, agentPlugin, tools } from "../src/index.ts";
-import { ADAPTER_AGENT_SESSIONS } from "../src/agent/store.ts";
+import { AGENTS } from "../src/agent/port.ts";
 import {
   acpHarness,
   describeUpdates,
@@ -294,7 +294,7 @@ describe("a prompt sent while a turn is running", () => {
   test("a queued message consumed elsewhere returns cancelled, not end_turn", async () => {
     h = await boot();
     llm.script.push({ toolCalls: [{ toolName: "slow" }] }, { text: "A done" });
-    const store = h.t.ctx.getStore(ADAPTER_AGENT_SESSIONS)!.store;
+    const store = h.t.ctx.require(AGENTS).sessions().store;
 
     const outcome = await h.connect(async (editor) => {
       const session = await editor.buildSession("/work").start();

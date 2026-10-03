@@ -11,18 +11,13 @@ import {
 } from "@routecraft/routecraft";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { z } from "zod";
-import { McpServer } from "../src/mcp/server.ts";
+import type { McpServer } from "../src/mcp/server.ts";
+import { mcpPort, mcpServerFor } from "./helpers/mcp-port.ts";
 import { mcp, mcpPlugin } from "../src/index.ts";
-import {
-  MCP_PLUGIN_REGISTERED,
-  type McpLocalToolEntry,
-} from "../src/mcp/types.ts";
+import { type McpLocalToolEntry } from "../src/mcp/types.ts";
 import { enforceAdvertisedOutput } from "../src/mcp/tool-result-guards.ts";
 import { rpcBody } from "./fixtures/rpc-body.ts";
 import { callTool } from "./helpers/mcp-tool-call.ts";
-
-const MCP_STORE_KEY =
-  MCP_PLUGIN_REGISTERED as keyof import("@routecraft/routecraft").StoreRegistry;
 
 const INIT_PARAMS = {
   protocolVersion: "2024-11-05" as const,
@@ -51,9 +46,12 @@ describe("MCP tool failure text", () => {
   });
 
   async function serve(routes: AnyRouteBuilder[]): Promise<McpServer> {
-    t = await testContext().routes(routes).store(MCP_STORE_KEY, true).build();
+    t = await testContext()
+      .routes(routes)
+      .with({ plugins: [mcpPort()] })
+      .build();
     await t.startAndWaitReady();
-    server = new McpServer(t.ctx);
+    server = mcpServerFor(t.ctx);
     return server;
   }
 

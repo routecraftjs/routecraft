@@ -181,6 +181,12 @@ export interface DeferralRuntime {
   readonly expiryLeaseMs: number;
   /** Milliseconds settled records are kept. Undefined means keep forever. */
   readonly retentionMs?: number;
+  /**
+   * The database file the sqlite store opened. Another store that must not
+   * share a file with this one reads it here, through the port, because
+   * the two are resolved by different plugins.
+   */
+  readonly path?: string;
 }
 
 /**
@@ -247,6 +253,7 @@ export async function createDeferralRuntime(
     store: DeferralStore,
     backend: DeferralRuntime["backend"],
     ownsStore: boolean,
+    path?: string,
   ): DeferralRuntime => ({
     store,
     signer,
@@ -256,6 +263,7 @@ export async function createDeferralRuntime(
     expiryLeaseMs,
     ...(retentionMs !== undefined ? { retentionMs } : {}),
     ...(defaultTtlMs !== undefined ? { defaultTtlMs } : {}),
+    ...(path !== undefined ? { path } : {}),
   });
 
   // A present-but-empty environment variable means unset, not "open the
@@ -304,7 +312,7 @@ export async function createDeferralRuntime(
       { backend: "sqlite", driver: store.driver, path },
       "Deferral store opened",
     );
-    return runtime(store, "sqlite", true);
+    return runtime(store, "sqlite", true, path);
   } catch (err) {
     if (explicit) throw err;
     // Nothing opened the file, so nothing may go on holding it: this
