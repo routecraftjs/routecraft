@@ -95,25 +95,25 @@ describe("MCP Plugin Integration", () => {
   /**
    * @case Verifies that mcpPlugin can filter tools
    * @preconditions Multiple tools are defined and filter is applied
-   * @expectedResult Plugin is a descriptor with bind and stop hooks
+   * @expectedResult Plugin is a descriptor with bind and start hooks
    */
   test("mcpPlugin() can filter tools by name", () => {
     const p = mcpPlugin({ tools: ["allowed-tool"] });
     expect(typeof p.bind).toBe("function");
-    expect(p).toHaveProperty("stop");
+    expect(typeof p.start).toBe("function");
   });
 
   /**
    * @case Verifies that mcpPlugin can filter tools by function
    * @preconditions Custom filter function is provided operating on McpLocalToolEntry
-   * @expectedResult Plugin is a descriptor with bind and stop hooks
+   * @expectedResult Plugin is a descriptor with bind and start hooks
    */
   test("mcpPlugin() can filter tools by function", () => {
     const p = mcpPlugin({
       tools: (entry) => entry.annotations?.readOnlyHint === true,
     });
     expect(typeof p.bind).toBe("function");
-    expect(p).toHaveProperty("stop");
+    expect(typeof p.start).toBe("function");
   });
 
   /**
