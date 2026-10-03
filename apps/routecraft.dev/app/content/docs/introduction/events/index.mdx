@@ -40,38 +40,37 @@ Each key is an event name (or the catch-all `'*'`). The value can be a single ha
 
 ## Subscribing via a plugin
 
-When you need the full context API (dynamic subscriptions, `context.once`, cleanup), use a plugin instead:
-
-Call `context.on(event, handler)` with an event name or pattern. The handler receives `{ ts, contextId, details }`.
+When subscriptions need code of their own (state, cleanup, emitting further events), put them in a [plugin](/docs/advanced/plugins). A plugin subscribes in `bind` with `c.observe(event, handler)`; the handler receives `{ ts, contextId, details }`.
 
 ```ts
 // plugins/logger.ts
-import { type CraftContext } from '@routecraft/routecraft'
+import { definePlugin } from '@routecraft/routecraft'
 
-export default function loggerPlugin(ctx: CraftContext) {
-  ctx.on('context:started', ({ ts }) => {
-    ctx.logger.info(`Context ready at ${ts}`)
-  })
+export default definePlugin({
+  id: 'acme.logger',
+  bind(c) {
+    c.observe('context:started', ({ ts }) => {
+      c.logger.info(`Context ready at ${ts}`)
+    })
 
-  ctx.on('route:started', ({ details: { route } }) => {
-    ctx.logger.info(`Capability running: ${route.definition.id}`)
-  })
+    c.observe('route:started', ({ details: { route } }) => {
+      c.logger.info(`Capability running: ${route.definition.id}`)
+    })
 
-  ctx.on('context:error', ({ details: { error } }) => {
-    ctx.logger.error(error, 'Context error')
-  })
-}
+    c.observe('context:error', ({ details: { error } }) => {
+      c.logger.error(error, 'Context error')
+    })
+  },
+})
 ```
 
-Use `context.once` when you only need the first occurrence:
+`c.observe` returns the unsubscribe function. Code that holds the `CraftContext` itself, such as an embedding application or a test, subscribes with `ctx.on(event, handler)`, which also returns the unsubscribe function, and `ctx.once` for the first occurrence only:
 
 ```ts skip="fragment: ctx is illustrative"
 ctx.once('context:started', () => {
   console.log('Ready -- fires once only')
 })
 ```
-
-To unsubscribe, call the function returned by `context.on`:
 
 ```ts skip="fragment: ctx, handler are illustrative"
 const unsub = ctx.on('route:started', handler)
@@ -87,7 +86,7 @@ context:started
 route:started
 route:exchange:completed
 route:step:completed
-plugin:applied
+plugin:bound
 ```
 
 Event names are a fixed, finite set: identity (the route id, the plugin id, the step label) always lives in the payload, never in the name. That is what makes subscriptions strictly typed and the emit path fast.
@@ -120,30 +119,33 @@ ctx.on('route:exchange:failed', ({ details: { error } }) => {
 
 ## Emitting custom events from plugins
 
-Plugins can emit their own events on the context for other plugins or adapters to observe:
+Plugins can emit their own events for other plugins or adapters to observe:
 
 ```ts
-// plugins/auth.ts
-import { type CraftContext } from '@routecraft/routecraft'
+// plugins/audit.ts
+import { definePlugin } from '@routecraft/routecraft'
 
 // Declaring the event is what makes it emittable and gives subscribers
 // its details type.
 declare module '@routecraft/routecraft' {
   interface EventDetailsMap {
-    'plugin:auth:capability:secured': { capabilityId: string }
+    'plugin:audit:capability:seen': { capabilityId: string }
   }
 }
 
-export default function authPlugin(ctx: CraftContext) {
-  ctx.on('route:started', ({ details: { route } }) => {
-    ctx.emit('plugin:auth:capability:secured', {
-      capabilityId: route.definition.id,
+export default definePlugin({
+  id: 'acme.audit',
+  bind(c) {
+    c.observe('route:started', ({ details: { route } }) => {
+      c.emit('plugin:audit:capability:seen', {
+        capabilityId: route.definition.id,
+      })
     })
-  })
-}
+  },
+})
 ```
 
-Any subscriber using the exact name `plugin:auth:capability:secured` (declared via `EventDetailsMap` augmentation) will receive it.
+Any subscriber using the exact name `plugin:audit:capability:seen` (declared via `EventDetailsMap` augmentation) will receive it. Name a plugin's events under its namespace.
 
 ## Adapter metadata in operation events
 

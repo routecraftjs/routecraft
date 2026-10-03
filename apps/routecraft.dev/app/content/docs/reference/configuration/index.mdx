@@ -8,7 +8,21 @@ Full reference for `CraftConfig` fields and logging options.
 
 ## CraftConfig
 
-The main configuration object for context settings. Export it as `craftConfig` (named export) alongside your capabilities when using `craft run`. The recommended pattern is `defineConfig`, an identity helper that types the object as `CraftConfig`, so every key autocompletes (including [ecosystem keys](#ecosystem-keys-added-by)) and a key `CraftConfig` does not declare is a compile error:
+The main configuration object for context settings. A project declares it in `craft.config.ts` with `defineProject`, which takes the configuration and the plugins the project installs, and default-exports the result; `craft start` reads that export:
+
+```ts
+// craft.config.ts
+import { defineProject } from '@routecraft/routecraft'
+
+export default defineProject({
+  name: 'orders-service',
+  shutdown: { timeout: '20s' },
+})
+```
+
+`defineProject` returns `{ craft, config, plugins }`: `config` is the `CraftConfig` below, and `craft()` is a route builder typed by the installed plugins. See [`defineProject`](/docs/reference/plugins#defineproject).
+
+For a single file run with `craft run`, export the configuration as `craftConfig` (named export) alongside your capabilities. `defineConfig` is an identity helper that types the object as `CraftConfig`, so every key autocompletes (including [ecosystem keys](#ecosystem-keys-added-by)) and a key `CraftConfig` does not declare is a compile error. `defineProject` checks keys the same way.
 
 ```ts
 import { defineConfig } from '@routecraft/routecraft'
@@ -74,7 +88,6 @@ A disabled route is registered and known to the context, not started, not intaki
 | `store` | `Map<keyof StoreRegistry, StoreRegistry[keyof StoreRegistry]>` | No | -- | Initial values for the context store |
 | `on` | `Partial<Record<EventName, EventHandler \| EventHandler[]>>` | No | -- | Event handlers to register on context creation |
 | `once` | `Partial<Record<EventName, EventHandler \| EventHandler[]>>` | No | -- | One-time event handlers that fire once then auto-unsubscribe |
-| `handlers` | `Partial<Record<HandlerPoint, Handler \| Handler[]>>` | No | -- | The application's own handlers, keyed by lifecycle point ([details](#handlers)) |
 | `cron` | `Partial<CronOptions>` | No | -- | Default options for all `cron()` sources ([details](#cron)) |
 | `direct` | `{ channelType?: DirectChannelType }` | No | -- | Custom channel implementation for all `direct()` endpoints ([details](#direct)) |
 | `servers` | `Record<string, HttpServerDefinition>` | Only when a surface mounts HTTP | -- | Named HTTP listeners that HTTP, MCP, ops, and custom plugins mount onto ([details](#servers-and-http)) |
@@ -85,7 +98,8 @@ A disabled route is registered and known to the context, not started, not intaki
 | `telemetry` | `TelemetryOptions` | No | -- | Telemetry plugin configuration (SQLite, OpenTelemetry) |
 | `deferral` | `DeferralConfig` | Only when a route can reach `.defer()` or `.resume()` | -- | Where deferred exchanges are stored and how resume tokens are signed. A context with a deferrable route and no `deferral` block refuses to start with `RC5052`; the fields inside it are individually optional ([details](#deferral)) |
 | `shutdown` | `{ timeout?: Duration }` | No | `{ timeout: 30000 }` | How long a graceful shutdown may drain before it is forced ([details](#shutdown)) |
-| `plugins` | `CraftPlugin[]` | No | -- | Custom plugins to initialize before routes are registered |
+| `plugins` | `Plugin[]` | No | -- | Plugins to install, bound in dependency order before routes are registered ([details](/docs/reference/plugins)) |
+| `hooks` | `HooksConfig` | No | -- | The order of plugin hooks within a slot, and hooks switched off ([details](#hooks)) |
 
 ### Ecosystem keys (added by `@routecraft/ai`)
 
@@ -413,8 +427,8 @@ stage leaves, so it names route ids rather than a total. Then:
   cooperatively as soon as shutdown begins, gracefully or not. Records it had
   claimed are not lost either way, because the claim is a lease and the next
   process to run the sweep picks them up once it expires. Note that plugin
-  teardown waits for that in-flight sweep rather than abandoning it, which is
-  part of why teardown sits outside the bound.
+  `stop` waits for that in-flight sweep rather than abandoning it, which is
+  part of why plugin stop sits outside the bound.
 - **Nothing is settled or denied on the way down.** A deferred exchange
   survives a forced shutdown exactly as it survives a graceful one. Only a
   cancelled run denies its own deferral, and shutdown is not that.
@@ -427,76 +441,42 @@ same answer arrives twice: `context.stop()` resolves with
 [`context:stopped`](/docs/reference/events#context-events) carries the same
 pair for a subscriber that never sees the return value.
 
-Plugin teardown itself is not bounded by this key. Teardown releases
+Plugin `stop` itself is not bounded by this key. Stopping a plugin releases
 resources, and cutting it short would trade a bounded shutdown for a leaked
 one.
 
-**So `timeout` is not the whole shutdown budget.** Teardown runs after the
+**So `timeout` is not the whole shutdown budget.** Plugin stop runs after the
 deadline, and a plugin that drains on its own clock adds to the total: a
 named server drains up to its
 [`shutdownGrace`](/docs/reference/plugins/serversplugin), which also
 defaults to 30 seconds. A context with an HTTP mount and both defaults can
 therefore take up to 60 seconds to exit. When you size `timeout` against a
-platform kill timer, budget for the teardown that follows it, not for
+platform kill timer, budget for the plugin stop that follows it, not for
 `timeout` alone.
 
-## Handlers
+## Hooks
 
-A **handler** is registered on the context, by someone who did not write the route, and reaches routes that never mention it. Registration site and authorship are the whole definition, and they are what separate a handler from an [operation](/docs/reference/operations) (which the route author declares, in the chain, at the position it runs) and from an [event](/docs/reference/events) (which cannot change what happens next).
+Plugins add hooks to the slots of the chain around every route; the `hooks` key is the application's say over them when two disagree. Each hook is addressed as `pluginId/hookId`.
 
-Handlers are keyed by a POINT on the route lifecycle. One point exists today, `error`; `admission`, `entry` and `exit` are specified in [#816](https://github.com/routecraftjs/routecraft/issues/816) and land separately. `HandlerPoint` is a declaration-merged interface, so a package outside core contributes a point without core changing, and two packages claiming one name with different signatures is a compile error.
+```ts
+import { defineProject } from '@routecraft/routecraft'
 
-### The `error` point \{#the-error-point}
-
-The outermost of three error rings. A step's `.error()` wrapper runs first, then the route's own [`.error()`](/docs/reference/operations/error), and this chain is reached only where those gave up: a route with no handler, or one whose handler rethrew or threw. A route that handles its own failures is never overridden.
-
-It exists so that something OUTSIDE a route can decide a failure is recoverable. A plugin can recognise an authorization refusal, park the exchange with [`recovery.defer()`](/docs/reference/operations/error#recovery-defer-request), have a human lend the missing scope, and let the continuation finish, without any route knowing it happened.
-
-There are two ways in, landing in one chain. The config field is registered while the context is built, so it is consulted ahead of anything a plugin registers in its `apply()`.
-
-```ts skip="fragment: stepUpPlugin and the handler bodies are illustrative"
-export default defineConfig({
-  handlers: {
-    error: (error, exchange, forward, ctx) => undefined,
-  },
-  plugins: [stepUpPlugin()],
-  deferral: {},
-})
-```
-
-```ts skip="fragment: isMine and the recovery body are illustrative"
-const stepUpPlugin = (): CraftPlugin => ({
-  name: 'step-up',
-  apply(ctx) {
-    ctx.registerHandler(
-      'error',
-      (error, exchange, forward, ctx) =>
-        isMine(error) && ctx.execution === 1
-          ? recovery.defer({ ttl: '4h' })
-          : undefined,
-      { tags: ['gated'], mayDefer: true },
-    )
+export default defineProject({
+  hooks: {
+    order: { 'beforeAuth/mutate': ['acme.tenancy/normaliseTenant'] },
+    disable: ['acme.legacy/setTenantFromPath'],
   },
 })
 ```
 
-`registerHandler` returns an unregister function, the same shape `ctx.on()` returns.
+| Field | Type | Description |
+|-------|------|-------------|
+| `order` | `Record<string, string[]>` | The exact order of one phase of one slot, keyed `slot/phase`. Hooks it does not name run after the named ones, in plugin order |
+| `disable` | `string[]` | Hooks switched off. Slots only; a chain position is never disabled |
 
-**The fourth argument is a context object, not a bare route.** `ErrorContext` carries `route`, the route the failing exchange belongs to, and `execution`, which is `1` on the exchange's first run and `2` once it is a resumed continuation. A handler that parks needs `execution`: without it, a failure the resume itself causes parks the same exchange again and the human is asked the same question twice. An exchange that parks a second time and resumes again stays `2`, because the distinction is original against continuation and not a park counter, which `ex.deferral.sequence` already is. A three-parameter route `ErrorHandler` stays assignable, so the same function can serve a route and the context.
+A name that matches no installed hook, or an `order` key that is not `slot/phase`, refuses the build with [`RC1112`](/docs/reference/errors#rc-1112).
 
-**A selector scopes a registration to some routes**, by id or by tag, rather than an `if` at the top of the handler: that `if` is a switch statement that grows forever and runs on every exchange of every route. `routes` and `tags` are two ways of naming routes, so a selector carrying both applies to a route matching either; carrying neither applies to every route. A config-declared handler always applies to every route, because a selector is a registration-time argument; scope one by wrapping it in a one-line plugin.
-
-**Handlers are consulted in registration order and the first to return anything other than `undefined` decides.** `undefined` passes to the next one, which is what lets two plugins each own a slice of the failures without either knowing about the other. The return vocabulary is a route handler's, unchanged: a body recovers, `recovery.drop()` discards, `recovery.rethrow()` propagates, and `recovery.defer()` parks.
-
-A handler that throws is reported as `route:error-handler:failed` with `scope: "context"` and a `handlerIndex`, and **the chain continues to the next handler**. Its throw never replaces the error that reaches the failure path. A chain whose first member could take the whole context's error reporting down with it would be worse than no chain.
-
-Declare `mayDefer` on a handler that may answer `recovery.defer()`. It lives on the selector because it is a property of the registration, not of the point. It makes every route in the context deferrable, so the context refuses to start without a deferral runtime ([`RC5052`](/docs/reference/errors#rc-5052)) rather than failing on the first park, and transports that advertise deferability (the MCP source's `Deferred` arm) advertise it for every route while such a handler is registered.
-
-<Callout type="warning" title="A decided failure no longer reaches context:error">
-
-`context:error` and `route:exchange:failed` fire only when nothing decided. A failure a handler resolves reaches neither, which is a change from before this chain existed: a subscriber counting `context:error` as "every failure" will under-count once a handler starts deciding.
-
-</Callout>
+A failure the route's own `.error()` did not settle reaches the `error` slot, where a plugin's error hook may recover it, drop it, or park it with [`recovery.defer()`](/docs/reference/operations/error#recovery-defer-request). There is no config-level error handler: write the hook in a plugin and list the plugin in `plugins`. Slots, phases and every hook field are in the [Plugins reference](/docs/reference/plugins#hooks); worked examples are in the [Plugins guide](/docs/advanced/plugins#hooks).
 
 ## Logging configuration
 

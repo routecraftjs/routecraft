@@ -10,7 +10,7 @@ title: embeddingPlugin
 import { embeddingPlugin } from '@routecraft/ai'
 ```
 
-Registers embedding provider credentials in the context store. Required when any capability uses `embedding()`. Runs a teardown on context stop to release native ONNX resources (used by the `huggingface` provider).
+Provides the embedding service that `embedding()` reads its provider credentials from. Required when any capability uses `embedding()`. Releases native ONNX resources when the application stops (used by the `huggingface` provider).
 
 ```ts
 import { embeddingPlugin } from '@routecraft/ai'

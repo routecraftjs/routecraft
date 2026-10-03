@@ -44,7 +44,7 @@ export const craftConfig: CraftConfig = {
     'context:started': ({ ts }) => {
       console.log(`Ready at ${ts}`)
     },
-    'error': ({ details: { error, route } }) => {
+    'context:error': ({ details: { error, route } }) => {
       console.error(`Error in ${route?.definition.id ?? 'context'}`, error)
     },
     'route:exchange:failed': ({ details: { routeId, error } }) => {
@@ -58,40 +58,37 @@ For the full event catalog see the [Events reference](/docs/reference/events).
 
 ## Writing a custom monitoring plugin
 
-If event subscriptions in `craft.config.ts` become unwieldy, extract them into a plugin so they can be reused across projects:
+If event subscriptions in `craft.config.ts` become unwieldy, extract them into a [plugin](/docs/advanced/plugins) so they can be reused across projects:
 
 ```ts skip="fragment: metrics, alerts are illustrative"
 // plugins/monitoring.ts
-import { type CraftContext } from '@routecraft/routecraft'
+import { definePlugin } from '@routecraft/routecraft'
 
-export default function monitoring(ctx: CraftContext) {
-  ctx.on('route:started', ({ details: { route } }) => {
-    metrics.increment('route.started', { route: route.definition.id })
-  })
-
-  ctx.on('error', ({ details: { error, route } }) => {
-    alerts.send({
-      route: route?.definition.id,
-      code: error?.code,
-      message: error?.message,
+export const monitoring = definePlugin({
+  id: 'acme.monitoring',
+  bind(c) {
+    c.observe('route:started', ({ details: { route } }) => {
+      metrics.increment('route.started', { route: route.definition.id })
     })
-  })
 
-  ctx.on('context:stopped', () => {
-    metrics.flush()
-  })
-}
+    c.observe('context:error', ({ details: { error, route } }) => {
+      alerts.send({ route: route?.definition.id, error })
+    })
+
+    c.onDispose(() => metrics.flush())
+  },
+})
 ```
 
-Then register it in `craft.config.ts`:
+Then install it in `craft.config.ts`:
 
 ```ts skip="multi-file: imports a sibling file the page describes in prose"
-import monitoring from './plugins/monitoring'
-import type { CraftConfig } from '@routecraft/routecraft'
+import { defineProject } from '@routecraft/routecraft'
+import { monitoring } from './plugins/monitoring'
 
-export const craftConfig: CraftConfig = {
+export default defineProject({
   plugins: [monitoring],
-}
+})
 ```
 
 ## Health endpoints

@@ -55,9 +55,9 @@ Authentication on a shared listener is three-tiered: the server verifies credent
 
 ## Lifecycle
 
-- `apply(ctx)` publishes one ingress registry per declared server on the context store. No socket is bound.
-- `start(ctx)` validates every mount's claims, then binds each listener (`Bun.serve` on Bun, `node:http` on Node 22+) and emits `server:listening { server, host, port }`. A bind failure emits `server:failed` and fails the context start with [`RC5019`](/docs/reference/errors#rc-5019).
-- `teardown(ctx, info)` closes gracefully (stop accepting, reap idle connections, drain in-flight up to `shutdownGrace`, then force-close) and emits `server:closed { server }`.
+- `bind(c)` builds one ingress registry per declared server and provides them through the `WEB_INGRESS` port. No socket is bound.
+- `start(c)` validates every mount's claims, then binds each listener (`Bun.serve` on Bun, `node:http` on Node 22+) and emits `server:listening { server, host, port }`. A bind failure emits `server:failed` and fails the context start with [`RC5019`](/docs/reference/errors#rc-5019).
+- `stop(c)` closes gracefully (stop accepting, reap idle connections, drain in-flight up to `shutdownGrace`, then force-close) and emits `server:closed { server }`.
 - The plugin declares `keepsAlive`, so a context whose routes have all completed keeps running until `stop()` while a listener is up.
 
 ## Events

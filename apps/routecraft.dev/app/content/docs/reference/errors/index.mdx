@@ -75,6 +75,150 @@ Context already stopped
 **Suggestion**  
 Build a fresh context from your config instead of restarting a stopped one. The process is the real restart unit; `craft run` already behaves this way.
 
+## RC1101
+Two plugins share an id
+
+**Why it happens**  
+Two installed plugins carry the same `id`. Every plugin id is installed once per application. A config key and an explicit plugin for the same feature count as two installations of one id: `deferral: {}` together with `plugins: [deferralPlugin()]` is the common case. The message names both positions.
+
+**Suggestion**  
+Keep one of the two. To replace a [default plugin](/docs/reference/plugins#default-plugins), list a plugin with its id: an application plugin with the same id takes the default's place without a fault.
+
+## RC1102
+Two plugins share a namespace
+
+**Why it happens**  
+Two installed plugins resolve to the same namespace. A namespace is the prefix a plugin's facet, route options and events live under; it defaults to the last segment of the id, so `acme.audit` and `other.audit` collide on `audit`.
+
+**Suggestion**  
+Give one of the two plugins an explicit `namespace`.
+
+## RC1103
+Port name invalid or claimed by two tokens
+
+**Why it happens**  
+A port name is not of the form `owner.capability@version`, or two different `port()` tokens with the same name are present in one application. The second case means two copies of the module that declares the port are loaded, so a provider and its consumer hold different tokens for what looks like one contract.
+
+**Suggestion**  
+Name the port `owner.capability@1` and declare it once, at module scope, with `port()`. For a duplicate, deduplicate the dependency that declares it so every plugin shares one copy.
+
+## RC1104
+Required port has no provider
+
+**Why it happens**  
+A plugin lists a port in `requires`, or something called `require()` for a port, and no installed plugin provides it.
+
+**Suggestion**  
+Install a plugin that provides the port the message names. For a plugin you wrote that can run without it, move the port to `optional` and read it with `lookup()`.
+
+## RC1105
+Two providers of one port
+
+**Why it happens**  
+Two installed plugins list the same port in `provides`, and neither declares `replaces` for it, so the kernel cannot pick one. The message names both.
+
+**Suggestion**  
+Remove one, or add `replaces: [port]` to the provider that should be selected. The displaced provider still binds; its value is simply not the one consumers receive.
+
+## RC1106
+Invalid port replacement
+
+**Why it happens**  
+A plugin lists a port in `replaces` without also listing it in `provides`, or two plugins replace the same port.
+
+**Suggestion**  
+A plugin may replace a port only when it provides it too, and only one plugin may replace a given port. The message names the plugins involved.
+
+## RC1107
+Plugin dependency cycle
+
+**Why it happens**  
+The plugins require each other in a cycle through their `requires` and `optional` ports, so no order can bind them. The message lists the edges.
+
+**Suggestion**  
+Break one edge: make a requirement optional, or move the part both plugins need into a port of its own.
+
+## RC1108
+Port required without being declared
+
+**Why it happens**  
+A plugin called `c.require(port)` or `c.lookup(port)` for a port it did not list in `requires` or `optional`. The kernel orders plugins by those declarations, so an undeclared port could be read before its provider bound.
+
+**Suggestion**  
+Add the port to `requires` or `optional` on the plugin.
+
+## RC1109
+Port provision does not match the declaration
+
+**Why it happens**  
+A plugin called `c.provide(port, value)` for a port it did not list in `provides`, or its `bind` returned without providing a port it did list.
+
+**Suggestion**  
+Make the declaration and the provision match: list every port the plugin provides, and call `c.provide()` for each in `bind`.
+
+## RC1110
+Contribution after the application froze
+
+**Why it happens**  
+A plugin provided a port or registered a route after the last `bind` returned. The application freezes before it compiles routes, so a later contribution would miss compilation.
+
+**Suggestion**  
+Move the contribution into `bind(c)`. Work that needs running routes belongs in `start(c)`, but it cannot add ports or routes there.
+
+## RC1111
+Route needs a port nobody provides
+
+**Why it happens**  
+A route uses something only a plugin can provide and no installed plugin provides it: a chain position such as `.retry()` or `.authorize()` whose provider was removed, or a step such as `.defer()` or a third-party plugin's method on a route started in an application that does not install that plugin.
+
+**Suggestion**  
+Install the plugin the message names, in the same application that runs the route. A route built with a project's `craft()` must run in a context started from that project's config.
+
+## RC1112
+Hook target does not exist
+
+**Why it happens**  
+A plugin declares a hook in a slot or point that does not exist, two hooks of one plugin share an id in one slot, or `hooks.order` or `hooks.disable` names a hook no installed plugin declares. An `order` key must be `slot/phase`.
+
+**Suggestion**  
+Check the spelling against the [slots](/docs/reference/plugins#slots) and the installed plugins. Hooks are addressed as `pluginId/hookId`; give a hook an explicit `id` when its function has no name.
+
+## RC1113
+Two plugins declare one point
+
+**Why it happens**  
+Two plugins declare a point with the same name, or a plugin declares a point named after a slot of the chain.
+
+**Suggestion**  
+A point name belongs to one plugin. Rename one under its own namespace, for example `approvals.decided`.
+
+## RC1114
+Facet name not allowed
+
+**Why it happens**  
+A plugin's facet would be read as `ex.<namespace>`, and its namespace names a field every exchange already has: `id`, `headers`, `body` or `logger`.
+
+**Suggestion**  
+Give the plugin a different `namespace`.
+
+## RC1115
+Hook broke its phase
+
+**Why it happens**  
+An `observe` hook returned a value, a `validate` hook returned something other than nothing or `refuse(reason)`, a hook declared a phase its slot does not have (`exit` and `error` have no `validate`), or a `perAttempt` hook is not a wrapper.
+
+**Suggestion**  
+Return nothing from `observe`, change the exchange only in `mutate`, and decide only in `validate`. A `perAttempt` hook is `{ wrap(proceed, exchange, info) }`.
+
+## RC1116
+Two plugins declare one step
+
+**Why it happens**  
+Two installed plugins declare a step with the same name, or a plugin declares a step named after a method the builder already has (`to`, `transform`, `filter`, ...). A route method can mean one thing.
+
+**Suggestion**  
+Remove one of the plugins, or rename the step.
+
 ## RC2001
 Invalid operation type
 
@@ -342,7 +486,7 @@ This check applies only to URL and OIDC-discovery `userinfo` modes; the function
 Authorization failed: principal is not authentic
 
 **Why it happens**  
-`authorize()` found a principal on the exchange, but it was not established by a trusted origin. Authenticity is conferred only by a source-side verifier (`jwt()` / `jwks()` / `oauth()`) or by an explicit mint (`.authenticate()` / the `authenticate()` helper), which register the principal in a private set. A plain object written directly onto `headers["routecraft.auth.principal"]` (for example via `.process()` or `.header()`), or a copy made from an existing principal (`{ ...ex.principal, roles: ['admin'] }`, which is a different object and so not in the set), is treated as self-asserted and rejected. This makes establishing identity an explicit, greppable act and prevents a route from silently forging or escalating identity.
+`authorize()` found a principal on the exchange, but it was not established by a trusted origin. Authenticity is conferred only by a source-side verifier (`jwt()` / `jwks()` / `oauth()`) or by an explicit mint (`.authenticate()` / the `authenticate()` helper), which register the principal in a private set. A plain object written directly onto `headers["routecraft.auth.principal"]` (for example via `.process()` or `.header()`), or a copy made from an existing principal (`{ ...ex.auth.principal, roles: ['admin'] }`, which is a different object and so not in the set), is treated as self-asserted and rejected. This makes establishing identity an explicit, greppable act and prevents a route from silently forging or escalating identity.
 
 The check is distinct from `RC5012` (no principal at all), `RC5015` (an authentic principal that lacks a required role or fails a predicate), and `RC5038` (an authentic principal that lacks a required scope), so you can tell "forged / self-asserted" apart from "missing a role" and "missing a grantable scope."
 
@@ -1111,6 +1255,15 @@ The hook is bounded by the deferring route's abort signal, widened by an enclosi
 
 **Suggestion**  
 Notify by forwarding to a route your application owns rather than calling a mailer inline. The send is then a route like any other: retryable, observable, and testable without the handler, and it runs under the parked exchange's principal because `forward` carries identity by reference. A hook that legitimately takes longer than the route allows needs the route's `.timeout()` widened, not the bound removed.
+
+## RC5068
+Refused by a validate hook
+
+**Why it happens**  
+A plugin's `validate` hook returned `refuse(reason)` for this exchange. The message names the hook (`pluginId/hookId`), the slot it ran in, and the reason. The refusal reaches the route's `.error()` and the `error` slot like any other failure.
+
+**Suggestion**  
+Read the reason in the message: it is usually a property of the request (a missing header, a principal outside a tenant). A route can answer the refusal in its own `.error()`. If the hook is wrong for this application, switch it off by id with `hooks.disable`, or scope it with the hook's `routes` or `tags`.
 
 ## RC9901
 Unknown error

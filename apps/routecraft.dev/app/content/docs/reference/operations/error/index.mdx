@@ -61,13 +61,13 @@ craft()
 **Error handling levels:**
 1. **Step level**: an `.error()` wrapper chained after `.from()`, covering one step
 2. **Route level**: this handler, catching everything in the route (including tap errors via events)
-3. **Context level**: a handler registered at the [`error` point](/docs/reference/configuration#handlers), reached only where the two above gave up
+3. **Plugin level**: a hook in the chain's [`error` slot](/docs/reference/plugins#slots), declared by a plugin and reached only where the two above gave up
 
-The three are consulted innermost first and the first to decide wins. A route that handles its own failures is never overridden by the context.
+The three are consulted innermost first and the first to decide wins. A route that handles its own failures is never overridden by a plugin.
 
-**The route and context rings run outside the route's resilience wrappers; a step-scope `.error()` does not.** A failure inside a `.retry()`, `.timeout()`, `.circuitBreaker()` or `.concurrency()` segment surfaces to the wrapper first, so those two rings are consulted once the attempts are exhausted rather than once per attempt. That is what a route author declaring `.retry()` means by it, and it is why a park lands after the retries rather than on attempt one: nobody should be asked to approve something an automatic retry would have fixed.
+**The route ring and the `error` slot run outside the route's resilience wrappers; a step-scope `.error()` does not.** A failure inside a `.retry()`, `.timeout()`, `.circuitBreaker()` or `.concurrency()` segment surfaces to the wrapper first, so those two are consulted once the attempts are exhausted rather than once per attempt. That is what a route author declaring `.retry()` means by it, and it is why a park lands after the retries rather than on attempt one: nobody should be asked to approve something an automatic retry would have fixed.
 
-A step-scope wrapper sits in the step list, inside the segment, so it runs on every failed attempt. The two are useful for different jobs: recover a flaky step per attempt with a step-scope `.error()`, and decide what a route's exhausted failure means with the route or context ring.
+A step-scope wrapper sits in the step list, inside the segment, so it runs on every failed attempt. The two are useful for different jobs: recover a flaky step per attempt with a step-scope `.error()`, and decide what a route's exhausted failure means with the route handler or an `error` slot hook.
 
 ## Recovery directives
 
@@ -108,19 +108,30 @@ The event is last because it is the claim that an exchange IS parked. A `notify`
 
 **`notify` tells someone; it must not answer on their behalf.** `forward` awaits the route it calls, so a hook that forwards to a resume door resumes the parked exchange before `notify` returns, and therefore before `route:exchange:deferred` fires. A subscriber then sees `route:exchange:resumed` for a park it was never told about, and the caller is handed an acknowledgment whose token is already spent. Neither is worth designing around, because a hook that resumes the deferral it is announcing has not notified anyone: it has done the work, and the route should simply not have parked. Put the decision in the handler, where returning `undefined` declines to park at all.
 
-```ts skip="fragment: isLendable, stepUpDecision, sendStepUpMail are illustrative"
-ctx.registerHandler('error', (error, exchange, forward, ctx) => {
-  const refusal = insufficientAuthorityOf(error)
-  if (!refusal || !refusal.effective) return undefined   // not mine, next handler
-  // Execution two already carries what a human lent; parking it again would
-  // ask for the same scope a second time.
-  if (ctx.execution === 2) return undefined
-  return recovery.defer({
-    schema: stepUpDecision,
-    ttl: '4h',
-    meta: { scopes: refusal.scopes },
-    notify: (ack) => forward(sendStepUpMail, { token: ack.token, scopes: refusal.scopes }),
-  })
+```ts skip="fragment: stepUpDecision, sendStepUpMail are illustrative"
+export const stepUp = definePlugin({
+  id: 'acme.step-up',
+  hooks: {
+    error: {
+      id: 'parkForStepUp',
+      phase: 'mutate',
+      mayDefer: true,
+      run(error, exchange, info) {
+        const refusal = insufficientAuthorityOf(error)
+        if (!refusal || !refusal.effective) return undefined // not mine, next hook
+        // Execution two already carries what a human lent; parking it again
+        // would ask for the same scope a second time.
+        if (info.execution === 2) return undefined
+        return recovery.defer({
+          schema: stepUpDecision,
+          ttl: '4h',
+          meta: { scopes: refusal.scopes },
+          notify: (ack) =>
+            info.forward(sendStepUpMail, { token: ack.token, scopes: refusal.scopes }),
+        })
+      },
+    },
+  },
 })
 ```
 
@@ -138,7 +149,7 @@ Two properties of that example are worth copying deliberately.
 
 The accepted residue is stated rather than hidden: a crash between the write and the notification leaves a record nobody was told about, which the record's `ttl` retires. The reverse order leaves a dead link in a human's inbox, which nothing retires.
 
-A **step-scope** `.error()` wrapper cannot park and refuses `recovery.defer` with RC5051. Positions are assigned to the entries of the route's step array, which is the outermost wrapper of a stack, so a wrapper inside one has no position to name. Park from the route-scope handler or from a context handler; both see the same failure.
+A **step-scope** `.error()` wrapper cannot park and refuses `recovery.defer` with RC5051. Positions are assigned to the entries of the route's step array, which is the outermost wrapper of a stack, so a wrapper inside one has no position to name. Park from the route-scope handler or from an `error` slot hook; both see the same failure.
 
 **Note about tap errors:** Tap operations emit errors to the route error handler via events. The main exchange continues (tap is fire-and-forget), but the error is observable for logging and monitoring.
 

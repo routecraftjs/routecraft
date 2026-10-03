@@ -97,7 +97,7 @@ export const account = craft()
   .authorize({})
   .from(http({ path: '/account', method: 'GET' }))
   .process(async (ex) =>
-    DefaultExchange.rewrap(ex, { body: `hello, ${ex.principal?.subject}` }),
+    DefaultExchange.rewrap(ex, { body: `hello, ${ex.auth.principal?.subject}` }),
   )
   .to(noop())
 ```
@@ -122,7 +122,7 @@ export const account = craft()
 - `routecraft.http.query` -- `Record<string, string>` of query params.
 - `routecraft.http.rawHeaders` -- `Record<string, string>` of the raw request headers, lower-cased. This is the open-ended pass-through wire-header remainder (the parsed envelope above is promoted to its own keys); it mirrors `routecraft.mail.rawHeaders`.
 - `routecraft.http.rawBody` -- `Uint8Array` of the exact wire bytes of the request body. Only present when the route opted in via `http({ rawBody: true })`; empty-body requests carry an empty array. Opt-in because of retention and exposure, not cost: the bytes already exist in memory during parsing, but attaching them pins a buffer of up to `maxBodySize` for the exchange lifetime and surfaces raw payload bytes to anything that logs the exchange headers.
-- `routecraft.auth.principal` -- the authenticated `Principal` (when auth is configured). `ex.principal` is sugar over this header.
+- `routecraft.auth.principal` -- the authenticated `Principal` (when auth is configured). `ex.auth.principal` reads this header in a route; `principalOf(exchange)` reads it elsewhere.
 
 ### Request body parsing (driven by `Content-Type`)
 

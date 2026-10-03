@@ -136,7 +136,7 @@ Subtypes:
 | `'basic'` | `name?` |
 | `'custom'` | `name?`, `email?`, `roles?`, `scopes?`, `expiresAt?`, `claims?` |
 
-The populated principal rides on the exchange as a single structured header (`routecraft.auth.principal`) and is exposed ergonomically via the `ex.principal` getter; read fields with `ex.principal?.subject`, `ex.principal?.scopes`, `ex.principal?.claims`, etc.
+The populated principal rides on the exchange as a single structured header (`routecraft.auth.principal`) and is read with the auth plugin's facet in a route; read fields with `ex.auth.principal?.subject`, `ex.auth.principal?.scopes`, `ex.auth.principal?.claims`, etc. Code that holds a plain exchange (an adapter, a hook) reads it with `principalOf(exchange)`.
 
 ## Built-in `jwt()` helper
 
@@ -224,7 +224,7 @@ auth: oauth({
 })
 ```
 
-`issuer` and `audience` are required on `jwks()` / `jwt()`, so the server cannot silently accept tokens from a different IdP or minted for a different resource. Standard claims (`sub`, `client_id`, `email`, `name`, `iss`, `aud`, `scope`, `roles`, `exp`) map to `OAuthPrincipal` fields automatically; the resolved principal surfaces on the structured `routecraft.auth.principal` exchange header and via the `ex.principal` getter. For non-standard IdPs, pass `claims` mappers to `jwks()` / `jwt()`; see [Securing capabilities](/docs/advanced/securing-capabilities).
+`issuer` and `audience` are required on `jwks()` / `jwt()`, so the server cannot silently accept tokens from a different IdP or minted for a different resource. Standard claims (`sub`, `client_id`, `email`, `name`, `iss`, `aud`, `scope`, `roles`, `exp`) map to `OAuthPrincipal` fields automatically; the resolved principal surfaces on the structured `routecraft.auth.principal` exchange header and read with `ex.auth.principal` in a route (`principalOf(exchange)` elsewhere). For non-standard IdPs, pass `claims` mappers to `jwks()` / `jwt()`; see [Securing capabilities](/docs/advanced/securing-capabilities).
 
 Passing `jwks(...)` straight to `auth` works identically. Reach for `oauth()` when you want `requiredScopes` enforcement or an explicit issuer.
 

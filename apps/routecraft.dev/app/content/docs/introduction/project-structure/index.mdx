@@ -64,7 +64,7 @@ application needs no barrel file. Each folder is optional; one that is absent is
 | Folder | Produces | Rule |
 | --- | --- | --- |
 | `capabilities/` | Routes | A directory holding `route.ts` is one capability: that file is imported and the directory is not descended into, so colocated tests, fixtures and private helpers are never loaded. Any other module is a single-file capability. Other directories are grouping. |
-| `plugins/` | Context plugins | Each module default-exports a plugin instance (an object with `apply`). A factory export is an error: a factory needs arguments the runtime cannot invent, so call it in `craft.config.ts` instead. |
+| `plugins/` | Plugins | Each module default-exports a plugin descriptor (`definePlugin({ id, ... })`). A factory export is an error: a factory needs arguments the runtime cannot invent, so call it in `craft.config.ts` instead. A plugin whose steps or facet your capabilities use belongs in `craft.config.ts` too, so the project's `craft()` is typed by it. |
 | `agents/` | Registered agents | Loaded by `@routecraft/ai`. See [agents](#agents). |
 | `skills/` | The default skill set for every agent | Loaded by `@routecraft/ai`. See [skills](#skills). |
 | `adapters/` | Nothing | Part of the convention as a place to put code. Importing an adapter module registers nothing, so there is nothing for `start` to load. |
@@ -269,25 +269,33 @@ composes for you only when it owns the agent's skill set.
 
 | File | Purpose |
 | --- | --- |
-| `craft.config.ts` | Registers plugins and configures the context. Exported as the named `craftConfig` export. |
+| `craft.config.ts` | Declares the project: its plugins and configuration. Default-exports `defineProject(...)`. |
 | `package.json` | Dependencies and convenience scripts. |
 | `tsconfig.json` | TypeScript configuration. |
 | `.env` | Environment variables. Pass a custom path with `--env` in CLI commands. |
 
 ## craft.config.ts
 
-The config file is the entry point for the Routecraft runtime. It is read through the named
-`craftConfig` export, which is what `defineConfig` is built for:
+The config file is the entry point for the Routecraft runtime. It default-exports a project,
+declared with `defineProject`: the plugins the project installs and its configuration.
 
 ```ts
 // craft.config.ts
-import { defineConfig } from "@routecraft/routecraft";
+import { defineProject } from "@routecraft/routecraft";
 
-export const craftConfig = defineConfig({});
+export default defineProject({
+  plugins: [],
+});
 ```
 
-A default export is accepted as a fallback and warns, because earlier versions of this page
-showed that form and nothing read it. Rename it to `craftConfig`.
+`defineProject` returns `{ craft, config, plugins }`. A capability that uses a step or facet of
+one of the project's plugins imports the project and builds its route with `project.craft()`,
+which is typed by exactly the installed plugins; a capability that uses only what Routecraft
+ships can keep importing `craft` from `@routecraft/routecraft`. See
+[Plugins](/docs/advanced/plugins#installing-plugins-with-defineproject).
+
+A plain config object is still read: a named `craftConfig` export, or a default-exported
+config object. That is the shape `craft run` reads from a single file.
 
 Importing this file is also what pulls ecosystem packages into the module graph, which is how
 their config keys and their folder discoverers get registered. An agent project therefore

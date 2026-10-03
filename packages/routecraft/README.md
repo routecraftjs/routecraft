@@ -118,7 +118,7 @@ context:started
 route:registered
 route:exchange:started        (details.routeId)
 route:step:completed          (details.routeId, details.operation)
-plugin:applied                (details.pluginId)
+plugin:bound                  (details.pluginId)
 ```
 
 ### Subscribing
@@ -157,7 +157,7 @@ route:cache:hit / miss / stored / failed
 route:exchange:deferred / resumed / expired
 route:enablement:changed
 server:listening / failed / closed
-plugin:applying / applied / starting / started / stopping / stopped
+plugin:binding / bound / starting / started / stopping / stopped
 ```
 
 See the [events reference](https://routecraft.dev/docs/reference/events)

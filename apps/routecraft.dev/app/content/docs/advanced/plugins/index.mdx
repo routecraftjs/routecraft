@@ -3,165 +3,501 @@ title: Plugins
 ---
 
 <Lead>
-Extend the Routecraft runtime with cross-cutting behaviour.
+Extend the Routecraft runtime: observe it, add hooks to the chain around every route, add route methods, and replace what the framework ships.
 </Lead>
 
 ## What is a plugin?
 
-A plugin is code that runs once when the context starts, before any capabilities are registered. It has access to the full `CraftContext` and can:
+A plugin is a plain descriptor that the runtime installs, orders, binds, starts and stops. Every feature Routecraft ships beyond the route grammar is a plugin: `direct()` endpoints, retries, caching, authentication, deferral, HTTP, ops. A plugin you write has the same shape and the same reach as those.
 
-- Subscribe to lifecycle events (capability started, error occurred, context stopped)
-- Write shared state to the context store for adapters to read
-- Register additional capabilities dynamically
+A plugin can:
 
-**Plugins vs capabilities:** a capability defines what your system does. A plugin extends how the runtime behaves. Logging, metrics, tracing, auth headers, and connection pooling are all plugin concerns, not capability concerns.
+- observe and emit [events](/docs/reference/events)
+- offer a capability to other plugins and adapters through a [port](#ports), or require one
+- add [hooks](#hooks) to the chain that runs around every route
+- add [methods](#steps) to the route builder
+- make a typed view of the exchange readable as `ex.<namespace>` (a [facet](#facets))
+- register routes of its own
 
-## Writing a plugin
+**Plugins vs capabilities:** a capability defines what your system does. A plugin extends how the runtime behaves. Logging, metrics, tracing, tenancy, auth and connection pooling are plugin concerns, not capability concerns.
 
-A plugin is a function that receives the context:
+This page explains each part with a worked example. Every field, member and fault code is listed in the [Plugins reference](/docs/reference/plugins#plugin-descriptor).
 
-```ts
-// plugins/logger.ts
-import { type CraftContext } from '@routecraft/routecraft'
+## A first plugin
 
-export default function loggerPlugin(context: CraftContext) {
-  context.on('route:started', ({ details: { route } }) => {
-    context.logger.info(`Started: ${route.definition.id}`)
-  })
-
-  context.on('context:error', ({ details: { error } }) => {
-    context.logger.error(error, 'Context error')
-  })
-}
-```
-
-Or as an object, which is what you need when the plugin has more than one
-lifecycle phase. The phases are `apply`, `start` and `teardown`:
+`definePlugin()` declares a plugin. It returns the descriptor unchanged and keeps its literal types, so a project built from it is typed by exactly what it declares.
 
 ```ts
-// plugins/metrics.ts
-import { type CraftContext, type CraftPlugin } from '@routecraft/routecraft'
+import { definePlugin } from '@routecraft/routecraft'
 
-// Declaring the key types for what goes in and what comes back out, so
-// readers do not have to cast.
-declare module '@routecraft/routecraft' {
-  interface StoreRegistry {
-    'metrics.counters': { started: number; errors: number }
-  }
-}
-
-export default {
-  name: 'metrics',
-
-  async apply(context: CraftContext) {
-    context.setStore('metrics.counters', { started: 0, errors: 0 })
-
-    context.on('route:started', () => {
-      const counters = context.getStore('metrics.counters')
-      if (counters) counters.started += 1
+export const audit = definePlugin({
+  id: 'acme.audit',
+  bind(c) {
+    c.observe('route:exchange:failed', ({ details }) => {
+      c.logger.warn({ route: details.routeId }, 'exchange failed')
     })
   },
-} satisfies CraftPlugin
+})
 ```
 
-## Registering a plugin
+The `id` is dotted and unique per application. The plugin's **namespace** is the last segment of the id (`audit`) unless it declares `namespace`; its facet, route options and events live under that name.
 
-Pass plugins in `craft.config.ts`:
+A plugin never receives the `CraftContext`. `bind`, `start` and `stop` get a `PluginContext`, which reaches the application through ports, events, its own routes and a small set of execution verbs. That is the same reach a first-party plugin has.
 
-```ts skip="multi-file: imports a sibling file the page describes in prose"
+## Installing plugins with `defineProject` \{#installing-plugins-with-defineproject}
+
+A project declares its plugins and configuration once, in `craft.config.ts`, with `defineProject()`. The CLI reads the default export.
+
+```ts
 // craft.config.ts
-import type { CraftConfig } from '@routecraft/routecraft'
-import logger from './plugins/logger'
-import metrics from './plugins/metrics'
+import { defineProject, definePlugin } from '@routecraft/routecraft'
 
-export const craftConfig: CraftConfig = {
-  plugins: [logger, metrics],
+const audit = definePlugin({ id: 'acme.audit' })
+
+export default defineProject({
+  plugins: [audit],
+  shutdown: { timeout: '20s' },
+})
+```
+
+`defineProject({ plugins, ...config })` returns `{ craft, config, plugins }`. Its `craft()` is typed by exactly the installed plugins plus the [default plugins](#default-plugins): a step or facet of a plugin the project does not install is a compile error. Routes that use a plugin's steps or facet are built with the project's `craft()`:
+
+```ts skip="multi-file: imports the project from craft.config.ts"
+// capabilities/orders/route.ts
+import project from '../../craft.config'
+
+export default project
+  .craft()
+  .id('orders')
+  .from<Order>(direct())
+  .withTax(0.21)
+  .to(log())
+```
+
+Here `withTax` is a step the project's `pricing` plugin adds; [Steps](#steps) shows how it is declared.
+
+The root `craft()` export is typed by the plugins `@routecraft/routecraft` ships. It is the right builder for a route that uses only those, and for a single file run with `craft run`, where `export const craftConfig = defineConfig({ ... })` beside the route still works.
+
+Every key the config accepts is documented in the [Configuration reference](/docs/reference/configuration). A config key such as `deferral: {}` or `http: {...}` installs the matching plugin with its options, so `plugins` lists only what has no key.
+
+### Default plugins
+
+Every application installs these ahead of its own plugins:
+
+| Plugin | Provides |
+| --- | --- |
+| `routecraft.direct` | the `direct()` endpoint registry |
+| `routecraft.resilience` | the throttle, circuit breaker, retry, timeout and concurrency positions |
+| `routecraft.cache` | the cache positions |
+| `routecraft.principals` | `AUTHORITY`: minting, branding and reading principals |
+| `routecraft.auth` | the authorize position, the `.authenticate()` and `.delegate()` steps, and the `ex.auth` facet |
+
+An application plugin with the same id takes a default's place. A plugin that declares `replaces` for a default's port is selected over it, which is how you [replace a position](#replacing-a-position).
+
+## Lifecycle
+
+A plugin has three optional lifecycle functions. Which one a piece of work belongs in depends on what has to exist already for it to be correct.
+
+| Function | Runs | Use it for |
+| --- | --- | --- |
+| `bind(c)` | While the application is installed, in dependency order, before any route is registered | Requiring and providing ports, resolving config, opening resources, observing events, registering routes |
+| `start(c)` | After every route has started | Work that drives routes or needs them able to serve |
+| `stop(c, info)` | During shutdown, or when an install or start failed partway | Releasing what `bind` opened and stopping what `start` began |
+
+Between `bind` and `start` the application **freezes** and **compiles** its routes. Ports, routes and hooks are accepted only while plugins bind.
+
+```ts
+import { definePlugin } from '@routecraft/routecraft'
+
+export function heartbeat(every = 60_000) {
+  return definePlugin({
+    id: 'acme.heartbeat',
+    start(c) {
+      const timer = setInterval(() => c.logger.info({}, 'still running'), every)
+      timer.unref?.()
+      c.onDispose(() => clearInterval(timer))
+    },
+  })
+}
+```
+
+`c.onDispose(fn)` registers a release that runs at stop, after the plugin's own `stop`, in reverse registration order. Every disposer runs even when another throws.
+
+To abort a boot, throw from `bind` or `start`: the application unwinds and the original error surfaces unchanged. To stand the application down without failing the boot, call `c.execution.requestStop()`. The full ordering and unwind rules, the `stop` argument, and the fault each stage raises are in the [reference](/docs/reference/plugins#lifecycle).
+
+## Ports
+
+Plugins share state only through ports. A port is a named, versioned token for a capability: one plugin provides it, others require it. A consumer asks for a capability, never for a particular plugin, which is what lets someone else replace the provider.
+
+```ts
+import { definePlugin, port } from '@routecraft/routecraft'
+
+export interface Approvals {
+  request(subject: string, reason: string): Promise<string>
 }
 
+export const APPROVALS = port<Approvals>('acme.approvals@1')
+
+export const approvals = definePlugin({
+  id: 'acme.approvals',
+  provides: [APPROVALS],
+  bind(c) {
+    c.provide(APPROVALS, {
+      request: async (subject, reason) => {
+        c.logger.info({ subject, reason }, 'approval requested')
+        return 'pending'
+      },
+    })
+  },
+})
+
+export const escalation = definePlugin({
+  id: 'acme.escalation',
+  requires: [APPROVALS],
+  bind(c) {
+    const service = c.require(APPROVALS)
+    c.observe('route:exchange:failed', ({ details }) => {
+      void service.request(details.routeId, 'route failed')
+    })
+  },
+})
 ```
+
+- `port<T>("owner.capability@version")` is called once, at module scope, and exported. The token is the identity, so two copies of the module that declares it are caught at install (`RC1103`).
+- `requires` lists ports the plugin cannot run without; `optional` lists ports it uses when present and reads with `c.lookup(port)`. The kernel orders plugins so a provider binds before its consumers, whatever order the application lists them in.
+- `provides` lists ports the plugin hands over with `c.provide(port, value)` in `bind`. A declared port left unprovided is `RC1109`.
+
+An adapter reaches a port at runtime through the context it runs in: `context.lookup(PORT)` or `context.require(PORT)`. That is how context-wide [merged options](/docs/advanced/merged-options) reach an adapter.
+
+### Replacing a position
+
+The chain positions `.authorize()`, `.throttle()`, `.circuitBreaker()`, `.retry()`, `.timeout()`, `.concurrency()` and `.cache()` configure are filled by default plugins through three ports: `ENFORCEMENT`, `RESILIENCE` and `CACHE`. The builder methods stay the same for route authors; what fills the position is a provider. To replace one, provide the port and declare `replaces`:
+
+```ts
+import { definePlugin, RESILIENCE, resilienceProvider } from '@routecraft/routecraft'
+
+export const tracedRetry = definePlugin({
+  id: 'acme.traced-retry',
+  provides: [RESILIENCE],
+  replaces: [RESILIENCE],
+  bind(c) {
+    c.provide(RESILIENCE, {
+      ...resilienceProvider,
+      retry(options) {
+        const inner = resilienceProvider.retry(options)
+        return {
+          run(position) {
+            c.logger.debug({ route: position.routeId }, 'entering retry')
+            return inner.run(position)
+          },
+        }
+      },
+    })
+  },
+})
+```
+
+A position cannot be moved, removed or added. A route that configures a position no installed plugin provides refuses to start with [`RC1111`](/docs/reference/errors#rc-1111). The positions and their order are described on the [Filter Chain](/docs/advanced/filter-chain) page.
+
+## Hooks
+
+The chain around every route has fixed **positions** that belong to the framework, and **slots** between them where any number of plugins add hooks:
+
+| Slot | Runs |
+| --- | --- |
+| `error` | on a failure the route's own `.error()` did not settle |
+| `beforeAuth` | before the authorize position |
+| `afterAuth` | after authorize, before the body is parsed and validated |
+| `admitted` | after `.input()` validation, before the resilience positions |
+| `perAttempt` | around every attempt, inside retry and outside timeout (wrappers) |
+| `exit` | over completed exchanges, after the pipeline and the cache store |
+
+A hook names a slot and a **phase**, never another plugin. Inside a slot every `observe` hook runs, then every `mutate` hook, then every `validate` hook. Within a phase, hooks run in the order the application lists the plugins.
+
+### `observe`: read, never change \{#observe}
+
+An observe hook reads the exchange and returns nothing. Returning a value is `RC1115`.
+
+```ts
+import { definePlugin } from '@routecraft/routecraft'
+
+export const timing = definePlugin({
+  id: 'acme.timing',
+  hooks: {
+    exit: {
+      id: 'logCompleted',
+      phase: 'observe',
+      run(exchange, info) {
+        exchange.logger.info({ route: info.routeId }, 'completed')
+      },
+    },
+  },
+})
+```
+
+### `mutate`: change headers or body \{#mutate}
+
+A mutate hook returns the headers to set and, optionally, a replacement body. Returning nothing leaves the exchange as it is. Declaring the headers it `writes` lets the application report a conflict between two plugins at start rather than on the first request that hits both.
+
+```ts
+import { definePlugin } from '@routecraft/routecraft'
+
+export const tenancy = definePlugin({
+  id: 'acme.tenancy',
+  hooks: {
+    beforeAuth: {
+      id: 'normaliseTenant',
+      phase: 'mutate',
+      writes: ['x-tenant'],
+      run(exchange) {
+        const tenant = exchange.headers['x-tenant']
+        if (typeof tenant !== 'string') return undefined
+        return { headers: { 'x-tenant': tenant.trim().toLowerCase() } }
+      },
+    },
+  },
+})
+```
+
+### `validate`: allow or refuse \{#validate}
+
+A validate hook allows the exchange by returning nothing and refuses it by returning `refuse(reason)`. A refusal fails the run with [`RC5068`](/docs/reference/errors#rc-5068) naming the hook and the reason, and that failure reaches the route's `.error()` and the `error` slot like any other. A validate hook that returns anything else is `RC1115`.
+
+```ts
+import { definePlugin, principalOf, refuse } from '@routecraft/routecraft'
+
+export const sameTenant = definePlugin({
+  id: 'acme.same-tenant',
+  hooks: {
+    afterAuth: {
+      id: 'principalMatchesTenant',
+      phase: 'validate',
+      tags: ['tenant-scoped'],
+      run(exchange) {
+        const tenant = exchange.headers['x-tenant']
+        const principal = principalOf(exchange)
+        if (principal?.claims?.['tenant'] !== tenant) {
+          return refuse(`principal is not a member of tenant ${String(tenant)}`)
+        }
+        return undefined
+      },
+    },
+  },
+})
+```
+
+`routes` and `tags` scope a hook to some routes, by id or by tag; with neither it applies to every route. `exit` has no validate phase.
+
+### The `error` slot \{#the-error-slot}
+
+An `error` hook hears every failure the route's own `.error()` did not settle. In `observe` it only hears. In `mutate` it may decide: return a recovery body, `recovery.drop()`, `recovery.defer(...)` or `recovery.rethrow()`, or `undefined` to pass to the next hook. The first answer decides.
+
+```ts
+import { definePlugin, RoutecraftError } from '@routecraft/routecraft'
+
+export const staleQuotes = definePlugin({
+  id: 'acme.stale-quotes',
+  hooks: {
+    error: {
+      id: 'serveStale',
+      phase: 'mutate',
+      tags: ['quotes'],
+      run(error, exchange, info) {
+        const timedOut = error instanceof RoutecraftError && error.rc === 'RC5011'
+        if (!timedOut) return undefined
+        exchange.logger.warn({ route: info.routeId }, 'serving a stale quote')
+        return { stale: true }
+      },
+    },
+  },
+})
+```
+
+The hook's `info` carries `routeId`, `tags`, `execution` (`1` on the first run, `2` once the exchange is a resumed continuation) and `forward`, which sends to a `direct()` endpoint under the failing exchange's principal.
+
+A hook that may answer `recovery.defer()` declares `mayDefer: true`, which makes every route it applies to deferrable, so the application refuses to start without a deferral runtime. The error ladder from step to route to slot is described on the [`.error()` reference](/docs/reference/operations/error).
+
+### Settling conflicts
+
+The application, not the plugins, decides when two hooks disagree. In config, `hooks.order` sets the exact order of one phase of one slot, and `hooks.disable` switches a hook off. Both address a hook as `pluginId/hookId`:
+
+```ts
+import { defineProject } from '@routecraft/routecraft'
+
+export default defineProject({
+  hooks: {
+    order: { 'beforeAuth/mutate': ['acme.tenancy/normaliseTenant'] },
+    disable: ['acme.timing/logCompleted'],
+  },
+})
+```
+
+A name that matches no installed hook is `RC1112`. A position is never disabled.
+
+## Steps
+
+A plugin's `steps` become builder methods. Each entry takes the method's arguments and returns a step built with `step<In, Out>()`, which types the method by the body it accepts and the body it leaves:
+
+```ts
+import { definePlugin, step } from '@routecraft/routecraft'
+
+interface Order {
+  readonly id: string
+  readonly total: number
+}
+
+export const pricing = definePlugin({
+  id: 'acme.pricing',
+  steps: {
+    withTax: (rate: number) =>
+      step<Order, Order & { readonly gross: number }>((exchange) => ({
+        ...exchange.body,
+        gross: Math.round(exchange.body.total * (1 + rate)),
+      })),
+  },
+})
+```
+
+On a project that installs `pricing`, `.withTax(0.21)` exists on a route whose body is an `Order` and leaves it as `Order & { gross: number }`. On a route carrying a string, the method does not exist.
+
+`Body` is a placeholder for "whatever the body is where the method is called". A step typed `step<Body, Body>` whose arguments mention `Body` gives a body-preserving method whose callbacks are typed at the route's current body:
+
+```ts
+import { definePlugin, step, type Body } from '@routecraft/routecraft'
+
+export const dedupeKeys = definePlugin({
+  id: 'acme.keys',
+  steps: {
+    stamp: (key: (body: Body) => string) =>
+      step<Body, Body & { readonly ref: string }>((exchange) =>
+        Object.assign({}, exchange.body, { ref: key(exchange.body) }),
+      ),
+  },
+})
+```
+
+A method whose type depends on a generic at the call site cannot be expressed by a `steps` entry. Declare its type by merging into `StepMethods` under the plugin's namespace; the `steps` entry of the same name still provides the runtime:
+
+```ts
+import {
+  definePlugin,
+  step,
+  type BuilderState,
+  type Retyped,
+  type SetBody,
+} from '@routecraft/routecraft'
+
+export const pick = definePlugin({
+  id: 'acme.pick',
+  steps: {
+    pick: (key: string) =>
+      step<Record<string, unknown>, unknown>((exchange) => exchange.body[key]),
+  },
+})
+
+declare module '@routecraft/routecraft' {
+  interface StepMethods<S extends BuilderState, This> {
+    pick: {
+      pick<K extends keyof S['body']>(key: K): Retyped<This, SetBody<S, S['body'][K]>>
+    }
+  }
+}
+```
+
+A route that uses a plugin's step refuses to start unless that plugin is installed (`RC1111`). Two plugins declaring one step, or a step named after a builder method, is `RC1116`.
+
+The `.log()`, `.debug()`, `.map()` and `.schema()` methods are ordinary builder methods. `.authenticate()` and `.delegate()` are the auth plugin's steps, and `.defer()` and `.resume()` are the deferral plugin's.
+
+## Facets
+
+A plugin's `facet` makes a typed view of the exchange readable as `ex.<namespace>` in route callables. It is computed from the body and headers on every read and never stored, so it cannot disagree with what it derives from.
+
+```ts
+import { definePlugin, type Exchange } from '@routecraft/routecraft'
+
+export const tenant = definePlugin({
+  id: 'acme.tenant',
+  facet: (exchange: Exchange) => ({
+    id: exchange.headers['x-tenant'] as string | undefined,
+  }),
+})
+```
+
+In a route built with a project that installs `tenant`, `.transform((body, ex) => ex.tenant.id)` is typed. A facet named after an exchange field (`id`, `headers`, `body`, `logger`) is `RC1114`.
+
+The shipped facets follow the same rule. `ex.auth.principal` is the authenticated principal, provided by the auth plugin; `ex.deferral` is the deferral plugin's view. Code that holds a plain `Exchange` rather than a route's typed one, such as an adapter or a hook, reads the same values with `principalOf(exchange)` and `deferralOf(exchange)`.
+
+## Registering routes from a plugin
+
+A plugin may contribute routes in `bind`. They are registered with the application's own routes and compiled with them:
+
+```ts
+import { craft, definePlugin, log, simple } from '@routecraft/routecraft'
+
+export const adminRoutes = definePlugin({
+  id: 'acme.admin',
+  bind(c) {
+    if (process.env['ENABLE_ADMIN'] !== 'true') return
+    c.routes.register(
+      ...craft().id('admin-health').from(simple({ ok: true })).to(log()).build(),
+    )
+  },
+})
+```
+
+`c.routes.list()` and `c.routes.get(id)` give read-only views of what is registered. During `bind` they show only routes other plugins registered, because the application's own routes are registered after every plugin has bound.
 
 ## Setting global adapter defaults
 
-The most common use of plugins and context configuration is setting default options for adapters so you do not repeat them in every capability.
-
-Core adapters have dedicated fields on `CraftConfig`:
-
-```ts skip="fragment: KafkaChannel is illustrative"
-// craft.config.ts
-export const craftConfig: CraftConfig = {
-  cron: { timezone: 'UTC', maxJitter: 2000 },
-  direct: { channelType: KafkaChannel },
-}
-```
-
-External adapters (from `@routecraft/ai`, etc.) use companion plugins:
+A common reason to reach for a plugin is to set default options for adapters once, so they are not repeated in every capability. Core adapters have dedicated config keys:
 
 ```ts
-import { llmPlugin } from '@routecraft/ai'
+import { defineProject } from '@routecraft/routecraft'
 
-export const craftConfig: CraftConfig = {
-  cron: { timezone: 'UTC' },
-  plugins: [
-    llmPlugin({
-      providers: { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY! } },
-      defaultOptions: { temperature: 0.7 },
-    }),
-  ],
-}
-
+export default defineProject({
+  cron: { timezone: 'UTC', maxJitter: 2000 },
+})
 ```
 
-Every `cron()` source and `llm()` destination in the context inherits those defaults unless overridden per-adapter. This keeps shared configuration out of every capability file.
+Ecosystem packages add their own keys when imported:
 
-For the full pattern -- how merged options work, which adapters support them, and how to add support to a custom adapter -- see the [Merged Options guide](/docs/advanced/merged-options).
+```ts
+import { defineProject } from '@routecraft/routecraft'
+import '@routecraft/ai'
+
+export default defineProject({
+  cron: { timezone: 'UTC' },
+  llm: {
+    providers: { anthropic: { apiKey: process.env['ANTHROPIC_API_KEY'] ?? '' } },
+  },
+})
+```
+
+Every `cron()` source and `llm()` destination in the application inherits those defaults unless overridden per adapter. For how merged options work and how to add them to an adapter of your own, see [Merged Options](/docs/advanced/merged-options).
 
 ## Managing external services
 
-Plugins can manage long-lived external processes. The built-in `mcpPlugin` demonstrates this pattern: it spawns stdio MCP server subprocesses, monitors their health, and restarts them with exponential backoff when they crash.
+A plugin can own long-lived external processes. The built-in `mcpPlugin` spawns stdio MCP server subprocesses, monitors their health, and restarts them with exponential backoff when they crash:
 
 ```ts
-import { mcpPlugin } from '@routecraft/ai'
+import { defineProject } from '@routecraft/routecraft'
+import '@routecraft/ai'
 
-export const craftConfig: CraftConfig = {
-  plugins: [
-    mcpPlugin({
-      clients: {
-        filesystem: {
-          transport: 'stdio',
-          command: 'npx',
-          args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
-        },
+export default defineProject({
+  mcp: {
+    clients: {
+      filesystem: {
+        transport: 'stdio',
+        command: 'npx',
+        args: ['-y', '@modelcontextprotocol/server-filesystem', '/tmp'],
       },
-      maxRestarts: 5,
-    }),
-  ],
-}
+    },
+    maxRestarts: 5,
+  },
+})
 ```
 
-The plugin starts each subprocess when the context starts and tears them down when it stops. Tools from all sources (local routes, stdio clients, HTTP clients) are collected into a unified registry accessible from the context store.
-
-## Lifecycle events
-
-Plugins subscribe to events using `context.on(eventName, handler)`. Common events include `route:started`, `route:stopped`, `context:started`, `context:stopped`, and `context:error`. See the [Events reference](/docs/reference/events) for the full list.
-
-## Dynamically registering capabilities
-
-Because plugins run before capabilities are registered, they can add capabilities to the context at startup:
-
-```ts
-// plugins/admin.ts
-export default function adminPlugin(context: CraftContext) {
-  if (process.env.ENABLE_ADMIN === 'true') {
-    context.registerRoutes(
-      craft()
-        .id('admin-health')
-        .from(simple({ ok: true }))
-        .to(log())
-        .build()[0]
-    )
-  }
-}
-```
+The plugin starts each subprocess when the application starts and stops them when it stops. A plugin that owns a listener or subscription past the routes declares `keepsAlive: true`, so the application keeps running when every route has completed.
 
 ---
 
@@ -169,7 +505,9 @@ export default function adminPlugin(context: CraftContext) {
 
 <QuickLinks>
 
-<QuickLink title="Plugins reference" icon="presets" href="/docs/reference/plugins" description="Full API for plugin interfaces and context methods." />
+<QuickLink title="Plugins reference" icon="presets" href="/docs/reference/plugins" description="Every descriptor field, context member, lifecycle stage and fault code." />
+
+<QuickLink title="Filter Chain" icon="plugins" href="/docs/advanced/filter-chain" description="The positions and slots around every route, in order." />
 
 <QuickLink title="Monitoring" icon="theming" href="/docs/introduction/monitoring" description="Observability patterns built on plugins and events." />
 

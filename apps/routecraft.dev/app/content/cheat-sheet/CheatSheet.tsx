@@ -330,24 +330,27 @@ ctx.on('context:error', ({ details }) => {
   // { error, route?, exchange? }
 })
 
-// Route lifecycle (route id required)
-ctx.on('route:my-route:started', () => {})
+// Names are fixed; identity is in the payload
+ctx.on('route:started', ({ details }) => {
+  // { route }
+})
 
-// Exchange tracking (use * for all routes)
-ctx.on('route:*:exchange:completed',
-  ({ details }) => {
-    // { exchange, duration }
-  })
+// Narrow to one route with forRoute()
+ctx.on('route:exchange:completed',
+  forRoute('my-route', ({ details }) => {
+    // { routeId, exchangeId, duration }
+  }))
 
 // Step-level tracing
-ctx.on('route:*:step:completed',
-  ({ details }) => {
-    // { operation, adapter, duration }
-  })
+ctx.on('route:step:completed', ({ details }) => {})
 
-// Wildcards
-ctx.on('route:*:exchange:*', () => {})
-ctx.on('plugin:*:started', () => {})`}</CheatCode>
+// Everything, for audit sinks
+ctx.on('*', ({ ts, details }) => {})
+
+// Plugin lifecycle: binding, bound, starting, ...
+ctx.on('plugin:started', ({ details }) => {
+  // { pluginId, pluginIndex }
+})`}</CheatCode>
           </CheatSection>
 
           <CheatSection
@@ -380,23 +383,30 @@ RC9xxx  Testing`}</CheatCode>
             eyebrow="Runtime"
             title="Context &amp; plugins"
           >
-            <CheatCode skip="fragment: value, route1, route2 are illustrative">{`const ctx = await new ContextBuilder()
-  .with({
-    crm: { timezone: 'UTC' },   // your own augmented key
-    mail: { accounts: { /* ... */ } },
-    plugins: [myPlugin],
-  })
-  .on('context:started', () => {})
-  .store('custom-key', value)
-  .routes(route1, route2)
-  .build()
-
-const myPlugin: CraftPlugin = {
-  async apply(ctx) {
-    ctx.store('key', new Map())
+            <CheatCode skip="fragment: route1, route2 are illustrative">{`const myPlugin = definePlugin({
+  id: 'acme.my-plugin',
+  bind(c) {
+    c.observe('route:started', ({ details }) =>
+      c.logger.info(details.route.definition.id))
   },
-  async teardown(ctx) { /* cleanup */ },
-}`}</CheatCode>
+  stop(c, info) { /* release what bind and start acquired */ },
+})
+
+// craft.config.ts
+const project = defineProject({
+  plugins: [myPlugin],
+  mail: { accounts: { /* ... */ } },
+})
+export default project
+
+// Routes see the project's plugin steps and facets
+project.craft().id('orders').from(direct()).to(log())
+
+// Embedding: build a context from the project's config
+const ctx = await new ContextBuilder()
+  .with(project.config)
+  .routes(route1, route2)
+  .build()`}</CheatCode>
           </CheatSection>
 
           <CheatSection id="llm" eyebrow="AI" title="LLM destination">

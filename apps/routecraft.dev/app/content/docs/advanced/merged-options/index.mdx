@@ -78,24 +78,24 @@ The `direct` adapter also supports a context-level `channelType` to swap all end
 
 ## How it works
 
-Under the hood, merged options use the **context store** -- a typed key-value map on `CraftContext`. Config fields and plugins both write defaults to the store at startup. When an adapter needs its options (e.g. in `subscribe()` or `send()`), it resolves them from the store, combining context-level defaults with per-adapter overrides. Per-adapter values always win.
+Under the hood, merged options travel through a **port**: a named, typed token one plugin provides and anything else can look up. A config key such as `cron` installs a small plugin that provides the defaults through the adapter's port. When an adapter needs its options (in `subscribe()` or `send()`), it looks the port up on the context it runs in and combines the defaults with its own per-adapter options. Per-adapter values always win.
 
 ```
-┌──────────────┐               ┌────────────────┐
-│ CraftConfig  │──────────────►│  Context Store  │
-│ cron: { ... }│   setStore()  │  [CRON_OPTIONS] │
-└──────────────┘               └───────┬────────┘
-                                       │ getStore()
-                                       ▼
-                               ┌────────────────┐
-                               │  CronAdapter   │
-                               │  mergedOptions()│
-                               │  { ...store,   │
-                               │    ...adapter } │
-                               └────────────────┘
+┌──────────────┐  provide()   ┌─────────────────┐
+│ CraftConfig  │─────────────►│ port            │
+│ cron: { ... }│              │ CRON_DEFAULTS   │
+└──────────────┘              └───────┬─────────┘
+                                      │ context.lookup()
+                                      ▼
+                              ┌─────────────────┐
+                              │  CronAdapter    │
+                              │  mergedOptions()│
+                              │  { ...defaults, │
+                              │    ...adapter } │
+                              └─────────────────┘
 ```
 
-The store uses `Symbol.for()` keys so the same key resolves correctly even if multiple versions of the package coexist in the dependency tree.
+A port's token is its identity, so two copies of the module that declares it in one process are refused at install ([`RC1103`](/docs/reference/errors#rc-1103)) rather than silently splitting the defaults in two.
 
 ## Adding merged options to a custom adapter
 
@@ -111,25 +111,19 @@ export interface MyAdapterOptions {
 }
 ```
 
-### 2. Create a store key
+### 2. Declare a port
 
-Use `Symbol.for()` and augment `StoreRegistry` so the key is typed:
+Call `port()` once, at module scope, and export the token. The name is `owner.capability@version`:
 
 ```ts skip="fragment: MyAdapterOptions is illustrative"
-import type { StoreRegistry } from '@routecraft/routecraft'
+import { port } from '@routecraft/routecraft'
 
-export const MY_ADAPTER_OPTIONS = Symbol.for('acme.adapter.my-adapter.options')
-
-declare module '@routecraft/routecraft' {
-  interface StoreRegistry {
-    [MY_ADAPTER_OPTIONS]: Partial<MyAdapterOptions>
-  }
-}
+export const MY_ADAPTER_DEFAULTS = port<Partial<MyAdapterOptions>>('acme.my-adapter.defaults@1')
 ```
 
 ### 3. Implement `MergedOptions<T>` on your adapter class
 
-```ts skip="fragment: MyAdapterOptions, MY_ADAPTER_OPTIONS are illustrative"
+```ts skip="fragment: MyAdapterOptions, MY_ADAPTER_DEFAULTS are illustrative"
 import { type MergedOptions, type CraftContext } from '@routecraft/routecraft'
 
 class MyAdapter implements Destination<unknown>, MergedOptions<MyAdapterOptions> {
@@ -141,18 +135,15 @@ class MyAdapter implements Destination<unknown>, MergedOptions<MyAdapterOptions>
   }
 
   mergedOptions(context: CraftContext): MyAdapterOptions {
-    const store = context.getStore(MY_ADAPTER_OPTIONS) as
-      | Partial<MyAdapterOptions>
-      | undefined
     return {
-      timeout: 5000,     // built-in default
-      ...store,          // context defaults
-      ...this.options,   // per-adapter overrides
+      timeout: 5000,                               // built-in default
+      ...context.lookup(MY_ADAPTER_DEFAULTS),      // context defaults
+      ...this.options,                             // per-adapter overrides
     }
   }
 
   async send(exchange) {
-    const opts = this.mergedOptions(exchange.context)
+    const opts = this.mergedOptions(getExchangeContext(exchange))
     // use opts.apiKey, opts.baseUrl, opts.timeout ...
   }
 }
@@ -160,26 +151,30 @@ class MyAdapter implements Destination<unknown>, MergedOptions<MyAdapterOptions>
 
 ### 4. Create a plugin factory
 
-For adapters in external packages, ship a companion plugin so users have a typed, discoverable API:
+Ship a companion plugin that provides the port, so users have a typed, discoverable API:
 
-```ts skip="fragment: MyAdapterOptions, MY_ADAPTER_OPTIONS are illustrative"
-import type { CraftPlugin, CraftContext } from '@routecraft/routecraft'
+```ts skip="fragment: MyAdapterOptions, MY_ADAPTER_DEFAULTS are illustrative"
+import { definePlugin } from '@routecraft/routecraft'
 
-export function myAdapterPlugin(defaultOptions: Partial<MyAdapterOptions>): CraftPlugin {
-  return {
-    apply(ctx: CraftContext) {
-      ctx.setStore(MY_ADAPTER_OPTIONS, defaultOptions)
+export function myAdapterPlugin(defaultOptions: Partial<MyAdapterOptions>) {
+  return definePlugin({
+    id: 'acme.my-adapter',
+    provides: [MY_ADAPTER_DEFAULTS],
+    bind(c) {
+      c.provide(MY_ADAPTER_DEFAULTS, defaultOptions)
     },
-  }
+  })
 }
 ```
 
+To offer a config key instead (`defineProject({ myAdapter: {...} })`), register the same factory with `registerConfigApplier('myAdapter', myAdapterPlugin)` and augment `CraftConfig` with the key.
+
 ### 5. Export both
 
-Export the plugin and the store key from your package so consumers can use either the plugin (recommended) or set the store directly for advanced cases.
+Export the plugin and the port from your package, so another plugin can provide the defaults itself or read them.
 
-```ts skip="fragment: myAdapterPlugin, MY_ADAPTER_OPTIONS are illustrative"
-export { myAdapterPlugin, MY_ADAPTER_OPTIONS }
+```ts skip="fragment: myAdapterPlugin, MY_ADAPTER_DEFAULTS are illustrative"
+export { myAdapterPlugin, MY_ADAPTER_DEFAULTS }
 ```
 
 ---
