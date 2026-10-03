@@ -1,0 +1,70 @@
+---
+title: Doors and triggers
+---
+
+<Lead>
+A capability runs when someone asks, or when something happens. The doors are how a caller asks. The triggers are what happens. It is the same capability, with the same checks, whichever way it starts.
+</Lead>
+
+## The four doors
+
+A door is a way for a person or an agent to reach a capability on a running harness. Routecraft serves four, on the same instance, behind the same wall.
+
+<Diagram id="server-vs-doorway" />
+
+- **MCP, for agents.** A capability with `mcp()` as its source is a tool. Claude, Cursor, Copilot, ChatGPT or an agent running inside another capability calls it by name with validated input. On a laptop the client spawns the harness over stdio; for a team the harness serves MCP over HTTP behind authentication. See [Expose to an agent](/docs/introduction/expose-to-an-agent).
+- **The Agent Client Protocol, for editors.** An editor that speaks ACP connects to the harness and holds a conversation with one of its agents, with the transcript, the tools and the guardrails the harness already has. See [Talk from your editor](/docs/introduction/talk-from-your-editor).
+- **The command line.** `craft exec <capability>` dispatches work to a running harness and prints the outcome. It is a client of the ops management API, so what it can reach is what that API exposes. See the [CLI reference](/docs/reference/cli#exec).
+- **HTTP.** A capability with an `http()` source is an endpoint on the harness's listener, and the ops API's `POST /ops/routes/{id}/exchanges` dispatches any capability with a `direct()` source that is not `internal`, once the harness opens the ops `dispatch` tier. Both answer plain JSON, which is what makes them reachable from places richer protocols are not. See [opsPlugin](/docs/reference/plugins/opsplugin#management-api).
+
+One capability can stand behind several doors at once. Give `.from()` more than one source and declare the input they share:
+
+```ts skip="fragment: SearchInput and search are illustrative"
+craft()
+  .id("orders-search")
+  .input({ body: SearchInput })
+  .from(mcp(), http({ path: "/orders/search", method: "POST" }))
+  .to(search);
+```
+
+Whichever door a call comes through, the input is validated against the same schema, the same `.authorize()` rule judges the caller that door verified, and telemetry records the exchange the same way. Each door mints its own principal, so two doors with different validators can present the same person differently.
+
+## The triggers
+
+A trigger starts a capability when nobody is asking. These are ordinary sources, and the capability behind them is as governed as one behind a door.
+
+- **A schedule.** `cron()` for a timetable with a timezone, `timer()` for a fixed interval.
+- **An email arriving.** `mail()` watches a mailbox over IMAP and starts the capability for each message.
+- **A webhook.** An `http()` source receiving a POST from GitHub, a payment provider or any system that calls out. It is still a door, with the same checks as any HTTP call; it is listed here because no person asked.
+- **A file.** `file()` and `directory()` read a path once when the capability starts, line by line or file by file. They do not watch for new arrivals.
+- **An event.** `event()` listens on the harness's own event bus, so one capability can start when another finishes, fails or defers.
+
+One source is neither: `direct()` is the in-process call from one capability to the next, carrying the caller's identity with it. It starts a capability only when another one asks, and [Composing capabilities](/docs/advanced/composing-capabilities) covers it.
+
+The [adapter reference](/docs/reference/adapters) lists every source, and [Adapters](/docs/introduction/adapters) explains how a source, a step and a destination fit together.
+
+## When it needs a person
+
+Some work cannot finish on its own: a payout over a threshold, a reply that needs a sign-off. The capability reaches `.defer()`, the run ends there and answers at once, and the exchange is stored. When the approval arrives, hours or days later, `.resume()` continues from the next step. The resume can come through any door, under a policy you set for who may give it (without one, any holder of the resume token can), and the harness can have restarted in between.
+
+```ts skip="fragment: Approval and notifyApprover are illustrative"
+.tap(direct("notify-approver"))
+.defer({ schema: Approval, ttl: "72h" })
+.to(executePayout)
+```
+
+So the loop the platform promises, you do not have to speak to it and it tells you when it needs you, is two operations. See [defer](/docs/reference/operations/defer) and [Durable agents](/docs/advanced/durable-agents).
+
+## Related
+
+<QuickLinks>
+
+<QuickLink title="Local harness, team harness" icon="presets" href="/docs/introduction/local-and-team-harness" description="Where the doors are open, and to whom." />
+
+<QuickLink title="Credentials and identity" icon="presets" href="/docs/introduction/credentials-and-identity" description="What a door verifies, and what the capability holds." />
+
+<QuickLink title="Expose to an agent" icon="plugins" href="/docs/introduction/expose-to-an-agent" description="Connect Claude, Cursor or Copilot to a capability." />
+
+<QuickLink title="Adapters" icon="plugins" href="/docs/reference/adapters" description="Every source, destination and two-sided adapter." />
+
+</QuickLinks>

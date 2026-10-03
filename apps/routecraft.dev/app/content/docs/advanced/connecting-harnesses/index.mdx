@@ -1,0 +1,119 @@
+---
+title: Connecting harnesses
+---
+
+<Lead>
+Connect a local harness to the team harness with a remote, so every dispatchable capability the team harness exposes becomes a capability on your laptop: callable from your routes, your agents and the CLI, with the team's credentials staying on the team's side. [Local harness, team harness](/docs/introduction/local-and-team-harness) is the idea; this page is the setup.
+</Lead>
+
+## When you need this
+
+- You build on your laptop and want to call what the team has already promoted, instead of copying it.
+- You are promoting a capability and want the laptop and the team harness to overlap safely while you do.
+- A second always-on instance (a lab, another department's harness) should reach the first.
+
+Without a remote, a local harness and the team harness are two islands that happen to run the same code.
+
+## 1. Open the door on the team harness
+
+A remote reads the team harness through its [ops management API](/docs/reference/plugins/opsplugin#management-api): it lists the capabilities there, then dispatches work to them. Both tiers are closed until named, so the team harness opens them, each behind its own scope:
+
+```ts
+// craft.config.ts, on the team harness
+import { defineConfig, jwks } from "@routecraft/routecraft";
+
+export const craftConfig = defineConfig({
+  servers: {
+    internal: {
+      host: "0.0.0.0",
+      port: 9090,
+      auth: jwks({
+        jwksUrl: "https://idp.example.com/.well-known/jwks.json",
+        issuer: "https://idp.example.com",
+        audience: "routecraft-ops",
+      }),
+    },
+  },
+  ops: {
+    server: "internal",
+    tiers: {
+      introspection: "ops:introspection",
+      dispatch: "ops:dispatch",
+    },
+  },
+});
+```
+
+A local harness needs a token carrying both scopes. Dispatch is always its own scope, so a dashboard that only reads the inventory never gets to run work. Ops gets a listener of its own here, so whatever public port the team harness's other doors use never carries it. Every declared server needs at least one mount, so add `default` back only when something mounts on it; [Servers and ports](/docs/introduction/servers-and-ports#a-door-on-its-own-port) covers the split.
+
+What a remote can reach is every **dispatchable** capability: one with a `direct()` source. A capability that runs only from its own trigger (a `cron()`, a `mail()`, an `http()` route) has no dispatch door, and `direct({ internal: true })` closes one on purpose.
+
+## 2. Name the team harness on your laptop
+
+```ts
+// craft.config.ts, on your laptop
+import { defineConfig } from "@routecraft/routecraft";
+
+export const craftConfig = defineConfig({
+  remotes: {
+    default: {
+      url: "https://routecraft-ops.example.internal",
+      auth: { token: () => process.env.RC_REMOTE_TOKEN },
+    },
+  },
+});
+```
+
+`url` is the origin the team harness's ops surface is mounted on, and the token is read per request; the CLI's `.routecraft/settings.yaml` is never read here. Name more than one remote and each gets its own key. [Options](/docs/reference/plugins/remotesplugin#options) covers rotation, refresh and the cleartext rule, and [Inventory and schemas](/docs/reference/plugins/remotesplugin#inventory-and-schemas) when the inventory is read.
+
+## 3. Call what the team harness has
+
+Capabilities of the remote called `default` are advertised bare, exactly like local ones; every other remote's are qualified with its name ([Names](/docs/reference/plugins/remotesplugin#names)).
+
+```ts
+craft()
+  .id("weekly-report")
+  .from(cron("0 8 * * 1"))
+  .enrich(direct("find-overdue-invoices")) // the team harness's capability
+  .enrich(direct("lab:forecast")) //           a second remote, qualified
+  .to(log());
+```
+
+The same names work everywhere a capability does. In an agent's tool list, `Direct(find-overdue-invoices)` grants one, and `Remote(lab)` grants every capability the `lab` remote exposes. From a terminal, `craft exec find-overdue-invoices` runs it once the laptop opens its own ops `dispatch` tier. The remote's input schema is advertised to your agents as the team harness renders it, and validation runs where the schema lives: at the team harness's door.
+
+**Your identity is not forwarded.** A remote capability runs under the identity the remote token carries, which is this instance's, whoever called it on your laptop; that is what lets the team harness keep its own `.authorize()` rules without trusting every laptop. See [Credentials and identity](/docs/reference/plugins/remotesplugin#credentials-and-identity).
+
+## 4. Promote a capability
+
+Promotion is a deployment, and the remote makes the overlap safe.
+
+1. Build and prove the capability locally, with a `direct()` source so it is dispatchable.
+2. Ship it to the team harness: a pull request to the team harness's project, or a package it installs.
+3. While both copies exist, [the local one wins](/docs/reference/plugins/remotesplugin#names) and the team's copy stays reachable as `default:find-overdue-invoices`. This is the promotion window, not an error: compare the two before you let go.
+4. Delete the local copy. When the local route stops, or on the next start, the team harness's capability takes the name back, and the handover is logged.
+
+From then on everyone, you included, calls the one on the team harness, on its service credentials.
+
+## Keeping an agent local-only
+
+An agent that should never reach the team harness filters imported capabilities out with the tool policy, and a laptop with an open dispatch tier re-exports what it imports under its own door. [In the listing and the tool policy](/docs/reference/plugins/remotesplugin#in-the-listing-and-the-tool-policy) has both.
+
+## When the team harness is down
+
+An unreachable team harness is a warning at boot and keeps its last inventory while it blinks; a call that cannot complete fails with an error code you can act on. [Outcomes](/docs/reference/plugins/remotesplugin#outcomes) maps each one.
+
+---
+
+## Related
+
+<QuickLinks>
+
+<QuickLink title="Local harness, team harness" icon="presets" href="/docs/introduction/local-and-team-harness" description="Prove on your own access, promote to service credentials." />
+
+<QuickLink title="remotesPlugin reference" icon="plugins" href="/docs/reference/plugins/remotesplugin" description="Every option, the naming rules and the full outcome table." />
+
+<QuickLink title="opsPlugin reference" icon="plugins" href="/docs/reference/plugins/opsplugin" description="The management API a remote reads, its tiers and its credential ladder." />
+
+<QuickLink title="Securing capabilities" icon="installation" href="/docs/advanced/securing-capabilities" description="jwt(), jwks() and the rest of the validators." />
+
+</QuickLinks>

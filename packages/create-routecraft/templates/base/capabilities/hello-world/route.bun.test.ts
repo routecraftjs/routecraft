@@ -1,5 +1,10 @@
 import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
-import { testContext, type TestContext } from "@routecraft/testing";
+import { mcp } from "@routecraft/ai";
+import {
+  mockAdapter,
+  testContext,
+  type TestContext,
+} from "@routecraft/testing";
 import capabilities from "./route.js";
 
 describe("Hello World Routes", () => {
@@ -19,7 +24,7 @@ describe("Hello World Routes", () => {
 
   /**
    * @case Verifies that the simple route dispatches to the direct "greet" route, which fetches and greets the user by name
-   * @preconditions Both routes are registered and fetch is mocked to return a JSON Placeholder user
+   * @preconditions Both routes are registered, the mcp() source is mocked so no MCP transport starts, and fetch is mocked to return a JSON Placeholder user
    * @expectedResult greet route fetches the user and logs "Hello, [name]!" via the LogAdapter
    */
   test("dispatches from simple route into direct route and greets by name", async () => {
@@ -38,7 +43,10 @@ describe("Hello World Routes", () => {
       url: "https://jsonplaceholder.typicode.com/users/1",
     });
 
-    t = await testContext({ fn: mock }).routes(capabilities).build();
+    t = await testContext({ fn: mock })
+      .override(mockAdapter(mcp, { source: [] }))
+      .routes(capabilities)
+      .build();
     await t.test();
 
     expect(fetchMock).toHaveBeenCalledTimes(1);

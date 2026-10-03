@@ -1,0 +1,81 @@
+---
+title: An agent of your own
+---
+
+<Lead>
+An agent you can reach from your editor and your terminal, built out of capabilities you own and can read on one screen. You end with a harness running on your laptop and a conversation open with it.
+</Lead>
+
+## 1. Scaffold the harness
+
+```bash
+bunx create-routecraft my-agent --example https://github.com/routecraftjs/craft-harness
+cd my-agent
+bun run setup
+```
+
+`setup` generates the two secrets that cannot be committed, writes them to `.env` and writes `.routecraft/settings.yaml` so the CLI needs no flags. It leaves one value for you:
+
+```bash
+# in .env
+LLM_API_KEY=sk-your-key-here
+```
+
+The harness is a Routecraft project like any other. Chat, a sandboxed shell, web fetch and search, a workspace, memory, a scheduler and human approvals are each an ordinary route under `capabilities/`, with their guardrails written where you can read and change them. There is no agent framework layer: the platform is Routecraft, and this repository is what a project built on it looks like.
+
+## 2. Run it, and talk to it from a terminal
+
+```bash
+bun run dev
+```
+
+In another terminal:
+
+```bash
+bun run exec chat --session=demo --message="what can you do?"
+```
+
+No `--token`, no `--url`: the instance is walled and the settings file carries the credential. The transcript is a file, and `--session` names which one, so the next message continues the same conversation.
+
+## 3. Talk to it from your editor
+
+The harness serves the [Agent Client Protocol](https://agentclientprotocol.com) from boot, on a server of its own named `editor` (the harness gives each surface its own port, as [Servers and ports](/docs/introduction/servers-and-ports#a-door-on-its-own-port) describes), behind the same key as everything else. An editor needs two lines, a command and its arguments, both naming your harness folder by its absolute path:
+
+```
+command:   /path/to/my-agent/node_modules/.bin/craft
+arguments: acp --project /path/to/my-agent --profile editor
+```
+
+Register them in an editor that speaks ACP (Zed, JetBrains), and hold the conversation without leaving it. Both paths are absolute because the editor starts the command from whichever project it has open: `--project` names the harness folder whose `.routecraft/settings.yaml` holds the `editor` profile, so the entry works from any window. Through that conversation the agent reads, edits, searches and runs things in the project you have open, using the editor's own files and terminal, through nine capabilities under `capabilities/editor/` with their guardrails in the open. [Talk from your editor](/docs/introduction/talk-from-your-editor) has every editor and what a conversation carries.
+
+`craft acp` is a pipe and nothing else: it appends `/acp` to the profile's URL, sends the token and the agent name, and forwards every message. It never starts the harness, which is what lets one editor entry reach your laptop today and a team harness tomorrow by changing a profile.
+
+## 4. Or from the assistant you already use
+
+The same harness serves MCP at `http://localhost:8081/mcp`, presenting the same key as a bearer token. Connect Claude, Cursor or Copilot to it with the URL instead of a command, the way [Expose to an agent](/docs/introduction/expose-to-an-agent#over-http-for-a-team) shows, and use the `chat-tool` tool. Both reach the same conversation.
+
+## 5. Make it yours
+
+`HELP.md` in the project lists what every capability does, what it refuses to do until you configure it, and how each is reached. Read it once and delete it. Then:
+
+- **Give it a tool.** Add a capability folder with an `mcp()` or `direct()` source and the agent can be granted it by name in its `tools:` list.
+- **Teach it a job.** Add a skill under `skills/`: markdown the agent loads for one kind of work, shipped as a package when another team should have it.
+- **Let it start on its own.** A `cron()` capability that wakes the agent, with `.defer()` where it must ask you first.
+
+[Project structure](/docs/introduction/project-structure) shows where agents, skills and capabilities live; [Durable agents](/docs/advanced/durable-agents) shows how a conversation survives a restart and a decision that takes days.
+
+## 6. What comes next
+
+This harness stays yours: a personal agent on your own access. When a capability you built in it has earned its place, promote the capability, not the harness: it moves to the team harness, always on, on service credentials, and every team reaches it through the doors. [Local harness, team harness](/docs/introduction/local-and-team-harness) is the step.
+
+<QuickLinks>
+
+<QuickLink title="Tools for agents" icon="presets" href="/docs/introduction/tools-for-agents" description="The other first project: one capability, called by the agent you already use." />
+
+<QuickLink title="Agents and skills" icon="presets" href="/docs/introduction/agents-and-skills" description="The pieces of an agent one at a time: a model, tools, a skill, and a capability that calls it." />
+
+<QuickLink title="Talk from your editor" icon="plugins" href="/docs/introduction/talk-from-your-editor" description="Editor configuration, and what a conversation carries once it is open." />
+
+<QuickLink title="Judging agent results" icon="plugins" href="/docs/advanced/judging-agent-results" description="Screen what an agent produces before it reaches a person or a system." />
+
+</QuickLinks>

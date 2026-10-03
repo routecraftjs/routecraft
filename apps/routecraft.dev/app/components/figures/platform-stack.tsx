@@ -6,6 +6,7 @@ import {
   FigureCanvas,
   LayerName,
   LayerSub,
+  MONO,
   StoreMark,
 } from '@/components/figures/primitives'
 import type { FigurePalette } from '@/components/figures/palette'
@@ -17,8 +18,6 @@ import type {
 
 const WIDTH = 1600
 const HEIGHT = 1000
-
-const MONO = 'var(--font-mono)'
 
 type PlatformStackLayer =
   'every-way-in' | 'agents' | 'skills' | 'capabilities' | 'adapters' | 'systems'

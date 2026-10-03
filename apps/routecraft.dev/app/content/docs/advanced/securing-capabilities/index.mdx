@@ -10,7 +10,7 @@ Authenticate the HTTP endpoints that expose your capabilities, and enrich the ca
 
 Stdio transport runs as a local subprocess with no network surface, so it needs no authentication. The moment you switch a capability to the HTTP transport (a long-running server multiple clients reach over the network), you must secure it. This page covers every authentication mode Routecraft ships, from a static signing key to OAuth 2.0 resource-server verification, plus identity enrichment, discovery metadata, and CORS.
 
-For wiring the server itself and pointing clients at it, see [Running an MCP server](/docs/advanced/expose-as-mcp). For a concrete, copyable capability, see the [MCP example](/docs/examples/mcp).
+For wiring the server itself and pointing clients at it, see [Expose to an agent](/docs/introduction/expose-to-an-agent). For a concrete, copyable capability, see the [MCP example](/docs/examples/mcp).
 
 ## The credential ladder
 
@@ -494,7 +494,7 @@ Three rules keep the model sound:
 
 <QuickLinks>
 
-<QuickLink title="Running an MCP server" icon="plugins" href="/docs/advanced/expose-as-mcp" description="Transports, client wiring, and server identity." />
+<QuickLink title="Expose to an agent" icon="plugins" href="/docs/introduction/expose-to-an-agent" description="Transports, client wiring, and server identity." />
 
 <QuickLink title="MCP tool" icon="installation" href="/docs/examples/mcp" description="A copyable capability exposed as an MCP tool." />
 

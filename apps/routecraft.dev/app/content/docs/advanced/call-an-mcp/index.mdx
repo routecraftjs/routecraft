@@ -114,7 +114,7 @@ export default craft()
   .to(mcp('github:create_issue'))
 ```
 
-Hand the agent the governed route instead of the raw tool. The same underlying tool can be exposed both ways: wrap the ones that need policy (one route per tool), leave harmless read-only tools raw. The same tiering applies when re-exposing client tools through your own MCP server: a plain [`mcpPlugin({ proxy })`](/docs/advanced/expose-as-mcp#proxying-tools-from-configured-clients) entry is the raw tier, a proxy entry with a `guard` is the guarded tier, and a `.from(mcp())` route is the governed tier.
+Hand the agent the governed route instead of the raw tool. The same underlying tool can be exposed both ways: wrap the ones that need policy (one route per tool), leave harmless read-only tools raw. The same tiering applies when re-exposing client tools through your own MCP server: a plain [`proxy`](#re-exposing-a-clients-tools) entry is the raw tier, a proxy entry with a `guard` is the guarded tier, and a `.from(mcp())` route is the governed tier.
 
 ```ts skip="fragment: shows only the tools option"
 agent({
@@ -127,13 +127,60 @@ agent({
 
 Why a route and not a richer guard? A guard runs once and holds no state. Caching, timeouts, throttling, retries, and fallbacks each need something wrapped around the call with its own state and lifecycle, which is exactly what a route step is. Today a wrapped route gives you [`authorize()`](/docs/reference/operations/authorize), [`error()`](/docs/reference/operations/error) fallbacks, [`cache()`](/docs/reference/operations/cache), [`timeout()`](/docs/reference/operations/timeout), [`retry()`](/docs/reference/operations/retry), and `.tap(log())` for an audit trail. [`throttle()`](/docs/reference/operations/throttle) is planned; when it ships it drops onto the same route with no change to how the agent consumes the tool. The route is the only place that behaviour can ever live.
 
+## Re-exposing a client's tools
+
+Any MCP client registered under the `mcp` key's `clients` can have tools re-exposed through your own [MCP server](/docs/introduction/expose-to-an-agent) without writing a route per tool. Use the `proxy` option to select them:
+
+```ts
+// craft.config.ts
+import { defineConfig } from '@routecraft/routecraft'
+import '@routecraft/ai'
+
+export const craftConfig = defineConfig({
+  mcp: {
+    clients: {
+      docs: { transport: 'stdio', command: 'docs-mcp' },
+      billing: { url: 'https://billing.example.com/mcp', auth: { token: process.env.BILLING_TOKEN! } },
+    },
+    proxy: [
+      'docs:get_document',                          // one tool
+      'docs:*',                                     // every docs tool ("docs" works too)
+      { ref: 'billing:search', name: 'billing_search', description: 'Search invoices (read-only)' },
+    ],
+  },
+})
+```
+
+Proxied tools appear in `tools/list` with the remote input and output schema, title, description, annotations and icons (the server's own icons when the remote tool has none), and calls dispatch over the client's own transport and auth. How wildcards and exact refs compose, how name collisions resolve, and which names are exposable are in the [mcpPlugin reference](/docs/reference/plugins/mcpplugin#proxying-client-tools).
+
+### Guarding proxied tools
+
+A proxy entry can carry a `guard`, the same per-tool check the agent's `tools([{ name, guard }])` supports. It runs before the call dispatches, receives the raw tool arguments and a handler context carrying the MCP caller's read-only `principal` (populated by the HTTP transport's `auth`), and rejects the call by throwing (the client sees an `isError` result). Unlike agent tools, no schema validation runs before a proxy guard (the remote server validates after it), so treat the input as untrusted and check structure before dereferencing:
+
+```ts skip="fragment: one property of the mcp options"
+proxy: [
+  {
+    ref: 'billing:search',
+    guard: (_input, ctx) => {
+      if (!ctx.principal?.roles?.includes('finance')) {
+        throw new Error('finance role required')
+      }
+    },
+  },
+  // On a wildcard ref the guard attaches to every expanded tool:
+  { ref: 'docs:*', guard: (input, ctx) => { /* ... */ } },
+]
+```
+
+**When to proxy and when to write a route.** A proxied call runs no route pipeline: no `authorize()`, no input validation, no caching, throttling, or timeouts. The caller's authenticated principal is also not forwarded to the remote server; the Routecraft-to-client hop authenticates with the client's registered `auth`. Proxy simple, read-only tools (a document fetch, a search) raw, add a `guard` when a tool needs an identity or role check, and the moment a tool needs anything stateful or time-based (caching, throttling, retries, audit), put a `.from(mcp())` route in front of it instead. The [Guardrails](#guardrails-raw-guarded-or-wrapped) section above applies the same tiering to agent tools.
+
 ---
 
 ## Related
 
 <QuickLinks>
 
-<QuickLink title="Running an MCP server" icon="plugins" href="/docs/advanced/expose-as-mcp" description="Run your own capabilities as MCP tools for AI clients." />
+<QuickLink title="Expose to an agent" icon="plugins" href="/docs/introduction/expose-to-an-agent" description="Run your own capabilities as MCP tools for AI clients." />
 
 <QuickLink title="MCP tool" icon="installation" href="/docs/examples/mcp" description="A copyable capability exposed as an MCP tool." />
 

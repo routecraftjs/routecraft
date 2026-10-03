@@ -1,10 +1,12 @@
 import type { CSSProperties, ReactNode } from 'react'
 
 import {
+  ArrowheadMarker,
   BlockRow,
   FigureCanvas,
   LayerName,
   LayerSub,
+  MONO,
   StoreMark,
 } from '@/components/figures/primitives'
 import type { FigurePalette } from '@/components/figures/palette'
@@ -17,8 +19,6 @@ import type {
 /** 16:9, the frame the homepage film plays in, so the two can swap. */
 const WIDTH = 1600
 const HEIGHT = 900
-
-const MONO = 'var(--font-mono)'
 
 /** The board is laid out in its own coordinates and centred on the canvas. */
 const BOARD_X = 72
@@ -274,38 +274,8 @@ function PlatformFigure({ palette }: FigureProps) {
         }}
       >
         <defs>
-          <marker
-            id="platform-ink"
-            viewBox="0 0 10 10"
-            refX="9"
-            refY="5"
-            markerWidth="8"
-            markerHeight="8"
-            orient="auto-start-reverse"
-          >
-            <path
-              d="M1 1L9 5L1 9"
-              fill="none"
-              stroke={palette.ink60}
-              strokeWidth="1.5"
-            />
-          </marker>
-          <marker
-            id="platform-accent"
-            viewBox="0 0 10 10"
-            refX="9"
-            refY="5"
-            markerWidth="8"
-            markerHeight="8"
-            orient="auto-start-reverse"
-          >
-            <path
-              d="M1 1L9 5L1 9"
-              fill="none"
-              stroke={palette.accent}
-              strokeWidth="1.5"
-            />
-          </marker>
+          <ArrowheadMarker id="platform-ink" colour={palette.ink60} />
+          <ArrowheadMarker id="platform-accent" colour={palette.accent} />
         </defs>
         <g
           transform={`translate(${BOARD_X} ${BOARD_Y})`}

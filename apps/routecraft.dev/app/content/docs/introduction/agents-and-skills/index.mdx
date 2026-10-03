@@ -1,0 +1,131 @@
+---
+title: Agents and skills
+---
+
+<Lead>
+An agent is a model working in a loop with the tools you gave it, and only those. Most of those tools are your own capabilities, so what the agent can do is code you can read; a tool granted from another MCP server runs on that server. This page builds one agent on the project from [Tools for agents](/docs/introduction/tools-for-agents): a model, two capabilities granted as tools, one skill, and a capability that calls it.
+</Lead>
+
+## 1. Give the project a model
+
+An agent needs a model provider, and a hosted provider needs its key. Add the provider's SDK and declare it in `craft.config.ts`:
+
+```bash
+bun add @ai-sdk/anthropic
+```
+
+```ts
+// craft.config.ts
+import { defineConfig } from "@routecraft/routecraft";
+import "@routecraft/ai";
+
+export const craftConfig = defineConfig({
+  mcp: {},
+  llm: {
+    providers: { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY! } },
+  },
+});
+```
+
+Put `ANTHROPIC_API_KEY` in `.env`. On a laptop that is your own key; on the team harness it is a service credential the deployment provides. OpenAI, Gemini, OpenRouter, Ollama and LM Studio are configured the same way: the [`llm` reference](/docs/reference/plugins/llmplugin) lists each provider, its options and its package.
+
+## 2. Define the agent
+
+An agent is a markdown file under `agents/`. The frontmatter says which model it runs on and which tools it holds; the body is its system prompt.
+
+```md
+---
+name: assistant
+description: Answers questions about the team's invoices
+model: anthropic:claude-sonnet-4-6
+tools:
+  - Direct(find-overdue-invoices)
+  - Direct(greet)
+---
+
+You help the finance team with invoices. Use your tools to look things up
+rather than answering from memory, and say when a question needs a tool you
+do not have.
+```
+
+`craft start` discovers `agents/` the way it discovers `capabilities/`, because `craft.config.ts` imports `@routecraft/ai`. The file's `name` is the agent's identity, not the file name.
+
+## 3. Grant it capabilities
+
+`tools` is an allowlist. `Direct(find-overdue-invoices)` grants the capability you built in Tools for agents, and `Direct(greet)` the one the scaffold ships; those are the only capabilities it is offered. Skills, below, add a loader tool each, for the model to read a skill when it needs one. A capability can be granted this way when it has a `direct()` source, a `.description()` and an `.input({ body })` schema, which both of these do: the description and schema are what the model is shown.
+
+A tool call is an ordinary call to the capability. Its `.input()` schema checks the arguments the model chose, a call it refuses goes back to the model as an error naming the field, and the model can correct itself. The capability's `.authorize()` rule, where it has one, judges the caller the agent is acting for. Nothing about a call changes because a model made it.
+
+Tools are not only your own capabilities: an agent can be granted another MCP server's tools, a dispatchable capability (one with a `direct()` source) on the team harness through a remote, or an inline function. The [agent tools reference](/docs/reference/plugins/agentplugin#agent-tools) has every form, and the [tool policy](/docs/reference/plugins/agentplugin#tool-policy) sets rules no single agent file can loosen.
+
+## 4. Add a skill
+
+A skill is knowledge an agent loads when it needs it: a procedure, a policy, how a system behaves. It is markdown with a name and a description:
+
+```md
+---
+name: invoice-policy
+description: When an invoice counts as overdue and who to tell. Use before reporting overdue invoices.
+---
+
+An invoice is overdue the day after its due date. Report anything more than
+30 days overdue to the finance lead, grouped by customer, oldest first.
+```
+
+Save it as `skills/invoice-policy.md`. The top-level `skills/` folder is the house set every agent carries. The model is shown each skill's name and description, and loads the body only when it decides the skill applies, so a long list of skills does not fill every prompt. An agent can also carry skills of its own, from its own folder or an installed package: [Project structure](/docs/introduction/project-structure#skills) has the order they compose in.
+
+## 5. Call the agent
+
+An agent runs inside a capability. This one takes a question, hands it to the agent, and answers with the agent's reply:
+
+```ts
+// capabilities/ask-assistant/route.ts
+import { craft, direct } from "@routecraft/routecraft";
+import { agent, mcp } from "@routecraft/ai";
+import { z } from "zod";
+
+export default craft()
+  .id("ask-assistant")
+  .title("Ask the finance assistant")
+  .description("Answer a question about the team's invoices")
+  .input({ body: z.object({ question: z.string().min(1) }) })
+  .from(direct(), mcp())
+  .to(agent("assistant"));
+```
+
+Restart `craft start` and the client you connected in Tools for agents lists `ask-assistant`. Call it with "Which invoices are more than 30 days overdue?" and the reply comes back as `text`, with the model's token usage beside it when the provider reports it. What the agent did along the way is on the event bus: `route:agent:tool:invoked` for each tool call, `route:agent:block:loaded` for each skill it loaded, `route:agent:finished` at the end. With the [telemetry plugin](/docs/introduction/monitoring#telemetry-plugin) on, the [terminal UI](/docs/advanced/tui) shows each agent run and its tool calls as they happen; the [events reference](/docs/reference/events) lists every event.
+
+## What the model decides, and what it cannot
+
+| The model chooses | The runtime enforces |
+| --- | --- |
+| Which of its tools to call, and in what order | Which tools it holds: the `tools` list, filtered by the tool policy |
+| The arguments for each call | That each call passes the capability's `.input()` schema |
+| When to load a skill | Which skills exist for it to load |
+| What to say in its reply | Which caller it acts for, judged by each capability's `.authorize()` |
+| When it is done | How many turns it may take (`maxTurns`) |
+
+Bounding an agent does not make its output deterministic. It makes the space of things the output can do the space your capabilities define, and that space is code a reviewer can read.
+
+## Going further
+
+- **Agents that wait for a person.** An agent can stop for an approval and resume hours later, across a restart: [Durable agents](/docs/advanced/durable-agents).
+- **Talk to it from your editor.** Hold a conversation with a registered agent from Zed or JetBrains: [Talk from your editor](/docs/introduction/talk-from-your-editor).
+- **A complete harness to start from.** craft-harness has agents, skills and over thirty capabilities wired together: [An agent of your own](/docs/introduction/an-agent-of-your-own).
+- **Every option.** Registration in code, models and reasoning, blocks and structured output: the [`agentPlugin` reference](/docs/reference/plugins/agentplugin) and the [`agent()` adapter](/docs/reference/adapters/agent).
+
+---
+
+## Related
+
+<QuickLinks>
+
+<QuickLink title="Tools for agents" icon="installation" href="/docs/introduction/tools-for-agents" description="The project this page builds on: one capability, called by the agent you already use." />
+
+<QuickLink title="Capabilities" icon="presets" href="/docs/introduction/capabilities" description="What a capability is, and how one is built." />
+
+<QuickLink title="Durable agents" icon="presets" href="/docs/advanced/durable-agents" description="Agents that defer to a person and resume later." />
+
+<QuickLink title="agentPlugin reference" icon="plugins" href="/docs/reference/plugins/agentplugin" description="Every agent option, tools and the tool policy." />
+
+</QuickLinks>

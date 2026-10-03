@@ -24,8 +24,8 @@ export interface AcpPluginOptions {
    *
    * Unset, a context holding exactly one agent uses it and a context
    * holding several refuses `session/new` with a message naming them all.
-   * A person picks a different one from the `agent` config option when the
-   * context holds more than one.
+   * A person picks a different one per editor entry, with `craft acp
+   * --agent <name>` or a profile's `agent`.
    */
   agent?: string;
   /**

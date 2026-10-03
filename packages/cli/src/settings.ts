@@ -36,7 +36,7 @@
 
 import { homedir } from "node:os";
 import { join, resolve } from "node:path";
-import { existsSync, readFileSync } from "node:fs";
+import { existsSync, readFileSync, statSync } from "node:fs";
 import { parse } from "yaml";
 
 import { messageOf } from "./util.js";
@@ -103,6 +103,13 @@ export interface SettingsOverrides {
   agent?: string;
   /** Which profile to select, above every other way of choosing one. */
   profile?: string;
+  /**
+   * The project whose `.routecraft/settings.yaml` is the project-local file,
+   * from `--project`. An editor starts `craft acp` from whichever project it
+   * has open, so the profile's project has to be named. Must be a directory:
+   * a mistyped path refuses rather than falling through to the global file.
+   */
+  project?: string;
   /**
    * Directory the project-local settings file is looked for under.
    * Defaults to the working directory; pinned by tests so a developer's
@@ -286,6 +293,25 @@ function assertFormat(value: string, where: string): OutputFormat {
   );
 }
 
+/** `--project`, resolved against the working directory and checked to exist. */
+function projectDir(project: string | undefined): string | undefined {
+  if (project === undefined) return undefined;
+  const dir = resolve(process.cwd(), project);
+  let isDirectory = false;
+  try {
+    isDirectory =
+      statSync(dir, { throwIfNoEntry: false })?.isDirectory() ?? false;
+  } catch {
+    // An unreadable path is as unusable as a missing one, and gets the same answer.
+  }
+  if (!isDirectory) {
+    throw new SettingsError(
+      `--project "${project}" is not a directory (resolved to ${dir}).`,
+    );
+  }
+  return dir;
+}
+
 /**
  * Resolve the effective settings for one invocation.
  *
@@ -296,7 +322,7 @@ function assertFormat(value: string, where: string): OutputFormat {
 export function resolveSettings(
   overrides: SettingsOverrides = {},
 ): ResolvedSettings {
-  const cwd = overrides.cwd ?? process.cwd();
+  const cwd = overrides.cwd ?? projectDir(overrides.project) ?? process.cwd();
   const env = overrides.env ?? process.env;
   const projectPath = resolveSettingsPath((file) => resolve(cwd, file));
   const home = overrides.home ?? homedir();

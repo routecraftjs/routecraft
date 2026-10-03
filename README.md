@@ -65,7 +65,7 @@ export default craft()
   .to(mail()) // the account comes from craft.config.ts
 ```
 
-The source decides the door. `.from(mcp())` makes it an MCP tool. `.from(direct())` makes it a capability any local agent can call and `craft exec` can run. `.from(http())` makes it an endpoint. `.from(cron())` makes it a job. The steps in between do not change.
+The source decides the door. `.from(mcp())` makes it an MCP tool. `.from(direct())` makes it a capability any local agent can call and `craft exec` can run. `.from(http())` makes it an endpoint. The steps in between do not change. A `cron()` schedule brings no body, so it gets a small route of its own that builds this input and calls the capability through `direct()`.
 
 ## An agent is a route too
 
@@ -95,8 +95,8 @@ Tools are an allowlist of capabilities, never a blacklist. An agent can also be 
 
 - **Work that survives a restart.** [`.defer()`](https://routecraft.dev/docs/reference/operations/defer) defers an exchange in a store, and [`.resume()`](https://routecraft.dev/docs/reference/operations/resume) revives it by token, hours or days later, from any transport. [Durable agents](https://routecraft.dev/docs/advanced/durable-agents) defer mid-conversation the same way.
 - **Agents with sessions and background tools.** A conversation is a record a person owns; a tool can hand a long job to a route and come back when it finishes. [Agent adapter](https://routecraft.dev/docs/reference/adapters/agent).
-- **Talk to your agents from your editor.** `craft acp` and the `acp` config key serve the Agent Client Protocol. [Talk from your editor](https://routecraft.dev/docs/advanced/talk-from-your-editor).
-- **MCP both ways.** Expose routes as tools with `mcp()` and the `mcp` plugin; call other servers' tools as `MCP(server:tool)` in an agent's tool list. [Expose as MCP](https://routecraft.dev/docs/advanced/expose-as-mcp), [call an MCP](https://routecraft.dev/docs/advanced/call-an-mcp).
+- **Talk to your agents from your editor.** `craft acp` and the `acp` config key serve the Agent Client Protocol. [Talk from your editor](https://routecraft.dev/docs/introduction/talk-from-your-editor).
+- **MCP both ways.** Expose routes as tools with `mcp()` and the `mcp` plugin; call other servers' tools as `MCP(server:tool)` in an agent's tool list. [Expose to an agent](https://routecraft.dev/docs/introduction/expose-to-an-agent), [call an MCP](https://routecraft.dev/docs/advanced/call-an-mcp).
 - **Isolated host execution.** [`shell()`](https://routecraft.dev/docs/reference/adapters/shell) runs commands in an isolation tier, including a throwaway Docker container per command, with egress denied by default.
 - **A management API and a CLI to drive it.** The [ops plugin](https://routecraft.dev/docs/reference/plugins/opsplugin) serves health, readiness, a route listing and dispatch behind scope-gated tiers; `craft exec` and `craft ops` are its clients. [CLI reference](https://routecraft.dev/docs/reference/cli).
 - **Secure by design.** JWT, JWKS and API-key validators, `.authorize()` at route entry, principals that follow an exchange through every hop. [Securing capabilities](https://routecraft.dev/docs/advanced/securing-capabilities).

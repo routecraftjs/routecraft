@@ -12,7 +12,7 @@ rendered by Nitro, shipped as a container image that Dokploy pulls.
 | `app/components/` | Shell and the MDX component vocabulary (`mdx.tsx`) content may use |
 | `app/lib/` | Content loading, navigation, search, raw-markdown cleaning |
 | `scripts/` | Generators, the release freeze, the freeze verification, figure export |
-| `public/` | Static assets. `screenshots/` is versioned docs content; `images/` is blog-only |
+| `public/` | Static assets. `screenshots/` is versioned docs content; `images/` builds from main, including the figure PNGs docs pages also embed |
 
 Content may only use the components registered in `app/components/mdx.tsx`: no imports inside a
 content file and no ad-hoc inline JSX. See

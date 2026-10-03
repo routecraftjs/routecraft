@@ -10,6 +10,17 @@ Routecraft is in active development -- APIs may change between minor versions.
 
 ---
 
+## v0.7.2 <Badge color="gray">In development</Badge>
+
+### CLI
+
+- **A scaffolded project is an MCP server from the first run** -- its sample capability is a tool an agent can call over stdio. See [Tools for agents](/docs/next/introduction/tools-for-agents).
+- **`--project` names the project whose settings to read** -- `craft acp`, `exec` and `ops` find a profile from any working directory, which is what an editor entry needs. See [acp](/docs/next/reference/cli#acp).
+
+### Docs site
+
+- **The docs lead with the platform** -- new quickstarts and platform pages, grouped as Fundamentals and Beyond the defaults; moved pages redirect from their old addresses. See [What is Routecraft](/docs/next/introduction).
+
 ## [v0.7.1](https://github.com/routecraftjs/routecraft/releases/tag/v0.7.1) <Badge color="yellow">Pre-release</Badge>
 
 *October 2026*
@@ -106,7 +117,7 @@ This section covers every change since the v0.6.0 release. 0.7.0 is the durable 
 
 - **Durable agents** -- `ctx.defer()` inside a tool defers the whole tool loop through the core store; the loop survives a restart and resumes mid-conversation with the answer swapped into the tool result; MCP advertises `oneOf: [Output, Deferred]`; a cancelled run fails with `AI1005` instead of returning a partial result. See [durable agents](/docs/advanced/durable-agents).
 - **Sessions** -- `agent(name, { session })` keeps a durable transcript with an inbox and one turn at a time, `interrupt: true` cancels the running turn, a `sessions` store (SQLite by default) holds the records, and `GET /ops/agent-sessions` lists them. Background tools (`directTool(id, { background: true })`) hand long work to a route and post the result to the session's inbox when it finishes. See the [agent adapter](/docs/reference/adapters/agent).
-- **Talk to an agent from your editor** -- `acp:` on `defineConfig` (or `acpPlugin()`) serves the Agent Client Protocol beside MCP; a conversation belongs to the person who started it and outlives the connection, the editor picks the model and the thinking level from lists the agent file advertises, a message sent mid-turn is answered under that message, and tool calls stream as they run. See [talk from your editor](/docs/advanced/talk-from-your-editor) and the [acp plugin](/docs/reference/plugins/acpplugin).
+- **Talk to an agent from your editor** -- `acp:` on `defineConfig` (or `acpPlugin()`) serves the Agent Client Protocol beside MCP; a conversation belongs to the person who started it and outlives the connection, the editor picks the model and the thinking level from lists the agent file advertises, a message sent mid-turn is answered under that message, and tool calls stream as they run. See [talk from your editor](/docs/introduction/talk-from-your-editor) and the [acp plugin](/docs/reference/plugins/acpplugin).
 - **`craft start` and the project runtime** -- a project boots from its folder layout (`craft.config.ts`, `plugins/`, `agents/`, `skills/`, `capabilities/`), Claude Code agent files load unchanged, and a package claims a convention folder through `registerProjectDiscoverer`. See [project structure](/docs/introduction/project-structure).
 - **Model controls** -- `reasoning` and `providerOptions` on `llm()` and `agent()`, the full sampling block on `agent()` and `agentPlugin({ defaultOptions })`, content parts (`text`, `file`, `image`) in the user prompt, `agent({ stream: true })` for token deltas over SSE, and prompt callbacks typed from the route input.
 - **Compaction primitives** -- `replaceDeferredThread` rewrites a deferred agent's thread in place (`AI1008` refuses a malformed one), and `AI1009` names a prompt that does not fit the model's context window.
@@ -131,7 +142,7 @@ This section covers every change since the v0.6.0 release. 0.7.0 is the durable 
 ### Docs site
 
 - **[0.6.x to 0.7.0 migration guide](/docs/migrating/0.6-to-0.7)** -- every breaking change above with its before and after.
-- **New pages** -- [durable agents](/docs/advanced/durable-agents), [talk from your editor](/docs/advanced/talk-from-your-editor), [project structure](/docs/introduction/project-structure), and reference pages for the [ops](/docs/reference/plugins/opsplugin), [servers](/docs/reference/plugins/serversplugin), [acp](/docs/reference/plugins/acpplugin) and [remotes](/docs/reference/plugins/remotesplugin) plugins and the [shell](/docs/reference/adapters/shell) and [surface](/docs/reference/adapters/surface) adapters.
+- **New pages** -- [durable agents](/docs/advanced/durable-agents), [talk from your editor](/docs/introduction/talk-from-your-editor), [project structure](/docs/introduction/project-structure), and reference pages for the [ops](/docs/reference/plugins/opsplugin), [servers](/docs/reference/plugins/serversplugin), [acp](/docs/reference/plugins/acpplugin) and [remotes](/docs/reference/plugins/remotesplugin) plugins and the [shell](/docs/reference/adapters/shell) and [surface](/docs/reference/adapters/surface) adapters.
 - **Every TypeScript example compiles** -- the docs build compiles every fenced block against the workspace packages, and a block that is not meant to compile says why.
 
 ### Known limitations
@@ -203,7 +214,7 @@ This section covers every change since the v0.5.0 release. 0.6.0 is the architec
 
 - **`agentPlugin({ toolPolicy })`** -- repository-wide admission control for the agent tool surface, keyed by tool kind (`fn` / `direct` / `mcp`), each `true`, `false`, or a predicate over a read-only tool descriptor. Omit it and nothing changes; supply it and the surface becomes an allowlist where every kind must be decided. Enforced at the single point every agent form converges on, so inline, registered, markdown, and nested agents are all covered, and multiple installs compose with AND. See the [tool policy reference](/docs/reference/plugins/agentplugin#tool-policy).
 - **`route:agent:tool:denied` event** -- emitted once per tool refused admission by a policy, carrying `agentName`, `toolName`, `toolKind`, and a `reason` of `rule`, `rule-error`, or `unknown-provenance`, so denials are alertable and auditable rather than only logged.
-- **`mcpPlugin({ proxy })` re-exposes client tools** -- proxy tools from registered `clients` through the Routecraft MCP server without a route per tool, with an optional per-tool `guard`. Proxied calls run no route pipeline and do not forward the caller's principal, so reserve them for simple read-only tools. See the [expose as MCP guide](/docs/advanced/expose-as-mcp).
+- **`mcpPlugin({ proxy })` re-exposes client tools** -- proxy tools from registered `clients` through the Routecraft MCP server without a route per tool, with an optional per-tool `guard`. Proxied calls run no route pipeline and do not forward the caller's principal, so reserve them for simple read-only tools. See the [calling an MCP](/docs/advanced/call-an-mcp).
 - **`baseURL` honoured by the Anthropic and Gemini providers** -- previously only OpenAI honoured it, so explicit config lost to the ambient `ANTHROPIC_BASE_URL` environment variable.
 
 ### Internals

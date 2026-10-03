@@ -338,7 +338,7 @@ Records have no retention: nothing expires a session, so a deployment that opens
 
 ### acp
 
-Added by `@routecraft/ai`. Serves the [Agent Client Protocol](/docs/advanced/talk-from-your-editor) so a person can talk to this instance's agents from their editor, the way `mcp` serves MCP. Takes exactly the options [`acpPlugin()`](/docs/reference/plugins/acpplugin) takes, and none of them is required: an empty object serves every agent the context holds at `/acp` on the `default` server, behind that server's wall.
+Added by `@routecraft/ai`. Serves the [Agent Client Protocol](/docs/introduction/talk-from-your-editor) so a person can talk to this instance's agents from their editor, the way `mcp` serves MCP. Takes exactly the options [`acpPlugin()`](/docs/reference/plugins/acpplugin) takes, and none of them is required: an empty object serves every agent the context holds at `/acp` on the `default` server, behind that server's wall.
 
 ```ts
 import { defineConfig, jwt } from '@routecraft/routecraft'

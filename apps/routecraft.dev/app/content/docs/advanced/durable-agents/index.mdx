@@ -137,7 +137,7 @@ A cancelled run is terminal and honest about its spend: the abort signal (route 
 
 ## Over MCP
 
-A tool whose route dispatches an agent may defer, so if it declares `.output()` its advertised `outputSchema` is the derived union `oneOf: [Output, Deferred]`, and a deferral replies with the acknowledgment in `structuredContent` on an ordinary `isError: false` result, emitting `plugin:mcp:tool:deferred`. On the 2025 protocol revision the advertisement and the acknowledgment both carry the `{ result: ... }` envelope. See [Running an MCP server](/docs/advanced/expose-as-mcp#deferrable-tools).
+A tool whose route dispatches an agent may defer, so over MCP it answers a deferral with the acknowledgment instead of its output, and when the route declares `.output()` it advertises the `oneOf: [Output, Deferred]` union. The framework cannot rule deferral out statically for an agent-bearing route, so the union is advertised even if a given deployment never defers, and a client must handle the acknowledgment. The wire contract (the advertisement, the result shape, the protocol-revision envelope and the events) is the same for every deferrable tool and lives in the [`mcp()` adapter reference](/docs/reference/adapters/mcp).
 
 ## Related
 

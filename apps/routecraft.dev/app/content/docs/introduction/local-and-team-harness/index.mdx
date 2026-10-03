@@ -1,0 +1,63 @@
+---
+title: Local harness, team harness
+---
+
+<Lead>
+Every Routecraft instance is a harness: the runtime plus the capabilities, skills and agents it loads. The one on your laptop and the one your organisation runs are the same code. What differs is whose credentials it holds and who can reach it.
+</Lead>
+
+## One codebase, two places to run it
+
+<Diagram id="single-player-vs-multiplayer" />
+
+**The local harness** is a project on your machine, started with `craft start` or `bun run start`. It runs on your own access: the tokens in your `.env`, your editor, your agents. Nothing to approve before you try something, and nothing another person can reach. This is where a capability is built and proven, and where an engineer keeps the tools that only they need.
+
+**The team harness** is the same project deployed: `craft start` on a server, in the container the scaffold ships, always on. Its credentials are the organisation's service credentials, read from the environment and held by no person. You put its doors behind authentication and give each capability a `.authorize()` rule for who may call it, and with telemetry on, every call is on record. This is where a capability goes once it has earned its place, and from then on every team calls the same one.
+
+The split is the whole security model in one sentence: on a laptop a capability runs as you; on the team harness it runs as itself, and the caller is only ever who the door verified. [Credentials and identity](/docs/introduction/credentials-and-identity) has the detail.
+
+## Prove, then promote
+
+A capability starts local. You write it, run it against the real systems on your own access, and test it the way the [testing guide](/docs/introduction/testing) describes. When it works, promoting it means deploying the same folder to the team harness, with the service credentials its adapters read from the environment, and a `.authorize()` rule that says which roles, scopes or agents may call it.
+
+Promotion is not a cut-over. With a [remote](#remotes-one-surface) configured, a capability can exist on your laptop and on the team harness at once while you compare them, and deleting the local copy hands the name to the team's. [Connecting harnesses](/docs/advanced/connecting-harnesses#4-promote-a-capability) has the mechanics.
+
+## Remotes: one surface
+
+A local harness can name the team harness as a remote. From then on every dispatchable capability the team harness exposes (one with a `direct()` source) is callable on your laptop as if it were local: from your routes, from your agents' tool lists, and with `craft exec`. Validation runs where the schema lives, at the team harness's door.
+
+Your identity does not travel with the call. The remote capability runs under the identity of the token your harness presents, so the team harness keeps its own `.authorize()` rules without trusting every laptop. [Connecting harnesses](/docs/advanced/connecting-harnesses) is the setup on both sides, and the [remotes reference](/docs/reference/plugins/remotesplugin) covers names, shadowing and outcomes.
+
+## What travels between harnesses
+
+A harness is a project, so what it runs is what the project installs.
+
+- **Capabilities** are folders of TypeScript under `capabilities/`. A team that wants to share one publishes it like any module and the next team re-exports it from a one-line `route.ts` in its own tree, or copies the folder. The runtime discovers it either way.
+- **Skills** are markdown, and an agent lists them by local path or by `npm:` reference into an installed package, so a skill set is a dependency in `package.json` with no network access at boot.
+- **Agents** are markdown files or bundles under `agents/`, with their skills beside them, and a Claude Code `.claude/agents/` tree drops in unchanged.
+
+[Project structure](/docs/introduction/project-structure) shows the layout, and what `craft start` discovers.
+
+## Who reaches which harness
+
+| | Local harness | Team harness |
+| --- | --- | --- |
+| Runs | on your laptop, while you work | on your infrastructure, always on |
+| Credentials | yours, in `.env` | the organisation's service credentials, in the environment |
+| Who can call it | you: your editor, your agents, `craft exec` | every team, through a door that verifies who they are |
+| Who decides what runs | you | `.authorize()` on each capability, and the door's own tiers |
+| On record | your local telemetry database, if you switch it on | every call, with who asked, which door and which capability, once telemetry is on |
+
+## Related
+
+<QuickLinks>
+
+<QuickLink title="Doors and triggers" icon="presets" href="/docs/introduction/doors-and-triggers" description="How a capability is reached when someone asks, and what starts it when nobody does." />
+
+<QuickLink title="Credentials and identity" icon="presets" href="/docs/introduction/credentials-and-identity" description="Service credentials, the verified caller, and what the agent never holds." />
+
+<QuickLink title="Deployment" icon="installation" href="/docs/introduction/deployment" description="Run the team harness on a server, in the container the scaffold ships." />
+
+<QuickLink title="remotesPlugin" icon="plugins" href="/docs/reference/plugins/remotesplugin" description="Every option, name rule and outcome of a remote." />
+
+</QuickLinks>

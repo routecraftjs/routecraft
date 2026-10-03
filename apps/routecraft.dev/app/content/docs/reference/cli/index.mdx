@@ -8,7 +8,7 @@ Run Routecraft capabilities from the command line.
 
 <Callout type="note" title="Bun-only runtime">
 
-The `craft` CLI runs on Bun (>=1.1.0). Node users should embed `@routecraft/routecraft` programmatically instead -- see [Programmatic Invocation](/docs/advanced/programmatic-invocation) and the [Runtime reference](/docs/reference/runtime).
+The `craft` CLI runs on Bun (>=1.1.0). Node users should embed `@routecraft/routecraft` programmatically instead -- see [Programmatic invocation](/docs/advanced/programmatic-invocation) and the [Runtime reference](/docs/reference/runtime).
 
 </Callout>
 
@@ -222,6 +222,7 @@ Options:
 | --- | --- |
 | `<route>` | Route id to dispatch to. Omit to list the instance's dispatchable endpoints |
 | `--profile <name>` | [Settings profile](#profiles) to select |
+| `--project <dir>` | Project whose `.routecraft/settings.yaml` is read. Defaults to the working directory |
 | `--url <url>` | Ops server base URL. Defaults to the [settings file](#settings-file), else `http://127.0.0.1:8080` |
 | `--token <token>` | Bearer credential presented at the management door |
 | `--format <format>` | `pretty` (default), `json`, or `raw` |
@@ -256,7 +257,7 @@ Exit codes, which are the API for anything scripting this:
 
 ### acp
 
-Bridge an editor to a **running** instance over the [Agent Client Protocol](/docs/advanced/talk-from-your-editor). This is the command an editor is configured to run.
+Bridge an editor to a **running** instance over the [Agent Client Protocol](/docs/introduction/talk-from-your-editor). This is the command an editor is configured to run.
 
 ```bash
 craft acp [options]
@@ -268,11 +269,14 @@ It is a pipe that re-establishes itself: newline-delimited JSON on the editor's 
 
 It never starts an app. `craft start` owns running, which is what lets one editor entry reach a laptop or a company instance by switching a profile and changing nothing else.
 
+An editor starts the command from whatever project it has open, not from the project that holds the profile. `--project` names that project: its `.routecraft/settings.yaml` is the project-local [settings file](#settings-file) read instead of the working directory's, so an editor entry reaches a harness from any window without copying its token anywhere else. A path that is not a directory exits `2` naming it, rather than falling through to the global file.
+
 Options:
 
 | Option | Description |
 | --- | --- |
 | `--profile <name>` | [Settings profile](#profiles) to select. Carries the url, the token and the agent together |
+| `--project <dir>` | Project whose `.routecraft/settings.yaml` is read. Defaults to the working directory |
 | `--url <url>` | Base URL of the target instance. Defaults to the [settings file](#settings-file), else `http://127.0.0.1:8080` |
 | `--token <token>` | Bearer credential presented on every request |
 | `--agent <name>` | The agent to talk to. The instance's default otherwise |
@@ -280,6 +284,7 @@ Options:
 ```bash
 craft acp
 craft acp --profile company
+craft acp --project /path/to/my-agent --profile editor
 craft acp --url https://eywa.example --token "$CRAFT_TOKEN" --agent zoe
 ```
 
@@ -287,11 +292,11 @@ The protocol is mounted at `/acp`, and the bridge is not where that is configura
 
 **There is no login.** A token in the profile authenticates, exactly as `token:` does for every other command, and it travels as `Authorization: Bearer` on every request. An instance that advertises no authentication method is conforming, not misconfigured. A cleartext bearer is only ever sent to a loopback address, and a reconnection presents it again on every attempt: whatever answers there when the bridge reconnects receives it, so do not leave a bearer-authenticated `craft acp` reconnecting against a loopback port something else could come to hold.
 
-**The agent travels as a header.** `--agent` becomes a `Routecraft-Agent` request header, and every conversation the connection opens belongs to that agent for its whole life. A name the instance does not hold is refused by name rather than quietly served by somebody else. Register one editor entry per agent to talk to more than one: see [One agent per editor entry](/docs/advanced/talk-from-your-editor#one-agent-per-editor-entry).
+**The agent travels as a header.** `--agent` becomes a `Routecraft-Agent` request header, and every conversation the connection opens belongs to that agent for its whole life. A name the instance does not hold is refused by name rather than quietly served by somebody else. Register one editor entry per agent to talk to more than one: see [One agent per editor entry](/docs/introduction/talk-from-your-editor#one-agent-per-editor-entry).
 
 Standard output belongs to the protocol, so nothing but protocol frames is ever written to it and every diagnosis goes to standard error. It shares [`exec`'s exit codes](#exec): a profile named nowhere exits `2` naming the profiles that do exist, and an address that never answered exits `3` naming it and which setting supplied it. That last one is only for the first connection: an address nothing has ever answered on is configuration to check, where an instance that answered and then went away is an outage to wait out. The editor's own side of the pipe breaking, rather than closing, exits `1`: an editor closing the connection normally is exit `0`.
 
-Editor configuration, and what a conversation carries once it is open, are in [Talk from your editor](/docs/advanced/talk-from-your-editor).
+Editor configuration, and what a conversation carries once it is open, are in [Talk from your editor](/docs/introduction/talk-from-your-editor).
 
 ### ops
 
@@ -305,7 +310,7 @@ craft ops deferrals [id] [--state <state>] [--route <id>] [--limit <n>] [--after
 craft ops indicators [name]
 ```
 
-Every subcommand takes the same `--profile`, `--url`, `--token` and `--format` options as `exec`, resolved the same way.
+Every subcommand takes the same `--profile`, `--project`, `--url`, `--token` and `--format` options as `exec`, resolved the same way.
 
 | Command | What it answers |
 | --- | --- |
@@ -340,7 +345,7 @@ craft tui [--db <path>]
 | --- | --- |
 | `--db <path>` | Telemetry database to read. Defaults to `.routecraft/telemetry.db` in the working directory |
 
-Navigation, views and keys are in the [Terminal UI guide](/docs/introduction/tui).
+Navigation, views and keys are in the [Terminal UI guide](/docs/advanced/tui).
 
 ## Settings file
 
@@ -350,7 +355,7 @@ Two locations, both YAML and both optional:
 
 | Location | Path |
 | --- | --- |
-| Project-local | `.routecraft/settings.yaml` under the working directory |
+| Project-local | `.routecraft/settings.yaml` under the working directory, or under the one `--project` names |
 | Global | `.routecraft/settings.yaml` under your home directory |
 
 `settings.yml` is accepted as an alternate spelling in either location. A location carrying **both** spellings is refused with both paths named: a silent preference would leave edits to the unread file unexplained.
@@ -374,7 +379,7 @@ token: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9...
 format: pretty
 ```
 
-Precedence, highest first: a **flag**, then an **environment variable** (`CRAFT_URL`, `CRAFT_TOKEN`, `CRAFT_FORMAT`, `CRAFT_PROFILE`), then the **project-local file**, then the **global file**, then the built-in default. When a connection fails, the error names both the address it used and which of those supplied it, so a wrong pinned address is diagnosable from the message alone.
+Precedence, highest first: a **flag**, then an **environment variable** (`CRAFT_URL`, `CRAFT_TOKEN`, `CRAFT_FORMAT`, `CRAFT_AGENT`, `CRAFT_PROFILE`), then the **project-local file**, then the **global file**, then the built-in default. When a connection fails, the error names both the address it used and which of those supplied it, so a wrong pinned address is diagnosable from the message alone.
 
 ### Profiles
 
