@@ -12,8 +12,8 @@ follows the per-area docs and the user-facing site.
 The split between `introduction/` and `advanced/` is a **defaults axis**, not a concept-vs-guide
 split and not a difficulty scale. A page belongs in `introduction/` when a project uses what it
 describes with the defaults (the default server and giving a door its own port, MCP over
-stdio or HTTP, an API key, deploying, monitoring); it belongs in `advanced/` when the reader is going past them (remotes, the JWT and
-OAuth ladder, proxying, durable agents, plugins, custom adapters). One topic often splits: the
+stdio or HTTP, an API key, deploying, monitoring); it belongs in `advanced/` when the reader
+is going past them (remotes, the JWT and OAuth ladder, proxying, durable agents, plugins, custom adapters). One topic often splits: the
 default setup in `introduction/`, the options added later in `advanced/`, every flag in
 `reference/`.
 

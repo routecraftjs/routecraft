@@ -155,18 +155,23 @@ describe("the craft command surface", () => {
    * @expectedResult Exit 2 with the path named, not a fall-through to the global settings file that would send its token to whatever instance it names
    */
   test("acp refuses a project that is not a directory", () => {
-    const missing = join(tmpdir(), "craft-acp-missing-project");
-    const result = spawnSync(
-      "bun",
-      [ENTRY, "acp", "--project", missing, "--profile", "editor"],
-      {
-        env: { ...process.env, CRAFT_LOG_LEVEL: "silent" },
-        input: "",
-        encoding: "utf8",
-        timeout: 20_000,
-      },
-    );
-    expect(result.status).toBe(2);
-    expect(`${result.stdout}${result.stderr}`).toContain(missing);
+    const parent = mkdtempSync(join(tmpdir(), "craft-acp-missing-"));
+    const missing = join(parent, "no-such-project");
+    try {
+      const result = spawnSync(
+        "bun",
+        [ENTRY, "acp", "--project", missing, "--profile", "editor"],
+        {
+          env: { ...process.env, CRAFT_LOG_LEVEL: "silent" },
+          input: "",
+          encoding: "utf8",
+          timeout: 20_000,
+        },
+      );
+      expect(result.status).toBe(2);
+      expect(`${result.stdout}${result.stderr}`).toContain(missing);
+    } finally {
+      rmSync(parent, { recursive: true, force: true });
+    }
   }, 30_000);
 });

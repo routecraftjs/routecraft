@@ -297,7 +297,14 @@ function assertFormat(value: string, where: string): OutputFormat {
 function projectDir(project: string | undefined): string | undefined {
   if (project === undefined) return undefined;
   const dir = resolve(process.cwd(), project);
-  if (!statSync(dir, { throwIfNoEntry: false })?.isDirectory()) {
+  let isDirectory = false;
+  try {
+    isDirectory =
+      statSync(dir, { throwIfNoEntry: false })?.isDirectory() ?? false;
+  } catch {
+    // An unreadable path is as unusable as a missing one, and gets the same answer.
+  }
+  if (!isDirectory) {
     throw new SettingsError(
       `--project "${project}" is not a directory (resolved to ${dir}).`,
     );

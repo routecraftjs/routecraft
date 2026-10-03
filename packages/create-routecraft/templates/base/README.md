@@ -66,7 +66,8 @@ shows the step.
 
 Every `craft start`, including the one a client spawns, runs the `hello-world` caller once,
 so the greeting and its HTTP fetch happen on each connect until you delete that route. To stop
-serving tools at all, remove `mcp: {}` from `craft.config.ts`.
+serving tools at all, remove `mcp()` from the capability's `.from()` and `mcp: {}` from
+`craft.config.ts`; an `mcp()` source with no MCP server configured stops the start.
 
 ## How it is laid out
 
