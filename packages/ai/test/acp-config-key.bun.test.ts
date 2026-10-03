@@ -100,27 +100,44 @@ describe("the acp config key", () => {
   });
 
   /**
-   * @case The plugins form keeps working with its ordering constraint
-   * @preconditions `plugins: [agentPlugin({ agents }), acpPlugin()]`, no `acp` key
-   * @expectedResult The instance boots and serves the protocol exactly as before the key existed
+   * @case The plugins form serves whichever order the plugins are listed in
+   * @preconditions `plugins: [acpPlugin(), agentPlugin({ agents })]`, no `acp` key
+   * @expectedResult The instance boots and serves the protocol: every agent contribution binds before ACP reads the registry, so list order carries no constraint
    */
-  test("plugins: [agentPlugin(), acpPlugin()] still serves", async () => {
+  test("plugins: [acpPlugin(), agentPlugin()] serves", async () => {
     const served = await serve({
       servers: { default: { host: "127.0.0.1", port: 0 } },
       deferral: { store: new MemoryDeferralStore() },
       sessions: { store: "memory" },
-      plugins: [agentPlugin({ agents: AGENTS }), acpPlugin()],
+      plugins: [acpPlugin(), agentPlugin({ agents: AGENTS })],
     });
     t = served.t;
     expect(served.agentInfo?.name).toBe("routecraft");
   });
 
   /**
-   * @case Agents registered only through plugins are not visible to the key, and the refusal says where to put them
+   * @case The key sees agents registered through plugins
    * @preconditions `acp: {}` with the agents in `plugins: [agentPlugin()]` and nothing under `agent`
-   * @expectedResult The build fails with RC5003 naming both forms, because keys apply before plugins and the registry is empty when acp applies
+   * @expectedResult The instance boots and serves them. Config keys apply before listed plugins, so this was once refused with an empty registry
    */
-  test("acp with agents only in plugins is refused naming the fix", async () => {
+  test("acp serves agents registered only through plugins", async () => {
+    const served = await serve({
+      acp: {},
+      servers: { default: { host: "127.0.0.1", port: 0 } },
+      deferral: { store: new MemoryDeferralStore() },
+      sessions: { store: "memory" },
+      plugins: [agentPlugin({ agents: AGENTS })],
+    });
+    t = served.t;
+    expect(served.agentInfo?.name).toBe("routecraft");
+  });
+
+  /**
+   * @case ACP with no agents at all
+   * @preconditions `acp: {}` and no agent registered anywhere
+   * @expectedResult The build fails with RC5003 naming every way to register one
+   */
+  test("acp with no agents is refused naming the fix", async () => {
     await expect(
       testContext()
         .with({
@@ -128,7 +145,6 @@ describe("the acp config key", () => {
           servers: { default: { host: "127.0.0.1", port: 0 } },
           deferral: { store: new MemoryDeferralStore() },
           sessions: { store: "memory" },
-          plugins: [agentPlugin({ agents: AGENTS })],
         })
         .build(),
     ).rejects.toMatchObject({

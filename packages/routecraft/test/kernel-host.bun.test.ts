@@ -581,6 +581,41 @@ describe("the kernel host: installs and repeatable", () => {
   });
 
   /**
+   * @case A plugin that reads a port's contributions is listed between them
+   * @preconditions A reader requiring STORE listed after the first contribution and before the second, both contributions repeatable and requiring STORE
+   * @expectedResult Both contributions bind before the reader. A reader that builds from what was contributed (a route per registered agent) would otherwise miss whatever the application listed after it, with no error
+   */
+  test("binds every contribution before a reader of the same port", async () => {
+    const order: string[] = [];
+    const contribution = (n: number): Plugin =>
+      definePlugin({
+        id: "test.contribution",
+        repeatable: true,
+        requires: [STORE],
+        installs: [runtime(order)],
+        bind() {
+          order.push(`contribution:${n}`);
+        },
+      });
+    const reader = definePlugin({
+      id: "test.reader",
+      requires: [STORE],
+      bind() {
+        order.push("reader");
+      },
+    });
+    t = await testContext()
+      .with({ plugins: [contribution(1), reader, contribution(2)] })
+      .build();
+    expect(order).toEqual([
+      "runtime:brought",
+      "contribution:1",
+      "contribution:2",
+      "reader",
+    ]);
+  });
+
+  /**
    * @case One id installed both repeatable and as a single plugin
    * @preconditions A repeatable "test.mixed" and a plain "test.mixed"
    * @expectedResult RC1101 naming the id

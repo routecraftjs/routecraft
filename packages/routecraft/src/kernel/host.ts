@@ -358,16 +358,38 @@ export class PluginHost {
    * Topological order over requires and optional edges. Ties keep the order
    * the plugins were installed in, so the order an application lists is the
    * order it gets wherever dependencies allow.
+   *
+   * A repeatable plugin only contributes through the ports it uses, so it
+   * also binds ahead of every other consumer of those ports: a plugin that
+   * reads what was contributed (ACP building a route per registered agent)
+   * then sees every contribution, wherever the application listed it.
    */
   private order(installed: readonly InstalledPlugin[]): InstalledPlugin[] {
+    const uses = (entry: InstalledPlugin): symbol[] => [
+      ...entry.requires,
+      ...entry.optional,
+    ];
     const dependsOn = new Map<InstalledPlugin, Set<InstalledPlugin>>();
     for (const entry of installed) {
       const deps = new Set<InstalledPlugin>();
-      for (const key of [...entry.requires, ...entry.optional]) {
+      for (const key of uses(entry)) {
         const provider = this.provisions.get(key)?.provider;
         if (provider && provider !== entry) deps.add(provider);
       }
       dependsOn.set(entry, deps);
+    }
+    const contributors = installed.filter((entry) => entry.plugin.repeatable);
+    for (const entry of installed) {
+      if (entry.plugin.repeatable) continue;
+      const deps = dependsOn.get(entry)!;
+      for (const key of uses(entry)) {
+        if (this.provisions.get(key)?.provider === entry) continue;
+        for (const contributor of contributors) {
+          if (!uses(contributor).includes(key)) continue;
+          if (dependsOn.get(contributor)!.has(entry)) continue;
+          deps.add(contributor);
+        }
+      }
     }
     const done = new Set<InstalledPlugin>();
     const result: InstalledPlugin[] = [];
