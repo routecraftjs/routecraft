@@ -72,8 +72,10 @@ jobs:
           scan() {
             local label="$1"; shift
             local out="$RUNNER_TEMP/reports/$label.txt"
-            .github/scripts/trivy.sh gate "$@" > "$out" 2>&1
-            case "$?" in
+            # The step shell runs with -e, so an unguarded gate exit 3 ends the step.
+            local rc=0
+            .github/scripts/trivy.sh gate "$@" > "$out" 2>&1 || rc=$?
+            case "$rc" in
               0) echo "- **$label**: clean" >> "$VERDICTS" ;;
               3) FAILED="$FAILED $label"
                  echo "- **$label**: fixable HIGH or CRITICAL findings" >> "$VERDICTS" ;;
