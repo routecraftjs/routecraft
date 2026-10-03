@@ -18,6 +18,7 @@ import {
   type RouteDefinition,
 } from "@routecraft/routecraft";
 import { agent } from "../agent/agent.ts";
+import { agentRuntimePlugin } from "../agent/plugin.ts";
 import { AGENTS } from "../agent/port.ts";
 import { SURFACES, surfacesPlugin } from "../surface/index.ts";
 import "../errors.ts";
@@ -65,7 +66,9 @@ export function acpPlugin(options: AcpPluginOptions = {}): Plugin {
   return {
     id: "routecraft.ai.acp",
     requires: [AGENTS, SURFACES],
-    installs: [surfacesPlugin()],
+    // Brings the agent runtime so an application with no agents gets the
+    // refusal below, which names the fix, rather than a bare missing port.
+    installs: [surfacesPlugin(), agentRuntimePlugin()],
     optional: [WEB_INGRESS],
     async bind(c: PluginContext) {
       const registry = c.require(AGENTS);
@@ -73,8 +76,8 @@ export function acpPlugin(options: AcpPluginOptions = {}): Plugin {
       if (agents.size === 0) {
         throw rcError("RC5003", undefined, {
           message:
-            "ACP serves the agents this context has registered, and none were registered when it applied. " +
-            "Write the agents under `agent:` (or let `craft start` discover them), or list acpPlugin() after the agentPlugin() that registers them in `plugins`.",
+            "ACP serves the agents this context registers, and it registers none. " +
+            "Write the agents under `agent:`, list an agentPlugin() in `plugins`, or let `craft start` discover them.",
         });
       }
       const runtime = new AcpRuntime(c, registry, c.require(SURFACES), options);
