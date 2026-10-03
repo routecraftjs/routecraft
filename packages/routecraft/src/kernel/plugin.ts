@@ -188,8 +188,10 @@ export interface Plugin {
    * contributing through a port another plugin provides. The host names
    * them `id#1`, `id#2`, ... in list order, in events and faults alike.
    *
-   * A repeatable plugin cannot provide or replace a port, or declare hooks
-   * or points: two installs would collide on every one of them.
+   * A repeatable plugin cannot provide or replace a port, declare hooks or
+   * points, add steps or declare a facet: two installs would collide on
+   * every one of them. It binds ahead of every other plugin that uses the
+   * ports it uses, so a reader sees every contribution.
    */
   readonly repeatable?: boolean;
   /**

@@ -1,6 +1,8 @@
-import type { CraftContext } from "../../context";
 import type { Exchange } from "../../exchange";
 import type { RegisteredDirectEndpoint } from "../../registry";
+import type { DirectChannel, DirectChannelType } from "../../kernel/direct.ts";
+
+export type { DirectChannel, DirectChannelType };
 
 /**
  * @deprecated Use `CraftConfig.direct` (a `Pick<DirectBaseOptions, "channelType">`) instead.
@@ -9,30 +11,8 @@ import type { RegisteredDirectEndpoint } from "../../registry";
  */
 export type DirectConfig = Pick<DirectBaseOptions, "channelType">;
 
-export type DirectChannelType<T extends DirectChannel> = new (
-  endpoint: string,
-) => T;
-
 export type DirectEndpoint<T = unknown> =
   RegisteredDirectEndpoint | ((exchange: Exchange<T>) => string);
-
-/**
- * DirectChannel interface for synchronous inter-route communication.
- *
- * Semantics:
- * - Single consumer per endpoint (last subscriber wins)
- * - Synchronous blocking behavior (sender waits for response)
- * - Point-to-point messaging (not pub/sub)
- */
-export interface DirectChannel<T = unknown> {
-  send(endpoint: string, message: T): Promise<T>;
-  subscribe(
-    context: CraftContext,
-    endpoint: string,
-    handler: (message: T) => Promise<T>,
-  ): Promise<void>;
-  unsubscribe(context: CraftContext, endpoint: string): Promise<void>;
-}
 
 /**
  * Base options shared between source and destination.

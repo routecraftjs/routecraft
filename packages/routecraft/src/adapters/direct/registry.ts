@@ -1,55 +1,16 @@
-import { port } from "../../kernel/port.ts";
 import { rcError } from "../../error.ts";
 import type { Capability } from "../../capabilities.ts";
 import type { Exchange } from "../../exchange.ts";
-import type {
-  DirectBaseOptions,
-  DirectChannel,
-  DirectChannelType,
-} from "./types.ts";
+import type { DirectBaseOptions } from "./types.ts";
+import {
+  DIRECT,
+  type DirectChannel,
+  type DirectChannelType,
+  type DirectRegistry,
+} from "../../kernel/direct.ts";
+import { InMemoryDirectChannel } from "./shared.ts";
 
-/**
- * Every direct endpoint of one application: the channels routes subscribe
- * on, the capabilities those endpoints advertise, and the endpoints that
- * declared themselves internal instead.
- *
- * Provided by the default-installed `routecraft.direct` plugin and reached
- * through {@link DIRECT}: the direct adapter, `CraftClient`,
- * `context.capabilities()` and the remotes plugin all read and write the
- * one registry, so a remote route installed here is indistinguishable from
- * a local one to every caller.
- */
-export interface DirectRegistry {
-  /** The application-wide channel type from `CraftConfig.direct`, when set. */
-  readonly channelType: DirectChannelType<DirectChannel> | undefined;
-  /** Channels by sanitised endpoint (see `sanitizeEndpoint`). */
-  readonly channels: Map<string, DirectChannel<Exchange>>;
-  /** The capability advertised on a raw endpoint, if any. */
-  capability(endpoint: string): Capability | undefined;
-  /** Every advertised capability, as registered. */
-  capabilities(): IterableIterator<Capability>;
-  /**
-   * Advertise a capability on its raw endpoint.
-   *
-   * @returns A disposer that removes THIS registration while it still holds
-   *   the endpoint, and nothing once another registration replaced it
-   * @throws RC5003 when the endpoint declared itself internal
-   */
-  registerCapability(capability: Capability): () => void;
-  /**
-   * Mark a raw endpoint internal: composable in-process, never advertised.
-   *
-   * @returns A disposer with the same ownership rule as
-   *   {@link DirectRegistry.registerCapability}'s
-   * @throws RC5003 when the endpoint is already an advertised capability
-   */
-  registerInternal(endpoint: string): () => void;
-  /** Whether a raw endpoint declared itself internal. */
-  isInternal(endpoint: string): boolean;
-}
-
-/** The direct endpoint registry of an application. */
-export const DIRECT = port<DirectRegistry>("routecraft.direct@1");
+export { DIRECT, type DirectRegistry };
 
 /**
  * Copy a capability, cloning the mutable `tags` array so neither the
@@ -83,9 +44,29 @@ export function createDirectRegistry(
   // the live marker alone.
   const internal = new Map<string, symbol>();
 
+  const channel = (
+    key: string,
+    channelType?: DirectChannelType<DirectChannel>,
+  ): DirectChannel<Exchange> => {
+    let held = channels.get(key);
+    if (!held) {
+      const Ctor = channelType ?? options.channelType;
+      held = Ctor
+        ? (new Ctor(key) as DirectChannel<Exchange>)
+        : new InMemoryDirectChannel<Exchange>();
+      channels.set(key, held);
+    }
+    return held;
+  };
+
   return {
     channelType: options.channelType,
     channels,
+    channel,
+    send(endpoint, exchange) {
+      const key = encodeURIComponent(endpoint);
+      return channel(key).send(key, exchange);
+    },
     capability: (endpoint) => capabilities.get(endpoint),
     capabilities: () => capabilities.values(),
     registerCapability(capability) {

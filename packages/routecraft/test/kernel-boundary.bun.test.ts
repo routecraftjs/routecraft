@@ -13,10 +13,16 @@ const KERNEL = [
   "builder.ts",
   "step-builder-base.ts",
   "exchange.ts",
+  "project.ts",
+  "config-applier.ts",
 ];
 
-/** Where plugins live; the kernel may reach them only through ports. */
-const FORBIDDEN = ["plugins", "auth"];
+/**
+ * Where plugins and their adapters live; the kernel reaches them only
+ * through ports. Direct edges are what is checked: a kernel module may use a
+ * shared module that itself serves a plugin.
+ */
+const FORBIDDEN = ["plugins", "auth", "adapters/direct"];
 
 function filesUnder(path: string): string[] {
   const full = join(SRC, path);
@@ -45,8 +51,8 @@ function edgesOf(file: string): string[] {
 describe("the kernel boundary", () => {
   /**
    * @case No kernel module imports from a plugin's folder or auth, by value or by type
-   * @preconditions The kernel's files: kernel/, pipeline/, context.ts, route.ts, builder.ts, step-builder-base.ts, exchange.ts
-   * @expectedResult No import or re-export specifier resolves under plugins/ or auth/
+   * @preconditions The kernel's files: kernel/, pipeline/, context.ts, route.ts, builder.ts, step-builder-base.ts, exchange.ts, project.ts, config-applier.ts
+   * @expectedResult No import or re-export specifier resolves under plugins/, auth/ or adapters/direct/
    */
   test("the kernel imports no plugin", () => {
     const crossings = KERNEL.flatMap(filesUnder).flatMap((file) =>

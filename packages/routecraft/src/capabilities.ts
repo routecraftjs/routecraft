@@ -1,6 +1,7 @@
 import type { CraftContext } from "./context.ts";
 import type { RouteDiscovery } from "./route.ts";
-import { DIRECT, snapshotCapability } from "./adapters/direct/registry.ts";
+import { snapshotCapability } from "./adapters/direct/registry.ts";
+import { DIRECT } from "./kernel/direct.ts";
 
 export { snapshotCapability };
 
