@@ -14,7 +14,7 @@ Expose capabilities as MCP tools or call remote MCP servers. Requires `mcpPlugin
 
 **Source mode -- define a discoverable MCP tool:**
 
-The tool name is the route id; the tool's title, description, and schemas live on the route builder (enforced framework-wide). Only MCP-protocol extras (`annotations`, `icons`) remain on `mcp()` itself.
+The tool name is the route id; the tool's title, description, and schemas live on the route builder (enforced framework-wide). Only MCP-protocol extras (`annotations`, `icons`, `ui`) remain on `mcp()` itself.
 
 ```ts
 import { mcp } from '@routecraft/ai'
@@ -56,6 +56,7 @@ When using the `serverId` path (recommended), auth configured on the client in `
 |--------|------|----------|-------------|
 | `annotations` | `McpToolAnnotations` | No | Behavior hints forwarded to MCP clients in the `tools/list` response |
 | `icons` | `McpIcon[]` | No | Icons forwarded on `tools/list` per the MCP spec |
+| `ui` | `McpUiOptions` | No | An [MCP Apps](#mcp-apps-views) view the host renders the tool result in. Requires `.output()` |
 
 All other tool metadata (title, description, input / output schemas) comes from the route builder and is enforced framework-wide:
 
@@ -132,6 +133,43 @@ These mirror the [MCP specification (2025-03-26) `ToolAnnotations`](https://mode
 .from(mcp({ annotations: { readOnlyHint: true, openWorldHint: true } }))
 ```
 
+#### MCP Apps views
+
+`ui` attaches an [MCP Apps](https://github.com/modelcontextprotocol/ext-apps) view to the tool: HTML the host renders the result in instead of showing JSON. The tool advertises `_meta.ui.resourceUri` on `tools/list`, and the server serves the view at that `ui://` URI through `resources/read` with MIME type `text/html;profile=mcp-app`. Hosts without MCP Apps support read the text result as before. See [Rendering results as a view](/docs/advanced/expose-as-mcp#rendering-results-as-a-view) for a working view.
+
+```ts
+import { fileURLToPath } from 'node:url'
+import { craft } from '@routecraft/routecraft'
+import { fromFile, mcp } from '@routecraft/ai'
+import { z } from 'zod'
+
+const mailCard = fileURLToPath(new URL('./mail-card.html', import.meta.url))
+
+export default craft()
+  .id('send-mail')
+  .description('Hold an email for review')
+  .output({ body: z.object({ to: z.string(), subject: z.string() }) })
+  .from(mcp({ ui: { html: fromFile(mailCard), prefersBorder: true } }))
+  .transform(() => ({ to: 'a@example.com', subject: 'Hi' }))
+```
+
+**McpUiOptions:**
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `html` | `string \| (() => string \| Promise<string>)` | Yes | The view's HTML document, or a loader called on every `resources/read`. `fromFile(path)` returns a loader; its relative path resolves against the process working directory, which a stdio host chooses, so prefer an absolute path |
+| `csp` | `McpUiCsp` | No | Outside origins the view may reach: `connectDomains`, `resourceDomains`, `frameDomains`, `baseUriDomains`, each a `string[]`. Omitted lists mean inline and own-origin only |
+| `prefersBorder` | `boolean` | No | Ask the host to draw a border around the view |
+
+Rules the adapter enforces:
+
+- The route must declare `.output({ body })`; the view draws from `structuredContent`. A `ui` without it fails when the route subscribes with RC5003 naming the route. A malformed `ui` throws RC5003 when `mcp()` is called.
+- The URI is `ui://<server name>/<route id>`, derived from `mcpPlugin({ name })` and the route id, so it cannot collide or drift.
+- The view is served behind the same auth as the tools and follows the `tools` filter: a hidden tool's view is not listed and does not resolve. Every client of the server can read it, so keep the HTML static and let data arrive through the tool result.
+- A loader that throws answers a generic error naming the tool, logs the cause, and emits [`plugin:mcp:ui:failed`](/docs/reference/events#view-events). The cause (often a host path) never reaches the caller.
+- The view receives the wire result, not your route's body: a non-object `.output()` arrives as `{ result }` on the 2025 protocol revision, a [deferrable tool](/docs/advanced/expose-as-mcp#deferrable-tools) can answer with the `{ status: "deferred", ... }` acknowledgment, and an `isError` result carries no `structuredContent`. Write the view to handle each it can meet.
+- The view renders after the tool has run. It is not a confirmation step; use `destructiveHint` and the host's own permission prompt for that.
+
 **Options (McpClientOptions -- destination):**
 
 | Option | Type | Required | Description |
@@ -161,7 +199,7 @@ await ctx.start()
 
 const registry = ctx.getStore(MCP_LOCAL_TOOL_REGISTRY)
 const tools = registry ? Array.from(registry.values()) : []
-// [{ endpoint, title?, description, input?, output?, annotations?, icons?, handler }]
+// [{ endpoint, title?, description, input?, output?, annotations?, icons?, ui?, handler }]
 ```
 
 `mcp()` and `direct()` maintain separate, fully isolated registries. An MCP route with `.id('foo').from(mcp())` and a direct route with `.id('bar').from(direct())` both register by their own ids in their own stores; direct routes never appear in the MCP `tools/list` response.

@@ -222,6 +222,68 @@ craft()
 
 Icons resolve with the same rule at both levels: omit `icons` to inherit (a tool with no icon of its own shows the server's icon, including the Routecraft default), set `icons: [...]` for a custom icon, or set `icons: []` to show none.
 
+## Rendering results as a view
+
+By default a host such as Claude shows a tool's result as JSON. Hosts that support the [MCP Apps](https://github.com/modelcontextprotocol/ext-apps) extension (Claude web and desktop among them) can render it as an interactive HTML view instead. Attach one with `ui` on the route's `mcp()` source:
+
+```ts
+// capabilities/send-mail.ts
+import { fileURLToPath } from 'node:url'
+import { craft } from '@routecraft/routecraft'
+import { fromFile, mcp } from '@routecraft/ai'
+import { z } from 'zod'
+
+export default craft()
+  .id('send-mail')
+  .title('Send mail')
+  .description('Hold an email for review before it is sent')
+  .input({ body: z.object({ to: z.string(), subject: z.string(), body: z.string() }) })
+  .output({ body: z.object({ to: z.string(), subject: z.string(), body: z.string() }) })
+  .from(mcp({
+    annotations: { destructiveHint: false },
+    ui: {
+      html: fromFile(fileURLToPath(new URL('./send-mail.html', import.meta.url))),
+      csp: { resourceDomains: ['https://cdn.jsdelivr.net'] },
+      prefersBorder: true,
+    },
+  }))
+  .transform((mail) => mail)
+```
+
+The view is a static HTML document. It loads the extension's `App` client, connects to the host, and draws from the tool result's `structuredContent`, which is why a route with `ui` must declare `.output()`. It receives the wire result: a non-object output arrives as `{ result }` on the 2025 protocol revision, a deferral as the `Deferred` acknowledgment, and an `isError` result with no `structuredContent`. This view renders each as rows, or as nothing:
+
+```html
+<!-- capabilities/send-mail.html -->
+<!doctype html>
+<html>
+  <body>
+    <dl id="mail"></dl>
+    <script type="module">
+      import { App } from 'https://cdn.jsdelivr.net/npm/@modelcontextprotocol/ext-apps@2/dist/src/app-with-deps.js'
+
+      const app = new App({ name: 'send-mail', version: '1.0.0' })
+      app.addEventListener('toolresult', ({ structuredContent }) => {
+        const list = document.getElementById('mail')
+        for (const [label, value] of Object.entries(structuredContent ?? {})) {
+          list.append(Object.assign(document.createElement('dt'), { textContent: label }))
+          const text = typeof value === 'string' ? value : JSON.stringify(value)
+          list.append(Object.assign(document.createElement('dd'), { textContent: text }))
+        }
+      })
+      await app.connect()
+    </script>
+  </body>
+</html>
+```
+
+What Routecraft does with it:
+
+- `tools/list` advertises `_meta.ui.resourceUri` on the tool, set to `ui://<server name>/<route id>` (`ui://routecraft/send-mail` with the default server name).
+- The server serves the view through `resources/list` and `resources/read` with MIME type `text/html;profile=mcp-app`, its `csp` and `prefersBorder` under `_meta.ui`. A `fromFile()` loader is read on every request, so edits show without a restart. A relative `fromFile()` path resolves against the process working directory, which a stdio host such as Claude Desktop chooses for you, so the example resolves the file next to the module instead.
+- `tools/call` returns `structuredContent` for the view and the text block for every host that does not render views. Nothing changes for those hosts.
+
+Keep the HTML free of data. Every client of the server can read the view, behind the same auth as the tools, so anything per-call reaches it through the tool result. The `csp` lists are the only outside origins the host's sandbox lets the view reach; the example allows the CDN its client is loaded from. The view renders after the tool has run, so it is a display, not a confirmation step. See [MCP Apps views](/docs/reference/adapters/mcp#mcp-apps-views) for every option and rule.
+
 ## Proxying tools from configured clients
 
 Any MCP client registered under `mcpPlugin({ clients })` can have tools re-exposed through your Routecraft MCP server without writing a route per tool. Use the `proxy` option to select them:
@@ -248,7 +310,7 @@ export const craftConfig = defineConfig({
 })
 ```
 
-Proxied tools appear in `tools/list` under their original name (or the `name` override) with the remote input/output schema, description, title, annotations, and icons passed through. Calls dispatch over the client's registered transport and auth, and the remote result (content, `structuredContent`, `isError`) is returned unchanged, save for the protocol-revision projection every result gets: when the remote and the calling client sit on different revisions, the `{ result: ... }` envelope is added or omitted so the result still matches the schema this server advertised for it. Selection is live: wildcard entries follow tool refresh and stdio restarts.
+Proxied tools appear in `tools/list` under their original name (or the `name` override) with the remote input/output schema, description, title, annotations, and icons passed through. A remote tool's `_meta` is not, so a proxied tool never carries a remote [view](#rendering-results-as-a-view): this server cannot serve the remote's `ui://` resource, and hosts show the result without it. Calls dispatch over the client's registered transport and auth, and the remote result (content, `structuredContent`, `isError`) is returned unchanged, save for the protocol-revision projection every result gets: when the remote and the calling client sit on different revisions, the `{ result: ... }` envelope is added or omitted so the result still matches the schema this server advertised for it. Selection is live: wildcard entries follow tool refresh and stdio restarts.
 
 An exact ref and a wildcard covering the same remote tool compose: the exact entry's overrides and guard apply regardless of config order, so `['docs:*', { ref: 'docs:search', guard }]` proxies everything from `docs` with the guard on `search`. Collisions between different remote tools on one exposed name resolve deterministically: a local `.from(mcp())` route always wins over a proxied tool, and earlier `proxy` entries win over later ones (both log a warning). Use the `name` override to expose two same-named tools side by side. Exposed names must match `[A-Za-z0-9_-]{1,64}` (the same contract route ids follow); a remote tool whose own name does not conform is skipped with a warning unless you proxy it with an exact ref and a `name` override.
 
