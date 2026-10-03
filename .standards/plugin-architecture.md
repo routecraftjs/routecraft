@@ -49,8 +49,10 @@ A plugin is a plain descriptor, built with `definePlugin()`:
 | `provides` | ports it offers | resolution |
 | `replaces` | ports whose default provider it displaces | resolution |
 | `points` | moments it declares and invokes from its own steps | before anything binds |
-| `facets` | `{ [namespace]: (exchange, lookup) => view }`, its typed view of the exchange | static |
+| `facet` | `(exchange) => view`: `ex.<namespace>`, computed on every read | static |
 | `steps` | step factories; each key becomes a builder method | static |
+| `installs` | plugins it brings along: placed ahead of it, installed once per id, and never when the application lists that id itself | before anything binds |
+| `repeatable` | several installs coexist (`id#1`, `id#2`, in list order); such a plugin contributes through another plugin's port and may not provide, replace, or declare hooks, points, steps or a facet | before anything binds |
 | `hooks` | handlers and wrappers in the chain's slots, each with a phase | static, placed when routes compile |
 | `keepsAlive` | the plugin owns a lifetime past the routes (a listener) | at completion |
 | `bind(c)` | requires, provides, observes, registers routes | in dependency order |
@@ -69,7 +71,7 @@ A plugin is a plain descriptor, built with `definePlugin()`:
 | `observe(event, handler)` / `emit(event, details)` | the event bus |
 | `onDispose(fn)` | released at stop, LIFO, every one run even when another throws |
 | `routes` | `register(...definitions)` in `bind`; `list()` and `get(id)` read views |
-| `execution` | `deliver`, `resume`, `sweep`, `errorChannel`, `capabilities`, `whenStarted`, `requestStop` |
+| `execution` | `deliver`, `resume`, `sweep`, `capabilities`, `whenStarted`, `requestStop` |
 | `logger`, `id`, `namespace` | |
 
 **Adapters** keep their per-context state in `CraftContext.getStore()` /
@@ -123,10 +125,15 @@ plugin with the same id is `RC1101`.
 
 ### Default plugins
 
-Installed by every context unless an installed plugin replaces their port:
+Installed in every application, ahead of its own plugins:
 `routecraft.direct`, `routecraft.resilience`, `routecraft.cache`,
-`routecraft.principals`, `routecraft.auth`. They are defaults because they are
-installed by default, not because the kernel knows their names.
+`routecraft.principals`, `routecraft.auth`. An application plugin with the
+same id takes a default's place; a plugin that `replaces` a default's port is
+selected over it. Each default's module registers it when the package loads
+(`registerDefaultPlugin`), so they are defaults because they are installed by
+default, not because the kernel knows their names. Ahead, so the
+application's plugins keep their relative order: a plugin that requires a
+default binds after it either way.
 
 ## 3. The chain
 
@@ -192,6 +199,9 @@ applies to slots; a position is never switched off.
 
 Every hook declares the run kinds it applies to (`normal`, `resume`,
 `debounce`, `errorChannel`) with `runs`, defaulting to `normal` only. The
+`error` slot is the exception and defaults to every kind: a failure on a
+resumed or released run is still the route's failure, and a handler that
+heard only first runs would miss exactly the failures a park produces. The
 per-position table in `pipeline/chain-policy.ts` stays the source for
 positions.
 

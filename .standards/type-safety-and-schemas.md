@@ -131,7 +131,7 @@ Adapters in routes can be:
 
 ### stdio = plugin only
 
-Routes **never** spawn processes. Stdio MCP clients are registered in `mcpPlugin({ clients: { name: { command, args } } })` and managed by the plugin's `apply()` / `teardown()` hooks. The route API does not expose a stdio option; only HTTP (inline `url` or named `serverId`) is valid in a route.
+Routes **never** spawn processes. Stdio MCP clients are registered in `mcpPlugin({ clients: { name: { command, args } } })` and managed by the plugin's `bind()` / `stop()` hooks. The route API does not expose a stdio option; only HTTP (inline `url` or named `serverId`) is valid in a route.
 
 ---
 
@@ -185,7 +185,7 @@ The user-facing contract (copy-on-write via a plain object spread, the framework
 
 ### Authoring contract for new operations
 
-- Steps must construct new exchanges via `new DefaultExchange(...)` or `DefaultExchange.rewrap(prev, partial)`. Direct mutation of `exchange.body`, `exchange.headers[...]`, or `exchange.principal` will fail to compile and throw at runtime.
+- Steps must construct new exchanges via `new DefaultExchange(...)` or `DefaultExchange.rewrap(prev, partial)`. Direct mutation of `exchange.body` or `exchange.headers[...]` will fail to compile and throw at runtime.
 - Drop signalling uses `markDropped(exchange)` / `isDropped(exchange)`, not a header flag. Frozen headers cannot accept the legacy `"routecraft.dropped"` write.
 - Child start timestamps used for telemetry are stored on the exchange's internals via `setStartedAt` / `getStartedAt`, which survive `rewrap` because internals are shared between `prev` and `next`.
 
