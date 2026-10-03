@@ -98,7 +98,7 @@ a continuation that re-enters the stack somewhere the approval was never
 taken against, which is the class of bug the site walk exists to prevent.
 
 The two scopes that CAN name a position reach the same failure: the
-route-scope `.error()` handler, and a context error handler. Both leave
+route-scope `.error()` handler, and an error-slot hook. Both leave
 the resolution to the executor, which holds the failing step. If a future
 change gives a wrapper a stable address within the walk, this refusal is
 what should be revisited, and the message names the alternatives so a user
@@ -309,9 +309,9 @@ accordingly.
   refused at build on a
   route whose pipeline contains `.authenticate()`, because a hit would
   skip it. Route scope is
-  wired into `RouteDefinition.postParseFilters` (the `cache-check`
-  filter at chain position #9) and `RouteDefinition.postFromFilters`
-  (the `cache-store` filter at position #10); see
+  configured on `RouteDefinition.cache` and filled by the `CACHE`
+  provider as the `cache-check` (position #9) and `cache-store`
+  (position #10) steps; see
   [Pre-from Filter Chain](./pre-from-filter-chain.md) for the full
   composition contract. Routes with an unbalanced `.split()` (no
   matching `.aggregate()`) reject route-scope cache at build time

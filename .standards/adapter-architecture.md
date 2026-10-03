@@ -120,6 +120,10 @@ The runtime object must agree with the declared type: expose only the slots the 
 - Use a single constructor with a minimal options object: `myAdapter(options?: Partial<MyOptions>)`.
 - For adapters needing context-level config, implement `MergedOptions<T>`: expose `options` and a `mergedOptions(context)` method that reads from a typed `StoreRegistry` key. The full walkthrough (companion plugin, precedence, rationale) is documented at `apps/routecraft.dev/app/content/docs/advanced/merged-options/index.mdx`.
 - Extend `StoreRegistry` via declaration merging to type your store keys.
+- A store key is for state private to one module (an adapter's memo, a
+  cache keyed per application). State another plugin reads is a port the
+  owning plugin provides, never a shared store key; see
+  [plugin-architecture.md](./plugin-architecture.md) section 2.
 
 ### Store keys: use `Symbol.for`
 
@@ -410,7 +414,7 @@ Before submitting a new or modified adapter:
 - [ ] Respects `AbortController` in sources
 - [ ] Keeps transforms pure; side effects only in destinations
 - [ ] Uses typed `StoreRegistry` and `MergedOptions` if reading from context
-- [ ] **Does not mutate the exchange.** Processor / Destination / aggregator implementations build a derived exchange via spread (`{ ...exchange, body: x }`) or `DefaultExchange.rewrap`; direct assignment to `exchange.body`, `exchange.headers[...]`, or `exchange.principal` is absent. Drop signalling uses `markDropped(exchange)`, not a header flag.
+- [ ] **Does not mutate the exchange.** Processor / Destination / aggregator implementations build a derived exchange via spread (`{ ...exchange, body: x }`) or `DefaultExchange.rewrap`; direct assignment to `exchange.body`, `exchange.headers[...]`, or the principal header is absent. Drop signalling uses `markDropped(exchange)`, not a header flag.
 - [ ] JSDoc documentation added
 - [ ] Tests written and passing
 - [ ] Exported from package index
