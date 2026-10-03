@@ -16,7 +16,7 @@ import { createHttpStream } from "@agentclientprotocol/sdk/experimental/http-cli
 import {
   MemoryDeferralStore,
   type AnyRouteBuilder,
-  type CraftPlugin,
+  type Plugin,
   type Principal,
 } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
@@ -157,7 +157,7 @@ export interface AcpHarnessOptions {
   /** A bearer validator on the server, for the walled cases. */
   readonly validator?: (token: string) => Principal;
   /** Extra plugins, applied before the ACP mount. */
-  readonly plugins?: CraftPlugin[];
+  readonly plugins?: Plugin[];
   /** The session store, for a test that needs one that fails or stalls. */
   readonly sessionStore?: SessionStore;
   /** Routes the app brings, beside the ones the mount builds. */

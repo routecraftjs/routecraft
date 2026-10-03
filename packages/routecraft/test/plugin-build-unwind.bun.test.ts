@@ -7,9 +7,9 @@ import {
   direct,
   noop,
   deferralPlugin,
-  type CraftPlugin,
+  type Plugin,
   type DeferralConfig,
-  type TeardownInfo,
+  type StopInfo,
 } from "../src/index.ts";
 import type { DeferralTestSeams } from "../src/deferral/config.ts";
 import type { SqliteDriverLoaders } from "../src/shared/sqlite/driver.ts";
@@ -20,7 +20,7 @@ import { ContextBuilder } from "../src/builder.ts";
 /**
  * Unwinding a build or a start that failed partway.
  *
- * `build()` returns no context when it throws, so anything an `apply()`
+ * `build()` returns no context when it throws, so anything a `bind()`
  * acquired before the failure is unreachable: the caller has no handle to
  * tear down and never had one. Under a supervisor that retries boot, that
  * leaks one handle per attempt, and a held SQLite handle also keeps the file
@@ -28,7 +28,7 @@ import { ContextBuilder } from "../src/builder.ts";
  * contention rather than as its real cause.
  *
  * These pin the three properties that make the unwind trustworthy: it runs
- * in reverse, it never touches a plugin that did not apply, and it cannot
+ * in reverse, it never touches a plugin that did not bind, and it cannot
  * replace the error the operator actually needs.
  */
 describe("unwinding a failed build", () => {
@@ -40,27 +40,27 @@ describe("unwinding a failed build", () => {
     }
   });
 
-  /** A plugin that "acquires" on apply and records its release order. */
+  /** A plugin that "acquires" on bind and records its release order. */
   function resourcePlugin(
     name: string,
     released: string[],
     options: { throwOnTeardown?: boolean } = {},
-  ): CraftPlugin {
+  ): Plugin {
     return {
-      name,
-      apply() {},
-      teardown() {
+      id: `test.${name}`,
+      bind() {},
+      stop() {
         released.push(name);
         if (options.throwOnTeardown) {
-          throw new Error(`${name} teardown exploded`);
+          throw new Error(`${name} stop exploded`);
         }
       },
     };
   }
 
   /**
-   * @case A plugin that throws in apply() leaves no earlier plugin applied
-   * @preconditions Three plugins; the third throws from apply()
+   * @case A plugin that throws in bind() leaves no earlier plugin applied
+   * @preconditions Three plugins; the third throws from bind()
    * @expectedResult The two that applied are torn down in reverse order, and the plugin that threw is not torn down at all since it never finished acquiring
    */
   test("unwinds applied plugins in reverse order", async () => {
@@ -74,11 +74,11 @@ describe("unwinding a failed build", () => {
             resourcePlugin("first", released),
             resourcePlugin("second", released),
             {
-              name: "third",
-              apply() {
+              id: "test.third",
+              bind() {
                 throw boom;
               },
-              teardown() {
+              stop() {
                 released.push("third");
               },
             },
@@ -114,10 +114,10 @@ describe("unwinding a failed build", () => {
 
   /**
    * @case An unwind that itself throws neither masks the original error nor strands the remaining plugins
-   * @preconditions Three plugins; the third throws from apply() and the second throws from its teardown
-   * @expectedResult build() still rejects with the apply error, and the first plugin is released despite the second's teardown throwing
+   * @preconditions Three plugins; the third throws from bind() and the second throws from its stop
+   * @expectedResult build() still rejects with the bind error, and the first plugin is released despite the second's stop throwing
    */
-  test("a throwing teardown does not change the surfaced error", async () => {
+  test("a throwing stop does not change the surfaced error", async () => {
     const released: string[] = [];
 
     await expect(
@@ -127,8 +127,8 @@ describe("unwinding a failed build", () => {
             resourcePlugin("first", released),
             resourcePlugin("second", released, { throwOnTeardown: true }),
             {
-              name: "third",
-              apply() {
+              id: "test.third",
+              bind() {
                 throw new Error("the original cause");
               },
             },
@@ -143,7 +143,7 @@ describe("unwinding a failed build", () => {
 
   /**
    * @case The deferral plugin's SQLite handle is released when a later plugin fails the build
-   * @preconditions A real file-backed deferral store whose driver is injected so the opened handle can be observed, then a later plugin throwing from apply()
+   * @preconditions A real file-backed deferral store whose driver is injected so the opened handle can be observed, then a later plugin throwing from bind()
    * @expectedResult close() ran on the handle the store opened. Reopening the file would prove nothing: bun:sqlite happily opens a second connection while the first is still held, so only the close itself is evidence
    */
   test("releases the deferral store's sqlite handle", async () => {
@@ -182,8 +182,8 @@ describe("unwinding a failed build", () => {
           plugins: [
             deferralPlugin(deferral),
             {
-              name: "late-refusal",
-              apply() {
+              id: "test.late-refusal",
+              bind() {
                 throw new Error("late plugin refuses");
               },
             },
@@ -197,28 +197,28 @@ describe("unwinding a failed build", () => {
   });
 
   /**
-   * @case teardown is told the context never finished starting, and whether its own start() ran
-   * @preconditions A plugin recording its TeardownInfo, unwound from a build failure
+   * @case stop is told the context never finished starting, and whether its own start() ran
+   * @preconditions A plugin recording its StopInfo, unwound from a build failure
    * @expectedResult partial is true and started is false: nothing started, and a plugin must not be asked to stop what it never began
    */
   test("reports partial and started on a build failure", async () => {
-    const seen: TeardownInfo[] = [];
+    const seen: StopInfo[] = [];
 
     await expect(
       new ContextBuilder()
         .with({
           plugins: [
             {
-              name: "records",
-              apply() {},
+              id: "test.records",
+              bind() {},
               start() {},
-              teardown(_ctx, info) {
+              stop(_ctx, info) {
                 seen.push(info);
               },
             },
             {
-              name: "refuses",
-              apply() {
+              id: "test.refuses",
+              bind() {
                 throw new Error("nope");
               },
             },
@@ -232,29 +232,29 @@ describe("unwinding a failed build", () => {
   });
 
   /**
-   * @case teardown reports partial on a start failure, and started per plugin
+   * @case stop reports partial on a start failure, and started per plugin
    * @preconditions Two plugins with start() hooks; the second throws, so the first started and the second did not
    * @expectedResult Both see partial true; the first sees started true, the second started false
    */
   test("reports partial and started on a start failure", async () => {
-    const seen = new Map<string, TeardownInfo>();
+    const seen = new Map<string, StopInfo>();
     const ctx = new CraftContext({
       plugins: [
         {
-          name: "starts-fine",
-          apply() {},
+          id: "test.starts-fine",
+          bind() {},
           start() {},
-          teardown(_c, info) {
+          stop(_c, info) {
             seen.set("starts-fine", info);
           },
         },
         {
-          name: "fails-to-start",
-          apply() {},
+          id: "test.fails-to-start",
+          bind() {},
           start() {
             throw new Error("start refused");
           },
-          teardown(_c, info) {
+          stop(_c, info) {
             seen.set("fails-to-start", info);
           },
         },
@@ -277,14 +277,14 @@ describe("unwinding a failed build", () => {
    * @expectedResult partial is false and started reflects that the plugin's own start() ran
    */
   test("an ordinary shutdown is not partial", async () => {
-    const seen: TeardownInfo[] = [];
+    const seen: StopInfo[] = [];
     const ctx = new CraftContext({
       plugins: [
         {
-          name: "ordinary",
-          apply() {},
+          id: "test.ordinary",
+          bind() {},
           start() {},
-          teardown(_c, info) {
+          stop(_c, info) {
             seen.push(info);
           },
         },

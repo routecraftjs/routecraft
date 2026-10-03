@@ -1,23 +1,20 @@
+import { port } from "../kernel/port.ts";
 import type { DeferralRuntime } from "./config.ts";
 
 /**
- * Context-store key holding the resolved deferral runtime.
+ * The port the deferral plugin provides: where continuations are kept, how
+ * resume tokens are signed, and the default deadline.
  *
- * Exported so the executor, the resume path, and the sweeper reach one
- * resolved store and one signer per context rather than each building their
- * own.
+ * The kernel's park, resume and sweep, the `ex.deferral` facet and any
+ * plugin that parks work aside (agent sessions) reach one resolved store and
+ * one signer per application through it, never through each other.
  *
  * It lives in this leaf module rather than next to
- * {@link createDeferralRuntime} because `exchange.ts` reads the key to
- * build the `ex.deferral` affordance, and importing `config.ts` from
- * there would pull the store backends (and, through them, the context) into
- * a runtime cycle rooted at the exchange. The type-only import above is
- * erased, so this module has no runtime dependencies at all.
+ * {@link createDeferralRuntime} because `exchange.ts` reads it to build the
+ * `ex.deferral` affordance, and importing `config.ts` from there would pull
+ * the store backends (and, through them, the context) into a runtime cycle
+ * rooted at the exchange.
  */
-export const DEFERRAL_RUNTIME = "routecraft.deferral.runtime" as const;
-
-declare module "@routecraft/routecraft" {
-  interface StoreRegistry {
-    [DEFERRAL_RUNTIME]: DeferralRuntime;
-  }
-}
+export const CONTINUATIONS = port<DeferralRuntime>(
+  "routecraft.continuations@1",
+);

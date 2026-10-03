@@ -1,6 +1,6 @@
 import { describe, expect, expectTypeOf, test } from "bun:test";
 import { CraftContext, defineConfig } from "@routecraft/routecraft";
-import { ADAPTER_LLM_PROVIDERS } from "../src/llm/types.ts";
+import { LLM } from "../src/llm/types.ts";
 import { ADAPTER_AGENT_REGISTRY } from "../src/agent/index.ts";
 import type { LlmPluginOptions } from "../src/llm/types.ts";
 import type { McpPluginOptions } from "../src/mcp/types.ts";
@@ -16,11 +16,11 @@ import "../src/index.ts";
  */
 describe("@routecraft/ai config appliers", () => {
   /**
-   * @case Setting `llm` on CraftConfig registers providers in the store
+   * @case Setting `llm` on CraftConfig provides its providers through the LLM port
    * @preconditions Config has `llm: { providers: { openai: { apiKey } } }`; no plugins[] entry
-   * @expectedResult After initPlugins(), ADAPTER_LLM_PROVIDERS map contains "openai"
+   * @expectedResult After initPlugins(), the LLM port's providers map contains "openai"
    */
-  test("llm key registers providers via the store", async () => {
+  test("llm key provides providers through the LLM port", async () => {
     const ctx = new CraftContext(
       defineConfig({
         llm: {
@@ -30,9 +30,9 @@ describe("@routecraft/ai config appliers", () => {
     );
     await ctx.initPlugins();
 
-    const providers = ctx.getStore(ADAPTER_LLM_PROVIDERS);
+    const providers = ctx.lookup(LLM)?.providers;
     expect(providers).toBeInstanceOf(Map);
-    expect((providers as Map<string, unknown>).has("openai")).toBe(true);
+    expect(providers?.has("openai")).toBe(true);
 
     await ctx.stop();
   });
@@ -69,7 +69,7 @@ describe("@routecraft/ai config appliers", () => {
    * @case `llm` first-class key and a user `plugins: []` entry coexist
    *   without conflict
    * @preconditions Config has `llm` set AND a no-op user plugin in plugins[]
-   * @expectedResult Both run; provider store is populated; no errors emitted
+   * @expectedResult Both run; the LLM port carries the providers; no errors emitted
    */
   test("llm key coexists with user plugins[]", async () => {
     let userPluginRan = false;
@@ -80,7 +80,8 @@ describe("@routecraft/ai config appliers", () => {
         },
         plugins: [
           {
-            apply() {
+            id: "test.user",
+            bind() {
               userPluginRan = true;
             },
           },
@@ -90,8 +91,7 @@ describe("@routecraft/ai config appliers", () => {
     await ctx.initPlugins();
 
     expect(userPluginRan).toBe(true);
-    const providers = ctx.getStore(ADAPTER_LLM_PROVIDERS);
-    expect((providers as Map<string, unknown>).has("openai")).toBe(true);
+    expect(ctx.lookup(LLM)?.providers.has("openai")).toBe(true);
 
     await ctx.stop();
   });

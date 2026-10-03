@@ -1,13 +1,13 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
-import { craft, direct, noop, type CraftPlugin } from "../src/index.ts";
+import { craft, direct, noop, type Plugin } from "../src/index.ts";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /**
  * The third phase of the plugin lifecycle.
  *
- * `apply()` wires the context at build time, when no route is running.
+ * `bind()` wires the application at build time, when no route is running.
  * `start()` begins work, and its whole reason to exist is that the routes
  * are up by the time it runs: the deferral sweeper re-enters a route's
  * error channel, which a route that has not started cannot serve. These
@@ -24,17 +24,17 @@ describe("the plugin start hook", () => {
   });
 
   /**
-   * @case start() runs after every route has been started, and after apply()
+   * @case start() runs after every route has been started, and after bind()
    * @preconditions A plugin recording the phase order, and a route whose source is running
-   * @expectedResult apply precedes route start precedes start. The ordering is the hook's entire purpose: a background task that drives routes cannot run before they exist
+   * @expectedResult bind precedes route start precedes start. The ordering is the hook's entire purpose: a background task that drives routes cannot run before they exist
    */
-  test("runs after apply and after the routes are up", async () => {
+  test("runs after bind and after the routes are up", async () => {
     const order: string[] = [];
 
-    const plugin: CraftPlugin = {
-      name: "recorder",
-      apply() {
-        order.push("apply");
+    const plugin: Plugin = {
+      id: "test.recorder",
+      bind() {
+        order.push("bind");
       },
       start() {
         order.push("start");
@@ -51,19 +51,18 @@ describe("the plugin start hook", () => {
     await t.startAndWaitReady();
     order.push("ready");
 
-    expect(order).toEqual(["apply", "route", "start", "ready"]);
+    expect(order).toEqual(["bind", "route", "start", "ready"]);
   });
 
   /**
    * @case Plugins start in registration order
    * @preconditions Three plugins declaring start(), registered in a known order
-   * @expectedResult They start in that order. A plugin whose task depends on an earlier plugin's runtime has the same ordering guarantee at start that it already has at apply
+   * @expectedResult They start in that order. A plugin whose task depends on an earlier plugin's runtime has the same ordering guarantee at start that it already has at bind
    */
   test("starts plugins in registration order", async () => {
     const started: string[] = [];
-    const record = (name: string): CraftPlugin => ({
-      name,
-      apply() {},
+    const record = (name: string): Plugin => ({
+      id: `test.${name}`,
       start() {
         started.push(name);
       },
@@ -90,17 +89,15 @@ describe("the plugin start hook", () => {
       secondStarted = resolve;
     });
 
-    const slow: CraftPlugin = {
-      name: "slow",
-      apply() {},
+    const slow: Plugin = {
+      id: "test.slow",
       async start() {
         await sleep(20);
         order.push("slow finished");
       },
     };
-    const fast: CraftPlugin = {
-      name: "fast",
-      apply() {},
+    const fast: Plugin = {
+      id: "test.fast",
       start() {
         order.push("fast started");
         secondStarted();
@@ -125,9 +122,8 @@ describe("the plugin start hook", () => {
   test("is not ready until the start hooks have finished", async () => {
     let finished = false;
 
-    const plugin: CraftPlugin = {
-      name: "slow",
-      apply() {},
+    const plugin: Plugin = {
+      id: "test.slow",
       async start() {
         await sleep(30);
         finished = true;
@@ -150,9 +146,8 @@ describe("the plugin start hook", () => {
    */
   test("a throwing start fails the context start, preserving the error", async () => {
     const boom = new Error("sweeper could not open its schedule");
-    const plugin: CraftPlugin = {
-      name: "refuses",
-      apply() {},
+    const plugin: Plugin = {
+      id: "test.refuses",
       start() {
         throw boom;
       },
@@ -170,23 +165,21 @@ describe("the plugin start hook", () => {
 
   /**
    * @case A failed start tears down the plugins that did start
-   * @preconditions A first plugin that starts and records teardown, and a second whose start() throws
+   * @preconditions A first plugin that starts and records its stop, and a second whose start() throws
    * @expectedResult The first plugin is torn down. Without this a plugin that started an interval keeps the process alive after a boot that failed, which is the timer form of the leak tracked in #565
    */
   test("tears down already started plugins when a later one refuses", async () => {
     let tornDown = false;
 
-    const holder: CraftPlugin = {
-      name: "holder",
-      apply() {},
+    const holder: Plugin = {
+      id: "test.holder",
       start() {},
-      teardown() {
+      stop() {
         tornDown = true;
       },
     };
-    const refuses: CraftPlugin = {
-      name: "refuses",
-      apply() {},
+    const refuses: Plugin = {
+      id: "test.refuses",
       start() {
         throw new Error("no");
       },
@@ -229,9 +222,8 @@ describe("the plugin start hook", () => {
    * @expectedResult The second start() throws RC1004 rather than booting dead routes. A failed start ran the shutdown path, and a context whose controllers are gone must refuse loudly instead of reporting ready over routes that can no longer serve
    */
   test("a start after a failed one is refused", async () => {
-    const plugin: CraftPlugin = {
-      name: "flaky",
-      apply() {},
+    const plugin: Plugin = {
+      id: "test.flaky",
       start() {
         throw new Error("first boot failed");
       },
@@ -258,9 +250,8 @@ describe("the plugin start hook", () => {
    */
   test("concurrent starts collapse into one boot", async () => {
     let started = 0;
-    const plugin: CraftPlugin = {
-      name: "counter",
-      apply() {},
+    const plugin: Plugin = {
+      id: "test.counter",
       start() {
         started++;
       },
@@ -287,9 +278,8 @@ describe("the plugin start hook", () => {
    */
   test("whenStarted resolves when a single route fails to start", async () => {
     let hookRan = false;
-    const plugin: CraftPlugin = {
-      name: "observer",
-      apply() {},
+    const plugin: Plugin = {
+      id: "test.observer",
       start() {
         hookRan = true;
       },
@@ -321,9 +311,8 @@ describe("the plugin start hook", () => {
    */
   test("a stop during startup skips the start hooks and settles readiness", async () => {
     let hookRan = false;
-    const plugin: CraftPlugin = {
-      name: "late",
-      apply() {},
+    const plugin: Plugin = {
+      id: "test.late",
       start() {
         hookRan = true;
       },
@@ -355,22 +344,20 @@ describe("the plugin start hook", () => {
   });
 
   /**
-   * @case A throwing teardown during the unwind does not mask the start failure
-   * @preconditions A first plugin whose teardown throws, and a second whose start() throws
-   * @expectedResult context.start() still rejects with the start error, not the teardown error. The operator needs the cause of the failed boot, not whatever the cleanup hit on the way out
+   * @case A throwing stop during the unwind does not mask the start failure
+   * @preconditions A first plugin whose stop throws, and a second whose start() throws
+   * @expectedResult context.start() still rejects with the start error, not the stop error. The operator needs the cause of the failed boot, not whatever the cleanup hit on the way out
    */
   test("an unwind failure does not replace the start error", async () => {
-    const holder: CraftPlugin = {
-      name: "holder",
-      apply() {},
+    const holder: Plugin = {
+      id: "test.holder",
       start() {},
-      teardown() {
-        throw new Error("teardown also failed");
+      stop() {
+        throw new Error("stop also failed");
       },
     };
-    const refuses: CraftPlugin = {
-      name: "refuses",
-      apply() {},
+    const refuses: Plugin = {
+      id: "test.refuses",
       start() {
         throw new Error("the real cause");
       },

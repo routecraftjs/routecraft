@@ -1,6 +1,7 @@
 import {
   type CraftContext,
-  type CraftPlugin,
+  type Plugin,
+  type PluginContext,
   type EventName,
   parseDuration,
   rejectStaleOptions,
@@ -39,7 +40,7 @@ function isStdioConfig(config: ClientConfig): config is McpClientStdioConfig {
  * All discovered external tools (stdio, HTTP) are stored in a unified McpToolRegistry for agent adapter discovery.
  * Required when any route uses .from(mcp(...)); the route will fail at start if this plugin is not applied.
  */
-export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
+export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
   rejectStaleOptions(options, "mcpPlugin");
   validateMcpPluginOptions(options);
 
@@ -54,7 +55,9 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
   let toolRegistry: McpToolRegistry | null = null;
 
   return {
-    async apply(ctx: CraftContext) {
+    id: "routecraft.ai.mcp",
+    async bind(c: PluginContext) {
+      const ctx = c.context;
       ctx.setStore(MCP_PLUGIN_REGISTERED, true);
 
       // Create and store tool registry
@@ -115,7 +118,8 @@ export function mcpPlugin(options: McpPluginOptions = {}): CraftPlugin {
     async start() {
       await server?.start();
     },
-    async teardown(ctx: CraftContext) {
+    async stop(c: PluginContext) {
+      const ctx = c.context;
       // Clear HTTP refresh timers
       for (const timer of httpRefreshTimers) {
         clearInterval(timer);

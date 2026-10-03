@@ -11,7 +11,8 @@
  * plugin.
  */
 
-import type { CraftContext, CraftPlugin } from "../../context";
+import type { CraftContext } from "../../context";
+import type { Plugin, PluginContext } from "../../kernel/plugin.ts";
 import { parseDuration } from "../../shared/duration.ts";
 import { rcError } from "../../error";
 import { requireWebIngress } from "../server/registry";
@@ -93,7 +94,7 @@ interface Runtime {
  * an operator holding a token the effective validator (the mount's own
  * `auth`, else the server's) admits also gets the diagnostics.
  */
-export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
+export function opsPlugin(options: OpsPluginOptions = {}): Plugin {
   validate(options);
 
   const serverName = options.server ?? "default";
@@ -106,9 +107,10 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
   const runtimes = new WeakMap<CraftContext, Runtime>();
 
   return {
-    name: "ops",
+    id: "routecraft.ops",
 
-    apply(ctx: CraftContext) {
+    bind(c: PluginContext) {
+      const ctx = c.context;
       // Everything below is resolved and validated before anything with a
       // side effect happens. The boot unwind is not guaranteed to reach this
       // plugin's teardown, so a binding or subscription installed before a
@@ -322,7 +324,8 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
       });
     },
 
-    start(ctx: CraftContext) {
+    start(c: PluginContext) {
+      const ctx = c.context;
       const runtime = runtimes.get(ctx);
       if (!runtime) return;
 
@@ -415,7 +418,8 @@ export function opsPlugin(options: OpsPluginOptions = {}): CraftPlugin {
       runtime.state.contextStarted();
     },
 
-    teardown(ctx: CraftContext) {
+    stop(c: PluginContext) {
+      const ctx = c.context;
       const runtime = runtimes.get(ctx);
       if (!runtime) return;
 

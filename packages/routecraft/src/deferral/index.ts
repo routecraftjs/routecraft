@@ -63,7 +63,7 @@ export {
 } from "./serialize.ts";
 
 export {
-  DEFERRAL_RUNTIME,
+  CONTINUATIONS,
   DEFERRAL_STORE_ENV,
   createDeferralRuntime,
   deferralPlugin,

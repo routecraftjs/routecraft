@@ -1,4 +1,5 @@
 import type { CraftContext } from "../../context";
+import { port } from "../../kernel/port.ts";
 import { registerCapability, type Capability } from "../../capabilities";
 import { rcError } from "../../error";
 import type { RouteDiscovery } from "../../route";
@@ -18,19 +19,17 @@ export const ADAPTER_DIRECT_STORE = Symbol.for(
 );
 
 /**
- * Store key for the context-level direct channel type.
- * Set via `CraftConfig.direct` to swap all direct endpoints to a custom
- * channel implementation (e.g. Kafka, Redis) instead of in-memory.
- * @internal
+ * The context-level direct channel type, provided by the `direct` config
+ * key to swap every direct endpoint to a custom channel implementation
+ * (e.g. Kafka, Redis) instead of in-memory.
  */
-export const ADAPTER_DIRECT_OPTIONS = Symbol.for(
-  "routecraft.adapter.direct.options",
+export const DIRECT_DEFAULTS = port<Pick<DirectBaseOptions, "channelType">>(
+  "routecraft.direct.defaults@1",
 );
 
 declare module "@routecraft/routecraft" {
   interface StoreRegistry {
     [ADAPTER_DIRECT_STORE]: Map<string, DirectChannel<Exchange>>;
-    [ADAPTER_DIRECT_OPTIONS]: Pick<DirectBaseOptions, "channelType">;
   }
 }
 
@@ -44,9 +43,7 @@ function resolveChannelType(
   adapterOptions: Partial<DirectBaseOptions>,
 ): DirectChannelType<DirectChannel> | undefined {
   if (adapterOptions.channelType) return adapterOptions.channelType;
-  const store = context.getStore(ADAPTER_DIRECT_OPTIONS) as
-    Pick<DirectBaseOptions, "channelType"> | undefined;
-  return store?.channelType;
+  return context.lookup(DIRECT_DEFAULTS)?.channelType;
 }
 
 /**

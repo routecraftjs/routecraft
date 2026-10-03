@@ -1,6 +1,6 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
-import { craft, direct, noop, type CraftPlugin } from "../src/index.ts";
+import { craft, direct, noop, type Plugin } from "../src/index.ts";
 import { CraftContext } from "../src/context.ts";
 
 const sleep = (ms: number): Promise<void> =>
@@ -24,8 +24,8 @@ const waitFor = async (reached: () => boolean, what: string): Promise<void> => {
 /**
  * A `stop()` that arrives while a plugin lifecycle hook is still awaiting.
  *
- * Teardown keys off the applied set, so the plugin is torn down. The defect
- * is the order: the hook resolved after its own `teardown()` had run, so
+ * Stop keys off the bound set, so the plugin is torn down. The defect
+ * is the order: the hook resolved after its own `stop()` had run, so
  * anything it acquired past its last await point was acquired after the
  * release meant to cover it and nothing ever released it. For a process that
  * exits the OS reclaims; for an embedder or a test building successive
@@ -59,7 +59,7 @@ describe("a stop racing a plugin lifecycle hook", () => {
   /**
    * @case stop() lands while a plugin's start() is still awaiting
    * @preconditions A directly constructed context whose plugin start() is still running when stop() arrives
-   * @expectedResult The observed order is enter, resolve, teardown. Teardown running second would release a plugin that is still acquiring, which is the leak this ticket exists for
+   * @expectedResult The observed order is enter, resolve, stop. Stop running second would release a plugin that is still acquiring, which is the leak this ticket exists for
    */
   test("waits for an in-flight start() before tearing that plugin down", async () => {
     const order: string[] = [];
@@ -71,15 +71,14 @@ describe("a stop racing a plugin lifecycle hook", () => {
     const ctx = new CraftContext({
       plugins: [
         {
-          name: "slow-start",
-          apply() {},
+          id: "test.slow-start",
           async start() {
             order.push("start:enter");
             await sleep(HOOK_MS);
             order.push("start:resolve");
           },
-          teardown() {
-            order.push("teardown");
+          stop() {
+            order.push("stopped");
           },
         },
       ],
@@ -95,36 +94,36 @@ describe("a stop racing a plugin lifecycle hook", () => {
     await ctx.stop();
     await started;
 
-    expect(order).toEqual(["start:enter", "start:resolve", "teardown"]);
+    expect(order).toEqual(["start:enter", "start:resolve", "stopped"]);
   });
 
   /**
-   * @case stop() lands while a plugin's apply() is still awaiting
-   * @preconditions A directly constructed context, two plugins, the first still in apply() when stop() arrives
-   * @expectedResult The first resolves before its teardown, and the second never applies. A plugin applied after teardown has walked the applied set acquires what nothing will release
+   * @case stop() lands while a plugin's bind() is still awaiting
+   * @preconditions A directly constructed context, two plugins, the first still in bind() when stop() arrives
+   * @expectedResult The first resolves before its stop, and the second never binds. A plugin bound after stop has walked the bound set acquires what nothing will release
    */
-  test("waits for an in-flight apply() and applies no plugin after it", async () => {
+  test("waits for an in-flight bind() and binds no plugin after it", async () => {
     const order: string[] = [];
 
-    // ContextBuilder.build() awaits initPlugins(), so a gated apply() would
+    // ContextBuilder.build() awaits initPlugins(), so a gated bind() would
     // hold the builder itself and the test would never reach its stop().
     const ctx = new CraftContext({
       plugins: [
         {
-          name: "slow-apply",
-          async apply() {
-            order.push("apply:enter");
+          id: "test.slow-bind",
+          async bind() {
+            order.push("bind:enter");
             await sleep(HOOK_MS);
-            order.push("apply:resolve");
+            order.push("bind:resolve");
           },
-          teardown() {
-            order.push("teardown");
+          stop() {
+            order.push("stopped");
           },
         },
         {
-          name: "later",
-          apply() {
-            order.push("later:apply");
+          id: "test.later",
+          bind() {
+            order.push("later:bind");
           },
         },
       ],
@@ -133,32 +132,31 @@ describe("a stop racing a plugin lifecycle hook", () => {
     const started = ctx.start();
     started.catch(() => {});
     await waitFor(
-      () => order.includes("apply:enter"),
-      "the apply hook to be entered",
+      () => order.includes("bind:enter"),
+      "the bind hook to be entered",
     );
 
     await ctx.stop();
     await started.catch(() => undefined);
 
-    expect(order).toEqual(["apply:enter", "apply:resolve", "teardown"]);
+    expect(order).toEqual(["bind:enter", "bind:resolve", "stopped"]);
   });
 
   /**
    * @case stop() on a started context with indefinite routes and no hook in flight
    * @preconditions A healthy plugin whose start() has already resolved, and a route whose source runs until the context stops
-   * @expectedResult stop() resolves and teardown runs. The wait is scoped to lifecycle hooks, so it cannot be held open by the route work that only ends at shutdown
+   * @expectedResult stop() resolves and the plugin stop runs. The wait is scoped to lifecycle hooks, so it cannot be held open by the route work that only ends at shutdown
    */
   test("adds no wait when no hook is in flight", async () => {
     const order: string[] = [];
 
-    const plugin: CraftPlugin = {
-      name: "prompt-start",
-      apply() {},
+    const plugin: Plugin = {
+      id: "test.prompt-start",
       start() {
         order.push("start");
       },
-      teardown() {
-        order.push("teardown");
+      stop() {
+        order.push("stopped");
       },
     };
 
@@ -175,7 +173,7 @@ describe("a stop racing a plugin lifecycle hook", () => {
     ]);
 
     expect(outcome).not.toBe(wedged);
-    expect(order).toEqual(["start", "teardown"]);
+    expect(order).toEqual(["start", "stopped"]);
   });
 
   /**
@@ -190,13 +188,12 @@ describe("a stop racing a plugin lifecycle hook", () => {
     const ctx = new CraftContext({
       plugins: [
         {
-          name: "stopped-at-the-event",
-          apply() {},
+          id: "test.stopped-at-the-event",
           start() {
             order.push("start:enter");
           },
-          teardown() {
-            order.push("teardown");
+          stop() {
+            order.push("stopped");
           },
         },
       ],
@@ -209,27 +206,27 @@ describe("a stop racing a plugin lifecycle hook", () => {
     await ctx.start().catch(() => undefined);
     await stopping;
 
-    expect(order).toEqual(["stop", "teardown"]);
+    expect(order).toEqual(["stop", "stopped"]);
   });
 
   /**
-   * @case A plugin:applying subscriber stops the context synchronously
-   * @preconditions The same handler shape one phase earlier, on the apply walk, with a route registered
-   * @expectedResult The plugin never applies, so it is not torn down either, and the boot goes no further: a route started here would announce progress for a context that is already gone, and refuse with RC3001 against its aborted controller anyway
+   * @case A plugin:binding subscriber stops the context synchronously
+   * @preconditions The same handler shape one phase earlier, on the bind walk, with a route registered
+   * @expectedResult The plugin never binds, so it is not stopped either, and the boot goes no further: a route started here would announce progress for a context that is already gone, and refuse with RC3001 against its aborted controller anyway
    */
-  test("applies no plugin and starts no route when an event handler stops the context", async () => {
+  test("binds no plugin and starts no route when an event handler stops the context", async () => {
     const order: string[] = [];
     let stopping: Promise<unknown> | undefined;
 
     const ctx = new CraftContext({
       plugins: [
         {
-          name: "stopped-at-the-event",
-          apply() {
-            order.push("apply:enter");
+          id: "test.stopped-at-the-event",
+          bind() {
+            order.push("bind:enter");
           },
-          teardown() {
-            order.push("teardown");
+          stop() {
+            order.push("stopped");
           },
         },
       ],
@@ -240,7 +237,7 @@ describe("a stop racing a plugin lifecycle hook", () => {
     ctx.on("route:starting", () => {
       order.push("route:starting");
     });
-    ctx.on("plugin:applying", () => {
+    ctx.on("plugin:binding", () => {
       order.push("stop");
       stopping = ctx.stop();
     });
@@ -254,7 +251,7 @@ describe("a stop racing a plugin lifecycle hook", () => {
   /**
    * @case A hook requests shutdown without awaiting it, then finishes its own work
    * @preconditions A start() hook that calls ctx.stop() unawaited and then keeps working past an await
-   * @expectedResult The hook settles before its teardown, and the shutdown completes. This is the sanctioned spelling for a hook that wants the context down without failing the boot, so it is a guarantee rather than an accident: awaiting the same call would have the hook wait for a shutdown that is waiting for the hook
+   * @expectedResult The hook settles before its stop, and the shutdown completes. This is the sanctioned spelling for a hook that wants the context down without failing the boot, so it is a guarantee rather than an accident: awaiting the same call would have the hook wait for a shutdown that is waiting for the hook
    */
   test("shuts down cleanly when a hook requests it without awaiting", async () => {
     const order: string[] = [];
@@ -263,8 +260,7 @@ describe("a stop racing a plugin lifecycle hook", () => {
     const ctx: CraftContext = new CraftContext({
       plugins: [
         {
-          name: "requests-shutdown",
-          apply() {},
+          id: "test.requests-shutdown",
           async start() {
             order.push("start:enter");
             stopping = ctx.stop();
@@ -273,8 +269,8 @@ describe("a stop racing a plugin lifecycle hook", () => {
             await sleep(HOOK_MS);
             order.push("start:resolve");
           },
-          teardown() {
-            order.push("teardown");
+          stop() {
+            order.push("stopped");
           },
         },
       ],
@@ -284,7 +280,7 @@ describe("a stop racing a plugin lifecycle hook", () => {
     // resolving, so start() returning already means the context is down, and
     // checking here pins that rather than only the recorded order.
     await ctx.start();
-    expect(order).toEqual(["start:enter", "start:resolve", "teardown"]);
+    expect(order).toEqual(["start:enter", "start:resolve", "stopped"]);
 
     await stopping;
   });

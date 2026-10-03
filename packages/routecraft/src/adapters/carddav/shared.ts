@@ -6,6 +6,7 @@
  */
 
 import type { CraftContext } from "../../context.ts";
+import { port } from "../../kernel/port.ts";
 import { rcError, RoutecraftError } from "../../error.ts";
 import type { CarddavClientManager } from "./client-manager.ts";
 
@@ -16,20 +17,8 @@ export const DEFAULT_CARDDAV_SERVER_URL = "https://contacts.icloud.com";
 // Store key
 // ---------------------------------------------------------------------------
 
-/**
- * Store key for the CardDAV client manager.
- * Set by the ContextBuilder when `carddav` config is present.
- * @experimental
- */
-export const CARDDAV_CLIENT_MANAGER = Symbol.for(
-  "routecraft.adapter.carddav.client-manager",
-);
-
-declare module "@routecraft/routecraft" {
-  interface StoreRegistry {
-    [CARDDAV_CLIENT_MANAGER]: CarddavClientManager;
-  }
-}
+/** The CardDAV client manager, provided by the `carddav` config key. */
+export const CARDDAV = port<CarddavClientManager>("routecraft.carddav@1");
 
 // ---------------------------------------------------------------------------
 // Header constants
@@ -119,10 +108,7 @@ export function getClientManager(
   context: CraftContext | undefined,
 ): CarddavClientManager | null {
   if (!context) return null;
-  return (
-    (context.getStore(CARDDAV_CLIENT_MANAGER) as
-      CarddavClientManager | undefined) ?? null
-  );
+  return context.lookup(CARDDAV) ?? null;
 }
 
 /** Get the CarddavClientManager, throwing RC5003 when it is absent. */

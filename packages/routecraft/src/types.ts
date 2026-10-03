@@ -322,6 +322,17 @@ export interface StepContext extends StepSignalContext {
   captureDownstream(): (
     exchange: Exchange,
   ) => Promise<{ failed: boolean; dropped: boolean }>;
+
+  /**
+   * Run the hooks other plugins placed at a point this step's plugin
+   * declared, phase by phase, and resolve with the exchange as the last
+   * mutate hook left it. A validate hook's refusal rejects with `RC5068`.
+   *
+   * @param point - A point declared in some installed plugin's `points`
+   * @param exchange - The exchange the hooks see
+   * @throws RC1112 when no installed plugin declares the point
+   */
+  invoke(point: string, exchange: Exchange): Promise<Exchange>;
 }
 
 // MessageChannel lives with channel adapter now
@@ -1037,17 +1048,17 @@ export interface EventDetailsMap {
   };
 
   // -- Plugin lifecycle --
-  /** The plugin's `apply()` hook is about to run, at context build time. */
-  "plugin:applying": { pluginId: string; pluginIndex: number };
-  /** The plugin's `apply()` hook returned. */
-  "plugin:applied": { pluginId: string; pluginIndex: number };
+  /**
+   * The plugin's `bind` is about to run, at context build time.
+   * `pluginIndex` is its position in dependency order.
+   */
+  "plugin:binding": { pluginId: string; pluginIndex: number };
+  /** The plugin's `bind` returned and it provided every port it declared. */
+  "plugin:bound": { pluginId: string; pluginIndex: number };
   /**
    * The plugin's `start()` hook is about to run, after every route has
    * signalled readiness or the readiness backstop elapsed, so it is not
    * proof that every source is listening.
-   * Until 0.7 this pair bracketed `apply()`; that phase is now
-   * `plugin:applying` / `plugin:applied`, so the event vocabulary matches
-   * the lifecycle: applying, starting, stopping.
    */
   "plugin:starting": { pluginId: string; pluginIndex: number };
   /** The plugin's `start()` hook resolved. */

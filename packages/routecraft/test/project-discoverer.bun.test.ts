@@ -217,8 +217,8 @@ describe("mergeProjectConfig", () => {
    * @expectedResult Result holds both, base-declared plugins first
    */
   test("concatenates arrays", () => {
-    const one = { apply: (): void => {} };
-    const two = { apply: (): void => {} };
+    const one = { id: "test.one" };
+    const two = { id: "test.two" };
     const merged = mergeProjectConfig({ plugins: [one] }, { plugins: [two] });
     expect(merged.plugins).toEqual([one, two]);
   });

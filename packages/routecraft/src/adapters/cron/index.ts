@@ -40,6 +40,6 @@ export function cron(
   );
 }
 
-export { CronSourceAdapter, ADAPTER_CRON_OPTIONS } from "./source";
+export { CronSourceAdapter, CRON_DEFAULTS } from "./source";
 export type { CronExpression, CronOptions } from "./types";
 export { CronHeaders } from "./types";

@@ -3,7 +3,7 @@ import { z } from "zod";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
   MemoryDeferralStore,
-  DEFERRAL_RUNTIME,
+  CONTINUATIONS,
   craft,
   direct,
   noop,
@@ -208,7 +208,7 @@ describe("the resume authorize hook", () => {
       continuation: undefined,
       claimedAt: undefined,
     } as never);
-    const runtime = t.ctx.getStore(DEFERRAL_RUNTIME)!;
+    const runtime = t.ctx.require(CONTINUATIONS)!;
     const token = runtime.signer.mint(`${record.id}-edited`);
 
     await expect(
@@ -299,7 +299,7 @@ describe("the resume authorize hook", () => {
       continuation: undefined,
       claimedAt: undefined,
     } as never);
-    const runtime = t.ctx.getStore(DEFERRAL_RUNTIME)!;
+    const runtime = t.ctx.require(CONTINUATIONS)!;
     const winner = runtime.signer.mint(
       `${record.id}-bound`,
       new Date(),
@@ -354,7 +354,7 @@ describe("the resume authorize hook", () => {
       continuation: undefined,
       claimedAt: undefined,
     } as never);
-    const runtime = t.ctx.getStore(DEFERRAL_RUNTIME)!;
+    const runtime = t.ctx.require(CONTINUATIONS)!;
     const loser = runtime.signer.mint(
       `${record.id}-bound`,
       new Date(),

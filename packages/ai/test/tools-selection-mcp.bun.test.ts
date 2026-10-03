@@ -44,7 +44,9 @@ async function buildCtxWithMcp(
       plugins: [
         agentPlugin({ functions: options.functions ?? {} }),
         {
-          apply(ctx) {
+          id: "test.mcp-fixture",
+          bind(c) {
+            const ctx = c.context;
             const registry = new McpToolRegistry();
             for (const e of entries) {
               registry.setToolsForSource(

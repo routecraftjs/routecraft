@@ -22,7 +22,7 @@ import {
   runElevator,
 } from "./authorize.ts";
 import { DeferralHeaders } from "./exchange-state.ts";
-import { DEFERRAL_RUNTIME } from "./runtime-key.ts";
+import { CONTINUATIONS } from "./runtime-key.ts";
 import {
   decodePersistable,
   deserializeExchange,
@@ -174,7 +174,7 @@ export async function reviveDeferral(
   request: ResumeRequest,
   door: ResumeDoor = {},
 ): Promise<ResumeAcknowledgment> {
-  const runtime = context.getStore(DEFERRAL_RUNTIME);
+  const runtime = context.lookup(CONTINUATIONS);
   if (!runtime) {
     throw rcError("RC5052", undefined, {
       message:

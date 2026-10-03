@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
 import {
   DefaultExchange,
-  DEFERRAL_RUNTIME,
+  CONTINUATIONS,
   craft,
   direct,
   noop,
@@ -222,7 +222,7 @@ describe("MCP carries Deferred (#581)", () => {
     expect(Object.keys(ack)).not.toContain("meta");
     expect(JSON.stringify(result)).not.toContain("payouts:approve");
     const record = await t.ctx
-      .getStore(DEFERRAL_RUNTIME)!
+      .require(CONTINUATIONS)!
       .store.get(ack.deferralId);
     // Asserted before the resume below, so a record the acknowledgment called
     // deferred but the store left unresumable fails here rather than surfacing

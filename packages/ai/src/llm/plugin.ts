@@ -1,5 +1,5 @@
-import type { CraftContext, CraftPlugin } from "@routecraft/routecraft";
-import { ADAPTER_LLM_OPTIONS, ADAPTER_LLM_PROVIDERS } from "./types.ts";
+import { definePlugin, type Plugin } from "@routecraft/routecraft";
+import { LLM } from "./types.ts";
 import type {
   LlmModelConfig,
   LlmPluginOptions,
@@ -31,33 +31,33 @@ function toModelConfig<P extends LlmModelConfig["provider"]>(
 }
 
 /**
- * LLM plugin: config-only helper (no lifecycle hooks). Registers providers and optional
- * default options in the context store so routes can use llm("providerId:modelName", options),
+ * LLM plugin: provides the {@link LLM} port with the configured providers and
+ * optional default options, so routes can use llm("providerId:modelName", options),
  * e.g. llm("ollama:lfm2.5-thinking"). Key is the provider; only set options you need.
- *
- * Advanced users can set the store directly: context.setStore(ADAPTER_LLM_PROVIDERS, map)
- * and context.setStore(ADAPTER_LLM_OPTIONS, partialOptions) without using this plugin.
  */
 export function llmPlugin(
   options: LlmPluginOptions = { providers: {} },
-): CraftPlugin {
+): Plugin {
   validateLlmPluginOptions(options);
 
-  return {
-    apply(ctx: CraftContext) {
+  return definePlugin({
+    id: "routecraft.ai.llm",
+    provides: [LLM],
+    bind(c) {
       const map = new Map<string, LlmModelConfig>();
       for (const providerId of PROVIDER_IDS) {
         const opts = options.providers[providerId];
         if (opts !== undefined)
           map.set(providerId, toModelConfig(providerId, opts));
       }
-      ctx.setStore(ADAPTER_LLM_PROVIDERS, map);
-      if (
-        options.defaultOptions &&
-        Object.keys(options.defaultOptions).length > 0
-      ) {
-        ctx.setStore(ADAPTER_LLM_OPTIONS, options.defaultOptions);
-      }
+      const defaults =
+        options.defaultOptions && Object.keys(options.defaultOptions).length > 0
+          ? options.defaultOptions
+          : undefined;
+      c.provide(LLM, {
+        providers: map,
+        ...(defaults !== undefined ? { defaults } : {}),
+      });
     },
-  };
+  });
 }

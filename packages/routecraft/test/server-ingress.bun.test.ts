@@ -5,7 +5,7 @@ import {
   http,
   noop,
   requireWebIngress,
-  type CraftPlugin,
+  type Plugin,
   type EventName,
 } from "../src/index.ts";
 import {
@@ -426,17 +426,17 @@ describe("named server ingress", () => {
    */
   test("serves HTTP and custom plugin paths on one port", async () => {
     let port = 0;
-    const custom: CraftPlugin = {
-      name: "custom-health",
-      apply(ctx) {
-        const unmount = requireWebIngress(ctx, "public").mountHttp({
+    const custom: Plugin = {
+      id: "test.custom-health",
+      bind(c) {
+        const unmount = requireWebIngress(c.context, "public").mountHttp({
           id: "custom-health",
           claims: () => [
             { kind: "exact", path: "/internal/health", methods: ["GET"] },
           ],
           handler: () => Response.json({ custom: true }),
         });
-        ctx.registerTeardown(unmount);
+        c.onDispose(unmount);
       },
     };
     const t = await testContext()

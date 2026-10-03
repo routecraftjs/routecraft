@@ -98,7 +98,7 @@ describe("startAndWaitReady and context:error", () => {
   test("still rejects when a plugin fails to start", async () => {
     const route = craft().id("healthy").from(simple.value({})).to(noop());
     const exploding = {
-      apply: () => {},
+      id: "test.exploding",
       start: () => {
         throw new Error("plugin start blew up");
       },

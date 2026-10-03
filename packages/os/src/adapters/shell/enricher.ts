@@ -19,7 +19,7 @@ import {
   type ProcessIo,
 } from "./isolation/index.ts";
 import { loadExeca } from "./peers.ts";
-import { SHELL_DEFAULTS, type ShellPluginOptions } from "./plugin.ts";
+import { SHELL, type ShellPluginOptions } from "./plugin.ts";
 import {
   BoundedOutput,
   buildEnv,
@@ -68,8 +68,7 @@ export class ShellEnricherAdapter<T = unknown> implements Enricher<
     ctx?: StepSignalContext,
   ): Promise<ShellResult> {
     const defaults =
-      getExchangeContext(exchange)?.getStore(SHELL_DEFAULTS) ??
-      ({} as ShellPluginOptions);
+      getExchangeContext(exchange)?.lookup(SHELL) ?? ({} as ShellPluginOptions);
 
     const tier = resolveIsolation(this.options.isolation, defaults.isolation);
     await tier.ensureAvailable();

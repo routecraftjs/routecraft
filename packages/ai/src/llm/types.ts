@@ -1,5 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
-import type { Exchange } from "@routecraft/routecraft";
+import { port, type Exchange } from "@routecraft/routecraft";
 
 /**
  * A model object the active LLM engine can drive (today an AI SDK
@@ -13,26 +13,14 @@ import type { Exchange } from "@routecraft/routecraft";
  */
 export type CustomLanguageModel = unknown;
 
-/**
- * Store key for plugin-registered providers (provider id -> LlmModelConfig).
- * @internal
- */
-export const ADAPTER_LLM_PROVIDERS = Symbol.for(
-  "routecraft.adapter.llm.providers",
-);
-
-/**
- * Store key for context-level default LLM options.
- * @internal
- */
-export const ADAPTER_LLM_OPTIONS = Symbol.for("routecraft.adapter.llm.options");
-
-declare module "@routecraft/routecraft" {
-  interface StoreRegistry {
-    [ADAPTER_LLM_PROVIDERS]: Map<string, LlmModelConfig>;
-    [ADAPTER_LLM_OPTIONS]: Partial<LlmOptionsMerged>;
-  }
+/** What the `llm` plugin provides: its providers by id, and context-level defaults. */
+export interface LlmService {
+  readonly providers: ReadonlyMap<string, LlmModelConfig>;
+  readonly defaults?: Partial<LlmOptionsMerged>;
 }
+
+/** The LLM providers and defaults the `llm` plugin provides. */
+export const LLM = port<LlmService>("routecraft.ai.llm@1");
 
 export type LlmProviderType =
   | "openai"

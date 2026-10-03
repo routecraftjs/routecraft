@@ -1,7 +1,7 @@
 import type { CraftContext } from "../context.ts";
 import type { ExchangeHeaders } from "../exchange.ts";
 import { rcError } from "../error.ts";
-import { DEFERRAL_RUNTIME } from "./runtime-key.ts";
+import { CONTINUATIONS } from "./runtime-key.ts";
 import { deferralIdFor } from "./tokens.ts";
 import type { PrincipalRef } from "./types.ts";
 
@@ -143,7 +143,7 @@ export function deferralAffordance(
   const sequence = effectiveSequence(headers, floor);
   const id = deferralIdOf(headers, exchangeId, floor);
   const mint = (callBinding?: string): string => {
-    const runtime = context?.getStore(DEFERRAL_RUNTIME);
+    const runtime = context?.lookup(CONTINUATIONS);
     if (!runtime) {
       throw rcError("RC5052", undefined, {
         message:

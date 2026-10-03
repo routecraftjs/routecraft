@@ -3,7 +3,7 @@ import { z } from "zod";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
   MemoryDeferralStore,
-  DEFERRAL_RUNTIME,
+  CONTINUATIONS,
   craft,
   direct,
   noop,
@@ -680,7 +680,7 @@ describe("the deferral sweeper", () => {
     // The store is supplied, so the plugin does not own it and would not
     // close it. Owning it is what makes the ordering observable, and it is
     // the shape a real deployment has.
-    const runtime = context.ctx.getStore(DEFERRAL_RUNTIME);
+    const runtime = context.ctx.require(CONTINUATIONS);
     (runtime as { ownsStore: boolean }).ownsStore = true;
 
     await store.create(overdue("def-mid-sweep"));

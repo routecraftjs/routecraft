@@ -1,4 +1,5 @@
-import type { CraftContext, CraftPlugin } from "../../context.ts";
+import type { CraftContext } from "../../context.ts";
+import type { Plugin, PluginContext } from "../../kernel/plugin.ts";
 import { rcError } from "../../error.ts";
 import { type Duration, parseDuration } from "../../shared/duration.ts";
 import { startServer, type HttpServerHandle } from "../http/server/index.ts";
@@ -107,14 +108,15 @@ interface ServerState {
   starting?: Promise<void>;
 }
 
-export function serversPlugin(definitions: ServerDefinitions): CraftPlugin {
+export function serversPlugin(definitions: ServerDefinitions): Plugin {
   validateDefinitions(definitions);
   const states = new WeakMap<CraftContext, ServerState>();
 
   return {
-    name: "servers",
+    id: "routecraft.servers",
     keepsAlive: true,
-    apply(ctx) {
+    bind(c: PluginContext) {
+      const ctx = c.context;
       const registries = new Map<string, HttpMountRegistry>();
       for (const name of Object.keys(definitions)) {
         registries.set(
@@ -134,14 +136,16 @@ export function serversPlugin(definitions: ServerDefinitions): CraftPlugin {
       states.set(ctx, { registries, handles: new Map(), closed: false });
       ctx.setStore(WEB_INGRESSES, registries);
     },
-    async start(ctx) {
+    async start(c: PluginContext) {
+      const ctx = c.context;
       const state = states.get(ctx);
       if (!state) return;
       const boot = bindAll(ctx, state);
       state.starting = boot;
       await boot;
     },
-    async teardown(ctx) {
+    async stop(c: PluginContext) {
+      const ctx = c.context;
       const state = states.get(ctx);
       if (!state) return;
       state.closed = true;

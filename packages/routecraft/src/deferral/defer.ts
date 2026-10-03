@@ -20,7 +20,7 @@ import {
   effectiveSequence,
   deferralIdOf,
 } from "./exchange-state.ts";
-import { DEFERRAL_RUNTIME } from "./runtime-key.ts";
+import { CONTINUATIONS } from "./runtime-key.ts";
 import { serializeExchange } from "./serialize.ts";
 import { type Deferred, createDeferred } from "./deferred.ts";
 import type { NewDeferral } from "./types.ts";
@@ -60,7 +60,7 @@ export async function deferExchange(
   routeId: string,
   abortSignal?: AbortSignal,
 ): Promise<Exchange> {
-  const runtime = context.getStore(DEFERRAL_RUNTIME);
+  const runtime = context.lookup(CONTINUATIONS);
   if (!runtime) {
     throw rcError("RC5052", undefined, {
       message: `Route "${routeId}" reached a .defer() but this context has no deferral runtime. Add deferral: {} to defineConfig.`,
@@ -355,7 +355,7 @@ export async function deferAside(
   stepState: (deferralId: string) => unknown,
   announce?: (deferralId: string) => Promise<void>,
 ): Promise<{ deferralId: string }> {
-  const runtime = context.getStore(DEFERRAL_RUNTIME);
+  const runtime = context.lookup(CONTINUATIONS);
   if (!runtime) {
     throw rcError("RC5052", undefined, {
       message: `Route "${routeId}" needs a continuation stored for a later turn, and this context has no deferral runtime. Add deferral: {} to defineConfig.`,
@@ -420,7 +420,7 @@ async function denyDeferred(
   reason: string,
   expiresAt?: Date,
 ): Promise<boolean> {
-  const runtime = context.getStore(DEFERRAL_RUNTIME);
+  const runtime = context.lookup(CONTINUATIONS);
   if (!runtime) return false;
   try {
     const claim = await runtime.store.claimExpiry(deferralId, new Date());

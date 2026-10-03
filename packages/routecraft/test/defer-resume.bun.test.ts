@@ -3,7 +3,7 @@ import { z } from "zod";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
   MemoryDeferralStore,
-  DEFERRAL_RUNTIME,
+  CONTINUATIONS,
   authorize,
   craft,
   direct,
@@ -379,7 +379,7 @@ describe("defer and resume", () => {
       }),
     ).rejects.toMatchObject({ rc: "RC5041" });
 
-    const runtime = t.ctx.getStore(DEFERRAL_RUNTIME);
+    const runtime = t.ctx.require(CONTINUATIONS);
     const orphan = runtime!.signer.mint("no-such-deferral~0");
     await expect(
       t.client.sendDirect("answers", {
@@ -1250,7 +1250,7 @@ describe("defer and resume", () => {
 
     expect(continued).toHaveLength(0);
     expect(caught).toHaveLength(1);
-    const runtime = t.ctx.getStore(DEFERRAL_RUNTIME);
+    const runtime = t.ctx.require(CONTINUATIONS);
     const record = await runtime?.store.get(deferred.deferralId);
     expect(record?.outcome?.kind).toBe("resumed");
     expect(record?.continuation?.status).toBe("failed");
@@ -1399,7 +1399,7 @@ describe("the deferral sequence guard", () => {
       t.client.sendDirect("payout", { amountCents: 1_000, payee: "acme" }),
     ).rejects.toMatchObject({ rc: "RC5057" });
 
-    const runtime = t.ctx.getStore(DEFERRAL_RUNTIME)!;
+    const runtime = t.ctx.require(CONTINUATIONS)!;
     expect((await runtime.store.pending()).count).toBe(0);
   });
 });

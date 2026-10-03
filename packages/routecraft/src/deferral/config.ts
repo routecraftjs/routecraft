@@ -1,6 +1,7 @@
-import type { CraftContext, CraftPlugin } from "../context.ts";
+import type { CraftContext } from "../context.ts";
+import type { Plugin, PluginContext } from "../kernel/plugin.ts";
 import { registerConfigApplier } from "../config-applier.ts";
-import { DEFERRAL_RUNTIME } from "./runtime-key.ts";
+import { CONTINUATIONS } from "./runtime-key.ts";
 import { registerDeferralsResource } from "./ops-resource.ts";
 import { MemoryDeferralStore } from "./memory-store.ts";
 import {
@@ -36,7 +37,7 @@ export const DEFERRAL_STORE_ENV = "ROUTECRAFT_DEFERRAL_STORE";
 /** The setting this store's path claim is reported under. */
 const DEFERRAL_CLAIMANT = "deferral: { store }";
 
-export { DEFERRAL_RUNTIME };
+export { CONTINUATIONS };
 
 declare module "@routecraft/routecraft" {
   interface CraftConfig {
@@ -324,45 +325,51 @@ export async function createDeferralRuntime(
  * signing secret fails at startup, and closes the store during teardown,
  * but only a store it opened itself.
  */
-export function deferralPlugin(config: DeferralConfig = {}): CraftPlugin {
-  // Keyed by context, not a plain closure variable: one plugin instance can
-  // serve two contexts in the same process (a `defineConfig` export reused
-  // across tests), and a single slot would let the second start overwrite
-  // the first sweeper, leaving its interval running against a store that is
-  // about to close.
-  const sweepers = new WeakMap<CraftContext, DeferralSweeper>();
+export function deferralPlugin(config: DeferralConfig = {}): Plugin {
+  // Keyed by the plugin context, not a closure slot: one descriptor can serve
+  // two applications in the same process (a `defineConfig` export reused
+  // across tests), and a single slot would let the second start overwrite the
+  // first sweeper, leaving its interval running against a store about to close.
+  const runs = new WeakMap<
+    PluginContext,
+    { runtime: DeferralRuntime; sweeper?: DeferralSweeper }
+  >();
 
   return {
-    name: "deferral",
-    async apply(ctx: CraftContext) {
-      // Registration first: it throws on a name collision, and a failed
-      // `apply()` is not yet recorded for teardown, so a store opened
-      // before it would leak its handle for the life of the process.
+    id: "routecraft.deferral",
+    provides: [CONTINUATIONS],
+    async bind(c: PluginContext) {
+      const ctx = c.context;
+      // Registration first: it throws on a name collision, and a bind that
+      // throws after opening the store would leave its handle to the unwind.
       registerDeferralsResource(ctx);
-      ctx.setStore(DEFERRAL_RUNTIME, await createDeferralRuntime(ctx, config));
+      const runtime = await createDeferralRuntime(ctx, config);
+      runs.set(c, { runtime });
+      c.provide(CONTINUATIONS, runtime);
     },
-    async start(ctx: CraftContext) {
-      const runtime = ctx.getStore(DEFERRAL_RUNTIME);
-      if (!runtime) return;
-      const sweeper = new DeferralSweeper(ctx, runtime.store, {
+    async start(c: PluginContext) {
+      const run = runs.get(c);
+      if (!run) return;
+      const { runtime } = run;
+      run.sweeper = new DeferralSweeper(c.context, runtime.store, {
         intervalMs: runtime.sweepIntervalMs,
         leaseMs: runtime.expiryLeaseMs,
         ...(runtime.retentionMs !== undefined
           ? { retentionMs: runtime.retentionMs }
           : {}),
       });
-      sweepers.set(ctx, sweeper);
       // Before the interval, and awaited: what expired during the outage
       // reaches its routes ahead of anything new arriving.
-      await sweeper.scanOnStart();
-      sweeper.start();
+      await run.sweeper.scanOnStart();
+      run.sweeper.start();
     },
-    async teardown(ctx: CraftContext) {
+    async stop(c: PluginContext) {
+      const run = runs.get(c);
+      if (!run) return;
+      runs.delete(c);
       // Awaited before the store closes; see DeferralSweeper.stop().
-      await sweepers.get(ctx)?.stop();
-      sweepers.delete(ctx);
-      const runtime = ctx.getStore(DEFERRAL_RUNTIME);
-      if (runtime?.ownsStore) await runtime.store.close();
+      await run.sweeper?.stop();
+      if (run.runtime.ownsStore) await run.runtime.store.close();
     },
   };
 }

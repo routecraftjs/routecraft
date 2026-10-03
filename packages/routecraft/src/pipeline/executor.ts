@@ -11,6 +11,7 @@ import {
   OperationType,
   peekResumeStepState,
   setResumeStepState,
+  getStartedAt,
   setStartedAt,
 } from "../exchange.ts";
 import {
@@ -62,6 +63,13 @@ import {
   executeWithConcurrency,
 } from "../operations/concurrency-wrapper.ts";
 import type { ForwardFn, Route } from "../route.ts";
+import {
+  runExchangeHooks,
+  runsOn,
+  type InstalledHook,
+  type RunKind,
+  type WrapperHook,
+} from "../kernel/hooks.ts";
 
 /**
  * Dependencies the pipeline executor needs from the owning route. Passed
@@ -120,6 +128,30 @@ export interface ExecutorDeps {
    * @internal
    */
   admissionMustWait?: boolean;
+  /**
+   * The plugin hooks this run places in the chain's slots. Set by the route
+   * for the run that admits an exchange; a nested segment never carries the
+   * admission slots, and a detached run carries only `perAttempt`.
+   *
+   * @internal
+   */
+  slots?: RouteSlots;
+}
+
+/**
+ * The plugin hooks that apply to one route, ready for the executor: one
+ * synthetic step per exchange slot that has any, and the `perAttempt`
+ * wrappers.
+ *
+ * @internal
+ */
+export interface RouteSlots {
+  readonly beforeAuth?: Step<Adapter>;
+  readonly afterAuth?: Step<Adapter>;
+  readonly admitted?: Step<Adapter>;
+  readonly perAttempt: readonly InstalledHook[];
+  readonly kind: RunKind;
+  readonly tags: readonly string[];
 }
 
 /**
@@ -231,6 +263,14 @@ export async function runPipeline(
       buildTimeoutSegmentStep(deps, tail, deps.definition.timeout.timeoutMs),
     ];
   }
+  // The `perAttempt` slot sits inside retry and outside timeout: a wrapper
+  // there surrounds every attempt, and a deadline applies inside it.
+  const wrappers = (deps.slots?.perAttempt ?? []).filter((entry) =>
+    runsOn(entry.hook as WrapperHook, deps.slots!.kind),
+  );
+  if (wrappers.length > 0) {
+    tail = [buildPerAttemptSegmentStep(deps, tail, wrappers)];
+  }
   if (deps.definition.retry) {
     tail = [buildRetrySegmentStep(deps, tail, deps.definition.retry)];
   }
@@ -280,16 +320,19 @@ export async function runPipeline(
   // never walked). Treating that as an admission park would store position 0
   // with the whole body as its continuation and re-run every step that had
   // already completed.
+  const slots = deps.slots;
   const preAdmission: Step<Adapter>[] = [
+    ...(slots?.beforeAuth ? [slots.beforeAuth] : []),
     ...deps.definition.preParseFilters,
+    ...(slots?.afterAuth ? [slots.afterAuth] : []),
     ...(admissionStep ? [admissionStep] : []),
   ];
   const lastPreAdmission = preAdmission.at(-1);
   let admitted = lastPreAdmission === undefined;
 
   const initialSteps: Step<Adapter>[] = [
-    ...deps.definition.preParseFilters,
-    ...(admissionStep ? [admissionStep] : []),
+    ...preAdmission,
+    ...(slots?.admitted ? [slots.admitted] : []),
     ...tail,
   ];
 
@@ -401,6 +444,26 @@ export async function runPipeline(
       // (no inherited abort signal, route-scope error handler honored,
       // output validation applied).
       return makeDownstreamRunner(deps, currentRemaining);
+    },
+    async invoke(point: string, target: Exchange): Promise<Exchange> {
+      const table = deps.context.hooks;
+      if (!table?.hasPoint(point)) {
+        throw rcError("RC1112", undefined, {
+          message: `A step on route "${deps.routeId}" invoked the point "${point}", which no installed plugin declares.`,
+        });
+      }
+      const tags = deps.route.definition.discovery?.tags ?? [];
+      return runExchangeHooks(
+        table,
+        table.forRoute(point, deps.routeId, tags),
+        target,
+        {
+          routeId: deps.routeId,
+          tags,
+          slot: point,
+          kind: deps.slots?.kind ?? "normal",
+        },
+      );
     },
   };
 
@@ -1517,6 +1580,9 @@ export function runDetachedPipeline(
       correlationId,
     });
     const routeDefinition = deps.route.definition;
+    const tags = routeDefinition.discovery?.tags ?? [];
+    const perAttempt =
+      deps.context.hooks?.forRoute("perAttempt", deps.routeId, tags) ?? [];
     const nested: ExecutorDeps = {
       routeId: deps.routeId,
       context: deps.context,
@@ -1526,8 +1592,25 @@ export function runDetachedPipeline(
       ...(CHAIN_SURVIVAL.concurrency[kind].mustNotRefuse
         ? { admissionMustWait: true }
         : {}),
+      // A continuation re-enters below the admission slots; only the
+      // wrappers around each attempt apply, filtered by the run kind.
+      ...(perAttempt.length > 0
+        ? {
+            slots: {
+              perAttempt,
+              kind: kind === "admission" ? "resume" : kind,
+              tags,
+            },
+          }
+        : {}),
     };
     let result = await runPipeline(nested, releaseExchange, start);
+    // An admission park resumes like any other continuation.
+    result = await applyExitSlot(
+      nested,
+      result,
+      kind === "admission" ? "resume" : kind,
+    );
 
     // The released exchange carries the route's final output, so the same
     // output stage the source-driven path uses runs here too.
@@ -1666,6 +1749,119 @@ function buildTimeoutSegmentStep(
         });
         throw timeoutError;
       }
+    },
+  };
+}
+
+const PER_ATTEMPT_ADAPTER: Adapter = { adapterId: "routecraft.hooks" };
+
+/**
+ * The `exit` slot: plugin hooks over an exchange that completed, run before
+ * the output stage so what they add is what the caller receives and what the
+ * route's `.output()` schema checks.
+ *
+ * Only a completed run reaches it: a run that dropped, parked or failed has
+ * nothing to hand the caller. A hook that throws fails the exchange with its
+ * error; the work is done, so there is nothing for an `.error()` handler to
+ * recover.
+ *
+ * @internal
+ */
+export async function applyExitSlot<
+  R extends {
+    exchange: Exchange;
+    failed: boolean;
+    dropped: boolean;
+    deferred: boolean;
+    error?: unknown;
+  },
+>(deps: ExecutorDeps, result: R, kind: RunKind): Promise<R> {
+  if (result.failed || result.dropped || result.deferred) return result;
+  const table = deps.context.hooks;
+  if (!table) return result;
+  const tags = deps.route.definition.discovery?.tags ?? [];
+  const hooks = table.forRoute("exit", deps.routeId, tags);
+  if (hooks.length === 0) return result;
+  try {
+    const exchange = await runExchangeHooks(table, hooks, result.exchange, {
+      routeId: deps.routeId,
+      tags,
+      slot: "exit",
+      kind,
+    });
+    return { ...result, exchange };
+  } catch (thrown) {
+    const err = processError(thrown);
+    const exchange = result.exchange;
+    deps.context.emit("route:error", {
+      routeId: deps.routeId,
+      error: err,
+      route: deps.route,
+      exchange,
+    });
+    deps.context.emit("context:error", {
+      error: err,
+      route: deps.route,
+      exchange,
+    });
+    deps.context.emit("route:exchange:failed", {
+      routeId: deps.routeId,
+      exchangeId: exchange.id,
+      correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
+      duration: Date.now() - (getStartedAt(exchange) ?? Date.now()),
+      error: err,
+      exchange,
+    });
+    return { ...result, failed: true, error: err };
+  }
+}
+
+/**
+ * The `perAttempt` slot: every wrapper a plugin placed there surrounds one
+ * attempt of the chain tail, the first listed outermost. A wrapper may time,
+ * trace or guard the attempt and may throw; the exchange the attempt
+ * produced is what continues.
+ */
+function buildPerAttemptSegmentStep(
+  deps: ExecutorDeps,
+  segment: Step<Adapter>[],
+  wrappers: readonly InstalledHook[],
+): Step<Adapter> {
+  return {
+    operation: OperationType.HOOKS,
+    label: "perAttempt",
+    adapter: PER_ATTEMPT_ADAPTER,
+    skipStepEvents: true,
+    async execute(exchange, ctx) {
+      let result: Awaited<ReturnType<typeof runPipeline>> | undefined;
+      const info = {
+        routeId: deps.routeId,
+        tags: deps.slots?.tags ?? [],
+        slot: "perAttempt",
+        kind: deps.slots?.kind ?? ("normal" as const),
+      };
+      let proceed = async (): Promise<void> => {
+        result = await runPipeline(
+          nestedDeps(deps, segment, {
+            rethrowUnhandled: true,
+            abortSignal: ctx?.signal ?? deps.abortSignal,
+          }),
+          exchange,
+          Date.now(),
+        );
+      };
+      for (let i = wrappers.length - 1; i >= 0; i--) {
+        const wrapper = wrappers[i]!.hook as WrapperHook;
+        const inner = proceed;
+        proceed = () => wrapper.wrap(inner, exchange, info);
+      }
+      await proceed();
+      if (!result) {
+        throw rcError("RC1115", undefined, {
+          message: `A perAttempt wrapper on route "${deps.routeId}" returned without calling proceed(). A wrapper surrounds the attempt; to stop it, throw.`,
+        });
+      }
+      return segmentResultToOutcome(result);
     },
   };
 }

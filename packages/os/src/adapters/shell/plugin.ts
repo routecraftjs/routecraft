@@ -1,7 +1,8 @@
-import type {
-  CraftContext,
-  CraftPlugin,
-  Duration,
+import {
+  definePlugin,
+  port,
+  type Duration,
+  type Plugin,
 } from "@routecraft/routecraft";
 import type { IsolationName } from "./types.ts";
 
@@ -22,18 +23,8 @@ export interface ShellPluginOptions {
   maxOutputBytes?: number;
 }
 
-/**
- * Context store holding {@link ShellPluginOptions}.
- *
- * @internal
- */
-export const SHELL_DEFAULTS = Symbol.for("routecraft.os.shell.defaults");
-
-declare module "@routecraft/routecraft" {
-  interface StoreRegistry {
-    [SHELL_DEFAULTS]: ShellPluginOptions;
-  }
-}
+/** The context-wide {@link ShellPluginOptions} the shell plugin provides. */
+export const SHELL = port<ShellPluginOptions>("routecraft.os.shell@1");
 
 /**
  * Register context-wide defaults for `shell()`.
@@ -49,11 +40,12 @@ declare module "@routecraft/routecraft" {
  * plugins: [shellPlugin({ timeout: "30s" })]
  * ```
  */
-export function shellPlugin(options: ShellPluginOptions = {}): CraftPlugin {
-  return {
-    name: "shell",
-    apply(ctx: CraftContext) {
-      ctx.setStore(SHELL_DEFAULTS, { ...options });
+export function shellPlugin(options: ShellPluginOptions = {}): Plugin {
+  return definePlugin({
+    id: "routecraft.os.shell",
+    provides: [SHELL],
+    bind(c) {
+      c.provide(SHELL, { ...options });
     },
-  };
+  });
 }

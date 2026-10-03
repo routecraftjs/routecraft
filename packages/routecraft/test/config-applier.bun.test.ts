@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, test } from "bun:test";
 import {
   CraftContext,
-  type CraftPlugin,
+  type Plugin,
   registerConfigApplier,
 } from "../src/index.ts";
 
@@ -13,16 +13,16 @@ import {
 const REGISTRY_KEY = Symbol.for("routecraft.config-applier-registry");
 
 type GlobalWithRegistry = typeof globalThis & {
-  [REGISTRY_KEY]?: Map<string, (opts: unknown) => CraftPlugin>;
+  [REGISTRY_KEY]?: Map<string, (opts: unknown) => Plugin>;
 };
 
-function snapshotRegistry(): Map<string, (opts: unknown) => CraftPlugin> {
+function snapshotRegistry(): Map<string, (opts: unknown) => Plugin> {
   const g = globalThis as GlobalWithRegistry;
   return new Map(g[REGISTRY_KEY] ?? new Map());
 }
 
 function restoreRegistry(
-  snapshot: Map<string, (opts: unknown) => CraftPlugin>,
+  snapshot: Map<string, (opts: unknown) => Plugin>,
 ): void {
   const g = globalThis as GlobalWithRegistry;
   g[REGISTRY_KEY] = new Map(snapshot);
@@ -44,7 +44,7 @@ declare module "@routecraft/routecraft" {
 describe("registerConfigApplier", () => {
   // Capture in beforeEach (not in each test body) so a future setup change
   // that throws before the test body runs still restores the registry.
-  let snapshot: Map<string, (opts: unknown) => CraftPlugin> | undefined;
+  let snapshot: Map<string, (opts: unknown) => Plugin> | undefined;
 
   beforeEach(() => {
     snapshot = snapshotRegistry();
@@ -59,12 +59,13 @@ describe("registerConfigApplier", () => {
    * @case A registered config applier produces a plugin during context init
    *   when the corresponding key is set on CraftConfig
    * @preconditions Applier registered for "__testApplier"; config has the key set
-   * @expectedResult Plugin's apply() runs during initPlugins() with the config value
+   * @expectedResult Plugin's bind() runs during initPlugins() with the config value
    */
   test("applier produces a plugin when key is present", async () => {
     const applied: Array<{ value: string }> = [];
     registerConfigApplier("__testApplier", (options) => ({
-      apply() {
+      id: "test.applier",
+      bind() {
         applied.push(options);
       },
     }));
@@ -84,7 +85,8 @@ describe("registerConfigApplier", () => {
   test("applier is not invoked when key is absent", async () => {
     let called = false;
     registerConfigApplier("__testApplier", () => ({
-      apply() {
+      id: "test.applier",
+      bind() {
         called = true;
       },
     }));
@@ -103,13 +105,15 @@ describe("registerConfigApplier", () => {
   test("applier-produced plugin runs before user plugins[]", async () => {
     const order: string[] = [];
     registerConfigApplier("__testApplier", () => ({
-      apply() {
+      id: "test.applier",
+      bind() {
         order.push("applier");
       },
     }));
 
-    const userPlugin: CraftPlugin = {
-      apply() {
+    const userPlugin: Plugin = {
+      id: "test.user",
+      bind() {
         order.push("user");
       },
     };
@@ -126,23 +130,26 @@ describe("registerConfigApplier", () => {
   /**
    * @case Multiple config appliers run in registration order, before user plugins
    * @preconditions Two appliers registered (__testApplier, __testApplierB); both keys set
-   * @expectedResult Apply order matches registration order; user plugins run last
+   * @expectedResult Bind order matches registration order; user plugins run last
    */
   test("multiple appliers run in registration order", async () => {
     const order: string[] = [];
     registerConfigApplier("__testApplier", () => ({
-      apply() {
+      id: "test.applier",
+      bind() {
         order.push("a");
       },
     }));
     registerConfigApplier("__testApplierB", () => ({
-      apply() {
+      id: "test.applier-b",
+      bind() {
         order.push("b");
       },
     }));
 
-    const userPlugin: CraftPlugin = {
-      apply() {
+    const userPlugin: Plugin = {
+      id: "test.user",
+      bind() {
         order.push("user");
       },
     };
@@ -158,24 +165,26 @@ describe("registerConfigApplier", () => {
   });
 
   /**
-   * @case Teardown for an applier-produced plugin runs during context.stop(),
-   *   in reverse-of-startup order so user plugins tear down first
-   * @preconditions Applier produces a plugin with teardown; user plugins[] also has teardown
-   * @expectedResult Stop calls user teardown first, then applier teardown
+   * @case stop for an applier-produced plugin runs during context.stop(),
+   *   in reverse-of-startup order so user plugins stop first
+   * @preconditions Applier produces a plugin with stop; user plugins[] also has stop
+   * @expectedResult context.stop() calls the user stop first, then the applier stop
    */
-  test("teardown runs in reverse order on stop", async () => {
+  test("plugin stop runs in reverse order on context stop", async () => {
     const order: string[] = [];
     registerConfigApplier("__testApplier", () => ({
-      apply() {},
-      teardown() {
-        order.push("applier-teardown");
+      id: "test.applier",
+      bind() {},
+      stop() {
+        order.push("applier-stop");
       },
     }));
 
-    const userPlugin: CraftPlugin = {
-      apply() {},
-      teardown() {
-        order.push("user-teardown");
+    const userPlugin: Plugin = {
+      id: "test.user",
+      bind() {},
+      stop() {
+        order.push("user-stop");
       },
     };
 
@@ -186,7 +195,7 @@ describe("registerConfigApplier", () => {
     await ctx.initPlugins();
     await ctx.stop();
 
-    expect(order).toEqual(["user-teardown", "applier-teardown"]);
+    expect(order).toEqual(["user-stop", "applier-stop"]);
   });
 
   /**
@@ -198,12 +207,14 @@ describe("registerConfigApplier", () => {
   test("re-registration replaces the previous applier", async () => {
     const calls: string[] = [];
     registerConfigApplier("__testApplier", () => ({
-      apply() {
+      id: "test.applier",
+      bind() {
         calls.push("first");
       },
     }));
     registerConfigApplier("__testApplier", () => ({
-      apply() {
+      id: "test.applier",
+      bind() {
         calls.push("second");
       },
     }));

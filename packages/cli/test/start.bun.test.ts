@@ -211,7 +211,7 @@ describe("CLI start command", () => {
   test("errors when a plugin file exports a factory", async () => {
     const root = makeProject({
       "craft.config.ts": EMPTY_CONFIG,
-      "plugins/health.ts": `export default () => ({ apply() {} });\n`,
+      "plugins/health.ts": `export default () => ({ id: "test.health", bind() {} });\n`,
     });
     const result = await startCommand(root);
     expect(result).toMatchObject({ success: false });
@@ -223,22 +223,22 @@ describe("CLI start command", () => {
 
   /**
    * @case A plugin instance is loaded from the plugins folder
-   * @preconditions plugins/health.ts default-exports an object with apply()
-   * @expectedResult The plugin's apply runs during startup
+   * @preconditions plugins/health.ts default-exports a descriptor with an id and bind()
+   * @expectedResult The plugin's bind runs during startup
    */
   test("loads a plugin instance from plugins/", async () => {
     const root = makeProject({
       "craft.config.ts": EMPTY_CONFIG,
       "plugins/health.ts": [
         `import { writeFileSync } from "node:fs";`,
-        `export default { name: "health", apply() { writeFileSync(new URL("./applied.txt", import.meta.url), "yes"); } };`,
+        `export default { id: "test.health", bind() { writeFileSync(new URL("./bound.txt", import.meta.url), "yes"); } };`,
         "",
       ].join("\n"),
       "capabilities/health.ts": routeFile("health"),
     });
     const result = await startCommand(root, { once: true });
     expect(result).toMatchObject({ success: true });
-    expect(readFileSync(join(root, "plugins", "applied.txt"), "utf-8")).toBe(
+    expect(readFileSync(join(root, "plugins", "bound.txt"), "utf-8")).toBe(
       "yes",
     );
   });

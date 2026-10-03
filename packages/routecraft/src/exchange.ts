@@ -55,6 +55,8 @@ export enum OperationType {
   FILTER = "filter",
   /** Validate the exchange against a schema and reject the message if the schema is not met */
   VALIDATE = "validate",
+  /** Synthetic step that runs one chain slot's plugin hooks. */
+  HOOKS = "hooks",
   /** Enrich the exchange with data from another exchange */
   ENRICH = "enrich",
   /** Set or override a header on the exchange */

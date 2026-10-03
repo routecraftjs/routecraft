@@ -23,11 +23,21 @@ import { isRoutecraftError } from "./brand.ts";
 import { logger, childBindings } from "./logger.ts";
 import { type AdapterOverride, RC_ADAPTER_OVERRIDES } from "./testing-hooks.ts";
 import { getConfigAppliers } from "./config-applier.ts";
-import { DEFERRAL_RUNTIME } from "./deferral/runtime-key.ts";
+import { CONTINUATIONS } from "./deferral/runtime-key.ts";
 import { applyResolvedSites } from "./deferral/sites.ts";
 import { EventBus } from "./event-bus.ts";
+import { CraftClient } from "./client.ts";
+import { PluginHost, type InstalledPlugin } from "./kernel/host.ts";
+import type { Plugin, RouteView } from "./kernel/plugin.ts";
+import { HookTable, type HooksConfig } from "./kernel/hooks.ts";
+import type { Port } from "./kernel/port.ts";
 
-import type { EventHandler, EventName, EventPayload } from "./types.ts";
+import type {
+  EventDetailsMap,
+  EventHandler,
+  EventName,
+  EventPayload,
+} from "./types.ts";
 
 /**
  * Store key for runner-provided argv tokens.
@@ -74,97 +84,6 @@ export type MergedOptions<T> = {
    */
   mergedOptions(context: CraftContext): T;
 };
-
-/**
- * A plugin configures the context and may own work for as long as it runs.
- *
- * Three phases, each answering a different question:
- *
- * - `apply(ctx)` wires the context, before routes are registered
- *   (`initPlugins()`). Nothing is running yet.
- * - `start(ctx)` begins work, after every route has started. Optional.
- * - `teardown(ctx)` releases whatever the other two acquired, when the
- *   context stops and routes have drained. Optional.
- *
- * The split matters for anything with a lifetime. A plugin that opens a
- * handle does it in `apply()`; a plugin that starts a timer or drives routes
- * does it in `start()`, because at `apply()` time there are no routes to
- * drive. Either way `teardown()` is what releases it.
- *
- * Plugins needing neither can omit both; use `ctx.registerTeardown()` from
- * `apply()` for one-off cleanup callbacks.
- */
-export interface CraftPlugin {
-  /**
-   * Stable identifier for the plugin, surfaced as `pluginId` on
-   * `plugin:*` event payloads and in logs. Falls back to the plugin's
-   * constructor name (or `plugin-<index>`) when omitted.
-   */
-  name?: string;
-  /**
-   * RESERVED. Names of plugins this plugin depends on. Not enforced yet:
-   * declaring it today has no effect, but the key is reserved so a
-   * future dependency-ordered initialisation can use it without a
-   * breaking change.
-   */
-  dependsOn?: string[];
-  /** Keep the context running after all routes complete until `stop()` is called. */
-  keepsAlive?: boolean;
-  apply(ctx: CraftContext): void | Promise<void>;
-  /**
-   * Called once per context start, after every route has been started, in
-   * plugin registration order. Awaited. Optional.
-   *
-   * This is where a plugin owning a background task belongs, because
-   * `apply()` runs at build time when no route is running yet. A plugin
-   * that starts something here MUST stop it in {@link CraftPlugin.teardown}:
-   * a live interval keeps the process alive with no visible cause.
-   *
-   * A throw fails `context.start()`. The context then shuts down (routes
-   * aborted and drained, every plugin torn down in reverse order) and the
-   * original error is rethrown unchanged, so a plugin that fails to start
-   * cannot leave a half-running context behind.
-   */
-  start?(ctx: CraftContext): void | Promise<void>;
-  /**
-   * Called when the context stops, after routes have drained, and when a
-   * build or a start failed partway. Optional.
-   *
-   * The second argument says which of those happened, so a plugin never has
-   * to infer it from its own state. Ignore it and the hook behaves exactly
-   * as it did when teardown only ran on a fully started context; read it
-   * when releasing depends on how far the context got.
-   */
-  teardown?(ctx: CraftContext, info: TeardownInfo): void | Promise<void>;
-}
-
-/**
- * What the context managed to do before this teardown, handed to every
- * {@link CraftPlugin.teardown}.
- *
- * The distinction exists because teardown now runs on three different
- * shapes of context: one that started and is stopping, one whose build
- * failed with only some plugins applied, and one whose start failed with
- * only some plugins started. A plugin that closes what `apply()` opened
- * needs none of this; a plugin that stops what `start()` began must not be
- * told to stop something it never began.
- */
-export interface TeardownInfo {
-  /**
-   * This is not a fully started context. Either it never started (a build
-   * that failed partway, or an embedder that built and then stopped without
-   * ever calling `start()`) or a `start()` hook threw. Routes may not be
-   * registered and later plugins may never have applied, so state a plugin
-   * would expect a running context to hold may be missing.
-   */
-  partial: boolean;
-  /**
-   * THIS plugin's own `start()` hook ran to completion. Always false for a
-   * plugin with no `start()` hook, and false during a build-failure unwind,
-   * where nothing started.
-   */
-  started: boolean;
-}
 
 /**
  * How long `start()` waits for routes to signal readiness before starting
@@ -241,6 +160,7 @@ const BASE_CONFIG_KEYS: ReadonlySet<string> = new Set([
   "plugins",
   "handlers",
   "shutdown",
+  "hooks",
 ]);
 
 /**
@@ -383,8 +303,11 @@ export interface CraftConfig {
   once?: Partial<
     Record<EventName, EventHandler<EventName> | EventHandler<EventName>[]>
   >;
-  /** Plugins to run before routes are registered (call initPlugins() then registerRoutes) */
-  plugins?: CraftPlugin[];
+  /**
+   * Plugins to install. Bound in dependency order after the plugins config
+   * keys install, which bind in their registration order.
+   */
+  plugins?: Plugin[];
   /**
    * The application's own handlers, keyed by lifecycle point.
    *
@@ -412,6 +335,19 @@ export interface CraftConfig {
   >;
   /** How long a graceful shutdown may drain before it is forced. */
   shutdown?: ShutdownConfig;
+  /**
+   * The application's say over plugin hooks: the exact order of one phase of
+   * one slot, and hooks switched off by id (`pluginId/name`).
+   *
+   * @example
+   * ```typescript
+   * hooks: {
+   *   order: { "beforeAuth/mutate": ["acme.legacy/tenant", "acme.tenancy/tenant"] },
+   *   disable: ["acme.legacy/setTenantFromPath"],
+   * }
+   * ```
+   */
+  hooks?: HooksConfig;
 }
 
 /**
@@ -546,30 +482,26 @@ export class CraftContext {
   /** Event bus backing on/once/emit (see event-bus.ts) */
   private readonly events: EventBus;
 
-  /** Plugins from config, run by initPlugins() before routes are registered */
-  private readonly plugins: CraftPlugin[] = [];
+  /** Plugin descriptors in install order, handed to the host by initPlugins(). */
+  private readonly pluginList: unknown[] = [];
+
+  /** The kernel host, built by initPlugins() once every descriptor is known. */
+  private host: PluginHost | undefined;
+
+  /** Every plugin hook, placed when the application froze. */
+  private hookTable: HookTable | undefined;
+
+  /** The application's hook order and disables, from config. */
+  private readonly hooksConfig: HooksConfig;
 
   /** Guards initPlugins() so start() can call it idempotently */
   private pluginsInitialized = false;
 
-  /**
-   * Indices of plugins whose `apply()` returned. Teardown walks this rather
-   * than the whole plugin list: a build that failed at plugin 3 must not
-   * tear down plugin 4, which never ran.
-   */
-  private readonly appliedPlugins = new Set<number>();
-
-  /** Indices of plugins whose `start()` hook returned. */
-  private readonly startedPlugins = new Set<number>();
-
-  /** Latched once `start()` has fully completed, for {@link TeardownInfo.partial}. */
+  /** Latched once `start()` has fully completed, for {@link StopInfo.partial}. */
   private startCompleted = false;
 
   /** How long stage one of shutdown may drain; see {@link ShutdownConfig}. */
   private readonly shutdownTimeoutMs: number;
-
-  /** Teardown callbacks registered by plugins; run during stop() before context:stopped */
-  private readonly teardownCallbacks: Array<() => void | Promise<void>> = [];
 
   /**
    * Handlers registered on the context, in registration order, which is also
@@ -622,6 +554,7 @@ export class CraftContext {
     if (config !== undefined) rejectStaleConfig(config);
     if (config?.name !== undefined) this.name = config.name;
     this.shutdownTimeoutMs = resolveShutdownTimeout(config?.shutdown?.timeout);
+    this.hooksConfig = config?.hooks ?? {};
     this.logger = logger.child(childBindings(this));
     this.events = new EventBus(this.contextId, this.logger);
     if (config) {
@@ -672,14 +605,10 @@ export class CraftContext {
       // `embedding`, `agent`) extend it the same way. The core context has
       // no knowledge of any adapter or plugin internals.
       //
-      // The push order into `this.plugins` drives both apply() order
-      // (forward) and teardown() order (reverse):
+      // Install order, which the host keeps wherever dependencies allow:
       //   1. registered appliers, in registration order (core keys first,
       //      since index.ts imports run before ecosystem modules load)
       //   2. user config.plugins
-      //
-      // Reverse-iteration in performShutdown() therefore tears down user
-      // plugins first, then appliers in reverse registration order.
       //
       // The applier guard is strictly `value !== undefined`, not a truthy
       // check. The applier registry is an open extension point: ecosystem
@@ -693,7 +622,7 @@ export class CraftContext {
         applierKeys.add(key);
         const value = configRecord[key];
         if (value !== undefined) {
-          this.plugins.push(factory(value));
+          this.pluginList.push(factory(value));
         }
       }
 
@@ -714,91 +643,172 @@ export class CraftContext {
       }
 
       if (config.plugins?.length) {
-        this.plugins.push(...config.plugins);
+        this.pluginList.push(...config.plugins);
       }
     }
   }
 
   /**
-   * Generate a plugin identifier from the plugin's constructor name or index.
-   * @param plugin The plugin instance
-   * @param index The plugin's index in the plugins array
-   * @returns A string identifier for the plugin
-   */
-  private getPluginId(plugin: CraftPlugin, index: number): string {
-    if (typeof plugin.name === "string" && plugin.name) return plugin.name;
-    const constructorName =
-      plugin.constructor?.name !== "Object" ? plugin.constructor?.name : null;
-    return constructorName ?? `plugin-${index}`;
-  }
-
-  /**
-   * Run plugins from config. Called by the builder's `build()` (and by
-   * `start()` as an idempotent fallback) before routes are registered so
-   * plugins can set up state or dynamically add routes.
+   * Install and bind every plugin. Called by the builder's `build()` (and
+   * by `start()` as an idempotent fallback) before routes are registered.
    *
-   * Fails fast: on first plugin error, logs, emits `error`, and rethrows.
+   * The host checks identity, resolves every port to one provider and
+   * orders the plugins by what they require before anything binds, so a
+   * fault naming the plugin responsible surfaces before any resource is
+   * acquired. Then each plugin's `bind` runs in that order, and the
+   * application freezes.
    *
-   * @throws Rethrows if any plugin's `apply(ctx)` throws
+   * Fails fast: on the first error, logs, emits `context:error`, and
+   * rethrows. Whatever bound is released by the unwind.
+   *
+   * @throws The host's fault, or whatever a plugin's `bind` threw
    * @internal Public for the builder and tests; not part of the supported
    *   embedding surface. The context initialises plugins itself.
    */
   async initPlugins(): Promise<void> {
     if (this.pluginsInitialized) return;
     this.pluginsInitialized = true;
-    for (const [pluginIndex, plugin] of this.plugins.entries()) {
+    try {
+      this.host = new PluginHost(this.pluginList);
+    } catch (err) {
+      this.logger.error({ err }, "Plugins could not be installed.");
+      this.emit("context:error", { error: err });
+      throw err;
+    }
+    const host = this.host;
+    for (const entry of host.ordered) {
       // Same guard as startPlugins(), for the same reason: once teardown has
-      // walked the applied set, a plugin applied after it acquires resources
+      // walked the bound set, a plugin bound after it acquires resources
       // nothing will ever release.
       if (this.hasStopped) return;
+      const pluginId = entry.plugin.id;
+      const pluginIndex = entry.index;
       try {
-        if (
-          !plugin ||
-          typeof plugin !== "object" ||
-          typeof (plugin as CraftPlugin).apply !== "function"
-        ) {
-          const err = rcError("RC9901", undefined, {
-            message: `Invalid plugin at index ${pluginIndex}: expected object with apply(ctx)`,
-          });
-          this.logger.error(
-            { pluginIndex, err },
-            "Invalid plugin: expected object with apply(ctx) method.",
-          );
-          this.emit("context:error", { error: err });
-          throw err;
-        }
-
-        // Generate plugin ID from constructor name or index
-        const pluginId = this.getPluginId(plugin as CraftPlugin, pluginIndex);
-
-        // Plugins are "registered" at construction; a separate
-        // plugin:registered event fired at the same moment with the same
-        // payload carried no extra information and was removed.
-        this.emit("plugin:applying", {
-          pluginId,
-          pluginIndex,
-        });
-
+        this.emit("plugin:binding", { pluginId, pluginIndex });
         // Re-checked after the emit, not only at the loop head: handlers run
         // synchronously, so a subscriber calling stop() lands between the two
         // and the hook would otherwise start into a shutdown already waiting
         // for it.
         if (this.hasStopped) return;
-
+        const context = host.contextFor(entry, this.hostEnvironment());
         await this.runLifecycleHook(async () => {
-          await (plugin as CraftPlugin).apply(this);
-          this.appliedPlugins.add(pluginIndex);
-          this.emit("plugin:applied", { pluginId, pluginIndex });
+          await entry.plugin.bind?.(context);
+          // Only a bind that RETURNED is stopped: a build that failed at
+          // plugin 3 must not ask plugin 4, or plugin 3 itself, to release
+          // what it never finished acquiring.
+          entry.bound = true;
+          host.assertProvided(entry);
+          this.emit("plugin:bound", { pluginId, pluginIndex });
         });
       } catch (err) {
         this.logger.error(
-          { pluginIndex, err },
-          "Plugin threw during initPlugins. Check stack and plugin implementation.",
+          { pluginId, pluginIndex, err },
+          "Plugin threw during bind. Check stack and plugin implementation.",
         );
         this.emit("context:error", { error: err });
         throw err;
       }
     }
+    host.freeze();
+    try {
+      this.hookTable = new HookTable(
+        host.ordered.map((entry) => entry.plugin),
+        this.hooksConfig,
+        this.logger,
+      );
+    } catch (err) {
+      this.logger.error({ err }, "Plugin hooks could not be placed.");
+      this.emit("context:error", { error: err });
+      throw err;
+    }
+  }
+
+  /**
+   * The placed plugin hooks, for the executor.
+   *
+   * @internal
+   */
+  get hooks(): HookTable | undefined {
+    return this.hookTable;
+  }
+
+  /**
+   * What the kernel host needs from this context to build plugin contexts.
+   * Built per call: it is read once per plugin.
+   */
+  private hostEnvironment() {
+    const view = (route: Route): RouteView => {
+      const reason = this.enablement.disabled().get(route.definition.id);
+      return {
+        id: route.definition.id,
+        definition: route.definition,
+        enabled: reason === undefined,
+        ...(reason !== undefined ? { disabledReason: reason } : {}),
+      };
+    };
+    const client = new CraftClient(this);
+    return {
+      logger: this.logger,
+      context: this,
+      observe: <K extends EventName>(
+        event: K | "*",
+        handler: EventHandler<K>,
+      ) => this.on(event as EventName, handler as EventHandler<EventName>),
+      emit: <K extends EventName>(event: K, details: EventDetailsMap[K]) =>
+        this.emit(event, details),
+      routes: {
+        register: (...definitions: RouteDefinition[]) =>
+          this.registerRoutes(...definitions),
+        list: () => this.routes.map(view),
+        get: (id: string) => {
+          const route = this.getRouteById(id);
+          return route ? view(route) : undefined;
+        },
+      },
+      execution: {
+        deliver: <R = unknown>(
+          endpoint: string,
+          body: unknown,
+          headers?: Parameters<CraftClient["sendDirect"]>[2],
+        ) => client.sendDirect<unknown, R>(endpoint, body, headers),
+        capabilities: () => this.capabilities(),
+        whenStarted: () => this.whenStarted(),
+        requestStop: () => {
+          void this.stop().catch(() => undefined);
+        },
+      },
+    };
+  }
+
+  /**
+   * The provider of a port, for adapters and the kernel at runtime.
+   *
+   * Adapters reach what a plugin offers through this, never through a store
+   * key another package set.
+   *
+   * @param port - The port
+   * @returns The selected provider's value
+   * @throws RC1104 when no installed plugin provides it, or plugins have not
+   *   bound yet
+   */
+  require<T>(port: Port<T>): T {
+    if (!this.host) {
+      throw rcError("RC1104", undefined, {
+        message: `"${port.name}" was required before the context installed its plugins.`,
+      });
+    }
+    return this.host.require(port);
+  }
+
+  /**
+   * Like {@link CraftContext.require}, but `undefined` when nobody provides
+   * the port.
+   *
+   * @param port - The port
+   * @returns The provider's value, or `undefined`
+   */
+  lookup<T>(port: Port<T>): T | undefined {
+    return this.host?.lookup(port);
   }
 
   /**
@@ -999,14 +1009,15 @@ export class CraftContext {
    * so which phase failed does not change where cleanup lives.
    */
   private async startPlugins(): Promise<void> {
-    for (const [pluginIndex, plugin] of this.plugins.entries()) {
+    for (const entry of this.host?.ordered ?? []) {
       // Re-checked per hook, not only on entry: a stop() arriving while an
       // earlier hook is mid-await has already torn the plugins down, and a
       // hook launched after that begins work nothing will ever stop.
       if (this.hasStopped) return;
-      if (typeof plugin.start !== "function") continue;
-      const startHook = plugin.start.bind(plugin);
-      const pluginId = this.getPluginId(plugin, pluginIndex);
+      const start = entry.plugin.start;
+      if (typeof start !== "function") continue;
+      const pluginId = entry.plugin.id;
+      const pluginIndex = entry.index;
       try {
         this.emit("plugin:starting", { pluginId, pluginIndex });
         // See initPlugins(): a synchronous subscriber can stop the context
@@ -1014,8 +1025,8 @@ export class CraftContext {
         if (this.hasStopped) return;
 
         await this.runLifecycleHook(async () => {
-          await startHook(this);
-          this.startedPlugins.add(pluginIndex);
+          await start.call(entry.plugin, entry.context!);
+          entry.started = true;
           this.emit("plugin:started", { pluginId, pluginIndex });
         });
       } catch (err) {
@@ -1087,7 +1098,7 @@ export class CraftContext {
    * @throws RC5052 when a deferrable route has no deferral runtime
    */
   private assertDeferralConfigured(): void {
-    if (this.getStore(DEFERRAL_RUNTIME)) return;
+    if (this.lookup(CONTINUATIONS)) return;
     // A registered handler that may answer `recovery.defer()` can park ANY
     // route in the context, including one that declares no defer site of its
     // own, so it is checked before the per-route markers and reported without
@@ -1129,19 +1140,6 @@ export class CraftContext {
     this.logger.fatal({ err }, err.meta.message);
     this.emit("context:error", { error: err });
     throw err;
-  }
-
-  /**
-   * Register a teardown callback to run when the context stops. Plugins use this
-   * to release resources (e.g. caches, native handles) after routes have drained.
-   * Callbacks run in REVERSE registration order (LIFO, mirroring plugin
-   * teardown) before `context:stopped` is emitted, so resources unwind in
-   * the opposite order they were acquired.
-   *
-   * @param fn - Callback (sync or async) to run during stop()
-   */
-  registerTeardown(fn: () => void | Promise<void>): void {
-    this.teardownCallbacks.push(fn);
   }
 
   /**
@@ -1750,7 +1748,7 @@ export class CraftContext {
         if (
           allFulfilled &&
           !awaitingCadence &&
-          !this.plugins.some((plugin) => plugin.keepsAlive)
+          !this.host?.ordered.some((entry) => entry.plugin.keepsAlive)
         ) {
           this.logger.debug({}, "All routes have completed. Stopping context.");
           await this.stop();
@@ -1826,59 +1824,57 @@ export class CraftContext {
   }
 
   /**
-   * Tear down every plugin that applied, in reverse application order, then
-   * the registered teardown callbacks.
+   * Stop every plugin that bound, in reverse dependency order, each followed
+   * by the disposers it registered.
    *
    * One walk serves all three exits: an ordinary shutdown, a start that
    * failed partway, and a build that failed partway. They differ only in
-   * what {@link TeardownInfo} reports, which is why they are not three
+   * what {@link StopInfo} reports, which is why they are not three
    * mechanisms.
    *
-   * Only APPLIED plugins are torn down. A build that failed at plugin 3
-   * leaves plugin 4 never having run, and calling its teardown would ask it
-   * to release something it never acquired.
+   * Only BOUND plugins are stopped. A build that failed at plugin 3 leaves
+   * plugin 4 never having run, and stopping it would ask it to release
+   * something it never acquired.
    *
-   * Failure-tolerant throughout: a throwing teardown is logged and the
-   * remaining teardowns still run, because the caller's original error is
-   * what the operator needs and one plugin's cleanup must not strand
-   * another's.
+   * Failure-tolerant throughout: a throwing stop or disposer is logged and
+   * the rest still run, because the caller's original error is what the
+   * operator needs and one plugin's cleanup must not strand another's.
    *
    * @param partial - The context never finished starting.
    */
   private async teardownPlugins(partial: boolean): Promise<void> {
-    for (let i = this.plugins.length - 1; i >= 0; i--) {
-      if (!this.appliedPlugins.has(i)) continue;
-      const plugin = this.plugins[i] as CraftPlugin | undefined;
-      if (!plugin?.teardown) continue;
-      const pluginId = this.getPluginId(plugin, i);
-
-      this.emit("plugin:stopping", { pluginId, pluginIndex: i });
-
-      try {
-        await Promise.resolve(
-          plugin.teardown(this, {
+    const ordered = this.host?.ordered ?? [];
+    for (let i = ordered.length - 1; i >= 0; i--) {
+      const entry: InstalledPlugin = ordered[i]!;
+      if (!entry.bound) continue;
+      const pluginId = entry.plugin.id;
+      const pluginIndex = entry.index;
+      if (entry.plugin.stop) {
+        this.emit("plugin:stopping", { pluginId, pluginIndex });
+        try {
+          await entry.plugin.stop(entry.context!, {
             partial,
-            started: this.startedPlugins.has(i),
-          }),
-        );
-        this.emit("plugin:stopped", { pluginId, pluginIndex: i });
-      } catch (err) {
-        this.logger.warn(
-          { err, pluginIndex: i },
-          "Plugin teardown threw; continuing with remaining teardowns.",
-        );
+            started: entry.started,
+          });
+          this.emit("plugin:stopped", { pluginId, pluginIndex });
+        } catch (err) {
+          this.logger.warn(
+            { err, pluginId },
+            "Plugin stop threw; continuing with the remaining plugins.",
+          );
+        }
       }
-    }
-    // LIFO: unwind registered teardowns in the opposite order they were
-    // acquired, mirroring the reverse plugin teardown above.
-    for (let i = this.teardownCallbacks.length - 1; i >= 0; i--) {
-      try {
-        await Promise.resolve(this.teardownCallbacks[i]());
-      } catch (err) {
-        this.logger.warn(
-          { err },
-          "Plugin teardown threw; continuing with remaining teardowns.",
-        );
+      // LIFO: release in the opposite order the plugin acquired.
+      while (entry.disposers.length > 0) {
+        const dispose = entry.disposers.pop()!;
+        try {
+          await dispose();
+        } catch (err) {
+          this.logger.warn(
+            { err, pluginId },
+            "A plugin disposer threw; continuing with the remaining disposers.",
+          );
+        }
       }
     }
   }
@@ -1954,7 +1950,7 @@ export class CraftContext {
     await this.settlePluginHook();
 
     // Plugin teardown (plugins with teardown in reverse order, then
-    // registerTeardown callbacks). Unbounded on purpose: teardown releases
+    // disposers). Unbounded on purpose: teardown releases
     // resources, and a plugin that wedges there is a different defect from
     // the one this deadline addresses.
     await this.teardownPlugins(!this.startCompleted);

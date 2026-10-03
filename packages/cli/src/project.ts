@@ -1,6 +1,6 @@
 import { readdirSync, statSync } from "node:fs";
 import { extname, join, relative, sep } from "node:path";
-import type { CraftPlugin } from "@routecraft/routecraft";
+import type { Plugin } from "@routecraft/routecraft";
 
 /**
  * Module extensions the CLI will import, shared by `run` (its entry
@@ -187,14 +187,14 @@ export function findConfigFile(root: string): string | undefined {
 }
 
 /**
- * True when `value` looks like a `CraftPlugin`: an object carrying a
- * callable `apply`. Structural rather than branded, matching how the
- * context itself consumes plugins.
+ * True when `value` looks like a plugin descriptor: an object carrying a
+ * string `id`. Structural rather than branded, matching how the kernel
+ * itself installs plugins; the kernel checks the rest of the shape.
  */
-export function isPluginInstance(value: unknown): value is CraftPlugin {
+export function isPluginInstance(value: unknown): value is Plugin {
   return (
     typeof value === "object" &&
     value !== null &&
-    typeof (value as { apply?: unknown }).apply === "function"
+    typeof (value as { id?: unknown }).id === "string"
   );
 }

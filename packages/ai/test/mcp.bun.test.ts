@@ -487,7 +487,9 @@ describe("dispatchMcpCall: RC5003 error wrapping", () => {
       .with({
         plugins: [
           {
-            apply(ctx) {
+            id: "test.mcp-fixture",
+            bind(c) {
+              const ctx = c.context;
               const managers = new Map<
                 string,
                 import("../src/mcp/types.ts").McpStdioToolCaller
@@ -541,7 +543,9 @@ describe("dispatchMcpCall: RC5003 error wrapping", () => {
       .with({
         plugins: [
           {
-            apply(ctx) {
+            id: "test.mcp-fixture",
+            bind(c) {
+              const ctx = c.context;
               const managers = new Map<
                 string,
                 import("../src/mcp/types.ts").McpStdioToolCaller
@@ -589,7 +593,9 @@ describe("dispatchMcpCall: RC5003 error wrapping", () => {
       .with({
         plugins: [
           {
-            apply(ctx) {
+            id: "test.mcp-fixture",
+            bind(c) {
+              const ctx = c.context;
               const servers = new Map<
                 string,
                 { url: string; auth?: undefined }
