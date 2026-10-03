@@ -230,6 +230,47 @@ describe("plugin steps", () => {
       expect.objectContaining({ rc: "RC1116" }),
     );
   });
+
+  /**
+   * @case A step named like a builder's own field rather than a method
+   * @preconditions A plugin declaring a step named steps, which is a field of the branch builder rather than a prototype method
+   * @expectedResult Building a branch throws RC1116 naming the plugin, not a raw TypeError from redefining the field
+   */
+  test("a step shadowing a builder field is RC1116", () => {
+    const shadowing = definePlugin({
+      id: "test.fields",
+      steps: { steps: () => step<Body, Body>((exchange) => exchange.body) },
+    });
+    const project = defineProject({ plugins: [shadowing] });
+    expect(() =>
+      project
+        .craft()
+        .id("r")
+        .from(direct())
+        .choice(otherwise((b) => b)),
+    ).toThrow(expect.objectContaining({ rc: "RC1116" }));
+  });
+
+  /**
+   * @case A step factory that hands out one shared step object
+   * @preconditions A plugin whose factory returns the same step on every call, used twice
+   * @expectedResult The second use throws RC1116 naming the step and the plugin. The method labels and tags what the factory returns, so a shared object would carry one route's label into another and be claimed twice
+   */
+  test("a factory returning a step it already returned is RC1116", () => {
+    const shared = step<Body, Body>((exchange) => exchange.body);
+    const sharing = definePlugin({
+      id: "test.shared",
+      steps: { reuse: () => shared },
+    });
+    const project = defineProject({ plugins: [sharing] });
+    const route = project.craft().id("r").from(direct()).reuse();
+    expect(() => route.reuse()).toThrow(
+      expect.objectContaining({
+        rc: "RC1116",
+        message: expect.stringContaining('"test.shared"'),
+      }),
+    );
+  });
 });
 
 describe("plugin facets", () => {

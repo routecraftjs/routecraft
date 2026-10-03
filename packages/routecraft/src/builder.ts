@@ -697,6 +697,7 @@ export class RouteBuilder<
   constructor(catalogue?: StepCatalogue) {
     super(catalogue);
     setBrand(this, BRAND.RouteBuilder);
+    this.installSteps();
   }
 
   /**

@@ -302,11 +302,25 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    * @param catalogue - The plugin steps to install as methods on this
    *   instance. Per instance rather than on the prototype, so two projects
    *   with different plugins never see each other's methods.
-   * @throws RC1116 when a step would shadow a builder method
    */
   constructor(catalogue: StepCatalogue = EMPTY_CATALOGUE) {
     this[CATALOGUE] = catalogue;
-    for (const [name, { plugin, factory }] of catalogue) {
+  }
+
+  /**
+   * Install the catalogue's steps as methods. Every concrete builder calls
+   * it at the end of its constructor, once its own fields exist, so a step
+   * named like a field is refused here rather than breaking the field.
+   *
+   * The step a factory returns is labelled and tagged in place, so a
+   * factory builds a new step per call. One handing back a step it already
+   * returned is refused rather than having that step claimed twice.
+   *
+   * @throws RC1116 when a step would shadow a builder method or field, or
+   *   a factory returns a step it already returned
+   */
+  protected installSteps(): void {
+    for (const [name, { plugin, factory }] of this[CATALOGUE]) {
       if (name in this) {
         throw rcError("RC1116", undefined, {
           message: `Plugin "${plugin}" declares a step named "${name}", which is already a builder method. Rename the step.`,
@@ -315,10 +329,16 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
       Object.defineProperty(this, name, {
         enumerable: false,
         value: (...args: never[]) => {
-          const built = factory(...args);
+          const built = factory(...args) as Step<Adapter> & {
+            [STEP_PLUGIN]?: string;
+          };
+          if (built[STEP_PLUGIN] !== undefined || Object.isFrozen(built)) {
+            throw rcError("RC1116", undefined, {
+              message: `Step "${name}" of plugin "${plugin}" returned a step object it had already returned, or a frozen one. A step factory builds a new step on every call.`,
+            });
+          }
           built.label ??= name;
-          (built as Step<Adapter> & { [STEP_PLUGIN]?: string })[STEP_PLUGIN] =
-            plugin;
+          built[STEP_PLUGIN] = plugin;
           this.pushStep(built);
           return this;
         },
