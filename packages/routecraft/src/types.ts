@@ -445,26 +445,30 @@ type ExchangeSnapshot = {
   body: unknown;
 };
 
-/** Shared identity fields on per-exchange events. */
-type ExchangeScoped = {
+/**
+ * Shared identity fields on per-exchange events.
+ *
+ * Exported because an ecosystem package declaring its own exchange-scoped
+ * events through declaration merging needs the same three fields, and a
+ * second definition of them is how two packages' events drift into
+ * correlating on different keys.
+ */
+export type ExchangeScoped = {
   routeId: string;
   exchangeId: string;
   correlationId: string;
 };
 
 /**
- * What every tool-call event carries.
+ * Which ring an error handler belongs to, innermost first.
  *
- * `session` names the conversation the call was made in, when the agent
- * was dispatched with one. A session's boundary turn runs on the exchange
- * that deferred, which may be an earlier caller's, so the exchange identity
- * alone cannot say which conversation a call belongs to; the session can.
+ * The three are consulted in this order and the first to decide wins:
+ * `step` is a `.error()` wrapper on one step, `route` is the route's own
+ * `.error()`, and `context` is a handler registered on the context, which
+ * is reached only where the route's own handling gave up (no route handler,
+ * or one that rethrew or threw).
  */
-type ToolCallScoped = ExchangeScoped & {
-  toolCallId: string;
-  toolName: string;
-  session?: string;
-};
+export type ErrorHandlerScope = "route" | "step" | "context";
 
 /**
  * Every event the framework emits, mapped to its detail payload.
@@ -848,9 +852,12 @@ export interface EventDetailsMap {
     /**
      * `"route"` for the route-level (`.error()` before `.from()`)
      * catch-all handler; `"step"` for a wrapper-scope handler
-     * attached to a single step (`.error()` after `.from()`).
+     * attached to a single step (`.error()` after `.from()`);
+     * `"context"` for a handler registered on the context with
+     * `ctx.registerHandler("error", ...)` or the `handlers` config key,
+     * which is consulted only where the route's own handling gave up.
      */
-    scope?: "route" | "step";
+    scope?: ErrorHandlerScope;
     /** Step label when `scope === "step"`. */
     stepLabel?: string;
   };
@@ -858,14 +865,21 @@ export interface EventDetailsMap {
     originalError: unknown;
     failedOperation: string;
     recoveryStrategy: string;
-    scope?: "route" | "step";
+    scope?: ErrorHandlerScope;
     stepLabel?: string;
   };
   "route:error-handler:failed": ExchangeScoped & {
     originalError: unknown;
     failedOperation: string;
     recoveryStrategy?: string;
-    scope?: "route" | "step";
+    scope?: ErrorHandlerScope;
+    /**
+     * Which registered context handler failed, as its index in registration
+     * order. Present only when `scope === "context"`, where "the handler"
+     * is ambiguous: the chain continues past a handler that throws, so an
+     * operator needs to know which one to fix.
+     */
+    handlerIndex?: number;
     stepLabel?: string;
   };
 
@@ -982,215 +996,6 @@ export interface EventDetailsMap {
      * activity, or `"flush"` when a drain / shutdown released it early.
      */
     reason: "quiet" | "maxWait" | "flush";
-  };
-
-  // -- Agent (emitted by @routecraft/ai agent() destinations) --
-  // Sensitive payloads (tool input/output, thrown errors that may echo
-  // them) ride in the `_snapshot` envelope: the bus always carries them,
-  // but the telemetry sink persists them only when snapshot capture is on.
-  "route:agent:started": ExchangeScoped & {
-    agentName?: string;
-    model: string;
-    toolNames: string[];
-    maxTurns: number;
-  };
-  /**
-   * A tool was refused admission to an agent's tool list by
-   * `agentPlugin({ toolPolicy })` and never offered to the model.
-   *
-   * Emitted once per denied tool per dispatch, alongside whichever log
-   * that denial produced: `warn` when a rule decided against the tool,
-   * `error` when a rule threw (the tool is denied to fail closed, and
-   * the warn line is suppressed so one failure is not reported twice).
-   * The two channels serve different consumers: the log is for someone
-   * reading text, the event is for alerting and audit, which is what a
-   * policy decision needs to be queryable from.
-   *
-   * `reason` distinguishes a rule that decided against the tool from a
-   * rule that threw (denied to fail closed) and from provenance the
-   * resolver could not classify. `unknown-provenance` covers every tool
-   * whose `source` is missing or carries a kind the policy surface does
-   * not define, since no rule runs in either case; `toolKind` is
-   * reported as `"unknown"` for both.
-   */
-  "route:agent:tool:denied": ExchangeScoped & {
-    agentName?: string;
-    toolName: string;
-    toolKind: string;
-    reason: "rule" | "rule-error" | "unknown-provenance";
-  };
-  /**
-   * A call the model made was refused by the tool's guard, at call time,
-   * on a tool the model could see and was allowed to attempt.
-   *
-   * Distinct from `denied`, which fires when a policy withholds a tool at
-   * selection time so the model never sees it. Counting the two together
-   * would mix "this agent may not have that tool" with "this agent asked
-   * for something its grant does not cover", and it is the second that
-   * tells an operator an agent is probing the edges of its allowlist.
-   * That signal is the whole reason an allowlist is worth auditing.
-   *
-   * The payload is deliberately bounded to identity plus the error code.
-   * The refused input is what carries the secret material (a command line
-   * can hold a token someone passed as an argument), and a refusal is
-   * exactly the case where that input is least trustworthy, so it is not
-   * carried here even under snapshot capture.
-   */
-  "route:agent:tool:refused": ToolCallScoped & {
-    /** Error code when the guard threw a Routecraft error, e.g. `RC5002`. */
-    rc?: string;
-  };
-  "route:agent:tool:invoked": ToolCallScoped & {
-    _snapshot: { input: unknown };
-  };
-  "route:agent:tool:result": ToolCallScoped & {
-    _snapshot: { output: unknown };
-    duration: number;
-  };
-  "route:agent:tool:error": ToolCallScoped & {
-    errorName: string;
-    _snapshot: { error: unknown };
-    duration: number;
-  };
-  "route:agent:block:loaded": ExchangeScoped & {
-    toolCallId: string;
-    blockName: string;
-    _snapshot: { output: unknown };
-    duration: number;
-  };
-  "route:agent:block:error": ExchangeScoped & {
-    toolCallId: string;
-    blockName: string;
-    errorName: string;
-    _snapshot: { error: unknown };
-    duration: number;
-  };
-  "route:agent:finished": ExchangeScoped & {
-    agentName?: string;
-    model: string;
-    finishReason: string;
-    inputTokens?: number;
-    outputTokens?: number;
-    totalTokens?: number;
-  };
-  /**
-   * Emitted after every successful agent dispatch alongside
-   * `route:agent:finished`. Carries the full token breakdown for the
-   * dispatch so consumers can compute cost without subscribing to the
-   * broader lifecycle event.
-   *
-   * Cache fields are present only when the provider reports them (e.g.
-   * Anthropic with prompt caching enabled).
-   */
-  "route:agent:usage": ExchangeScoped & {
-    agentName?: string;
-    model: string;
-    inputTokens?: number;
-    outputTokens?: number;
-    totalTokens?: number;
-    cacheReadTokens?: number;
-    cacheWriteTokens?: number;
-  };
-  "route:agent:error": ExchangeScoped & {
-    agentName?: string;
-    model: string;
-    error: unknown;
-  };
-
-  // -- Agent sessions (emitted by @routecraft/ai for agent() dispatches
-  // that carry `session`). `agentName` is the session's agent: the
-  // registered name, or the route id for an inline agent.
-  /**
-   * A message arrived for a session whose turn is running and was queued
-   * for the next turn boundary. The caller was acknowledged, not answered.
-   */
-  "route:agent:session:queued": ExchangeScoped & {
-    agentName: string;
-    session: string;
-    /** Inbox depth after this message was appended. */
-    depth: number;
-    /** The message asked for the running turn to be interrupted. */
-    interrupt: boolean;
-  };
-  /** A running turn was cancelled by a later message with `interrupt: true`. */
-  "route:agent:session:interrupted": ExchangeScoped & {
-    agentName: string;
-    session: string;
-  };
-  /**
-   * A turn started on a session whose previous turn was cut short by a
-   * restart: its partial transcript was kept, its inbox was intact, and
-   * every background call it was waiting on was reported lost.
-   */
-  "route:agent:session:restored": ExchangeScoped & {
-    agentName: string;
-    session: string;
-    lostBackground: number;
-  };
-  /**
-   * A turn ended with work outstanding (background calls running, or
-   * messages queued), so its exchange's continuation was stored: what a
-   * completion, the queued messages, or a boot revives to run the next
-   * turn and the route's downstream steps.
-   */
-  "route:agent:session:deferred": ExchangeScoped & {
-    agentName: string;
-    session: string;
-    deferralId: string;
-    /** Messages waiting when the deferral was stored. */
-    inbox: number;
-    /** Background calls still running when the deferral was stored. */
-    background: number;
-  };
-  /**
-   * A stored continuation was revived and this turn is the one it runs:
-   * the inbox is its user message and the route's downstream steps follow.
-   * Emitted on the revived exchange, after core's `route:exchange:resumed`.
-   */
-  "route:agent:session:revived": ExchangeScoped & {
-    agentName: string;
-    session: string;
-    deferralId: string;
-  };
-  /** A background tool dispatched its route and returned a handle to the model. */
-  "route:agent:session:background:started": ExchangeScoped & {
-    agentName: string;
-    session: string;
-    handle: string;
-    toolName: string;
-  };
-  /** A background tool's route finished and its result was posted to the session inbox. */
-  "route:agent:session:background:completed": ExchangeScoped & {
-    agentName: string;
-    session: string;
-    handle: string;
-    toolName: string;
-    duration: number;
-  };
-  /** A background tool's route failed and the failure was posted to the session inbox. */
-  "route:agent:session:background:failed": ExchangeScoped & {
-    agentName: string;
-    session: string;
-    handle: string;
-    toolName: string;
-    errorName: string;
-    duration: number;
-  };
-
-  // -- Agent / tool registration (emitted once per registered agent / fn
-  // on context:started by agentPlugin in @routecraft/ai, so observability
-  // consumers can list agents and tools before any of them runs) --
-  "agent:registered": {
-    agentId: string;
-    description?: string;
-    model?: string;
-    source: "registered";
-  };
-  "agent:tool:registered": {
-    toolName: string;
-    description?: string;
-    tags?: string[];
-    source: "registered";
   };
 
   // -- Named servers (shared web ingress) --

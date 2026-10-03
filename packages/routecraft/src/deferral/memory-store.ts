@@ -80,6 +80,9 @@ export class MemoryDeferralStore implements DeferralStore {
             ? { callBinding: record.callBinding }
             : {}),
           ...(record.meta !== undefined ? { meta: record.meta } : {}),
+          ...(record.errorPath !== undefined
+            ? { errorPath: record.errorPath }
+            : {}),
           ...(record.stepState !== undefined
             ? { stepState: record.stepState }
             : {}),

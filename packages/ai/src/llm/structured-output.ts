@@ -1,6 +1,7 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { formatSchemaIssues, isStandardSchema } from "@routecraft/routecraft";
 import { Output, jsonSchema } from "ai";
+import { isThenable } from "../shared/thenable.ts";
 
 /**
  * Lightweight Standard Schema wrapper around a raw JSON Schema. The
@@ -28,19 +29,6 @@ export function wrapJsonSchemaAsStandard(
       },
     } as StandardSchemaV1<unknown, unknown>["~standard"],
   };
-}
-
-/**
- * Any thenable counts as async here, not only a `Promise`.
- *
- * Core holds the same predicate in `shared/thenable.ts`, which is
- * `@internal` and so deliberately absent from `@routecraft/routecraft`'s
- * entry point (`DEFINITION_OF_DONE.md`: no new `@internal` symbols there).
- * This package cannot reach across that boundary, so it keeps a copy
- * rather than the export being widened for a two-line predicate.
- */
-function isThenable(value: unknown): value is PromiseLike<unknown> {
-  return typeof (value as { then?: unknown } | null)?.then === "function";
 }
 
 /**
