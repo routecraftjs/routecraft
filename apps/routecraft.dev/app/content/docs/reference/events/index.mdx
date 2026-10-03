@@ -429,14 +429,21 @@ Listener lifecycle for the MCP HTTP transport is reported by the generic [server
 | `plugin:mcp:tool:deferred` | The route deferred at a durable deferral; execution one answered with the `Deferred` acknowledgment | `{ tool, deferralId }` |
 | `plugin:mcp:tool:failed` | Tool invocation failed | `{ tool, error, proxied?, serverId?, remoteTool? }` |
 | `plugin:mcp:tool:declined` | The route ran and dropped the exchange instead of producing a result | `{ tool, reason }` |
-| `plugin:mcp:ui:served` | An [MCP Apps view](/docs/reference/adapters/mcp#mcp-apps-views) was served for `resources/read` | `{ tool, uri }` |
-| `plugin:mcp:ui:failed` | An [MCP Apps view](/docs/reference/adapters/mcp#mcp-apps-views) could not be loaded for `resources/read`; the caller got a generic error naming the tool | `{ tool, uri, error }` |
 
 `deferred` is deliberately not `completed`. A deferred run is neither finished nor failed: the real result belongs to execution two, which flows to the route's destinations when the answer arrives, so counting the deferral as a completion would publish a false receipt to every dashboard. The wire result is an ordinary `isError: false` answer whose `structuredContent` is the acknowledgment. Local routes only: a proxied call has no exchange of ours to defer.
 
 `declined` is deliberately not `failed`. A tool whose route filters (a guard branch, a "only answer for X" predicate) declines as a matter of course, and counting those as errors would make an error-rate alert fire on ordinary traffic. The caller still receives `isError: true`, because MCP has no other channel to say "no result"; see [AI2002](/docs/reference/errors#ai-2002). It fires for local routes only and carries no provenance fields: a proxied call has no exchange of ours to drop, and a remote error result is reported as `failed`.
 
 For tools proxied from registered clients via [`mcpPlugin({ proxy })`](/docs/reference/plugins/mcpplugin#proxying-client-tools), the same three events fire with `proxied: true`, the registered client id as `serverId`, and the tool's name on the remote server as `remoteTool` (`tool` is the exposed, possibly renamed, name). A proxied call whose remote result carries `isError: true` fires `plugin:mcp:tool:failed`.
+
+### View events
+
+Fired by `resources/read` for an [MCP Apps view](/docs/reference/adapters/mcp#mcp-apps-views), not by a tool call. Together they give a view failure rate.
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `plugin:mcp:ui:served` | An [MCP Apps view](/docs/reference/adapters/mcp#mcp-apps-views) was served for `resources/read` | `{ tool, uri }` |
+| `plugin:mcp:ui:failed` | An [MCP Apps view](/docs/reference/adapters/mcp#mcp-apps-views) could not be loaded for `resources/read`; the caller got a generic error naming the tool | `{ tool, uri, error }` |
 
 ## ACP plugin events
 

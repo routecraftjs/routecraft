@@ -248,7 +248,7 @@ describe("MCP Apps views (#857)", () => {
   /**
    * @case Reading a view that does not exist, or of a filtered-out tool, is not found
    * @preconditions send-mail with a view, hidden by the server's tools filter; a read of an unknown ui:// URI and of the hidden view
-   * @expectedResult Both reads reject, the hidden tool's view is absent from resources/list
+   * @expectedResult The hidden view, an unknown URI, and a visible tool without a view all answer the same resource-not-found error carrying only the requested URI, so the answer does not reveal which tools exist; the hidden view is absent from resources/list
    */
   test("unknown and filtered-out views are not found", async () => {
     const connected = await connect(
@@ -257,12 +257,17 @@ describe("MCP Apps views (#857)", () => {
     );
 
     expect((await connected.listResources()).resources).toEqual([]);
-    await expect(
-      connected.readResource({ uri: "ui://routecraft/send-mail" }),
-    ).rejects.toThrow();
-    await expect(
-      connected.readResource({ uri: "ui://routecraft/nope" }),
-    ).rejects.toThrow();
+    for (const uri of [
+      "ui://routecraft/send-mail",
+      "ui://routecraft/nope",
+      "ui://routecraft/list-tasks",
+    ]) {
+      await expect(connected.readResource({ uri })).rejects.toMatchObject({
+        code: -32602,
+        data: { uri },
+        message: `Resource not found: ${uri}`,
+      });
+    }
   });
 });
 
