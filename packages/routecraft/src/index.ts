@@ -91,7 +91,6 @@ export {
   type ResiliencePositions,
   type RouteKey,
 } from "./kernel/positions.ts";
-export { registerDefaultPlugin } from "./kernel/defaults.ts";
 export {
   resiliencePlugin,
   resilienceProvider,
@@ -521,6 +520,7 @@ export {
   type TypedStep,
 } from "./kernel/steps.ts";
 export type {
+  ConfigKeyPlugins,
   DefaultPlugins,
   DefaultPluginTypes,
   ShippedPlugins,

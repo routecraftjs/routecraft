@@ -1,6 +1,5 @@
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { Adapter, Step } from "../../types.ts";
-import { registerShippedSteps } from "../../kernel/steps.ts";
 import type { DeferralPlugin } from "./index.ts";
 import type { DeferralAffordance } from "../../kernel/continuation/exchange-state.ts";
 import type { ResumeAcknowledgment } from "../../kernel/continuation/resume.ts";
@@ -37,10 +36,12 @@ export const deferralSteps = {
         new ResumeStep(undefined, mapper ?? options),
 };
 
-registerShippedSteps("routecraft.deferral", deferralSteps);
-
 declare module "@routecraft/routecraft" {
   interface ShippedPluginTypes {
+    deferral: DeferralPlugin;
+  }
+
+  interface ConfigKeyPlugins {
     deferral: DeferralPlugin;
   }
 

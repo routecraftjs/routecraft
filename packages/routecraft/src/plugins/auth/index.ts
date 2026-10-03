@@ -1,7 +1,7 @@
 import { authorize } from "../../auth/authorize.ts";
 import type { Principal } from "../../principal.ts";
 import { principalOf, type Exchange } from "../../exchange.ts";
-import { registerShippedSteps, step, type Body } from "../../kernel/steps.ts";
+import { step, type Body } from "../../kernel/steps.ts";
 import {
   AuthenticateStep,
   type CallableAuthenticator,
@@ -12,7 +12,7 @@ import {
   type DelegateStepOptions,
 } from "../../operations/delegate.ts";
 import { definePlugin, type Plugin } from "../../kernel/plugin.ts";
-import { registerDefaultPlugin } from "../../kernel/defaults.ts";
+import { registerShippedPlugin } from "../../kernel/defaults.ts";
 import {
   ENFORCEMENT,
   type EnforcementPositions,
@@ -128,8 +128,6 @@ export function authPlugin(): AuthPlugin {
   });
 }
 
-registerShippedSteps("routecraft.auth", authSteps);
-
 declare module "@routecraft/routecraft" {
   interface ShippedPluginTypes {
     auth: AuthPlugin;
@@ -150,4 +148,4 @@ export interface AuthPlugin extends Plugin {
   readonly facet: (exchange: Exchange) => AuthFacet;
 }
 
-registerDefaultPlugin("routecraft.auth", authPlugin);
+registerShippedPlugin(authPlugin, { default: true });

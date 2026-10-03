@@ -1,4 +1,5 @@
 import { rcError } from "../error.ts";
+import { shippedPlugins } from "./defaults.ts";
 import { DefaultExchange, OperationType, type Exchange } from "../exchange.ts";
 import {
   toSignalContext,
@@ -293,48 +294,27 @@ export interface ShippedPluginTypes {}
 // eslint-disable-next-line @typescript-eslint/no-empty-object-type -- filled by declaration merging
 export interface DefaultPluginTypes {}
 
+/**
+ * The plugin type each config key installs, for keys whose plugin adds
+ * route methods or facets. A package registering such a key merges it in
+ * beside its `registerConfigApplier`, so `defineProject` types the routes
+ * of a project that sets the key without naming the plugin.
+ *
+ * @example
+ * ```ts
+ * declare module "@routecraft/routecraft" {
+ *   interface ConfigKeyPlugins { approvals: ApprovalsPlugin }
+ * }
+ * ```
+ */
+// eslint-disable-next-line @typescript-eslint/no-empty-object-type -- filled by declaration merging
+export interface ConfigKeyPlugins {}
+
 /** The union of {@link ShippedPluginTypes}. */
 export type ShippedPlugins = ShippedPluginTypes[keyof ShippedPluginTypes];
 
 /** The union of {@link DefaultPluginTypes}. */
 export type DefaultPlugins = DefaultPluginTypes[keyof DefaultPluginTypes];
-
-const SHIPPED: unique symbol = Symbol.for("routecraft.shipped-steps");
-
-type GlobalWithShipped = typeof globalThis & {
-  [SHIPPED]?: Map<string, Readonly<Record<string, StepFactory>>>;
-};
-
-function shipped(): Map<string, Readonly<Record<string, StepFactory>>> {
-  return ((globalThis as GlobalWithShipped)[SHIPPED] ??= new Map());
-}
-
-/**
- * Make a shipped plugin's steps methods of the root `craft()`. Called by
- * the plugin's module when the package loads; keyed on `Symbol.for` so two
- * copies of the package share one catalogue.
- *
- * @internal
- */
-export function registerShippedSteps(
-  id: string,
-  steps: Readonly<Record<string, StepFactory>>,
-): void {
-  shipped().set(id, steps);
-}
-
-/**
- * The shipped plugins' steps, as plugin-shaped entries for
- * {@link catalogueOf}.
- *
- * @internal
- */
-export function shippedSteps(): {
-  readonly id: string;
-  readonly steps: Readonly<Record<string, StepFactory>>;
-}[] {
-  return [...shipped()].map(([id, steps]) => ({ id, steps }));
-}
 
 /**
  * The step catalogue of every shipped plugin: the root `craft()`'s methods.
@@ -342,5 +322,5 @@ export function shippedSteps(): {
  * @internal
  */
 export function shippedCatalogue(): StepCatalogue {
-  return catalogueOf(shippedSteps());
+  return catalogueOf(shippedPlugins());
 }

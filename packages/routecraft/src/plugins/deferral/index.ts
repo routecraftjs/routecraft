@@ -1,3 +1,4 @@
+import { registerShippedPlugin } from "../../kernel/defaults.ts";
 import {
   definePlugin,
   type Plugin,
@@ -346,6 +347,8 @@ export function deferralPlugin(config: DeferralConfig = {}): DeferralPlugin {
     },
   });
 }
+
+registerShippedPlugin(() => deferralPlugin());
 
 /**
  * The deferral plugin's descriptor type, for typing a project's routes.

@@ -156,6 +156,19 @@ function validateShape(plugin: unknown, where: string): Plugin {
  * placed ahead of the first plugin that brings it. An id the application
  * lists itself is never brought: the application's own choice wins.
  */
+/**
+ * Every plugin a list installs, brought plugins included, in install order.
+ * What a project's step catalogue is built from, so it holds exactly the
+ * steps its application will install.
+ *
+ * @internal
+ */
+export function installedPlugins(plugins: readonly unknown[]): Plugin[] {
+  return expand(
+    plugins.map((plugin, index) => validateShape(plugin, `at index ${index}`)),
+  );
+}
+
 function expand(listed: readonly Plugin[]): Plugin[] {
   const listedIds = new Set(listed.map((plugin) => plugin.id));
   const brought = new Set<string>();

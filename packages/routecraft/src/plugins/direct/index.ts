@@ -1,5 +1,5 @@
 import { definePlugin, type Plugin } from "../../kernel/plugin.ts";
-import { registerDefaultPlugin } from "../../kernel/defaults.ts";
+import { registerShippedPlugin } from "../../kernel/defaults.ts";
 import {
   createDirectRegistry,
   DIRECT,
@@ -25,4 +25,4 @@ export function directPlugin(
   });
 }
 
-registerDefaultPlugin("routecraft.direct", () => directPlugin());
+registerShippedPlugin(directPlugin, { default: true });
