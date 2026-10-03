@@ -1,0 +1,89 @@
+---
+title: Servers and ports
+---
+
+<Lead>
+One listener, many doors. Every door that speaks HTTP mounts a path on a named server, and unless you say otherwise that server is the one called `default`. This page covers declaring it, what mounts where, and when to give a door a port of its own.
+</Lead>
+
+## The default server
+
+A server is a listener you declare under `servers`, by name. Every surface that serves HTTP mounts onto the one named `default` unless it names another:
+
+```ts
+// craft.config.ts
+import { defineConfig } from "@routecraft/routecraft";
+import "@routecraft/ai";
+
+export const craftConfig = defineConfig({
+  servers: { default: { port: 8080 } },
+  http: {}, //                      http() routes, at /
+  mcp: { transport: "http" }, //    MCP, at /mcp
+  ops: {}, //                       health and the ops API, at /health and /ops
+});
+```
+
+One port, three doors. The listener is not implied: a surface that mounts HTTP on a server nobody declared stops the start with [`RC5003`](/docs/reference/errors#rc-5003), naming the server and the line to add. A project that serves nothing over HTTP needs no server at all, which is why a new project, serving MCP over stdio, has none.
+
+## What mounts where
+
+| Surface | Config key | Path on its server |
+| --- | --- | --- |
+| `http()` routes | `http` | `/`, each route at its own path, plus the `/health`, `/ready` and `/openapi.json` built-ins |
+| MCP over HTTP | `mcp` with `transport: "http"` | `/mcp` |
+| The editor protocol | `acp` | `/acp` |
+| Health and the ops API | `ops` | `/health/**` and `/ops/**` |
+
+Every mount declares the paths it answers, and all of them are checked against each other before the listener binds. Two surfaces claiming the same path on one server is a startup failure with `RC5003`, never a race decided by registration order. The one deliberate overlap: when `ops` shares a server with `http`, the `http` built-in `/health` stands down and `ops` answers it with the real report.
+
+## A door on its own port
+
+Declare a second server and point the surface at it by name. The common split keeps the public doors on one port and the operational surface on another, reachable only from inside the network:
+
+```ts
+// craft.config.ts
+import { defineConfig } from "@routecraft/routecraft";
+import "@routecraft/ai";
+
+export const craftConfig = defineConfig({
+  servers: {
+    default: { host: "0.0.0.0", port: 8080 },
+    internal: { host: "0.0.0.0", port: 9090 },
+  },
+  http: {},
+  mcp: { transport: "http" },
+  ops: { server: "internal" },
+});
+```
+
+Outside development, MCP over HTTP also needs its public `resource.url`; [Expose to an agent](/docs/introduction/expose-to-an-agent#over-http-for-a-team) has the full block.
+
+`mcp`, `acp`, `ops` and `http` all take `server`. A named server that ends up with no mount on it is a configuration mistake and fails the start, and two servers cannot claim the same `host:port`. Splitting is a deployment choice, not a different kind of instance: the same capabilities answer on whichever port their door is mounted.
+
+## Who may connect
+
+**Host.** A server binds `127.0.0.1` unless you set `host`, so a fresh instance is reachable only from the machine it runs on. Bind `0.0.0.0` in a container or on a server. A Kubernetes probe and a reverse-proxy health check reach the pod from outside, so an operational port that must stay private is kept private at the network layer, not by binding loopback.
+
+**Hostnames.** MCP and the editor protocol check the `Host` header against the names the server is bound to, which defeats DNS rebinding from a browser. Behind a public hostname, list it in `allowedHostnames`, or those requests are refused: `{ port: 8080, allowedHostnames: ["mcp.example.com"] }`.
+
+**Credentials.** A server can carry an `auth` validator, and every mount on it inherits that validator unless it sets its own. `auth: false` on a mount removes its wall while keeping the server's validator available to routes that check identity with `.authorize()`. [Credentials and identity](/docs/introduction/credentials-and-identity) explains whose credential a call carries, and [Securing capabilities](/docs/advanced/securing-capabilities) has every validator.
+
+## Starting and stopping
+
+`port: 0` lets the operating system pick a free port, which is what tests want; the port it chose arrives on the `server:listening` event. On shutdown a server stops accepting, lets in-flight requests finish for up to `shutdownGrace` (30 seconds by default), then closes. [Deployment](/docs/introduction/deployment) covers running the instance always on.
+
+---
+
+## Related
+
+<QuickLinks>
+
+<QuickLink title="Doors and triggers" icon="presets" href="/docs/introduction/doors-and-triggers" description="Every way a capability is reached, and what starts one when nobody asks." />
+
+<QuickLink title="Expose to an agent" icon="plugins" href="/docs/introduction/expose-to-an-agent" description="MCP over stdio and over HTTP, and what a client sees." />
+
+<QuickLink title="serversPlugin reference" icon="presets" href="/docs/reference/plugins/serversplugin" description="Every listener option, mounts and claims, and the lifecycle." />
+
+<QuickLink title="Configuration" icon="installation" href="/docs/reference/configuration#servers-and-http" description="The servers, http and ops keys." />
+
+</QuickLinks>

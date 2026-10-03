@@ -88,7 +88,7 @@ A tool whose route declares no `.output()` advertises no schema, so nothing is c
 
 **Non-object outputs.** `.output({ body })` accepts any Standard Schema, including one whose JSON Schema root is not an object (`z.string()`, `z.array(...)`). MCP's 2025 protocol revision requires `structuredContent` to be an object, so on that revision the advertised schema and the published result both arrive inside the [SEP-2106](https://modelcontextprotocol.io/specification/2026-07-28) envelope: `outputSchema` becomes `{ type: 'object', properties: { result: <yours> }, required: ['result'] }` and the result becomes `{ "result": "42.50" }`. The 2026-07-28 revision carries both bare. This is a wire concern only. Your route declares and returns the bare value, the text content block still renders it unwrapped, and nothing in the pipeline ever sees `{ result: ... }`.
 
-One exception to "advertises that schema": a route that can defer at a durable deferral advertises `oneOf: [Output, Deferred]` instead, because a call that defers returns the framework's `Deferred` acknowledgment rather than the declared output. See [Deferrable tools](/docs/advanced/expose-as-mcp#deferrable-tools).
+One exception to "advertises that schema": a route that can defer at a durable deferral advertises `oneOf: [Output, Deferred]` instead, because a call that defers returns the framework's `Deferred` acknowledgment rather than the declared output. See [Deferrable tools](/docs/advanced/durable-agents#over-mcp).
 
 **Declined calls:**
 
@@ -166,4 +166,4 @@ const tools = registry ? Array.from(registry.values()) : []
 
 `mcp()` and `direct()` maintain separate, fully isolated registries. An MCP route with `.id('foo').from(mcp())` and a direct route with `.id('bar').from(direct())` both register by their own ids in their own stores; direct routes never appear in the MCP `tools/list` response.
 
-See [Running an MCP server](/docs/advanced/expose-as-mcp), [Calling an MCP](/docs/advanced/call-an-mcp), and the [MCP example](/docs/examples/mcp).
+See [Expose to an agent](/docs/introduction/expose-to-an-agent), [Calling an MCP](/docs/advanced/call-an-mcp), and the [MCP example](/docs/examples/mcp).

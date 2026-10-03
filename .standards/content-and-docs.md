@@ -9,21 +9,32 @@ follows the per-area docs and the user-facing site.
 
 ## The five surfaces
 
-The split between `introduction/` and `advanced/` is a **depth axis**, not a concept-vs-guide
-split. Both are concept-led; advanced just goes deeper and may also carry guides.
+The split between `introduction/` and `advanced/` is a **defaults axis**, not a concept-vs-guide
+split and not a difficulty scale. A page belongs in `introduction/` when a project uses what it
+describes with the defaults (one server, MCP over stdio or HTTP, an API key, deploying,
+monitoring); it belongs in `advanced/` when the reader is going past them (remotes, the JWT and
+OAuth ladder, proxying, durable agents, plugins, custom adapters). One topic often splits: the
+default setup in `introduction/`, the options added later in `advanced/`, every flag in
+`reference/`.
 
-| Surface | Home | Job | Maintained | Vendor-specific |
-|---|---|---|---|---|
-| Foundational concept | `docs/introduction/` | the basics: what it is, how the core works | yes | no |
-| Advanced concept (+ guides) | `docs/advanced/` | deeper concepts and how to apply them; guides welcome | yes | no |
-| Reference | `docs/reference/` | every option, lookup | yes | no |
-| Example | `docs/examples/` | runnable real-world use case; the single source of code | yes | minimal |
-| Blog | `blog/` | story, named vendor, or comparison; version-pinned | no | yes |
+The sidebar labels the two groups **Fundamentals** and **Beyond the defaults**. The folder
+names stay `introduction/` and `advanced/`, because renaming them would move every published
+URL under them; the labels name the same surfaces, which is what navigation-matches-folders
+requires. The Getting started group is the exception: its quickstarts live in `introduction/`
+because they are the first pages of that surface, not a surface of their own.
+
+| Surface | Home | Sidebar | Job | Maintained | Vendor-specific |
+|---|---|---|---|---|---|
+| Foundational concept | `docs/introduction/` | Fundamentals | the platform with its defaults: what it is, how the core works, the default setup of each door | yes | no |
+| Advanced concept (+ guides) | `docs/advanced/` | Beyond the defaults | what you add past the defaults, and how to apply it; guides welcome | yes | no |
+| Reference | `docs/reference/` | Reference | every option, lookup | yes | no |
+| Example | `docs/examples/` | Examples | runnable real-world use case; the single source of code | yes | minimal |
+| Blog | `blog/` | (not in the docs sidebar) | story, named vendor, or comparison; version-pinned | no | yes |
 
 ## Decision tests
 
-1. **Basics or depth?** Foundational goes in `introduction/`, deeper goes in `advanced/`.
-   Same author voice, different level.
+1. **Default or past it?** What a project uses with the defaults goes in `introduction/`;
+   what you add past them goes in `advanced/`. Same author voice, different depth.
 2. **Maintained-forever and generic?** It is docs. **Dated or vendor-named?** It is a blog
    post. A vendor walkthrough (Clerk, Stripe, WorkOS) is always a blog post, never an
    `advanced/` page; the `advanced/` page is the vendor-neutral version the blog links back to.

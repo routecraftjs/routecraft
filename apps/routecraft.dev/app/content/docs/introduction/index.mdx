@@ -16,7 +16,7 @@ A policy memo does not fix this. Teams route around a ban. What fixes it is a pl
 
 ## The platform in one picture
 
-<Diagram id="platform" />
+<Diagram id="platform-architecture" />
 
 Read it top to bottom.
 
@@ -24,8 +24,9 @@ Read it top to bottom.
 - **A local harness per person.** Your laptop, your own access, nothing to approve before you can try something. You build and prove a capability here.
 - **The team harness.** Always on, on your own infrastructure, on service credentials no person holds, with access rules you control. When a capability has earned its place, you promote it here, and from then on every team calls the same one.
 - **Promote, remote, share.** A proven capability moves from the local harness to the team harness. A local harness can reach the team harness's capabilities through a remote, so the two are one surface. Capabilities, skills and agents ship as packages, so the next team installs yours instead of writing their own.
+- **Inside every harness, the same runtime.** Every call passes one gate in a fixed order: who is calling, what they may do, whether the input is valid, then throttling, retries, timeouts and caching. Behind the gate sit agents and skills, capabilities built from operations, adapters to the outside world, and the stores that let work and conversations survive a restart.
 - **When it needs a decision, it asks a person.** Approve by mail or chat, and the capability continues, hours or days later, through any door.
-- **Your systems stay where they are.** CRM, ERP, HR and payroll, the support desk, the knowledge base, mail and calendar, chat, source control. Routecraft is the one governed way in.
+- **Your systems stay where they are.** CRM, ERP, HR and payroll, ticketing, the knowledge base, mail and calendar, chat, source control, and any model provider you approve. Routecraft is the one governed way in.
 
 Switch telemetry on and every call, through every door, is on record: who asked, which door, which capability, which system.
 
@@ -82,6 +83,15 @@ craft()
   .to(destination)
 ```
 
+## Two places to start
+
+- **An empty project.** `bunx create-routecraft my-project` scaffolds one capability that is already an MCP tool. Connect the agent you use today and call it. Start here when you want to give an existing agent a tool. [Tools for agents](/docs/introduction/tools-for-agents) walks it through.
+- **craft-harness.** A complete local harness to start from: chat, a sandboxed shell, web fetch and search, a workspace, memory, a scheduler and human approvals, each an ordinary capability under `capabilities/` with its guardrails where you can read them. It serves MCP and the editor protocol from the first boot. It is a Routecraft project like any other, not a product on top: read it, keep what you need, delete the rest. Start here when you want an agent of your own. [An agent of your own](/docs/introduction/an-agent-of-your-own) walks it through.
+
+```bash
+bunx create-routecraft my-agent --example https://github.com/routecraftjs/craft-harness
+```
+
 ## Hands, not keys
 
 An agent that holds a credential can do anything that credential can do. An agent that calls a capability can do what the capability does, and nothing else.
@@ -114,7 +124,7 @@ Most teams have a prompt library and a repository of skills and agents. The jump
 
 <QuickLink title="Capabilities" icon="plugins" href="/docs/introduction/capabilities" description="Author small, focused capabilities using the DSL." />
 
-<QuickLink title="Running an MCP server" icon="presets" href="/docs/advanced/expose-as-mcp" description="Give Claude, Cursor or Copilot a capability to call." />
+<QuickLink title="Expose to an agent" icon="presets" href="/docs/introduction/expose-to-an-agent" description="Give Claude, Cursor or Copilot a capability to call." />
 
 <QuickLink title="Talk from your editor" icon="presets" href="/docs/introduction/talk-from-your-editor" description="Reach a running harness from the editor you already have open." />
 

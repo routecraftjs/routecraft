@@ -62,7 +62,7 @@ VS Code and Copilot (`.vscode/mcp.json`):
 
 A team shares the tool by running the project always on, serving MCP over HTTP behind
 authentication, on service credentials no person holds. That is a config change, not a code
-change: [Running an MCP server](https://routecraft.dev/docs/advanced/expose-as-mcp) shows the
+change: [Expose to an agent](https://routecraft.dev/docs/introduction/expose-to-an-agent) shows the
 HTTP transport and [Local harness, team harness](https://routecraft.dev/docs/introduction/local-and-team-harness)
 shows the step.
 

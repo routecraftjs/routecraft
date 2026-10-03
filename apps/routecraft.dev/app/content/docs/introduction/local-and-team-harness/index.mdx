@@ -41,7 +41,7 @@ export const craftConfig = defineConfig({
 
 From then on `direct('find-overdue-invoices')` in a local route, `Direct(find-overdue-invoices)` in a local agent's tool list, and `craft exec find-overdue-invoices` all reach the team harness's capability as if it were local, with its input schema advertised to your agents exactly as the team harness renders it. Validation runs where the schema lives: at the team harness's door.
 
-Two rules keep this safe. The credential is the environment's: `auth.token` is read per request from wherever the deployment keeps it, so a rotated token is picked up without a restart. And your local identity is never forwarded: the remote capability runs under the identity the token carries, which is this instance's, not yours. The [remotes reference](/docs/reference/plugins/remotesplugin) covers names, shadowing and outcomes.
+Two rules keep this safe. The credential is the environment's: `auth.token` is read per request from wherever the deployment keeps it, so a rotated token is picked up without a restart. And your local identity is never forwarded: the remote capability runs under the identity the token carries, which is this instance's, not yours. [Connecting harnesses](/docs/advanced/connecting-harnesses) is the setup on both sides, and the [remotes reference](/docs/reference/plugins/remotesplugin) covers names, shadowing and outcomes.
 
 ## What travels between harnesses
 

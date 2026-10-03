@@ -55,7 +55,7 @@ export function Guardrails() {
           </p>
           <div className="flex flex-wrap items-center gap-x-6 gap-y-3 lg:justify-end">
             <AppLink
-              href="/docs/advanced/expose-as-mcp"
+              href="/docs/introduction/expose-to-an-agent"
               className="group inline-flex items-center gap-2 font-mono text-[0.7rem] tracking-[0.22em] text-cobalt-500 uppercase hover:text-cobalt-600"
             >
               <span>Give your agent hands</span>
