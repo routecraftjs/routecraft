@@ -52,7 +52,7 @@ What this architecture is for. Each is traceable to an agreed entry in the regis
 Anything a first-party package can do, a third party can do through published API. Not "mostly", not "for the common cases". This is the principle every other one serves, and it must be true before 1.0.
   
 
-**Amended after validation.** The original test — "if it compiles with no private import, the interface is real" — is too weak, and I1 shows why: a stranger passes it today by re-deriving a global symbol from its string, and proves nothing, because the thing they depend on is not a contract.
+**Amended after validation.** The original test, "if it compiles with no private import, the interface is real", is too weak, and I1 shows why: a stranger passes it today by re-deriving a global symbol from its string, and proves nothing, because the thing they depend on is not a contract.
   
 > **P1, amended.** Anything a first-party package can do, a third party can do through API that is **exported, documented and covered by the version policy**. A capability reachable only through a name that is not exported is not reachable, whatever the module system permits.
   
@@ -128,7 +128,7 @@ Whatever core uses to build itself must be the same thing it hands out, and anyt
 Binary claims, each checkable against a named file. This is the case. If these hold, the architecture needs to change whatever anyone concludes about churn.
 
   
-### I1. ~~A third party cannot write a server plugin~~ — restated
+### I1. ~~A third party cannot write a server plugin~~: restated
  _[Refuted]_
   
 
@@ -171,7 +171,7 @@ The fourth claim in these documents to be confidently wrong and caught by readin
 `CHAIN_SURVIVAL` is keyed by `Exclude<keyof RouteDefinition, NonChainField>`, so a chain position must be a field on `RouteDefinition`. Handler points are not fields, so the handler-points work had to add a second, parallel, hand-maintained table on its own branch. **And three of the nine keys are buckets, not positions** (`preParseFilters`, `postParseFilters`, `postFromFilters`), each justifying a whole-bucket policy by citing one member, while the chain standard names eleven positions. Per-contribution survival forces a decision for every position hidden inside a bucket, and nobody has made those decisions.
   
 
-**pipeline/chain-policy.ts** `CHAIN_SURVIVAL` · `POINT_SURVIVAL` is on `feat/816-route-handler-points`, **not on main** — the original claim cited it as current code
+**pipeline/chain-policy.ts** `CHAIN_SURVIVAL` · `POINT_SURVIVAL` is on `feat/816-route-handler-points`, **not on main**; the original claim cited it as current code
 
   
 ### I5. Two subsystems cannot share one database, by design
@@ -282,7 +282,7 @@ Proposed rule: a utility earns `shared/` at its third consumer
  _(register: evidence)_
   
 
-**Withdrawn.** Re-run over a full clone, `adapters/` does carry the highest raw churn (27,532) but **not** the lowest rework, at 0.9 edits per file. The lowest is `deferral/` at **0.1, on two commits in twelve months**, because the rename from `suspension/` created it weeks before the measurement — the exact distortion the register itself identified and withdrew as O3. This was the only evidence that a real interface prevents rework, and it does not survive its own command.
+**Withdrawn.** Re-run over a full clone, `adapters/` does carry the highest raw churn (27,532) but **not** the lowest rework, at 0.9 edits per file. The lowest is `deferral/` at **0.1, on two commits in twelve months**, because the rename from `suspension/` created it weeks before the measurement: the exact distortion the register itself identified and withdrew as O3. This was the only evidence that a real interface prevents rework, and it does not survive its own command.
   
 
 Reproduce with `git log --since="12 months ago" --numstat` over `packages/*/src/**/*.ts`
@@ -680,7 +680,7 @@ How does a step contributed by a plugin become a typed method on the builder? Th
 `registerDsl` patches a prototype at runtime and the plugin author writes a `declare module` separately. Nothing correlates the two halves.
   
 ```ts
-// test/builder.test.ts — `ghost` is declared and never registered
+// test/builder.test.ts: `ghost` is declared and never registered
 declare module "../src/builder/index.ts" {
   interface FluentBuilder<S extends { body: unknown }> {
     ghost(): this;
@@ -780,7 +780,7 @@ The fix is to stop asking TypeScript to infer a type-level relationship out of a
   **Scale:** 40 chained steps across 40 distinct plugin signatures, body type still flowing and deeply accessible, whole spike typechecks in **1.29s**. The standard objection to HKT encodings does not bite here.
   
 
-**Consequence for the plan.** The design's single largest stated risk — that `from` and type flow make P3 unreachable — was assessed against an encoding set that excluded the one that works. Step 1 of the sequence is still the right first step, aimed at the wrong target.
+**Consequence for the plan.** The design's single largest stated risk, that `from` and type flow make P3 unreachable, was assessed against an encoding set that excluded the one that works. Step 1 of the sequence is still the right first step, aimed at the wrong target.
   
 
 `spikes/validation/src/e-hkt.ts` · `e-hkt.check.ts` · `scale.check.ts`
@@ -802,10 +802,10 @@ Four passing tests, each demonstrating a failure. **A step cannot halt:** `Step.
  _(amends P4, P8)_
   
 
-**Two plugin interfaces.** The spike has `Plugin`, used by the kernel, and `TypedPlugin`, used by the derived builder. They share no members, nothing correlates them, and the builder ignores `dependsOn` entirely — so it hands you a `defer` method for a plugin set the kernel would refuse to start. That is the two-halves bug this work exists to remove, reintroduced by the fix for it.
+**Two plugin interfaces.** The spike has `Plugin`, used by the kernel, and `TypedPlugin`, used by the derived builder. They share no members, nothing correlates them, and the builder ignores `dependsOn` entirely, so it hands you a `defer` method for a plugin set the kernel would refuse to start. That is the two-halves bug this work exists to remove, reintroduced by the fix for it.
   
 
-**Tokens are a weaker boundary than what they replace.** `token(name)` is `Symbol.for(name)`, a process-global string registry. Two packages choosing `"acme.thing"` get the same key — I ran it, they do — **silently, at runtime**, where declaration merging gave a compile error. By P8's own standard the replacement is worse. The token design is still right for other reasons, but it needs a collision mechanism and package-namespaced names.
+**Tokens are a weaker boundary than what they replace.** `token(name)` is `Symbol.for(name)`, a process-global string registry. Two packages choosing `"acme.thing"` get the same key (I ran it, they do), **silently, at runtime**, where declaration merging gave a compile error. By P8's own standard the replacement is worse. The token design is still right for other reasons, but it needs a collision mechanism and package-namespaced names.
 
   
 ### V4. All five awkward things have better answers, with code
@@ -843,7 +843,7 @@ Four passing tests, each demonstrating a failure. **A step cannot halt:** `Step.
  _(new work)_
   
 
-**1. Versioning of the plugin contract.** The largest omission for a design whose whole purpose is third parties. After this change the public surface is 598 exported names *plus* every token name, wrapper id, step name and handler id — all strings, none under any policy. Put the ids in exported constants so a rename is a compile error, and bring them under `.standards/api-stability.md`.
+**1. Versioning of the plugin contract.** The largest omission for a design whose whole purpose is third parties. After this change the public surface is 598 exported names *plus* every token name, wrapper id, step name and handler id, all strings, none under any policy. Put the ids in exported constants so a rename is a compile error, and bring them under `.standards/api-stability.md`.
   
 
 **2. Isolation is claimed and not built.** A2 says "you cannot read what you did not declare". In the spike any plugin can `require` any token it can name and `provide` over one a first-party plugin already published. Either scope the registry by declaration or delete the claim, because it will be quoted later as a security property.
@@ -858,7 +858,7 @@ Four passing tests, each demonstrating a failure. **A step cannot halt:** `Step.
 **8–10.** Streaming: `Pipeline` is `(ex) => Promise<void>`, and SSE on the HTTP source is one of the changes that drove the executor to 2,275 lines. A testing story for plugin authors. Migration, which R2 prices at roughly half the suite.
   
 
-**11. What breaks in year two.** `InterventionPoint` is closed at five and a sixth is "a core change by definition", with no process for it. And relative ordering is a coordination problem that worsens with population: with thirty wrappers most pairs are undetermined, and the sort resolves undetermined pairs by *install order* — the same non-determinism I9 complains about, relocated. Core should detect an under-constrained chain, or define a tiebreak that is not install order.
+**11. What breaks in year two.** `InterventionPoint` is closed at five and a sixth is "a core change by definition", with no process for it. And relative ordering is a coordination problem that worsens with population: with thirty wrappers most pairs are undetermined, and the sort resolves undetermined pairs by *install order*, the same non-determinism I9 complains about, relocated. Core should detect an under-constrained chain, or define a tiebreak that is not install order.
   
 
 **12. A problem this design creates that today does not have.** Today a wrapper's position is wrong only if someone edits `executor.ts`, one reviewed file. After this change it is a function of every installed plugin's constraints, so installing an unrelated third-party plugin can silently reorder your resilience chain. Items 6 and 11 are what make that tolerable, and both are absent.
@@ -887,7 +887,7 @@ Ordered so the cheapest work unblocks the rest, and so the one thing that could 
 
     
 
-**Still the right first step, now aimed correctly.** The original target was the wrong encoding set (V1). What remains open is not whether a body type can flow — it can, at 40 steps in 1.29s — but how a *source* becomes a contribution, which the spike never demonstrated because it declared `RouteSpec.source` and never subscribed it.
+**Still the right first step, now aimed correctly.** The original target was the wrong encoding set (V1). What remains open is not whether a body type can flow (it can, at 40 steps in 1.29s) but how a *source* becomes a contribution, which the spike never demonstrated because it declared `RouteSpec.source` and never subscribed it.
   
   
 - 
@@ -964,7 +964,7 @@ Today six operations go through `registerDsl` and roughly seventy are hard-coded
   
 - **Ratchet.** CI counts core-to-plugin imports *with a checked-in script whose output is quoted*, never a prose number. Today: 12 offending files, 75 statements, ~156–190 symbols. A ratchet on a figure two people cannot reproduce with the same command is a gate nobody trusts.
   
-- **Suite.** The existing tests pass throughout — but **129–194 of 265 test files import a deep `src/` path**, so roughly half the suite is coupled to the layout this work changes. That figure is the migration budget. The earlier "96% survives" claim does not reproduce under any method. And a green suite proves preservation, not correctness: #818 was green at 3,841 tests while carrying two defects in the core error path.
+- **Suite.** The existing tests pass throughout, but **129 to 194 of 265 test files import a deep `src/` path**, so roughly half the suite is coupled to the layout this work changes. That figure is the migration budget. The earlier "96% survives" claim does not reproduce under any method. And a green suite proves preservation, not correctness: #818 was green at 3,841 tests while carrying two defects in the core error path.
 
 ## 12. Open questions
 

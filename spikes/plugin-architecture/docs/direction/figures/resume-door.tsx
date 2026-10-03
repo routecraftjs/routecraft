@@ -38,7 +38,7 @@ const BEATS: Beat[] = [
   {
     who: "runtime",
     step: "the door",
-    note: "the admission ring over the approval: authorize sees the approver, the parked headers, the payload and the record without its body; elevate may re-mint the parked identity within what was refused. False, a throw or an abort is one refusal",
+    note: "the front of the chain, up to afterAuth, over the approval: authorize sees the approver, the parked headers, the payload and the record without its body; elevate may re-mint the parked identity within what was refused. False, a throw or an abort is one refusal",
     tag: "refused: nothing disclosed, nothing spent",
     door: true,
   },
@@ -58,7 +58,7 @@ const BEATS: Beat[] = [
     who: "runtime",
     step: "re-admission, if parked at the door",
     note: "the gate that refused is asked again of what the continuation carries: the parked identity, or the door's lend",
-    tag: "refused again: a failure the error ring hears",
+    tag: "refused again: a failure the error slot hears",
   },
   {
     who: "runtime",

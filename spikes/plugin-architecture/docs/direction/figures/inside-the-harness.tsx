@@ -137,13 +137,12 @@ function Kernel({ palette }: { palette: FigurePalette }) {
         labelWidth={170}
       >
         {k([
-          "admission",
-          "entry",
-          "breaker",
+          "error",
+          "beforeAuth",
+          "authorize",
           "retry",
           yours("your wrapper"),
           "timeout",
-          "concurrency",
           <Chip key="loop" palette={palette} tone="accent">
             step loop
           </Chip>,
@@ -160,9 +159,8 @@ function Kernel({ palette }: { palette: FigurePalette }) {
           )}
         </Chips>
         <Note palette={palette} inverse>
-          what escapes the wrappers reaches the error ring, whose handlers may
-          park it at the step that failed; a run ends completed, refused, failed
-          or deferred
+          positions are fixed, slots take any plugin's hooks; what escapes
+          reaches the error slot, which may park it
         </Note>
       </Row>
       <Row palette={palette} inverse label="Which runs" labelWidth={170}>
@@ -203,7 +201,7 @@ function Kernel({ palette }: { palette: FigurePalette }) {
           "record the outcome",
         ])}
         <Note palette={palette} inverse>
-          the door is the admission ring run over the approval: a refusal
+          the door is the front of the chain run over the approval: a refusal
           discloses nothing and spends nothing; one caller wins, a second is
           answered from the record
         </Note>
@@ -281,7 +279,7 @@ function Figure({ palette }: FigureProps) {
                 <Plugin
                   palette={palette}
                   name="resilience"
-                  does="wrappers: retry, timeout, breaker"
+                  does="positions: retry, timeout, breaker"
                 />
                 <Plugin
                   palette={palette}
@@ -317,7 +315,7 @@ function Figure({ palette }: FigureProps) {
                   palette={palette}
                   yours
                   name="your wrapper"
-                  does="lands between retry and timeout"
+                  does="in the perAttempt slot, inside retry"
                 />
                 <Plugin
                   palette={palette}
@@ -347,7 +345,8 @@ function Figure({ palette }: FigureProps) {
                 "replaces",
                 "points",
                 "facets",
-                "methods",
+                "steps",
+                "hooks",
               ].map((t) => (
                 <Chip key={t} palette={palette} style={{ padding: "5px 8px" }}>
                   {t}
@@ -381,7 +380,7 @@ function Figure({ palette }: FigureProps) {
           <Socket
             palette={palette}
             name="CONTRIBUTION"
-            does="handler · wrapper, by anchor"
+            does="handler · wrapper, in a slot"
           />
           <Socket
             palette={palette}
@@ -446,7 +445,7 @@ function Figure({ palette }: FigureProps) {
             <Port
               palette={palette}
               name="RESILIENCE"
-              by="owns RETRY, TIMEOUT"
+              by="fills retry, timeout"
             />
           </Chips>
         </div>

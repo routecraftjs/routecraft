@@ -78,15 +78,20 @@ function Figure({ palette }: FigureProps) {
           {stage("Order", "a topological sort over require and provide", [
             "CYCLE",
           ])}
+          {stage("Bind", "each bind in order: require, provide, observe", [
+            "UNKNOWN_POINT",
+            "UNPROVIDED_PORT",
+            "UNDECLARED_REQUIRE",
+          ])}
           {stage(
-            "Bind",
-            "each bind in order: require, provide, contribute, observe",
-            ["UNKNOWN_POINT", "UNPROVIDED_PORT", "UNDECLARED_REQUIRE"],
+            "Freeze",
+            "nothing is accepted after this line",
+            ["FROZEN"],
+            true,
           )}
-          {stage("Freeze", "no contribution after this line", ["FROZEN"], true)}
           {stage(
             "Compile",
-            "contributions ordered by anchor; one wrapper chain per route",
+            "hooks placed by slot, phase, then plugin order; one chain per route",
             ["ROUTE_REQUIRES", "DUPLICATE_ROUTE"],
           )}
           {stage(

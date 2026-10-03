@@ -95,7 +95,7 @@ function Figure({ palette }: FigureProps) {
           <Socket
             palette={palette}
             name="Contribution"
-            what="A handler at a named moment, or a wrapper around the route, placed by anchor."
+            what="A handler or a wrapper in a named slot of the fixed chain, with a phase."
             builds={["a layer like retry", "an audit handler"]}
           />
           <Socket

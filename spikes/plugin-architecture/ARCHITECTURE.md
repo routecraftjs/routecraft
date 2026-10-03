@@ -113,7 +113,8 @@ not see.
 | 7f review | Clean-room review of round 7f | Claude Opus 5.5, fresh session | ✅ Done. Reproduced `814748e4` to the figure; F13 adjudicated for 7f against the shipped comments; fourteen probes and thirty mutants (eleven surviving) showed the continuation never re-asked its gate, the bound came from any refusal, the error-path park had none of `#818`'s refusals, and the elevation was held in a plugin map. Eight bounded exit criteria. `reviews/OPUS-ROUND-7F.md`. |
 | 7g | The 7f review's eight criteria | Fable 5.1 (this session) | ✅ Done. Every finding closed by name, two kept as stated differences. See post-round-7g. |
 | 7g review | Open-ended design review of round 7g | Astra, fresh session | ✅ Done. Reproduced `85f7506a` to the figure. Verdict: keep the architecture, proceed with feature fit, do not freeze the continuation contracts or migrate this executor. Fourteen findings (R1 to R14), sixteen executable reproductions, every one reproduced here. `reviews/ASTRA-ROUND-7G.md`; evidence `validation/round-seven-g-review/` on `validation/round-7g-astra` at `de98d680`. |
-| Docs review | The direction docs read as a consumer, then the direction | Claude Opus 5.5, fresh session | ✅ Done. The docs explain the parts clearly and never showed how they meet at runtime; it drew the internals figure (`figures/inside.tsx`, placed in `02-anatomy.md`) and corrected seven statements and four figures against the proof of concept, with ten probes. Its three first changes, all for 0.8: name `execution` as a sixth socket and make it declared (any plugin can resume a route with no door, probe D5); anchor every first-party handler at a kernel point, starting with the gate (unanchored handlers run in owner-name order, probe D10); define the published surface and test equal reach against it only. `reviews/OPUS-DIRECTION-DOCS.md`. |
+| Docs review | The direction docs read as a consumer, then the direction | Claude Opus 5.5, fresh session | ✅ Done. The docs explain the parts clearly and never showed how they meet at runtime; it drew the internals figure (now `figures/inside-the-harness.tsx`, placed in `02-anatomy.md`) and corrected seven statements and four figures against the proof of concept, with ten probes. Its three first changes, all for 0.8: name `execution` as a sixth socket and make it declared (any plugin can resume a route with no door, probe D5); anchor every first-party handler at a kernel point, starting with the gate (unanchored handlers run in owner-name order, probe D10); define the published surface and test equal reach against it only. `reviews/OPUS-DIRECTION-DOCS.md`. |
+| Direction rulings | Ordering and route methods, after the docs review | Jaco, with code shown for each | ✅ Done. Positions, slots and phases replace anchors; typed steps through `definePlugin` and `defineProject`. Rulings 14 and 15 below; written into `docs/direction/` and the `chain-and-slots` figure. |
 | 7a | Feature fit, clean room | Claude Opus 5, fresh session | Walk the real framework feature by feature: what fits the model, what does not. |
 | 7b | Feature fit, clean room | ChatGPT Astra | Same brief, independently, from its own round-3 work plus round 6. |
 | 8 | Implementation planning | Fable 5.1 | Given everything: decide sequencing, pull-request shape, and whether to fan out to sub-agents. **Fable decides how, not whether.** |
@@ -226,7 +227,7 @@ is a migration blocker, not something this paragraph permits dropping.
 
 - **Assumed.** Anything a first-party package can do, a third party can do through published API. Test: move a provider to its own package; if it needs one private import, that import is the gap.
 - **Opus.** Keep, but the test is too weak: a stranger passes it today by re-deriving a global symbol from its string, and proves nothing.
-- **Astra.** Keep, load-bearing. Equal access to *supported contracts* — execution, ownership, diagnostics, replacement — not arbitrary internals. Test multiple independently packaged implementations against built declarations, not one colocated plugin.
+- **Astra.** Keep, load-bearing. Equal access to *supported contracts* (execution, ownership, diagnostics, replacement), not arbitrary internals. Test multiple independently packaged implementations against built declarations, not one colocated plugin.
 - **Now. KEEP, amended.** *Anything a first-party package can do, a third party can do through API that is exported, documented and covered by the version policy.* A capability reachable only through an unexported name is not reachable. The acceptance test builds against the packed artifact, not workspace aliases.
 
 ### P2. Core is lifecycle and interfaces; nothing in core is logic
@@ -262,7 +263,7 @@ is a migration blocker, not something this paragraph permits dropping.
 - **Assumed.** Core provides a dependency graph and never learns the word "store".
 - **Opus.** Amend: as written it is contradicted by the design itself, since `InterventionPoint` is a closed set of five capability names.
 - **Astra.** Amend, load-bearing, and **note a direct contradiction in our own documents**: the register says depend on contracts, the design says depend on plugin IDs.
-- **Now. AMEND, and this is a real design change.** *Core understands abstract required and provided contracts, not plugin identities.* `dependsOn: ["routecraft.stores"]` is wrong and contradicts P7 — a replacement would have to impersonate an ID. Depend on a **port**, resolve to a provider. Astra's `ports.ts` shows it working.
+- **Now. AMEND, and this is a real design change.** *Core understands abstract required and provided contracts, not plugin identities.* `dependsOn: ["routecraft.stores"]` is wrong and contradicts P7: a replacement would have to impersonate an ID. Depend on a **port**, resolve to a provider. Astra's `ports.ts` shows it working.
 
 ### P7. Every plugin can be declined and replaced
 
@@ -465,7 +466,7 @@ two independent solutions to the same problem is stronger than either.
 
 ### The DSL. F8's dichotomy is false
 
-**Assumed:** fluent, body-typed, plugin-extensible, sound — pick three.
+**Assumed:** fluent, body-typed, plugin-extensible, sound: pick three.
 
 **Opus:** encoding E by defunctionalisation. Plugin states the body
 relationship as computed interface members reading `this`. 40 steps, 1.29s,
@@ -484,7 +485,7 @@ type-level relationship out of a value-level generic function.*
 
 Neither is production-ready. Neither is integrated with the kernel. Both
 require the application's builder and execution plan to derive from the same
-installed descriptors — two independently configured lists reopen the gap.
+installed descriptors; two independently configured lists reopen the gap.
 
 ### Named exchange properties
 
@@ -498,7 +499,7 @@ collisions with `body`/`id`, and defines non-writable properties.
 **Now.** **Strictly better than today**, because declining the plugin removes
 the property, where today `ex.deferral` is on the type regardless. Requires the
 same plumbing as the DSL: do both or neither. It is a named API, not a security
-boundary — private state stays in a `WeakMap`.
+boundary; private state stays in a `WeakMap`.
 
 **Round seven.** This reverses a written standard and nobody had said so.
 `.standards/exchange-state-model.md`, Non-rules: "Plugins do not extend
@@ -544,7 +545,7 @@ Ordered by when it hurts. Nothing here was in the original design.
 1. **A stable execution protocol and continuation format.** Start from the existing `StepOutcome`/`StepContext`, not from `Promise<void>`. Specify continuation identity, instruction and nested-path IDs, attempt identity, cancellation and late-result handling, error precedence, source acknowledgement, and what survives each boundary. A durable continuation needs a plan version or hash, stable instruction IDs, codec versions and an explicit migration-or-reject path. **Array positions are not stable across a deployment.**
 2. **Policy versus state on resume.** Saving survival policy forever is unsafe when security requirements change. Historical execution state and policy that must be rechecked on resume are different things.
 3. **Resource scopes and structured lifetime.** Application, route, exchange and attempt scopes. A semaphore belongs to a compiled route, not a per-delivery closure. Startup must roll back partial acquisition; teardown must continue after failures and dispose consumers before providers. `started: boolean` is not a lifecycle state machine.
-4. **Versioning of the plugin contract.** After this change the public surface is ~597 names **plus** every token name, wrapper id, step name, handler id and anchor — all strings, none under `.standards/api-stability.md`. Largest omission for a design whose purpose is third parties.
+4. **Versioning of the plugin contract.** After this change the public surface is ~597 names **plus** every token name, wrapper id, step name, handler id and anchor, all strings, none under `.standards/api-stability.md`. Largest omission for a design whose purpose is third parties.
 5. **Persistence laws, not a smaller method count.** Atomic multi-key writes, deletion, bounded scans, snapshots, close; absent versus null; create-if-absent; ABA protection; collation and key encoding; cursor consistency; transaction limits; migration locking; durability acknowledgement; clock ownership. **Keep `DeferralStore` as a semantic port** with an optional reference implementation over an atomic ordered-record backend, and run every implementation against one contract suite including crash and concurrency cases.
 6. **Connection sharing is not query abstraction.** Namespaces do not partition connection-wide PRAGMAs, migration leadership, retention interference or pool exhaustion.
 7. **Isolation.** A2 claims "you cannot read what you did not declare"; nothing builds it. Either scope `provide`/`require` by declaration or delete the claim before it is quoted as a security property. The plugin API is not a sandbox and should not be described as one.
@@ -553,7 +554,7 @@ Ordered by when it hurts. Nothing here was in the original design.
 10. **Error taxonomy for boot failures.** Cycle, missing dependency, duplicate id, duplicate provider, duplicate step name, contribution after freeze, unmatched constraint. Seven conditions, no RC codes, in a codebase whose error policy is a standards document.
 11. **Streaming and backpressure.** `Pipeline` is `(ex) => Promise<void>`; the dispatcher states a streaming response is in-flight work for as long as it runs. Completion is not when the pipeline returns.
 12. **Migration.** Roughly half the suite imports internal paths. Keep the existing executor as a reference and run both paths against the same behavioural fixtures. Build an external plugin against the packed artifact, not workspace aliases. Two contexts with different plugin sets in one process.
-13. **Year two.** `InterventionPoint` closed at five, with no process for a sixth — and the analogous `DetachedKind` grew from three to four *during this project*. Relative ordering with thirty wrappers leaves most pairs undetermined. And installing an unrelated third-party plugin can silently reorder a resilience chain, which today requires editing one reviewed file.
+13. **Year two.** `InterventionPoint` closed at five, with no process for a sixth, and the analogous `DetachedKind` grew from three to four *during this project*. Relative ordering with thirty wrappers leaves most pairs undetermined. And installing an unrelated third-party plugin can silently reorder a resilience chain, which today requires editing one reviewed file.
 
 ---
 
@@ -982,7 +983,7 @@ shape is committed to.
 ## 8. Acceptance criteria for the round-two POC
 
 Nothing below is optional. The round-one POC fails most of them, which is why
-there is a round two. **Judge the contracts, not the implementations** —
+there is a round two. **Judge the contracts, not the implementations**:
 mocked bodies are fine, a `Step` that cannot halt is not.
 
 ### Execution semantics
@@ -1013,7 +1014,7 @@ mocked bodies are fine, a `Step` that cannot halt is not.
 ### Operations and the DSL
 
 - [ ] All four operation categories: route-only, dual-mode, step-only, pipeline. **Retry on a step and retry on the `from` in one route**
-- [ ] `.transform((body, ex) => ...)` — two arguments, with `ex` carrying typed plugin facets
+- [ ] `.transform((body, ex) => ...)`: two arguments, with `ex` carrying typed plugin facets
 - [ ] Declining a plugin removes its method **and** its exchange facet from the type
 - [ ] Headers typed without global augmentation, or the cost stated
 
@@ -1023,7 +1024,7 @@ mocked bodies are fine, a `Step` that cannot halt is not.
 - [ ] Rollback of partial acquisition on startup failure
 - [ ] Teardown continues after a failure, aggregates failures, disposes consumers before providers
 - [ ] Shutdown and drain with in-flight work, including a streaming response
-- [ ] Route status: enabled, disabled with reason, circuit-broken — and who owns it when a stranger's plugin sets it
+- [ ] Route status: enabled, disabled with reason, circuit-broken, and who owns it when a stranger's plugin sets it
 
 ### Persistence
 
@@ -1062,9 +1063,9 @@ choices; the POC uses named anchors and lexical ties provisionally. Remaining
 items below record the earlier questions, not an assertion that no ruling has
 been given. The scope and release baseline is now stated in section 1.
 
-1. **Closed or open intervention points — open for the POC.** #816's acceptance says `HandlerPoint` is declaration-merged and extensible by a package outside core, with a duplicate name a compile error. This design says the five points are closed and a sixth is a core change by definition. **These cannot both be true.** My reading: #816 is right, boundedness is unenforceable once strangers contribute, and `DetachedKind` growing three to four during this project is the evidence.
-2. **Ordering: named anchors or numeric slots.** Jaco proposed Spring-style numeric order. My recommendation is named contract-owned anchors with numeric slots underneath, where the names are the API and the numbers are not, because a third party hardcoding `150` breaks silently when core renumbers.
-3. **Tie-break rule** inside a gap. Not install order. Round four proposed plugin id, lexicographic. **Round seven disagrees:** `tie-replacement.ts` shows a replacement flipping an unconstrained pair, and the pair that matters is an authorisation gate against a retry. Its recommendation: tie-break on a contract-owned contribution identity (port name plus contribution id), fall back to owner only when identities are equal, and report every unconstrained pair of wrappers that share a surviving run kind in `dump()`. Determinism is necessary and not sufficient.
+1. **Closed or open intervention points: open for the POC.** #816's acceptance says `HandlerPoint` is declaration-merged and extensible by a package outside core, with a duplicate name a compile error. This design says the five points are closed and a sixth is a core change by definition. **These cannot both be true.** My reading: #816 is right, boundedness is unenforceable once strangers contribute, and `DetachedKind` growing three to four during this project is the evidence.
+2. **Ordering: named anchors or numeric slots. Superseded by ruling 14.** Jaco proposed Spring-style numeric order. My recommendation is named contract-owned anchors with numeric slots underneath, where the names are the API and the numbers are not, because a third party hardcoding `150` breaks silently when core renumbers.
+3. **Tie-break rule** inside a gap. **Superseded by ruling 14:** inside a phase the order is the application's plugin list, which the application owns and can override. Not install order. Round four proposed plugin id, lexicographic. **Round seven disagrees:** `tie-replacement.ts` shows a replacement flipping an unconstrained pair, and the pair that matters is an authorisation gate against a retry. Its recommendation: tie-break on a contract-owned contribution identity (port name plus contribution id), fall back to owner only when identities are equal, and report every unconstrained pair of wrappers that share a surviving run kind in `dump()`. Determinism is necessary and not sufficient.
 4. **Is isolation a goal.** Round seven: no. Delete the claim from A2, keep declaration-scoped `require` as API discipline. The step-path wiring is now mutation-covered.
 5. **Where `Principal` lives. Confirmed by Jaco, 2026-09-21: not in core.** Core carries headers; the auth plugin owns the key, the `WeakSet` brand, the `.authorize()` route method and the entry handler; a continuation never resurrects authenticity. The cost was stated before he confirmed: the brand is as strong as shipped, core is identity-blind, and the ask had been a bare option that **failed open** when the plugin was absent (probed: `completed "leaked"`). That gap is closed in the same commit: `.authorize()` is a method the auth plugin contributes, so a route cannot express the ask without it (compiler control), and it declares a route requirement the kernel refuses to compile unprovided (`ROUTE_REQUIRES`, mutation-covered). **Round 7e corrected what that requirement names.** Requiring the authority port was the wrong contract: a provider of authority can be present with no gate, and the route ran unprotected (Astra D1). Identity is now two plugins, `principals` (the header and the brand, replaceable under a vendor's own brand) and `auth` (the gate, the facet and `.authorize()`), and the ask requires `ENFORCEMENT`, the gate's own port. The gate runs at admission, so a refused resume spends nothing.
 6. **Scope of the not-doing list.** Round seven's version, to be confirmed before 7a and 7b. Explicitly out: exactly-once external effects, one transaction across the session and deferral stores, sandboxing, automatic migration of a changed plan, retracting uncooperative IO. Explicitly NOT out, because shipped: per-exchange deferral ids, tail-only hash with callable source, duplicate-resume idempotency, TTL expiry with lease-healed escalation, restored-principal refusal, bounded shutdown (all five now in the spike); `keepsAlive` and auto-stop, `TeardownInfo`, resume payload validation and the signed token (ledger items).
@@ -1079,6 +1080,8 @@ been given. The scope and release baseline is now stated in section 1.
 11. **Which handler points honour a refusal. Decided by Jaco, 2026-09-21: encode it in the type.** Each `HandlerPoints` entry now carries `refuse: true | false` beside its owner identity; `HandlerDecision<K>` offers `refuse` only where the point honours it, so a refusal at `exit` is a compile error (control in `types.check.ts`). For a caller the compiler did not see, the runtime raises `REFUSE_UNSUPPORTED` naming the handler: a fault at `exit`, a secondary on the primary error at `error`. Nothing is silently ignored any more. **Round 7e completed it:** the runtime had hardcoded the two kernel points, so a plugin-declared point had no policy at all, and the broad `Handler` type had lost the correlation between point and decision. A point is now declared twice, once by merging and once by `point(name, owner, refuse)`, typed so the two halves cannot disagree; the host registers a plugin's points before anything binds, and `Handler` is a distributed union.
 12. **Whose authority a resumed continuation runs under. Confirmed by Jaco, 2026-09-22, as the `#818` door.** The shipped framework keeps the deferred principal restored on the continuation and records the resumer separately (`revive.ts` `rehydrate`, `resumedBy`; `security.md` §3). The round 7c spike overlaid the ingress headers onto the continuation instead, so the approver's live authority flowed into every downstream hop; round 7e replaced that with the shipped default but recorded the whole ingress header set, which the 7e review showed persisted a bearer and lost the resumer on failure. Round 7f settles it as `#818` has it: the continuation runs as the exchange that parked; the door records a reference to the resumer (`Authority.refOf`) and the swap writes it into the record; a downstream `.authorize()` refuses the restored principal; and the door's `elevate` hook, not a step, is where live authority after the wait comes from, bounded by the refusal the gate itself recorded and never changing identity. **Round 7g completed it, from the 7f review:** a park raised at the door is re-admitted when it resumes, so the gate that refused is asked again of what the continuation carries; the elevation is carried by the kernel to the resume call that made it; the hooks are bounded by the ingress signal and fail as one refusal. Recorded in post-round-7f and post-round-7g and enforced by the step-up tests and mutants.
 13. **The door's default policy. Decided in round 7f, from the 7e review's F15.** When a route declares no `.resumable({ authorize })`, the gate asks the route's own grants of the resumer: an approver must hold what the requester needed. Declared, the hook is the whole policy and sees both principals and the record view. Shipped separates the two by putting the hook on the ingress route; the spike has no ingress route, so the deferred route carries the door, and the default is stated rather than implied.
+14. **How plugin code is ordered in the chain. Decided by Jaco, 2026-10-03.** The chain keeps a fixed order of **positions** (authorize, parse, input, throttle, circuitBreaker, retry, timeout, concurrency, cacheCheck, cacheStore), owned by the framework. A plugin may replace what fills a position through its port; it can never move, remove or add one. Between positions sit named **slots** (proposed: `error`, `beforeAuth`, `afterAuth`, `admitted`, `perAttempt`, `exit`; the list is settled against the shipped chain in migration), and any number of plugins add handlers or wrappers there. A handler declares a **phase**: `observe` (read only), `mutate` (headers and body), `validate` (allow or refuse). A slot runs observe, then mutate, then validate; `exit` has no validate phase; the phase is enforced when a route compiles. Inside a phase the order is the order the application lists its plugins. Allow passes the decorated exchange on; refuse stops the chain. When two mutate handlers write one field, the later wins and the framework warns with both names; an optional `writes: [...]` moves that warning to start. The application may set a phase's order (`hooks.order`) and switch off a handler by id (`hooks.disable`); disable applies to slots only, so a position such as the gate is never silently removed. Rejected on the way: numeric order (two plugins pick the same number and a stranger hardcodes a value core later renumbers), first/last (two plugins can both claim first), and before/after another plugin (it makes plugins name each other). Anchor placement in the spike stays as the demonstration of contract-owned ownership; the implementation replaces it. Recorded in `docs/direction/03-exchange-through-a-route.md` as Intended.
+15. **How a plugin adds a route method. Decided by Jaco, 2026-10-03.** `definePlugin({ steps: { name: (opts) => step(...) } })` declares a step type, and its key becomes a builder method. `defineProject({ plugins })` in `craft.config.ts` returns a `craft` whose type includes the methods and facets of exactly the installed plugins, so route syntax is unchanged (`craft().from(...).dedupe({ ... }).to(...)`) and a method of an uninstalled plugin is a compile error. Rejected: a generic `.step(dedupe(...))` wrapper, which costs every route author readability to save the framework type work. The spike's `Plugin<Family>` and `Cursor` are the generated layer underneath and stay demonstrated by the packed-tarball fixture; no plugin author writes them. Guarded by a type-performance budget in CI: ten plugins installed, a limit on `tsc` time, and a readable error for a wrong argument. This also settles ruling 10's shape: the project-level definition, with how the CLI finds it left to migration.
 
 ---
 

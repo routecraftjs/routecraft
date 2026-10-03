@@ -11,7 +11,7 @@ A step parks an exchange by returning the `defer` outcome with a request: a
 name, a reason, and optionally a deadline, a notification, policy inputs for
 the door, and state the step wants back when it resumes. `.defer("approval")`
 is the operation that returns it; an error handler that declared `mayDefer`
-can return the same outcome from the error ring, which is how a failure
+can return the same outcome from the `error` slot, which is how a failure
 becomes a request to a human. The kernel then:
 
 1. Computes the **site** (the step the continuation resumes at), the
@@ -144,8 +144,8 @@ own door, as the shipped framework does.
    the park is denied, and told. An edited approval flow does not run the
    wrong steps.
 3. The **claim**: `markResumed`, compare-and-swap, recording who resumed.
-4. **Re-admission**, if the park was raised at the door: the admission ring
-   runs again over what the continuation carries now, the restored identity
+4. **Re-admission**, if the park was raised at the door: the front of
+   the chain, up to `afterAuth`, runs again over what the continuation carries now, the restored identity
    or the door's lend. Without a lend, the identity that was refused is
    refused again, audibly, and the record ends failed; a second park for the
    same refusal is declined. **Demonstrated.**

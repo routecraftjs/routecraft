@@ -427,7 +427,7 @@ Churn alone does not identify tangle, because a healthy subsystem grows. Edits p
 
 **! 
   
-> **WITHDRAWN. This table does not survive its own command.** Re-run over a full clone: `adapters` does have the highest raw churn (27,532) as claimed, but it is **not** the lowest rework at 0.9 edits per file. The lowest is `deferral/` at **0.1, on two commits in twelve months** — the subsystem this whole register calls the most tangled in the codebase.
+> **WITHDRAWN. This table does not survive its own command.** Re-run over a full clone: `adapters` does have the highest raw churn (27,532) as claimed, but it is **not** the lowest rework at 0.9 edits per file. The lowest is `deferral/` at **0.1, on two commits in twelve months**: the subsystem this whole register calls the most tangled in the codebase.
   
 
 **The cause is the failure mode this register already identified and withdrew as O3.** `deferral/` was created by the rename from `suspension/` weeks before the measurement, so its files have had no time to accumulate edits. The register caught that a completed rename distorts churn, then left the distortion in the row it called its control group.

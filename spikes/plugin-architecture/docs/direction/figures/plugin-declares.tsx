@@ -2,7 +2,7 @@ import { FigureCanvas } from "./primitives.tsx";
 import { Band, Chip, Chips, Conclusion, Note, Row, Title } from "./harness.tsx";
 import type { FigureDrawing, FigureProps, MotifProps } from "./types.ts";
 
-/** What a plugin is: a descriptor that declares, a bind that contributes, and what Routecraft does with both. */
+/** What a plugin is: a descriptor that declares, a bind that wires what needs a live context, and what Routecraft does with both. */
 const WIDTH = 1600;
 const HEIGHT = 820;
 
@@ -55,7 +55,10 @@ function Figure({ palette }: FigureProps) {
                 facets
               </Chip>
               <Chip palette={palette} sub=".approve() on every route builder">
-                methods
+                steps
+              </Chip>
+              <Chip palette={palette} sub="a slot and a phase, never a plugin">
+                hooks
               </Chip>
             </Chips>
           </Row>
@@ -64,7 +67,6 @@ function Figure({ palette }: FigureProps) {
               {[
                 "c.require(CONTINUATIONS)",
                 "c.provide(APPROVALS, service)",
-                "c.contribute(handler | wrapper)",
                 "c.observe(event => ...)",
                 "c.emit(name, data)",
                 "c.onDispose(() => ...)",
@@ -113,7 +115,7 @@ function Figure({ palette }: FigureProps) {
             ],
             [
               "Freezes",
-              "after the last bind; a contribution from start() would miss the composed chain, so it is refused",
+              "after the last bind; a provider or hook from start() would miss the composed chain, so it is refused",
             ],
             ["Starts", "in dependency order, once every route has compiled"],
             [

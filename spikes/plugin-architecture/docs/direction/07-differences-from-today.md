@@ -12,8 +12,8 @@ carries unchanged; it is listed so nobody assumes it was dropped.
 |---|---|---|
 | The interface | `CraftPlugin { apply(ctx), start?, teardown?, dependsOn? }`; `dependsOn` is reserved and not enforced (`context.ts:98`) | a descriptor with `requires`/`provides`/`replaces`, enforced at start by name |
 | What it can reach | the whole `CraftContext`: events, stores, routes, teardown | the ports it declared, the points that exist, and `observe` |
-| Adding a route method | `registerDsl` patches the base prototype; post-`.from()` only; the base "is not a public extension point" (`index.ts:419`) | a family on the descriptor, typed, before or after `.from()`, present only when installed |
-| Adding a chain position | not possible; positions are internal fields of `RouteDefinition` (`route.ts:202`) | a wrapper contribution placed by anchor |
+| Adding a route method | `registerDsl` patches the base prototype; post-`.from()` only; the base "is not a public extension point" (`index.ts:419`) | a `steps` entry in `definePlugin`; `defineProject` returns a `craft` typed by the installed plugins, so the method exists before or after `.from()` only when its plugin is installed |
+| Adding to the chain | not possible; positions are internal fields of `RouteDefinition` (`route.ts:202`) | a hook in a named slot between positions, with a phase; positions themselves are still fixed |
 | Data on the exchange | augment `RoutecraftHeaders` and export a helper; no prototype patching (`exchange-state-model.md:93`) | a typed facet under the plugin's namespace |
 | Declaring a moment | not present | a point on the descriptor, with its honoured decisions |
 | Replacing a store | `deferral: { store }` in config (`deferral/config.ts:74`) | provide the port and declare `replaces` |
@@ -23,14 +23,16 @@ carries unchanged; it is listed so nobody assumes it was dropped.
 
 | | Today | After |
 |---|---|---|
-| The order | fixed: error, authorize, parse, input, throttle, circuitBreaker, retry, timeout, concurrency, cacheCheck, pipeline, cacheStore (`advanced/filter-chain`) | the same positions, as wrappers and handlers with declared anchors; the framework still owns the default order |
-| Who fills a position | shipped operations only | any plugin, by anchor |
+| The order | fixed: error, authorize, parse, input, throttle, circuitBreaker, retry, timeout, concurrency, cacheCheck, pipeline, cacheStore (`advanced/filter-chain`) | **same** positions in the same order, owned by the framework, with named slots between them where plugins add handlers and wrappers |
+| Who fills a position | shipped operations only | the plugin that provides the position's port; replaceable, never movable or removable |
+| Order of plugin code at one place | not applicable | phase (observe, mutate, validate), then the order plugins are listed; overridable per slot and phase in the application, and a handler can be disabled by id |
 | Which positions re-run on a resume | a fixed per-position table (`chain-policy.ts:97`) | each contribution's own `survival` |
 
-**Migration decision:** which shipped positions become wrappers and which
-become handlers, and whether `parse`, `input`, `cacheCheck` and `cacheStore`
-stay route-owned steps. The proof of concept has four wrappers and the four
-kernel points; the rest is feature-fit work.
+**Migration decision:** the exact slot names and where they sit, which
+shipped positions are filled through a port and which stay route-owned
+(`parse`, `input`, `cacheCheck`, `cacheStore`). The proof of concept places
+four wrappers by anchor and has four kernel points; positions, slots and
+phases replace both.
 
 ## Steps and outcomes
 
@@ -52,7 +54,7 @@ kernel points; the rest is feature-fit work.
 | Where the continuation resumes | a `position` in a flat list | a `site` plus `frames`, so a park inside a branch resumes inside that branch |
 | What is hashed | the steps from `position + 1` plus the schema | the remaining steps, including a callable source and nested children |
 | Persistence rules | plain JSON, dates enveloped, secrets refused (`serialize.ts`) | **same**; the envelope tag and two array edge cases are a **migration decision** (reuse `serialize.ts`) |
-| A park from the error path | not on main; `recovery.defer` on the parked branch | the error point honours `defer`; declined by name when reviving would be wrong |
+| A park from the error path | not on main; `recovery.defer` on the parked branch | the `error` slot honours `defer`; declined by name when reviving would be wrong |
 | Token verification and call binding | yes (`RC5041`, `RC5055`) | **migration decision**, a blocker before the door is published |
 | Payload validation against the live schema | yes (`RC5049`) | **migration decision**, a blocker |
 | Store contract | fifteen methods, CAS results carry the record | the same transitions; the claim returning its record is **intended** |
@@ -81,9 +83,9 @@ kernel points; the rest is feature-fit work.
 
 | | Today | After |
 |---|---|---|
-| Route and step `.error()` handlers | yes (`builder.ts:521`, `step-builder-base.ts:329`) | a route handler is a handler at the error point; a step handler is a wrapper on that step |
+| Route and step `.error()` handlers | yes (`builder.ts:521`, `step-builder-base.ts:329`) | a route handler is a handler in the `error` slot; a step handler is a wrapper on that step |
 | A handler may drop, rethrow, replace the body | yes | **same**, plus park |
-| Handlers outside the route | not on main; `registerHandler("error")` on the parked branch | any plugin, at the error point, with declared survival |
+| Handlers outside the route | not on main; `registerHandler("error")` on the parked branch | any plugin, a hook in the `error` slot, with declared survival |
 | Codes | `RC` codes with a registry | faults with an owner and a code; the numbering is a **migration decision** |
 
 ## Events
@@ -97,9 +99,9 @@ kernel points; the rest is feature-fit work.
 
 | | Today | After |
 |---|---|---|
-| The builder | `craft().id().from().to()` | **same** words on a builder that is typed by the installed plugins |
+| The builder | `craft().id().from().to()` | **same** words; `craft` comes from the project's `defineProject`, typed by its plugins |
 | The context | `ContextBuilder().with(config).routes(...).build()` | `application([...plugins])`, then `.route(id)...build()` and `start([specs])` |
-| Discovery | the CLI reads `craft.config.ts`, `plugins/`, `capabilities/` | **migration decision**: a project-typed route factory over a side-effect-free definition, so the CLI, tests and inspection tools build from one place |
+| Discovery | the CLI reads `craft.config.ts`, `plugins/`, `capabilities/` | `defineProject({ plugins })` in `craft.config.ts`, side-effect free, so the CLI, tests and inspection tools build from one place; how the CLI finds it is a **migration decision** |
 
 ## What the proof of concept is not
 

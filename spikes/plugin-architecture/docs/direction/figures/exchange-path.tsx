@@ -26,20 +26,20 @@ function Figure({ palette }: FigureProps) {
           palette={palette}
           inline
           title="One run, in a fixed order"
-          subtitle="rings around a step loop; a step returns what happens next"
+          subtitle="a fixed chain around a step loop; a step returns what happens next"
         />
         <Inset palette={palette} inverse style={{ marginTop: 18 }}>
           <Seq
             palette={palette}
             inverse
             items={[
-              "a run",
-              "admission",
-              "entry",
-              "breaker",
+              "error",
+              "beforeAuth",
+              "authorize",
+              "afterAuth",
               "retry",
+              "perAttempt",
               "timeout",
-              "concurrency",
               <Chip key="loop" palette={palette} tone="accent">
                 step loop
               </Chip>,
@@ -54,9 +54,9 @@ function Figure({ palette }: FigureProps) {
             inverse
             style={{ display: "block", marginTop: 10 }}
           >
-            handlers at admission and entry may decorate or refuse; wrappers
-            land by anchor, so yours can sit between retry and timeout; exit
-            runs only over exchanges that completed
+            positions such as authorize and retry are fixed; slots such as
+            beforeAuth and perAttempt take any plugin's handlers and wrappers;
+            exit runs only over exchanges that completed
           </Note>
         </Inset>
         <div style={{ marginTop: 6 }}>
@@ -101,8 +101,8 @@ function Figure({ palette }: FigureProps) {
                 refused · nothing ran
               </Chip>
               <Note palette={palette}>
-                an admission refusal on a first delivery is also told to the
-                error ring, so a route can park it; an entry refusal is not
+                a refusal before the pipeline on a first delivery is also told
+                to the error slot, so a route can park it
               </Note>
             </Chips>
           </Row>
@@ -110,8 +110,8 @@ function Figure({ palette }: FigureProps) {
             <Seq
               palette={palette}
               items={[
-                "the wrappers retry what they can",
-                "what escapes reaches the error ring",
+                "the retry position retries what it can",
+                "what escapes reaches the error slot",
                 <Chip key="park" palette={palette} tone="accent">
                   a handler may park it at the step that failed
                 </Chip>,

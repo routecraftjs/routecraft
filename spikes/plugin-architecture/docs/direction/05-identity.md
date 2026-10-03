@@ -14,9 +14,9 @@ port, and a vendor can replace it under its own brand, so a JWT verifier is a
 provider, not a fork.
 
 **`auth`** owns the gate. It requires the authority port, provides the
-**enforcement** port, contributes the admission handler that enforces a
-route's grants, contributes the facet `ex.auth`, and contributes two route
-methods: `.authorize(...grants)` and `.resumable({ authorize, elevate })`.
+**enforcement** port, fills the `authorize` position that enforces a
+route's grants, declares the facet `ex.auth`, and declares two steps, which
+become route methods: `.authorize(...grants)` and `.resumable({ authorize, elevate })`.
 
 The split is what makes replacement honest. A provider of authority with no
 gate would let a protected route run unprotected, so the route's ask names the
@@ -40,7 +40,7 @@ gate on the strength of an identity that was authentic three days ago.
 A park raised at the gate (the requester lacked a grant, and an error handler
 parked the refusal for a human) is re-admitted when it resumes, so the gate
 is asked again of what the continuation carries. Without a lend, the restored
-requester is refused again, the failure reaches the error ring, the record
+requester is refused again, the failure reaches the `error` slot, the record
 ends failed. With a lend, the door has re-minted the requester with exactly
 the grants the gate recorded as refused, live, for this resume alone, and the
 run passes the gate that refused it. The record says who lent.

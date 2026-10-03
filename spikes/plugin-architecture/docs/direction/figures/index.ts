@@ -4,6 +4,7 @@
  * moves across unchanged: `alt` is the accessible name and all a reader of
  * the raw markdown gets, `caption` is the line under the picture.
  */
+import { chainAndSlots } from "./chain-and-slots.tsx";
 import { continuationStates } from "./continuation-states.tsx";
 import { everyWayIn } from "./every-way-in.tsx";
 import { insideTheHarness } from "./inside-the-harness.tsx";
@@ -23,13 +24,14 @@ export const DRAWINGS: FigureDrawing[] = [
   pluginDeclares,
   installation,
   exchangePath,
+  chainAndSlots,
   continuationStates,
   resumeDoor,
 ];
 
 export const FIGURE_TEXT: Record<string, FigureText> = {
   "inside-the-harness": {
-    alt: "The inside of every harness. Top: every plugin, ours (operations, resilience, deferral, sqlite, principals, auth) and yours (a store, a wrapper, an adapter, a moment) in the same rows, each declaring id, requires, provides, replaces, points, facets and methods. Below: six sockets, port, contribution, step, facet, point and execution. Then the kernel, an inverted panel: its lifecycle, one run in a fixed order through admission, entry, the wrappers, the step loop and exit with the six outcomes, the run kinds, and the park, resume and sweep sequences. Bottom: the ports it calls out through, each provided by a plugin.",
+    alt: "The inside of every harness. Top: every plugin, ours (operations, resilience, deferral, sqlite, principals, auth) and yours (a store, a wrapper, an adapter, a moment) in the same rows, each declaring id, requires, provides, replaces, points, facets, steps and hooks. Below: six sockets, port, contribution, step, facet, point and execution. Then the kernel, an inverted panel: its lifecycle, one run through a fixed chain of positions and slots (error, beforeAuth, authorize, retry, your wrapper, timeout), the step loop and exit with the six outcomes, the run kinds, and the park, resume and sweep sequences. Bottom: the ports it calls out through, each provided by a plugin.",
     caption:
       "Inside every harness: every feature a plugin, six sockets, and a kernel that decides when things run.",
   },
@@ -49,7 +51,7 @@ export const FIGURE_TEXT: Record<string, FigureText> = {
       "The four sockets you build with, and the two more that reach the kernel.",
   },
   "plugin-declares": {
-    alt: "Left, your plugin: what it declares (id, requires, provides, replaces, points, facets, methods), what it does in bind, and its start and stop. Right, an inverted Routecraft panel: it orders, namespaces, freezes, starts and stops it.",
+    alt: "Left, your plugin: what it declares (id, requires, provides, replaces, points, facets, steps, hooks), what it does in bind, and its start and stop. Right, an inverted Routecraft panel: it orders, namespaces, freezes, starts and stops it.",
     caption: "A plugin declares and binds. Routecraft does the wiring.",
   },
   installation: {
@@ -57,9 +59,14 @@ export const FIGURE_TEXT: Record<string, FigureText> = {
     caption: "Installation, stage by stage, and where it can refuse.",
   },
   "exchange-path": {
-    alt: "An inverted strip with one run in its fixed order, from admission through entry, the wrappers, the step loop and exit to completed; below it the six outcomes, what a refusal does, what happens when a step throws with the five declined parks, and the four run kinds.",
+    alt: "An inverted strip with one run through its fixed chain, from the error and beforeAuth slots through authorize, afterAuth, retry, perAttempt and timeout to the step loop, exit and completed; below it the six outcomes, what a refusal does, what happens when a step throws with the five declined parks, and the four run kinds.",
     caption:
       "One exchange through a route: the fixed order, the six outcomes, and every way a run can leave.",
+  },
+  "chain-and-slots": {
+    alt: "Two bands. The first: the chain around every route, in order, with positions as dark chips (authorize, parse, input, throttle, circuitBreaker, retry, timeout, concurrency, cacheCheck, cacheStore) and slots as outlined chips between them (error, beforeAuth, afterAuth, admitted, perAttempt, exit), and your steps in the middle; a position is replaced through its port and never moved, removed or added, a slot takes any number of plugins. The second: inside the beforeAuth slot for an application listing security, tenancy, correlation, tracing and auth: observe runs tracing, mutate runs tenancy then correlation with the later write winning and a warning, validate runs security which may refuse and stop the chain, then the authorize position; the application can override a phase's order or disable a handler by id.",
+    caption:
+      "The chain: positions belong to the framework, slots belong to every plugin, and inside a slot the phase decides before the list does.",
   },
   "continuation-states": {
     alt: "A waiting band with unclaimed and claimed; beneath it an inverted panel, a resume is won once, and a light panel, a notification is leased, with the winner, a second resume and a crash on one side and the due, changed and crash paths on the other; a retention strip ends in gone.",

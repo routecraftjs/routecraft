@@ -6,7 +6,7 @@ so. You never wire it up and you never decide when it starts.
 
 <picture>
   <source media="(prefers-color-scheme: dark)" srcset="figures/plugin-declares-dark.png">
-  <img alt="Left, your plugin: what it declares (id, requires, provides, replaces, points, facets, methods), what it does in bind, and its start and stop. Right, an inverted Routecraft panel: it orders, namespaces, freezes, starts and stops it." src="figures/plugin-declares.png">
+  <img alt="Left, your plugin: what it declares (id, requires, provides, replaces, points, facets, steps, hooks), what it does in bind, and its start and stop. Right, an inverted Routecraft panel: it orders, namespaces, freezes, starts and stops it." src="figures/plugin-declares.png">
 </picture>
 
 ## The descriptor
@@ -19,11 +19,12 @@ so. You never wire it up and you never decide when it starts.
 | `replaces` | a port whose default provider yours displaces | resolution |
 | `points` | moments you declare, with the decisions each honours | before binding |
 | `facets` | `{ approvals: (ex) => ... }`, your typed view of the exchange | static declaration |
-| `methods` | your family: the methods your plugin adds to the route builder | static declaration |
-| `bind(c)` | require, provide, contribute, observe, emit, onDispose | in dependency order |
+| `steps` | the step types your plugin adds; each key becomes a method on the route builder | static declaration |
+| `hooks` | handlers and wrappers in the chain's slots, each with a phase | static declaration, placed when routes compile |
+| `bind(c)` | require, provide, observe, emit, onDispose | in dependency order |
 | `start(c)` / `stop(c)` | acquire and release what needs a running application | after every route compiled; in reverse at stop |
 
-The static half (facets, methods, points) is assembly: the compiler needs it
+The static half (facets, steps, hooks, points) is assembly: the compiler needs it
 to type a route before any application exists. The dynamic half (bind, start,
 stop) is resource binding. Keep them apart: a descriptor is reusable across
 applications, so anything mutable, a timer, a connection, a cache, belongs
@@ -34,78 +35,87 @@ value share it; the published plugin will not.
 
 ## A complete third-party plugin
 
-The one below is abridged from a real one: the external consumer the proof of concept
-builds against a packed tarball of the framework, with no workspace aliases,
-in `validation/round-two/external.fixture.ts`. It contributes a route method,
-declares a handler point, contributes a handler at it and a wrapper in the
-chain, exposes a facet, brings its own source, and is installed beside a
-replacement for our store. `bun run verify:packed` runs it. The abridgement drops the type
-parameters on `methods`, the source, and the assertions, and names the
-package the contracts will ship in rather than the spike.
+This is the target API. A plugin adds a step type that can park an exchange,
+a facet, a handler in the chain and a wrapper, and it provides a port of its
+own.
 
 ```ts
-// A moment this plugin declares. The symbol is the point's identity: another
-// plugin cannot redeclare the same name with a different one.
-const CUSTOM: unique symbol = Symbol("outside point");
-declare module "@routecraft/routecraft" {
-  interface HandlerPoints {
-    "acme:inspect": { readonly owner: typeof CUSTOM; readonly refuse: true; readonly defer: false };
-  }
-}
+// packages/acme-approvals/src/index.ts
+import { definePlugin, step, port, CONTINUATIONS } from "@routecraft/routecraft";
 
-// The family: what `.choose()` means on a route builder once this plugin is installed.
-type Choose<B, P extends readonly Plugin[], H extends object> = {
-  choose(this: Cursor<B, P, H, "after">): Chain<B, P, H, "after">;
-};
-interface ChooseFamily extends Family {
-  readonly methods: Choose<this["Body"], this["Plugins"], this["Headers"]>;
-}
+export const APPROVALS = port<ApprovalService>("acme.approvals@1");
 
-const stranger: Plugin<ChooseFamily, { stranger: () => { label: string } }> = {
-  id: "acme.stranger",
-  facets: { stranger: () => ({ label: "outside" }) },
-  methods(cursor) {
-    const child = instruction("acme.stranger", "external-child", async (ex, ctx) => {
-      const decorated = await ctx.invoke("acme:inspect", ex);
-      return { kind: "continue", exchange: decorated ?? ex };
-    });
-    return {
-      choose: () =>
-        cursor.step("external-branch", (ex) => ({ kind: "branch", exchange: ex, steps: [child] }), [child]),
-    };
+export const approvals = definePlugin({
+  id: "acme.approvals",
+  requires: [CONTINUATIONS],
+  provides: [APPROVALS],
+
+  // ex.approvals, typed, in every route of a project that installs this plugin.
+  facets: {
+    approvals: (ex) => ({ approvedBy: ex.headers["acme.approvedBy"] as string | undefined }),
   },
-  points: [point("acme:inspect", CUSTOM, true, false)],
-  bind(ctx) {
-    ctx.contribute({
-      kind: "handler", id: "external-point", point: "acme:inspect", survival: allRuns,
-      handle: (ex) => ({ kind: "allow", exchange: ex }),
-    });
-    ctx.contribute({
-      kind: "wrapper", id: "audit", survival: allRuns,
-      after: [{ anchor: RETRY, presence: "required" }],
-      before: [{ anchor: TIMEOUT, presence: "required" }],
-      bind: () => async (next, run) => next(run),
-    });
-  },
-};
 
-const app = application([operations, resilience, stranger, deferral, sqlite(":memory:", "acme.store", true)]);
-const spec = app
-  .route<{ correlation: string }>("outside")
-  .retry(2)
-  .from(source)
-  .choose()
-  .transform((body, ex) => body + (ex.stranger.label === "outside" ? 1 : 0))
-  .defer("hold")
-  .build();
+  // A new step type. Its key becomes the method: .approve() on the route builder.
+  steps: {
+    approve: (opts: { reason: string }) =>
+      step<Invoice, Invoice>(async (ex, ctx) =>
+        ctx.kind === "resume"
+          ? { kind: "continue", exchange: ex }
+          : { kind: "defer", exchange: ex, request: { name: "approval", reason: opts.reason } },
+      ),
+  },
+
+  // Handlers and wrappers in the chain: a slot and a phase, never another plugin's name.
+  hooks: {
+    afterAuth: { phase: "validate", run: requireInvoiceNumber },
+    perAttempt: { wrap: timeEachAttempt },
+  },
+
+  bind(c) {
+    c.provide(APPROVALS, approvalService(c.require(CONTINUATIONS)));
+  },
+});
 ```
 
-Three things to notice. `.choose()` and `ex.stranger` are typed because the
-plugin is in the array; in an application built without it, both are compile
-errors. The wrapper names the anchors it sits between and does not know or
-care what else is in the chain. And the store beside it replaces the atomic records port our deferral
-plugin keeps its continuations in, selected by declaration, which neither
-the plugin nor our deferral plugin learns about.
+The project lists its plugins once, and that list types the route builder:
+
+```ts
+// craft.config.ts
+export const { craft } = defineProject({
+  plugins: [operations, resilience, deferral, sqlite, principals, auth, approvals],
+});
+```
+
+The route author writes the same syntax as today:
+
+```ts
+// capabilities/invoices.ts
+import { craft } from "../craft.config";
+
+export default craft()
+  .id("invoices")
+  .retry(2)
+  .from(mail("INBOX"))
+  .approve({ reason: "over the limit" })
+  .transform((invoice, ex) => ({ ...invoice, approvedBy: ex.approvals.approvedBy }))
+  .to(erp());
+```
+
+Three things to notice. `.approve()` and `ex.approvals` exist because the
+plugin is in the project; in a project without it, both are compile errors,
+so a route cannot reach production calling a step that is not installed. The
+step can park the exchange, which a `.transform()` cannot. And the hooks name
+a slot and a phase, never another plugin, so this plugin works beside any
+others without knowing them.
+
+**Intended.** `definePlugin`, `defineProject` and `hooks` are the target API.
+The proof of concept demonstrates the same mechanism with the lower-level
+types they would generate (`Plugin<Family>` and `Cursor`), in the external
+consumer it builds against a packed tarball of the framework
+(`validation/round-two/external.fixture.ts`, run by `bun run verify:packed`).
+A plugin author never writes those types. Their cost is guarded by a
+type-performance budget in CI: ten plugins installed, a limit on `tsc` time,
+and a check that the error for a wrong argument stays readable.
 
 ## What you get for free
 
@@ -119,18 +129,17 @@ the plugin nor our deferral plugin learns about.
 - **Reverse teardown.** Your `stop` runs after everything that depends on
   you has stopped, and every disposer you registered runs even when another
   one throws.
-- **Diagnostics.** `runtime.dump()` shows where your contributions landed and
-  which provider each port resolved to.
+- **Diagnostics.** `runtime.dump()` shows every route's resolved chain, slot by
+  slot and phase by phase, and which provider each port resolved to.
 
 ## Effort, honestly
 
-A plugin that only wants to add a step needs an id, a family with one method,
-and nothing else: no ports, no points, no lifecycle. A plugin that only wants
-to observe needs an id and a `bind` that calls `observe`. The full descriptor
-above is the ceiling, not the floor. **Intended:** helpers for the common
-shapes (a plugin that is one operation, a plugin that is one provider), so an
-ordinary side effect does not copy the family machinery; the low-level
-protocol stays available underneath.
+A plugin that only adds a step needs an id and one `steps` entry: no ports,
+no points, no lifecycle. A plugin that only watches traffic needs an id and
+one hook in the `observe` phase. The plugin above is the ceiling, not the
+floor. `definePlugin` derives every type a route needs, so no author writes
+the type machinery underneath it; the low-level protocol stays available for
+the rare plugin that needs it.
 
 ## Packaging
 
@@ -139,7 +148,7 @@ the contract module in one process are two different tokens, and the kernel
 refuses that at start by name rather than resolving nothing. So the package
 that defines a port is a **peer** of every package that uses it, and your
 package declares it as one. **Migration decision:** the non-TypeScript
-contract (point names, anchor names, namespaces, option keys, event names and
+contract (point names, slot and phase names, namespaces, option keys, event names and
 payloads, fault codes, the record codec, the hash projection) is versioned
 and published as such before any plugin outside this repository is asked to
 depend on it.

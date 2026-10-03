@@ -70,10 +70,10 @@ A plugin does exactly four things. Not forty.
 - **Port.** A named capability, not a named plugin. You ask for "somewhere to
   keep continuations", never for "the SQLite plugin". That is what lets a
   stranger replace a first-party provider under their own name.
-- **Contribution.** A handler at a named moment (admission, entry, error,
-  exit, or a moment another plugin declared), or a wrapper around the route
-  like retry or timeout. Both say where they sit by naming anchors, not
-  numbers, and both say which kinds of run they apply to.
+- **Contribution.** A handler or a wrapper in a named slot of the route's
+  fixed chain, with a phase that says what it does: observe, mutate or
+  validate. It never names another plugin, and it says which kinds of run it
+  applies to.
 - **Step.** An instruction inside a route. It returns an outcome rather than
   nothing, which is how a plugin gets to halt, branch, fan out or park instead
   of only the framework being able to.
@@ -83,8 +83,8 @@ A plugin does exactly four things. Not forty.
   not installed.
 
 The five things you build today map onto them: an adapter and an operation are
-steps, a layer is a wrapper contribution, a handler is a handler contribution,
-and a provider is a port.
+steps, a layer is a wrapper in a slot, a handler is a handler in a slot, and
+a provider is a port.
 
 ## What that buys
 
@@ -94,8 +94,8 @@ and a provider is a port.
 | Your features | one verb, reach in and hope | the same four sockets we use |
 | Depending on something | `dependsOn` declared and ignored | a port, resolved to a provider, enforced at start |
 | Replacing something of ours | not possible | install yours and declare the replacement |
-| Position in the chain | the framework picks, fixed list | you name an anchor and land there |
-| A method on the route builder | patch the base prototype, post-`.from()` only | your plugin's family, typed, present only when installed |
+| Position in the chain | the framework picks, fixed list | the framework still fixes the positions; you add to named slots between them, or replace what fills a position |
+| A method on the route builder | patch the base prototype, post-`.from()` only | a `steps` entry in your plugin, typed, present only when installed |
 | Data on the exchange | a header and an exported helper | a typed facet under your namespace |
 | A failure at start | wherever it surfaces | names the plugin responsible, by code |
 
