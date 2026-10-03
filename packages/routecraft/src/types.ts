@@ -884,9 +884,9 @@ export interface EventDetailsMap {
     recoveryStrategy?: string;
     scope?: ErrorHandlerScope;
     /**
-     * Which registered context handler failed, as its index in registration
+     * Which error-slot hook failed, as its index in the slot's effective
      * order. Present only when `scope === "context"`, where "the handler"
-     * is ambiguous: the chain continues past a handler that throws, so an
+     * is ambiguous: the slot continues past a hook that throws, so an
      * operator needs to know which one to fix.
      */
     handlerIndex?: number;

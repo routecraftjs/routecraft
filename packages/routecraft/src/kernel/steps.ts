@@ -185,7 +185,11 @@ type StepMethod<F, S extends BuilderState, This> = F extends (
     : never
   : never;
 
-type DerivedMethods<St, S extends BuilderState, This> = {
+/**
+ * The methods a plugin's `steps` become at state `S`: one per entry whose
+ * input the body satisfies. Exported so a declaration file can name it.
+ */
+export type DerivedStepMethods<St, S extends BuilderState, This> = {
   [
     K in keyof St as [StepMethod<St[K], S, This>] extends [never] ? never : K
   ]: StepMethod<St[K], S, This>;
@@ -196,7 +200,7 @@ type MethodsOfPlugin<P, S extends BuilderState, This> = P extends {
 }
   ? NamespaceOf<P> extends keyof StepMethods<S, This>
     ? StepMethods<S, This>[NamespaceOf<P>]
-    : DerivedMethods<St, S, This>
+    : DerivedStepMethods<St, S, This>
   : unknown;
 
 /**

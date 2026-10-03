@@ -647,7 +647,6 @@ export class CraftContext {
     const client = new CraftClient(this);
     return {
       logger: this.logger,
-      context: this,
       observe: <K extends EventName>(
         event: K | "*",
         handler: EventHandler<K>,

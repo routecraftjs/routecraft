@@ -111,8 +111,8 @@ export const HeadersKeys = {
   SPLIT_HIERARCHY: "routecraft.split_hierarchy",
   /**
    * Authenticated principal resolved from the request, when available.
-   * Carries the structured `Principal` object; the `ex.principal` getter
-   * is sugar over `ex.headers[HeadersKeys.AUTH_PRINCIPAL]`.
+   * Carries the structured `Principal` object; `ex.auth.principal` in route
+   * callables and `principalOf(ex)` elsewhere read it.
    */
   AUTH_PRINCIPAL: "routecraft.auth.principal",
 } as const satisfies Record<string, string>;

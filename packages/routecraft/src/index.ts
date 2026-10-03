@@ -514,6 +514,7 @@ export {
   type Body,
   type FacetsOf,
   type FacetTypes,
+  type DerivedStepMethods,
   type PluginMethods,
   type StepFactory,
   type StepMethods,
@@ -528,6 +529,8 @@ export type {
 export type { AuthFacet, AuthPlugin } from "./plugins/auth/index.ts";
 export type { DeferralPlugin } from "./plugins/deferral/index.ts";
 export { defineProject, type Project } from "./project.ts";
+export type { NextRouteState, RootState } from "./builder.ts";
+export type { DeferralStepMethods } from "./plugins/deferral/steps.ts";
 // The deferral plugin's method and facet types are declared there.
 import "./plugins/deferral/steps.ts";
 
