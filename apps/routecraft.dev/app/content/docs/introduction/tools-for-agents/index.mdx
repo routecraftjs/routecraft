@@ -69,6 +69,10 @@ export default craft()
   .to(log());
 ```
 
+The schema is the boundary, and it holds whatever the model decides. Ask your agent for invoices more than 30 days overdue and the call goes through. A call with `days: 0`, or `days: "a month"`, is refused before any step runs, and the refusal names the failing field so the agent can correct itself. The model chooses what to ask for; your code decides which actions exist, what input they accept and under which conditions they run. That does not make the model's output deterministic. It bounds what that output can do.
+
+Who may call is the next boundary. Over stdio on your laptop the caller is you, so there is nothing to check. Once the capability is served over HTTP on the team harness, behind an authenticated door, `.authorize()` names the roles and scopes a caller needs: [Credentials and identity](/docs/introduction/credentials-and-identity) has the model.
+
 `craft start` discovers the new folder on its own. Give the route an `http()` source as well and it is also an endpoint, behind the same schema.
 
 A schedule is different: a `cron()` source starts a run with no body, and this capability's `.input()` would refuse it. Give the schedule a route of its own that builds the input and calls the capability through its `direct()` door (`cron()` needs the optional peer: `bun add croner`):

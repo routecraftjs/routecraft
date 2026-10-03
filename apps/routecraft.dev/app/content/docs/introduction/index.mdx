@@ -30,13 +30,22 @@ Read it top to bottom.
 
 Switch telemetry on and every call, through every door, is on record: who asked, which door, which capability, which system.
 
+## Two places to start
+
+- **An empty project.** `bunx create-routecraft my-project` scaffolds one capability that is already an MCP tool. Connect the agent you use today and call it. Start here when you want to give an existing agent a tool. [Tools for agents](/docs/introduction/tools-for-agents) walks it through.
+- **craft-harness.** A complete local harness to start from: chat, a sandboxed shell, web fetch and search, a workspace, memory, a scheduler and human approvals, each an ordinary capability under `capabilities/` with its guardrails where you can read them. It serves MCP and the editor protocol from the first boot. It is a Routecraft project like any other, not a product on top: read it, keep what you need, delete the rest. Start here when you want an agent of your own. [An agent of your own](/docs/introduction/an-agent-of-your-own) walks it through.
+
+```bash
+bunx create-routecraft my-agent --example https://github.com/routecraftjs/craft-harness
+```
+
 ## The words
 
 A short glossary. Each one has its own page further in.
 
 - **Capability.** The unit of everything. A TypeScript route that connects a source to a destination through typed steps, with an id, a description and, when it declares one, an input schema that every call is validated against. A capability can be fully deterministic, or carry an agent inside it that reasons within the boundary the code sets. See [Capabilities](/docs/introduction/capabilities).
 - **Harness.** A running Routecraft instance together with its capabilities, skills and agents. A local harness runs on a laptop on personal access; the team harness runs always on, on service credentials. Both run the same code. See [Local harness, team harness](/docs/introduction/local-and-team-harness).
-- **Agent.** A model loop that works inside a capability with the tools you gave it, and only those. An agent can also live outside Routecraft, in Claude, Copilot, Cursor or ChatGPT, and reach your capabilities over MCP. Both are first class. See [Durable agents](/docs/advanced/durable-agents).
+- **Agent.** A model loop that works inside a capability with the tools you gave it, and only those. An agent can also live outside Routecraft, in Claude, Copilot, Cursor or ChatGPT, and reach your capabilities over MCP. Both are first class. See [Agents and skills](/docs/introduction/agents-and-skills).
 - **Skill.** Instructions in markdown that an agent loads to do one kind of job, shipped as a package beside the capabilities it uses. See [Project structure](/docs/introduction/project-structure#skills).
 - **Door.** How a caller reaches a capability when someone asks: MCP for agents, the Agent Client Protocol for editors, the CLI, and HTTP. One capability, every door, the same checks. See [Doors and triggers](/docs/introduction/doors-and-triggers).
 - **Trigger.** What starts a capability when nobody asks: a schedule, a webhook, an email, an event from another capability, a file. See [Doors and triggers](/docs/introduction/doors-and-triggers).
@@ -81,15 +90,6 @@ craft()
   .from(source)
   .transform(fn)
   .to(destination)
-```
-
-## Two places to start
-
-- **An empty project.** `bunx create-routecraft my-project` scaffolds one capability that is already an MCP tool. Connect the agent you use today and call it. Start here when you want to give an existing agent a tool. [Tools for agents](/docs/introduction/tools-for-agents) walks it through.
-- **craft-harness.** A complete local harness to start from: chat, a sandboxed shell, web fetch and search, a workspace, memory, a scheduler and human approvals, each an ordinary capability under `capabilities/` with its guardrails where you can read them. It serves MCP and the editor protocol from the first boot. It is a Routecraft project like any other, not a product on top: read it, keep what you need, delete the rest. Start here when you want an agent of your own. [An agent of your own](/docs/introduction/an-agent-of-your-own) walks it through.
-
-```bash
-bunx create-routecraft my-agent --example https://github.com/routecraftjs/craft-harness
 ```
 
 ## Hands, not keys

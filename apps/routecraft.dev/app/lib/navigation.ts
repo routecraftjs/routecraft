@@ -46,6 +46,10 @@ export const navigation = [
       },
       { title: 'Capabilities', href: '/docs/introduction/capabilities' },
       {
+        title: 'Agents and skills',
+        href: '/docs/introduction/agents-and-skills',
+      },
+      {
         title: 'Project structure',
         href: '/docs/introduction/project-structure',
       },
