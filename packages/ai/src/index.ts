@@ -137,6 +137,8 @@ export {
   type McpInput,
   type McpOutput,
   type McpIcon,
+  type McpUiCsp,
+  type McpUiOptions,
   type McpToolRegistryEntry,
   type McpToolResult,
   type OAuthFactoryOptions,

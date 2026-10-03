@@ -222,6 +222,66 @@ craft()
 
 Icons resolve with the same rule at both levels: omit `icons` to inherit (a tool with no icon of its own shows the server's icon, including the Routecraft default), set `icons: [...]` for a custom icon, or set `icons: []` to show none.
 
+## Rendering results as a view
+
+By default a host such as Claude shows a tool's result as JSON. Hosts that support the [MCP Apps](https://github.com/modelcontextprotocol/ext-apps) extension (Claude web and desktop among them) can render it as an interactive HTML view instead. Attach one with `ui` on the route's `mcp()` source:
+
+```ts
+// capabilities/send-mail.ts
+import { craft } from '@routecraft/routecraft'
+import { fromFile, mcp } from '@routecraft/ai'
+import { z } from 'zod'
+
+export default craft()
+  .id('send-mail')
+  .title('Send mail')
+  .description('Hold an email for review before it is sent')
+  .input({ body: z.object({ to: z.string(), subject: z.string(), body: z.string() }) })
+  .output({ body: z.object({ to: z.string(), subject: z.string(), body: z.string() }) })
+  .from(mcp({
+    annotations: { destructiveHint: false },
+    ui: {
+      html: fromFile('./capabilities/send-mail.html'),
+      csp: { resourceDomains: ['https://cdn.jsdelivr.net'] },
+      prefersBorder: true,
+    },
+  }))
+  .transform((mail) => mail)
+```
+
+The view is a static HTML document. It loads the extension's `App` client, connects to the host, and draws from the tool result's `structuredContent`, which is why a route with `ui` must declare `.output()`:
+
+```html
+<!-- capabilities/send-mail.html -->
+<!doctype html>
+<html>
+  <body>
+    <dl id="mail"></dl>
+    <script type="module">
+      import { App } from 'https://cdn.jsdelivr.net/npm/@modelcontextprotocol/ext-apps@2/dist/src/app-with-deps.js'
+
+      const app = new App({ name: 'send-mail', version: '1.0.0' })
+      app.addEventListener('toolresult', ({ structuredContent }) => {
+        const list = document.getElementById('mail')
+        for (const [label, value] of Object.entries(structuredContent ?? {})) {
+          list.append(Object.assign(document.createElement('dt'), { textContent: label }))
+          list.append(Object.assign(document.createElement('dd'), { textContent: value }))
+        }
+      })
+      await app.connect()
+    </script>
+  </body>
+</html>
+```
+
+What Routecraft does with it:
+
+- `tools/list` advertises `_meta.ui.resourceUri` on the tool, set to `ui://<server name>/<route id>` (`ui://routecraft/send-mail` with the default server name).
+- The server serves the view through `resources/list` and `resources/read` with MIME type `text/html;profile=mcp-app`, its `csp` and `prefersBorder` under `_meta.ui`. A `fromFile()` loader is read on every request, so edits show without a restart.
+- `tools/call` returns `structuredContent` for the view and the text block for every host that does not render views. Nothing changes for those hosts.
+
+Keep the HTML free of data. Every client of the server can read the view, behind the same auth as the tools, so anything per-call reaches it through the tool result. The `csp` lists are the only outside origins the host's sandbox lets the view reach; the example allows the CDN its client is loaded from. The view renders after the tool has run, so it is a display, not a confirmation step. See [MCP Apps views](/docs/reference/adapters/mcp#mcp-apps-views) for every option and rule.
+
 ## Proxying tools from configured clients
 
 Any MCP client registered under `mcpPlugin({ clients })` can have tools re-exposed through your Routecraft MCP server without writing a route per tool. Use the `proxy` option to select them:

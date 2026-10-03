@@ -1,18 +1,8 @@
 import { readFile } from "node:fs/promises";
 import { resolve as resolvePath } from "node:path";
-import {
-  rcError,
-  type CraftContext,
-  type Exchange,
-} from "@routecraft/routecraft";
+import { rcError } from "@routecraft/routecraft";
 import { readMarkdownSource, requireString } from "./markdown.ts";
-import type {
-  BlockBody,
-  BlockClient,
-  BlockLifetime,
-  BlockMode,
-  Blocks,
-} from "./types.ts";
+import type { BlockBody, BlockLifetime, BlockMode, Blocks } from "./types.ts";
 
 /**
  * Options for {@link skills}. Loads markdown skills from disk and
@@ -140,6 +130,8 @@ export async function skills(options: SkillsOptions): Promise<Blocks> {
  * Return a function-form resolver that reads a UTF-8 text file at
  * dispatch (or context-init) time. Useful when a block's content
  * lives on disk and may be edited without restarting the process.
+ * Takes no arguments, so it also serves as an MCP Apps view loader
+ * (`mcp({ ui: { html: fromFile("./view.html") } })`).
  *
  * Resolves the path against `process.cwd()` so relative paths
  * (`"./prompts/identity.md"`) work the same way the markdown loaders
@@ -160,14 +152,7 @@ export async function skills(options: SkillsOptions): Promise<Blocks> {
  * });
  * ```
  */
-export function fromFile(
-  path: string,
-): (
-  exchange: Exchange<unknown>,
-  context: CraftContext,
-  events: readonly unknown[],
-  client: BlockClient,
-) => Promise<string> {
+export function fromFile(path: string): () => Promise<string> {
   if (typeof path !== "string" || path.trim() === "") {
     throw rcError("AI1003", undefined, {
       message: `fromFile: "path" must be a non-empty string.`,
