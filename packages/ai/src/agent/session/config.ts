@@ -75,10 +75,11 @@ export interface SessionStoreTestSeams {
 /**
  * What resolving a session store needs from whoever resolves it.
  *
- * The host object is also the scope its path claim is recorded in. The
- * adapter-side fallback passes the context, whose scope the deferral store
- * claims in too; the plugin passes the path the continuations store opened,
- * because a plugin shares no claim scope with another plugin.
+ * The host object is also the scope its path claim is recorded in, and no
+ * other store claims in it: the deferral store claims in its own plugin
+ * context, which no other plugin can reach. A shared file with the
+ * continuations store is therefore caught by comparing against
+ * `continuationsPath`, the path that store reports through `CONTINUATIONS`.
  *
  * @internal
  */

@@ -189,26 +189,33 @@ export function agentRuntimePlugin(): Plugin {
     optional: [CONTINUATIONS, OPS, REMOTES],
     installs: [defaultSessionsPlugin()],
     bind(c: PluginContext) {
-      const store = c.require(SESSION_STORE);
-      const registry: AgentRegistryImpl = new AgentRegistryImpl(() => {
-        const runtime = AgentSessionRuntime.create(
-          {
-            logger: c.logger,
-            emit: (event, details) => c.emit(event, details),
-            continuations: () => c.lookup(CONTINUATIONS),
-            resume: (request) => c.execution.resume(request),
-            agent: (name) => registry.agents.get(name),
-          },
-          store,
-        );
+      // Opened here rather than on first use, so it is retained on the store
+      // and stopped with it on every path, including a first use after stop.
+      const runtime: AgentSessionRuntime | undefined =
+        c.lookup(CONTINUATIONS) === undefined
+          ? undefined
+          : AgentSessionRuntime.create(
+              {
+                logger: c.logger,
+                emit: (event, details) => c.emit(event, details),
+                continuations: () => c.lookup(CONTINUATIONS),
+                resume: (request) => c.execution.resume(request),
+                agent: (name) => registry.agents.get(name),
+              },
+              c.require(SESSION_STORE),
+            );
+      if (runtime !== undefined) {
         // Latched as shutdown begins, before the routes drain, so a
         // completion or a post landing during the drain starts no turn on
         // it; closing the store awaits the same stop() for the revivals.
         c.observe("context:stopping", () => {
           void runtime.stop();
         });
-        return runtime;
-      });
+      }
+      const registry: AgentRegistryImpl = new AgentRegistryImpl(
+        () => c.frozen,
+        runtime,
+      );
       const tools: ToolHost = {
         logger: c.logger,
         capabilities: () => c.execution.capabilities(),
@@ -224,8 +231,8 @@ export function agentRuntimePlugin(): Plugin {
     },
 
     /**
-     * Seal the registry, resolve every deferred tool, announce what was
-     * registered, and drive what the previous process left in sessions.
+     * Resolve every deferred tool, announce what was registered, and drive
+     * what the previous process left in sessions.
      *
      * Resolution belongs in `start()` rather than in an event handler. A
      * direct route registers its capability when its source subscribes,
@@ -239,7 +246,6 @@ export function agentRuntimePlugin(): Plugin {
     start(c: PluginContext) {
       const run = runs.get(c);
       if (!run) return;
-      run.registry.seal();
       resolveLazyTools(run);
       emitRegistrations(c, run);
       run.boot = driveSessionsAtBoot(c, run.registry);

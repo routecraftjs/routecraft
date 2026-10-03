@@ -185,6 +185,18 @@ interface ActiveTurn {
 }
 
 /**
+ * The refusal for a session in an application with no continuations store.
+ *
+ * @internal
+ */
+export function noContinuationsStore(): Error {
+  return rcError("RC5052", undefined, {
+    message:
+      "agent({ session }) stores a turn's continuation in the deferral store, and this context has none. Add a `deferral` block to defineConfig (the sqlite backend is the default) so a turn that ends with work outstanding can be revived.",
+  });
+}
+
+/**
  * The per-context session runtime: one turn at a time per session, an
  * inbox for messages that arrive mid-turn, interrupt, and the boundary
  * turn that consumes what queued.
@@ -265,12 +277,7 @@ export class AgentSessionRuntime {
     store: ResolvedSessionStore,
   ): AgentSessionRuntime {
     const deferral = host.continuations();
-    if (!deferral) {
-      throw rcError("RC5052", undefined, {
-        message:
-          "agent({ session }) stores a turn's continuation in the deferral store, and this context has none. Add a `deferral` block to defineConfig (the sqlite backend is the default) so a turn that ends with work outstanding can be revived.",
-      });
-    }
+    if (!deferral) throw noContinuationsStore();
     const runtime = new AgentSessionRuntime(
       host,
       new AgentSessionStore(store.store, deferral.store),

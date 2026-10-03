@@ -36,14 +36,15 @@ export interface AgentRegistry {
   readonly toolPolicies: readonly AgentToolPolicy[];
   /**
    * Add one contribution, applying the composition rules. In `bind` only:
-   * the registry is sealed once the application starts.
+   * whatever read the contributions during bind has already used them.
    *
    * @throws RC5003 for an invalid entry, a duplicate id, or a default set twice
-   * @throws RC1110 after the registry was sealed
+   * @throws RC1110 once the application froze
    */
   contribute(contribution: AgentContribution): void;
   /**
-   * The session runtime, created on first use.
+   * The session runtime, opened when the agent runtime binds and stopped
+   * with the session store it writes to.
    *
    * @throws RC5052 when no plugin provides continuations, which a session
    *   needs to store a turn between messages
