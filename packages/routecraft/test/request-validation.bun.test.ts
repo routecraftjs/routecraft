@@ -7,6 +7,7 @@ import {
   resolveRequestValidation,
 } from "../src/plugins/server/request-validation.ts";
 import { serversPlugin } from "../src/plugins/server/plugin.ts";
+import { ingressHostOf } from "./helpers/authority.ts";
 
 const policy = resolveRequestValidation({});
 const trusted = resolveAllowedHostnames(["public.example"]);
@@ -186,7 +187,7 @@ describe("request validation in the registry", () => {
         events.push(details);
       })
       .build();
-    const registry = new HttpMountRegistry("default", t.ctx);
+    const registry = new HttpMountRegistry("default", ingressHostOf(t.ctx));
     const browserOrigins = ["https://browser.example"];
     const allowedHostnames = ["public.example"];
     const unmount = registry.mountHttp({

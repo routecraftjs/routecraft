@@ -42,9 +42,12 @@ const authentic = new WeakSet<object>();
  * by reference and keeps its set membership. Always use the return value;
  * never assume the argument was branded in place.
  *
- * This is a trusted primitive, exported for adapter and source authors who
- * verify identity themselves (for example a custom Slack or e-mail source).
- * Application route code should mint identities with `authenticate()` instead.
+ * The default authority's brand. An adapter or source that verifies
+ * identity itself brands through its application's authority,
+ * `authorityOf(context).brand(principal)`, so a replaced `AUTHORITY` decides
+ * what is authentic; route code mints with `.authenticate()`.
+ *
+ * @internal
  */
 export function markAuthentic<P extends Principal>(principal: P): P {
   if (isAuthentic(principal)) return principal;
@@ -171,7 +174,10 @@ function freezeDelegationState(
 /**
  * Whether a value is a principal that was established by a trusted origin
  * (see {@link markAuthentic}). Returns `false` for plain objects, `null`,
- * `undefined`, and non-objects.
+ * `undefined`, and non-objects. The default authority's check; outside the
+ * framework read `authorityOf(exchange).isAuthentic(principal)`.
+ *
+ * @internal
  */
 export function isAuthentic(principal: unknown): principal is Principal {
   return (

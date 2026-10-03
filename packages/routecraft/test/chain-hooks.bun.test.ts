@@ -798,7 +798,7 @@ describe("chain hooks", () => {
       .build();
     await t.startAndWaitReady();
 
-    expect(await t.client.sendDirect("work", {})).toBe("done");
+    expect((await t.client.sendDirect("work", {})) as string).toBe("done");
     expect(runs).toBe(1);
   });
 

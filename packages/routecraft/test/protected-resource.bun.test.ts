@@ -17,6 +17,7 @@ import {
   type ProtectedResourceMetadata,
 } from "../src/index.ts";
 import { HttpMountRegistry } from "../src/plugins/server/registry.ts";
+import { ingressHostOf } from "./helpers/authority.ts";
 
 const SECRET = "protected-resource-test-secret-please-change";
 const ISSUER = "https://idp.test";
@@ -86,7 +87,7 @@ describe("protected resource metadata", () => {
    */
   test("serves suffixed documents from the owning mount's effective auth", async () => {
     const context = (await testContext().build()).ctx;
-    const ingress = new HttpMountRegistry("public", context);
+    const ingress = new HttpMountRegistry("public", ingressHostOf(context));
     ingress.mountHttp({
       id: "ops",
       auth: jwt({ secret: SECRET, issuer: ISSUER, audience: AUDIENCE }),
@@ -134,7 +135,7 @@ describe("protected resource metadata", () => {
    */
   test("prefix claims lose the metadata namespace, exact claims keep it", async () => {
     const context = (await testContext().build()).ctx;
-    const ingress = new HttpMountRegistry("public", context);
+    const ingress = new HttpMountRegistry("public", ingressHostOf(context));
     ingress.mountHttp({
       id: "http",
       claims: () => [{ kind: "prefix", path: "/" }],

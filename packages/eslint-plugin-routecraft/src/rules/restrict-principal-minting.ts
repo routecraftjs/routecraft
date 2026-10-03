@@ -9,6 +9,7 @@ import {
 
 const ROUTECRAFT_MODULE = "@routecraft/routecraft";
 const MINTING_EXPORTS = new Set(["authenticate", "markAuthentic"]);
+const AUTHORITY_MINTS = new Set(["mint", "brand"]);
 
 /**
  * How an identifier resolves in its lexical scope: to an import binding
@@ -56,6 +57,31 @@ function resolveBinding(
     scope = scope.upper;
   }
   return { kind: "unresolved" };
+}
+
+/**
+ * The initialiser of the variable an identifier names, when it is a plain
+ * `const x = <init>` declaration; `undefined` for anything else.
+ */
+function variableInit(
+  context: Rule.RuleContext,
+  node: Rule.Node,
+  identifier: { name: string },
+): unknown {
+  let scope: ReturnType<typeof context.sourceCode.getScope> | null =
+    context.sourceCode.getScope(node);
+  while (scope) {
+    const variable = scope.variables.find((v) => v.name === identifier.name);
+    if (variable) {
+      const def = variable.defs[0];
+      if (def?.type !== "Variable" || def.parent.kind !== "const") {
+        return undefined;
+      }
+      return def.node.init ?? undefined;
+    }
+    scope = scope.upper;
+  }
+  return undefined;
 }
 
 /**
@@ -120,7 +146,7 @@ const rule: Rule.RuleModule = {
     type: "problem",
     docs: {
       description:
-        "Principal minting (.authenticate(), authenticate(), markAuthentic()) is restricted to explicitly sanctioned channel authenticators.",
+        "Principal minting (.authenticate(), authenticate(), markAuthentic(), and an authority's mint() and brand()) is restricted to explicitly sanctioned channel authenticators.",
       recommended: true,
     },
     messages: {
@@ -159,6 +185,48 @@ const rule: Rule.RuleModule = {
         );
       }
       return false;
+    };
+
+    /** Whether an identifier is the named routecraft export `name`. */
+    const isRoutecraftExport = (
+      node: Rule.Node,
+      identifier: unknown,
+      name: string,
+    ): boolean => {
+      if (!isIdentifier(identifier)) return false;
+      const binding = resolveBinding(context, node, identifier);
+      return (
+        binding.kind === "named" &&
+        binding.module === ROUTECRAFT_MODULE &&
+        binding.imported === name
+      );
+    };
+
+    /**
+     * Whether an expression yields the application's principal authority:
+     * `authorityOf(...)`, `x.require(AUTHORITY)` / `x.lookup(AUTHORITY)`, or
+     * a `const` initialised from one of them.
+     */
+    const isAuthority = (node: Rule.Node, expression: unknown): boolean => {
+      if (isIdentifier(expression)) {
+        const init = variableInit(context, node, expression);
+        return init !== undefined && isAuthority(node, init);
+      }
+      if (!isCallExpression(expression)) return false;
+      const callee: unknown = expression.callee;
+      if (isRoutecraftExport(node, callee, "authorityOf")) return true;
+      if (!isMemberExpression(callee)) return false;
+      const method = memberPropertyName(callee);
+      if (method === "authorityOf" && isIdentifier(callee.object)) {
+        const binding = resolveBinding(context, node, callee.object);
+        return (
+          binding.kind === "namespace" && binding.module === ROUTECRAFT_MODULE
+        );
+      }
+      return (
+        (method === "require" || method === "lookup") &&
+        isRoutecraftExport(node, expression.arguments[0], "AUTHORITY")
+      );
     };
 
     return {
@@ -207,6 +275,20 @@ const rule: Rule.RuleModule = {
             });
             return;
           }
+        }
+
+        // authorityOf(x).brand(...) / .mint(...): the application's
+        // authority is the same trust primitive under its port.
+        if (
+          AUTHORITY_MINTS.has(propertyName) &&
+          isAuthority(node, callee.object)
+        ) {
+          context.report({
+            node,
+            messageId: "restrictedMint",
+            data: { what: `authority.${propertyName}()` },
+          });
+          return;
         }
 
         // .authenticate(...) (dotted or computed string literal) as a

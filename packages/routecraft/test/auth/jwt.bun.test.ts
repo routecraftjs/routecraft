@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import { createHmac } from "node:crypto";
 import { jwt, type JwtAuthOptions } from "../../src/auth/jwt.ts";
 import { markAuthentic } from "../../src/auth/authentic.ts";
-import { delegate } from "../../src/auth/delegate.ts";
+import { delegate } from "../helpers/authority.ts";
 import type { Principal } from "../../src/principal.ts";
 
 /**

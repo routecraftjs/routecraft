@@ -10,7 +10,13 @@ import {
 import { registerDefaultPlugin } from "../../kernel/defaults.ts";
 import { definePlugin } from "../../kernel/plugin.ts";
 
-/** The framework's authority: what fills `AUTHORITY` unless replaced. */
+/**
+ * The framework's authority: what fills `AUTHORITY` unless replaced. Code
+ * that needs an authority reads its application's with `authorityOf`, so a
+ * replacement decides every mint and every check.
+ *
+ * @internal
+ */
 export const defaultAuthority: Authority = {
   mint: authenticate,
   brand: markAuthentic,

@@ -38,6 +38,7 @@ const restored = new WeakSet<object>();
  * @param principal - The principal shape read back from a deferral.
  * @returns A frozen copy registered as restored. Always use the return
  *   value; the argument is neither mutated nor frozen.
+ * @internal
  */
 export function markRestored<P extends Principal>(principal: P): P {
   if (isRestored(principal)) return principal;
@@ -56,6 +57,8 @@ export function markRestored<P extends Principal>(principal: P): P {
  * predicate here would narrow the FALSE branch of an already-`Principal`
  * value to `never`, which is not what a caller means by "this principal is
  * not restored".
+ *
+ * @internal
  */
 export function isRestored(principal: unknown): boolean {
   return (
