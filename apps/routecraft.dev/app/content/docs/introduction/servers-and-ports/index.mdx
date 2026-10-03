@@ -16,7 +16,9 @@ import { defineConfig } from "@routecraft/routecraft";
 import "@routecraft/ai";
 
 export const craftConfig = defineConfig({
-  servers: { default: { port: 8080 } },
+  servers: {
+    default: { port: 8080, allowedHostnames: ["mcp.example.com"] },
+  },
   http: {}, // http() routes, at /
   mcp: {
     transport: "http", // MCP, at /mcp
@@ -50,7 +52,11 @@ import "@routecraft/ai";
 
 export const craftConfig = defineConfig({
   servers: {
-    default: { host: "0.0.0.0", port: 8080 },
+    default: {
+      host: "0.0.0.0",
+      port: 8080,
+      allowedHostnames: ["mcp.example.com"],
+    },
     internal: { host: "0.0.0.0", port: 9090 },
   },
   http: {},

@@ -14,23 +14,39 @@ const MOVED: Record<string, string> = {
   'introduction/tui': 'advanced/tui',
 }
 
+/** The old address of a moved page, when this channel still has it there. */
+function earlierRoute(
+  channel: DocsChannelName,
+  route: string,
+): string | undefined {
+  const pages = pagesByChannel[channel] ?? []
+  return Object.keys(MOVED).find(
+    (old) => MOVED[old] === route && pages.includes(old),
+  )
+}
+
 /**
  * Where a request for a missing page on this channel should go, if anywhere.
  *
- * Asked only when the channel has no page at `slug`, and answered only when it
- * has one at the destination. That is what makes a move safe across the
+ * Asked only when the channel has no page at `slug`, and answered only with an
+ * address the channel does have. That is what makes a move safe across the
  * channel split: routes build from main, but `/docs` serves the last release,
- * which still carries the page at its old address until the next tag. A
- * redirect that fired unconditionally would shadow the released page, send its
- * readers to a 404 and fail the freeze gate.
+ * which keeps the page at its old address until the next tag. So an old
+ * address redirects forward once the channel has the new page, and a new
+ * address, already linked from READMEs and the blog, redirects back while the
+ * channel only has the old one. A redirect that fired unconditionally would
+ * shadow the released page and fail the freeze gate.
  */
 export function movedDocsPage(
   channel: DocsChannelName,
   slug: string,
 ): string | undefined {
-  const target = MOVED[slug.replace(/\/$/, '')]
-  if (!target) return undefined
-  return (pagesByChannel[channel] ?? []).includes(target) ? target : undefined
+  const route = slug.replace(/\/$/, '')
+  const forward = MOVED[route]
+  if (forward && (pagesByChannel[channel] ?? []).includes(forward)) {
+    return forward
+  }
+  return earlierRoute(channel, route)
 }
 
 /**
@@ -46,9 +62,6 @@ export function earlierDocsHref(
   href: string,
 ): string | undefined {
   const route = href.replace(/^\/docs\//, '').replace(/\/$/, '')
-  const pages = pagesByChannel[channel] ?? []
-  const earlier = Object.keys(MOVED).find(
-    (old) => MOVED[old] === route && pages.includes(old),
-  )
+  const earlier = earlierRoute(channel, route)
   return earlier ? `/docs/${earlier}` : undefined
 }

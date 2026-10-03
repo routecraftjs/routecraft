@@ -109,7 +109,13 @@ import { defineConfig, jwt } from "@routecraft/routecraft";
 import "@routecraft/ai";
 
 export const craftConfig = defineConfig({
-  servers: { default: { host: "0.0.0.0", port: 8080 } },
+  servers: {
+    default: {
+      host: "0.0.0.0",
+      port: 8080,
+      allowedHostnames: ["mcp.example.com"],
+    },
+  },
   mcp: {
     transport: "http",
     // Required outside NODE_ENV development and test.
@@ -166,7 +172,7 @@ VS Code and Copilot:
 The HTTP transport is stateless. Following [MCP revision 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28), there is no `initialize` handshake and no `Mcp-Session-Id`: every request carries its own protocol version, client identity and capabilities, and Routecraft builds a fresh server instance to answer it.
 
 - **Any replica can answer any request.** Run as many processes as you like behind a plain round-robin load balancer. No sticky sessions, no shared session store.
-- **Auth is enforced per request.** A credential is verified on every call rather than once per session, so a revoked token stops working immediately.
+- **Auth is enforced per request.** A credential is verified on every call rather than once per session, so an expired token stops working on its next call. `jwt()` and `jwks()` check the signature, expiry, issuer and audience, and cannot see a revocation: a revoked token still passes until it expires. Where revocation must take effect at once, use a [custom validator](/docs/advanced/securing-capabilities#custom-validator) that asks the identity provider.
 
 Clients that only speak the 2025 revision keep working unchanged; they are served through the stateless 2025 path and do not get the newer revision's features.
 

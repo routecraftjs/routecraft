@@ -226,8 +226,9 @@ async function runUntilOutput(
 /**
  * Talk to a project over MCP stdio the way a client does: start it with the
  * command the README registers, send `initialize`, list the tools and call
- * one, and return the raw responses by request id. Lines that are not JSON
- * fail the run, because anything else on stdout corrupts the protocol.
+ * one, and return the raw responses by request id. A line that is not a
+ * JSON-RPC message fails the run, because anything else on stdout corrupts
+ * the protocol.
  */
 async function mcpStdioRoundTrip(opts: {
   cwd: string;
@@ -277,6 +278,11 @@ async function mcpStdioRoundTrip(opts: {
           } catch {
             clearTimeout(timer);
             reject(new Error(`Non-protocol line on stdout: ${line}`));
+            return;
+          }
+          if (message["jsonrpc"] !== "2.0") {
+            clearTimeout(timer);
+            reject(new Error(`Non-protocol JSON on stdout: ${line}`));
             return;
           }
           if (typeof message["id"] !== "number") continue;
