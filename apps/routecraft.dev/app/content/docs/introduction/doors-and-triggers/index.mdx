@@ -37,7 +37,7 @@ A trigger starts a capability when nobody is asking. These are ordinary sources,
 - **An email arriving.** `mail()` watches a mailbox over IMAP and starts the capability for each message.
 - **A webhook.** An `http()` source receiving a POST from GitHub, a payment provider or any system that calls out. It is still a door, with the same checks as any HTTP call; it is listed here because no person asked.
 - **A file.** `file()` and `directory()` read what landed, line by line or file by file.
-- **An event.** `event()` listens on the harness's own event bus, so one capability can start when another finishes, fails or deferred.
+- **An event.** `event()` listens on the harness's own event bus, so one capability can start when another finishes, fails or defers.
 - **Another capability.** `direct()` is the in-process call from one capability to the next, carrying the caller's identity with it.
 
 The [adapter reference](/docs/reference/adapters) lists every source, and [Adapters](/docs/introduction/adapters) explains how a source, a step and a destination fit together.

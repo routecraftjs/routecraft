@@ -6,6 +6,7 @@ import {
   withDocsChannel,
   type DocsChannelName,
 } from '@/lib/docs-channel'
+import { docsHrefOnChannel } from '@/lib/docs-moves'
 
 /**
  * The docs channel the surrounding page is being read on.
@@ -22,12 +23,16 @@ export function useDocsChannel(): DocsChannelName {
 }
 
 /**
- * Resolves a content-authored href into the channel it is being read on.
- * Anything outside the docs tree is returned untouched.
+ * Resolves a content-authored href into the channel it is being read on,
+ * at the address that channel has for a moved page. Anything outside the docs
+ * tree is returned untouched.
  */
 export function useChannelHref(href: string): string {
   const channel = useDocsChannel()
   return href.startsWith(DOCS_ROOT)
-    ? withDocsChannel(href, docsChannelHref(channel))
+    ? withDocsChannel(
+        docsHrefOnChannel(channel, href),
+        docsChannelHref(channel),
+      )
     : href
 }

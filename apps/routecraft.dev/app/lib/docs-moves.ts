@@ -65,3 +65,26 @@ export function earlierDocsHref(
   const earlier = earlierRoute(channel, route)
   return earlier ? `/docs/${earlier}` : undefined
 }
+
+/**
+ * A bare `/docs/...` href, pointed at the address the channel has for it.
+ *
+ * Pages that build from main (the blog, the changelog, the homepage) link
+ * into whichever docs release the site was frozen to, and a moved page lives
+ * at its old address before the release that moves it and at its new one
+ * after. Resolving at render time lets an author write either address and get
+ * a link that resolves in both. The fragment is dropped when the address
+ * changes, because a heading on one side of a move is not promised on the
+ * other.
+ */
+export function docsHrefOnChannel(
+  channel: DocsChannelName,
+  href: string,
+): string {
+  if (!href.startsWith('/docs/') || href.startsWith('/docs/next/')) return href
+  const path = href.split('#')[0]
+  const route = path.slice('/docs/'.length).replace(/\/$/, '')
+  if ((pagesByChannel[channel] ?? []).includes(route)) return href
+  const moved = movedDocsPage(channel, route)
+  return moved ? `/docs/${moved}${path.endsWith('/') ? '/' : ''}` : href
+}

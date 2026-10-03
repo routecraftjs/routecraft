@@ -9,7 +9,7 @@
  *   `@routecraft/ai`, which the scaffold's MCP tool needs. Its Dockerfile is
  *   the one the scaffolder writes.
  * - `adapters`: the starter plus `@routecraft/os` and every
- *   optional peer the three packages declare, at the newest version their
+ *   optional peer that core, `@routecraft/ai` and `@routecraft/os` declare, at the newest version their
  *   declared ranges allow. This is the dependency tree a project using the
  *   adapters resolves today, and the only one where a CVE in an adapter's
  *   library is visible. Scanned as a lockfile, not an image.

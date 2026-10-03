@@ -784,7 +784,7 @@ craft()
 
 The context bus events (`route:agent:tool:*`) are the live observation channel for the same calls; `toolCalls` on the result is the synchronous post-hoc view a pipeline step can branch on. Use the bus for telemetry / dashboards / TUIs; use `toolCalls` for assertions and routing.
 
-Hard-coded assertions like the one above cover mechanical requirements ("this tool must have been called"). To judge whether the agent achieved the *outcome* the request asked for, pair `toolCalls` with a second model call: see [Judging Agent Results](/docs/advanced/judging-agent-results).
+Hard-coded assertions like the one above cover mechanical requirements ("this tool must have been called"). To judge whether the agent achieved the *outcome* the request asked for, pair `toolCalls` with a second model call: see [Judging agent results](/docs/advanced/judging-agent-results).
 
 ## Typed fn ids (`FnRegistry`)
 

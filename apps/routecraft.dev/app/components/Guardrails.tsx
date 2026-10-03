@@ -4,6 +4,7 @@ import { Fragment } from 'react'
 import { AppLink } from '@/components/AppLink'
 import { Diagram } from '@/components/figures/Diagram'
 import { SectionHeading } from '@/components/SectionHeading'
+import { useChannelHref } from '@/lib/docs-channel-context'
 
 const CAPABILITY = `// One of the hands the agent can reach for.
 craft()
@@ -20,6 +21,7 @@ craft()
  * platform. One figure and one capability, not a comparison of SDKs.
  */
 export function Guardrails() {
+  const exposeHref = useChannelHref('/docs/introduction/expose-to-an-agent')
   return (
     <section>
       <div className="container-page pt-12 pb-20 lg:pt-14 lg:pb-24">
@@ -55,7 +57,7 @@ export function Guardrails() {
           </p>
           <div className="flex flex-wrap items-center gap-x-6 gap-y-3 lg:justify-end">
             <AppLink
-              href="/docs/introduction/expose-to-an-agent"
+              href={exposeHref}
               className="group inline-flex items-center gap-2 font-mono text-[0.7rem] tracking-[0.22em] text-cobalt-500 uppercase hover:text-cobalt-600"
             >
               <span>Give your agent hands</span>

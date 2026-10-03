@@ -264,6 +264,10 @@ async function mcpStdioRoundTrip(opts: {
         clearTimeout(timer);
         reject(new Error(`Server exited with ${code}.\nstderr:\n${stderr}`));
       });
+      child.on("error", (error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
       child.stdout?.on("data", (d) => {
         buffer += d.toString();
         let newline = buffer.indexOf("\n");

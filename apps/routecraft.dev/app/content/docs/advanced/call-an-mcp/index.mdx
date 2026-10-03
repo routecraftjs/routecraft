@@ -151,9 +151,7 @@ export const craftConfig = defineConfig({
 })
 ```
 
-Proxied tools appear in `tools/list` under their original name (or the `name` override) with the remote input/output schema, description, title, annotations, and icons passed through. Calls dispatch over the client's registered transport and auth, and the remote result (content, `structuredContent`, `isError`) is returned unchanged, save for the protocol-revision projection every result gets: when the remote and the calling client sit on different revisions, the `{ result: ... }` envelope is added or omitted so the result still matches the schema this server advertised for it. Selection is live: wildcard entries follow tool refresh and stdio restarts.
-
-An exact ref and a wildcard covering the same remote tool compose: the exact entry's overrides and guard apply regardless of config order, so `['docs:*', { ref: 'docs:search', guard }]` proxies everything from `docs` with the guard on `search`. Collisions between different remote tools on one exposed name resolve deterministically: a local `.from(mcp())` route always wins over a proxied tool, and earlier `proxy` entries win over later ones (both log a warning). Use the `name` override to expose two same-named tools side by side. Exposed names must match `[A-Za-z0-9_-]{1,64}` (the same contract route ids follow); a remote tool whose own name does not conform is skipped with a warning unless you proxy it with an exact ref and a `name` override.
+Proxied tools appear in `tools/list` with the remote schema, description and annotations, and calls dispatch over the client's own transport and auth. How wildcards and exact refs compose, how name collisions resolve, and which names are exposable are in the [mcpPlugin reference](/docs/reference/plugins/mcpplugin#proxying-client-tools).
 
 ### Guarding proxied tools
 

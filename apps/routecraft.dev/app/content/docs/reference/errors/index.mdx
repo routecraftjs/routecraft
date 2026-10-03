@@ -167,7 +167,7 @@ Adjust the schema or coerce input; check data shapes. For Zod: use `z.object()`,
 Adapter misconfigured
 
 **Why it happens**  
-Adapter was used in the wrong role (e.g. dynamic endpoint as source), required options are missing, or the adapter does not support this usage. Also raised at `context.start()` when a `directTool` names a route declared [`direct({ internal: true })`](/docs/reference/adapters/direct), and when one endpoint declares itself both internal and a discoverable capability (e.g. two direct sources on one route, one internal and one not).
+Adapter was used in the wrong role (e.g. dynamic endpoint as source), required options are missing, or the adapter does not support this usage. Also raised at `context.start()` when a `directTool` names a route declared [`direct({ internal: true })`](/docs/reference/adapters/direct), and when one endpoint declares itself both internal and a discoverable capability (e.g. two direct sources on one route, one internal and one not). Also raised at start when a surface mounts HTTP on a server `servers` does not declare, or when two surfaces claim the same path on one server; see [Mounts and claims](/docs/reference/plugins/serversplugin#mounts-and-claims).
 
 **Suggestion**  
 Check required options and correct role usage (`.from()` vs `.to()`). Example: direct sources take no endpoint string (`.from(direct())` or `.from(direct(options))`); dynamic endpoints are only valid on destinations (`.to()`, `.tap()`). For a `directTool` naming an internal route, expose a boundary route carrying `.input()`, `.description()` and `.authorize()`, and point the tool at that.

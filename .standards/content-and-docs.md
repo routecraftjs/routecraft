@@ -287,20 +287,28 @@ file under `_data`, an entry in `CATALOGUES`, and registration in the MDX provid
 **The pinned set is `PINNED` in `freeze-docs.ts`**, and nothing else. Today that is
 `app/content/docs` (pages plus `_data`), `app/content/cheat-sheet`, and `public/screenshots`
 (the only versioned assets docs pages embed). Anything a docs page renders that is not in that
-list builds from main.
+list builds from main. When you add a surface the released channel must pin, add it to that
+list and give it a next-channel mirror, the way screenshots have one. The list in the script, the
+one the verify gate reads, and the one named here are one list.
 
 **Figures are the deliberate exception.** A docs page may embed a figure with `<Diagram>`, and
 the figure's drawing, its words in `manifest.mjs` and its PNGs under `public/images/figures`
 are shell, so the released channel renders whatever main draws. That is acceptable because a
 docs figure shows the platform's shape, not a version's API. When a drawing has to change in a
 way that would be wrong for the released docs, add a figure under a new id and point the next
-channel's page at it, rather than editing the one released pages embed. When you add a surface the released channel must
-pin, add it to that list and give it a next-channel mirror, the way screenshots have one. The
-list in the script, the one the verify gate reads, and the one named here are one list.
+channel's page at it, rather than editing the one released pages embed. A released page pins the ids it embeds:
+keep that figure registered until the next freeze, because an unknown id renders nothing and
+fails no build.
 
 **The sidebar and the raw mirror follow the channel too.** `apps/routecraft.dev/app/lib/navigation.ts` is shell, so
 `Navigation` filters its entries against the channel's page set; an entry for an unreleased
-page shows on next and never 404s on the released channel. `public/raw/**` mirrors both
+page shows on next and never 404s on the released channel. A page that moved keeps its entry at
+the address the channel has, and the previous and next links follow the same filtered list.
+**Moves are one table**, `app/lib/docs-moves.ts`: a missing address redirects to the one the
+channel has (forward after the release that moves the page, back before it), and every `/docs`
+link rendered through the channel hook, from docs content, the blog, the changelog or the
+homepage, is pointed at that address at render time, so the link check passes on both sides of a
+release. `public/raw/**` mirrors both
 channels (`/raw/docs/**` and `/raw/docs/next/**`, with whole-channel bundles at
 `/raw/docs.md` and `/raw/docs-next.md`), because the in-development docs are what you hand a
 model when testing against the canary. The next mirror stays out of `llms.txt` and the

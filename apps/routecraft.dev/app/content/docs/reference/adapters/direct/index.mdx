@@ -23,7 +23,7 @@ direct<TIn, TOut>(
 ): Enricher<TIn, TOut>
 ```
 
-See [Type Registries](/docs/advanced/type-registries) for how to populate `DirectEndpointRegistry`.
+See [Type registries](/docs/advanced/type-registries) for how to populate `DirectEndpointRegistry`.
 
 Enable synchronous inter-route communication. Perfect for composable route architectures where you need request-response patterns. The source form uses the route's `.id()` as the endpoint name; the client form (a string or function endpoint) is an enricher that addresses the target by id: the call is a pull-in, so the target route's response body replaces the caller's body in `.to()` / bare `.enrich()`, feeds the aggregator in `.enrich(x, aggregator)`, and is discarded by `.tap()`.
 
