@@ -305,8 +305,10 @@ fails no build.
 `Navigation` filters its entries against the channel's page set; an entry for an unreleased
 page shows on next and never 404s on the released channel. A page that moved keeps its entry at
 the address the channel has, and the previous and next links follow the same filtered list.
-**Moves are one table**, `app/lib/docs-moves.ts`: a missing address redirects to the one the
-channel has (forward after the release that moves the page, back before it), and every `/docs`
+**Moves are one table**, `apps/routecraft.dev/app/lib/docs-moves.ts`: a missing address redirects to the one the
+channel has (forward with a 301 after the release that moves the page; back with a 307 before it,
+because that one reverses at the next freeze), a moved page's `/raw/docs/**` mirror redirects the
+same way, and every `/docs`
 link rendered through the channel hook, from docs content, the blog, the changelog or the
 homepage, is pointed at that address at render time, so the link check passes on both sides of a
 release. `public/raw/**` mirrors both
