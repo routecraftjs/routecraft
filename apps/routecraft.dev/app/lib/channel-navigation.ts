@@ -4,7 +4,7 @@ import {
   stripDocsChannel,
   type DocsChannelName,
 } from '@/lib/docs-channel'
-import { earlierDocsHref } from '@/lib/docs-moves'
+import { docsHrefOnChannel } from '@/lib/docs-moves'
 import { navigation } from '@/lib/navigation'
 
 /**
@@ -29,9 +29,8 @@ export function navigationFor(channel: DocsChannelName) {
           ? section.href
           : undefined,
       links: section.links.flatMap((link) => {
-        if (documentsHref(channel, link.href)) return [link]
-        const earlier = earlierDocsHref(channel, link.href)
-        return earlier ? [{ ...link, href: earlier }] : []
+        const href = docsHrefOnChannel(channel, link.href)
+        return documentsHref(channel, href) ? [{ ...link, href }] : []
       }),
     }))
     .filter((section) => section.links.length > 0)

@@ -2,7 +2,7 @@ import { createFileRoute } from '@tanstack/react-router'
 // Loads Start's route typings, which add the `server` option used below.
 import type {} from '@tanstack/react-start'
 
-import { docsMoveStatus, movedDocsPage } from '@/lib/docs-moves'
+import { movedDocsPage } from '@/lib/docs-moves'
 
 /**
  * Moved pages' markdown mirrors, at the address the channel still lacks.
@@ -27,7 +27,7 @@ export const Route = createFileRoute('/raw/docs/$')({
           : undefined
         if (!move) return new Response('Not found', { status: 404 })
         return new Response(null, {
-          status: docsMoveStatus(move),
+          status: move.status,
           headers: {
             Location: `/raw/docs/${next ? 'next/' : ''}${move.route}.md`,
           },

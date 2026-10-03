@@ -47,10 +47,8 @@ const PACKAGE_MANAGER_DEFS: Record<PackageManagerId, PackageManagerDef> = {
   bun: {
     id: "bun",
     pmOption: "bun",
-    // Hoisted, because each local file: package carries its own link to core,
-    // and the isolated linker installs those as separate copies: `direct()`
-    // and `mcp()` would then carry two type identities and `.from()` would
-    // refuse them together. A registry install has one core and no such split.
+    // The isolated linker gives each file: package its own core, which splits
+    // the type identity of direct() and mcp(), and .from() refuses the pair.
     install: "bun install --ignore-scripts --linker=hoisted",
     typecheck: "bunx tsc --noEmit",
     start: "bun run start",
@@ -249,6 +247,9 @@ async function mcpStdioRoundTrip(opts: {
     ["-c", "exec bunx craft start --log-file craft.log"],
     { cwd: opts.cwd, stdio: ["pipe", "pipe", "pipe"], env: opts.env },
   );
+  // A server that dies before reading stdin turns a write into EPIPE; the
+  // exit handler reports the real failure.
+  child.stdin?.on("error", () => {});
   const send = (message: Record<string, unknown>) =>
     child.stdin?.write(JSON.stringify({ jsonrpc: "2.0", ...message }) + "\n");
   const responses = new Map<number, Record<string, unknown>>();

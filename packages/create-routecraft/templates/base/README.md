@@ -64,6 +64,10 @@ change: [Expose to an agent](https://routecraft.dev/docs/introduction/expose-to-
 HTTP transport and [Local harness, team harness](https://routecraft.dev/docs/introduction/local-and-team-harness)
 shows the step.
 
+Every `craft start`, including the one a client spawns, runs the `hello-world` caller once,
+so the greeting and its HTTP fetch happen on each connect until you delete that route. To stop
+serving tools at all, remove `mcp: {}` from `craft.config.ts`.
+
 ## How it is laid out
 
 `craft start` discovers the project from its folders, so nothing is registered by hand and
@@ -81,8 +85,10 @@ Three more folders are discovered the same way when you add them: `plugins/`, `a
 
 Copy `capabilities/hello-world` and rename it. `route.ts` is the public surface: it
 default-exports the routes and is the only file another capability may import. Give the
-route an `mcp()` source and it is a tool; give it `http()`, `cron()` or `mail()` and it
-answers a request, runs on a schedule or reacts to an email.
+route an `mcp()` source and it is a tool, an `http()` source and it answers a request. A
+source has to bring the body the capability's `.input()` expects: a `cron()` schedule brings
+none, so a scheduled run is a small route of its own that builds the input and calls the
+capability through `direct()`.
 
 ```ts
 import { craft, direct, log } from "@routecraft/routecraft";

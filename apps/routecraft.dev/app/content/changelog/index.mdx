@@ -14,12 +14,12 @@ Routecraft is in active development -- APIs may change between minor versions.
 
 ### CLI
 
-- **A scaffolded project is an MCP server from the first run** -- `create-routecraft` puts the sample capability behind `mcp()` as well as `direct()`, serves it over stdio, and adds `@routecraft/ai` and `@modelcontextprotocol/server`; the README connects Claude Code, Cursor and VS Code. See [Tools for agents](/docs/next/introduction/tools-for-agents).
-- **`craft acp [dir]` reads the profile from the project you name** -- an editor starts the bridge from whichever project it has open, so a profile in the harness's own `.routecraft/settings.yaml` was not found from any other window; the editor entry now names the harness folder. See [acp](/docs/next/reference/cli#acp).
+- **A scaffolded project is an MCP server from the first run** -- its sample capability is a tool an agent can call over stdio. See [Tools for agents](/docs/next/introduction/tools-for-agents).
+- **`--project` names the project whose settings to read** -- `craft acp`, `exec` and `ops` find a profile from any working directory, which is what an editor entry needs. See [acp](/docs/next/reference/cli#acp).
 
 ### Docs site
 
-- **The docs lead with the platform** -- What is Routecraft, two quickstarts, and new pages on harnesses, doors and triggers, credentials, servers and ports, agents and skills, and connecting harnesses; the sidebar groups are Fundamentals and Beyond the defaults. Four pages moved and their old URLs redirect: Running an MCP server is now [Expose to an agent](/docs/next/introduction/expose-to-an-agent), Talk from your editor is in Fundamentals, Events and Terminal UI are in Beyond the defaults.
+- **The docs lead with the platform** -- new quickstarts and platform pages, grouped as Fundamentals and Beyond the defaults; moved pages redirect from their old addresses. See [What is Routecraft](/docs/next/introduction).
 
 ## [v0.7.1](https://github.com/routecraftjs/routecraft/releases/tag/v0.7.1) <Badge color="yellow">Pre-release</Badge>
 

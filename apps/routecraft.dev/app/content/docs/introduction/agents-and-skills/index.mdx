@@ -52,7 +52,7 @@ do not have.
 
 ## 3. Grant it capabilities
 
-`tools` is an allowlist. `Direct(find-overdue-invoices)` grants the capability you built in Tools for agents, and `Direct(greet)` the one the scaffold ships; the agent is offered those two and nothing else. A capability can be granted this way when it has a `direct()` source, which both of these do.
+`tools` is an allowlist. `Direct(find-overdue-invoices)` grants the capability you built in Tools for agents, and `Direct(greet)` the one the scaffold ships; the agent is offered those two and nothing else. A capability can be granted this way when it has a `direct()` source, a `.description()` and an `.input({ body })` schema, which both of these do: the description and schema are what the model is shown.
 
 A tool call is an ordinary call to the capability. Its `.input()` schema checks the arguments the model chose, a call it refuses goes back to the model as an error naming the field, and the model can correct itself. The capability's `.authorize()` rule, where it has one, judges the caller the agent is acting for. Nothing about a call changes because a model made it.
 

@@ -65,7 +65,7 @@ export default craft()
   .to(mail()) // the account comes from craft.config.ts
 ```
 
-The source decides the door. `.from(mcp())` makes it an MCP tool. `.from(direct())` makes it a capability any local agent can call and `craft exec` can run. `.from(http())` makes it an endpoint. `.from(cron())` makes it a job. The steps in between do not change.
+The source decides the door. `.from(mcp())` makes it an MCP tool. `.from(direct())` makes it a capability any local agent can call and `craft exec` can run. `.from(http())` makes it an endpoint. The steps in between do not change. A `cron()` schedule brings no body, so it gets a small route of its own that builds this input and calls the capability through `direct()`.
 
 ## An agent is a route too
 

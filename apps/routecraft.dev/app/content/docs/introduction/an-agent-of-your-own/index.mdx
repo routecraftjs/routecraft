@@ -43,10 +43,10 @@ The harness serves the [Agent Client Protocol](https://agentclientprotocol.com) 
 
 ```
 command:   /path/to/my-agent/node_modules/.bin/craft
-arguments: acp /path/to/my-agent --profile editor
+arguments: acp --project /path/to/my-agent --profile editor
 ```
 
-Register them in an editor that speaks ACP (Zed, JetBrains), and hold the conversation without leaving it. Both paths are absolute because the editor starts the command from whichever project it has open: the first argument is the harness folder whose `.routecraft/settings.yaml` holds the `editor` profile, so the entry works from any window. Through that conversation the agent reads, edits, searches and runs things in the project you have open, using the editor's own files and terminal, through nine capabilities under `capabilities/editor/` with their guardrails in the open. [Talk from your editor](/docs/introduction/talk-from-your-editor) has every editor and what a conversation carries.
+Register them in an editor that speaks ACP (Zed, JetBrains), and hold the conversation without leaving it. Both paths are absolute because the editor starts the command from whichever project it has open: `--project` names the harness folder whose `.routecraft/settings.yaml` holds the `editor` profile, so the entry works from any window. Through that conversation the agent reads, edits, searches and runs things in the project you have open, using the editor's own files and terminal, through nine capabilities under `capabilities/editor/` with their guardrails in the open. [Talk from your editor](/docs/introduction/talk-from-your-editor) has every editor and what a conversation carries.
 
 `craft acp` is a pipe and nothing else: it appends `/acp` to the profile's URL, sends the token and the agent name, and forwards every message. It never starts the harness, which is what lets one editor entry reach your laptop today and a team harness tomorrow by changing a profile.
 

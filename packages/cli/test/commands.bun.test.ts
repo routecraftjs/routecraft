@@ -10,7 +10,7 @@
 
 import { describe, expect, test } from "bun:test";
 import { execFile, spawnSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -67,12 +67,15 @@ describe("the craft command surface", () => {
 
   /**
    * @case The commands that reach an instance all take a profile
-   * @preconditions `craft exec --help` and `craft ops routes --help`
-   * @expectedResult Both offer `--profile`, so one selection moves every command in the family to another instance
+   * @preconditions `craft exec --help`, `craft ops routes --help` and `craft acp --help`
+   * @expectedResult Each offers `--profile` and `--project`, so one selection, and the project it is read from, move every command in the family to another instance
    */
   test("the instance-facing commands take a profile", async () => {
-    expect(await help("exec", "--help")).toContain("--profile");
-    expect(await help("ops", "routes", "--help")).toContain("--profile");
+    for (const command of [["exec"], ["ops", "routes"], ["acp"]]) {
+      const text = await help(...command, "--help");
+      expect(text).toContain("--profile");
+      expect(text).toContain("--project");
+    }
   }, 30_000);
 
   /**
@@ -92,9 +95,10 @@ describe("the craft command surface", () => {
     expect(runHelp).toContain("--log-level");
     expect(runHelp).toContain("--log-file");
   }, 30_000);
+
   /**
    * @case An editor starts the bridge from a project other than the one holding the profile
-   * @preconditions A profile defined only in one project's `.routecraft/settings.yaml`, an empty home, and `craft acp <that project> --profile editor` run from an unrelated working directory
+   * @preconditions A profile defined only in one project's `.routecraft/settings.yaml`, an empty home, and `craft acp --project <that project> --profile editor` run from an unrelated working directory
    * @expectedResult The profile is resolved from the named project: the run fails on the profile's unreachable address, naming that file as the source, rather than reporting the profile as missing
    */
   test("acp reads the profile from the project it is given", async () => {
@@ -113,20 +117,47 @@ describe("the craft command surface", () => {
       method: "initialize",
       params: { protocolVersion: 1, clientCapabilities: {} },
     });
+    try {
+      const result = spawnSync(
+        "bun",
+        [ENTRY, "acp", "--project", project, "--profile", "editor"],
+        {
+          cwd: elsewhere,
+          env: { ...process.env, HOME: home, CRAFT_LOG_LEVEL: "silent" },
+          input: `${initialize}\n`,
+          encoding: "utf8",
+          timeout: 20_000,
+        },
+      );
+      const output = `${result.stdout}${result.stderr}`;
+      expect(output).not.toContain('No profile "editor"');
+      expect(output).toContain("http://127.0.0.1:1/acp");
+      expect(output).toContain(project);
+    } finally {
+      for (const dir of [project, elsewhere, home]) {
+        rmSync(dir, { recursive: true, force: true });
+      }
+    }
+  }, 30_000);
+
+  /**
+   * @case A mistyped project path is refused rather than ignored
+   * @preconditions `craft acp --project <a path that does not exist> --profile editor`
+   * @expectedResult Exit 2 with the path named, not a fall-through to the global settings file that would send its token to whatever instance it names
+   */
+  test("acp refuses a project that is not a directory", () => {
+    const missing = join(tmpdir(), "craft-acp-missing-project");
     const result = spawnSync(
       "bun",
-      [ENTRY, "acp", project, "--profile", "editor"],
+      [ENTRY, "acp", "--project", missing, "--profile", "editor"],
       {
-        cwd: elsewhere,
-        env: { ...process.env, HOME: home, CRAFT_LOG_LEVEL: "silent" },
-        input: `${initialize}\n`,
+        env: { ...process.env, CRAFT_LOG_LEVEL: "silent" },
+        input: "",
         encoding: "utf8",
         timeout: 20_000,
       },
     );
-    const output = `${result.stdout}${result.stderr}`;
-    expect(output).not.toContain('No profile "editor"');
-    expect(output).toContain("http://127.0.0.1:1/acp");
-    expect(output).toContain(project);
+    expect(result.status).toBe(2);
+    expect(`${result.stdout}${result.stderr}`).toContain(missing);
   }, 30_000);
 });

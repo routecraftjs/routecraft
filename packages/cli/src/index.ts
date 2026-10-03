@@ -178,6 +178,15 @@ const projectRoots = new WeakMap<
 >();
 
 /**
+ * `--project`, shared by every command that reads the settings file to reach
+ * an instance. The settings file is looked for under the working directory,
+ * which an editor running `craft acp` chooses, not the person.
+ */
+const PROJECT_FLAG = "--project <dir>";
+const PROJECT_HELP =
+  "Project whose .routecraft/settings.yaml is read (default: the working directory)";
+
+/**
  * Give a command `--env` and `--profile`, and have `prepareCommand()` load
  * the environment they select before anything else runs.
  *
@@ -431,6 +440,7 @@ program
   .argument("[route]", "Route id to dispatch to; omit for the endpoint list")
   .argument("[args...]", "Route input as --field=value pairs")
   .option("--profile <name>", "Settings profile to select")
+  .option(PROJECT_FLAG, PROJECT_HELP)
   .option("--url <url>", "Ops server base URL of the target instance")
   .option("--token <token>", "Bearer credential for the management door")
   .option("--format <format>", "pretty (default), json, or raw")
@@ -442,6 +452,7 @@ program
       args: string[],
       options: {
         profile?: string;
+        project?: string;
         url?: string;
         token?: string;
         format?: string;
@@ -472,24 +483,20 @@ program
  * starts an app: `craft start` owns running, which is what lets one editor
  * entry reach a laptop or a company instance by switching a profile.
  *
- * An editor starts this from whatever project it has open, so the optional
- * directory names the project whose `.routecraft/settings.yaml` holds the
- * profile; without it that file is looked for in the working directory.
+ * An editor starts this from whatever project it has open, so `--project`
+ * names the one whose `.routecraft/settings.yaml` holds the profile.
  *
  * Example:
  * craft acp
  * craft acp --profile company
- * craft acp /path/to/my-agent --profile editor
+ * craft acp --project /path/to/my-agent --profile editor
  * craft acp --url https://acme.example --token "$TOKEN" --agent aria
  */
 program
   .command("acp")
   .description("Bridge an editor to an instance over the Agent Client Protocol")
-  .argument(
-    "[dir]",
-    "Project whose .routecraft/settings.yaml is read (default: the working directory)",
-  )
   .option("--profile <name>", "Settings profile to select")
+  .option(PROJECT_FLAG, PROJECT_HELP)
   .option("--url <url>", "Ops server base URL of the target instance")
   .option("--token <token>", "Bearer credential for the management door")
   .option(
@@ -497,26 +504,19 @@ program
     "Agent to talk to; the instance's default otherwise",
   )
   .action(
-    async (
-      dir: string | undefined,
-      options: {
-        profile?: string;
-        url?: string;
-        token?: string;
-        agent?: string;
-      },
-    ) => {
+    async (options: {
+      profile?: string;
+      project?: string;
+      url?: string;
+      token?: string;
+      agent?: string;
+    }) => {
       const { acpCommand } = await import("./acp.js");
       // Standard output is the protocol's, and `settle` writes there only
       // for a result carrying `output`, which this one never does. What it
       // adds is the awaited write: an editor spawns this with a pipe on
       // standard error, where an exit discards whatever is still queued.
-      settle(
-        await acpCommand({
-          ...options,
-          ...(dir !== undefined && { cwd: resolve(process.cwd(), dir) }),
-        }),
-      );
+      settle(await acpCommand(options));
     },
   );
 
@@ -541,6 +541,7 @@ const ops = program
 function opsOption<T extends import("commander").Command>(command: T): T {
   return command
     .option("--profile <name>", "Settings profile to select")
+    .option(PROJECT_FLAG, PROJECT_HELP)
     .option("--url <url>", "Ops server base URL of the target instance")
     .option("--token <token>", "Bearer credential for the management door")
     .option("--format <format>", "pretty (default), json, or raw") as T;

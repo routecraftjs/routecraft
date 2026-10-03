@@ -64,13 +64,11 @@ export const craftConfig = defineConfig({
 });
 ```
 
-`url` is the origin the team harness's ops surface is mounted on. The function runs on every request, but `process.env` is the running process's own copy of its environment: changing the deployment's variable or `.env` needs a restart. To rotate without one, have the function read a source that changes underneath it, such as a mounted secret file read on each call or a secret manager. The CLI's `.routecraft/settings.yaml` is for the instance `craft` talks to and is never read here. A bearer over plain `http:` is refused unless the address is loopback.
-
-At start the laptop reads the team harness's inventory before it reports ready, then re-reads it every 60 seconds (`refresh`). Name more than one remote and each gets its own key.
+`url` is the origin the team harness's ops surface is mounted on, and the token is read per request; the CLI's `.routecraft/settings.yaml` is never read here. Name more than one remote and each gets its own key. [Options](/docs/reference/plugins/remotesplugin#options) covers rotation, refresh and the cleartext rule, and [Inventory and schemas](/docs/reference/plugins/remotesplugin#inventory-and-schemas) when the inventory is read.
 
 ## 3. Call what the team harness has
 
-Capabilities of the remote called `default` are advertised bare, exactly like local ones. Every other remote's are qualified with its name.
+Capabilities of the remote called `default` are advertised bare, exactly like local ones; every other remote's are qualified with its name ([Names](/docs/reference/plugins/remotesplugin#names)).
 
 ```ts
 craft()
@@ -81,9 +79,9 @@ craft()
   .to(log());
 ```
 
-The same names work everywhere a capability does. In an agent's tool list, `Direct(find-overdue-invoices)` grants one, and `Remote(lab)` grants every capability the `lab` remote exposes. From a terminal, `craft exec find-overdue-invoices` runs it. The remote's input schema is advertised to your agents as the team harness renders it, and validation runs where the schema lives: at the team harness's door.
+The same names work everywhere a capability does. In an agent's tool list, `Direct(find-overdue-invoices)` grants one, and `Remote(lab)` grants every capability the `lab` remote exposes. From a terminal, `craft exec find-overdue-invoices` runs it once the laptop opens its own ops `dispatch` tier. The remote's input schema is advertised to your agents as the team harness renders it, and validation runs where the schema lives: at the team harness's door.
 
-**Your identity is not forwarded.** A remote capability runs under the identity the remote token carries, which is this instance's, whoever called it on your laptop. The local principal authenticates callers into your harness; the token authenticates your harness into the team's. That separation is what lets the team harness keep its own `.authorize()` rules without trusting every laptop.
+**Your identity is not forwarded.** A remote capability runs under the identity the remote token carries, which is this instance's, whoever called it on your laptop; that is what lets the team harness keep its own `.authorize()` rules without trusting every laptop. See [Credentials and identity](/docs/reference/plugins/remotesplugin#credentials-and-identity).
 
 ## 4. Promote a capability
 
@@ -91,30 +89,18 @@ Promotion is a deployment, and the remote makes the overlap safe.
 
 1. Build and prove the capability locally, with a `direct()` source so it is dispatchable.
 2. Ship it to the team harness: a pull request to the team harness's project, or a package it installs.
-3. While both copies exist, **the local one wins**. `direct('find-overdue-invoices')` on your laptop answers locally, the team's copy stays reachable as `default:find-overdue-invoices`, and every refresh logs the shadow as a warning. This is the promotion window, not an error: compare the two before you let go.
-4. Delete the local copy. On the next refresh the team harness's capability takes the name back, and the handover is logged.
+3. While both copies exist, [the local one wins](/docs/reference/plugins/remotesplugin#names) and the team's copy stays reachable as `default:find-overdue-invoices`. This is the promotion window, not an error: compare the two before you let go.
+4. Delete the local copy. When the local route stops, or on the next start, the team harness's capability takes the name back, and the handover is logged.
 
 From then on everyone, you included, calls the one on the team harness, on its service credentials.
 
 ## Keeping an agent local-only
 
-An agent that should never reach the team harness filters imported capabilities out with the tool policy. Imported capabilities carry `source.remote`; local ones do not:
-
-```ts skip="fragment: one option of the agent configuration"
-agent: {
-  toolPolicy: {
-    direct: (tool) => tool.source.remote === undefined,
-  },
-}
-```
-
-Re-exposure goes the other way and is deliberate: a laptop with an open dispatch tier re-exports every imported capability under its own door. Gate your local tiers the way you would gate any tool that fronts an authenticated call.
+An agent that should never reach the team harness filters imported capabilities out with the tool policy, and a laptop with an open dispatch tier re-exports what it imports under its own door: [In the listing and the tool policy](/docs/reference/plugins/remotesplugin#in-the-listing-and-the-tool-policy) has both.
 
 ## When the team harness is down
 
-- **At boot.** An unreachable remote registers nothing and logs a warning; its capabilities appear on the first refresh that reaches it. With an ops surface on the laptop, its `/health` reports a `remote.<name>` indicator, down until then.
-- **While running.** A remote that blinks keeps its last inventory, so one failed read does not take every endpoint with it.
-- **On a call.** The remote's outcome maps to a local one: unreachable or timed out is [`RC5062`](/docs/reference/errors#rc-5062), a refused credential or `.authorize()` is [`RC5063`](/docs/reference/errors#rc-5063), a failure or a refused payload is [`RC5064`](/docs/reference/errors#rc-5064), and a deferral comes back as the standard acknowledgment, resumed at the team harness's door.
+An unreachable team harness is a warning at boot and keeps its last inventory while it blinks; a call that cannot complete fails with an error code you can act on. [Outcomes](/docs/reference/plugins/remotesplugin#outcomes) maps each one.
 
 ---
 
