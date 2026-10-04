@@ -40,8 +40,27 @@ export interface DirectChannel<T = unknown> {
 export interface DirectRegistry {
   /** The application-wide channel type from `CraftConfig.direct`, when set. */
   readonly channelType: DirectChannelType<DirectChannel> | undefined;
-  /** Channels by sanitised endpoint (see `sanitizeEndpoint`). */
-  readonly channels: Map<string, DirectChannel<Exchange>>;
+  /**
+   * The channel on a sanitised endpoint (see `sanitizeEndpoint`), without
+   * creating one.
+   */
+  existing(key: string): DirectChannel<Exchange> | undefined;
+  /**
+   * Put a channel on a sanitised endpoint in place of whatever holds it:
+   * how the remotes plugin answers an endpoint from another instance.
+   */
+  install(key: string, channel: DirectChannel<Exchange>): void;
+  /**
+   * Take back a channel {@link DirectRegistry.install} put on a sanitised
+   * endpoint, while it still holds it: `restore` goes back in its place, or
+   * the endpoint is left empty. A channel another install has displaced is
+   * left alone.
+   */
+  uninstall(
+    key: string,
+    channel: DirectChannel<Exchange>,
+    restore?: DirectChannel<Exchange>,
+  ): void;
   /**
    * The channel on a sanitised endpoint, created on first use: of
    * `channelType` when given, else the application-wide type, else

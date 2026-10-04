@@ -20,7 +20,7 @@ Projects that write no plugin of their own typically need section 2 and nothing 
 
 ## 1. Plugins \{#1-plugins}
 
-A plugin is a plain descriptor built with `definePlugin()`. It declares a dotted `id`, and its lifecycle functions receive a `PluginContext`: ports, events, its own routes and a small set of execution verbs. A plugin still shaped with `apply` is refused at install with `RC9901` naming the change.
+A plugin is a plain descriptor built with `definePlugin()`. It declares a dotted `id`, and its lifecycle functions receive a `PluginContext`: ports, events, its own routes and a small set of execution verbs. A plugin still shaped with `apply` is refused at install with `RC1117` naming the change.
 
 ```ts expect-error="CraftPlugin and apply are removed in 0.8"
 import { type CraftPlugin } from '@routecraft/routecraft'
@@ -64,7 +64,7 @@ export const audit = definePlugin({
 
 `bind` runs at the same point `apply` did: while the application is installed, before routes are registered. Plugins now bind in dependency order rather than strictly in list order: a plugin that requires a port binds after the plugin that provides it. The default plugins (`routecraft.direct`, `routecraft.resilience`, `routecraft.cache`, `routecraft.principals`, `routecraft.auth`) install ahead of the application's own, so a lifecycle event's `pluginIndex` counts them.
 
-Two new families of fault name the plugin responsible: `RC1101` to `RC1116` for install, resolution, ordering and compile faults, and `RC5068` when a validate hook refuses an exchange. See the [errors reference](/docs/reference/errors#rc-1101).
+Two new families of fault name the plugin responsible: `RC1101` to `RC1117` for install, resolution, ordering and compile faults, and `RC5068` when a validate hook refuses an exchange. See the [errors reference](/docs/reference/errors#rc-1101).
 
 ## 2. `ex.principal` is `ex.auth.principal` \{#2-principal}
 

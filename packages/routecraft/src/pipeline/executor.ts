@@ -45,6 +45,7 @@ import type { CompiledPositions } from "./positions.ts";
 import type { Position } from "../kernel/positions.ts";
 import type { ForwardFn, Route } from "../route.ts";
 import {
+  routeTags,
   runExchangeHooks,
   runsOn,
   type ErrorHook,
@@ -154,16 +155,31 @@ export interface RouteSlots {
 }
 
 /**
- * The slots a detached run carries: the `perAttempt` wrappers alone, since
- * it re-enters below admission. Absent when no wrapper hooks the route.
+ * The slots a detached run carries. A run that re-enters below admission
+ * carries the `perAttempt` wrappers alone. An admission resume completes the
+ * admission its first run never reached, so it also carries `afterAuth` and
+ * `admitted` around the `authorize` it re-runs; `beforeAuth` already ran on
+ * the first run. Absent when nothing hooks the route.
  *
+ * @param deps - The route's own deps, which hold its compiled slot steps
  * @internal
  */
-export function detachedSlots(deps: ExecutorDeps): RouteSlots | undefined {
-  const tags = deps.route.definition.discovery?.tags ?? [];
+export function detachedSlots(
+  deps: ExecutorDeps,
+  kind?: DetachedKind,
+): RouteSlots | undefined {
+  const tags = routeTags(deps.route.definition);
   const perAttempt =
     deps.context.hooks?.forRoute("perAttempt", deps.routeId, tags) ?? [];
-  return perAttempt.length > 0 ? { perAttempt, tags } : undefined;
+  const afterAuth = kind === "admission" ? deps.slots?.afterAuth : undefined;
+  const admitted = kind === "admission" ? deps.slots?.admitted : undefined;
+  if (perAttempt.length === 0 && !afterAuth && !admitted) return undefined;
+  return {
+    ...(afterAuth ? { afterAuth } : {}),
+    ...(admitted ? { admitted } : {}),
+    perAttempt,
+    tags,
+  };
 }
 
 /**
@@ -412,7 +428,7 @@ export async function runPipeline(
           message: `A step on route "${deps.routeId}" invoked the point "${point}", which no installed plugin declares.`,
         });
       }
-      const tags = deps.route.definition.discovery?.tags ?? [];
+      const tags = routeTags(deps.route.definition);
       return runExchangeHooks(
         table,
         table.forRoute(point, deps.routeId, tags),
@@ -1042,7 +1058,7 @@ async function runContextErrorHandlers(
   const execution =
     args.exchange.headers[DeferralHeaders.RESUMED_AT] !== undefined ? 2 : 1;
   const kind: RunKind = deps.runKind ?? (execution === 2 ? "resume" : "normal");
-  const tags = deps.route.definition.discovery?.tags ?? [];
+  const tags = routeTags(deps.route.definition);
   const info = {
     routeId: deps.routeId,
     tags,
@@ -1635,7 +1651,7 @@ export function runDetachedPipeline(
       correlationId,
     });
     const routeDefinition = deps.route.definition;
-    const slots = detachedSlots(deps);
+    const slots = detachedSlots(deps, kind);
     const runKind: RunKind = kind === "admission" ? "resume" : kind;
     const nested: ExecutorDeps = {
       routeId: deps.routeId,
@@ -1743,7 +1759,7 @@ export async function applyExitSlot<
   if (result.failed || result.dropped || result.deferred) return result;
   const table = deps.context.hooks;
   if (!table) return result;
-  const tags = deps.route.definition.discovery?.tags ?? [];
+  const tags = routeTags(deps.route.definition);
   const hooks = table.forRoute("exit", deps.routeId, tags);
   if (hooks.length === 0) return result;
   try {

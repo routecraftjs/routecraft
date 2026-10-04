@@ -61,7 +61,15 @@ export function createDirectRegistry(
 
   return {
     channelType: options.channelType,
-    channels,
+    existing: (key) => channels.get(key),
+    install(key, installed) {
+      channels.set(key, installed);
+    },
+    uninstall(key, installed, restore) {
+      if (channels.get(key) !== installed) return;
+      if (restore) channels.set(key, restore);
+      else channels.delete(key);
+    },
     channel,
     send(endpoint, exchange) {
       const key = encodeURIComponent(endpoint);

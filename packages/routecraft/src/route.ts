@@ -56,7 +56,7 @@ import {
   type ExecutorDeps,
   type RouteSlots,
 } from "./pipeline/executor.ts";
-import { buildSlotStep } from "./kernel/hooks.ts";
+import { buildSlotStep, routeTags } from "./kernel/hooks.ts";
 import {
   compilePositions,
   type CompiledPositions,
@@ -933,7 +933,7 @@ export class DefaultRoute implements Route {
     const table = this.context.hooks;
     if (!table) return undefined;
     const id = this.definition.id;
-    const tags = this.definition.discovery?.tags ?? [];
+    const tags = routeTags(this.definition);
     const beforeAuth = buildSlotStep(table, "beforeAuth", id, tags);
     const afterAuth = buildSlotStep(table, "afterAuth", id, tags);
     const admitted = buildSlotStep(table, "admitted", id, tags);

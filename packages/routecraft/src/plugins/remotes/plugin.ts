@@ -400,9 +400,8 @@ function install(
     );
     routes.delete(endpoint);
     if (!remote.channels.has(endpoint)) {
-      const store = host.direct.channels;
       const key = sanitizeEndpoint(endpoint);
-      const local = store.get(key);
+      const local = host.direct.existing(key);
       // No channel means an internal route that never subscribed, or a
       // route whose channel comes later; there is nothing to warn through.
       if (local === undefined) return;
@@ -410,7 +409,7 @@ function install(
         target(host, remote, endpoint, detail.id),
         local,
       );
-      store.set(key, channel);
+      host.direct.install(key, channel);
       remote.channels.set(endpoint, channel);
     }
     return;
@@ -436,15 +435,14 @@ function install(
   advertise(host, remote, endpoint, detail);
 
   if (!remote.channels.has(endpoint)) {
-    const store = host.direct.channels;
-    // Whatever the store holds here is a placeholder an enricher created
+    // Whatever the registry holds here is a placeholder an enricher created
     // on demand before this inventory landed (a subscribed local route
     // would have registered a capability and returned above), so replacing
     // it is what makes that enricher's next fetch reach the remote.
     const channel = new RemoteDirectChannel(
       target(host, remote, endpoint, detail.id),
     );
-    store.set(sanitizeEndpoint(endpoint), channel);
+    host.direct.install(sanitizeEndpoint(endpoint), channel);
     remote.channels.set(endpoint, channel);
   }
 }
@@ -527,14 +525,8 @@ function release(host: Host, remote: RemoteRuntime, endpoint: string): void {
   if (host.routes.get(endpoint)?.remote === remote.name) {
     host.routes.delete(endpoint);
   }
-  const store = host.direct.channels;
-  const key = sanitizeEndpoint(endpoint);
-  if (channel === undefined || store.get(key) !== channel) return;
-  if (channel.local !== undefined) {
-    store.set(key, channel.local);
-  } else {
-    store.delete(key);
-  }
+  if (channel === undefined) return;
+  host.direct.uninstall(sanitizeEndpoint(endpoint), channel, channel.local);
 }
 
 function target(

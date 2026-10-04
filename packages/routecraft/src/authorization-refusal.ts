@@ -5,11 +5,11 @@ import type { Principal } from "./principal.ts";
 
 /**
  * Machine-readable detail attached to an `RC5038` error's cause, naming
- * exactly what the principal lacked. Read it off `error.cause` to drive a
- * consent flow:
+ * exactly what the principal lacked. Read it with `insufficientAuthorityOf`
+ * to drive a consent flow:
  *
  * ```ts
- * const missing = (err.cause as InsufficientAuthority | undefined)?.missing
+ * const missing = insufficientAuthorityOf(err)
  * if (missing?.mode === "any") offerChoice(missing.scopes)
  * else if (missing?.scopes) requestGrant(missing.scopes)
  * ```

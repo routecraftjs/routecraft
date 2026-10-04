@@ -414,11 +414,11 @@ describe("the kernel host", () => {
   /**
    * @case The pre-0.8 plugin shape
    * @preconditions An object with apply(ctx) and no id
-   * @expectedResult RC9901 whose message names the migration
+   * @expectedResult RC1117 whose message names the migration
    */
   test("refuses the pre-0.8 shape with a migration hint", async () => {
     const error = await refusal([{ apply() {} } as unknown as Plugin]);
-    expect(error).toMatchObject({ rc: "RC9901" });
+    expect(error).toMatchObject({ rc: "RC1117" });
     expect(String(error)).toContain("bind(c)");
   });
 });
@@ -524,7 +524,7 @@ describe("the kernel host: installs and repeatable", () => {
   /**
    * @case A brought plugin is not a plugin
    * @preconditions A plugin whose installs holds a string
-   * @expectedResult RC9901 naming the plugin that brought it
+   * @expectedResult RC1117 naming the plugin that brought it
    */
   test("refuses a malformed brought plugin", async () => {
     const error = await refusal([
@@ -533,7 +533,7 @@ describe("the kernel host: installs and repeatable", () => {
         installs: ["not a plugin" as unknown as Plugin],
       }),
     ]);
-    expect(error).toMatchObject({ rc: "RC9901" });
+    expect(error).toMatchObject({ rc: "RC1117" });
     expect(String(error)).toContain('installed by "test.bringer"');
   });
 
@@ -632,13 +632,13 @@ describe("the kernel host: installs and repeatable", () => {
   /**
    * @case A repeatable plugin declares what every install would declare again
    * @preconditions A repeatable plugin that provides a port
-   * @expectedResult RC9901 naming provides, before anything binds
+   * @expectedResult RC1117 naming provides, before anything binds
    */
   test("refuses a repeatable plugin that provides", async () => {
     const error = await refusal([
       definePlugin({ id: "test.greedy", repeatable: true, provides: [STORE] }),
     ]);
-    expect(error).toMatchObject({ rc: "RC9901" });
+    expect(error).toMatchObject({ rc: "RC1117" });
     expect(String(error)).toContain("provides");
   });
 

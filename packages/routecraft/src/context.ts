@@ -1,3 +1,5 @@
+import { AUTHORITY } from "./kernel/authority.ts";
+import { ENFORCEMENT } from "./kernel/positions.ts";
 import { type Duration, parseDuration } from "./shared/duration.ts";
 import { rejectStaleOptions } from "./shared/stale-options.ts";
 import {
@@ -29,12 +31,13 @@ import {
   type HostEnvironment,
   type InstalledPlugin,
 } from "./kernel/host.ts";
-import { defaultPluginsFor } from "./kernel/defaults.ts";
+import { applicationPlugins } from "./kernel/defaults.ts";
 import { installFacet } from "./kernel/facets.ts";
 import type { Exchange } from "./exchange.ts";
 import type { Plugin, RouteView } from "./kernel/plugin.ts";
 import {
   HookTable,
+  routeTags,
   type ErrorHook,
   type HooksConfig,
   type InstalledHook,
@@ -491,14 +494,8 @@ export class CraftContext {
     if (this.pluginsInitialized) return;
     this.pluginsInitialized = true;
     try {
-      // Defaults first: they are what the application's plugins build on,
-      // and ahead of them the application's plugins keep their relative
-      // order instead of each one that requires a default sliding behind
-      // independent plugins listed after it.
-      this.host = new PluginHost([
-        ...defaultPluginsFor(this.pluginList),
-        ...this.pluginList,
-      ]);
+      this.host = new PluginHost(applicationPlugins(this.pluginList));
+      this.reportReplacements(this.host);
     } catch (err) {
       this.logger.error({ err }, "Plugins could not be installed.");
       this.emit("context:error", { error: err });
@@ -554,6 +551,22 @@ export class CraftContext {
       this.logger.error({ err }, "Plugin hooks could not be placed.");
       this.emit("context:error", { error: err });
       throw err;
+    }
+  }
+
+  /**
+   * Name every replaced port once at boot. A replacement may arrive through
+   * a dependency's `installs` rather than the application's own config, and
+   * replacing who mints or enforces identity is a trust decision an operator
+   * has to be able to see, so those two log at warn.
+   */
+  private reportReplacements(host: PluginHost): void {
+    for (const { port, by, displaced } of host.replacements) {
+      const trust = port.key === AUTHORITY.key || port.key === ENFORCEMENT.key;
+      this.logger[trust ? "warn" : "info"](
+        { port: port.name, plugin: by, displaced },
+        `Plugin "${by}" replaces the provider of "${port.name}".`,
+      );
     }
   }
 
@@ -1041,7 +1054,7 @@ export class CraftContext {
     const all = table.forRoute(
       "error",
       route.definition.id,
-      route.definition.discovery?.tags ?? [],
+      routeTags(route.definition),
     );
     return {
       observe: all.filter((e) => (e.hook as ErrorHook).phase === "observe"),

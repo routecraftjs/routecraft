@@ -15,7 +15,6 @@ import {
   requireWebIngress,
   resolveCorsOptions,
   type PathClaim,
-  type WebIngress,
 } from "@routecraft/routecraft";
 import { refuseBearer } from "../mount/bearer.ts";
 import { AcpConnection, buildAcpApp } from "./app.ts";
@@ -319,17 +318,3 @@ function openedEagerly(response: Response): ReadableStream<Uint8Array> | null {
 
 /** The SDK's own keep-alive comment, which is the smallest legal SSE frame. */
 const SSE_COMMENT = new TextEncoder().encode(":\n\n");
-
-/** Refuse a mount whose ingress is missing, with the servers that exist. */
-export function assertIngress(
-  context: IngressSource,
-  server: string | undefined,
-): WebIngress {
-  try {
-    return requireWebIngress(context, server);
-  } catch (cause: unknown) {
-    throw rcError("RC5003", cause, {
-      message: `acpPlugin needs an http server to mount on and this context has no server named "${server ?? "default"}".`,
-    });
-  }
-}

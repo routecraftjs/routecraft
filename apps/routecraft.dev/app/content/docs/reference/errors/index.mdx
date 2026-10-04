@@ -219,6 +219,15 @@ Two installed plugins declare a step with the same name, or a plugin declares a 
 **Suggestion**  
 Remove one of the plugins, or rename the step. Build a new step on every call of a step factory.
 
+## RC1117
+Invalid plugin descriptor
+
+**Why it happens**  
+Something installed as a plugin is not a valid descriptor: it has no dotted `id`, it still has the pre-0.8 `apply(ctx)` shape, a `requires`, `optional`, `provides` or `replaces` list holds something other than ports, a hook or lifecycle field is not a function, or a `repeatable` plugin declares what only one install may (a port it provides or replaces, hooks, points, steps or a facet). Raised before any plugin binds.
+
+**Suggestion**  
+Build the plugin with `definePlugin({ id, ... })`. The message names the plugin's position, or the plugin that brought it, and the field at fault. A pre-0.8 plugin moves `apply` into `bind(c)` and `teardown` into `stop(c, info)`; see the [0.7 to 0.8 migration guide](/docs/migrating/0.7-to-0.8).
+
 ## RC2001
 Invalid operation type
 

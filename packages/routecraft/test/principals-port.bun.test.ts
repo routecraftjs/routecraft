@@ -71,6 +71,42 @@ describe("the principals port", () => {
   });
 
   /**
+   * @case A plugin that replaces the authority is named at boot
+   * @preconditions A plugin brought in through another plugin's installs, declaring replaces: [AUTHORITY]
+   * @expectedResult One warning at build names the replacing plugin, the port and the displaced default. A replacement can arrive through a dependency rather than the application's own config, and who decides identity is a trust decision an operator must be able to see
+   */
+  test("a replaced authority is announced at boot, even when brought", async () => {
+    const replacement = definePlugin({
+      id: "test.authority",
+      provides: [AUTHORITY],
+      replaces: [AUTHORITY],
+      bind(c) {
+        c.provide(AUTHORITY, defaultAuthority);
+      },
+    });
+    const carrier = definePlugin({
+      id: "test.carrier",
+      installs: [replacement],
+    });
+
+    t = await testContext()
+      .with({ plugins: [carrier] })
+      .build();
+
+    const announced = t.contextLogger.warn.mock.calls.filter(
+      (call) =>
+        typeof call[1] === "string" &&
+        call[1].includes("replaces the provider of"),
+    );
+    expect(announced).toHaveLength(1);
+    expect(announced[0]![0]).toMatchObject({
+      port: AUTHORITY.name,
+      plugin: "test.authority",
+      displaced: ["routecraft.principals"],
+    });
+  });
+
+  /**
    * @case A principal the default authority branded is not trusted by a replacement that does not recognise it
    * @preconditions A replacement authority whose isAuthentic always answers false; a route authenticates then validates with authorize()
    * @expectedResult The gate refuses with RC5023, because trust is the application's authority's call alone

@@ -23,10 +23,11 @@ import { HeadersKeys } from "./exchange.ts";
  * `Object.prototype` members ("toString", "constructor", "__proto__", ...)
  * are never misread as engine-owned.
  *
- * Two callers enforce this from opposite ends: `.header()` rejects at
- * construction (RC5003), and the `.to()` receipt sink drops the write at
- * runtime with a warning (the send has already happened by then, so failing
- * the step would be worse than ignoring the header).
+ * Three callers enforce this: `.header()` rejects at construction (RC5003),
+ * a plugin's mutate hook is refused when it runs (RC1115), and the `.to()`
+ * receipt sink drops the write at runtime with a warning (the send has
+ * already happened by then, so failing the step would be worse than
+ * ignoring the header).
  *
  * @internal
  */

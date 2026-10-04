@@ -29,6 +29,16 @@ At 1.0 we will introduce per-symbol release tags to communicate stability:
 
 Until then, treat the whole surface as `@experimental` by default and rely on the changelog and migration guides for what changed.
 
+## Types a declaration names are public
+
+A type that appears in an emitted declaration (a route's `.d.ts` names the
+builder's derived method types) or that a package augments through
+`declare module "@routecraft/routecraft"` has to be exported from the entry
+point, and an `@internal` tag on it would be false. Such types are public and
+carry no tag: `DerivedStepMethods`, `PluginMethods`, `FacetsOf`,
+`ShippedPluginTypes`, `DefaultPluginTypes`. Where only first-party code may
+merge into one, its JSDoc says so.
+
 ## Applying `@internal`
 
 - Put it on the original declaration (the `export function` / `const` / `class` / `interface` / `type`), never on a re-export line in `index.ts`.

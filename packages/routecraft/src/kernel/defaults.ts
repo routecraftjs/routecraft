@@ -72,6 +72,20 @@ export function defaultPluginsFor(installed: readonly unknown[]): Plugin[] {
 }
 
 /**
+ * What an application installs before brought plugins are expanded: the
+ * defaults its configuration does not override, then its configured
+ * plugins. Defaults go first because they are what the application's
+ * plugins build on, and ahead of them the application's plugins keep their
+ * relative order instead of each one that requires a default sliding behind
+ * independent plugins listed after it.
+ *
+ * @internal
+ */
+export function applicationPlugins(configured: readonly unknown[]): unknown[] {
+  return [...defaultPluginsFor(configured), ...configured];
+}
+
+/**
  * Every shipped plugin's descriptor, for the root `craft()`'s catalogue.
  *
  * @internal

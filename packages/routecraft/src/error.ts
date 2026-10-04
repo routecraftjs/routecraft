@@ -62,6 +62,7 @@ export interface ErrorCodeRegistry {
   RC1114: RCMeta;
   RC1115: RCMeta;
   RC1116: RCMeta;
+  RC1117: RCMeta;
   RC2001: RCMeta;
   RC2002: RCMeta;
   RC3001: RCMeta;
@@ -300,6 +301,14 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     suggestion:
       "A builder method name is declared once. Two plugins declared the same step, or a step shadows a method the builder already has.",
     docs: `${DOCS_BASE}#rc-1116`,
+    retryable: false,
+  },
+  RC1117: {
+    category: "Definition",
+    message: "Invalid plugin descriptor",
+    suggestion:
+      "A plugin is a descriptor built with definePlugin({ id, ... }). The message names the field that is wrong: a missing id, the pre-0.8 apply() shape, a port list holding something other than ports, or a repeatable plugin declaring what only one install may.",
+    docs: `${DOCS_BASE}#rc-1117`,
     retryable: false,
   },
   RC2001: {

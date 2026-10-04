@@ -5,7 +5,7 @@ import { BRAND, setBrand } from "./brand.ts";
 import { RouteBuilder, type PreFromBuilder } from "./builder.ts";
 import type { Plugin } from "./kernel/plugin.ts";
 import { configuredPlugins } from "./config-applier.ts";
-import { defaultPluginsFor } from "./kernel/defaults.ts";
+import { applicationPlugins } from "./kernel/defaults.ts";
 import { installedPlugins } from "./kernel/host.ts";
 import {
   catalogueOf,
@@ -85,7 +85,7 @@ export function defineProject<const D extends ProjectDefinition>(
 ): Project<ListedPluginsOf<D> | DefaultPlugins | ConfigKeyPluginsOf<D>> {
   const configured = configuredPlugins(definition);
   const catalogue = catalogueOf(
-    installedPlugins([...defaultPluginsFor(configured), ...configured]),
+    installedPlugins(applicationPlugins(configured)),
   );
   const plugins: readonly Plugin[] = definition.plugins ?? [];
   const project: Project<

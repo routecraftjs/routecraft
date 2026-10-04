@@ -70,7 +70,7 @@ function isPort(value: unknown): value is AnyPort {
 }
 
 function invalidPlugin(where: string, why: string): never {
-  throw rcError("RC9901", undefined, {
+  throw rcError("RC1117", undefined, {
     message: `Invalid plugin ${where}: ${why}. A plugin is a descriptor built with definePlugin({ id, bind?, start?, stop? }).`,
   });
 }
@@ -144,11 +144,6 @@ function validateShape(plugin: unknown, where: string): Plugin {
 }
 
 /**
- * The listed plugins with everything they bring along, each brought plugin
- * placed ahead of the first plugin that brings it. An id the application
- * lists itself is never brought: the application's own choice wins.
- */
-/**
  * Every plugin a list installs, brought plugins included, in install order.
  * What a project's step catalogue is built from, so it holds exactly the
  * steps its application will install.
@@ -161,6 +156,11 @@ export function installedPlugins(plugins: readonly unknown[]): Plugin[] {
   );
 }
 
+/**
+ * The listed plugins with everything they bring along, each brought plugin
+ * placed ahead of the first plugin that brings it. An id the application
+ * lists itself is never brought: the application's own choice wins.
+ */
 function expand(listed: readonly Plugin[]): Plugin[] {
   const listedIds = new Set(listed.map((plugin) => plugin.id));
   const brought = new Set<string>();
@@ -232,14 +232,18 @@ export class PluginHost {
   private readonly provisions = new Map<symbol, Provision>();
   private frozen = false;
 
+  /**
+   * Every port a plugin selected itself for with `replaces`, so the
+   * application can say at boot who decides what its defaults used to.
+   */
+  readonly replacements: {
+    readonly port: AnyPort;
+    readonly by: string;
+    readonly displaced: readonly string[];
+  }[] = [];
+
   constructor(plugins: readonly unknown[]) {
-    const identified = identify(
-      expand(
-        plugins.map((plugin, index) =>
-          validateShape(plugin, `at index ${index}`),
-        ),
-      ),
-    );
+    const identified = identify(installedPlugins(plugins));
     this.checkIdentity(identified);
     const ports = this.collectPorts(identified.map(({ plugin }) => plugin));
     const installed = identified.map(
@@ -341,9 +345,19 @@ export class PluginHost {
           message: `Plugins ${providers.map((p) => `"${p.id}"`).join(" and ")} both provide "${port.name}" and neither declares replaces. Remove one, or declare replaces: [${port.name}] on the one that should be selected.`,
         });
       }
+      const replacer = replacers[0];
+      if (replacer) {
+        this.replacements.push({
+          port,
+          by: replacer.id,
+          displaced: providers
+            .filter((entry) => entry !== replacer)
+            .map((entry) => entry.id),
+        });
+      }
       this.provisions.set(key, {
         port,
-        provider: replacers[0] ?? providers[0],
+        provider: replacer ?? providers[0],
         value: undefined,
         provided: false,
       });

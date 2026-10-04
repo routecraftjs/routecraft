@@ -438,6 +438,7 @@ export { ErrorWrapperStep } from "./operations/error-wrapper.ts";
 export {
   CacheWrapperStep,
   type CacheOptions,
+  type ResolvedCacheOptions,
 } from "./operations/cache-wrapper.ts";
 export {
   type CacheProvider,
@@ -469,6 +470,7 @@ export {
 export {
   ConcurrencyWrapperStep,
   type ConcurrencyOptions,
+  type ResolvedConcurrencyOptions,
 } from "./operations/concurrency-wrapper.ts";
 
 export {

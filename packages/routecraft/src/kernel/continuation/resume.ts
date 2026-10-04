@@ -329,13 +329,10 @@ export async function reviveDeferral(
   // Reaching here means the hash check above already confirmed that live
   // schema is the one the approval was taken against.
   //
-  // A re-entrant site has no live schema to read back (it was raised inside
-  // the step's own code), so the check is skipped THERE AND ONLY THERE: the
-  // raw payload is handed to the re-entering step as its deferred call's
-  // result, and the step is the validator. A token holder can therefore
-  // resume a re-entrant deferral with any JSON; the consuming step (the
-  // agent tier's model loop is the shipped case) must treat it as untrusted
-  // input, which a tool result already is.
+  // A re-entrant, error-path or admission site has no live schema to read
+  // back (it was declared in a step's or a handler's own code), so the check
+  // is skipped for those: the raw payload reaches the continuation, and the
+  // door's `authorize` / `elevate` or the continuation is the validator.
   let payload: unknown = request.result;
   if (site.schema) {
     const result = await validateAgainst(site.schema, request.result);
@@ -385,12 +382,19 @@ export async function reviveDeferral(
       message: `Deferral "${id}" expired at ${deferral.expiresAt.toISOString()} while its payload was being validated.`,
     });
     // Winning `markResumed` means the sweeper cannot also report this, so
-    // the notification is ours to send exactly once.
-    await runtime.store.recordContinuation(id, {
-      status: "failed",
-      error: { rc: "RC5047", message: expiry.message },
-      at: resumedAt,
-    });
+    // the notification is ours to send exactly once, store failure or not.
+    try {
+      await runtime.store.recordContinuation(id, {
+        status: "failed",
+        error: { rc: "RC5047", message: expiry.message },
+        at: resumedAt,
+      });
+    } catch (unrecorded) {
+      route.logger.error(
+        { deferralId: id, err: unrecorded },
+        "Could not record the expiry of a claimed deferral. The deferral stays resumed with no result and needs an operator.",
+      );
+    }
     context.emit("route:exchange:expired", {
       routeId: deferral.routeId,
       exchangeId: exchangeIdOf(deferral),

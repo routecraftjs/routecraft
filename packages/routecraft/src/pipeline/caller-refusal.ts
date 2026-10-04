@@ -2,8 +2,8 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { rcCodeOf } from "../brand.ts";
 import { formatIssuePath } from "../error.ts";
 import {
+  insufficientAuthorityOf,
   isAuthorizationRefusal,
-  type InsufficientAuthority,
 } from "../authorization-refusal.ts";
 import type { Principal } from "../principal.ts";
 import { isInputValidationFailure } from "./validation.ts";
@@ -204,9 +204,7 @@ export function callerRefusalOf(
     case "RC5036":
       return { kind: "insufficient_permissions" };
     case "RC5038": {
-      const missing = (
-        error.cause as Partial<InsufficientAuthority> | undefined
-      )?.missing;
+      const missing = insufficientAuthorityOf(error);
       return {
         kind: "insufficient_scope",
         scopes: [...(missing?.scopes ?? [])],

@@ -1,3 +1,4 @@
+import { engineOwnedHeaderSuggestion } from "../engine-headers.ts";
 import { rcError } from "../error.ts";
 import { DefaultExchange, type Exchange } from "../exchange.ts";
 import type { ExchangeHeaders } from "../exchange.ts";
@@ -183,8 +184,12 @@ export interface Hooks {
   readonly admitted?: OneOrMany<ExchangeHook>;
   readonly perAttempt?: OneOrMany<WrapperHook>;
   readonly exit?: OneOrMany<ObserveHook | MutateHook>;
-  /** A point another plugin declared. */
-  readonly [point: string]: OneOrMany<unknown> | undefined;
+  /**
+   * Hooks at points other plugins declare, by point name. Kept apart from
+   * the slots so a misspelled slot is a compile error rather than a point
+   * nobody declared.
+   */
+  readonly points?: Readonly<Record<string, OneOrMany<ExchangeHook>>>;
 }
 
 /** A point a plugin declares and invokes from its own steps. */
@@ -269,10 +274,21 @@ export class HookTable {
       }
     }
     for (const plugin of plugins) {
-      for (const [slot, declared] of Object.entries(plugin.hooks ?? {})) {
+      const { points: atPoints, ...slots } = plugin.hooks ?? {};
+      for (const [point] of Object.entries(atPoints ?? {})) {
+        if (!this.points.has(point)) {
+          throw rcError("RC1112", undefined, {
+            message: `Plugin "${plugin.id}" declares a hook at the point "${point}", which no installed plugin declares.`,
+          });
+        }
+      }
+      for (const [slot, declared] of [
+        ...Object.entries(slots),
+        ...Object.entries(atPoints ?? {}),
+      ]) {
         if (!SLOTS.includes(slot as Slot) && !this.points.has(slot)) {
           throw rcError("RC1112", undefined, {
-            message: `Plugin "${plugin.id}" declares a hook in "${slot}", which is neither a slot of the chain (${SLOTS.join(", ")}) nor a point an installed plugin declares.`,
+            message: `Plugin "${plugin.id}" declares a hook in "${slot}", which is not a slot of the chain (${SLOTS.join(", ")}). A hook at a point goes under hooks.points.`,
           });
         }
         asList(declared).forEach((hook, index) => {
@@ -467,6 +483,19 @@ const EVERY_RUN: readonly RunKind[] = [
 ];
 
 /**
+ * The tags a route's hooks are selected by: its discovery tags. Every
+ * selection site reads them here, so a hook can never apply in one slot of
+ * a route and miss another.
+ *
+ * @internal
+ */
+export function routeTags(definition: {
+  readonly discovery?: { readonly tags?: readonly string[] };
+}): readonly string[] {
+  return definition.discovery?.tags ?? [];
+}
+
+/**
  * Whether a hook applies to a kind of run. A hook that declares no `runs`
  * applies to normal runs only, except in the `error` slot, which hears every
  * failure that escapes the chain on any run and tells its hooks which one
@@ -523,6 +552,12 @@ export async function runExchangeHooks(
     if (result === undefined) continue;
     const patch = result as ExchangePatch;
     for (const header of Object.keys(patch.headers ?? {})) {
+      const owned = engineOwnedHeaderSuggestion(header);
+      if (owned !== undefined) {
+        throw rcError("RC1115", undefined, {
+          message: `Mutate hook ${entry.id} in "${info.slot}" wrote the engine-owned header "${header}". ${owned}`,
+        });
+      }
       const earlier = wroteBy.get(header);
       if (earlier !== undefined && earlier !== entry.id) {
         table.warnCollision(info.routeId, info.slot, header, earlier, entry.id);

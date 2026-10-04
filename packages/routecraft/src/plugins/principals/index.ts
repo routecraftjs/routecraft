@@ -11,11 +11,10 @@ import { registerShippedPlugin } from "../../kernel/defaults.ts";
 import { definePlugin } from "../../kernel/plugin.ts";
 
 /**
- * The framework's authority: what fills `AUTHORITY` unless replaced. Code
- * that needs an authority reads its application's with `authorityOf`, so a
- * replacement decides every mint and every check.
- *
- * @internal
+ * The framework's authority: what fills `AUTHORITY` unless replaced.
+ * Exported for a replacement that decorates it; code that needs an
+ * authority reads its application's with `authorityOf`, so a replacement
+ * decides every mint and every check.
  */
 export const defaultAuthority: Authority = {
   mint: authenticate,

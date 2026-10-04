@@ -298,6 +298,30 @@ describe("chain hooks", () => {
   });
 
   /**
+   * @case A mutate hook that writes an engine-owned header
+   * @preconditions A beforeAuth mutate hook returning a patch that sets routecraft.route
+   * @expectedResult The exchange fails with RC1115 naming the header, the same contract .header() enforces at construction. A hook rewriting which route owns an exchange would make every later event lie about it
+   */
+  test("a mutate hook may not write an engine-owned header", async () => {
+    t = await testContext()
+      .with({
+        plugins: [
+          plugin("test.owner", {
+            beforeAuth: setHeader("owner", "routecraft.route", "elsewhere"),
+          }),
+        ],
+      })
+      .routes([craft().id("work").from(direct()).to(noop())])
+      .build();
+    await t.startAndWaitReady();
+
+    await expect(t.client.sendDirect("work", {})).rejects.toMatchObject({
+      rc: "RC1115",
+      message: expect.stringContaining("routecraft.route"),
+    });
+  });
+
+  /**
    * @case Two mutate hooks writing one header: the later wins and the framework warns once per route
    * @preconditions Two plugins whose admitted mutate hooks both write x-tenant, no writes declared; two routes, two exchanges each
    * @expectedResult The later hook's value reaches the pipeline, and exactly one warning per route names both hooks
@@ -510,13 +534,14 @@ describe("chain hooks", () => {
   });
 
   /**
-   * @case A hook in a slot or point that does not exist is refused at build
-   * @preconditions A plugin declaring a hook under "beforeAuthz", a name that is neither a slot nor a declared point
-   * @expectedResult RC1112
+   * @case A hook in a slot that does not exist is refused, at compile time and at build
+   * @preconditions A plugin declaring a hook under "beforeAuthz", a misspelled slot, in a typed hooks object
+   * @expectedResult The object literal is a type error, and a plugin that bypasses the types (plain JavaScript) still fails the build with RC1112 naming the key
    */
   test("a hook in an unknown slot fails the build with RC1112", async () => {
     const error = await refusal([
       plugin("test.typo", {
+        // @ts-expect-error a misspelled slot is a compile error; this checks the runtime refusal JavaScript still gets
         beforeAuthz: { phase: "observe", run: () => undefined },
       }),
     ]);
@@ -980,7 +1005,7 @@ describe("chain hooks", () => {
       .with({
         plugins: [
           definePlugin({ id: "test.acme", points: [{ name: "acme.decided" }] }),
-          plugin("test.listener", { "acme.decided": decided }),
+          plugin("test.listener", { points: { "acme.decided": decided } }),
         ],
       })
       .routes([

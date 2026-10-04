@@ -336,7 +336,7 @@ The rows the design left open, decided:
 | Door location | on the ingress route, `.resume(mapper, { authorize, elevate })` | the door is where the token arrives; a deferred-route door would need a second ingress anyway |
 | Default door policy | bearer, unchanged | changing it is a separate security decision with its own consumer impact |
 | Event names | unchanged, except the plugin lifecycle events | renaming every event buys nothing a payload field does not |
-| Error codes | the existing `RC` numbering stays; kernel faults take `RC1101`-`RC1116` and `RC5068` | |
+| Error codes | the existing `RC` numbering stays; kernel faults take `RC1101`-`RC1117` and `RC5068` | |
 | Context error handlers (#818) | become `error` slot hooks; `registerHandler` and the `handlers` config key are removed before release | one mechanism, not two |
 | How the CLI finds the project | `craft.config.ts` default-exports `defineProject(...)`; a plain config object still works | |
 | Roles, actors, delegation | stay on the principal, owned by the principals plugin | the spike's `subject` / `grants` / `lent` shape was a spike simplification |
@@ -362,6 +362,7 @@ The rows the design left open, decided:
 | RC1114 | a facet not named by its namespace, or named after a reserved field |
 | RC1115 | a hook broke its phase |
 | RC1116 | two plugins declare one step, or a step shadows a builder method |
+| RC1117 | an invalid plugin descriptor: no id, the pre-0.8 `apply` shape, a non-port in a port list, or a repeatable plugin declaring what one install may |
 | RC5068 | a `validate` hook refused the exchange |
 
 ## Related

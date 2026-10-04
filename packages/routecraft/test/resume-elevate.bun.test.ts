@@ -5,9 +5,11 @@ import {
   MemoryDeferralStore,
   authenticate,
   craft,
+  definePlugin,
   direct,
   noop,
   recovery,
+  refuse,
   type CraftConfig,
   type Exchange,
   type Principal,
@@ -125,6 +127,62 @@ describe("the resume elevate hook", () => {
 
     expect(ack.continuation.status).toBe("completed");
     expect(ran.body).toBe(1);
+  });
+
+  /**
+   * @case A post-authorize policy hook guards an exchange admitted through an elevated resume
+   * @preconditions A plugin whose afterAuth validate hook, scoped to the parked route, refuses every exchange; the same park, resumed through an elevating door
+   * @expectedResult The first run never reaches the hook (authorize refused it); the resume re-runs authorize, then the hook refuses with RC5068 and the body never runs. An admission resume is the admission the first run never reached, so a gate placed after authorize must not be skipped on exactly the run where a lent scope is checked
+   */
+  test("an elevated admission resume passes the afterAuth slot", async () => {
+    const store = new MemoryDeferralStore();
+    const ran = { body: 0 };
+    const seen: string[] = [];
+
+    t = await testContext()
+      .with({
+        ...shared(store),
+        plugins: [
+          definePlugin({
+            id: "test.tenancy",
+            hooks: {
+              afterAuth: {
+                phase: "validate",
+                routes: ["archive"],
+                run: () => {
+                  seen.push("afterAuth");
+                  return refuse("tenant mismatch");
+                },
+              },
+            },
+          }),
+        ],
+      })
+      .routes([
+        archiveRoute(ran),
+        craft()
+          .id("answers")
+          .from(direct())
+          .resume(payloadFrom, {
+            elevate: () => agentActingFor([HELD, LENT]),
+          }),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const deferred = await park(t);
+    expect(seen).toEqual([]);
+
+    const ack = (await t.client.sendDirect("answers", {
+      token: deferred.token,
+    })) as { continuation: { status: string; error?: { rc?: string } } };
+
+    expect(seen).toEqual(["afterAuth"]);
+    expect(ack.continuation).toMatchObject({
+      status: "failed",
+      error: { rc: "RC5068" },
+    });
+    expect(ran.body).toBe(0);
   });
 
   /**

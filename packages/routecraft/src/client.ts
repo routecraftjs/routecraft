@@ -53,7 +53,7 @@ export class CraftClient {
     headers?: ExchangeHeaders,
   ): Promise<R> {
     const sanitized = sanitizeEndpoint(endpoint);
-    const channel = this.ctx.lookup(DIRECT)?.channels.get(sanitized);
+    const channel = this.ctx.lookup(DIRECT)?.existing(sanitized);
     if (!channel) {
       throw rcError("RC5004", undefined, {
         message: `No direct channel for endpoint "${endpoint}". Is the context started and does a route subscribe to this endpoint?`,

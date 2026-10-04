@@ -19,10 +19,11 @@ export interface DeferSignalRequest {
    * quietly accepting anything.
    *
    * Folded into the continuation hash and rendered onto the `Deferred`
-   * acknowledgment. For a re-entrant site it is descriptive only at resume
-   * time: the live schema exists in the raising step's own code and cannot
-   * be read back off the route, so revival delivers the raw payload and the
-   * step is the validator. See `DeferSite.reentrant`.
+   * acknowledgment. For a re-entrant site, and for a park raised from the
+   * error path (`recovery.defer`), it is descriptive only at resume time: the
+   * live schema exists in the raising code and cannot be read back off the
+   * route, so revival delivers the raw payload unvalidated (no `RC5049`) and
+   * the door or the continuation must validate it. See `DeferSite.reentrant`.
    */
   readonly schema?: StandardSchemaV1;
   /** How long the deferral stays resumable. Absent means the context default. */

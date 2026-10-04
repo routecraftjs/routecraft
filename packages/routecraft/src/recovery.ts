@@ -154,6 +154,11 @@ export const recovery = {
    * missing scope, and let the continuation finish, without the route that
    * refused knowing any of it happened.
    *
+   * The `schema` describes the expected answer on the acknowledgment and is
+   * folded into the continuation hash, but it is not validated at resume:
+   * nothing can read a handler's schema back. Validate the payload in the
+   * resume door's `authorize` or `elevate`.
+   *
    * @example
    * ```ts
    * definePlugin({
