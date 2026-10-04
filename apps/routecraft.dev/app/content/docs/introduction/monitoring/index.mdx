@@ -40,14 +40,16 @@ The runtime emits an event for everything that happens inside it. Three of them 
 | `route:source:failed` | A source gave up producing, for example a mail connection that exhausted its reconnects. The capability is about to stop. |
 | `route:exchange:failed` | One exchange ended in an unrecoverable error. Carries `routeId`, `exchangeId`, `duration` and the `error`. |
 
-The runtime already logs each of them. To page someone, forward them to your alerting from a plugin, a file in `plugins/` that `craft start` loads on its own. An unhandled exchange failure fires `context:error` as well as `route:exchange:failed`, so this one forwards `context:error` and `route:source:failed` and sends each failure once:
+The runtime already logs each of them. To page someone, forward them to your alerting from a plugin, a file in `plugins/` that `craft start` loads on its own. `context:error` also fires for both of the others (an unhandled exchange failure, and a dead source whose capability then fails to run), so forwarding it alone sends one alert per failure. Set `ALERT_WEBHOOK_URL` in the environment to your alerting tool's incoming webhook:
 
 ```ts
 // plugins/alerting.ts
 import type { CraftContext, CraftPlugin } from '@routecraft/routecraft'
 
 async function alert(summary: string, routeId: string | undefined, error: unknown) {
-  const response = await fetch(process.env.ALERT_WEBHOOK_URL!, {
+  const url = process.env.ALERT_WEBHOOK_URL
+  if (!url) throw new Error('ALERT_WEBHOOK_URL is not set')
+  const response = await fetch(url, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
     body: JSON.stringify({ summary, routeId, error: String(error) }),
@@ -63,10 +65,7 @@ export default {
       alert(summary, routeId, error).catch((err) => ctx.logger.warn({ err }, 'Alert not sent'))
 
     ctx.on('context:error', ({ details: { error, route } }) => {
-      void send('Context error', route?.definition.id, error)
-    })
-    ctx.on('route:source:failed', ({ details: { routeId, error } }) => {
-      void send('Source stopped', routeId, error)
+      void send('Routecraft failure', route?.definition.id, error)
     })
   },
 } satisfies CraftPlugin
