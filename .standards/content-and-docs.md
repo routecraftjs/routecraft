@@ -22,7 +22,8 @@ names stay `introduction/` and `advanced/`, because renaming them would move eve
 URL under them; the labels name the same surfaces, which is what navigation-matches-folders
 requires. The Getting started group is the exception: the overview, the quickstarts and
 installation live in `introduction/` because they are the first pages of that surface, not a
-surface of their own.
+surface of their own. The Releases group pairs `migrating/` with the changelog, which lives outside
+`docs/` but answers the same question: what changed and how to upgrade.
 
 | Surface | Home | Sidebar | Job | Maintained | Vendor-specific |
 |---|---|---|---|---|---|

@@ -1,7 +1,7 @@
 export const navigation = [
   {
     title: 'Getting started',
-    href: '/',
+    href: '/docs/introduction',
     links: [
       { title: 'What is Routecraft', href: '/docs/introduction' },
       {
@@ -9,16 +9,18 @@ export const navigation = [
         href: '/docs/introduction/tools-for-agents',
       },
       {
+        title: 'Agents and skills',
+        href: '/docs/introduction/agents-and-skills',
+      },
+      {
         title: 'An agent of your own',
         href: '/docs/introduction/an-agent-of-your-own',
       },
       { title: 'Installation', href: '/docs/introduction/installation' },
-      { title: 'Changelog', href: '/changelog' },
     ],
   },
   {
     title: 'Fundamentals',
-    href: '/docs/introduction',
     links: [
       {
         title: 'Local harness, team harness',
@@ -45,10 +47,6 @@ export const navigation = [
         href: '/docs/introduction/talk-from-your-editor',
       },
       { title: 'Capabilities', href: '/docs/introduction/capabilities' },
-      {
-        title: 'Agents and skills',
-        href: '/docs/introduction/agents-and-skills',
-      },
       {
         title: 'Project structure',
         href: '/docs/introduction/project-structure',
@@ -100,6 +98,15 @@ export const navigation = [
     ],
   },
   {
+    title: 'Examples',
+    href: '/docs/examples',
+    links: [
+      { title: 'File to HTTP', href: '/docs/examples/api-sync' },
+      { title: 'MCP tool', href: '/docs/examples/mcp' },
+      { title: 'Support triage agent', href: '/docs/examples/support-triage' },
+    ],
+  },
+  {
     title: 'Reference',
     href: '/docs/reference',
     links: [
@@ -115,15 +122,6 @@ export const navigation = [
     ],
   },
   {
-    title: 'Examples',
-    href: '/docs/examples',
-    links: [
-      { title: 'File to HTTP', href: '/docs/examples/api-sync' },
-      { title: 'MCP tool', href: '/docs/examples/mcp' },
-      { title: 'Support triage agent', href: '/docs/examples/support-triage' },
-    ],
-  },
-  {
     title: 'Community',
     href: '/docs/community',
     links: [
@@ -132,6 +130,24 @@ export const navigation = [
         href: '/docs/community/contribution-guide',
       },
       { title: 'FAQ', href: '/docs/community/faq' },
+    ],
+  },
+  {
+    title: 'Releases',
+    links: [
+      { title: 'Changelog', href: '/changelog' },
+      {
+        title: 'Migrating from 0.6',
+        href: '/docs/migrating/0.6-to-0.7',
+      },
+      {
+        title: 'Migrating from 0.5',
+        href: '/docs/migrating/0.5-to-0.6',
+      },
+      {
+        title: 'Migrating from 0.4',
+        href: '/docs/migrating/0.4-to-0.5',
+      },
     ],
   },
 ]
