@@ -119,7 +119,7 @@ The legacy `plugins: [llmPlugin(...)]` form continues to work and is the right e
 
 <Callout type="note">
 
-**Troubleshooting:** if TypeScript reports `Object literal may only specify known properties, and 'llm' does not exist in type 'CraftConfig'` (or the same for `mcp`, `embedding`, `agent`, `sessions`, `acp`), the augmentation has not been loaded. Add `import '@routecraft/ai'` to a file that's part of your project's compilation -- usually next to `defineConfig` in `craft.config.ts`. The side-effect import is what merges the AI keys into `CraftConfig`.
+**Troubleshooting:** if TypeScript reports `Object literal may only specify known properties, and 'llm' does not exist in type 'CraftConfig'` (or the same for `mcp`, `embedding`, `agent`, `sessions`, `acp`), the augmentation has not been loaded. Add `import '@routecraft/ai'` to a file that's part of your project's compilation, usually next to `defineConfig` in `craft.config.ts`. The side-effect import is what merges the AI keys into `CraftConfig`.
 
 </Callout>
 
@@ -338,7 +338,7 @@ Records have no retention: nothing expires a session, so a deployment that opens
 
 ### acp
 
-Added by `@routecraft/ai`. Serves the [Agent Client Protocol](/docs/advanced/talk-from-your-editor) so a person can talk to this instance's agents from their editor, the way `mcp` serves MCP. Takes exactly the options [`acpPlugin()`](/docs/reference/plugins/acpplugin) takes, and none of them is required: an empty object serves every agent the context holds at `/acp` on the `default` server, behind that server's wall.
+Added by `@routecraft/ai`. Serves the [Agent Client Protocol](/docs/introduction/talk-from-your-editor) so a person can talk to this instance's agents from their editor, the way `mcp` serves MCP. Takes exactly the options [`acpPlugin()`](/docs/reference/plugins/acpplugin) takes, and none of them is required: an empty object serves every agent the context holds at `/acp` on the `default` server, behind that server's wall.
 
 ```ts
 import { defineConfig, jwt } from '@routecraft/routecraft'
@@ -443,10 +443,10 @@ platform kill timer, budget for the teardown that follows it, not for
 
 Logging uses a single pino instance configured at module load. Precedence (highest wins):
 
-1. **Environment variables** -- `LOG_LEVEL` / `CRAFT_LOG_LEVEL`, `LOG_FILE` / `CRAFT_LOG_FILE`, `LOG_REDACT` / `CRAFT_LOG_REDACT` (comma-separated paths to redact)
-2. **Config file in cwd** -- `craft.log.cjs` or `craft.log.js` in the current working directory
-3. **Config file in home** -- `craft.log.cjs` or `craft.log.js` in `~/.routecraft/`
-4. **Defaults** -- level `"warn"`, stdout, no redact
+1. **Environment variables**: `LOG_LEVEL` / `CRAFT_LOG_LEVEL`, `LOG_FILE` / `CRAFT_LOG_FILE`, `LOG_REDACT` / `CRAFT_LOG_REDACT` (comma-separated paths to redact)
+2. **Config file in cwd**: `craft.log.cjs` or `craft.log.js` in the current working directory
+3. **Config file in home**: `craft.log.cjs` or `craft.log.js` in `~/.routecraft/`
+4. **Defaults**: level `"warn"`, stdout, no redact
 
 The config file exports a **native pino options object** (e.g. `level`, `redact`, `formatters`, `transport`). Env vars are merged on top, so env always wins.
 
@@ -504,10 +504,12 @@ The environment is in place before the logger is built and before `craft.config.
 
 <QuickLinks>
 
-<QuickLink title="Events reference" icon="theming" href="/docs/reference/events" description="All lifecycle and runtime events available in the on field." />
+<QuickLink title="Project structure" icon="presets" href="/docs/introduction/project-structure#craft-config-ts" description="The config file a project starts from, and the export the runtime reads." />
 
-<QuickLink title="Plugins reference" icon="presets" href="/docs/reference/plugins" description="Full API for plugin interfaces and context methods." />
+<QuickLink title="Servers and ports" icon="presets" href="/docs/introduction/servers-and-ports" description="Declaring the default server, and giving a door its own port." />
 
-<QuickLink title="Adapters reference" icon="presets" href="/docs/reference/adapters" description="All adapters, options, and signatures." />
+<QuickLink title="Merged options" icon="presets" href="/docs/advanced/merged-options" description="How context-level adapter defaults combine with call-site options." />
+
+<QuickLink title="Plugins" icon="plugins" href="/docs/reference/plugins" description="The reference catalogue: every built-in plugin and its options." />
 
 </QuickLinks>

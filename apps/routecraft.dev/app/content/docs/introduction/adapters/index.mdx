@@ -8,9 +8,9 @@ Connectors that link your capabilities to the outside world.
 
 ## What are adapters?
 
-Adapters are the boundary between Routecraft and external systems. They handle the integration details -- making HTTP calls, reading files, triggering on a schedule -- so your capabilities stay focused on business logic.
+Adapters are the boundary between Routecraft and external systems. They handle the integration details (making HTTP calls, reading files, triggering on a schedule) so your capabilities stay focused on business logic.
 
-Every capability starts with a source adapter in `.from()` and ends with a destination adapter in `.to()`. Operations in the middle can also use adapters to enrich data or observe side effects.
+Every capability starts with a source adapter in `.from()` and usually hands its result to a destination adapter in `.to()`. Operations in the middle can also use adapters to enrich data or observe side effects.
 
 ## The adapter roles
 
@@ -42,7 +42,7 @@ A destination pushes the exchange out to an external system. It goes in `.to()`.
 
 ### Enricher
 
-An enricher pulls a value in per exchange -- an HTTP GET, a file read, a lookup on another capability. It goes in `.enrich()`, where the fetched value replaces the body (or feeds an aggregator such as `only()` to merge). `.to()` accepts an enricher too: the result replaces the body there as well.
+An enricher pulls a value in per exchange: an HTTP GET, a file read, a lookup on another capability. It goes in `.enrich()`, where the fetched value replaces the body (or feeds an aggregator such as `only()` to merge). `.to()` accepts an enricher too: the result replaces the body there as well.
 
 ```ts skip="fragment: a chain shown without its route"
 .enrich(http({ url: 'https://api.example.com/users/1' }))
@@ -58,7 +58,7 @@ A processor sits in the middle of a pipeline and modifies the exchange. It goes 
 .process(myCustomProcessor)
 ```
 
-Any destination or enricher can also be passed to `.tap()`. The `.tap()` operation is what makes it fire-and-forget -- results and receipts are discarded, the adapter itself is unchanged.
+Any destination or enricher can also be passed to `.tap()`. The `.tap()` operation is what makes it fire-and-forget: results and receipts are discarded, and the adapter itself is unchanged.
 
 ## Configuring adapters
 
@@ -68,7 +68,7 @@ Most adapters accept an options object. Options can be static values or function
 // Static
 .to(http({ method: 'POST', url: 'https://api.example.com/events' }))
 
-// Dynamic -- derived from the exchange
+// Dynamic: derived from the exchange
 .to(http({
   method: 'POST',
   url: (exchange) => `https://api.example.com/users/${exchange.body.userId}`,
@@ -82,23 +82,22 @@ Many adapters support **merged options**: they merge their own per-call options 
 
 ```ts
 // craft.config.ts
-import type { CraftConfig } from '@routecraft/routecraft'
+import { defineConfig } from '@routecraft/routecraft'
 
-export const craftConfig: CraftConfig = {
+export const craftConfig = defineConfig({
   cron: { timezone: 'UTC', maxJitter: 2000 },
-}
-
+})
 ```
 
 ```ts skip="fragment: not a complete statement on its own"
-// capability file -- timezone and maxJitter come from the config
+// in a capability: timezone and maxJitter come from the config
 .from(cron('@daily'))
 
 // Override timezone for this specific source
 .from(cron('0 9 * * 1-5', { timezone: 'America/New_York' }))
 ```
 
-Options passed directly to the adapter always take precedence over config defaults. See the [Merged Options guide](/docs/advanced/merged-options) for the full pattern and a list of adapters that support it.
+Options passed directly to the adapter always take precedence over config defaults. [Merged options](/docs/advanced/merged-options) has the full pattern and the list of adapters that support it.
 
 ---
 
@@ -106,7 +105,9 @@ Options passed directly to the adapter always take precedence over config defaul
 
 <QuickLinks>
 
-<QuickLink title="Adapters reference" icon="presets" href="/docs/reference/adapters" description="Full catalog with all options and signatures." />
+<QuickLink title="Adapters" icon="presets" href="/docs/reference/adapters" description="Every adapter, each with its full signature, options and examples." />
+
+<QuickLink title="Merged options" icon="theming" href="/docs/advanced/merged-options" description="Set adapter defaults once in craft.config.ts and share them across every capability." />
 
 <QuickLink title="Creating adapters" icon="plugins" href="/docs/advanced/custom-adapters" description="Build your own source, destination, enricher, or processor adapter." />
 

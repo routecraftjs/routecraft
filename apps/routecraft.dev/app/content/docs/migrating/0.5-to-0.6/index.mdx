@@ -985,3 +985,15 @@ For context, no migration required:
 - **`rcError` retryable override**: `rcError(code, cause, { retryable })` flips the retry classification for one occurrence.
 - **Open categories and kinds**: `RCMeta.category` and `Principal.kind` accept ecosystem-defined strings alongside the known values.
 - **Plugin identity**: plugins may declare `name` (used as `pluginId` on events and logs) and reserve `dependsOn` for future ordered initialisation. Note: a plugin instance that already carried an unrelated string `name` property now reports that value as its `pluginId` instead of the constructor name; rename the property or set `name` to the id you want. `context.getRoutes()` returns a copy.
+
+---
+
+## Related
+
+<QuickLinks>
+
+<QuickLink title="Migrating from 0.6" icon="installation" href="/docs/migrating/0.6-to-0.7" description="Continue the upgrade from 0.6 to 0.7." />
+
+<QuickLink title="Changelog" icon="presets" href="/changelog" description="Every release, with what changed and where to read more." />
+
+</QuickLinks>

@@ -166,7 +166,7 @@ export class AcpRuntime {
     }
     if (agents.size === 1) return [...agents.keys()][0]!;
     throw rcError("RC5003", undefined, {
-      message: `This instance holds ${agents.size === 0 ? "no agents" : `${agents.size} agents`}, so there is no obvious one to talk to. Set acpPlugin({ agent }) to choose the default${agents.size === 0 ? "" : `, or pick one from the "agent" option: ${describeAgents(agents)}`}.`,
+      message: `This instance holds ${agents.size === 0 ? "no agents" : `${agents.size} agents`}, so there is no obvious one to talk to. Set acpPlugin({ agent }) to choose the default${agents.size === 0 ? "" : `, or choose one per editor entry with craft acp --agent <name>: ${describeAgents(agents)}`}.`,
     });
   }
 

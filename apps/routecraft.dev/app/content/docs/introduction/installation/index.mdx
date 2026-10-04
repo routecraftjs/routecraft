@@ -3,13 +3,13 @@ title: Installation
 ---
 
 <Lead>
-System requirements, manual setup, and production builds.
+System requirements, creating a project, and adding Routecraft to an existing one.
 </Lead>
 
 ## System requirements
 
-- **Bun 1.1.0 or later** - required to run the `craft` CLI. Bun has native TypeScript support so `.ts` capabilities run directly with no build step.
-- **Node.js 22.6 or later** - only needed if you embed `@routecraft/routecraft` inside a Node application instead of using the CLI. Node 23.6+ recommended (type stripping is on by default).
+- **Bun 1.1.0 or later**: required to run the `craft` CLI. Bun has native TypeScript support, so `.ts` capabilities run directly with no build step.
+- **Node.js 22.6 or later**: only needed if you embed `@routecraft/routecraft` inside a Node application instead of using the CLI. Node 23.6+ recommended (type stripping is on by default).
 - macOS, Windows (including WSL), or Linux.
 
 The CLI is Bun-only. See the [Runtime reference](/docs/reference/runtime) for the rationale and the Node embedding path.
@@ -54,44 +54,25 @@ yarn create routecraft my-app
 
 </CodeTabs>
 
-Follow the prompts to configure your project name, package manager, and directory layout. Then:
+The prompts ask for a project name when you leave it out of the command, whether to start from the starter template or a GitHub repository, a package manager, whether to initialise git, and whether to install dependencies now. Then:
 
 ```bash
 cd my-app
 bun run start
 ```
 
-For all flags and options, see [CLI -- create](/docs/reference/cli#project-scaffolding).
-
-### Start from the agent harness
-
-An empty project is the right start for an integration. For an agent you intend to talk to,
-scaffold from `craft-harness` instead: chat, a bash tool, web fetch and search, a workspace,
-memory, a scheduler, human approvals, and the capabilities that reach into the project your
-editor has open, each one an ordinary route in the project you now own rather than a
-framework feature you configure. [Talk from your
-editor](/docs/advanced/talk-from-your-editor#starting-from-the-harness) covers what the
-editor ones do and what they refuse.
-
-```bash
-bunx create-routecraft my-agent --example https://github.com/routecraftjs/craft-harness
-```
-
-It pulls the template's `main` branch (templates carry no tags). Its own
-[README](https://github.com/routecraftjs/craft-harness) covers what each capability does,
-which of them stay dormant until you configure them, and how the generated API key secures
-every surface the harness exposes.
+For all flags and options, see [Project scaffolding](/docs/reference/cli#project-scaffolding) in the CLI reference. To start from the agent harness rather than the starter template, follow [An agent of your own](/docs/introduction/an-agent-of-your-own).
 
 ## Manual installation
 
-Add Routecraft to an existing project:
+Add Routecraft and its CLI to an existing project:
 
 <CodeTabs>
 
 <CodeTab label="bun" language="bash">
 
 ```bash
-bun add @routecraft/routecraft
+bun add @routecraft/routecraft @routecraft/cli
 ```
 
 </CodeTab>
@@ -99,7 +80,7 @@ bun add @routecraft/routecraft
 <CodeTab label="npm" language="bash">
 
 ```bash
-npm install @routecraft/routecraft
+npm install @routecraft/routecraft @routecraft/cli
 ```
 
 </CodeTab>
@@ -107,7 +88,7 @@ npm install @routecraft/routecraft
 <CodeTab label="pnpm" language="bash">
 
 ```bash
-pnpm add @routecraft/routecraft
+pnpm add @routecraft/routecraft @routecraft/cli
 ```
 
 </CodeTab>
@@ -115,7 +96,7 @@ pnpm add @routecraft/routecraft
 <CodeTab label="yarn" language="bash">
 
 ```bash
-yarn add @routecraft/routecraft
+yarn add @routecraft/routecraft @routecraft/cli
 ```
 
 </CodeTab>
@@ -125,7 +106,7 @@ yarn add @routecraft/routecraft
 Create your first capability:
 
 ```ts
-// capabilities/my-capability.ts
+// capabilities/my-first-capability/route.ts
 import { craft, simple, log } from "@routecraft/routecraft";
 
 export default craft()
@@ -137,109 +118,59 @@ export default craft()
 Run it directly with the CLI (requires Bun on the machine):
 
 ```bash
-bunx craft run capabilities/my-capability.ts
+bunx craft run capabilities/my-first-capability/route.ts
 ```
 
-The CLI runs on Bun and loads `.ts` files natively, so no `tsc` step is required.
+The CLI runs on Bun and loads `.ts` files natively, so no `tsc` step is required. `craft start` boots every capability under `capabilities/` at once; see [Project structure](/docs/introduction/project-structure).
 
 ## TypeScript configuration
 
-Routecraft is TypeScript-first. The recommended `tsconfig.json` for a capabilities project:
+A new project ships this `tsconfig.json`; use the same one for a manual installation:
 
 ```json
 {
   "compilerOptions": {
     "target": "ES2022",
-    "module": "NodeNext",
-    "moduleResolution": "NodeNext",
+    "module": "Preserve",
+    "moduleResolution": "bundler",
+    "rootDir": ".",
+    "allowSyntheticDefaultImports": true,
+    "esModuleInterop": true,
+    "allowJs": true,
     "strict": true,
-    "outDir": "dist"
+    "skipLibCheck": true,
+    "isolatedModules": true,
+    "resolveJsonModule": true
   },
-  "include": ["capabilities/**/*.ts", "src/**/*.ts"]
+  "include": ["**/*.ts", "**/*.js"],
+  "exclude": [
+    "node_modules",
+    "dist",
+    "**/*.test.ts",
+    "**/*.spec.ts",
+    "**/*.config.ts",
+    "vitest.config.ts",
+    "craft.config.ts"
+  ]
 }
 ```
 
-You only need to compile (`tsc`) when building for production. During development, the CLI runs your `.ts` files directly.
+`moduleResolution: "bundler"` is what lets the extensionless relative imports used throughout these docs (`'../send-email/route'`) resolve. TypeScript only typechecks (`tsc --noEmit`); nothing is compiled, because Bun runs the `.ts` files directly in development and in production.
 
-## Production builds
+## Running in production
 
-Build and start for production:
-
-<CodeTabs>
-
-<CodeTab label="bun" language="bash">
-
-```bash
-bun run build && bun run start
-```
-
-</CodeTab>
-
-<CodeTab label="npm" language="bash">
-
-```bash
-npm run build && npm run start
-```
-
-</CodeTab>
-
-<CodeTab label="pnpm" language="bash">
-
-```bash
-pnpm build && pnpm start
-```
-
-</CodeTab>
-
-<CodeTab label="yarn" language="bash">
-
-```bash
-yarn build && yarn start
-```
-
-</CodeTab>
-
-</CodeTabs>
-
-<Callout type="note" title="Bun is required on the host">
-
-The `start` script invokes the local `craft` bin, which runs on Bun (>=1.1.0) regardless of which package manager runs the script. Install Bun on the production host, or follow the [Node embedding path](/docs/advanced/programmatic-invocation) instead.
-
-</Callout>
-
-The build step compiles your capabilities to JavaScript. The compiled output in `dist/` is what runs in production with no Node flags and no runtime overhead.
-
-## Embedding Routecraft in your app
-
-To run capabilities from inside an existing Node or Bun application, use `ContextBuilder` directly instead of the CLI. This is the recommended path for Node users.
-
-```ts
-import { ContextBuilder, craft, direct, log } from "@routecraft/routecraft";
-import { z } from "zod";
-
-const route = craft()
-  .id("greet")
-  .input({ body: z.object({ name: z.string() }) })
-  .from(direct())
-  .transform((body) => `Hello, ${body.name}!`)
-  .to(log());
-
-const { context, client } = await new ContextBuilder().routes(route).build();
-context.start();
-
-await client.sendDirect("greet", { name: "World" });
-```
-
-You get full programmatic control: load specific capability files, run a single capability for a batch job, or integrate Routecraft into a larger Express, Next.js, or Fastify server. See the [Programmatic Invocation guide](/docs/advanced/programmatic-invocation) for the full pattern.
+In production, run `bun run start` on a host with Bun, or build the scaffolded `Dockerfile`; see [Deployment](/docs/introduction/deployment). To run capabilities inside an existing Node or Bun application instead of through the CLI, embed the library with `ContextBuilder`; see [Programmatic invocation](/docs/advanced/programmatic-invocation).
 
 ---
 
-## Related
+## Where to go next
 
 <QuickLinks>
 
-<QuickLink title="CLI reference" icon="installation" href="/docs/reference/cli" description="All CLI commands and options." />
+<QuickLink title="Local harness, team harness" icon="lightbulb" href="/docs/introduction/local-and-team-harness" description="The runtime you just installed, on your laptop and on the server your organisation runs." />
 
-<QuickLink title="Project structure" icon="presets" href="/docs/introduction/project-structure" description="Understand the layout of a Routecraft project." />
+<QuickLink title="Project structure" icon="presets" href="/docs/introduction/project-structure" description="The folder layout craft start discovers, and what goes in a capability folder." />
+
+<QuickLink title="Deployment" icon="installation" href="/docs/introduction/deployment" description="Run the project on a server with Bun, in the scaffolded Docker image, or embedded in Node." />
 
 </QuickLinks>

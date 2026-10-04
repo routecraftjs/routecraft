@@ -3,146 +3,117 @@ title: Capabilities
 ---
 
 <Lead>
-Define what your AI can do, and exactly how it does it.
+A capability is one thing your harness can do: a typed TypeScript route that says how a call reaches it, what every call is checked against, and the steps that do the work. The `greet` tool you called in the quickstarts is one. This page takes that shape apart.
 </Lead>
 
-## What is a capability?
+## One folder per capability
 
-A capability is a TypeScript file that defines a secure, type-safe action your system can perform. It uses the Routecraft DSL to wire a **source** through **operations** to a **destination**.
+Each capability normally lives in its own folder under `capabilities/`, in a file named `route.ts` that default-exports it (a file can also export a capability together with the small caller that feeds it, as shown [below](#several-capabilities-in-one-file)):
+
+```text
+capabilities
+└── invoice-status
+    ├── route.ts            # the capability, and the only file other code imports
+    └── route.test.ts
+```
+
+`craft start` discovers every `route.ts` under `capabilities/`, so nothing registers a capability by hand. Name the folder after the capability's id; the id set in `.id()` is what identifies it at runtime, not the path. [Project structure](/docs/introduction/project-structure) has the whole layout, including tests, helpers and domain folders.
+
+## Anatomy of a capability
 
 ```ts
-// capabilities/send-email.ts
-import { craft, http, mail } from "@routecraft/routecraft";
+// capabilities/invoice-status/route.ts
+import { craft, direct, http, log } from "@routecraft/routecraft";
+import { mcp } from "@routecraft/ai";
 import { z } from "zod";
 
+export const InvoiceStatusInput = z.object({
+  invoiceId: z.string().min(1).describe("The invoice number, such as INV-2041."),
+});
+export type InvoiceStatusInput = z.infer<typeof InvoiceStatusInput>;
+
 export default craft()
-  .id("send-email")
-  .input({ body: z.object({ recipient: z.string(), subject: z.string() }) })
-  .from(http({ path: "/send", method: "POST" }))
-  .transform((body) => ({ to: body.recipient, subject: body.subject }))
-  .to(mail());
-```
-
-When an AI agent calls `send-email`, it executes exactly this pipeline. You define the boundary; the agent works within it.
-
-## The DSL
-
-Every capability follows the same shape:
-
-```ts skip="fragment: source, fn, destination are illustrative"
-craft()
-  .id("capability-id")   // Unique identifier
-  .from(source)          // Where data enters
-  .transform(fn)         // Optional operations
-  .to(destination)       // Where data goes
-```
-
-`.id()` is what identifies the capability at runtime, not the filename. Name your files descriptively, but the ID is what matters.
-
-<Callout type="note" title="Always set an ID">
-
-It is recommended to give every capability a unique `.id()`. Without one, Routecraft generates an ID automatically but it may change between runs, making debugging and MCP tool discovery harder. The `require-named-route` ESLint rule enforces this and can be disabled per-project.
-
-</Callout>
-
-## Source types
-
-The `.from()` adapter determines how a capability is triggered:
-
-**Request-driven** -- responds to an inbound call and returns a result:
-
-```ts skip="fragment: a chain shown without its route"
-.from(http({ path: "/users", method: "GET" }))
-```
-
-**Scheduled** -- runs on a timer, no caller to respond to:
-
-```ts skip="fragment: a chain shown without its route"
-.from(timer({ interval: 60_000 }))
-```
-
-**One-shot** -- processes a fixed payload and completes:
-
-```ts skip="fragment: a chain shown without its route"
-.from(simple({ report: "daily-summary" }))
-```
-
-**Channel-driven** -- receives messages from another capability. The route's `.id()` is the direct endpoint name:
-
-```ts
-craft()
-  .id("incoming-jobs")
-  .from(direct())
-```
-
-## Operations
-
-Operations are the steps between source and destination. They are composable and run in order:
-
-| Operation | What it does |
-| --- | --- |
-| `.transform(fn)` | Replaces the body with the return value of `fn` |
-| `.filter(fn)` | Drops the exchange if `fn` returns false |
-| `.tap(adapter)` | Side effect (logging, metrics) without altering the exchange |
-| `.sample({ every: n })` | Passes through every nth exchange |
-| `.batch({ size: n })` | Groups exchanges before passing them on |
-
-## Destinations
-
-`.to()` sends the processed exchange to its final target. It is recommended to use only one `.to()` per capability -- if you need to fan out, use `.tap()` for side-effect destinations and reserve `.to()` for the primary output.
-
-<Callout type="note" title="One destination per capability">
-
-Using multiple `.to()` calls on a single capability is supported but not recommended. The `single-destination` ESLint rule warns when more than one `.to()` is chained. Use `.tap()` for fire-and-forget side effects instead.
-
-</Callout>
-
-```ts skip="fragment: a chain shown without its route"
-.to(log())                              // Print to console
-.to(http({ url: "https://api.com" }))  // POST to external API
-.to(json({ path: "./output.json" }))   // Write to file
-.to(direct("next-stage"))              // Hand off to another capability
-```
-
-## Multiple capabilities in one file
-
-A single `craft()` call can define multiple capabilities by chaining `.id().from().to()` blocks. This is useful for grouping related capabilities that belong to the same domain.
-
-```ts skip="fragment: mapCalendarEvents, eventSchema, googleCalendar are illustrative"
-// capabilities/calendar.ts
-export default craft()
-  .id("calendar.fetch-events")
-  .from(http({ path: "/calendar/events", method: "GET" }))
-  .transform(mapCalendarEvents)
-  .to(log())
-
-  .id("calendar.create-event")
-  .from(http({ path: "/calendar/events", method: "POST" }))
-  .schema(eventSchema)
-  .to(googleCalendar())
-```
-
-Each `.id()` starts a new capability definition. Every ID must be unique -- it is what identifies the capability at runtime, not the filename.
-
-## Inter-capability communication
-
-Capabilities can pass data to each other using `direct()`. This keeps each capability focused on a single concern:
-
-```ts skip="fragment: fetchNewOrders, fulfillOrder are illustrative"
-// capabilities/fetch-orders.ts
-export default craft()
-  .id("fetch-orders")
-  .from(timer({ interval: 300_000 }))
-  .transform(fetchNewOrders)
-  .to(direct("process-orders"));
-
-// capabilities/process-orders.ts
-export default craft()
-  .id("process-orders")
-  .from(direct())
-  .transform(fulfillOrder)
+  .id("invoice-status")
+  .title("Invoice status")
+  .description("Look up whether an invoice is paid, open or overdue")
+  .input({ body: InvoiceStatusInput })
+  .authorize({ roles: ["finance"] })
+  .from(direct(), mcp())
+  .enrich(
+    http<InvoiceStatusInput, { status: string; dueDate: string }>({
+      method: "GET",
+      url: (ex) => `https://billing.example.com/invoices/${ex.body.invoiceId}`,
+    }),
+  )
+  .transform((result) => result.body)
   .to(log());
 ```
+
+Everything before `.from()` describes the capability. Everything after it is the work, run in the order written.
+
+- **`.id()`** names the capability. It is the MCP tool name, the endpoint other capabilities call with `direct("invoice-status")`, and the name in logs and telemetry. Without it the builder generates a random id on every start, so the `require-named-route` lint rule makes it an error.
+- **`.title()` and `.description()`** are what a caller reads to decide whether to call it. An agent sees them as the tool's title and description, so write them for that reader.
+- **`.input()`** is the schema every call is validated against before any step runs, whichever way the call arrived. A call that does not match is refused, and the schema's `.describe()` text reaches the agent as field documentation.
+- **`.authorize()`** decides who may call it. Here the caller must carry a verified identity with the `finance` role. That identity comes from a door that checks a credential, such as MCP over HTTP behind a token on the team harness; over stdio on a laptop nothing verifies the caller, so this capability refuses every call there. [Credentials and identity](/docs/introduction/credentials-and-identity) explains where identity comes from.
+- **`.from()`** lists the sources: how a call gets in. `direct()` lets other capabilities and the CLI call it in-process; `mcp()` makes it a tool an agent can call. One capability can stand behind several doors at once, with the same checks on each.
+- **The steps** do the work: here, fetch the invoice and answer with its body. The final body is what the caller gets back.
+
+## Sources: doors and triggers
+
+A source decides how a capability starts. A door answers someone who asks, and returns the final body to them:
+
+```ts skip="fragment: a chain shown without its route"
+.from(direct(), mcp(), http({ path: "/invoices/status", method: "POST" }))
+```
+
+A trigger starts the capability when something happens, with nobody waiting for an answer:
+
+```ts skip="fragment: a chain shown without its route"
+.from(cron("0 8 * * 1-5"))                // on a schedule
+.from(timer({ interval: 60_000 }))        // every minute
+.from(simple({ report: "daily-summary" })) // once, when the harness starts
+```
+
+A trigger does not bring the input a door-facing capability expects. Give it a small capability of its own that builds that input and calls the other one through `direct()`, so the logic is still written once. [Doors and triggers](/docs/introduction/doors-and-triggers) lists every way in.
+
+## Steps
+
+Between `.from()` and the end, each step receives the exchange the previous one produced: `.transform()` reshapes the body, `.filter()` drops what should not continue, `.enrich()` pulls data in, `.tap()` runs a side effect without changing anything, and `.to()` hands the exchange to a destination. [Operations](/docs/introduction/operations) covers them all, and [The Exchange](/docs/introduction/exchange) covers what they act on.
+
+Prefer one `.to()` per capability, for the primary output. Side effects such as an audit record or a metric go in `.tap()`, which runs them in the background without holding up the caller. The `single-to-per-route` lint rule warns when a capability has more than one `.to()`.
+
+## Several capabilities in one file
+
+A file may hold more than one capability, which suits a capability and the small caller that feeds it. Build each with its own `craft()` and default-export them as an array. This is the form the scaffold uses:
+
+```ts
+// capabilities/hello-world/route.ts
+import { craft, direct, log, simple } from "@routecraft/routecraft";
+import { z } from "zod";
+
+const GreetInput = z.object({ name: z.string() });
+type GreetInput = z.infer<typeof GreetInput>;
+
+const greet = craft()
+  .id("greet")
+  .input({ body: GreetInput })
+  .from(direct())
+  .transform((body) => `Hello, ${body.name}!`)
+  .to(log());
+
+const helloWorld = craft()
+  .id("hello-world")
+  .from(simple({ name: "Ada" }))
+  .to(direct<GreetInput, string>("greet"));
+
+export default [greet, helloWorld];
+```
+
+A single `craft()` chain can also hold several capabilities, each opened by its own `.id()`, but prefer the array: each capability keeps its own variable and its own body type, and one can be read, tested and moved on its own. Every id must be unique across the project.
+
+## Calling another capability
+
+One capability calls another with `direct("<id>")` and imports only the types the callee exports from its `route.ts`. [Composing capabilities](/docs/advanced/composing-capabilities) covers chains, fan-out and routing chosen at runtime.
 
 ---
 
@@ -150,6 +121,12 @@ export default craft()
 
 <QuickLinks>
 
-<QuickLink title="Operations reference" icon="plugins" href="/docs/reference/operations" description="Full API: all operations with signatures and examples." />
+<QuickLink title="The Exchange" icon="presets" href="/docs/introduction/exchange" description="The body and headers every step of a capability acts on." />
+
+<QuickLink title="Operations" icon="plugins" href="/docs/introduction/operations" description="Every kind of step, and the wrappers that change how one runs." />
+
+<QuickLink title="Composing capabilities" icon="presets" href="/docs/advanced/composing-capabilities" description="Connect capabilities with direct(): chains, fan-out and dynamic routing." />
+
+<QuickLink title="Securing capabilities" icon="warning" href="/docs/advanced/securing-capabilities" description="Put authentication in front of the doors that reach your capabilities." />
 
 </QuickLinks>

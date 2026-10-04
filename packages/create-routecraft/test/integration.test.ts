@@ -3,7 +3,13 @@ import { mkdir, rm, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { existsSync } from "node:fs";
-import { exec, execSync, spawn, type ExecOptions } from "node:child_process";
+import {
+  exec,
+  execSync,
+  spawn,
+  type ChildProcess,
+  type ExecOptions,
+} from "node:child_process";
 import { promisify } from "node:util";
 import { generateProjectStructure, type InitOptions } from "../src/lib.js";
 
@@ -41,7 +47,9 @@ const PACKAGE_MANAGER_DEFS: Record<PackageManagerId, PackageManagerDef> = {
   bun: {
     id: "bun",
     pmOption: "bun",
-    install: "bun install --ignore-scripts",
+    // The isolated linker gives each file: package its own core, which splits
+    // the type identity of direct() and mcp(), and .from() refuses the pair.
+    install: "bun install --ignore-scripts --linker=hoisted",
     typecheck: "bunx tsc --noEmit",
     start: "bun run start",
     unitTests: "bun test",
@@ -113,8 +121,35 @@ async function runInstall(projectDir: string): Promise<void> {
 }
 
 /**
- * Run a long-running command and resolve as soon as the expected substring
- * appears on stdout or stderr. Kills the process once matched.
+ * Stop a child with SIGTERM, wait up to 2s for it to exit, then SIGKILL.
+ * Waiting avoids EPIPE noise from orphaned writes racing the next test.
+ */
+async function stopChild(child: ChildProcess): Promise<void> {
+  if (child.exitCode !== null || child.signalCode !== null) return;
+  await new Promise<void>((resolve) => {
+    const killTimer = setTimeout(() => {
+      try {
+        child.kill("SIGKILL");
+      } catch {
+        // already dead
+      }
+      resolve();
+    }, 2000);
+    child.once("exit", () => {
+      clearTimeout(killTimer);
+      resolve();
+    });
+    try {
+      child.kill("SIGTERM");
+    } catch {
+      // already dead
+    }
+  });
+}
+
+/**
+ * Run a long-running command and resolve as soon as every expected substring
+ * has appeared on stdout or stderr. Kills the process once matched.
  *
  * Needed because the hello-world example includes a direct source that keeps
  * the context alive after the caller route finishes; we assert success by
@@ -124,11 +159,13 @@ async function runUntilOutput(
   cmd: string,
   opts: {
     cwd: string;
-    expectedOutput: string;
+    expectedOutput: string | string[];
     timeoutMs: number;
     env: NodeJS.ProcessEnv;
   },
 ): Promise<void> {
+  const expected = [opts.expectedOutput].flat();
+  const described = expected.map((e) => `"${e}"`).join(" and ");
   await new Promise<void>((resolve, reject) => {
     const child = spawn("/bin/sh", ["-c", cmd], {
       cwd: opts.cwd,
@@ -139,37 +176,11 @@ async function runUntilOutput(
     let stderr = "";
     let settled = false;
 
-    // Kill the child with SIGTERM, wait up to 2s for exit, then SIGKILL. This
-    // avoids EPIPE noise from orphaned writes racing the next test.
     const finish = async (fn: () => void) => {
       if (settled) return;
       settled = true;
       clearTimeout(timer);
-      if (child.exitCode === null && child.signalCode === null) {
-        try {
-          child.kill("SIGTERM");
-        } catch {
-          // already dead
-        }
-        await new Promise<void>((r) => {
-          if (child.exitCode !== null || child.signalCode !== null) {
-            r();
-            return;
-          }
-          const killTimer = setTimeout(() => {
-            try {
-              child.kill("SIGKILL");
-            } catch {
-              // already dead
-            }
-            r();
-          }, 2000);
-          child.once("exit", () => {
-            clearTimeout(killTimer);
-            r();
-          });
-        });
-      }
+      await stopChild(child);
       fn();
     };
 
@@ -177,19 +188,16 @@ async function runUntilOutput(
       void finish(() =>
         reject(
           new Error(
-            `Timed out waiting for "${opts.expectedOutput}" after ${opts.timeoutMs}ms.\nstdout:\n${stdout}\nstderr:\n${stderr}`,
+            `Timed out waiting for ${described} after ${opts.timeoutMs}ms.\nstdout:\n${stdout}\nstderr:\n${stderr}`,
           ),
         ),
       );
     }, opts.timeoutMs);
 
+    const seenAll = () =>
+      expected.every((e) => stdout.includes(e) || stderr.includes(e));
     const check = () => {
-      if (
-        stdout.includes(opts.expectedOutput) ||
-        stderr.includes(opts.expectedOutput)
-      ) {
-        void finish(() => resolve());
-      }
+      if (seenAll()) void finish(() => resolve());
     };
 
     child.stdout?.on("data", (d) => {
@@ -202,16 +210,13 @@ async function runUntilOutput(
     });
     child.on("exit", (code) => {
       if (settled) return;
-      if (
-        stdout.includes(opts.expectedOutput) ||
-        stderr.includes(opts.expectedOutput)
-      ) {
+      if (seenAll()) {
         void finish(() => resolve());
       } else {
         void finish(() =>
           reject(
             new Error(
-              `Process exited with code ${code} before emitting "${opts.expectedOutput}".\nstdout:\n${stdout}\nstderr:\n${stderr}`,
+              `Process exited with code ${code} before emitting ${described}.\nstdout:\n${stdout}\nstderr:\n${stderr}`,
             ),
           ),
         );
@@ -221,6 +226,107 @@ async function runUntilOutput(
       void finish(() => reject(err));
     });
   });
+}
+
+/**
+ * Talk to a project over MCP stdio the way a client does: start it with the
+ * command the README registers, send `initialize`, list the tools and call
+ * one, and return the raw responses by request id. A line that is not a
+ * JSON-RPC message fails the run, because anything else on stdout corrupts
+ * the protocol.
+ */
+async function mcpStdioRoundTrip(opts: {
+  cwd: string;
+  env: NodeJS.ProcessEnv;
+  call: { name: string; arguments: Record<string, unknown> };
+  timeoutMs: number;
+}): Promise<Map<number, Record<string, unknown>>> {
+  const child = spawn(
+    "/bin/sh",
+    // `exec` so the signals in `stopChild` reach `craft`, not a wrapper shell.
+    ["-c", "exec bunx craft start --log-file craft.log"],
+    { cwd: opts.cwd, stdio: ["pipe", "pipe", "pipe"], env: opts.env },
+  );
+  // A server that dies before reading stdin turns a write into EPIPE; the
+  // exit handler reports the real failure.
+  child.stdin?.on("error", () => {});
+  const send = (message: Record<string, unknown>) =>
+    child.stdin?.write(JSON.stringify({ jsonrpc: "2.0", ...message }) + "\n");
+  const responses = new Map<number, Record<string, unknown>>();
+  let buffer = "";
+  let stderr = "";
+  try {
+    await new Promise<void>((resolve, reject) => {
+      const timer = setTimeout(
+        () =>
+          reject(
+            new Error(
+              `Timed out after ${opts.timeoutMs}ms with responses for ids [${[...responses.keys()].join(", ")}].\nstderr:\n${stderr}`,
+            ),
+          ),
+        opts.timeoutMs,
+      );
+      child.stderr?.on("data", (d) => {
+        stderr += d.toString();
+      });
+      child.on("exit", (code) => {
+        clearTimeout(timer);
+        reject(new Error(`Server exited with ${code}.\nstderr:\n${stderr}`));
+      });
+      child.on("error", (error) => {
+        clearTimeout(timer);
+        reject(error);
+      });
+      child.stdout?.on("data", (d) => {
+        buffer += d.toString();
+        let newline = buffer.indexOf("\n");
+        while (newline !== -1) {
+          const line = buffer.slice(0, newline).trim();
+          buffer = buffer.slice(newline + 1);
+          newline = buffer.indexOf("\n");
+          if (line === "") continue;
+          let message: Record<string, unknown>;
+          try {
+            message = JSON.parse(line) as Record<string, unknown>;
+          } catch {
+            clearTimeout(timer);
+            reject(new Error(`Non-protocol line on stdout: ${line}`));
+            return;
+          }
+          if (message["jsonrpc"] !== "2.0") {
+            clearTimeout(timer);
+            reject(new Error(`Non-protocol JSON on stdout: ${line}`));
+            return;
+          }
+          if (typeof message["id"] !== "number") continue;
+          responses.set(message["id"], message);
+          if (message["id"] === 1) {
+            send({ method: "notifications/initialized" });
+            send({ id: 2, method: "tools/list", params: {} });
+            send({ id: 3, method: "tools/call", params: opts.call });
+          }
+          if (responses.has(2) && responses.has(3)) {
+            clearTimeout(timer);
+            resolve();
+          }
+        }
+      });
+      send({
+        id: 1,
+        method: "initialize",
+        params: {
+          protocolVersion: "2025-06-18",
+          capabilities: {},
+          clientInfo: { name: "integration-test", version: "0.0.0" },
+        },
+      });
+    });
+  } finally {
+    child.removeAllListeners("exit");
+    child.stdin?.end();
+    await stopChild(child);
+  }
+  return responses;
 }
 
 // ─── Helpers ─────────────────────────────────────────────────────────────────
@@ -277,11 +383,13 @@ async function patchDepsToLocal(projectDir: string): Promise<void> {
   const pkgPath = join(projectDir, "package.json");
   const pkg = JSON.parse(await readFile(pkgPath, "utf-8"));
 
+  const local = (pkg: string) => `file:${join(MONOREPO_ROOT, "packages", pkg)}`;
   const localPackages: Record<string, string> = {
-    "@routecraft/routecraft": `file:${join(MONOREPO_ROOT, "packages/routecraft")}`,
-    "@routecraft/cli": `file:${join(MONOREPO_ROOT, "packages/cli")}`,
-    "@routecraft/testing": `file:${join(MONOREPO_ROOT, "packages/testing")}`,
-    "@routecraft/eslint-plugin-routecraft": `file:${join(MONOREPO_ROOT, "packages/eslint-plugin-routecraft")}`,
+    "@routecraft/routecraft": local("routecraft"),
+    "@routecraft/cli": local("cli"),
+    "@routecraft/ai": local("ai"),
+    "@routecraft/testing": local("testing"),
+    "@routecraft/eslint-plugin-routecraft": local("eslint-plugin-routecraft"),
   };
 
   for (const [name, localPath] of Object.entries(localPackages)) {
@@ -366,9 +474,9 @@ describe(`integration (${pm.id}): scaffolded project compiles`, () => {
   );
 
   /**
-   * @case Scaffolded hello-world project type-checks and dispatches simple -> direct on the selected package manager
+   * @case Scaffolded hello-world project type-checks, serves its MCP tool and dispatches simple -> direct on the selected package manager
    * @preconditions Hello-world project scaffolded, dependencies installed via the selected package manager
-   * @expectedResult tsc --noEmit passes, and the project's own start script, run with no logging configured in the environment, logs "Hello, Leanne Graham!" within the timeout
+   * @expectedResult tsc --noEmit passes, and the project's own start script, run with no logging configured in the environment, logs "MCP server started" and "Hello, Leanne Graham!" within the timeout, so a plugin that fails at start cannot pass on the greeting alone
    */
   integrationTest.concurrent(
     "hello-world project type-checks and dispatches simple -> direct via craft",
@@ -398,10 +506,59 @@ describe(`integration (${pm.id}): scaffolded project compiles`, () => {
         for (const name of LOG_ENV) delete env[name];
         await runUntilOutput(startCmd, {
           cwd: projectDir,
-          expectedOutput: "Hello, Leanne Graham!",
+          expectedOutput: ["MCP server started", "Hello, Leanne Graham!"],
           timeoutMs: 60_000,
           env,
         });
+      });
+    },
+  );
+
+  /**
+   * @case A scaffolded project answers an MCP client over stdio, started the way its README registers it
+   * @preconditions Hello-world project scaffolded and installed via the selected package manager; the client starts it with `bunx craft start --log-file craft.log`
+   * @expectedResult `initialize` succeeds, `tools/list` names `greet` with an input schema requiring `userId`, and calling `greet` with `{ userId: 1 }` returns "Hello, Leanne Graham!" with nothing but protocol messages on stdout
+   */
+  integrationTest.concurrent(
+    "hello-world project lists and calls its tool over MCP stdio",
+    { timeout: 180_000 },
+    async (ctx) => {
+      if (pm.start === null) {
+        ctx.skip();
+        return;
+      }
+      await withProjectDir(async (projectDir) => {
+        await generateProjectStructure(projectDir, makeOptions());
+        await patchDepsToLocal(projectDir);
+
+        await runInstall(projectDir);
+
+        const env = { ...process.env };
+        for (const name of LOG_ENV) delete env[name];
+        const responses = await mcpStdioRoundTrip({
+          cwd: projectDir,
+          env,
+          call: { name: "greet", arguments: { userId: 1 } },
+          timeoutMs: 60_000,
+        });
+
+        expect(responses.get(1)?.["error"]).toBeUndefined();
+        const tools = (
+          responses.get(2)?.["result"] as {
+            tools: Array<{
+              name: string;
+              inputSchema: { required?: string[] };
+            }>;
+          }
+        ).tools;
+        const greet = tools.find((tool) => tool.name === "greet");
+        expect(greet?.inputSchema.required).toContain("userId");
+        const call = responses.get(3)?.["result"] as {
+          isError?: boolean;
+          content: Array<{ type: string; text?: string }>;
+        };
+        expect(call.isError).not.toBe(true);
+        expect(JSON.stringify(call.content)).toContain("Hello, Leanne Graham!");
       });
     },
   );

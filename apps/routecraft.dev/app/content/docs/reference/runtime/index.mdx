@@ -30,29 +30,9 @@ Bun has native TypeScript support, which means the CLI can load `.ts` capability
 
 Users who want to run Routecraft inside a Node application embed the library directly instead of going through the CLI. The library itself works on **Node 22.6 or later** (for runtime type stripping) and is recommended on **Node 23.6 or later** where stripping is on by default.
 
-A few features of the library are Bun-only because they depend on Bun built-ins that have no Node equivalent:
+The features that keep state in SQLite behave differently on Node. The telemetry SQLite sink, the deferral store behind durable agents, and the agent session store use `bun:sqlite` under Bun and the optional peer `better-sqlite3` under Node. Without that peer on Node, a store left at its default logs a warning and degrades: the telemetry sink switches off, and the deferral and session stores fall back to memory, so their state does not survive a restart. A store given an explicit path (`deferral: { store }`, `sessions: { store }`) fails the context at startup instead, so a deployment that asked for durability never runs without it. Install `better-sqlite3` on Node, and for production telemetry under either runtime, configure an OTLP exporter (Datadog, Honeycomb, Better Stack, etc.) through `telemetry: { tracerProvider }` in `defineConfig`.
 
-- **`telemetry()` SQLite sink.** Backed by `bun:sqlite` under Bun and by the optional peer `better-sqlite3` under Node. Without that peer on Node, the sink disables itself with a warn log and only the OTel external path runs. Configure `telemetry({ tracerProvider })` with an OTLP exporter (Datadog, Honeycomb, Better Stack, etc.) for production telemetry under either runtime.
-
-```ts
-import { ContextBuilder, craft, direct, log } from "@routecraft/routecraft";
-import { z } from "zod";
-
-const route = craft()
-  .id("greet")
-  .input({ body: z.object({ name: z.string() }) })
-  .from(direct())
-  .transform((body) => `Hello, ${body.name}!`)
-  .to(log());
-
-const { context, client } = await new ContextBuilder().routes(route).build();
-context.start();
-
-await client.sendDirect("greet", { name: "World" });
-await context.stop();
-```
-
-See [Programmatic Invocation](/docs/advanced/programmatic-invocation) for the full embedding guide, including Express, Next.js, and Commander integrations.
+[Programmatic invocation](/docs/advanced/programmatic-invocation) is the embedding guide: building a context, dispatching to capabilities, and wiring Routecraft into Express, Next.js, or Commander.
 
 ## Choosing a runtime
 
@@ -69,10 +49,10 @@ See [Programmatic Invocation](/docs/advanced/programmatic-invocation) for the fu
 
 <QuickLinks>
 
-<QuickLink title="CLI reference" icon="installation" href="/docs/reference/cli" description="craft commands and options." />
+<QuickLink title="Programmatic invocation" icon="plugins" href="/docs/advanced/programmatic-invocation" description="Embed Routecraft inside a Node or Bun application and dispatch to capabilities from code." />
 
-<QuickLink title="Programmatic Invocation" icon="plugins" href="/docs/advanced/programmatic-invocation" description="Embed Routecraft inside Node, Express, or Next.js." />
+<QuickLink title="Deployment" icon="presets" href="/docs/introduction/deployment" description="Run in production on Bun with the CLI, or embedded in a Node application." />
 
-<QuickLink title="Installation" icon="installation" href="/docs/introduction/installation" description="System requirements and project setup." />
+<QuickLink title="Installation" icon="installation" href="/docs/introduction/installation" description="System requirements and creating a project." />
 
 </QuickLinks>

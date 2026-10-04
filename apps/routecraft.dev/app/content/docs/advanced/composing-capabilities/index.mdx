@@ -1,5 +1,5 @@
 ---
-title: Composing Capabilities
+title: Composing capabilities
 ---
 
 <Lead>
@@ -13,59 +13,72 @@ The `direct()` adapter is an in-process channel that lets one capability hand of
 The simplest pattern: one capability fetches data, passes it to a processor, which passes it to a notifier.
 
 ```ts skip="fragment: fetchNewOrders is illustrative"
-// capabilities/fetch-orders.ts
+// capabilities/fetch-orders/route.ts
+import { craft, direct, timer } from '@routecraft/routecraft'
+
 export default craft()
-  .id('orders.fetch')
+  .id('fetch-orders')
   .from(timer({ interval: 300_000 }))
   .transform(fetchNewOrders)
-  .to(direct('orders.process'))
+  .to(direct('process-orders'))
 ```
 
 ```ts skip="fragment: fulfillOrder is illustrative"
-// capabilities/process-orders.ts
+// capabilities/process-orders/route.ts
+import { craft, direct } from '@routecraft/routecraft'
+
 export default craft()
-  .id('orders.process')
+  .id('process-orders')
   .from(direct())
   .transform(fulfillOrder)
-  .to(direct('orders.notify'))
+  .to(direct('notify-orders'))
 ```
 
 ```ts
-// capabilities/notify-orders.ts
+// capabilities/notify-orders/route.ts
+import { craft, direct, http } from '@routecraft/routecraft'
+
 export default craft()
-  .id('orders.notify')
+  .id('notify-orders')
   .from(direct())
   .to(http({ method: 'POST', url: 'https://api.example.com/notifications' }))
 ```
 
-The route's `.id()` is the direct endpoint name. Destinations reference the consumer by that id. Use a namespaced convention (e.g. `domain.stage`) to keep them readable as the project grows.
+The route's `.id()` is the direct endpoint name, and destinations reference the consumer by that id. Use letters, digits, `-` and `_` only, such as `process-orders`: the id is the tool name when the capability is served over MCP, an agent it is granted to sees it as `direct__<id>`, and tool names allow nothing else.
 
 ## Fan-out
 
 To send to multiple downstream capabilities, use `.tap()` for all but the primary output. `.tap()` is fire-and-forget and does not alter the exchange.
 
 ```ts
-// capabilities/ingest-event.ts
+// capabilities/ingest-event/route.ts
+import { craft, direct, http } from '@routecraft/routecraft'
+
 export default craft()
-  .id('events.ingest')
+  .id('ingest-event')
   .from(http({ path: '/events', method: 'POST' }))
-  .tap(direct('events.audit'))
-  .tap(direct('events.metrics'))
-  .to(direct('events.process'))
+  .tap(direct('audit-event'))
+  .tap(direct('count-event'))
+  .to(direct('process-event'))
 ```
 
 ```ts
-// capabilities/audit-event.ts
+// capabilities/audit-event/route.ts
+import { craft, direct, jsonl } from '@routecraft/routecraft'
+
 export default craft()
-  .id('events.audit')
+  .id('audit-event')
   .from(direct())
-  .to(json({ path: './logs/audit.jsonl' }))
+  .to(jsonl({ path: './logs/audit.jsonl', append: true }))
 ```
 
 ```ts
-// capabilities/metrics-event.ts
+// capabilities/count-event/route.ts
+import { craft, direct, http } from '@routecraft/routecraft'
+import { z } from 'zod'
+
 export default craft()
-  .id('events.metrics')
+  .id('count-event')
   .input({ body: z.object({ type: z.string() }) })
   .from(direct())
   .transform(({ type }) => ({ counter: type }))
@@ -77,28 +90,37 @@ export default craft()
 The destination channel can be resolved at runtime from the exchange body or headers. This lets a single capability route to different consumers without knowing them all in advance.
 
 ```ts
-// capabilities/route-by-priority.ts
+// capabilities/route-job/route.ts
+import { craft, direct, http } from '@routecraft/routecraft'
+import { z } from 'zod'
+
 export default craft()
-  .id('jobs.route')
-  .input({ body: z.object({ priority: z.string() }) })
+  .id('route-job')
+  .input({ body: z.object({ priority: z.enum(['high', 'normal']) }) })
   .from(http({ path: '/jobs', method: 'POST' }))
-  // explicit body type at .to() until #726
-  .to(direct<{ priority: string }, unknown>((exchange) => `jobs.${exchange.body.priority}`))
+  // TypeScript cannot infer the body type here yet, so it is given explicitly
+  .to(direct<{ priority: string }, unknown>((exchange) => `jobs-${exchange.body.priority}`))
 ```
 
+The explicit type arguments on `direct()` work around an open issue with its overloads ([#726](https://github.com/routecraftjs/routecraft/issues/726)).
+
 ```ts skip="fragment: processUrgent is illustrative"
-// capabilities/high-priority.ts
+// capabilities/jobs-high/route.ts
+import { craft, direct, log } from '@routecraft/routecraft'
+
 export default craft()
-  .id('jobs.high')
+  .id('jobs-high')
   .from(direct())
   .transform(processUrgent)
   .to(log())
 ```
 
 ```ts skip="fragment: processNormal is illustrative"
-// capabilities/normal-priority.ts
+// capabilities/jobs-normal/route.ts
+import { craft, direct, log } from '@routecraft/routecraft'
+
 export default craft()
-  .id('jobs.normal')
+  .id('jobs-normal')
   .from(direct())
   .transform(processNormal)
   .to(log())
@@ -109,10 +131,12 @@ export default craft()
 Title, description, and request / response schemas are route-level concerns declared on the builder. The framework validates `.input()` against every incoming message before the pipeline runs, and `.output()` against the final exchange before the primary destination fires. Any source adapter inherits this validation, and any discovery-aware adapter (`direct`, `mcp`) mirrors the same metadata into its registry so agents, docs, and observability see one consistent view.
 
 ```ts skip="fragment: fulfillOrder is illustrative"
+// capabilities/process-orders/route.ts
+import { craft, direct, log } from '@routecraft/routecraft'
 import { z } from 'zod'
 
 export default craft()
-  .id('orders.process')
+  .id('process-orders')
   .title('Process orders')
   .description('Validate an order payload and trigger fulfilment')
   .input({
@@ -127,27 +151,14 @@ export default craft()
   .to(log())
 ```
 
-Swap `direct()` for `mcp()` (or, in the future, `agent()`) without moving any metadata; the shared fields stay on the route.
-
-## Agent-only capabilities
-
-Omit `.id()` to make a capability discoverable by agents but unreferenceable from code. The route still registers in the direct registry (agents can find it by description and schemas), but its endpoint is a random UUID that cannot be typed into `direct('...')` on the destination side.
-
-```ts skip="fragment: fetchSnippets is illustrative"
-export default craft()
-  .title('Knowledge base lookup')
-  .description('Retrieve internal documentation snippets by query')
-  .input({ body: z.object({ query: z.string() }) })
-  .from(direct())
-  .transform(fetchSnippets)
-```
+Add `mcp()` beside `direct()` in `.from()` and the same title, description and schemas describe the MCP tool; no metadata moves.
 
 ## How direct() knows its role
 
-`direct()` is overloaded -- the type of the first argument determines whether it acts as a source or destination:
+`direct()` is overloaded, and the type of the first argument determines whether it acts as a source or a destination:
 
-- **`direct()` or `direct(options)`** -- no endpoint string (or options object), acts as a **source** (`.from()`); the route's `.id()` is the endpoint name
-- **`direct('channel')` or `direct((ex) => channel)`** -- a string or function naming a target route, acts as a **destination** (`.to()`, `.tap()`)
+- **`direct()` or `direct(options)`**: no endpoint string (or an options object), so it acts as a **source** (`.from()`). The route's `.id()` is the endpoint name.
+- **`direct('channel')` or `direct((ex) => channel)`**: a string or function naming a target route, so it acts as a **destination** (`.to()`, `.tap()`).
 
 One import, two roles, one source of truth for the endpoint name (the route id).
 
@@ -157,8 +168,12 @@ One import, two roles, one source of truth for the endpoint name (the route id).
 
 <QuickLinks>
 
-<QuickLink title="Capabilities" icon="plugins" href="/docs/introduction/capabilities" description="Author small, focused capabilities using the DSL." />
+<QuickLink title="Capabilities" icon="plugins" href="/docs/introduction/capabilities" description="What a capability is: its folder, its sources, its checks and its steps." />
 
-<QuickLink title="Adapters reference" icon="presets" href="/docs/reference/adapters" description="Full catalog with all options and signatures." />
+<QuickLink title="Type registries" icon="theming" href="/docs/advanced/type-registries" description="Register direct() endpoint ids so a typo fails at compile time, not at runtime." />
+
+<QuickLink title="Programmatic invocation" icon="plugins" href="/docs/advanced/programmatic-invocation" description="Call a direct() capability from your own code with CraftClient." />
+
+<QuickLink title="direct" icon="presets" href="/docs/reference/adapters/direct" description="Every option of the direct() adapter, as a source and as a destination." />
 
 </QuickLinks>

@@ -2,8 +2,9 @@ import { AppLink } from '@/components/AppLink'
 import { useRouterState } from '@tanstack/react-router'
 import clsx from 'clsx'
 
-import { navigation } from '@/lib/navigation'
+import { navigationFor } from '@/lib/channel-navigation'
 import {
+  docsChannelFromPathname,
   docsChannelPrefix,
   stripDocsChannel,
   withDocsChannel,
@@ -57,7 +58,9 @@ export function PrevNextLinks() {
   // active channel so /docs/next pages link to other /docs/next pages.
   const channelPrefix = docsChannelPrefix(trimmed)
   const pathname = stripDocsChannel(trimmed)
-  const allLinks = navigation.flatMap((section) => section.links)
+  const allLinks = navigationFor(docsChannelFromPathname(trimmed)).flatMap(
+    (section) => section.links,
+  )
   const linkIndex = allLinks.findIndex((link) => link.href === pathname)
   const previousPage = linkIndex > -1 ? allLinks[linkIndex - 1] : null
   const nextPage = linkIndex > -1 ? allLinks[linkIndex + 1] : null

@@ -12,7 +12,7 @@
     "templates"
   ],
   "scripts": {
-    "build": "tsup src/index.ts --format esm --dts",
+    "build": "tsup",
     "test": "vitest",
     "test:coverage": "vitest --coverage",
     "prepublishOnly": "bun run build"

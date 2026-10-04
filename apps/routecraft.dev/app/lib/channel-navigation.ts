@@ -1,0 +1,51 @@
+import { documentsHref } from '@/lib/docs-catalogue'
+import {
+  docsChannelFromPathname,
+  stripDocsChannel,
+  type DocsChannelName,
+} from '@/lib/docs-channel'
+import { docsHrefOnChannel } from '@/lib/docs-moves'
+import { navigation } from '@/lib/navigation'
+
+/**
+ * The sidebar as one channel carries it.
+ *
+ * The config is shell, so it lists every page main knows about. An entry the
+ * channel has no page for is dropped: on the released channel that is a page
+ * written after the release, which would otherwise be a 404. A page that moved
+ * since the release keeps its entry, pointed at the address the channel still
+ * has. A section's own href gets the same test as its links, and a section
+ * left with no links disappears.
+ *
+ * The sidebar and the previous/next links both read this, so the chain a
+ * reader follows never reaches a page the sidebar would not show.
+ */
+export function navigationFor(channel: DocsChannelName) {
+  return navigation
+    .map((section) => ({
+      ...section,
+      href:
+        section.href && documentsHref(channel, section.href)
+          ? section.href
+          : undefined,
+      links: section.links.flatMap((link) => {
+        const href = docsHrefOnChannel(channel, link.href)
+        return documentsHref(channel, href) ? [{ ...link, href }] : []
+      }),
+    }))
+    .filter((section) => section.links.length > 0)
+}
+
+/**
+ * The sidebar section a docs page sits in, for a pathname on either channel.
+ *
+ * Read through the channel's own sidebar, so a page that moved since the
+ * release still finds its section at the address the release serves it from.
+ */
+export function docsSectionTitle(pathname: string): string | undefined {
+  const bare = stripDocsChannel(pathname).replace(/\/+$/, '')
+  return navigationFor(docsChannelFromPathname(pathname)).find(
+    (section) =>
+      section.href === bare || section.links.some((link) => link.href === bare),
+  )?.title
+}

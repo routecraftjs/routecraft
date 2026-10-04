@@ -14,7 +14,7 @@ Events are the primary hook for cross-cutting concerns: logging, metrics, tracin
 
 ## Subscribing via craft config
 
-The simplest way to react to events is via the `on` property in `craft.config.ts`. This works with `craft run` out of the box -- no plugin required.
+The simplest way to react to events is via the `on` property in `craft.config.ts`. This works with `craft run` out of the box, with no plugin required.
 
 ```ts skip="fragment: alerts is illustrative"
 // craft.config.ts
@@ -46,28 +46,31 @@ Call `context.on(event, handler)` with an event name or pattern. The handler rec
 
 ```ts
 // plugins/logger.ts
-import { type CraftContext } from '@routecraft/routecraft'
+import { type CraftContext, type CraftPlugin } from '@routecraft/routecraft'
 
-export default function loggerPlugin(ctx: CraftContext) {
-  ctx.on('context:started', ({ ts }) => {
-    ctx.logger.info(`Context ready at ${ts}`)
-  })
+export default {
+  name: 'logger',
+  apply(ctx: CraftContext) {
+    ctx.on('context:started', ({ ts }) => {
+      ctx.logger.info(`Context ready at ${ts}`)
+    })
 
-  ctx.on('route:started', ({ details: { route } }) => {
-    ctx.logger.info(`Capability running: ${route.definition.id}`)
-  })
+    ctx.on('route:started', ({ details: { route } }) => {
+      ctx.logger.info(`Capability running: ${route.definition.id}`)
+    })
 
-  ctx.on('context:error', ({ details: { error } }) => {
-    ctx.logger.error(error, 'Context error')
-  })
-}
+    ctx.on('context:error', ({ details: { error } }) => {
+      ctx.logger.error(error, 'Context error')
+    })
+  },
+} satisfies CraftPlugin
 ```
 
 Use `context.once` when you only need the first occurrence:
 
 ```ts skip="fragment: ctx is illustrative"
 ctx.once('context:started', () => {
-  console.log('Ready -- fires once only')
+  console.log('Ready: fires once only')
 })
 ```
 
@@ -124,7 +127,7 @@ Plugins can emit their own events on the context for other plugins or adapters t
 
 ```ts
 // plugins/auth.ts
-import { type CraftContext } from '@routecraft/routecraft'
+import { type CraftContext, type CraftPlugin } from '@routecraft/routecraft'
 
 // Declaring the event is what makes it emittable and gives subscribers
 // its details type.
@@ -134,13 +137,16 @@ declare module '@routecraft/routecraft' {
   }
 }
 
-export default function authPlugin(ctx: CraftContext) {
-  ctx.on('route:started', ({ details: { route } }) => {
-    ctx.emit('plugin:auth:capability:secured', {
-      capabilityId: route.definition.id,
+export default {
+  name: 'auth',
+  apply(ctx: CraftContext) {
+    ctx.on('route:started', ({ details: { route } }) => {
+      ctx.emit('plugin:auth:capability:secured', {
+        capabilityId: route.definition.id,
+      })
     })
-  })
-}
+  },
+} satisfies CraftPlugin
 ```
 
 Any subscriber using the exact name `plugin:auth:capability:secured` (declared via `EventDetailsMap` augmentation) will receive it.
@@ -213,6 +219,12 @@ ctx.on('route:batch:flushed', ({ details: { routeId, batchSize, reason } }) => {
 
 <QuickLinks>
 
-<QuickLink title="Events reference" icon="presets" href="/docs/reference/events" description="Full event catalog with all payload shapes and filtering patterns." />
+<QuickLink title="Monitoring" icon="theming" href="/docs/introduction/monitoring" description="Logging, health endpoints and the telemetry plugin." />
+
+<QuickLink title="Terminal UI" icon="presets" href="/docs/advanced/tui" description="Watch live events and exchanges from the terminal." />
+
+<QuickLink title="Events" icon="presets" href="/docs/reference/events" description="The reference catalogue: every event the context emits, with its details." />
+
+<QuickLink title="Configuration" icon="installation" href="/docs/reference/configuration" description="The on and once fields that register handlers in craft.config.ts." />
 
 </QuickLinks>

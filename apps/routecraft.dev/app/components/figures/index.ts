@@ -6,6 +6,7 @@ import { jevScreenCascade } from '@/components/figures/jev-screen-cascade'
 import { FIGURE_TEXT } from '@/components/figures/manifest.mjs'
 import { maturityLadder } from '@/components/figures/maturity-ladder'
 import { platform } from '@/components/figures/platform'
+import { platformArchitecture } from '@/components/figures/platform-architecture'
 import { platformStack } from '@/components/figures/platform-stack'
 import { serverVsDoorway } from '@/components/figures/server-vs-doorway'
 import { singlePlayerVsMultiplayer } from '@/components/figures/single-player-vs-multiplayer'
@@ -25,6 +26,7 @@ const DRAWINGS: FigureDrawing[] = [
   teamAgentHarness,
   everyTeamBuildsItsOwn,
   platform,
+  platformArchitecture,
   platformStack,
   functionToMcpTool,
   jevScreenCascade,

@@ -75,7 +75,7 @@ The safe shape today is one process per store: several editors, several people a
 
 ## One agent per editor entry
 
-**A `craft acp` process serves exactly one Routecraft agent.** `--agent zoe` chooses it, and every conversation that process opens belongs to Zoe for its whole life. Choosing a different agent means running a different process, which is what an editor's own agent list is for.
+**A `craft acp` process serves exactly one Routecraft agent.** `--agent zoe` chooses it, and every conversation that process opens belongs to Zoe for its whole life. Choosing a different agent means running a different process, which is what an editor's own agent list is for. The protocol's modes are not used for this, because an agent is an identity a conversation keeps for life rather than a setting it can switch: the [acpPlugin reference](/docs/reference/plugins/acpplugin#why-agent-selection-is-not-an-acp-mode) has the reasoning.
 
 Both Zed and JetBrains let you register several custom agents, each with its own display name, command and arguments. So each Routecraft agent gets an entry, and the picker you already use to start a thread is the picker that chooses the agent.
 
@@ -115,7 +115,7 @@ In Zed, under `agent_servers` in `settings.json`:
 }
 ```
 
-JetBrains launches the command itself rather than through a shell, so `command` wants the executable's full path: `which craft` prints it, or `where craft` on Windows. Zed resolves a bare name against the environment it launches with, which is usually enough. Both editors read these from the user's own configuration, so check their current documentation if a field has moved. A profile carries `agent` too, so `craft acp --profile work` is the same choice made once in a file rather than in every entry: see [Profiles](/docs/reference/cli#profiles).
+JetBrains launches the command itself rather than through a shell, so `command` wants the executable's full path: `which craft` prints it, or `where craft` on Windows. Zed resolves a bare name against the environment it launches with, which is usually enough. Both editors read these from the user's own configuration, so check their current documentation if a field has moved. A profile carries `agent` too, so `craft acp --profile work` is the same choice made once in a file rather than in every entry: see [Profiles](/docs/reference/cli#profiles). The editor starts the command from whichever project it has open, so a profile in one project's `.routecraft/settings.yaml` is found only when that project is named: `craft acp --project /absolute/path/to/that-project --profile work`. A profile in `~/.routecraft/settings.yaml` is found from anywhere.
 
 Pick Max in the editor and you get Max conversations, as many as you like, each independent. Pick Zoe and you get Zoe's. The Max entry does not list, open or answer a Zoe conversation: it reports one as it reports an id that was never created, because from where Max is standing there is no such conversation. Reach it through the Zoe entry instead.
 
@@ -135,20 +135,6 @@ Editors render the protocol's config options as pickers, and the mount advertise
 A control with nothing to choose is not advertised at all, so an agent naming one model and one thinking level shows no pickers rather than two dead ones. Agent files declare what they offer by writing a list instead of a value: see [Offering a choice](/docs/reference/plugins/agentplugin#offering-a-choice-of-model-or-thinking-level).
 
 Both stay changeable for the life of the conversation, including while a turn is running. A change applies to the next turn rather than to the one in flight, because a turn reads its settings when it starts.
-
-## Why agent selection is not an ACP mode
-
-The protocol has a mode mechanism, and Routecraft does not use it for this. That is a position rather than an omission, and it is worth stating because the alternative looks tempting.
-
-**An agent is an identity, not a setting.** Max is not a mode of Zoe. Two agent files carry different system prompts, different tools, different authorization expectations and different behavioural contracts. A conversation is a transcript one of them wrote, using tools the other may not have, so handing it to a second agent would produce answers that read as if the first had given them.
-
-**Modes change during a session; identity cannot.** The protocol allows a mode to be set at any point in a session, idle or mid-turn. Anything reachable that way is by definition not the thing a session is. If which agent answers were a mode, the invalid state would exist and we would be guarding it. Binding the agent to the harness means the state never exists.
-
-**The editor already solved the selection problem.** Registering several agents with their own names is an abstraction both editors ship. Rebuilding it inside a single session would duplicate it one level lower, and worse.
-
-**A session with no agent yet has no answers to give.** If the agent were chosen after `session/new`, then between creation and that choice a session could not say which tools it has, which system prompt applies, which models it offers, or what a prompt arriving early should do. Choosing at the harness means every session knows all of it from the moment it exists.
-
-Modes stay available for what they are actually for: a behavioural variation *within* one agent, if an agent file ever wants to offer one. A mode must never change which agent file owns the session. Should Routecraft grow a "continue this conversation with another agent" feature, it will be a fork producing a new session seeded from the old transcript, and the original will still be the agent it always was.
 
 ## What the editor sees while a turn runs
 
@@ -206,20 +192,22 @@ What arrives is not a permission model compiled into somebody else's tool. It is
 
 ## What this is not
 
-**It is not a second security model.** A prompt runs an ordinary route under the principal of the person who typed it, and every tool authorizes that principal on every call. Every agent the context holds is offered to every credential holder: agents are not what carries the security here, hands are.
+**It is not a second security model.** A prompt runs an ordinary route under the principal of the person who typed it, and every tool with an `.authorize()` rule judges that principal on every call. Every agent the context holds is offered to every credential holder: agents are not what carries the security here, hands are.
 
 **It is not a place to configure an app.** The mount serves what the instance already has. Which agents exist, which tools they hold and who may reach them are decisions in `craft.config.ts` and the agent files, where a reviewer reads them.
+
+---
 
 ## Related
 
 <QuickLinks>
 
-<QuickLink title="acpPlugin" icon="presets" href="/docs/reference/plugins/acpplugin" description="Every option the mount takes, and what each one refuses." />
+<QuickLink title="acpPlugin" icon="presets" href="/docs/reference/plugins/acpplugin" description="Every option the mount takes, what each one refuses, and why the agent is not an ACP mode." />
 
-<QuickLink title="craft acp" icon="presets" href="/docs/reference/cli#acp" description="The bridge an editor runs, and the profile that points it somewhere." />
+<QuickLink title="CLI" icon="installation" href="/docs/reference/cli#acp" description="craft acp: the bridge an editor runs, and the profile that points it somewhere." />
 
-<QuickLink title="surface" icon="presets" href="/docs/reference/adapters/surface" description="Ask the person's editor something from inside a turn." />
+<QuickLink title="agent" icon="theming" href="/docs/reference/adapters/agent#sessions-an-agent-that-remembers" description="Sessions: what a conversation is, and what survives a restart." />
 
-<QuickLink title="Durable Agents" icon="theming" href="/docs/advanced/durable-agents" description="What a session is, and what survives a restart." />
+<QuickLink title="surface" icon="plugins" href="/docs/reference/adapters/surface" description="Ask the person's editor something from inside a turn." />
 
 </QuickLinks>

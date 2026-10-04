@@ -94,7 +94,7 @@ folder. `bunx create-routecraft` scaffolds this shape for you.
 | File | Purpose |
 | --- | --- |
 | `route.ts` | The public surface. Default-exports the capability and re-exports its input/output types. The only file other capabilities may import. |
-| `route.test.ts` | Colocated test, written with `@routecraft/testing`. |
+| `route.test.ts` | Colocated test, written with `@routecraft/testing`. `bun test` runs any `*.test.ts`; the scaffold names its own `route.bun.test.ts`. |
 | `README.md` | Short description of what the capability does. Add a mermaid diagram and an integrations table for non-trivial ones. |
 | internal files | Mappers, helpers, fixtures. Private to the folder; never imported from outside it. |
 
@@ -299,8 +299,10 @@ imports `@routecraft/ai` here even when every agent is declared in markdown.
 
 <QuickLinks>
 
-<QuickLink title="Composing Capabilities" icon="presets" href="/docs/advanced/composing-capabilities" description="Reuse capabilities with direct() and exported contract types." />
+<QuickLink title="Composing capabilities" icon="presets" href="/docs/advanced/composing-capabilities" description="Call one capability from another with direct(): chains, fan-out and dynamic routing." />
 
-<QuickLink title="Configuration reference" icon="presets" href="/docs/reference/configuration" description="craft.config.ts options and context settings." />
+<QuickLink title="Linting" icon="plugins" href="/docs/advanced/linting#capability-boundaries-opt-in" description="Enforce that capabilities import only each other's route.ts with capability-boundaries." />
+
+<QuickLink title="Configuration" icon="theming" href="/docs/reference/configuration" description="Every craft.config.ts key and context setting." />
 
 </QuickLinks>

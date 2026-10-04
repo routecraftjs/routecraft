@@ -20,7 +20,7 @@ import { Dialog, DialogPanel } from '@headlessui/react'
 import clsx from 'clsx'
 
 import { useAppNavigate } from '@/components/AppLink'
-import { navigation } from '@/lib/navigation'
+import { docsSectionTitle } from '@/lib/channel-navigation'
 import { useClientValue } from '@/lib/use-client-value'
 import { type Result } from '@/lib/search'
 
@@ -188,9 +188,7 @@ function SearchResult({
 }) {
   const id = useId()
 
-  const sectionTitle = navigation.find((section) =>
-    section.links.find((link) => link.href === result.url.split('#')[0]),
-  )?.title
+  const sectionTitle = docsSectionTitle(result.url.split('#')[0])
   const hierarchy = [sectionTitle, result.pageTitle].filter(
     (x): x is string => typeof x === 'string',
   )

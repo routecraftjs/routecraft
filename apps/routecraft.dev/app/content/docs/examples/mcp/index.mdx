@@ -8,63 +8,89 @@ Expose a capability as an MCP tool, and call a remote MCP server from a capabili
 
 MCP is a two-sided adapter. The same `mcp()` adapter turns a capability into a tool an agent
 can call (source mode), and lets a capability call a tool on a remote MCP server (destination
-mode). This page shows both. The runnable source lives at
-[`examples/src/mcp-greet.ts`](https://github.com/routecraftjs/routecraft/blob/main/examples/src/mcp-greet.ts).
+mode). This page shows both.
 
 ## Expose a capability as an MCP tool
 
-Use `mcp()` as the source. The tool name is the route's `.id()`; the AI-facing
-`.description()` and the `.input()` schema live on the builder, and Routecraft validates every
-call against the schema before the pipeline runs.
+Use `mcp()` as a source. The tool name is the capability's `.id()`; the AI-facing
+`.title()`, `.description()` and the `.input()` schema live on the builder, and Routecraft
+validates every call against the schema before the pipeline runs. The `direct()` source beside
+it lets other capabilities call the same tool in-process.
 
 ```ts
-// capabilities/greet-user.ts
-import { craft, log, noop } from '@routecraft/routecraft'
+// capabilities/greet-user/route.ts
+import { craft, direct, log, noop } from '@routecraft/routecraft'
 import { mcp } from '@routecraft/ai'
 import { z } from 'zod'
 
 const GreetInput = z.object({
-  user: z.string().trim().min(1, { message: 'User is required.' }).describe('The user to greet.'),
+  user: z.string().trim().min(1).describe('The user to greet.'),
 })
-type GreetInput = z.infer<typeof GreetInput>
 
 export default craft()
   .id('greet-user')
   .title('Greet user')
   .description('Greet a user by name')
   .input({ body: GreetInput })
-  .from(mcp())
+  .from(direct(), mcp())
+  .transform((body) => `Hello, ${body.user}!`)
   .tap(log())
-  .transform((payload) => ({ message: `Hello, ${payload.user}!` }))
   .to(noop())
 ```
 
-Run it with `craft run ./capabilities/greet-user.ts` and point an AI client at the process.
-See [Running an MCP server](/docs/advanced/expose-as-mcp) for transports and client wiring,
-and [Securing capabilities](/docs/advanced/securing-capabilities) when you serve it over HTTP.
+The `mcp` key in `craft.config.ts` serves every capability with an `mcp()` source as a tool
+over stdio. A new project already has it:
+
+```ts
+// craft.config.ts
+import { defineConfig } from '@routecraft/routecraft'
+import '@routecraft/ai'
+
+export const craftConfig = defineConfig({
+  mcp: {},
+})
+```
+
+Over stdio the client starts the project itself and talks to it on its standard streams, so
+there is no process to run first. Register it with Claude Code from the project folder:
+
+```bash
+claude mcp add my-tools -- bunx craft start --log-file craft.log
+```
+
+The log goes to a file because standard output is the protocol. Then ask the client to
+**greet Ada**: it calls `greet-user` with `{ "user": "Ada" }` and gets `Hello, Ada!` back.
+Cursor, Claude Desktop and VS Code take the same command in JSON, with absolute paths:
+[Expose to an agent](/docs/introduction/expose-to-an-agent#over-stdio-on-your-laptop) has each
+client's file, and the HTTP transport for a team. [Securing capabilities](/docs/advanced/securing-capabilities)
+covers authentication once the tool is served over HTTP.
 
 ## Call an external MCP server
 
-Register the remote servers on `mcpPlugin({ clients })`, then call any tool with the
+Register the remote servers under the same `mcp` key's `clients`, then call any tool with the
 `server:tool` shorthand. `.to()` and bare `.enrich()` replace the body with the tool result; pass an aggregator such as `only()` to `.enrich()` to merge it instead.
 
 ```ts
 // craft.config.ts
-import { mcpPlugin } from '@routecraft/ai'
-import type { CraftConfig } from '@routecraft/routecraft'
+import { defineConfig } from '@routecraft/routecraft'
+import '@routecraft/ai'
 
-export const craftConfig = {
-  plugins: [mcpPlugin({ clients: { search: { url: 'http://127.0.0.1:9000/mcp' } } })],
-} satisfies CraftConfig
+export const craftConfig = defineConfig({
+  mcp: {
+    clients: {
+      search: { url: 'http://127.0.0.1:9000/mcp' },
+    },
+  },
+})
 ```
 
 ```ts
-// capabilities/web-search.ts
+// capabilities/web-search/route.ts
 import { craft, simple, log } from '@routecraft/routecraft'
 import { mcp } from '@routecraft/ai'
 
 export default craft()
-  .id('web.search')
+  .id('web-search')
   .from(simple({ query: 'Routecraft documentation' }))
   .to(mcp('search:web_search'))
   .to(log())
@@ -80,10 +106,10 @@ surface on both sides.
 
 <QuickLinks>
 
-<QuickLink title="Running an MCP server" icon="plugins" href="/docs/advanced/expose-as-mcp" description="Transports, client wiring, and server identity." />
+<QuickLink title="Expose to an agent" icon="plugins" href="/docs/introduction/expose-to-an-agent" description="Serve capabilities as MCP tools over stdio or HTTP, and wire up each client." />
 
-<QuickLink title="Calling an MCP" icon="plugins" href="/docs/advanced/call-an-mcp" description="Call external MCP servers from within a capability." />
+<QuickLink title="Calling an MCP" icon="plugins" href="/docs/advanced/call-an-mcp" description="Call external MCP servers from within a capability, and govern the tools an agent holds." />
 
-<QuickLink title="mcp() adapter reference" icon="presets" href="/docs/reference/adapters/mcp" description="Full MCP adapter API and options." />
+<QuickLink title="mcp" icon="presets" href="/docs/reference/adapters/mcp" description="The mcp() adapter: every option for serving a tool and for calling one." />
 
 </QuickLinks>

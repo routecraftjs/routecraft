@@ -1,5 +1,5 @@
 ---
-title: Merged Options
+title: Merged options
 ---
 
 <Lead>
@@ -8,13 +8,13 @@ Set adapter defaults once and share them across your entire context.
 
 ## What are merged options?
 
-Many adapters accept options at the call site -- timezone for `cron()`, temperature for `llm()`, and so on. When the same options repeat across dozens of capabilities, duplication becomes a maintenance problem. **Merged options** solve this by letting you register context-level defaults that every adapter of that type inherits automatically.
+Many adapters accept options at the call site: timezone for `cron()`, temperature for `llm()`, and so on. When the same options repeat across dozens of capabilities, duplication becomes a maintenance problem. **Merged options** solve this by letting you register context-level defaults that every adapter of that type inherits automatically.
 
 The merge hierarchy (last wins):
 
-1. **Built-in defaults** -- hardcoded in the adapter (e.g. `temperature: 0` for `llm()`)
-2. **Context defaults** -- registered in `craft.config.ts`
-3. **Per-adapter options** -- passed directly at the call site
+1. **Built-in defaults**: hardcoded in the adapter (e.g. `temperature: 0` for `llm()`)
+2. **Context defaults**: registered in `craft.config.ts`
+3. **Per-adapter options**: passed directly at the call site
 
 Per-adapter options always take precedence over context defaults, which in turn take precedence over built-in defaults.
 
@@ -78,7 +78,7 @@ The `direct` adapter also supports a context-level `channelType` to swap all end
 
 ## How it works
 
-Under the hood, merged options use the **context store** -- a typed key-value map on `CraftContext`. Config fields and plugins both write defaults to the store at startup. When an adapter needs its options (e.g. in `subscribe()` or `send()`), it resolves them from the store, combining context-level defaults with per-adapter overrides. Per-adapter values always win.
+Under the hood, merged options use the **context store**, a typed key-value map on `CraftContext`. Config fields and plugins both write defaults to the store at startup. When an adapter needs its options (e.g. in `subscribe()` or `send()`), it resolves them from the store, combining context-level defaults with per-adapter overrides. Per-adapter values always win.
 
 ```
 ┌──────────────┐               ┌────────────────┐
@@ -188,10 +188,10 @@ export { myAdapterPlugin, MY_ADAPTER_OPTIONS }
 
 <QuickLinks>
 
-<QuickLink title="Configuration" icon="presets" href="/docs/reference/configuration" description="Full CraftConfig reference including cron and direct fields." />
+<QuickLink title="Adapters" icon="presets" href="/docs/introduction/adapters#configuring-adapters" description="How adapters are configured, at the call site and in craft config." />
 
-<QuickLink title="Creating adapters" icon="plugins" href="/docs/advanced/custom-adapters" description="Build your own source, destination, enricher, or processor adapter." />
+<QuickLink title="Configuration" icon="installation" href="/docs/reference/configuration" description="Every CraftConfig field, including the cron and direct defaults." />
 
-<QuickLink title="Plugins reference" icon="presets" href="/docs/reference/plugins" description="Full API for built-in plugin options." />
+<QuickLink title="Plugins" icon="plugins" href="/docs/reference/plugins" description="The reference catalogue: every built-in plugin and its options." />
 
 </QuickLinks>

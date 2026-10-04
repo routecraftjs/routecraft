@@ -174,7 +174,9 @@ interface WireError {
 
 /**
  * The bearer presented on every call: a string, or a function evaluated
- * per request so a rotated token is picked up without a restart. A
+ * per request. A rotation reaches a running process only through a function
+ * that reads a source that changes (a mounted secret file, a secret manager);
+ * a change made outside the process never reaches its `process.env`. A
  * function returning `undefined` presents no credential for that call.
  */
 export type OpsBearerToken =

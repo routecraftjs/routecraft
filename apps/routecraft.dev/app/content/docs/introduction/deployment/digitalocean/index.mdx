@@ -3,38 +3,77 @@ title: DigitalOcean
 ---
 
 <Lead>
-Deploy Routecraft to DigitalOcean App Platform.
+Run a Routecraft project on DigitalOcean: on App Platform from the scaffolded `Dockerfile`, or on a Droplet when deferred work and agent sessions have to survive a redeploy.
 </Lead>
+
+Both start from the image described in [Deployment](/docs/introduction/deployment#docker). This page covers only what DigitalOcean changes.
 
 ## App Platform
 
-DigitalOcean App Platform does not yet ship a first-class Bun runtime, so the `craft` CLI path deploys via a Dockerfile. Node embedding can use the platform's Node buildpack directly.
+App Platform has no Bun runtime of its own, so it builds the project from its `Dockerfile`, which a Bun project from `create-routecraft` already has.
 
-### Option A — Bun CLI via Dockerfile
+1. **Push the project** to GitHub or GitLab, with `craft.config.ts` and the `Dockerfile` at the root.
+2. **Create the app** from the repository. App Platform detects the `Dockerfile`; no build or run command is needed, because the image's `CMD` runs `craft start`.
+3. **Pick the component type.** A project whose capabilities start on their own (schedules, a mailbox, timers) and serve nothing over HTTP is a **worker**. A project that serves MCP over HTTP, `http()` routes or the ops endpoints is a **web service**.
+4. **Set the secrets** your adapters read (API keys, mail passwords) as encrypted environment variables. The image already sets `NODE_ENV=production`.
 
-1) Repository
-- Push your app to GitHub/GitLab including `craft.config.ts` and the `Dockerfile` `create-routecraft` scaffolds (see the [Deployment guide](/docs/introduction/deployment#docker)).
+### A web service listens on the port App Platform gives it
 
-2) App creation
-- Create App → connect repo → pick root directory.
-- App Platform auto-detects the Dockerfile. No build/run command needed; the image's `CMD` runs `craft start`.
+App Platform routes traffic to the port in the component's settings and passes it in `PORT`. Bind every interface and read the port from the environment:
 
-3) Environment
-- Set `NODE_ENV=production` and any adapter secrets (e.g., API keys).
+```ts
+// craft.config.ts
+import { defineConfig } from '@routecraft/routecraft'
 
-4) Scaling
-- Choose a worker service for long-running routes (cron, queues, IMAP). Use a web service only if you expose HTTP via an adapter.
+export const craftConfig = defineConfig({
+  servers: {
+    default: { host: '0.0.0.0', port: Number(process.env.PORT ?? 8080) },
+  },
+  ops: {},
+})
+```
 
-### Option B — Node embedding via the Node buildpack
+With `ops: {}` on the same server, point the component's health check at `/health/live`. It answers without a credential and carries no dependency state, so an upstream outage never makes App Platform restart the app. [Monitoring](/docs/introduction/monitoring#health-endpoints) explains the three health paths.
 
-If your service embeds `@routecraft/routecraft` programmatically rather than using the CLI, the standard Node buildpack works:
+### State does not survive a redeploy
 
-- Runtime: Node 22 (or later)
-- Build command: `npm ci --omit=dev` (or your build script)
-- Run command: `node --experimental-strip-types src/server.ts` (drop the flag on Node 23.6+)
+App Platform's filesystem is not persistent and it offers no volumes. Everything the runtime keeps under `.routecraft/` (deferred exchanges, agent sessions, the telemetry database) starts empty after every deploy or restart. That is fine for a project that neither defers nor keeps sessions. When a capability waits for a person, or an agent must remember a conversation across a restart, run on a Droplet instead.
 
-See [Programmatic Invocation](/docs/advanced/programmatic-invocation) for the embedding API.
+## A Droplet with Docker
 
-## Tips
-- Prefer worker services for long-running routes.
-- If you mix paths in one repo, ship one Dockerfile per service rather than relying on buildpack auto-detection.
+A Droplet is a plain VM, so the image runs exactly as [Deployment](/docs/introduction/deployment#docker) describes, with a named volume for the state:
+
+```bash
+docker build -t my-app .
+docker run -d --restart unless-stopped \
+  --env-file .env \
+  -p 8080:8080 \
+  -v my-app-state:/app/.routecraft \
+  my-app
+```
+
+Bind `0.0.0.0` on the servers you publish, as on any container host, and put a DigitalOcean firewall or load balancer in front of any port that is not meant for the public.
+
+## Node embedding on App Platform
+
+A service that embeds `@routecraft/routecraft` in its own Node application, rather than running `craft`, can use the Node buildpack directly:
+
+- **Runtime:** Node 22.6 or later.
+- **Build command:** `npm ci --omit=dev`, or your own build script.
+- **Run command:** `node --experimental-strip-types src/server.ts`, without the flag on Node 23.6 or later.
+
+The same rule about state applies. [Programmatic invocation](/docs/advanced/programmatic-invocation) covers the embedding API.
+
+---
+
+## Related
+
+<QuickLinks>
+
+<QuickLink title="Servers and ports" icon="presets" href="/docs/introduction/servers-and-ports" description="Named servers, the host and port each binds, and the doors that mount on them." />
+
+<QuickLink title="Monitoring" icon="theming" href="/docs/introduction/monitoring" description="Logging, the events to alarm on, health endpoints and telemetry." />
+
+<QuickLink title="Durable agents" icon="presets" href="/docs/advanced/durable-agents" description="The deferred work that needs persistent state to survive a restart." />
+
+</QuickLinks>

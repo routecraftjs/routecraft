@@ -30,7 +30,8 @@ export default craft()
   .description('Look up a customer and their plan by email address')
   .input({ body: LookupInput })
   .from(direct())
-  // explicit body type at .to() until #726
+  // TypeScript cannot infer the body type here yet, so it is given explicitly:
+  // https://github.com/routecraftjs/routecraft/issues/726
   .to(
     http<LookupInput>({
       method: 'GET',
@@ -92,36 +93,62 @@ export default craft()
 `Direct(<id>)` references a registered capability as a tool; the agent sees its
 `.description()` and `.input()` schema and calls it with validated arguments. A bare fn id and
 `MCP(server:tool)` are also valid allowlist entries, and the object form
-`{ name, guard, description }` adds a per-tool [guard](/docs/advanced/securing-capabilities) or
-a per-agent description override. A guard receives the tool input and a context carrying the
-caller's principal, and throws to deny the call:
+`{ name, guard, description }` adds a per-tool [guard](/docs/reference/plugins/agentplugin#agent-tools)
+or a per-agent description override. A guard runs after the tool's schema has validated the
+arguments, receives them with a context carrying the caller's principal, and throws to deny the
+call. This one keeps customer email addresses out of the internal channel, in any field of the
+brief. Pass it as the agent's `tools` in place of the plain list above:
 
 ```ts
-tools([
+import { tools } from '@routecraft/ai'
+
+const triageTools = tools([
   'Direct(lookup-customer)',
   {
     name: 'Direct(post-brief)',
-    guard: (_input, ctx) => {
-      if (!ctx.principal?.roles?.includes('support')) throw new Error('not authorised to post briefs')
+    guard: (input) => {
+      if (/[^\s@]+@[^\s@]+/.test(JSON.stringify(input))) {
+        throw new Error('leave email addresses out of the brief')
+      }
     },
   },
 ])
 ```
 
+This guard judges the input rather than the caller, because a mail source mints no principal:
+`ctx.principal` is empty for every run of this capability. To decide by who sent the mail, mint a
+principal from claims you verified yourself (a DKIM-passing sender, say) with
+[`.authenticate()`](/docs/reference/operations/authenticate) before the agent step; [Credentials
+and identity](/docs/introduction/credentials-and-identity#who-asked) has the model.
+
 ## Config
 
-Model providers live on `llmPlugin`; the mail account is configured where you set up the
-`mail` adapter. The agent inherits the provider from the plugin.
+Model providers live under the `llm` key, and the inbox the `mail()` source reads under the
+`mail` key. The agent inherits the provider from `llm`.
 
 ```ts
 // craft.config.ts
-import { llmPlugin } from '@routecraft/ai'
-import type { CraftConfig } from '@routecraft/routecraft'
+import { defineConfig } from '@routecraft/routecraft'
+import '@routecraft/ai'
 
-export const craftConfig = {
-  plugins: [llmPlugin({ providers: { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY! } } })],
-} satisfies CraftConfig
+export const craftConfig = defineConfig({
+  llm: {
+    providers: { anthropic: { apiKey: process.env.ANTHROPIC_API_KEY! } },
+  },
+  mail: {
+    accounts: {
+      default: {
+        imap: {
+          host: 'imap.example.com',
+          auth: { user: process.env.SUPPORT_MAIL_USER!, pass: process.env.SUPPORT_MAIL_PASSWORD! },
+        },
+      },
+    },
+  },
+})
 ```
+
+The `mail()` source needs its optional peers: `bun add imapflow mailparser`.
 
 ## Giving the agent durable context
 
@@ -154,10 +181,12 @@ top level.
 
 <QuickLinks>
 
-<QuickLink title="agent() adapter reference" icon="presets" href="/docs/reference/adapters/agent" description="Model, system, tools, blocks, and loop options." />
+<QuickLink title="Agents and skills" icon="presets" href="/docs/introduction/agents-and-skills" description="Define an agent, grant it capabilities as tools, and give it skills." />
 
-<QuickLink title="Securing capabilities" icon="plugins" href="/docs/advanced/securing-capabilities" description="Guards, principals, and authorizing what an agent can reach." />
+<QuickLink title="agent" icon="plugins" href="/docs/reference/adapters/agent" description="The agent() adapter: model, system, tools, blocks, and loop options." />
 
-<QuickLink title="MCP tool" icon="installation" href="/docs/examples/mcp" description="Expose a capability as a tool an external agent can call." />
+<QuickLink title="agentPlugin" icon="installation" href="/docs/reference/plugins/agentplugin#agent-tools" description="Every form a tool can take, per-tool guards, and the tool policy." />
+
+<QuickLink title="mail" icon="theming" href="/docs/reference/adapters/mail" description="The mail adapter: named accounts, source filters and sending." />
 
 </QuickLinks>

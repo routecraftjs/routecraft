@@ -57,7 +57,7 @@ const NAV_ORDER = navigation.map((section) => ({
 const SKIP_IN_COMBINED = new Set([
   '/changelog',
   ...navigation
-    .map((s) => s.href)
+    .flatMap((s) => (s.href ? [s.href] : []))
     .filter((href) => href !== '/' && href !== '/docs/introduction'),
 ])
 

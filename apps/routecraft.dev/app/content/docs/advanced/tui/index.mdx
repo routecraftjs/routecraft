@@ -10,17 +10,18 @@ Inspect routes, agents, tools, exchanges, and live events from the terminal.
 
 ## Prerequisites
 
-The TUI reads from the SQLite database written by the `telemetry()` plugin. Enable it in your context before launching the UI:
+The TUI reads from the SQLite database written by the telemetry plugin. Switch it on in `craft.config.ts` before launching the UI:
 
 ```ts
-import { CraftContext, telemetry } from '@routecraft/routecraft'
+// craft.config.ts
+import { defineConfig } from '@routecraft/routecraft'
 
-const ctx = new CraftContext({
-  plugins: [telemetry()],
+export const craftConfig = defineConfig({
+  telemetry: {},
 })
 ```
 
-See [Monitoring](/docs/introduction/monitoring#telemetry-plugin) for full plugin options.
+The database is written to `.routecraft/telemetry.db` by default, which is where `craft tui` looks. See [Monitoring](/docs/introduction/monitoring#telemetry) for full plugin options.
 
 ## Launching the TUI
 
@@ -42,11 +43,11 @@ The TUI polls the database every 2 seconds. Because SQLite runs in WAL mode, rea
 
 The TUI uses a three-column layout framed by a one-line header and footer:
 
-- **Header** -- Wordmark, version, and a breadcrumb showing where you are in the drill-down (e.g. `Agents › planner › run 789003e7 › web_search`)
-- **Left** -- Navigation panel (view switcher + capability / agent / tool list); the Errors item shows a red count when there are failed exchanges
-- **Center** -- Main content (exchange lists, agent runs, tool calls, detail views, or event stream)
-- **Right** -- Metrics panel with throughput stats, latency percentiles (p90/p95/p99), and a live traffic graph
-- **Footer** -- Contextual keyboard hints for the focused view
+- **Header**: Wordmark, version, and a breadcrumb showing where you are in the drill-down (e.g. `Agents › planner › run 789003e7 › web_search`)
+- **Left**: Navigation panel (view switcher + capability / agent / tool list); the Errors item shows a red count when there are failed exchanges
+- **Center**: Main content (exchange lists, agent runs, tool calls, detail views, or event stream)
+- **Right**: Metrics panel with throughput stats, latency percentiles (p90/p95/p99), and a live traffic graph
+- **Footer**: Contextual keyboard hints for the focused view
 
 Navigation is a stack: `Enter` drills into the selected item and `Esc` goes back one level, consistently across every view.
 
@@ -134,6 +135,8 @@ A chronological tail of all framework events with human-readable summaries: cont
 
 <QuickLink title="Monitoring" icon="presets" href="/docs/introduction/monitoring" description="Logging, events, and the telemetry plugin." />
 
-<QuickLink title="CLI reference" icon="installation" href="/docs/reference/cli" description="All craft commands and options." />
+<QuickLink title="CLI" icon="installation" href="/docs/reference/cli#tui" description="craft tui and its options." />
+
+<QuickLink title="Events" icon="plugins" href="/docs/reference/events" description="Every lifecycle and runtime event the Events view shows." />
 
 </QuickLinks>

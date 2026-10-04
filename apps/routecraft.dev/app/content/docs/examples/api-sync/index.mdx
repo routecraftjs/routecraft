@@ -7,6 +7,7 @@ Read a CSV file and send each row to an API.
 </Lead>
 
 ```ts
+// capabilities/file-to-http/route.ts
 import { craft, csv, http } from '@routecraft/routecraft'
 import { z } from 'zod'
 
@@ -52,7 +53,7 @@ Bob,Wilson,bob@test.com,active
 
 ## Result
 
-Two HTTP POST requests sent to `https://api.example.com/users`:
+Two HTTP POST requests, one per active row:
 
 ```json
 { "name": "John Doe", "email": "john@test.com" }
@@ -60,3 +61,31 @@ Two HTTP POST requests sent to `https://api.example.com/users`:
 ```
 
 Jane is skipped because her status is `inactive`.
+
+## Run it
+
+The `csv()` adapter needs its optional peer, `papaparse`:
+
+```bash
+bun add papaparse
+```
+
+Replace `https://api.example.com/users` with an endpoint you can reach (a local mock or a request-bin service works), save the capability as `capabilities/file-to-http/route.ts` and `customers.csv` in the project root, then start the project from that folder, since the path is resolved against where the process starts:
+
+```bash
+bun run start
+```
+
+---
+
+## Related
+
+<QuickLinks>
+
+<QuickLink title="csv" icon="presets" href="/docs/reference/adapters/csv" description="Read and write CSV files: header parsing and every option." />
+
+<QuickLink title="http" icon="plugins" href="/docs/reference/adapters/http" description="Serve an endpoint, or call one with a dynamic URL, headers and body." />
+
+<QuickLink title="split" icon="installation" href="/docs/reference/operations/split" description="Turn one exchange carrying a list into one exchange per item." />
+
+</QuickLinks>

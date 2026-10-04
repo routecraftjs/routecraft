@@ -75,7 +75,19 @@ export function eventNamespaces(channel: DocsChannelName): EventNamespaceRow[] {
 export function documentsHref(channel: DocsChannelName, href: string): boolean {
   if (href === '/docs') return true
   if (!href.startsWith('/docs/')) return true
-  const route = href.slice('/docs/'.length).replace(/\/$/, '')
+  return channelHasPage(channel, docsRoute(href))
+}
+
+/** The channel-relative route of a bare `/docs/...` href: no fragment, no trailing slash. */
+export function docsRoute(href: string): string {
+  return href.split('#')[0].slice('/docs/'.length).replace(/\/+$/, '')
+}
+
+/** Whether the channel carries a page at a channel-relative route. */
+export function channelHasPage(
+  channel: DocsChannelName,
+  route: string,
+): boolean {
   return (pagesByChannel[channel] ?? []).includes(route)
 }
 

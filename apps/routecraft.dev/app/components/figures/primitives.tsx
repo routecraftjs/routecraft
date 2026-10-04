@@ -9,8 +9,8 @@ import type { FigurePalette } from '@/components/figures/palette'
  * a motif, not a figure), so `color-mix` and CSS variables are fair game.
  */
 
-const MONO = 'var(--font-mono)'
-const EDITORIAL = 'var(--font-editorial)'
+export const MONO = 'var(--font-mono)'
+export const EDITORIAL = 'var(--font-editorial)'
 
 /** The Routecraft logomark, stamped top-right on every figure. */
 export function FigureMark({
@@ -515,5 +515,28 @@ export function BlockRow({
         </span>
       ))}
     </div>
+  )
+}
+
+/** The open chevron arrowhead the platform figures draw their connectors with. */
+export function ArrowheadMarker({
+  id,
+  colour,
+}: {
+  id: string
+  colour: string
+}) {
+  return (
+    <marker
+      id={id}
+      viewBox="0 0 10 10"
+      refX="9"
+      refY="5"
+      markerWidth="8"
+      markerHeight="8"
+      orient="auto-start-reverse"
+    >
+      <path d="M1 1L9 5L1 9" fill="none" stroke={colour} strokeWidth="1.5" />
+    </marker>
   )
 }

@@ -79,9 +79,10 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
 
     const registered = context.getStore(MCP_PLUGIN_REGISTERED);
     if (registered !== true) {
-      throw new Error(
-        "MCP plugin required: routes using .from(mcp(...)) require the MCP plugin. Add mcpPlugin() to your config: plugins: [mcpPlugin()].",
-      );
+      throw rcError("RC5003", undefined, {
+        message:
+          "MCP plugin required: routes using .from(mcp(...)) require the MCP plugin. Add `mcp: {}` to defineConfig({...}) in craft.config.ts, or mcpPlugin() to the plugins of a context you build yourself.",
+      });
     }
 
     let registry = context.getStore(MCP_LOCAL_TOOL_REGISTRY);

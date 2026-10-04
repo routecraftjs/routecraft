@@ -97,7 +97,7 @@ Do not return data from `send` to simulate an enricher: `.to()` ignores anything
 
 ## Processor
 
-A processor sits in the middle of a pipeline and modifies the exchange. Implement the `Processor` interface. Use this when you need header or context access alongside body reshaping -- for body-only changes, `.transform()` is the simpler choice:
+A processor sits in the middle of a pipeline and modifies the exchange. Implement the `Processor` interface. Use this when you need header or context access alongside body reshaping. For body-only changes, `.transform()` is the simpler choice:
 
 ```ts skip="fragment: InputType, OutputType are illustrative"
 import { type Processor } from '@routecraft/routecraft'
@@ -114,7 +114,7 @@ class MyTransformAdapter implements Processor<InputType, OutputType> {
 
 ## Factory function
 
-Expose your adapter as a factory function so it reads naturally in the DSL. The recommended pattern is one factory per adapter -- one name, one import:
+Expose your adapter as a factory function so it reads naturally in the DSL. The recommended pattern is one factory per adapter, with one name and one import:
 
 ```ts skip="fragment: not a complete statement on its own"
 // adapters/my-storage.ts
@@ -136,7 +136,7 @@ export function myQueue(options?: MyQueueOptions) {
 .from(myQueue({ queue: 'orders' }))
 ```
 
-Keeping one factory per adapter makes imports predictable and avoids a proliferation of role-suffixed exports (`myQueueSource`, `myQueueDestination`, etc.). The adapter carries the role slots -- the factory just wires up the options, and the position in the route selects the role.
+Keeping one factory per adapter makes imports predictable and avoids a proliferation of role-suffixed exports (`myQueueSource`, `myQueueDestination`, etc.). The adapter carries the role slots; the factory just wires up the options, and the position in the route selects the role.
 
 An adapter can carry multiple role slots on one honest combined type when it makes sense. The built-in `file()` is the canonical example: `Source<string> & Destination<unknown> & Enricher<unknown, string>`, where `.from()` reads, `.to()` writes, and `.enrich()` reads mid-route. A queue adapter may combine source and destination the same way:
 
@@ -171,7 +171,7 @@ export function myQueue(options: MyQueueOptions) {
 When a factory returns different shapes for different call forms, a few rules keep the surface predictable:
 
 - **The operation keyword selects the role.** Never make an option choose between roles that both exist on the returned adapter: `.from()` subscribes, `.to()` sends, `.enrich()` fetches. There is no `mode: 'read' | 'write'` option and no per-role type alias (`MyThingReadAdapter`); the combined type plus the keyword is the whole story.
-- **Overload by key *presence*, never by an option's value.** `http()` splits on `path` (server) vs `url` (client); `json()` becomes a file adapter because `path` is present; `mail()` fetches because `folder` is present. Discriminate structurally -- `arguments.length`, `typeof`, `'key' in options` -- so the returned type is knowable at compile time.
+- **Overload by key *presence*, never by an option's value.** `http()` splits on `path` (server) vs `url` (client); `json()` becomes a file adapter because `path` is present; `mail()` fetches because `folder` is present. Discriminate structurally (`arguments.length`, `typeof`, `'key' in options`) so the returned type is knowable at compile time.
 - **Behavior variants are boolean flags, not an enum.** A send that can also append or delete takes `append?: boolean` / `delete?: boolean`, defaulting to the primary behavior (overwrite). Validate mutually exclusive flags at construction and throw `RC5003` with a suggestion, so misconfiguration fails at the call site rather than mid-route.
 - **Shape-changing flags demand a literal.** When a flag changes the emitted type (like `chunked: true` switching a source from `T[]` to per-item `T`), type the overload against the literal `true` so a widened `boolean` is a compile error and dynamic switching is an explicit branch at the call site.
 - **A slot that cannot work in some configuration still fails loudly.** The source role of a file-family adapter needs a static string path; a dynamic (function) path keeps the honest combined type but its `subscribe` throws a clear error lazily instead of surfacing an undefined-property TypeError.
@@ -310,8 +310,10 @@ Adapters can use the context store to share state, read global configuration set
 
 <QuickLinks>
 
-<QuickLink title="Adapters" icon="presets" href="/docs/introduction/adapters" description="How adapters work and how to configure them." />
+<QuickLink title="Adapters" icon="presets" href="/docs/introduction/adapters" description="The adapter roles, and how a project configures adapters." />
 
-<QuickLink title="Adapters reference" icon="presets" href="/docs/reference/adapters" description="Full catalog with all options and signatures." />
+<QuickLink title="Testing" icon="installation" href="/docs/introduction/testing#mocking-external-adapters" description="Mock a tagged adapter in tests with mockAdapter()." />
+
+<QuickLink title="Type registries" icon="presets" href="/docs/advanced/type-registries" description="Narrow string parameters to the keys a project registers." />
 
 </QuickLinks>

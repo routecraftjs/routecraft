@@ -9,26 +9,44 @@ follows the per-area docs and the user-facing site.
 
 ## The five surfaces
 
-The split between `introduction/` and `advanced/` is a **depth axis**, not a concept-vs-guide
-split. Both are concept-led; advanced just goes deeper and may also carry guides.
+The split between `introduction/` and `advanced/` is a **defaults axis**, not a concept-vs-guide
+split and not a difficulty scale. A page belongs in `introduction/` when a project uses what it
+describes with the defaults (the default server and giving a door its own port, MCP over
+stdio or HTTP, an API key, deploying, monitoring); it belongs in `advanced/` when the reader
+is going past them (remotes, the JWT and OAuth ladder, proxying, durable agents, plugins, custom adapters). One topic often splits: the
+default setup in `introduction/`, the options added later in `advanced/`, every flag in
+`reference/`.
 
-| Surface | Home | Job | Maintained | Vendor-specific |
-|---|---|---|---|---|
-| Foundational concept | `docs/introduction/` | the basics: what it is, how the core works | yes | no |
-| Advanced concept (+ guides) | `docs/advanced/` | deeper concepts and how to apply them; guides welcome | yes | no |
-| Reference | `docs/reference/` | every option, lookup | yes | no |
-| Example | `docs/examples/` | runnable real-world use case; the single source of code | yes | minimal |
-| Blog | `blog/` | story, named vendor, or comparison; version-pinned | no | yes |
+The sidebar labels the two groups **Fundamentals** and **Beyond the defaults**. The folder
+names stay `introduction/` and `advanced/`, because renaming them would move every published
+URL under them; the labels name the same surfaces, which is what navigation-matches-folders
+requires. Two groups are exceptions. Getting started holds the overview, the quickstarts and
+installation, which live in `introduction/` because they are the first pages of that surface,
+not a surface of their own. Releases holds `migrating/` beside the changelog, which lives
+outside `docs/` but answers the same question: what changed and how to upgrade.
+
+| Surface | Home | Sidebar | Job | Maintained | Vendor-specific |
+|---|---|---|---|---|---|
+| Foundational concept | `docs/introduction/` | Fundamentals | the platform with its defaults: what it is, how the core works, the default setup of each door | yes | no, except hosting provider guides (decision test 2) |
+| Advanced concept (+ guides) | `docs/advanced/` | Beyond the defaults | what you add past the defaults, and how to apply it; guides welcome | yes | no |
+| Reference | `docs/reference/` | Reference | every option, lookup | yes | no |
+| Example | `docs/examples/` | Examples | runnable real-world use case; the single source of code | yes | minimal |
+| Blog | `blog/` | (not in the docs sidebar) | story, named vendor, or comparison; version-pinned | no | yes |
 
 ## Decision tests
 
-1. **Basics or depth?** Foundational goes in `introduction/`, deeper goes in `advanced/`.
-   Same author voice, different level.
+1. **Default or past it?** What a project uses with the defaults goes in `introduction/`;
+   what you add past them goes in `advanced/`. Same author voice, different depth.
 2. **Maintained-forever and generic?** It is docs. **Dated or vendor-named?** It is a blog
    post. A vendor walkthrough (Clerk, Stripe, WorkOS) is always a blog post, never an
    `advanced/` page; the `advanced/` page is the vendor-neutral version the blog links back to.
+   Hosting providers are the one exception. A reader deploys to one host and looks for it on
+   the Deployment page, so each host gets a maintained guide at
+   `introduction/deployment/<host>/`, linked from Deployment's hosting providers section. A host
+   guide starts from the vendor-neutral Docker setup and covers only what that host changes.
 3. **Is it a framework noun or a company?** Framework noun (auth, MCP, retries) gets a neutral
-   `advanced/` page. Company gets a blog post.
+   docs page, placed by test 1: its default setup in `introduction/`, what goes past it in
+   `advanced/`. Company gets a blog post.
 
 ## Rules
 
@@ -275,14 +293,31 @@ file under `_data`, an entry in `CATALOGUES`, and registration in the MDX provid
 
 **The pinned set is `PINNED` in `freeze-docs.ts`**, and nothing else. Today that is
 `app/content/docs` (pages plus `_data`), `app/content/cheat-sheet`, and `public/screenshots`
-(the only assets docs pages embed; `public/images` is blog-only). Anything a docs page renders
-that is not in that list builds from main. When you add a surface the released channel must
-pin, add it to that list and give it a next-channel mirror, the way screenshots have one. The
-list in the script, the one the verify gate reads, and the one named here are one list.
+(the only versioned assets docs pages embed). Anything a docs page renders that is not in that
+list builds from main. When you add a surface the released channel must pin, add it to that
+list and give it a next-channel mirror, the way screenshots have one. The list in the script, the
+one the verify gate reads, and the one named here are one list.
+
+**Figures are the deliberate exception.** A docs page may embed a figure with `<Diagram>`, and
+the figure's drawing, its words in `manifest.mjs` and its PNGs under `public/images/figures`
+are shell, so the released channel renders whatever main draws. That is acceptable because a
+docs figure shows the platform's shape, not a version's API. When a drawing has to change in a
+way that would be wrong for the released docs, add a figure under a new id and point the next
+channel's page at it, rather than editing the one released pages embed. A released page pins the ids it embeds:
+keep that figure registered until the next freeze, because an unknown id renders nothing and
+fails no build.
 
 **The sidebar and the raw mirror follow the channel too.** `apps/routecraft.dev/app/lib/navigation.ts` is shell, so
 `Navigation` filters its entries against the channel's page set; an entry for an unreleased
-page shows on next and never 404s on the released channel. `public/raw/**` mirrors both
+page shows on next and never 404s on the released channel. A page that moved keeps its entry at
+the address the channel has, and the previous and next links follow the same filtered list.
+**Moves are one table**, `apps/routecraft.dev/app/lib/docs-moves.ts`: a missing address redirects to the one the
+channel has (forward with a 301 after the release that moves the page; back with a 307 before it,
+because that one reverses at the next freeze), a moved page's `/raw/docs/**` mirror redirects the
+same way, and every `/docs`
+link rendered through the channel hook, from docs content, the blog, the changelog or the
+homepage, is pointed at that address at render time, so the link check passes on both sides of a
+release. `public/raw/**` mirrors both
 channels (`/raw/docs/**` and `/raw/docs/next/**`, with whole-channel bundles at
 `/raw/docs.md` and `/raw/docs-next.md`), because the in-development docs are what you hand a
 model when testing against the canary. The next mirror stays out of `llms.txt` and the

@@ -1,16 +1,17 @@
 ---
-title: Pre-from Filter Chain
+title: Filter chain
 ---
 
 <Lead>
-How `.authorize()`, `.input()`, `.cache()`, `.error()`, `.throttle()`,
-`.retry()`, `.timeout()`, `.circuitBreaker()`, and `.concurrency()`
-compose around your route.
+The fixed order in which a capability's checks and wrappers run around your pipeline:
+`.error()`, `.authorize()`, the source's parse, `.input()`, `.throttle()`,
+`.circuitBreaker()`, `.retry()`, `.timeout()` and `.concurrency()`, then the
+`.cache()` check before your steps and the cache store after them.
 </Lead>
 
 Routecraft runs a **fixed ordered chain** of framework filters
 around every exchange before and after your user pipeline. The
-chain order is the framework's call -- the order you happen to
+chain order is the framework's call: the order you happen to
 type `.authorize()`, `.input()`, or `.cache()` on the builder does
 not change runtime behaviour. This is the same idea as Spring's
 `FilterChainProxy` or ASP.NET middleware: the framework picks the
@@ -20,20 +21,20 @@ order; you opt in by declaring which filters you want.
 
 Outside in (position 1 wraps everything below):
 
-| # | Filter | Status | Opts in via | Throws on rejection | Reads / produces |
-|---|---|---|---|---|---|
-| 1 | `error` | shipped | `.error(handler)` | - | catches throws from everything below |
-| 2 | `authorize` (stacks) | shipped | `.authorize({ roles, scopes, predicate })` | `RC5012` / `RC5015` / `RC5023` / `RC5020`; delegation `RC5034`-`RC5038` | principal on `exchange.headers` |
-| 3 | `parse` | shipped | source adapter (HTTP, mail, CSV, ...) | `RC5016` | raw body bytes → typed body |
-| 4 | `input` | shipped | `.input(schema)` | `RC5065` | typed body / headers |
-| 5 | `throttle` | shipped | `.throttle({ rate, per, mode })` | `RC5013` (`mode: 'reject'` only; default `'delay'` paces) | rate limit on the route (delay or reject) |
-| 6 | `circuitBreaker` | shipped | `.circuitBreaker({...})` | `RC5025` (fast-fail when open) | failure stats; fast-fails when open |
-| 7 | `retry` | shipped | `.retry({...})` | final attempt's throw | re-runs everything below on failure |
-| 8 | `timeout` | shipped | `.timeout(ms)` | `RC5011` | per-attempt deadline |
-| 8.5 | `concurrency` | shipped | `.concurrency({ max })` | `RC5026` (`mode: 'reject'` or full `maxQueue`; default `'queue'` paces) | bulkhead; bounds simultaneous in-flight (innermost resilience, so a slot is held per attempt) |
-| 9 | `cacheCheck` | shipped | `.cache({...})` | `RC5028` / `RC5029` | route id, pipeline fingerprint, principal, validated body → cache key |
-| - | **your pipeline** | - | `.transform()`, `.to()`, `.process()`, ... | - | the work |
-| 10 | `cacheStore` | shipped | `.cache({...})` | swallows (`route:cache:failed phase:"set"`) | terminal body, written best-effort |
+| # | Filter | Opts in via | Throws on rejection | Reads / produces |
+|---|---|---|---|---|
+| 1 | `error` | `.error(handler)` | - | catches throws from everything below |
+| 2 | `authorize` (stacks) | `.authorize({ roles, scopes, predicate })` | `RC5012` / `RC5015` / `RC5023` / `RC5020`; delegation `RC5034`-`RC5038` | principal on `exchange.headers` |
+| 3 | `parse` | source adapter (HTTP, mail, CSV, ...) | `RC5016` | raw body bytes → typed body |
+| 4 | `input` | `.input(schema)` | `RC5065` | typed body / headers |
+| 5 | `throttle` | `.throttle({ rate, per, mode })` | `RC5013` (`mode: 'reject'` only; default `'delay'` paces) | rate limit on the route (delay or reject) |
+| 6 | `circuitBreaker` | `.circuitBreaker({...})` | `RC5025` (fast-fail when open) | failure stats; fast-fails when open |
+| 7 | `retry` | `.retry({...})` | final attempt's throw | re-runs everything below on failure |
+| 8 | `timeout` | `.timeout(ms)` | `RC5011` | per-attempt deadline |
+| 8.5 | `concurrency` | `.concurrency({ max })` | `RC5026` (`mode: 'reject'` or full `maxQueue`; default `'queue'` paces) | bulkhead; bounds simultaneous in-flight (innermost resilience, so a slot is held per attempt) |
+| 9 | `cacheCheck` | `.cache({...})` | `RC5028` / `RC5029` | route id, pipeline fingerprint, principal, validated body → cache key |
+| - | **your pipeline** | `.transform()`, `.to()`, `.process()`, ... | - | the work |
+| 10 | `cacheStore` | `.cache({...})` | swallows (`route:cache:failed phase:"set"`) | terminal body, written best-effort |
 
 <Callout type="note" title="Position #4 (`input`) is a real chain step">
 
@@ -94,7 +95,7 @@ the outermost catch:
 .error((err) => {
   // Deterministic rejections: re-throw so the source can translate
   // (e.g. HTTP returns 401, 403, or 400). Do not collapse the authorize
-  // codes -- each one tells the client something different (see the
+  // codes: each one tells the client something different (see the
   // authorize() reference).
   if ([
     'RC5012', 'RC5015', 'RC5023', 'RC5020',
@@ -115,7 +116,7 @@ the outermost catch:
 
 Without `.error()`, every throw goes to the route's default error
 path (`route:error` + `context:error` + `route:exchange:failed`).
-The route is **not** stopped -- the next exchange processes
+The route is **not** stopped: the next exchange processes
 normally.
 
 ### A resumed exchange re-enters partway down the chain
@@ -141,9 +142,9 @@ Every position states its own answer. This is a declaration in the framework, no
 | - | **your continuation** | runs | Steps after the defer, with their own step-scope wrappers |
 | - | `.output()` | runs | Execution two produces the route's real output |
 
-<Callout type="warning" title="Route-scope `.retry()` now re-runs continuation steps">
+<Callout type="warning" title="Route-scope `.retry()` re-runs continuation steps">
 
-A route-scope `.retry()` applies to execution two, so the steps after a `.defer()` are at-least-once on failure, the same as the steps before it. If your continuation does something a downstream cannot absorb twice (issuing a payment, sending a message), make it idempotent or move it behind a step-scope wrapper you control. This is the position that changed most when continuations started honouring the chain.
+A route-scope `.retry()` applies to execution two, so the steps after a `.defer()` are at-least-once on failure, the same as the steps before it. If your continuation does something a downstream cannot absorb twice (issuing a payment, sending a message), make it idempotent or move it behind a step-scope wrapper you control.
 
 </Callout>
 
@@ -305,14 +306,18 @@ whether to re-attempt.
   that exceeded their deadline; cache hits short-circuit without
   triggering them.
 
-## Reference
+---
 
-- This page is the user-facing contract for the chain.
-  Implementation notes for contributors (how each position maps onto
-  `RouteDefinition` and the pipeline executor)
-  live at [`.standards/pre-from-filter-chain.md`](https://github.com/routecraftjs/routecraft/blob/main/.standards/pre-from-filter-chain.md).
-- Operation reference pages link back here from their "where this
-  slots into the chain" section.
-- The step-scope wrapper pattern (for `.error()` / `.cache()`
-  applied *after* `.from()` to wrap a single step) is documented
-  separately at [`.standards/resilience-wrappers.md`](https://github.com/routecraftjs/routecraft/blob/main/.standards/resilience-wrappers.md).
+## Related
+
+<QuickLinks>
+
+<QuickLink title="Operations" icon="plugins" href="/docs/introduction/operations#wrappers" description="The same wrappers after .from(), where each one covers a single step." />
+
+<QuickLink title="authorize" icon="warning" href="/docs/reference/operations/authorize" description="Roles, scopes, subject and actor rules, and the code each refusal throws." />
+
+<QuickLink title="cache" icon="presets" href="/docs/reference/operations/cache" description="Cache keys, TTLs and providers, at route scope and at step scope." />
+
+<QuickLink title="Errors" icon="theming" href="/docs/reference/errors" description="Every RC code the chain throws, with what it means and how to fix it." />
+
+</QuickLinks>

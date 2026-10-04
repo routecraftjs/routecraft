@@ -1,0 +1,203 @@
+---
+title: Expose to an agent
+---
+
+<Lead>
+Serve your capabilities as MCP tools, so Claude, Cursor, Copilot and any other MCP client can call them. A new project already does this over stdio; this page covers what that does, how to serve the same tools over HTTP for a team, and what a client sees.
+</Lead>
+
+## How it works
+
+A capability becomes an MCP tool when `mcp()` is one of its sources. The tool name is the capability's `.id()`, and its `.title()`, `.description()` and `.input()` schema are what the client reads to decide when to call it. Every call is validated against that schema before the capability's steps run, and the client can reach nothing else.
+
+```ts
+// capabilities/search-orders/route.ts
+import { craft, direct, log } from "@routecraft/routecraft";
+import { mcp } from "@routecraft/ai";
+import { z } from "zod";
+
+export default craft()
+  .id("search-orders")
+  .title("Search orders")
+  .description("Find orders for a customer by email address")
+  .input({ body: z.object({ email: z.string().email() }) })
+  .from(direct(), mcp())
+  .transform(({ email }) => ({ email, orders: [] }))
+  .to(log());
+```
+
+The `mcp` key in `craft.config.ts` decides how the tools are served. See the [MCP example](/docs/examples/mcp) for a complete capability and the [`mcp()` adapter reference](/docs/reference/adapters/mcp) for every option.
+
+## Install
+
+A project from `create-routecraft` already has what it needs. Elsewhere:
+
+```bash
+bun add @routecraft/ai @modelcontextprotocol/server zod
+```
+
+`@modelcontextprotocol/server` is an optional peer of `@routecraft/ai`, needed only by the project that serves MCP.
+
+## Over stdio, on your laptop
+
+Stdio is the default, and the right transport for one person: the client starts the project as a subprocess and talks to it on its standard streams. No port, no credential.
+
+```ts
+// craft.config.ts
+import { defineConfig } from "@routecraft/routecraft";
+import "@routecraft/ai";
+
+export const craftConfig = defineConfig({
+  mcp: {},
+});
+```
+
+Claude Code starts the server from the folder you register it in, so the short form works. From the project folder:
+
+```bash
+claude mcp add my-tools -- bunx craft start --log-file craft.log
+```
+
+The log goes to a file because standard output is the protocol.
+
+Clients configured in JSON do not start the server from the project folder, so give them absolute paths: the project's own `craft`, the project folder, and the log file. Using the project's installed `craft` also pins the version to the one in its `package.json`. Cursor (`.cursor/mcp.json`) and Claude Desktop (`claude_desktop_config.json`):
+
+```json
+{
+  "mcpServers": {
+    "my-tools": {
+      "command": "/absolute/path/to/my-tools/node_modules/.bin/craft",
+      "args": [
+        "start",
+        "/absolute/path/to/my-tools",
+        "--log-file",
+        "/absolute/path/to/my-tools/craft.log"
+      ]
+    }
+  }
+}
+```
+
+VS Code and Copilot (`.vscode/mcp.json`):
+
+```json
+{
+  "servers": {
+    "my-tools": {
+      "type": "stdio",
+      "command": "/absolute/path/to/my-tools/node_modules/.bin/craft",
+      "args": [
+        "start",
+        "/absolute/path/to/my-tools",
+        "--log-file",
+        "/absolute/path/to/my-tools/craft.log"
+      ]
+    }
+  }
+}
+```
+
+`craft` runs on Bun, so a client that does not inherit your shell's `PATH` needs Bun on its own.
+
+## Over HTTP, for a team
+
+Serve MCP over HTTP when the tools should run always on and more than one person or agent should reach them: the [team harness](/docs/introduction/local-and-team-harness). The transport mounts at `/mcp` on the instance's `default` server, beside every other door. [Servers and ports](/docs/introduction/servers-and-ports) covers the listener, and how to give MCP a port of its own.
+
+```ts
+// craft.config.ts
+import { defineConfig, jwt } from "@routecraft/routecraft";
+import "@routecraft/ai";
+
+export const craftConfig = defineConfig({
+  servers: {
+    default: {
+      host: "0.0.0.0",
+      port: 8080,
+      allowedHostnames: ["mcp.example.com"],
+    },
+  },
+  mcp: {
+    transport: "http",
+    // Required outside NODE_ENV development and test.
+    resource: { url: "https://mcp.example.com/mcp" },
+    auth: jwt({
+      secret: process.env.JWT_SECRET!,
+      issuer: "https://idp.example.com",
+      audience: "https://mcp.example.com",
+    }),
+  },
+});
+```
+
+MCP inherits the server's authentication unless it sets its own `auth`, as here. `auth: false` removes the wall: the surface demands no credentials and issues no challenge, but a valid token for the inherited validator still attaches a principal, which is how a tool's `.authorize()` admits on a public mount, and an invalid one is treated as absent. Anything reachable over the network must be authenticated. [Credentials and identity](/docs/introduction/credentials-and-identity) is the model; [Securing capabilities](/docs/advanced/securing-capabilities) has every mode (`jwt()`, `jwks()`, custom validators, `oauth()` as a resource-server gate), identity enrichment and CORS.
+
+Protected-resource metadata is served only at the path-suffixed RFC 9728 URL, which for the default path is `/.well-known/oauth-protected-resource/mcp`.
+
+Connect a client with the URL instead of a command. Claude Code:
+
+```bash
+claude mcp add --transport http my-tools https://mcp.example.com/mcp \
+  --header "Authorization: Bearer $MCP_TOKEN"
+```
+
+Cursor and Claude Desktop:
+
+```json
+{
+  "mcpServers": {
+    "my-tools": {
+      "url": "https://mcp.example.com/mcp",
+      "headers": { "Authorization": "Bearer <token>" }
+    }
+  }
+}
+```
+
+VS Code and Copilot:
+
+```json
+{
+  "servers": {
+    "my-tools": {
+      "type": "http",
+      "url": "https://mcp.example.com/mcp",
+      "headers": { "Authorization": "Bearer <token>" }
+    }
+  }
+}
+```
+
+### Scaling out
+
+The HTTP transport is stateless. Following [MCP revision 2026-07-28](https://modelcontextprotocol.io/specification/2026-07-28), there is no `initialize` handshake and no `Mcp-Session-Id`: every request carries its own protocol version, client identity and capabilities, and Routecraft builds a fresh server instance to answer it.
+
+- **Any replica can answer any request.** Run as many processes as you like behind a plain round-robin load balancer. No sticky sessions, no shared session store.
+- **Auth is enforced per request.** A credential is verified on every call rather than once per session, so an expired token stops working on its next call. `jwt()` and `jwks()` check the signature, expiry, issuer and audience, and cannot see a revocation: a revoked token still passes until it expires. Where revocation must take effect at once, use a [custom validator](/docs/advanced/securing-capabilities#custom-validator) that asks the identity provider.
+
+Clients that only speak the 2025 revision keep working unchanged; they are served through the stateless 2025 path and do not get the newer revision's features.
+
+## Failed calls
+
+A tool call whose route fails comes back as `isError: true` carrying the tool name and the error code, such as `Tool "search-orders" failed (RC5001).`, and never the error message: messages carry hostnames, file paths and upstream response text an agent has no business seeing. The message is in your log and on the `plugin:mcp:tool:failed` event.
+
+An agent can still correct itself when the fault is its own. A call the tool's `.input()` schema rejects lists the failing fields, a call the tool's `.authorize()` refuses says why in a fixed phrase (insufficient permissions, a missing scope, an expired credential, no credential at all), and a result that breaks the declared `.output()` names the fields it broke. See [Failed calls](/docs/reference/adapters/mcp) in the adapter reference for each text.
+
+## Going further
+
+- **Name and brand the server.** What a client shows when it adds your server, and per-tool icons: [mcpPlugin, server identity and branding](/docs/reference/plugins/mcpplugin#server-identity-and-branding).
+- **Re-expose another server's tools** without writing a capability per tool: [Calling an MCP, proxying](/docs/advanced/call-an-mcp#re-exposing-a-clients-tools).
+- **Tools that wait for a person.** A tool whose capability can defer answers with an acknowledgment instead of its output: the [`mcp()` adapter reference](/docs/reference/adapters/mcp) has the contract, and [Durable agents](/docs/advanced/durable-agents#over-mcp) covers agents that wait.
+
+---
+
+## Related
+
+<QuickLinks>
+
+<QuickLink title="Securing capabilities" icon="presets" href="/docs/advanced/securing-capabilities" description="Put the HTTP MCP endpoint behind a key, JWT or OAuth." />
+
+<QuickLink title="Servers and ports" icon="presets" href="/docs/introduction/servers-and-ports" description="The listener the HTTP endpoint mounts on, and how to give it a port of its own." />
+
+<QuickLink title="Tools for agents" icon="installation" href="/docs/introduction/tools-for-agents" description="The quickstart that connects a client over stdio and calls the scaffold's tool." />
+
+</QuickLinks>

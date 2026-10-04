@@ -1,12 +1,12 @@
 ---
-title: Type Registries
+title: Type registries
 ---
 
 <Lead>
 Compile-time safety for string-based adapter APIs via declaration merging.
 </Lead>
 
-Routecraft ships empty marker interfaces. You augment them in your project via `declare module`. When populated, adapter string parameters narrow from `string` to your registered keys -- giving autocomplete and red-line errors for anything not registered. When the registries are empty (the default), everything falls back to `string` with no breaking changes.
+Routecraft ships empty marker interfaces. You augment them in your project via `declare module`. When populated, adapter string parameters narrow from `string` to your registered keys, giving autocomplete and red-line errors for anything not registered. When the registries are empty (the default), everything falls back to `string` with no breaking changes.
 
 ## Direct endpoints
 
@@ -83,7 +83,7 @@ llm('gemini:gemini-2.5-pro')   // red line: 'gemini' not registered
 
 **What this does NOT cover:**
 
-- Syncing the registry with your `llmPlugin({ providers: { ... } })` config. These are two separate declarations -- one compile-time, one runtime. You must keep them in sync manually. If you add `gemini` to the plugin config but forget to update the registry, `llm('gemini:...')` will show a red line but work at runtime. The reverse (in registry but not in plugin config) compiles fine but crashes at runtime.
+- Syncing the registry with the `llm: { providers: { ... } }` key in `craft.config.ts`. These are two separate declarations: one compile-time, one runtime. You must keep them in sync manually. If you add `gemini` to the config but forget to update the registry, `llm('gemini:...')` will show a red line but work at runtime. The reverse (in the registry but not in the config) compiles fine but crashes at runtime.
 - Model-level validation. The registry constrains the provider prefix (before `:`), not the model name. `llm('ollama:this-model-does-not-exist')` will compile and only fail when the Ollama API is called. Knowing which models are actually available requires runtime introspection (e.g., polling Ollama's `/api/tags` endpoint) which is out of scope for compile-time types.
 
 ## MCP servers
@@ -114,7 +114,7 @@ mcp('unknown-server:tool')      // red line: 'unknown-server' not in registry
 **What this does NOT cover:**
 
 - Tool-level validation. The registry constrains the server name prefix, not the tool name after `:`. `mcp('github:nonexistent_tool')` compiles fine and only fails when the MCP server is called. Knowing which tools a server exposes requires pinging the server and reading its tool list at dev-time.
-- Syncing with `mcpPlugin({ clients: { ... } })` config. Same drift risk as LLM providers above.
+- Syncing with the `mcp: { clients: { ... } }` key in `craft.config.ts`. Same drift risk as LLM providers above.
 
 ## Putting it together
 
@@ -152,8 +152,10 @@ declare module '@routecraft/ai' {
 
 <QuickLinks>
 
-<QuickLink title="direct adapter" icon="presets" href="/docs/reference/adapters/direct" description="The direct adapter whose endpoints DirectEndpointRegistry constrains." />
+<QuickLink title="direct" icon="presets" href="/docs/reference/adapters/direct" description="The adapter whose endpoints DirectEndpointRegistry constrains." />
 
-<QuickLink title="Composing Capabilities" icon="presets" href="/docs/advanced/composing-capabilities" description="Build modular systems with direct() and reusable capability chains." />
+<QuickLink title="llm" icon="presets" href="/docs/reference/adapters/llm" description="The adapter whose provider prefix LlmProviderRegistry constrains." />
+
+<QuickLink title="mcp" icon="presets" href="/docs/reference/adapters/mcp" description="The adapter whose server prefix McpServerRegistry constrains." />
 
 </QuickLinks>

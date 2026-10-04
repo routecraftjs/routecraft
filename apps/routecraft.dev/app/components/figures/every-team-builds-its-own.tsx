@@ -5,6 +5,7 @@ import {
   Conclusion,
   Eyebrow,
   FigureCanvas,
+  MONO,
   StoreMark,
 } from '@/components/figures/primitives'
 import type { FigurePalette } from '@/components/figures/palette'
@@ -17,7 +18,6 @@ import type {
 const WIDTH = 1600
 const HEIGHT = 1000
 
-const MONO = 'var(--font-mono)'
 const SANS = 'var(--font-sans)'
 
 /** Pins a board child at a fixed spot on the canvas. */
