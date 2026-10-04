@@ -1,5 +1,14 @@
 # @routecraft/cli
 
+## 0.7.2
+
+### Patch Changes
+
+- [#858](https://github.com/routecraftjs/routecraft/pull/858) [`747f312`](https://github.com/routecraftjs/routecraft/commit/747f312a9d1cd8dfa4d16393476d38901cc8828c) Thanks [@ex0b1t](https://github.com/ex0b1t)! - `craft acp`, `craft exec` and `craft ops` take `--project <dir>`, which reads the profile from that project's `.routecraft/settings.yaml` instead of the working directory's. An editor starts `craft acp` from whichever project it has open, so a profile kept in the harness's own settings file was found only from the harness's window; naming the project makes one editor entry work from every window without copying its token into the global settings file. A path that is not a directory exits `2` naming it.
+
+- Updated dependencies []:
+  - @routecraft/routecraft@0.7.2
+
 ## 0.7.1
 
 ### Patch Changes

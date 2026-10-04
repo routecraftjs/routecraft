@@ -1,5 +1,17 @@
 # @routecraft/ai
 
+## 0.7.2
+
+### Patch Changes
+
+- [#858](https://github.com/routecraftjs/routecraft/pull/858) [`747f312`](https://github.com/routecraftjs/routecraft/commit/747f312a9d1cd8dfa4d16393476d38901cc8828c) Thanks [@ex0b1t](https://github.com/ex0b1t)! - An instance holding several agents and no `acpPlugin({ agent })` default now tells the editor user to choose one with `craft acp --agent <name>`. The refusal used to point at an `agent` config option the editor protocol mount does not offer.
+
+- [#858](https://github.com/routecraftjs/routecraft/pull/858) [`747f312`](https://github.com/routecraftjs/routecraft/commit/747f312a9d1cd8dfa4d16393476d38901cc8828c) Thanks [@ex0b1t](https://github.com/ex0b1t)! - An `mcp()` source started without the MCP plugin now fails with `RC5003` and names both setups (the `mcp: {}` key in `craft.config.ts`, or `mcpPlugin()` on a context you build yourself), instead of an uncoded error pointing at `plugins: [mcpPlugin()]`.
+
+- [#858](https://github.com/routecraftjs/routecraft/pull/858) [`747f312`](https://github.com/routecraftjs/routecraft/commit/747f312a9d1cd8dfa4d16393476d38901cc8828c) Thanks [@ex0b1t](https://github.com/ex0b1t)! - A scaffolded project is agent-connected from the first run. Its `greet` capability stands behind `mcp()` as well as `direct()`, `craft.config.ts` serves MCP over stdio, `@routecraft/ai` and `@modelcontextprotocol/server` (`^2.0.0`) are dependencies, and the README shows how Claude Code, Cursor and VS Code connect to it and call the tool. `bun run start` still logs the greeting, and the capability's test mocks the `mcp()` source so it starts no transport.
+
+  `@routecraft/ai`'s peer range on `@routecraft/routecraft` is now `>=0.7.2-0 <1.0.0`, so `@routecraft/ai` 0.7.2 needs core 0.7.2 or later.
+
 ## 0.7.1
 
 ### Patch Changes
