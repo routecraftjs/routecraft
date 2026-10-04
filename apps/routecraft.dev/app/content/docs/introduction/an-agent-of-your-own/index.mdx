@@ -46,7 +46,7 @@ command:   /path/to/my-agent/node_modules/.bin/craft
 arguments: acp --project /path/to/my-agent --profile editor
 ```
 
-Register them in an editor that speaks ACP (Zed, JetBrains), and hold the conversation without leaving it. Both paths are absolute because the editor starts the command from whichever project it has open: `--project` names the harness folder whose `.routecraft/settings.yaml` holds the `editor` profile, so the entry works from any window. Through that conversation the agent reads, edits, searches and runs things in the project you have open, using the editor's own files and terminal, through nine capabilities under `capabilities/editor/` with their guardrails in the open. [Talk from your editor](/docs/introduction/talk-from-your-editor) has every editor and what a conversation carries.
+Register them in an editor that speaks ACP (Zed, JetBrains), and hold the conversation without leaving it. Both paths are absolute because the editor starts the command from whichever project it has open: `--project` names the harness folder whose `.routecraft/settings.yaml` holds the `editor` profile, so the entry works from any window. Through that conversation the agent reads, edits, searches and runs things in the project you have open, using the editor's own files and terminal. It does that with eight capabilities and the permission prompt they ask through, one folder each under `capabilities/editor/`, with their guardrails in the open. [Talk from your editor](/docs/introduction/talk-from-your-editor) has every editor and what a conversation carries.
 
 `craft acp` is a pipe and nothing else: it appends `/acp` to the profile's URL, sends the token and the agent name, and forwards every message. It never starts the harness, which is what lets one editor entry reach your laptop today and a team harness tomorrow by changing a profile.
 
@@ -62,20 +62,22 @@ The same harness serves MCP at `http://localhost:8081/mcp`, presenting the same 
 - **Teach it a job.** Add a skill under `skills/`: markdown the agent loads for one kind of work, shipped as a package when another team should have it.
 - **Let it start on its own.** A `cron()` capability that wakes the agent, with `.defer()` where it must ask you first.
 
-[Project structure](/docs/introduction/project-structure) shows where agents, skills and capabilities live; [Durable agents](/docs/advanced/durable-agents) shows how a conversation survives a restart and a decision that takes days.
+[Project structure](/docs/introduction/project-structure) shows where agents, skills and capabilities live. A conversation survives a restart because it is an [agent session](/docs/reference/adapters/agent#sessions-an-agent-that-remembers), a record in the harness's store rather than a process; a run that waits days for your decision is a [durable agent](/docs/advanced/durable-agents).
 
-## 6. What comes next
+## 6. Promote what earns its place
 
-This harness stays yours: a personal agent on your own access. When a capability you built in it has earned its place, promote the capability, not the harness: it moves to the team harness, always on, on service credentials, and every team reaches it through the doors. [Local harness, team harness](/docs/introduction/local-and-team-harness) is the step.
+This harness stays yours: a personal agent on your own access. When a capability you built in it has earned its place, promote the capability, not the harness: it moves to the team harness, always on, on service credentials, and every team reaches it through the doors.
+
+---
+
+## Where to go next
 
 <QuickLinks>
 
-<QuickLink title="Tools for agents" icon="presets" href="/docs/introduction/tools-for-agents" description="The other first project: one capability, called by the agent you already use." />
-
-<QuickLink title="Agents and skills" icon="presets" href="/docs/introduction/agents-and-skills" description="The pieces of an agent one at a time: a model, tools, a skill, and a capability that calls it." />
+<QuickLink title="Local harness, team harness" icon="presets" href="/docs/introduction/local-and-team-harness" description="One codebase in two places, and what changes when a capability is promoted to the team harness." />
 
 <QuickLink title="Talk from your editor" icon="plugins" href="/docs/introduction/talk-from-your-editor" description="Editor configuration, and what a conversation carries once it is open." />
 
-<QuickLink title="Judging agent results" icon="plugins" href="/docs/advanced/judging-agent-results" description="Screen what an agent produces before it reaches a person or a system." />
+<QuickLink title="Connecting harnesses" icon="installation" href="/docs/advanced/connecting-harnesses" description="Call the team harness's capabilities from your own, with the team's credentials staying on its side." />
 
 </QuickLinks>

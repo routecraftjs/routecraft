@@ -18,25 +18,27 @@ A plugin is code that runs once when the context starts, before any capabilities
 
 ## Writing a plugin
 
-A plugin is a function that receives the context:
+A plugin is an object with an `apply(context)` method, and a `name` that shows up in logs and `plugin:*` events:
 
 ```ts
 // plugins/logger.ts
-import { type CraftContext } from '@routecraft/routecraft'
+import { type CraftContext, type CraftPlugin } from '@routecraft/routecraft'
 
-export default function loggerPlugin(context: CraftContext) {
-  context.on('route:started', ({ details: { route } }) => {
-    context.logger.info(`Started: ${route.definition.id}`)
-  })
+export default {
+  name: 'logger',
+  apply(context: CraftContext) {
+    context.on('route:started', ({ details: { route } }) => {
+      context.logger.info(`Started: ${route.definition.id}`)
+    })
 
-  context.on('context:error', ({ details: { error } }) => {
-    context.logger.error(error, 'Context error')
-  })
-}
+    context.on('context:error', ({ details: { error } }) => {
+      context.logger.error(error, 'Context error')
+    })
+  },
+} satisfies CraftPlugin
 ```
 
-Or as an object, which is what you need when the plugin has more than one
-lifecycle phase. The phases are `apply`, `start` and `teardown`:
+A plugin that holds something with a lifetime uses the other two phases, `start` and `teardown`:
 
 ```ts
 // plugins/metrics.ts
@@ -113,7 +115,7 @@ export const craftConfig: CraftConfig = {
 
 Every `cron()` source and `llm()` destination in the context inherits those defaults unless overridden per-adapter. This keeps shared configuration out of every capability file.
 
-For the full pattern -- how merged options work, which adapters support them, and how to add support to a custom adapter -- see the [Merged Options guide](/docs/advanced/merged-options).
+For the full pattern (how merged options work, which adapters support them, and how to add support to a custom adapter), see [Merged options](/docs/advanced/merged-options).
 
 ## Managing external services
 
@@ -150,17 +152,28 @@ Because plugins run before capabilities are registered, they can add capabilitie
 
 ```ts
 // plugins/admin.ts
-export default function adminPlugin(context: CraftContext) {
-  if (process.env.ENABLE_ADMIN === 'true') {
-    context.registerRoutes(
-      craft()
-        .id('admin-health')
-        .from(simple({ ok: true }))
-        .to(log())
-        .build()[0]
-    )
-  }
-}
+import {
+  craft,
+  log,
+  simple,
+  type CraftContext,
+  type CraftPlugin,
+} from '@routecraft/routecraft'
+
+export default {
+  name: 'admin',
+  apply(context: CraftContext) {
+    if (process.env.ENABLE_ADMIN === 'true') {
+      context.registerRoutes(
+        craft()
+          .id('admin-health')
+          .from(simple({ ok: true }))
+          .to(log())
+          .build()[0],
+      )
+    }
+  },
+} satisfies CraftPlugin
 ```
 
 ---
@@ -169,8 +182,10 @@ export default function adminPlugin(context: CraftContext) {
 
 <QuickLinks>
 
-<QuickLink title="Plugins reference" icon="presets" href="/docs/reference/plugins" description="Full API for plugin interfaces and context methods." />
+<QuickLink title="Monitoring" icon="theming" href="/docs/introduction/monitoring" description="Logging, telemetry, and writing a custom monitoring plugin." />
 
-<QuickLink title="Monitoring" icon="theming" href="/docs/introduction/monitoring" description="Observability patterns built on plugins and events." />
+<QuickLink title="Merged options" icon="presets" href="/docs/advanced/merged-options" description="Set adapter defaults once and share them across the context." />
+
+<QuickLink title="Plugins" icon="presets" href="/docs/reference/plugins" description="The reference catalogue: every built-in plugin and its options." />
 
 </QuickLinks>

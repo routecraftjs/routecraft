@@ -3,10 +3,10 @@ title: Durable agents
 ---
 
 <Lead>
-An agent tool handler that cannot answer now defers the whole run through the core deferral store. The loop survives a process restart and continues, mid-conversation, when the resume arrives days later through any ingress.
+Some agent runs cannot finish without a person: a payout needs an approval, and the approver answers in three days, not three seconds. A durable agent stops at that point, survives restarts while it waits, and carries on mid-conversation when the answer arrives, from whichever door the answer comes through.
 </Lead>
 
-Deferral is a pipeline primitive, not an agent feature: the store, tokens, TTL, idempotency, and restart semantics are all [`.defer()` / `.resume()`](/docs/reference/operations/defer)'s, shared with plain capabilities. The agent tier contributes exactly one thing: what goes into the record's opaque `stepState` slot, which is the messages thread and outstanding tool-call id that a mid-loop agent is.
+The agent stops by deferring from a tool handler, and the whole run is stored in the same deferral store every capability uses. Deferral is a pipeline primitive, not an agent feature: the store, tokens, TTL, idempotency, and restart semantics are all [`.defer()` / `.resume()`](/docs/reference/operations/defer)'s, shared with plain capabilities, and so is the crash boundary: durability starts at a declared deferral, never mid-step. The agent tier contributes exactly one thing: what goes into the record's opaque `stepState` slot, which is the messages thread and outstanding tool-call id that a mid-loop agent is.
 
 One limit before the rest: an agent dispatched with a [session](/docs/reference/adapters/agent#sessions-an-agent-that-remembers) cannot defer. A session turn keeps its own transcript and delivers later messages through its inbox, so `ctx.defer()` inside one fails the turn rather than deferring it. Everything on this page is about the sessionless dispatch.
 
@@ -139,8 +139,22 @@ A cancelled run is terminal and honest about its spend: the abort signal (route 
 
 A tool whose route dispatches an agent may defer, so over MCP it answers a deferral with the acknowledgment instead of its output, and when the route declares `.output()` it advertises the `oneOf: [Output, Deferred]` union. The framework cannot rule deferral out statically for an agent-bearing route, so the union is advertised even if a given deployment never defers, and a client must handle the acknowledgment. The wire contract (the advertisement, the result shape, the protocol-revision envelope and the events) is the same for every deferrable tool and lives in the [`mcp()` adapter reference](/docs/reference/adapters/mcp).
 
+## Events
+
+`route:exchange:deferred`, `route:exchange:resumed` and `route:exchange:expired` fire for an agent's deferral exactly as for a route's; the agent tier adds no parallel event set.
+
+---
+
 ## Related
 
-- [`.defer()`](/docs/reference/operations/defer) and [`.resume()`](/docs/reference/operations/resume): the primitive this rides on, including the crash boundary (durability starts at a declared deferral, never mid-step).
-- [agentPlugin](/docs/reference/plugins/agentplugin): registering the fns whose handlers defer.
-- [Events](/docs/reference/events): `route:exchange:deferred` / `:resumed` / `:expired` fire for agent defers exactly as for route defers; the agent tier adds no parallel event set.
+<QuickLinks>
+
+<QuickLink title="defer" icon="presets" href="/docs/reference/operations/defer" description="The primitive an agent's deferral rides on: the store, tokens, TTL and the crash boundary." />
+
+<QuickLink title="resume" icon="presets" href="/docs/reference/operations/resume" description="Continue a deferred exchange, and decide who may resume it." />
+
+<QuickLink title="agentPlugin" icon="plugins" href="/docs/reference/plugins/agentplugin" description="Registering the functions whose handlers defer." />
+
+<QuickLink title="Events" icon="installation" href="/docs/reference/events" description="Every lifecycle and runtime event the context emits." />
+
+</QuickLinks>

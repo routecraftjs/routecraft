@@ -10,7 +10,7 @@ Deploy Routecraft on Bun for the CLI path, or embed it inside a Node application
 
 | Path | When | Runtime on host |
 |------|------|------|
-| **Bun CLI** | Capabilities are the whole app and `craft run` is the entry point. Default for projects scaffolded by `create-routecraft`. | Bun >= 1.1.0 |
+| **Bun CLI** | Capabilities are the whole app and `craft start` boots them. Default for projects scaffolded by `create-routecraft`. | Bun >= 1.1.0 |
 | **Node embedding** | Routecraft runs inside an existing Node service (Express, Next.js, Fastify, a worker). The CLI is not used. | Node >= 22.6 |
 
 The two paths can be mixed within the same project. See the [Runtime reference](/docs/reference/runtime) for the rationale.
@@ -87,16 +87,26 @@ The Node 23.6+ image enables type stripping by default; drop the flag in that ca
 
 See the [Programmatic invocation guide](/docs/advanced/programmatic-invocation) for the embedding API and runnable examples.
 
+## Hosting providers
+
+Each guide starts from the Docker image above and covers only what that host changes: how it builds the image, where the port and the state go, and how it checks health.
+
+<QuickLinks>
+
+<QuickLink title="DigitalOcean" icon="installation" href="/docs/introduction/deployment/digitalocean" description="App Platform from the scaffolded Dockerfile, or a Droplet when state has to survive a redeploy." />
+
+</QuickLinks>
+
 ---
 
 ## Related
 
 <QuickLinks>
 
-<QuickLink title="Runtime reference" icon="installation" href="/docs/reference/runtime" description="Bun-only CLI, Node embedding, version floors." />
+<QuickLink title="Runtime" icon="installation" href="/docs/reference/runtime" description="Why the CLI is Bun-only, and what changes when you embed in Node." />
 
-<QuickLink title="CLI reference" icon="installation" href="/docs/reference/cli" description="All craft CLI commands including run." />
+<QuickLink title="CLI" icon="installation" href="/docs/reference/cli" description="Every craft command and flag, including craft start." />
 
-<QuickLink title="Programmatic invocation" icon="plugins" href="/docs/advanced/programmatic-invocation" description="Embed Routecraft inside Node, Express, or Next.js." />
+<QuickLink title="Programmatic invocation" icon="plugins" href="/docs/advanced/programmatic-invocation" description="Embed Routecraft inside a Node service such as Express or Next.js." />
 
 </QuickLinks>

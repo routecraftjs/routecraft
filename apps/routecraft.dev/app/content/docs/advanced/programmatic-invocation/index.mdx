@@ -3,7 +3,7 @@ title: Programmatic invocation
 ---
 
 <Lead>
-Use `CraftClient` to dispatch messages into Routecraft routes from any external code -- CLI tools, HTTP handlers, background jobs, or application logic.
+Use `CraftClient` to dispatch messages into Routecraft routes from any external code: CLI tools, HTTP handlers, background jobs, or application logic.
 </Lead>
 
 ## When to embed instead of using the CLI
@@ -234,10 +234,12 @@ app.listen(3000);
 
 <QuickLinks>
 
-<QuickLink title="direct adapter" icon="presets" href="/docs/reference/adapters/direct" description="The direct() adapter that powers programmatic dispatch." />
+<QuickLink title="direct" icon="presets" href="/docs/reference/adapters/direct" description="The direct() source a client dispatches to." />
 
-<QuickLink title="CLI reference" icon="installation" href="/docs/reference/cli" description="craft run and other CLI commands." />
+<QuickLink title="Deployment" icon="installation" href="/docs/introduction/deployment#node-embedding-on-a-server" description="Run an embedded context on a server." />
 
-<QuickLink title="Configuration" icon="plugins" href="/docs/reference/configuration" description="ContextBuilder options and craftConfig." />
+<QuickLink title="Runtime" icon="presets" href="/docs/reference/runtime" description="Why the CLI needs Bun, and how Node embeds the library instead." />
+
+<QuickLink title="CLI" icon="installation" href="/docs/reference/cli" description="craft run, craft start and the other commands, when you do not need to embed." />
 
 </QuickLinks>

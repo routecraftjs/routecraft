@@ -46,13 +46,13 @@ A short glossary. Each one has its own page further in.
 - **Capability.** The unit of everything. A TypeScript route that connects a source to a destination through typed steps, with an id, a description and, when it declares one, an input schema that every call is validated against. A capability can be fully deterministic, or carry an agent inside it that reasons within the boundary the code sets. See [Capabilities](/docs/introduction/capabilities).
 - **Harness.** A running Routecraft instance together with its capabilities, skills and agents. A local harness runs on a laptop on personal access; the team harness runs always on, on service credentials. Both run the same code. See [Local harness, team harness](/docs/introduction/local-and-team-harness).
 - **Agent.** A model loop that works inside a capability with the tools you gave it, and only those. An agent can also live outside Routecraft, in Claude, Copilot, Cursor or ChatGPT, and reach your capabilities over MCP. Both are first class. See [Agents and skills](/docs/introduction/agents-and-skills).
-- **Skill.** Instructions in markdown that an agent loads to do one kind of job, shipped as a package beside the capabilities it uses. See [Project structure](/docs/introduction/project-structure#skills).
+- **Skill.** Instructions in markdown that an agent loads to do one kind of job, shipped as a package beside the capabilities it uses. See [Agents and skills](/docs/introduction/agents-and-skills#4-add-a-skill).
 - **Door.** How a caller reaches a capability when someone asks: MCP for agents, the Agent Client Protocol for editors, the CLI, and HTTP. One capability, every door, the same checks. See [Doors and triggers](/docs/introduction/doors-and-triggers).
 - **Trigger.** What starts a capability when nobody asks: a schedule, a webhook, an email, an event from another capability, a file. See [Doors and triggers](/docs/introduction/doors-and-triggers).
 - **Adapter.** A connector to the outside world. A source brings data in, a destination sends it out, and some do both. See the [adapter reference](/docs/reference/adapters).
 - **Operation.** A step inside a capability: `transform`, `filter`, `enrich`, `split`, `aggregate` and the rest. See [Operations](/docs/introduction/operations).
 - **Exchange.** The message that moves through a capability: a body and headers. See [The Exchange](/docs/introduction/exchange).
-- **Context.** The runtime that loads capabilities, starts them, stops them and runs one on demand. See the [CLI](/docs/reference/cli).
+- **Context.** The runtime that loads capabilities, starts them, stops them and runs one on demand. See [Programmatic invocation](/docs/advanced/programmatic-invocation).
 
 ## How a capability is built
 
@@ -120,12 +120,8 @@ Most teams have a prompt library and a repository of skills and agents. The jump
 
 <QuickLinks>
 
-<QuickLink title="Installation" icon="installation" href="/docs/introduction/installation" description="Scaffold a project and run your first capability." />
+<QuickLink title="Tools for agents" icon="installation" href="/docs/introduction/tools-for-agents" description="Scaffold a project and connect the agent you use today to a capability you own." />
 
-<QuickLink title="Capabilities" icon="plugins" href="/docs/introduction/capabilities" description="Author small, focused capabilities using the DSL." />
-
-<QuickLink title="Expose to an agent" icon="presets" href="/docs/introduction/expose-to-an-agent" description="Give Claude, Cursor or Copilot a capability to call." />
-
-<QuickLink title="Talk from your editor" icon="presets" href="/docs/introduction/talk-from-your-editor" description="Reach a running harness from the editor you already have open." />
+<QuickLink title="An agent of your own" icon="presets" href="/docs/introduction/an-agent-of-your-own" description="Scaffold craft-harness and open a conversation with it from your editor or terminal." />
 
 </QuickLinks>

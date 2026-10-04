@@ -394,254 +394,6 @@ A route-scope or step-scope `.concurrency()` bulkhead is at capacity and is fail
 - Handle it in `.error()` to shed load deliberately (for example, respond `503`).
 - Retryable: a slot frees as soon as in-flight work completes, so an enclosing `.retry()` (which sits outside the bulkhead) can back off and re-acquire one.
 
-## AI1001
-Agent block resolver failed
-
-**Why it happens**  
-A block's `value` resolver function threw, returned a non-string, or could not be invoked (no `CraftContext` available on the exchange). For `mode: "inject"` blocks this aborts the dispatch with `AI1001`; for `mode: "progressive"` blocks the same `AI1001` is reported back to the model as a tool error so it can self-correct.
-
-This also fires when `client.forward()` is invoked from a resolver running on an exchange with no bound route (typically synthetic exchanges in tests).
-
-**Suggestion**  
-- Return a string (or `Promise<string>`) from the resolver. Throwing inside an `inject` resolver hard-fails the agent dispatch, so handle expected errors and return a sensible fallback string.
-- For `progressive` resolvers, the model will see the error message and may retry; a descriptive message helps the model self-correct.
-- When using `client.forward()` in tests, dispatch the agent through a real route so the exchange has a route binding, or construct the exchange via `DefaultExchange` with a populated route context.
-
-## AI1002
-Agent block / tool name collision with the reserved `_block_` prefix
-
-**Why it happens**  
-A block name, or a user tool whose **final provider-facing name** starts with the framework-reserved `_block_` prefix used by synthetic block-loader tools. The reservation covers the whole `_block_` namespace, not just `_block__load__`, so future synthetic-tool kinds can land without another breaking reservation.
-
-In practice this means fn ids, because a fn id reaches the provider verbatim. Capabilities and MCP tools acquire a `direct__` / `mcp__` wire prefix during resolution, so a route or remote tool named `_block_thing` resolves to `direct___block_thing` and never enters the reserved namespace.
-
-Also fires on duplicate block keys, empty-string block keys, or any other block-name collision detected at construction or dispatch.
-
-**Suggestion**  
-- Rename the offending block, fn, or route. The `_block_` prefix is for framework use only.
-- For block keys, the `Blocks` record key is the block name; ensure it is a non-empty string and unique within the agent (defaults are merged in by name, with `false` removing).
-
-## AI1003
-Agent block misconfigured
-
-**Why it happens**  
-A block's shape is invalid at construction:
-- `mode` is not `"inject"` or `"progressive"`.
-- A `progressive`-mode block is missing the required `description`.
-- `value` is neither a string nor a function.
-- `lifetime` is set to a value other than `"dispatch"` or `"context"`.
-- The `skills({ source })` builder was called with a missing or empty `source`, an invalid `mode`, or an invalid `lifetime`.
-
-**Suggestion**  
-- Inject-mode blocks: `{ mode: "inject", value: <string | function> }`.
-- Progressive-mode blocks: `{ mode: "progressive", description: "...", value: <string | function> }`.
-- Use the `BlockMode` and `BlockLifetime` types exported from `@routecraft/ai` to catch typos at the type level.
-
-## AI1004
-Skills source could not be resolved
-
-**Why it happens**  
-A `skills:` ref in agent frontmatter did not resolve to a directory on disk:
-- A local ref (`./skills`, `../shared-skills`) named a path that does not exist relative to the agent file that declared it.
-- An `npm:` ref named a package that is not installed in the project.
-- An `npm:` ref resolved to an installed package, but neither the plain subpath nor the package's `skills/` root held the named folder.
-- An `npm:` ref used `../` segments that point outside the package root.
-
-**Suggestion**  
-- Local refs resolve against the agent file's own directory, not the project root. For an agent bundle that is the bundle folder.
-- Install the package the ref names; resolution reads `node_modules` only, with no network access at boot.
-- `npm:<pkg>/<subpath>` looks for `<root>/<subpath>` then `<root>/skills/<subpath>`; `npm:<pkg>` looks for `<root>/skills` then `<root>`. The error message lists the paths that were tried.
-
-## AI1005
-Agent run cancelled
-
-**Why it happens**  
-The dispatch's abort signal fired (a route stop, an elapsed `.timeout()`, or a [forced shutdown](/docs/reference/configuration#shutdown); a graceful shutdown drains the run instead of cancelling it) and the agent loop stopped cooperatively: between turns at the cheap checkpoint, or mid-turn when the signal reached the model call or a tool handler. The error's `cause` is an `AgentCancellationCause` with typed `turnsUsed` and `usage` fields (cache tokens included when the provider reports them), so cost accounting and traces read the spend structurally instead of parsing a message; a partial result never masquerades as a finished `AgentResult`.
-
-**Suggestion**  
-Cancellation is terminal: re-dispatch the work as a new exchange if it should run again. A run that deferred at a deferral BEFORE the abort survives independently; a run whose deferral raced the abort is refused or denied with [RC5054](#rc-5054), so no stale resume link is left behind.
-
-## AI1006
-Agent deferral unavailable on this surface
-
-**Why it happens**  
-`ctx.defer()` was called where no exchange can be durably deferred: a proxied MCP tool guard, a `testFn` dispatch, or an agent invoked over a synthetic exchange with no route binding. The refusal happens at the moment of the call, before anything could be written, so there is never a half-created record.
-
-**Suggestion**  
-Dispatch the agent through a route: its exchange is then route-bound, the hosting `.to()` / `.enrich()` step carries a revivable defer site, and `ctx.defer()` defers. If this surface genuinely cannot defer (an MCP proxy guard), drop the deferral from the handler; a guard's job is admission, not waiting.
-
-A [background tool](/docs/reference/plugins/agentplugin#background-tools) also reports this code when its downstream route returns a `Deferred` acknowledgment. In that case the downstream record already exists and stays pending; only background result delivery fails. Resolve the existing action through the application's approval flow instead of retrying it. The receipt's bearer token is withheld from the model and session inbox.
-
-## AI1007
-Agent deferral state invalid at rehydration
-
-**Why it happens**  
-A resumed exchange carried `stepState` this agent cannot re-enter. Either the persisted value is not the `{ agentId, messages, deferredToolCallId, turnsUsed }` record the runtime writes, the thread does not contain the deferred tool call the payload should land on, or the record names a different agent than the one the route now dispatches. That last case exists because a by-name agent's registered options are not covered by the continuation hash (only step definitions are), so the persisted `agentId` is the identity the record can pin.
-
-**Suggestion**  
-Restore the agent binding the record names, or treat the deferred work as lost and re-ask with a fresh deferral. The deferral was already claimed when this fired, so the failure is recorded as its terminal outcome and the deferred route's `.error()` handler receives it.
-
-## AI1008
-Deferred agent thread replacement refused
-
-**Why it happens**  
-A rewrite of a deferred run's message thread produced a thread the run could not be resumed from. Compaction is the caller this exists for: an agent defers at an approval, its conversation has outgrown the model's context window, and the only moment to shrink it is while the exchange is still deferred.
-
-Refused: an empty thread or an entry that is not a message, a tool call with no result (or a result with no call), a result placed before the call that produced it, a missing or empty `toolCallId`, an id used twice, and a thread that no longer contains the deferred call the approver's answer lands on. All but the last are what a summariser breaks by dropping or reordering a message it judged uninteresting; every provider rejects the thread that comes out. The last is the reason the guard runs before the store is written rather than after: a thread missing the deferred call is only discovered at revival, as [AI1007](#ai-1007), by which point the approval has been spent and the run cannot be recovered. AI1008 is the recoverable half of that pair. It is raised by `assertResumableThread` while the rewrite is still in hand, nothing has been persisted, and the deferred run resumes from the thread it already had.
-
-**Suggestion**  
-- Drop a tool call and its result together, never one of the pair.
-- Keep the deferred call in the thread; summarise around it.
-- Leave the thread alone if it cannot be shortened safely. An uncompacted run that resumes beats a compacted one that cannot.
-
-## AI1009
-Model context window exceeded
-
-**Why it happens**  
-The provider refused the request because the prompt does not fit the model's context window. It is separated from every other dispatch failure because it needs the opposite reaction: a transient provider failure is worth retrying with the same input, and this one can only ever fail again.
-
-Providers do not agree on how to say it. OpenAI-compatible endpoints carry a machine-readable `context_length_exceeded`; Anthropic, Google and the local runtimes only say it in prose, with no shared status code. The classifier reads the code where there is one and matches the known phrasings otherwise, deliberately narrowly: any other failure is rethrown untouched, with its own retryability intact.
-
-**Suggestion**  
-- Send less: compact the conversation, trim what the tool results in the thread carry, or drop older turns.
-- Move to a model with a larger window if the input genuinely cannot shrink.
-- Do not retry the same input. Nothing about it will fit on a second attempt.
-
-## AI1010
-Agent session record could not be read or written
-
-**Why it happens**  
-Every named agent session (`agent(name, { session })`) is one record in the deferral store, holding the transcript and the inbox. Either a stored record is not the shape the runtime writes (it was edited by hand, or two versions of `@routecraft/ai` share one store), or a write lost the compare-and-swap to another writer repeatedly, which takes a store under a load the in-process turn bound does not produce.
-
-**Suggestion**  
-- Inspect the record the message names; remove it to start that session over.
-- Check that one process, on one version of `@routecraft/ai`, owns the store.
-
-## AI1011
-A tool asked to defer an agent session turn
-
-**Why it happens**  
-A tool called `ctx.defer()` inside an agent dispatched with `session`. A session turn stores its transcript when it ends and is revived from the session record rather than from a deferred exchange, so there is no continuation an approval could resume into; the refusal lands in the tool, as a typed error the model reads, before anything is written.
-
-**Suggestion**  
-- Defer from a sessionless agent, where `ctx.defer()` defers the dispatch itself.
-- Move the approval into a route the agent calls as a tool, and let that route defer.
-
-## AI1012
-Agent session store failed
-
-**Why it happens**  
-The store that holds agent session records, chosen by [`sessions: { store }`](/docs/reference/configuration#sessions) and the SQLite file at `.routecraft/sessions.db` by default, could not be opened, migrated, read or written. An explicitly configured path that cannot be opened raises it at startup; the default path raises it on the first session written. A store that is busy under another writer answers it too, and that call can be retried.
-
-**Suggestion**  
-- Check the path and the permissions on its directory, and that one process at a time holds the file.
-- Under Node, install `better-sqlite3`; without it the unconfigured default falls back to memory with a warning rather than raising this code.
-- Set `sessions: { store: "memory" }` deliberately for a context whose conversations may die with the process.
-
-## AI1013
-No editor surface on this exchange
-
-**Why it happens**  
-A route called [`surface()`](/docs/reference/adapters/surface) on a turn that has no editor behind it. The adapter reaches the client that is running THIS turn, and the turn is a plain exchange: it came from a timer, an HTTP request, a test, or any other source. There is no ambient editor to fall back on, and inventing one would mean a route that asks for a decision silently continuing without an answer.
-
-**Suggestion**  
-- Guard the call and take another path when there is no editor: `.choice()` on `hasSurface(exchange)` is the shape, and the same route then works both from an editor and from a schedule.
-- Dispatch the route from a turn that has an editor attached, which is any turn started through [`acpPlugin()`](/docs/reference/plugins/acpplugin).
-
-## AI1014
-The editor surface disconnected mid-turn
-
-**Why it happens**  
-The turn started with an editor attached, and the connection was gone by the time the route called it, or went while the call was outstanding: the person closed the editor, the network dropped, or the process serving them exited. A call that was outstanding settles at once with this code, and any answer the person gave is lost with the connection. This is distinct from [AI1013](#ai-1013), where there never was one, because the fix is different.
-
-A turn revived from a stored continuation after a restart reaches the editor the same way: the surface reference survives in the stored exchange, the connection it names does not, and the framework never re-sends what was outstanding when the process died.
-
-**Suggestion**  
-- Treat it as a person who walked away: finish what can be finished without them, or fail and let them start it again.
-- There is nothing to retry against on this exchange. A reconnected editor is a new surface and a new turn, and the answer this route wanted belongs to the person, not to the socket.
-
-## AI1015
-The editor never advertised this capability
-
-**Why it happens**  
-The editor said at `initialize` which client methods it serves, and the route called one that was not among them. Reading a file through the editor needs `fs.readTextFile`; running something there needs `terminal`. An editor that does not offer a capability is not broken, and calling it anyway would hang or fail obscurely, so the refusal happens before the call is sent and names both the capability and the method.
-
-**Suggestion**  
-- Use an editor that offers the capability, or branch on it: the message names exactly what was missing.
-- This is configuration rather than a defect. A route written for one editor is being run from another.
-
-## AI1016
-The editor refused or failed the call
-
-**Why it happens**  
-The call reached the editor and came back as a JSON-RPC error, or the turn was cancelled. On a cancel, a call outstanding at that moment is cancelled at the editor and settles with this code, and a call the route makes afterwards is refused with it without being sent. The editor's own error is on this error's cause when there is one.
-
-A person declining a request arrives this way and is a normal outcome, not a fault: an approval prompt answered "no" is the system working.
-
-**Suggestion**  
-- Handle it with `.error()` and give the route a path for "the person said no".
-- Read the cause for what the editor actually reported; the framework does not interpret it.
-- Anything that must reach the editor after a cancel, a terminal to kill and release, is registered beforehand with [`surface.onCancel()`](/docs/reference/adapters/surface#when-the-turn-is-cancelled); the framework sends it after the turn has answered.
-
-## AI1017
-Session override not offered by the agent
-
-**Why it happens**  
-A conversation asked to run on a model or a thinking level its agent does not list. Whoever writes the agent decides what may be changed about it, and the default is that nothing can be: an agent file naming one `model:` offers no choice, and one listing several offers exactly those.
-
-Raised where the choice is written rather than where it would be used, so a stored conversation can never name a value the agent does not offer.
-
-**Suggestion**  
-- Add the value to the agent file's `model:` or `reasoning:` list if it should be on offer. Both accept one value or an ordered list, and the first entry is the default.
-- Check the caller is not sending a value it read from somewhere else; the message names the list the agent actually offers.
-
-## AI1018
-The editor's answer did not match the protocol
-
-**Why it happens**  
-`surface()` checks what the editor answers against the protocol's own schema for the method, before a route sees it, and this answer did not conform. The editor is a separate program on the person's machine, at whatever version of the protocol it implements, so a wrong shape is a defect or a version mismatch on the editor's side rather than in the route. The issues, one per field, are on the error's cause.
-
-A permission answer never raises this code. One that cannot be trusted, malformed or naming an option that was never offered, reaches the route as the protocol's `cancelled` outcome, because the message whose job is to say no fails closed rather than loudly. See [surface](/docs/reference/adapters/surface#what-the-editor-answers-is-checked).
-
-**Suggestion**  
-- Handle it with `.error()` the way the route handles a refusal; the person's editor cannot answer this call correctly, so there is nothing to retry.
-- Read the cause for the field that was wrong, and check the editor's protocol version against the `@agentclientprotocol/sdk` version the instance runs.
-
-## AI1019
-A surface update did not match the protocol
-
-**Why it happens**  
-`surface.notify()` checks the update a route built against the protocol's `session/update` schema before sending it, and this one did not conform. Nothing was sent: an update the editor would refuse or misrender is stopped where it was built. The issues are on the error's cause.
-
-**Suggestion**  
-- Fix the callback so it returns a shape the protocol defines: a `sessionUpdate` discriminator the protocol names, with the fields that go with it.
-- The shapes come from the SDK's types, so a value that typechecks and still fails here was built from data at runtime; validate that data before building the update from it.
-
-## AI2001
-MCP tool output violated its declared schema
-
-**Why it happens**  
-A route exposed with `.from(mcp())` declares `.output({ body })`, which the MCP server advertises as that tool's `outputSchema`, and the body it returned does not satisfy it. Clients parse `structuredContent` against the advertised schema, so the server refuses to publish the result and returns `isError: true` with the failing fields instead: each issue's path and the schema's message, never the error message.
-
-The route's own output validation reports a violation it catches as [RC5002](#rc-5002). `AI2001` is the same contract enforced at the boundary that advertised the schema, covering results that reached the server without passing through that validation: a tool registered directly in the local tool registry, rather than by a `.from(mcp())` route. A body the route already validated is not re-checked, because validation replaces the body with the schema's output and a transforming schema rejects its own output.
-
-**Suggestion**  
-- Fix the route so its result matches the declared shape, or widen `.output()` to describe what the route actually returns.
-- Drop the `.output()` declaration if the tool's result shape is genuinely open; nothing is advertised and nothing is checked.
-
-## AI2002
-MCP tool declined the request
-
-**Why it happens**  
-The route behind an MCP tool dropped the exchange instead of completing it: a `.filter()` rejected it, a `.choice()` matched no branch, or an error handler returned `recovery.drop()`. A dropped exchange resolves with the body it came in with, so there is no result to return and the request body is not one.
-
-This is the MCP-side equivalent of [RC5031](#rc-5031) on the direct and forward surfaces. The call comes back as `isError: true` saying the tool declined, and never as a successful result carrying the caller's own arguments back.
-
-**Suggestion**  
-- Give the route a branch that produces a result the caller can use (an empty list, an explicit not-found shape) if the caller should receive a value.
-- Recover with a body in `.error()` rather than dropping, when the drop is an error path.
-- Keep the drop if declining is genuinely correct for that input; the client sees an error result, which is the honest answer.
-
 ## RC5028
 Cache provider failed
 
@@ -1108,6 +860,254 @@ Unexpected failure without a specific code.
 **Suggestion**  
 Check logs and enable debug level.
 
+## AI1001
+Agent block resolver failed
+
+**Why it happens**  
+A block's `value` resolver function threw, returned a non-string, or could not be invoked (no `CraftContext` available on the exchange). For `mode: "inject"` blocks this aborts the dispatch with `AI1001`; for `mode: "progressive"` blocks the same `AI1001` is reported back to the model as a tool error so it can self-correct.
+
+This also fires when `client.forward()` is invoked from a resolver running on an exchange with no bound route (typically synthetic exchanges in tests).
+
+**Suggestion**  
+- Return a string (or `Promise<string>`) from the resolver. Throwing inside an `inject` resolver hard-fails the agent dispatch, so handle expected errors and return a sensible fallback string.
+- For `progressive` resolvers, the model will see the error message and may retry; a descriptive message helps the model self-correct.
+- When using `client.forward()` in tests, dispatch the agent through a real route so the exchange has a route binding, or construct the exchange via `DefaultExchange` with a populated route context.
+
+## AI1002
+Agent block / tool name collision with the reserved `_block_` prefix
+
+**Why it happens**  
+A block name, or a user tool whose **final provider-facing name** starts with the framework-reserved `_block_` prefix used by synthetic block-loader tools. The reservation covers the whole `_block_` namespace, not just `_block__load__`, so future synthetic-tool kinds can land without another breaking reservation.
+
+In practice this means fn ids, because a fn id reaches the provider verbatim. Capabilities and MCP tools acquire a `direct__` / `mcp__` wire prefix during resolution, so a route or remote tool named `_block_thing` resolves to `direct___block_thing` and never enters the reserved namespace.
+
+Also fires on duplicate block keys, empty-string block keys, or any other block-name collision detected at construction or dispatch.
+
+**Suggestion**  
+- Rename the offending block, fn, or route. The `_block_` prefix is for framework use only.
+- For block keys, the `Blocks` record key is the block name; ensure it is a non-empty string and unique within the agent (defaults are merged in by name, with `false` removing).
+
+## AI1003
+Agent block misconfigured
+
+**Why it happens**  
+A block's shape is invalid at construction:
+- `mode` is not `"inject"` or `"progressive"`.
+- A `progressive`-mode block is missing the required `description`.
+- `value` is neither a string nor a function.
+- `lifetime` is set to a value other than `"dispatch"` or `"context"`.
+- The `skills({ source })` builder was called with a missing or empty `source`, an invalid `mode`, or an invalid `lifetime`.
+
+**Suggestion**  
+- Inject-mode blocks: `{ mode: "inject", value: <string | function> }`.
+- Progressive-mode blocks: `{ mode: "progressive", description: "...", value: <string | function> }`.
+- Use the `BlockMode` and `BlockLifetime` types exported from `@routecraft/ai` to catch typos at the type level.
+
+## AI1004
+Skills source could not be resolved
+
+**Why it happens**  
+A `skills:` ref in agent frontmatter did not resolve to a directory on disk:
+- A local ref (`./skills`, `../shared-skills`) named a path that does not exist relative to the agent file that declared it.
+- An `npm:` ref named a package that is not installed in the project.
+- An `npm:` ref resolved to an installed package, but neither the plain subpath nor the package's `skills/` root held the named folder.
+- An `npm:` ref used `../` segments that point outside the package root.
+
+**Suggestion**  
+- Local refs resolve against the agent file's own directory, not the project root. For an agent bundle that is the bundle folder.
+- Install the package the ref names; resolution reads `node_modules` only, with no network access at boot.
+- `npm:<pkg>/<subpath>` looks for `<root>/<subpath>` then `<root>/skills/<subpath>`; `npm:<pkg>` looks for `<root>/skills` then `<root>`. The error message lists the paths that were tried.
+
+## AI1005
+Agent run cancelled
+
+**Why it happens**  
+The dispatch's abort signal fired (a route stop, an elapsed `.timeout()`, or a [forced shutdown](/docs/reference/configuration#shutdown); a graceful shutdown drains the run instead of cancelling it) and the agent loop stopped cooperatively: between turns at the cheap checkpoint, or mid-turn when the signal reached the model call or a tool handler. The error's `cause` is an `AgentCancellationCause` with typed `turnsUsed` and `usage` fields (cache tokens included when the provider reports them), so cost accounting and traces read the spend structurally instead of parsing a message; a partial result never masquerades as a finished `AgentResult`.
+
+**Suggestion**  
+Cancellation is terminal: re-dispatch the work as a new exchange if it should run again. A run that deferred at a deferral BEFORE the abort survives independently; a run whose deferral raced the abort is refused or denied with [RC5054](#rc-5054), so no stale resume link is left behind.
+
+## AI1006
+Agent deferral unavailable on this surface
+
+**Why it happens**  
+`ctx.defer()` was called where no exchange can be durably deferred: a proxied MCP tool guard, a `testFn` dispatch, or an agent invoked over a synthetic exchange with no route binding. The refusal happens at the moment of the call, before anything could be written, so there is never a half-created record.
+
+**Suggestion**  
+Dispatch the agent through a route: its exchange is then route-bound, the hosting `.to()` / `.enrich()` step carries a revivable defer site, and `ctx.defer()` defers. If this surface genuinely cannot defer (an MCP proxy guard), drop the deferral from the handler; a guard's job is admission, not waiting.
+
+A [background tool](/docs/reference/plugins/agentplugin#background-tools) also reports this code when its downstream route returns a `Deferred` acknowledgment. In that case the downstream record already exists and stays pending; only background result delivery fails. Resolve the existing action through the application's approval flow instead of retrying it. The receipt's bearer token is withheld from the model and session inbox.
+
+## AI1007
+Agent deferral state invalid at rehydration
+
+**Why it happens**  
+A resumed exchange carried `stepState` this agent cannot re-enter. Either the persisted value is not the `{ agentId, messages, deferredToolCallId, turnsUsed }` record the runtime writes, the thread does not contain the deferred tool call the payload should land on, or the record names a different agent than the one the route now dispatches. That last case exists because a by-name agent's registered options are not covered by the continuation hash (only step definitions are), so the persisted `agentId` is the identity the record can pin.
+
+**Suggestion**  
+Restore the agent binding the record names, or treat the deferred work as lost and re-ask with a fresh deferral. The deferral was already claimed when this fired, so the failure is recorded as its terminal outcome and the deferred route's `.error()` handler receives it.
+
+## AI1008
+Deferred agent thread replacement refused
+
+**Why it happens**  
+A rewrite of a deferred run's message thread produced a thread the run could not be resumed from. Compaction is the caller this exists for: an agent defers at an approval, its conversation has outgrown the model's context window, and the only moment to shrink it is while the exchange is still deferred.
+
+Refused: an empty thread or an entry that is not a message, a tool call with no result (or a result with no call), a result placed before the call that produced it, a missing or empty `toolCallId`, an id used twice, and a thread that no longer contains the deferred call the approver's answer lands on. All but the last are what a summariser breaks by dropping or reordering a message it judged uninteresting; every provider rejects the thread that comes out. The last is the reason the guard runs before the store is written rather than after: a thread missing the deferred call is only discovered at revival, as [AI1007](#ai-1007), by which point the approval has been spent and the run cannot be recovered. AI1008 is the recoverable half of that pair. It is raised by `assertResumableThread` while the rewrite is still in hand, nothing has been persisted, and the deferred run resumes from the thread it already had.
+
+**Suggestion**  
+- Drop a tool call and its result together, never one of the pair.
+- Keep the deferred call in the thread; summarise around it.
+- Leave the thread alone if it cannot be shortened safely. An uncompacted run that resumes beats a compacted one that cannot.
+
+## AI1009
+Model context window exceeded
+
+**Why it happens**  
+The provider refused the request because the prompt does not fit the model's context window. It is separated from every other dispatch failure because it needs the opposite reaction: a transient provider failure is worth retrying with the same input, and this one can only ever fail again.
+
+Providers do not agree on how to say it. OpenAI-compatible endpoints carry a machine-readable `context_length_exceeded`; Anthropic, Google and the local runtimes only say it in prose, with no shared status code. The classifier reads the code where there is one and matches the known phrasings otherwise, deliberately narrowly: any other failure is rethrown untouched, with its own retryability intact.
+
+**Suggestion**  
+- Send less: compact the conversation, trim what the tool results in the thread carry, or drop older turns.
+- Move to a model with a larger window if the input genuinely cannot shrink.
+- Do not retry the same input. Nothing about it will fit on a second attempt.
+
+## AI1010
+Agent session record could not be read or written
+
+**Why it happens**  
+Every named agent session (`agent(name, { session })`) is one record in the deferral store, holding the transcript and the inbox. Either a stored record is not the shape the runtime writes (it was edited by hand, or two versions of `@routecraft/ai` share one store), or a write lost the compare-and-swap to another writer repeatedly, which takes a store under a load the in-process turn bound does not produce.
+
+**Suggestion**  
+- Inspect the record the message names; remove it to start that session over.
+- Check that one process, on one version of `@routecraft/ai`, owns the store.
+
+## AI1011
+A tool asked to defer an agent session turn
+
+**Why it happens**  
+A tool called `ctx.defer()` inside an agent dispatched with `session`. A session turn stores its transcript when it ends and is revived from the session record rather than from a deferred exchange, so there is no continuation an approval could resume into; the refusal lands in the tool, as a typed error the model reads, before anything is written.
+
+**Suggestion**  
+- Defer from a sessionless agent, where `ctx.defer()` defers the dispatch itself.
+- Move the approval into a route the agent calls as a tool, and let that route defer.
+
+## AI1012
+Agent session store failed
+
+**Why it happens**  
+The store that holds agent session records, chosen by [`sessions: { store }`](/docs/reference/configuration#sessions) and the SQLite file at `.routecraft/sessions.db` by default, could not be opened, migrated, read or written. An explicitly configured path that cannot be opened raises it at startup; the default path raises it on the first session written. A store that is busy under another writer answers it too, and that call can be retried.
+
+**Suggestion**  
+- Check the path and the permissions on its directory, and that one process at a time holds the file.
+- Under Node, install `better-sqlite3`; without it the unconfigured default falls back to memory with a warning rather than raising this code.
+- Set `sessions: { store: "memory" }` deliberately for a context whose conversations may die with the process.
+
+## AI1013
+No editor surface on this exchange
+
+**Why it happens**  
+A route called [`surface()`](/docs/reference/adapters/surface) on a turn that has no editor behind it. The adapter reaches the client that is running THIS turn, and the turn is a plain exchange: it came from a timer, an HTTP request, a test, or any other source. There is no ambient editor to fall back on, and inventing one would mean a route that asks for a decision silently continuing without an answer.
+
+**Suggestion**  
+- Guard the call and take another path when there is no editor: `.choice()` on `hasSurface(exchange)` is the shape, and the same route then works both from an editor and from a schedule.
+- Dispatch the route from a turn that has an editor attached, which is any turn started through [`acpPlugin()`](/docs/reference/plugins/acpplugin).
+
+## AI1014
+The editor surface disconnected mid-turn
+
+**Why it happens**  
+The turn started with an editor attached, and the connection was gone by the time the route called it, or went while the call was outstanding: the person closed the editor, the network dropped, or the process serving them exited. A call that was outstanding settles at once with this code, and any answer the person gave is lost with the connection. This is distinct from [AI1013](#ai-1013), where there never was one, because the fix is different.
+
+A turn revived from a stored continuation after a restart reaches the editor the same way: the surface reference survives in the stored exchange, the connection it names does not, and the framework never re-sends what was outstanding when the process died.
+
+**Suggestion**  
+- Treat it as a person who walked away: finish what can be finished without them, or fail and let them start it again.
+- There is nothing to retry against on this exchange. A reconnected editor is a new surface and a new turn, and the answer this route wanted belongs to the person, not to the socket.
+
+## AI1015
+The editor never advertised this capability
+
+**Why it happens**  
+The editor said at `initialize` which client methods it serves, and the route called one that was not among them. Reading a file through the editor needs `fs.readTextFile`; running something there needs `terminal`. An editor that does not offer a capability is not broken, and calling it anyway would hang or fail obscurely, so the refusal happens before the call is sent and names both the capability and the method.
+
+**Suggestion**  
+- Use an editor that offers the capability, or branch on it: the message names exactly what was missing.
+- This is configuration rather than a defect. A route written for one editor is being run from another.
+
+## AI1016
+The editor refused or failed the call
+
+**Why it happens**  
+The call reached the editor and came back as a JSON-RPC error, or the turn was cancelled. On a cancel, a call outstanding at that moment is cancelled at the editor and settles with this code, and a call the route makes afterwards is refused with it without being sent. The editor's own error is on this error's cause when there is one.
+
+A person declining a request arrives this way and is a normal outcome, not a fault: an approval prompt answered "no" is the system working.
+
+**Suggestion**  
+- Handle it with `.error()` and give the route a path for "the person said no".
+- Read the cause for what the editor actually reported; the framework does not interpret it.
+- Anything that must reach the editor after a cancel, a terminal to kill and release, is registered beforehand with [`surface.onCancel()`](/docs/reference/adapters/surface#when-the-turn-is-cancelled); the framework sends it after the turn has answered.
+
+## AI1017
+Session override not offered by the agent
+
+**Why it happens**  
+A conversation asked to run on a model or a thinking level its agent does not list. Whoever writes the agent decides what may be changed about it, and the default is that nothing can be: an agent file naming one `model:` offers no choice, and one listing several offers exactly those.
+
+Raised where the choice is written rather than where it would be used, so a stored conversation can never name a value the agent does not offer.
+
+**Suggestion**  
+- Add the value to the agent file's `model:` or `reasoning:` list if it should be on offer. Both accept one value or an ordered list, and the first entry is the default.
+- Check the caller is not sending a value it read from somewhere else; the message names the list the agent actually offers.
+
+## AI1018
+The editor's answer did not match the protocol
+
+**Why it happens**  
+`surface()` checks what the editor answers against the protocol's own schema for the method, before a route sees it, and this answer did not conform. The editor is a separate program on the person's machine, at whatever version of the protocol it implements, so a wrong shape is a defect or a version mismatch on the editor's side rather than in the route. The issues, one per field, are on the error's cause.
+
+A permission answer never raises this code. One that cannot be trusted, malformed or naming an option that was never offered, reaches the route as the protocol's `cancelled` outcome, because the message whose job is to say no fails closed rather than loudly. See [surface](/docs/reference/adapters/surface#what-the-editor-answers-is-checked).
+
+**Suggestion**  
+- Handle it with `.error()` the way the route handles a refusal; the person's editor cannot answer this call correctly, so there is nothing to retry.
+- Read the cause for the field that was wrong, and check the editor's protocol version against the `@agentclientprotocol/sdk` version the instance runs.
+
+## AI1019
+A surface update did not match the protocol
+
+**Why it happens**  
+`surface.notify()` checks the update a route built against the protocol's `session/update` schema before sending it, and this one did not conform. Nothing was sent: an update the editor would refuse or misrender is stopped where it was built. The issues are on the error's cause.
+
+**Suggestion**  
+- Fix the callback so it returns a shape the protocol defines: a `sessionUpdate` discriminator the protocol names, with the fields that go with it.
+- The shapes come from the SDK's types, so a value that typechecks and still fails here was built from data at runtime; validate that data before building the update from it.
+
+## AI2001
+MCP tool output violated its declared schema
+
+**Why it happens**  
+A route exposed with `.from(mcp())` declares `.output({ body })`, which the MCP server advertises as that tool's `outputSchema`, and the body it returned does not satisfy it. Clients parse `structuredContent` against the advertised schema, so the server refuses to publish the result and returns `isError: true` with the failing fields instead: each issue's path and the schema's message, never the error message.
+
+The route's own output validation reports a violation it catches as [RC5002](#rc-5002). `AI2001` is the same contract enforced at the boundary that advertised the schema, covering results that reached the server without passing through that validation: a tool registered directly in the local tool registry, rather than by a `.from(mcp())` route. A body the route already validated is not re-checked, because validation replaces the body with the schema's output and a transforming schema rejects its own output.
+
+**Suggestion**  
+- Fix the route so its result matches the declared shape, or widen `.output()` to describe what the route actually returns.
+- Drop the `.output()` declaration if the tool's result shape is genuinely open; nothing is advertised and nothing is checked.
+
+## AI2002
+MCP tool declined the request
+
+**Why it happens**  
+The route behind an MCP tool dropped the exchange instead of completing it: a `.filter()` rejected it, a `.choice()` matched no branch, or an error handler returned `recovery.drop()`. A dropped exchange resolves with the body it came in with, so there is no result to return and the request body is not one.
+
+This is the MCP-side equivalent of [RC5031](#rc-5031) on the direct and forward surfaces. The call comes back as `isError: true` saying the tool declined, and never as a successful result carrying the caller's own arguments back.
+
+**Suggestion**  
+- Give the route a branch that produces a result the caller can use (an empty list, an explicit not-found shape) if the caller should receive a value.
+- Recover with a body in `.error()` rather than dropping, when the drop is an error path.
+- Keep the drop if declining is genuinely correct for that input; the client sees an error result, which is the honest answer.
+
 ## OS1001
 Isolation tier unavailable
 
@@ -1156,3 +1156,17 @@ The usual case is `isolation: "none"` with egress left denied. `network` default
 - Or choose a tier that can deny it, which on Linux is `unshare`, and anywhere a daemon answers is `docker`.
 - The same applies to `mapRootUser` on a tier with no user namespace: drop it, or pick a tier that has one.
 - For a container option, write `isolation: "docker"` beside it, or drop it.
+
+---
+
+## Related
+
+<QuickLinks>
+
+<QuickLink title="Error handling" icon="warning" href="/docs/advanced/error-handling" description="Catch a failing step and recover with .error(), at route or step scope." />
+
+<QuickLink title="Filter chain" icon="presets" href="/docs/advanced/filter-chain" description="Where .error(), .retry() and the other wrappers sit around a capability, and in which order they run." />
+
+<QuickLink title="retry" icon="plugins" href="/docs/reference/operations/retry" description="Retry a failing step with backoff; the Retry column above is its default classification." />
+
+</QuickLinks>

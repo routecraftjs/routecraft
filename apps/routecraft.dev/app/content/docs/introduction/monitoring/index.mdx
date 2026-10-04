@@ -27,79 +27,51 @@ Each log entry includes `contextId`, `routeId`, `exchangeId`, and `correlationId
 To set the log level, pass `--log-level` to the CLI:
 
 ```bash
-craft start ./my-project --log-level debug
-craft run --log-level debug ./capabilities/orders.ts
+craft start --log-level debug
 ```
 
-## Subscribing to events
+## Events to alarm on
 
-Use the `on` property in `craft.config.ts` to react to lifecycle and error events without writing a plugin:
+The runtime emits an event for everything that happens inside it. Three of them are the ones an operator watches:
 
-```ts skip="fragment: alerts is illustrative"
-// craft.config.ts
-import type { CraftConfig } from '@routecraft/routecraft'
+| Event | Fires when |
+| --- | --- |
+| `context:error` | A plugin or capability failed to start, the config was refused, or an exchange failed with no `.error()` handler left to catch it. The catch-all. |
+| `route:source:failed` | A source gave up producing, for example a mail connection that exhausted its reconnects. The capability is about to stop. |
+| `route:exchange:failed` | One exchange ended in an unrecoverable error. Carries `routeId`, `exchangeId`, `duration` and the `error`. |
 
-export const craftConfig: CraftConfig = {
-  on: {
-    'context:started': ({ ts }) => {
-      console.log(`Ready at ${ts}`)
-    },
-    'error': ({ details: { error, route } }) => {
-      console.error(`Error in ${route?.definition.id ?? 'context'}`, error)
-    },
-    'route:exchange:failed': ({ details: { routeId, error } }) => {
-      alerts.send(routeId, error)
-    },
-  },
-}
-```
+A plugin that forwards them to your alerting is a file in `plugins/`, which `craft start` loads on its own:
 
-For the full event catalog see the [Events reference](/docs/reference/events).
-
-## Writing a custom monitoring plugin
-
-If event subscriptions in `craft.config.ts` become unwieldy, extract them into a plugin so they can be reused across projects:
-
-```ts skip="fragment: metrics, alerts are illustrative"
+```ts
 // plugins/monitoring.ts
-import { type CraftContext } from '@routecraft/routecraft'
+import type { CraftContext, CraftPlugin } from '@routecraft/routecraft'
 
-export default function monitoring(ctx: CraftContext) {
-  ctx.on('route:started', ({ details: { route } }) => {
-    metrics.increment('route.started', { route: route.definition.id })
-  })
-
-  ctx.on('error', ({ details: { error, route } }) => {
-    alerts.send({
-      route: route?.definition.id,
-      code: error?.code,
-      message: error?.message,
+export default {
+  name: 'monitoring',
+  apply(ctx: CraftContext) {
+    ctx.on('context:error', ({ details: { error, route } }) => {
+      ctx.logger.error({ err: error, routeId: route?.definition.id }, 'Context error')
     })
-  })
-
-  ctx.on('context:stopped', () => {
-    metrics.flush()
-  })
-}
+    ctx.on('route:source:failed', ({ details: { routeId, error } }) => {
+      ctx.logger.error({ err: error, routeId }, 'Source stopped')
+    })
+    ctx.on('route:exchange:failed', ({ details: { routeId, exchangeId, error } }) => {
+      ctx.logger.error({ err: error, routeId, exchangeId }, 'Exchange failed')
+    })
+  },
+} satisfies CraftPlugin
 ```
 
-Then register it in `craft.config.ts`:
-
-```ts skip="multi-file: imports a sibling file the page describes in prose"
-import monitoring from './plugins/monitoring'
-import type { CraftConfig } from '@routecraft/routecraft'
-
-export const craftConfig: CraftConfig = {
-  plugins: [monitoring],
-}
-```
+[Events](/docs/advanced/events) covers subscribing from `craft.config.ts` without a plugin, and the [Events reference](/docs/reference/events) lists every event with its payload. [Plugins](/docs/advanced/plugins) covers the plugin lifecycle.
 
 ## Health endpoints
 
 Logs and events tell you what happened. An orchestrator needs a different thing: an answer, right now, to whether this instance should be restarted, sent traffic, or paged about. That is the [ops plugin](/docs/reference/plugins/opsplugin).
 
 ```ts
-defineConfig({
+import { defineConfig } from '@routecraft/routecraft'
+
+export const craftConfig = defineConfig({
   servers: { ops: { host: '0.0.0.0', port: 9090 } },
   ops: { server: 'ops' },
 })
@@ -123,46 +95,50 @@ An exchange error never changes a **route's** status. A refused caller or a vali
 
 Indicators are the deliberate exception: an [indicator](/docs/reference/plugins/opsplugin#define-indicator) bound to a probe route reports `down` when that route's exchange fails, because for a probe the exchange *is* the check. Bind probe routes only, never business routes, or every expected refusal would report the dependency down.
 
-## Telemetry plugin
+## Telemetry
 
-The built-in `telemetry()` plugin instruments the framework with [OpenTelemetry](https://opentelemetry.io/) traces and persists data to a local SQLite database for `craft tui`.
+The `telemetry` config key instruments the framework with [OpenTelemetry](https://opentelemetry.io/) traces and persists data to a local SQLite database for `craft tui`.
 
 ```ts
-import { telemetry } from '@routecraft/routecraft'
+import { defineConfig } from '@routecraft/routecraft'
 
-export const craftConfig = {
-  plugins: [telemetry()],
-}
+export const craftConfig = defineConfig({
+  telemetry: {},
+})
 ```
 
-The database is written to `.routecraft/telemetry.db` in the current working directory. The SQLite sink uses Bun's built-in [`bun:sqlite`](https://bun.com/docs/api/sqlite) under Bun and the optional peer `better-sqlite3` under Node. On Node without that peer, the sink disables itself with a warn log and only the OTel external path runs; configure `telemetry({ tracerProvider })` with an OTLP exporter for production telemetry.
+The database is written to `.routecraft/telemetry.db` in the current working directory. The SQLite sink uses Bun's built-in [`bun:sqlite`](https://bun.com/docs/api/sqlite) under Bun and the optional peer `better-sqlite3` under Node. On Node without that peer, the sink disables itself with a warn log and only the OpenTelemetry path runs; configure a `tracerProvider` with an OTLP exporter for production telemetry.
 
 ### Configuration
 
 ```ts
-telemetry({
-  sqlite: {
-    dbPath: './logs/telemetry.db',  // custom path (default .routecraft/telemetry.db)
-    eventBatchSize: 100,            // events buffered before flush (default 50)
-    eventFlushInterval: 2000,     // max time between flushes (default 1000)
-    maxExchanges: 50_000,           // rows to retain (default 50000, 0 to disable)
-    maxEvents: 100_000,             // rows to retain (default 100000, 0 to disable)
+import { defineConfig } from '@routecraft/routecraft'
+
+export const craftConfig = defineConfig({
+  telemetry: {
+    sqlite: {
+      dbPath: './logs/telemetry.db', // custom path (default .routecraft/telemetry.db)
+      eventBatchSize: 100,           // events buffered before flush (default 50)
+      eventFlushInterval: 2000,      // max time between flushes (default 1000)
+      maxExchanges: 50_000,          // rows to retain (default 50000, 0 to disable)
+      maxEvents: 100_000,            // rows to retain (default 100000, 0 to disable)
+    },
   },
 })
 ```
 
 ### Exporting traces to an external provider
 
-Because the telemetry plugin uses OpenTelemetry, you can export traces to any OTel-compatible backend alongside the local SQLite database. Install the OTel SDK and an OTLP exporter:
+Because telemetry uses OpenTelemetry, you can export traces to any OTel-compatible backend alongside the local SQLite database. Install the OTel SDK and an OTLP exporter:
 
 ```bash
 bun add @opentelemetry/sdk-trace-base @opentelemetry/exporter-trace-otlp-http
 ```
 
-Then configure a `TracerProvider` and pass it to `telemetry()`. Here is an example using [Better Stack](https://betterstack.com/):
+Then configure a `TracerProvider` and pass it as `tracerProvider`. Here is an example using [Better Stack](https://betterstack.com/):
 
 ```ts skip="third-party: @opentelemetry/sdk-trace-base is not a dependency of the docs site"
-import { telemetry } from '@routecraft/routecraft'
+import { defineConfig } from '@routecraft/routecraft'
 import { BasicTracerProvider, BatchSpanProcessor } from '@opentelemetry/sdk-trace-base'
 import { OTLPTraceExporter } from '@opentelemetry/exporter-trace-otlp-http'
 
@@ -177,9 +153,9 @@ tracerProvider.addSpanProcessor(
 )
 tracerProvider.register()
 
-export const craftConfig = {
-  plugins: [telemetry({ tracerProvider })],
-}
+export const craftConfig = defineConfig({
+  telemetry: { tracerProvider },
+})
 ```
 
 This sends OTel traces to Better Stack while keeping the local SQLite database for the TUI. The same pattern works with Grafana Tempo, Datadog, Jaeger, or any backend that accepts OTLP. Just change the exporter URL and headers.
@@ -187,12 +163,12 @@ This sends OTel traces to Better Stack while keeping the local SQLite database f
 To disable the SQLite backend entirely (external only):
 
 ```ts skip="fragment: tracerProvider is illustrative"
-telemetry({ tracerProvider, disableSqlite: true })
+defineConfig({ telemetry: { tracerProvider, disableSqlite: true } })
 ```
 
 ### What gets traced
 
-The plugin creates OTel spans for:
+Telemetry creates OTel spans for:
 
 - **Route lifecycle**: registration, start, stop (long-lived spans)
 - **Exchange lifecycle**: start, complete, fail, drop (per-message spans with duration)
@@ -202,7 +178,7 @@ Span attributes use the `routecraft.*` namespace (`routecraft.route.id`, `routec
 
 ### Terminal UI
 
-Once the plugin is active, launch the terminal UI in a separate terminal to browse routes, exchanges, and the live event stream:
+Once telemetry is on, launch the terminal UI in a separate terminal to browse routes, exchanges, and the live event stream:
 
 ```bash
 craft tui
@@ -216,9 +192,9 @@ See the [Terminal UI guide](/docs/advanced/tui) for navigation and options.
 
 <QuickLinks>
 
-<QuickLink title="Events reference" icon="presets" href="/docs/reference/events" description="Full event catalog with payload shapes and identity fields." />
+<QuickLink title="Events" icon="presets" href="/docs/advanced/events" description="Subscribe to runtime events from craft.config.ts or a plugin, and filter them by identity." />
 
-<QuickLink title="Plugins" icon="plugins" href="/docs/advanced/plugins" description="How to write and register plugins." />
+<QuickLink title="Plugins" icon="plugins" href="/docs/advanced/plugins" description="Write and register plugins, and the lifecycle phases they run in." />
 
 <QuickLink title="Terminal UI" icon="installation" href="/docs/advanced/tui" description="Browse routes, exchanges, and live events from the terminal." />
 

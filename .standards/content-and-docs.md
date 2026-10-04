@@ -20,10 +20,10 @@ default setup in `introduction/`, the options added later in `advanced/`, every 
 The sidebar labels the two groups **Fundamentals** and **Beyond the defaults**. The folder
 names stay `introduction/` and `advanced/`, because renaming them would move every published
 URL under them; the labels name the same surfaces, which is what navigation-matches-folders
-requires. The Getting started group is the exception: the overview, the quickstarts and
-installation live in `introduction/` because they are the first pages of that surface, not a
-surface of their own. The Releases group pairs `migrating/` with the changelog, which lives outside
-`docs/` but answers the same question: what changed and how to upgrade.
+requires. Two groups are exceptions. Getting started holds the overview, the quickstarts and
+installation, which live in `introduction/` because they are the first pages of that surface,
+not a surface of their own. Releases holds `migrating/` beside the changelog, which lives
+outside `docs/` but answers the same question: what changed and how to upgrade.
 
 | Surface | Home | Sidebar | Job | Maintained | Vendor-specific |
 |---|---|---|---|---|---|
@@ -40,6 +40,10 @@ surface of their own. The Releases group pairs `migrating/` with the changelog, 
 2. **Maintained-forever and generic?** It is docs. **Dated or vendor-named?** It is a blog
    post. A vendor walkthrough (Clerk, Stripe, WorkOS) is always a blog post, never an
    `advanced/` page; the `advanced/` page is the vendor-neutral version the blog links back to.
+   Hosting providers are the one exception. A reader deploys to one host and looks for it on
+   the Deployment page, so each host gets a maintained guide at
+   `introduction/deployment/<host>/`, linked from Deployment's hosting providers section. A host
+   guide starts from the vendor-neutral Docker setup and covers only what that host changes.
 3. **Is it a framework noun or a company?** Framework noun (auth, MCP, retries) gets a neutral
    docs page, placed by test 1: its default setup in `introduction/`, what goes past it in
    `advanced/`. Company gets a blog post.

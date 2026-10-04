@@ -12,8 +12,8 @@ Every piece of data that moves through a capability is wrapped in an **exchange*
 
 An exchange has two parts:
 
-- **`body`** -- the main payload. This is your data: an object, a string, a number, whatever your capability is working with.
-- **`headers`** -- metadata about the exchange. Timestamps, IDs, adapter-specific context, and anything you want to carry alongside the data without putting it in the body.
+- **`body`**: the main payload. This is your data: an object, a string, a number, whatever your capability is working with.
+- **`headers`**: metadata about the exchange. Timestamps, IDs, adapter-specific context, and anything you want to carry alongside the data without putting it in the body.
 
 ```json
 {
@@ -136,6 +136,8 @@ Use `.transform()` when you only need the data. Use `.process()` or `.filter()` 
 
 The exchange is immutable. `DefaultExchange` shallow-freezes the wrapper, its headers, and (when present) the principal at construction, and every field on `Exchange<T>` is `readonly`. The body is intentionally not deep-frozen so adapters can attach arbitrary payloads, but the framework never mutates it and your code should not either.
 
+An exchange is often still needed after a step has used it: `.retry()` re-runs a step on the exchange that step was given, and an `.error()` handler receives the exchange as the failing step saw it. Because no step can change an exchange in place, a re-attempt or a handler always starts from exactly that input, and no step can quietly rewrite a header, such as the authenticated principal, that later steps rely on.
+
 Operations that change the exchange return a new one by copy-on-write (spread) rather than mutating in place. The framework re-wraps the returned plain object back into a proper instance, preserving the context binding, route binding, and `id`.
 
 ```ts skip="fragment: not a complete statement on its own"
@@ -154,7 +156,7 @@ Operations that change the exchange return a new one by copy-on-write (spread) r
 })
 ```
 
-Returning the same `exchange` unchanged is still a valid no-op pass-through. For the full rationale and the drop-signalling helpers that moved off headers (`markDropped` / `isDropped`), see the [0.4 to 0.5 migration guide](/docs/migrating/0.4-to-0.5).
+Returning the same `exchange` unchanged is a valid no-op pass-through.
 
 ## Exchange in taps
 
@@ -177,6 +179,10 @@ craft()
 
 <QuickLinks>
 
-<QuickLink title="Operations" icon="presets" href="/docs/introduction/operations" description="What each operation does with the exchange body and headers." />
+<QuickLink title="header" icon="plugins" href="/docs/reference/operations/header" description="Set a header from a static value or from the exchange." />
+
+<QuickLink title="process" icon="plugins" href="/docs/reference/operations/process" description="Work with the full exchange when the body alone is not enough." />
+
+<QuickLink title="Events" icon="theming" href="/docs/advanced/events" description="React to exchanges completing or failing without touching capability code." />
 
 </QuickLinks>

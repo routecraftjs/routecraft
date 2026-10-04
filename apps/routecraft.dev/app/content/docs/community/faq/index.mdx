@@ -8,63 +8,54 @@ Answers to common questions.
 
 ## What is Routecraft?
 
-Routecraft is a developer-first automation and integration framework for building data processing pipelines using a fluent DSL.
+Routecraft is the open source AI automation platform your teams build on together. You build a capability once, as a typed TypeScript route, and every agent, editor and schedule in the organisation can call it, on service credentials the platform holds. [What is Routecraft](/docs/introduction) covers the model.
 
 ## What is the difference between a capability and a context?
 
-A **capability** is a single data processing pipeline with a source, optional operations, and a destination. A **context** is the runtime environment that manages multiple capabilities, handles their lifecycle, and provides shared services like logging and storage.
+A **capability** is one thing your harness can do: a typed route that says how a call reaches it, what every call is checked against, and the steps that do the work. A **context** is the runtime that loads the capabilities and plugins, runs their lifecycle, and provides shared services such as logging and the store; `craft start` builds one for you. [Capabilities](/docs/introduction/capabilities) takes a capability apart.
 
-## Can capabilities communicate with each other?
+## What is the difference between the local harness and the team harness?
 
-Yes -- use the `direct()` adapter to pass data between capabilities:
+They are the same project in two places. The local harness runs on your laptop on your own credentials, and nobody else can reach it; the team harness is that project deployed, always on, with the organisation's service credentials and its doors behind authentication. [Local harness, team harness](/docs/introduction/local-and-team-harness) covers how a capability moves from one to the other.
 
-```ts skip="fragment: source, destination are illustrative"
-// Producer
-craft()
-  .id('producer')
-  .from(source)
-  .to(direct('my-channel'))
+## Should I serve MCP over stdio or HTTP?
 
-// Consumer (route id is the endpoint)
-craft()
-  .id('my-channel')
-  .from(direct())
-  .to(destination)
-```
+Stdio for one person: the MCP client starts the project itself as a subprocess, with no port and no credential, and a new project is already set up for it. HTTP for a team: the tools run always on, at `/mcp` on the instance's server, behind authentication. [Expose to an agent](/docs/introduction/expose-to-an-agent) shows both.
 
-See [Composing capabilities](/docs/advanced/composing-capabilities) for fan-out, dynamic routing, and schema validation at the channel boundary.
+## Where do secrets live?
+
+In the environment of the harness that runs the capability, read by the adapter that needs them. On your laptop that is your own `.env`; on the team harness it is the organisation's service credentials, which no person or agent holds. An agent calls the capability, never the system behind it, so the key never leaves the harness. [Credentials and identity](/docs/introduction/credentials-and-identity) explains the model.
+
+## Can capabilities call each other?
+
+Yes. One capability calls another with `direct("<id>")` and imports only the types the callee exports from its `route.ts`. [Composing capabilities](/docs/advanced/composing-capabilities) covers chains, fan-out and routing chosen at runtime.
 
 ## How do I handle errors?
 
-- **Capability isolation** -- a failed capability does not affect others running in the same context
-- **Event subscription** -- subscribe to the `error` event in `craft.config.ts` for centralized handling
-- **Input validation** -- add a Zod `schema` to your source adapter (e.g. `direct()`, `mcp()`) to reject invalid data before any logic runs
-- **Filtering** -- use `.filter(fn)` to drop exchanges that do not meet a condition
+A failed exchange never stops the capability or the others beside it: the runtime logs it, emits `route:error`, `context:error` and `route:exchange:failed`, and processes the next exchange. Add `.error()` to a capability to recover with your own handler, declare `.input()` so invalid input is refused before any step runs, and alarm on `context:error` as described in [Monitoring](/docs/introduction/monitoring#events-to-alarm-on). [Error handling](/docs/advanced/error-handling) covers `.error()` in full.
 
 ## What adapters are available?
 
-Built-in adapters include `simple()`, `timer()`, `csv()`, `json()`, `file()`, `http()`, `direct()`, `log()`, `debug()`, and more.
-
-For the complete list with options and signatures, see the [Adapters reference](/docs/reference/adapters).
+Routecraft ships adapters for files (CSV, JSON, HTML, XML), HTTP, mail, contacts, schedules, MCP, LLMs and agents, and more. The [Adapters reference](/docs/reference/adapters) lists every one with its options.
 
 ## How do I create a custom adapter?
 
-Implement the appropriate interface (`Source`, `Destination`, or `Processor`) and set an `adapterId`:
-
-```ts
-class MyAdapter implements Source<string> {
-  readonly adapterId = 'my.custom.adapter'
-
-  async subscribe(sub: Subscription<string>) {
-    sub.ready()
-    // emit exchanges with await sub.emit({ message: value })
-    // stop producing when sub.signal aborts
-  }
-}
-```
-
-See [Creating adapters](/docs/advanced/custom-adapters) for full examples including factory functions and multi-role adapters.
+Implement the interface for the role it plays (`Source`, `Destination`, `Enricher` or `Processor`) in a class, and export a factory function that returns it. [Creating adapters](/docs/advanced/custom-adapters) walks through each role, the option conventions, and how to make the adapter mockable in tests.
 
 ## How do I expose a capability as an MCP tool?
 
-Use `mcp()` from `@routecraft/ai` as the source adapter and run the file with `craft run`. See the [MCP example](/docs/examples/mcp) and [Expose to an agent](/docs/introduction/expose-to-an-agent).
+Add `mcp()` from `@routecraft/ai` as a source beside `direct()`, give the capability a `.description()` and an `.input()` schema, and keep the `mcp: {}` key a new project already has in `craft.config.ts`. Over stdio the MCP client starts the server itself, for example `claude mcp add my-tools -- bunx craft start --log-file craft.log`, with the log in a file because standard output is the protocol. [Expose to an agent](/docs/introduction/expose-to-an-agent#over-stdio-on-your-laptop) has the steps for each client.
+
+---
+
+## Related
+
+<QuickLinks>
+
+<QuickLink title="What is Routecraft" icon="presets" href="/docs/introduction" description="The platform, its building blocks, and two places to start." />
+
+<QuickLink title="Tools for agents" icon="lightbulb" href="/docs/introduction/tools-for-agents" description="Fifteen minutes from nothing to an agent calling a capability you own." />
+
+<QuickLink title="Expose to an agent" icon="plugins" href="/docs/introduction/expose-to-an-agent" description="Serve your capabilities as MCP tools over stdio or HTTP." />
+
+</QuickLinks>

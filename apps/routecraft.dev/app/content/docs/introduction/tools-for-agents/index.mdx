@@ -29,7 +29,7 @@ The log ends with `Hello, Leanne Graham!`. That was `hello-world` calling `greet
 bun run test
 ```
 
-The capability's own test mocks `fetch`, runs the same two routes, and asserts the greeting. It is the shape to copy for every capability you write.
+The capability's own test stubs the HTTP lookup with `mockAdapter(http, ...)`, runs the same two routes, and asserts the greeting. It is the shape to copy for every capability you write.
 
 ## 3. Connect your client
 
@@ -91,18 +91,16 @@ export default craft()
 
 The capability stays written once, and the schedule passes the same input check as an agent's call.
 
-## 6. What comes next
+---
 
-- **Share it with your team.** Run the project always on, serve MCP over HTTP behind authentication, on service credentials no person holds. [Local harness, team harness](/docs/introduction/local-and-team-harness) is the step; [Expose to an agent](/docs/introduction/expose-to-an-agent) has the HTTP transport and every client.
-- **Decide who may call it.** [Credentials and identity](/docs/introduction/credentials-and-identity) is the model; [`authorize`](/docs/reference/operations/authorize) is the operation.
-- **Reach it the other ways.** [Doors and triggers](/docs/introduction/doors-and-triggers) covers the CLI, HTTP and what starts a capability when nobody asks.
+## Where to go next
 
 <QuickLinks>
 
-<QuickLink title="An agent of your own" icon="presets" href="/docs/introduction/an-agent-of-your-own" description="The other first project: a harness you talk to from your editor." />
+<QuickLink title="Local harness, team harness" icon="presets" href="/docs/introduction/local-and-team-harness" description="Share it with your team: the same code, run always on, on service credentials no person holds." />
 
-<QuickLink title="Capabilities" icon="plugins" href="/docs/introduction/capabilities" description="Everything a route can be." />
+<QuickLink title="Doors and triggers" icon="plugins" href="/docs/introduction/doors-and-triggers" description="Reach it the other ways: the CLI, HTTP, and what starts a capability when nobody asks." />
 
-<QuickLink title="MCP tool" icon="installation" href="/docs/examples/mcp" description="A copyable capability exposed as an MCP tool, and one that calls a remote MCP server." />
+<QuickLink title="Credentials and identity" icon="installation" href="/docs/introduction/credentials-and-identity" description="Decide who may call it: whose credential a capability runs on, and how it names the callers it admits." />
 
 </QuickLinks>

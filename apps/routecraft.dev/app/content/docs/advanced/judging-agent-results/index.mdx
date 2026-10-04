@@ -8,7 +8,7 @@ Decide programmatically whether an agent achieved what was asked: judge the resu
 
 ## The problem
 
-An agent dispatch resolves with an [`AgentResult`](/docs/reference/adapters/agent): the model's final `text` plus a record of everything it did along the way. The text is prose, and prose is a claim ("I looked up the order and refunded the customer"). A route that must act on the outcome -- acknowledge, escalate, redeliver, roll back -- needs data, not a narrative it would have to parse.
+An agent dispatch resolves with an [`AgentResult`](/docs/reference/adapters/agent): the model's final `text` plus a record of everything it did along the way. The text is prose, and prose is a claim ("I looked up the order and refunded the customer"). A route that must act on the outcome (acknowledge, escalate, redeliver, roll back) needs data, not a narrative it would have to parse.
 
 Two shapes of dispatch make any naive check on the result misleading:
 
@@ -181,3 +181,19 @@ The agent sees its prior turns and the reviewer's objection, and can retry the m
 | Fit | Branching policy: escalate, redeliver, compensate | The agent should finish the job before returning |
 
 The two compose: judge in `validate` to push the agent to actually finish, and judge (or simply branch on the failure) downstream to decide what the route does when it still could not.
+
+---
+
+## Related
+
+<QuickLinks>
+
+<QuickLink title="Agents and skills" icon="presets" href="/docs/introduction/agents-and-skills" description="Define an agent, grant it capabilities as tools, and call it from a capability." />
+
+<QuickLink title="agent" icon="plugins" href="/docs/reference/adapters/agent" description="The agent() adapter and the AgentResult a dispatch resolves with." />
+
+<QuickLink title="agentPlugin" icon="installation" href="/docs/reference/plugins/agentplugin" description="Agent options, tools and the tool policy, and asserting on AgentResult.toolCalls." />
+
+<QuickLink title="choice" icon="theming" href="/docs/reference/operations/choice" description="Branch a route on the verdict." />
+
+</QuickLinks>

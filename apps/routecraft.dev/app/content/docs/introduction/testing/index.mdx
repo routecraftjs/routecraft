@@ -8,34 +8,111 @@ Test your capabilities with fast unit tests and optional E2E runs.
 
 ## Quick start
 
-Use `testContext()` to build a test context and `t.test()` to run the full lifecycle (start, wait for routes ready, drain, stop). Assert after `await t.test()`:
+A project from `create-routecraft` runs its tests with `bun test`, and each capability keeps its test beside it: `capabilities/hello-world/route.bun.test.ts` next to `route.ts`. The scaffolded test has this shape, which is the one to copy:
 
-```ts skip="multi-file: imports a sibling file the page describes in prose"
-import { describe, it, expect, vi } from "vitest";
-import { testContext, type TestContext } from "@routecraft/testing";
-import helloRoute from "../capabilities/hello-world";
+<CodeTabs>
 
-describe("hello capability", () => {
+<CodeTab label="bun:test" language="ts">
+
+```ts skip="multi-file: imports the route.ts beside it"
+import { afterEach, describe, expect, mock, test } from "bun:test";
+import { http } from "@routecraft/routecraft";
+import { mcp } from "@routecraft/ai";
+import { mockAdapter, testContext, type TestContext } from "@routecraft/testing";
+import capabilities from "./route";
+
+describe("hello-world", () => {
   let t: TestContext;
 
   afterEach(async () => {
     if (t) await t.stop();
   });
 
-  it("emits and logs", async () => {
-    t = await testContext({ fn: vi.fn }).routes(helloRoute).build();
+  test("greets the user by name", async () => {
+    const httpMock = mockAdapter(http, {
+      send: async () => ({
+        status: 200,
+        headers: {},
+        body: { id: 1, name: "Leanne Graham" },
+        url: "https://jsonplaceholder.typicode.com/users/1",
+      }),
+    });
+
+    t = await testContext({ fn: mock })
+      .override(mockAdapter(mcp, { source: [] }))
+      .override(httpMock)
+      .routes(capabilities)
+      .build();
     await t.test();
 
+    expect(httpMock.calls.send).toHaveLength(1);
     expect(t.logger.info).toHaveBeenCalled();
   });
 });
 ```
 
-**Tip:** `t.logger` is a spy logger. By default it uses a built-in runner-agnostic spy that records calls in `t.logger.info.mock.calls`, so it works under `bun test`, Vitest, and `node:test` with no extra wiring. Pass your runner's mock factory (`{ fn: vi.fn }` with Vitest, `{ fn: mock }` with `bun:test`) when you want native matcher support like `expect(t.logger.info).toHaveBeenCalledWith(...)`.
+</CodeTab>
 
-## Vitest configuration
+<CodeTab label="Vitest" language="ts">
 
-For a new project, use a single `vitest.config.mjs` at the project root:
+```ts skip="multi-file: imports the route.ts beside it"
+import { afterEach, describe, expect, test, vi } from "vitest";
+import { http } from "@routecraft/routecraft";
+import { mcp } from "@routecraft/ai";
+import { mockAdapter, testContext, type TestContext } from "@routecraft/testing";
+import capabilities from "./route";
+
+describe("hello-world", () => {
+  let t: TestContext;
+
+  afterEach(async () => {
+    if (t) await t.stop();
+  });
+
+  test("greets the user by name", async () => {
+    const httpMock = mockAdapter(http, {
+      send: async () => ({
+        status: 200,
+        headers: {},
+        body: { id: 1, name: "Leanne Graham" },
+        url: "https://jsonplaceholder.typicode.com/users/1",
+      }),
+    });
+
+    t = await testContext({ fn: vi.fn })
+      .override(mockAdapter(mcp, { source: [] }))
+      .override(httpMock)
+      .routes(capabilities)
+      .build();
+    await t.test();
+
+    expect(httpMock.calls.send).toHaveLength(1);
+    expect(t.logger.info).toHaveBeenCalled();
+  });
+});
+```
+
+</CodeTab>
+
+</CodeTabs>
+
+`testContext()` builds a context around the capabilities under test, `.override()` stands a mock in for every `http()` and `mcp()` call site, and `t.test()` runs the full lifecycle: start, wait for the routes to be ready, drain, stop. Assert after it returns. [Mocking external adapters](#mocking-external-adapters) covers `mockAdapter()` in full.
+
+**Tip:** `t.logger` is a spy logger. By default it uses a built-in runner-agnostic spy that records calls in `t.logger.info.mock.calls`, so it works under `bun test`, Vitest, and `node:test` with no extra wiring. Pass your runner's mock factory (`{ fn: mock }` with `bun:test`, `{ fn: vi.fn }` with Vitest) when you want native matcher support like `expect(t.logger.info).toHaveBeenCalledWith(...)`.
+
+## Using Vitest instead
+
+`@routecraft/testing` works under any runner. To use Vitest, add it as a dev dependency, import from `vitest` instead of `bun:test`, and point the `test` script at it:
+
+```json
+{
+  "scripts": {
+    "test": "vitest run"
+  }
+}
+```
+
+Vitest needs no configuration file for this. Add a `vitest.config.mjs` at the project root when you want settings such as coverage:
 
 ```js
 import { defineConfig } from "vitest/config";
@@ -48,15 +125,17 @@ export default defineConfig({
 });
 ```
 
+Some examples below import from `vitest`. Under `bun test`, import the same names from `bun:test`.
+
 ## Route lifecycle in tests
 
-Use `testContext()` and `t.test()` for the recommended flow. `t.test()` runs start → wait for all routes ready → drain → stop, so you don't need manual timeouts for direct/simple routes:
+Use `testContext()` and `t.test()` for the recommended flow. `t.test()` runs start, waits for all routes to be ready, drains and stops, so you don't need manual timeouts for direct and simple routes:
 
-```ts skip="multi-file: imports a sibling file the page describes in prose"
-import { testContext, type TestContext } from "@routecraft/testing";
-import routes from "../capabilities/hello-world"; // your capability export
+```ts skip="multi-file: imports the route.ts beside it"
+import { testContext } from "@routecraft/testing";
+import capabilities from "./route";
 
-const t = await testContext().routes(routes).build();
+const t = await testContext().routes(capabilities).build();
 await t.test();
 // Assert here: mocks, t.errors, t.ctx.getStore(), etc.
 ```
@@ -71,14 +150,15 @@ Checklist:
 
 ## Mocking external adapters
 
-When your route uses an adapter that talks to an external system -- `mail()`, `http()`, `mcp()`, etc. -- you want to test your logic, not re-test the adapter. Two things you should **not** do:
+When your route uses an adapter that talks to an external system, such as `mail()`, `http()` or `mcp()`, you want to test your logic, not re-test the adapter. Two things you should **not** do:
 
 - Mock the adapter's underlying library (`imapflow`, `nodemailer`, `globalThis.fetch`). This couples your tests to our implementation choices; the day we swap a library, your tests break even though nothing in the public contract changed.
 - Restructure the route to inject test adapters. The route you run in production should be the route you test.
 
 Use `mockAdapter()` and `testContext().override()` instead. You import the factory (`mail`, `http`, ...), describe how it should behave in the test, and register the mock on the test context. The route stays unchanged.
 
-```ts skip="multi-file: imports a sibling file the page describes in prose"
+```ts skip="multi-file: imports the route.ts beside it"
+import { afterEach, expect, it } from "bun:test";
 import { mail } from "@routecraft/routecraft";
 import {
   mockAdapter,
@@ -86,7 +166,7 @@ import {
   testContext,
   type TestContext,
 } from "@routecraft/testing";
-import route from "../capabilities/mail-triage";
+import route from "./route";
 
 const mailMock = mockAdapter(mail, {
   // Source role: feeds the .from(mail(...)) call site. The mail source puts the
@@ -135,19 +215,19 @@ it("moves spam and replies to friends", async () => {
 | Test a route that calls an external system (IMAP/SMTP, HTTP, MCP) | `mockAdapter(factory, { source, send })` + `.override()` |
 | Test that an in-process destination was invoked | `spy()` (see below) |
 | Drive a route's input manually from the test | `simple(value)` or a `callableSource` |
-| Assert on logger calls | `t.logger.info` / `t.logger.warn` (vi spies) |
+| Assert on logger calls | `t.logger.info` / `t.logger.warn` (spies, see the [Quick start](#quick-start) tip) |
 | Check a validation boundary honours an async schema | `thenableSchema({ issues })` / `thenableSchema({ value })` |
 
 ### Anatomy of a mock
 
-- **`source`** -- an array of fixtures, a (sync or async) iterable, or `(args) => iterable`. Each item is delivered to `.from(factory(...))` as one exchange. For polling sources this models one poll cycle.
-- **`send`** -- `(exchange, { args }) => result`. Called for every `.to(factory(...))`, `.enrich(factory(...))`, and `.tap(factory(...))` in the route. What happens to `result` follows the step's slot resolution: a fetch-resolved step (`.enrich()`, or a fetch-only enricher such as `http()` in `.to()`) uses it as the fetched value (replacing the body by default), while a send-resolved `.to()` discards it -- a mocked send stays a void send, the body continues unchanged. Accepts a `vi.fn()` too, so `mockResolvedValueOnce` / `mockRejectedValueOnce` chains work as expected.
-- **`args`** -- whatever the route passed to the factory at that call site. Use it to discriminate when the same factory is used in multiple positions (e.g. `mail("INBOX")` as source vs `mail({ action: "move" })` as destination).
+- **`source`**: an array of fixtures, a (sync or async) iterable, or `(args) => iterable`. Each item is delivered to `.from(factory(...))` as one exchange. For polling sources this models one poll cycle.
+- **`send`**: `(exchange, { args }) => result`. Called for every `.to(factory(...))`, `.enrich(factory(...))`, and `.tap(factory(...))` in the route. What happens to `result` follows the step's slot resolution: a fetch-resolved step (`.enrich()`, or a fetch-only enricher such as `http()` in `.to()`) uses it as the fetched value (replacing the body by default), while a send-resolved `.to()` discards it: a mocked send stays a void send, and the body continues unchanged. Accepts a runner mock (`mock()` from `bun:test`, `vi.fn()` from Vitest) too, so `mockResolvedValueOnce` / `mockRejectedValueOnce` chains work as expected.
+- **`args`**: whatever the route passed to the factory at that call site. Use it to discriminate when the same factory is used in multiple positions (e.g. `mail("INBOX")` as source vs `mail({ action: "move" })` as destination).
 
 ### Inspecting recorded calls
 
 ```ts skip="fragment: mailMock are illustrative"
-mailMock.calls.source   // [{ args, yielded }]   -- per subscribe call
+mailMock.calls.source   // [{ args, yielded }]   one per subscribe call
 mailMock.calls.send     // [{ args, exchange, result }]
                          //   exchange = { id, body, headers } snapshot
                          //   result   = whatever the send handler returned
@@ -166,6 +246,9 @@ A mock stands in for the adapter's `send` / `subscribe`, nothing more. These sid
 If your route asserts on something the real adapter would have added at a fetch-resolved call site, shape your mock's `send` return value to match the body the real adapter would have produced and assert on `exchange.body` downstream. (At a send-resolved `.to()` the result is discarded, matching the real adapter's void send; receipt headers from the real adapter's `SendContext` are not reproduced either.) The mock cannot mutate the incoming exchange (exchanges are immutable: frozen wrapper, headers, and principal), and the override path bypasses `getMetadata`, so any metadata-style fields the real adapter would have stamped onto headers must instead be carried through the result body in the mock.
 
 ```ts
+import { http } from "@routecraft/routecraft";
+import { mockAdapter } from "@routecraft/testing";
+
 const httpMock = mockAdapter(http, {
   send: async (_exchange) => ({
     status: 200,
@@ -178,7 +261,7 @@ const httpMock = mockAdapter(http, {
 
 ### Same factory used multiple times
 
-One mock covers every call site of the factory. Discriminate inside `send` using `args`, or chain `vi.fn()` implementations for ordered responses:
+One mock covers every call site of the factory. Discriminate inside `send` using `args`, or chain a runner mock for ordered responses (`vi.fn()` here; `mock()` from `bun:test` has the same methods):
 
 ```ts skip="fragment: vi is illustrative"
 const httpMock = mockAdapter(http, {
@@ -193,8 +276,8 @@ const httpMock = mockAdapter(http, {
 
 `mockAdapter(target, behavior)` accepts two kinds of target:
 
-- **A factory function** -- e.g. `mockAdapter(mail, ...)`, `mockAdapter(http, ...)`. Matches every adapter instance that factory produced. Requires the factory to stamp its adapters via `tagAdapter()` internally. The first-party factories that do this today are `mail()`, `http()`, `mcp()`, `file()`, `csv()`, `json()` (file mode), `jsonl()` (every return path), and `html()` (file mode). The transformer-only return paths of `json()` and `html()` are intentionally not tagged because the override resolver only fires on `subscribe`/`send`/`fetch`.
-- **An adapter class** -- e.g. `mockAdapter(SomeAdapterClass, ...)`. Matches any adapter whose `constructor === target`. Works for every adapter, first-party or third-party, without opt-in tagging. Useful when a third-party adapter exports its class but not a tagged factory, or when you want to mock a specific role of a multi-role factory.
+- **A factory function**, e.g. `mockAdapter(mail, ...)`, `mockAdapter(http, ...)`. Matches every adapter instance that factory produced. Requires the factory to stamp its adapters via `tagAdapter()` internally. The first-party factories that do this today are `mail()`, `http()`, `mcp()`, `file()`, `csv()`, `json()` (file mode), `jsonl()` (every return path), and `html()` (file mode). The transformer-only return paths of `json()` and `html()` are intentionally not tagged because the override resolver only fires on `subscribe`/`send`/`fetch`.
+- **An adapter class**, e.g. `mockAdapter(SomeAdapterClass, ...)`. Matches any adapter whose `constructor === target`. Works for every adapter, first-party or third-party, without opt-in tagging. Useful when a third-party adapter exports its class but not a tagged factory, or when you want to mock a specific role of a multi-role factory.
 
 The factory form is nicer when the factory covers a single role. The class form is required when the factory has no tag or when you want to target one specific role of a multi-role factory. Both forms can be mixed on the same `testContext()`.
 
@@ -421,18 +504,20 @@ captured.push(exchange.headers["routecraft.correlation_id"] as string);
 expect(new Set(captured).size).toBe(1);
 ```
 
-## Run capability files
+## Smoke-test the whole project
 
-Use the CLI to run compiled capability files/folders as an integration check:
+Tests stub the external systems. To boot the real project once and exit when the first exchange finishes, which suits a CI step:
 
 ```bash
-bun run craft run ./examples/dist/hello-world.js
+bunx craft start --once --timeout 30s
 ```
+
+A first exchange that failed exits non-zero. The [CLI reference](/docs/reference/cli#start) covers what `--once` waits for.
 
 ## Troubleshooting
 
 - Hanging tests: use `await t.test()` for standard flows, or ensure you `await t.ctx.stop()` and then `await execution` when driving lifecycle manually.
-- Flaky timers: prefer fake timers or increase the wait to 100–200ms.
+- Flaky timers: prefer fake timers or increase the wait to 100 to 200ms.
 - No logs captured: ensure your route includes `.to(log())` and assert on `t.logger.info` (or `t.logger.warn` / `t.logger.debug`) after `await t.test()`.
 - Errors in tests: check `t.errors` after `await t.test()`; Routecraft errors are collected automatically.
 
@@ -442,6 +527,10 @@ bun run craft run ./examples/dist/hello-world.js
 
 <QuickLinks>
 
-<QuickLink title="Errors reference" icon="warning" href="/docs/reference/errors" description="RC error codes -- useful when asserting on t.errors in tests." />
+<QuickLink title="Error handling" icon="warning" href="/docs/advanced/error-handling" description="Catch pipeline errors with .error(), the failure paths worth a test of their own." />
+
+<QuickLink title="Errors" icon="warning" href="/docs/reference/errors" description="Every error code, useful when asserting on t.errors." />
+
+<QuickLink title="CLI" icon="installation" href="/docs/reference/cli" description="craft start --once and every other command and flag." />
 
 </QuickLinks>

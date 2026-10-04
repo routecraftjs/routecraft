@@ -22,12 +22,14 @@ import { agentBrowser } from '@routecraft/os'
 craft()
   .id('scrape-page')
   .from(simple({ url: 'https://example.com' }))
-  // explicit body type at .to() until #726
+  // TypeScript cannot infer the body type here yet, so it is given explicitly
   .to(agentBrowser<{ url: string }>('open', { url: (ex) => ex.body.url }))
   .enrich(agentBrowser('snapshot', { json: true }))
   .to(log())
 // Result replaces the body: { stdout: '...', parsed: { snapshot: '...', refs: {...} }, exitCode: 0 }
 ```
+
+The explicit type argument on the first call works around an open issue with adapter overloads ([#726](https://github.com/routecraftjs/routecraft/issues/726)).
 
 **Click an element and get text:**
 

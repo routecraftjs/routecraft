@@ -6,7 +6,7 @@ title: Error handling
 Catch pipeline errors and recover gracefully with `.error()`.
 </Lead>
 
-By default, when a step throws an unhandled error, Routecraft logs it and emits `route:error`, `context:error`, and `route:exchange:failed` events -- then swallows the error so the route keeps running. `.error()` extends this behavior with a custom recovery handler.
+By default, when a step throws an unhandled error, Routecraft logs it and emits `route:error`, `context:error`, and `route:exchange:failed` events, then moves on so the route keeps running and the next exchange is processed normally. `.error()` extends this behavior with a custom recovery handler.
 
 ## Basic usage
 
@@ -30,12 +30,12 @@ The handler's return value becomes the route's final exchange body. The pipeline
 | Parameter | Type | Description |
 |-----------|------|-------------|
 | `error` | `unknown` | The thrown error |
-| `exchange` | `Exchange` | The exchange at the point of failure -- headers include route id, correlation id, and operation type |
+| `exchange` | `Exchange` | The exchange at the point of failure. Its headers include route id, correlation id, and operation type |
 | `forward` | `(routeId, payload) => Promise<unknown>` | Send a payload to another capability via the direct adapter |
 
 ## The `forward` function
 
-The third parameter, `forward`, sends a payload to another capability by route id and returns its result. It uses the direct adapter channel internally -- no extra transport or configuration is needed.
+The third parameter, `forward`, sends a payload to another capability by route id and returns its result. It uses the direct adapter channel internally, so no extra transport or configuration is needed.
 
 ```ts skip="signature: a type signature, not a statement"
 forward(routeId: string, payload: unknown): Promise<unknown>
@@ -44,7 +44,7 @@ forward(routeId: string, payload: unknown): Promise<unknown>
 | Argument | Description |
 |----------|-------------|
 | `routeId` | The target capability's direct endpoint id (must match the target route's `.id()`) |
-| `payload` | Any value -- becomes the target capability's exchange body |
+| `payload` | Any value; it becomes the target capability's exchange body |
 | **returns** | The final exchange body produced by the target capability's pipeline |
 
 `forward` is async. The error handler waits for the target capability to finish processing and returns whatever that capability produces. This means you can use the target's result as the recovery value for the failed capability.
@@ -57,7 +57,7 @@ This is unconditional and cannot escalate: it is the same identity the calling c
 
 Two consequences worth knowing:
 
-- A target with a strict `.input({ headers })` schema now sees the caller's headers, so a schema that rejects unknown keys can refuse a forward.
+- A target with a strict `.input({ headers })` schema sees the caller's headers, so a schema that rejects unknown keys can refuse a forward.
 - Forwarding a principal whose expiry has passed surfaces the expiry error rather than a missing-principal `RC5012`.
 
 The same applies to the `forward` handed to a `.circuitBreaker()` fallback and to `client.forward()` in an agent block resolver.
@@ -65,18 +65,18 @@ The same applies to the `forward` handed to a `.circuitBreaker()` fallback and t
 ### Example: delegate to a dedicated error capability
 
 ```ts skip="fragment: fetchOrders, processOrder are illustrative"
-// capabilities/process-orders.ts
-craft()
+// capabilities/process-orders/route.ts
+import { craft, timer } from '@routecraft/routecraft'
+
+export default craft()
   .id('process-orders')
   .error(async (error, exchange, forward) => {
-    // Send failure details to the error capability.
-    // forward() returns what the error capability's pipeline produces.
-    const result = await forward('errors.orders', {
+    // forward() returns what the error capability's pipeline produces
+    const result = await forward('order-errors', {
       originalBody: exchange.body,
       reason: (error as Error).message,
       failedAt: exchange.headers['routecraft.operation'],
     })
-    // result is now the recovery value for this capability
     return result
   })
   .from(timer({ interval: 60_000 }))
@@ -85,20 +85,20 @@ craft()
 ```
 
 ```ts
-// capabilities/error-orders.ts
-craft()
-  .id('errors.orders')
+// capabilities/order-errors/route.ts
+import { craft, direct, http } from '@routecraft/routecraft'
+import { z } from 'zod'
+
+export default craft()
+  .id('order-errors')
   .description('Receives failed order payloads for alerting')
   .input({ body: z.object({ reason: z.string() }).passthrough() })
   .from(direct())
-  .transform((body) => {
-    // Log, enrich, or reshape the failure payload
-    return { alerted: true, reason: body.reason }
-  })
+  .transform((body) => ({ alerted: true, reason: body.reason }))
   .to(http({ url: 'https://alerts.example.com/orders' }))
 ```
 
-In this example, `forward('errors.orders', ...)` sends the failure payload to `errors.orders`, waits for it to run its full pipeline (transform then HTTP call), and returns `{ alerted: true, reason: '...' }` back to the error handler. That value becomes the final exchange body for `process-orders`.
+In this example, `forward('order-errors', ...)` sends the failure payload to `order-errors`, waits for it to run its full pipeline (transform then HTTP call), and returns `{ alerted: true, reason: '...' }` back to the error handler. That value becomes the final exchange body for `process-orders`.
 
 ### When not to use `forward`
 
@@ -135,7 +135,7 @@ Step handlers are local recovery; route handlers are the safety net. Use both:
 ```ts skip="fragment: prepareRequest, database are illustrative"
 craft()
   .id('with-safety-net')
-  .error((err, ex, forward) => forward('errors.catchall', ex.body))   // route scope
+  .error((err, ex, forward) => forward('catch-all-errors', ex.body))   // route scope
   .from(timer({ interval: 60_000 }))
   .transform(prepareRequest)
   .error((err) => ({ fallback: true }))                               // step scope
@@ -143,7 +143,7 @@ craft()
   .to(database())
 ```
 
-The step handler recovers `http` failures silently. If it ever throws, the route handler takes over and forwards to `errors.catchall`.
+The step handler recovers `http` failures silently. If it ever throws, the route handler takes over and forwards to `catch-all-errors`.
 
 ### Cascade rule
 
@@ -153,15 +153,34 @@ When a step handler itself throws, the wrapper rethrows. The route handler (when
 
 A wrapper attaches to exactly one step. `.error(h).transform(a).transform(b)` does NOT cover `b` (or the `to()` after it); only `a`. Add another `.error(...)` before each step you want to wrap.
 
+## Drop or rethrow instead of recovering
+
+A handler does not have to produce a body. Return one of the `recovery` directives to say what should happen to the exchange instead:
+
+```ts skip="fragment: isTransient is illustrative"
+import { recovery } from '@routecraft/routecraft'
+
+.error((error) =>
+  isTransient(error) ? recovery.rethrow() : recovery.drop('poison message'),
+)
+```
+
+- **`recovery.drop(reason)`** discards the exchange, the way a `.filter()` does. `route:exchange:dropped` fires with your reason, and nothing downstream runs.
+- **`recovery.rethrow()`** declines to recover and propagates the original error, exactly as if the handler had thrown it.
+
+Both work at route scope and at step scope.
+
 ## When the error handler itself throws
 
-If your `.error()` handler throws, the context takes over:
+If a route-scope `.error()` handler throws, the context takes over:
 
-1. The error is logged
-2. `route:error` and `context:error` fire (same as the default no-handler path)
-3. `route:exchange:failed` fires with the handler's error
-4. `route:error-handler:failed` fires so you can distinguish handler failures from step failures
-5. The route stays alive -- it will process the next message normally
+1. The handler's error is logged
+2. `route:error-handler:failed` fires, so you can tell a handler failure from a step failure
+3. `route:error` and `context:error` fire, as on the default no-handler path
+4. `route:exchange:failed` fires with the handler's error
+5. The route stays alive and processes the next message normally
+
+A step-scope handler that throws passes its error outward instead, as described in the [cascade rule](#cascade-rule).
 
 This means you always have a safety net. Even a broken error handler cannot crash the route.
 
@@ -175,21 +194,21 @@ When `.error()` is defined, the handler lifecycle emits its own events:
 | `route:error-handler:recovered` | Handler returned successfully |
 | `route:error-handler:failed` | Handler itself threw |
 
-The event names are fixed -- the route identity travels in the payload. Every payload carries `routeId`, `exchangeId`, `correlationId`, `originalError`, `failedOperation`, and `scope` (`"route"` or `"step"`, plus `stepLabel` at step scope).
+The event names are fixed; the route identity travels in the payload. Every payload carries `routeId`, `exchangeId`, `correlationId`, `originalError`, `failedOperation`, and `scope` (`"route"` or `"step"`, plus `stepLabel` at step scope).
 
 The two outcomes differ in what else fires alongside them:
 
-- **Successful recovery:** only `invoked` and `recovered` fire. The default failure set (`route:error`, `context:error`, `route:exchange:failed`) does **not** fire, because the exchange was recovered.
+- **Successful recovery:** `invoked` and `recovered` fire, and at route scope `route:error:caught` fires as well. The default failure set (`route:error`, `context:error`, `route:exchange:failed`) does **not** fire, because the exchange was recovered.
 - **Handler failure:** `invoked` and `failed` fire, and then the error takes the normal failure path, so the full default set (`route:error`, `context:error`, `route:exchange:failed`) fires as well (see "When the error handler itself throws" above).
 
 ### Subscribing to events
 
-Use `ctx.on()` with the exact event name. The event bus **rejects wildcard patterns** (`route:*`, `route:**`, ...): since identity lives in the payload, subscribing to an exact name already observes every route, and `forRoute(routeId, handler)` narrows a subscription to one route:
+Use `context.on()` with the exact event name. The event bus **rejects wildcard patterns** such as `route:*` (the only catch-all is `"*"`, which receives every event): since identity lives in the payload, subscribing to an exact name already observes every route, and `forRoute(routeId, handler)` narrows a subscription to one route:
 
 ```ts skip="fragment: myRoutes, alertOps are illustrative"
-import { forRoute } from '@routecraft/routecraft'
+import { ContextBuilder, forRoute } from '@routecraft/routecraft'
 
-const ctx = new ContextBuilder()
+const { context } = await new ContextBuilder()
   .routes(myRoutes)
   .on('route:error-handler:invoked', ({ details }) => {
     console.log(
@@ -201,7 +220,7 @@ const ctx = new ContextBuilder()
     console.log(`Recovered: ${details.routeId}`)
   }))
   .on('route:error-handler:failed', ({ details }) => {
-    // The handler itself failed -- alert
+    // The handler itself failed: alert
     alertOps(`Error handler crashed on ${details.routeId}`, details.originalError)
   })
   .build()
@@ -209,8 +228,8 @@ const ctx = new ContextBuilder()
 
 For a catch-all, subscribe to `context:error`. This fires for all unhandled errors and for handler failures:
 
-```ts skip="fragment: ctx is illustrative"
-ctx.on('context:error', ({ details }) => {
+```ts skip="fragment: context is the one built above"
+context.on('context:error', ({ details }) => {
   console.error('Unhandled error:', details.error)
 })
 ```
@@ -221,8 +240,10 @@ ctx.on('context:error', ({ details }) => {
 
 <QuickLinks>
 
-<QuickLink title="Composing capabilities" icon="presets" href="/docs/advanced/composing-capabilities" description="Build modular systems with direct() and reusable capability chains." />
-
 <QuickLink title="Events" icon="theming" href="/docs/advanced/events" description="Subscribe to error and exchange lifecycle events." />
+
+<QuickLink title="error" icon="plugins" href="/docs/reference/operations/error" description="The full .error() signature at route scope and at step scope." />
+
+<QuickLink title="Errors" icon="warning" href="/docs/reference/errors" description="Every RC code a handler can receive, with what it means and how to fix it." />
 
 </QuickLinks>

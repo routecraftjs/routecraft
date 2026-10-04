@@ -49,8 +49,8 @@ first-declared wrapper is the outermost.
 
 ```ts
 .from(source)
-.retry({ attempts: 3 })   // outer
-.timeout({ ms: 5_000 })   // middle
+.retry({ maxAttempts: 3 }) // outer
+.timeout("5s")             // middle
 .error(handleAuthFailure) // inner
 .to(http({ url }))
 ```
@@ -95,8 +95,11 @@ and implement `runInner(exchange, ctx)`, returning the inner step's
 export class TimeoutWrapperStep<T extends Adapter = Adapter>
   extends WrapperStep<T>
 {
-  constructor(inner: Step<T>, private readonly ms: number) {
+  private readonly ms: number;
+
+  constructor(inner: Step<T>, duration: Duration) {
     super(inner);
+    this.ms = resolveTimeoutOptions(duration).timeoutMs;
   }
 
   protected override describeOptions(): unknown {
@@ -130,9 +133,9 @@ Then add the dual-mode method on the builder:
 
 ```ts
 // step-builder-base.ts (step-scope-only on this base)
-timeout(opts: { ms: number }): this {
+timeout(duration: Duration): this {
   this.pendingStepWrappers.push(
-    (inner) => new TimeoutWrapperStep(inner, opts.ms),
+    (inner) => new TimeoutWrapperStep(inner, duration),
   );
   return this;
 }
@@ -141,14 +144,17 @@ timeout(opts: { ms: number }): this {
 And override on `RouteBuilder` for the dual-mode behaviour:
 
 ```ts
-override timeout(opts: { ms: number }): this {
+override timeout(duration: Duration): this {
   if (this.currentRoute === undefined) {
     // pre-from: stage as route-level
-    this.pendingOptions = { ...(this.pendingOptions ?? {}), timeout: opts };
+    this.pendingOptions = {
+      ...(this.pendingOptions ?? {}),
+      timeoutConfig: resolveTimeoutOptions(duration),
+    };
     return this;
   }
   // post-from: delegate to base for step-scope wrap
-  return super.timeout(opts);
+  return super.timeout(duration);
 }
 ```
 

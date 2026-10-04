@@ -93,7 +93,7 @@ export default craft()
   .to(agent("assistant"));
 ```
 
-Restart `craft start` and the client you connected in Tools for agents lists `ask-assistant`. Call it with "Which invoices are more than 30 days overdue?" and the reply comes back as `text`, with the model's token usage beside it when the provider reports it. What the agent did along the way is on the event bus: `route:agent:tool:invoked` for each tool call, `route:agent:block:loaded` for each skill it loaded, `route:agent:finished` at the end. With the [telemetry plugin](/docs/introduction/monitoring#telemetry-plugin) on, the [terminal UI](/docs/advanced/tui) shows each agent run and its tool calls as they happen; the [events reference](/docs/reference/events) lists every event.
+The client you connected in Tools for agents started the project itself, so it has to start it again to see the new capability: reconnect the server from the client (in Claude Code, `/mcp`, pick `my-tools`, then reconnect) and it lists `ask-assistant`. Call it with "Which invoices are more than 30 days overdue?" and the reply is the agent result's `text` field, with the model's token usage in `usage` beside it when the provider reports it. What the agent did along the way is on the event bus: `route:agent:tool:invoked` for each tool call, `route:agent:block:loaded` for each skill it loaded, `route:agent:finished` at the end. With the [telemetry plugin](/docs/introduction/monitoring#telemetry) on, the [terminal UI](/docs/advanced/tui) shows each agent run and its tool calls as they happen; the [events reference](/docs/reference/events) lists every event.
 
 ## What the model decides, and what it cannot
 
@@ -109,23 +109,19 @@ Bounding an agent does not make its output deterministic. It makes the space of 
 
 ## Going further
 
-- **Agents that wait for a person.** An agent can stop for an approval and resume hours later, across a restart: [Durable agents](/docs/advanced/durable-agents).
-- **Talk to it from your editor.** Hold a conversation with a registered agent from Zed or JetBrains: [Talk from your editor](/docs/introduction/talk-from-your-editor).
 - **A complete harness to start from.** craft-harness has agents, skills and over thirty capabilities wired together: [An agent of your own](/docs/introduction/an-agent-of-your-own).
 - **Every option.** Registration in code, models and reasoning, blocks and structured output: the [`agentPlugin` reference](/docs/reference/plugins/agentplugin) and the [`agent()` adapter](/docs/reference/adapters/agent).
 
 ---
 
-## Related
+## Where to go next
 
 <QuickLinks>
 
-<QuickLink title="Tools for agents" icon="installation" href="/docs/introduction/tools-for-agents" description="The project this page builds on: one capability, called by the agent you already use." />
+<QuickLink title="Talk from your editor" icon="plugins" href="/docs/introduction/talk-from-your-editor" description="Hold a conversation with a registered agent from Zed or JetBrains." />
 
-<QuickLink title="Capabilities" icon="presets" href="/docs/introduction/capabilities" description="What a capability is, and how one is built." />
+<QuickLink title="Durable agents" icon="presets" href="/docs/advanced/durable-agents" description="An agent that stops for a person's approval and resumes days later, across a restart." />
 
-<QuickLink title="Durable agents" icon="presets" href="/docs/advanced/durable-agents" description="Agents that defer to a person and resume later." />
-
-<QuickLink title="agentPlugin reference" icon="plugins" href="/docs/reference/plugins/agentplugin" description="Every agent option, tools and the tool policy." />
+<QuickLink title="Judging agent results" icon="theming" href="/docs/advanced/judging-agent-results" description="Check whether an agent did what was asked, and branch on the verdict." />
 
 </QuickLinks>

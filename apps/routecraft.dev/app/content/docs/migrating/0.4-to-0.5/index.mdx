@@ -10,9 +10,9 @@ This guide covers every breaking change extracted from a direct diff of the publ
 
 1. **Stable-API changes** every consumer needs to address.
 2. **Experimental-API changes** that only affect you if you opted into the AI, MCP, mail, or auth surfaces flagged `@experimental` at 0.4.0.
-3. **What is new in 0.5.0** — for context, no migration required.
+3. **What is new in 0.5.0**: for context, no migration required.
 
-If you stayed on the stable surface (route DSL, `http()`, `cron()`, `timer()`, `simple()`, `direct()`, `telemetry`, `logger`, `eslint-plugin`), the only changes that touch you are sections 1.1, 1.2, and 1.3 -- plus section 1.7 if you use the built-in telemetry SQLite sink.
+If you stayed on the stable surface (route DSL, `http()`, `cron()`, `timer()`, `simple()`, `direct()`, `telemetry`, `logger`, `eslint-plugin`), the only changes that touch you are sections 1.1, 1.2, and 1.3, plus section 1.7 if you use the built-in telemetry SQLite sink.
 
 ---
 
@@ -24,11 +24,11 @@ If you stayed on the stable surface (route DSL, `http()`, `cron()`, `timer()`, `
 
 **New builder methods on `RouteBuilder`:**
 
-- `.title(value: string)` — display title
-- `.description(value: string)` — discoverable description
-- `.input(schema | { body, headers })` — body and header validation, framework-enforced before the pipeline runs
-- `.output(schema | { body, headers })` — output validation against the primary destination
-- `.tag(value | values)` — accepts a single tag or an array, and calls before `.from()` accumulate (deduplicated); tags drive selectors like `tools({ tagged: "read-only" })` on the agent side; literals `"read-only" | "destructive" | "idempotent"` autocomplete and any string is accepted
+- `.title(value: string)`: display title
+- `.description(value: string)`: discoverable description
+- `.input(schema | { body, headers })`: body and header validation, framework-enforced before the pipeline runs
+- `.output(schema | { body, headers })`: output validation against the primary destination
+- `.tag(value | values)`: accepts a single tag or an array, and calls before `.from()` accumulate (deduplicated); tags drive selectors like `tools({ tagged: "read-only" })` on the agent side; literals `"read-only" | "destructive" | "idempotent"` autocomplete and any string is accepted
 
 `.input()` failures emit `exchange:dropped`; `.output()` failures route through the route's error handler or emit `exchange:failed`.
 
@@ -199,7 +199,7 @@ If you run under Node, the built-in SQLite sink no longer works. You have two op
 
 These all carried `@experimental` at 0.4.0. If you opted in, here are the renames and removals.
 
-### 2.1 `mail()` — body reshape and verify option
+### 2.1 `mail()`: body reshape and verify option
 
 `MailMessage.text` and `MailMessage.html` are grouped under a single `body` object. Mailparser collapses MIME into at most one of each, so the correct abstraction is a grouped alternative-pair.
 
@@ -221,7 +221,7 @@ console.log(message.body.html)
 
 **New:** `verify?: "off" | "headers" | "strict"` on `MailServerOptions` (default `"headers"`). When set, populates a new `MailMessage.sender?: MailSender` field with sender analysis (mailing-list and auto-forward detection, ARC/DMARC trust). The `"strict"` mode requires the `mailauth` peer dependency.
 
-### 2.2 `agent()` — model id, prompt fields, and tool authorisation
+### 2.2 `agent()`: model id, prompt fields, and tool authorisation
 
 **Before (0.4.0):**
 
@@ -280,7 +280,7 @@ agent({
 
 **Removed type exports** from `@routecraft/ai`: `AgentModelId`, `AgentPromptSource`. If you imported either, switch to `LlmModelId` and `LlmPromptSource`.
 
-### 2.3 `llm()` — schema field renames
+### 2.3 `llm()`: schema field renames
 
 **Before (0.4.0):**
 
@@ -302,9 +302,9 @@ llm("anthropic:claude-opus-4-7", {
 })
 ```
 
-The result body still exposes `text`, `output`, and `usage` — no shape change to `LlmResult` / `LlmResultWithOutput`.
+The result body still exposes `text`, `output`, and `usage`; there is no shape change to `LlmResult` / `LlmResultWithOutput`.
 
-### 2.4 `embedding()` — `using` is now type-required
+### 2.4 `embedding()`: `using` is now type-required
 
 **Before (0.4.0):**
 
@@ -325,7 +325,7 @@ embedding<Message>("openai:text-embedding-3-small", {
 
 Adapter factory option types are no longer wrapped in `Partial<>`, so required fields are now required at the type level. `llm()`, `direct()`, and `mail()` had no actually-required option fields, so no call-site change is needed for those.
 
-### 2.5 `mcp()` source — metadata hoist and isolated registry
+### 2.5 `mcp()` source: metadata hoist and isolated registry
 
 The `mcp()` source no longer takes an endpoint name or descriptive metadata as arguments. The tool name is the route id; description, title, and input / output schemas come from the route builder.
 
@@ -404,7 +404,7 @@ Type changes:
 
 ### 2.7 First-class AI config keys (additive)
 
-Importing `@routecraft/ai` now augments `CraftConfig` with first-class `llm`, `mcp`, `embedding`, and `agent` keys via declaration merging, so you can configure them directly on `defineConfig` instead of inside `plugins[]`. See section 1.4 for the recommended shape. The `plugins: [llmPlugin(...), agentPlugin(...)]` form continues to work — no migration required if you prefer it.
+Importing `@routecraft/ai` now augments `CraftConfig` with first-class `llm`, `mcp`, `embedding`, and `agent` keys via declaration merging, so you can configure them directly on `defineConfig` instead of inside `plugins[]`. See section 1.4 for the recommended shape. The `plugins: [llmPlugin(...), agentPlugin(...)]` form continues to work, with no migration required if you prefer it.
 
 ---
 
@@ -416,10 +416,10 @@ For context only. None of these require any migration.
 
 `.error()` becomes the first **dual-mode wrapper**. The same method name now applies at two distinct scopes depending on where you call it on the route builder:
 
-- **Route scope** — call it _before_ `.from()`. Catches any unhandled error from the pipeline and halts the route. This is the existing 0.4.0 behaviour, unchanged.
-- **Step scope** — call it _after_ `.from()`. Wraps **only the immediately next step**. On success the pipeline continues untouched; on failure the handler runs, its return value replaces the body, and the pipeline continues with the next step. The builder's body type is preserved across the wrapper, so step-level `.error()` is fully type-safe.
+- **Route scope**: call it _before_ `.from()`. Catches any unhandled error from the pipeline and halts the route. This is the existing 0.4.0 behaviour, unchanged.
+- **Step scope**: call it _after_ `.from()`. Wraps **only the immediately next step**. On success the pipeline continues untouched; on failure the handler runs, its return value replaces the body, and the pipeline continues with the next step. The builder's body type is preserved across the wrapper, so step-level `.error()` is fully type-safe.
 
-This pattern is the foundation for future resilience operations (retry, cache, timeout, circuit breaker, throttle, delay) — each will adopt the same dual-mode shape so users learn it once. See [issue #140](https://github.com/routecraftjs/routecraft/issues/140) for the full design.
+This pattern is the foundation for future resilience operations (retry, cache, timeout, circuit breaker, throttle, delay). Each will adopt the same dual-mode shape so users learn it once. See [issue #140](https://github.com/routecraftjs/routecraft/issues/140) for the full design.
 
 #### Step-scope example: recover from one flaky call
 
@@ -525,7 +525,7 @@ craft()
 
 Stack `.authorize()` calls to AND-combine; the first failure short-circuits.
 
-`.authorize()` is **route-only**: it stages onto the next route, same convention as `.id` / `.title` / `.description` / `.input` / `.output` / `.tag` / `.batch`. Calling a pipeline op (`.to`, `.transform`, `.process`, ...) while authorizers are staged but no new `.from()` has opened the next route throws `RC2001` with a message naming `.authorize` among the staging ops that need a `.from()` to follow. For a mid-pipeline check, drop down to the validator form -- useful when you swap the principal in a `.process()` step or want to gate a `.choice()` branch:
+`.authorize()` is **route-only**: it stages onto the next route, same convention as `.id` / `.title` / `.description` / `.input` / `.output` / `.tag` / `.batch`. Calling a pipeline op (`.to`, `.transform`, `.process`, ...) while authorizers are staged but no new `.from()` has opened the next route throws `RC2001` with a message naming `.authorize` among the staging ops that need a `.from()` to follow. For a mid-pipeline check, drop down to the validator form, useful when you swap the principal in a `.process()` step or want to gate a `.choice()` branch:
 
 ```ts skip="fragment: attachEmailPrincipal, yourDestination are illustrative"
 import { authorize } from "@routecraft/routecraft"
@@ -562,4 +562,16 @@ A new `RUNNER_ARGV` store key lets adapters read remaining CLI arguments after t
 | `AgentModelId`               | `LlmModelId`                                      |
 | `AgentPromptSource`          | `AgentUserPromptSource` (alias of `LlmPromptSource`) |
 | `AuthPrincipal`              | `Principal`                                       |
-| `McpAuthValidator`           | none — use the new `oauth()` factory + verifiers  |
+| `McpAuthValidator`           | none; use the new `oauth()` factory + verifiers  |
+
+---
+
+## Related
+
+<QuickLinks>
+
+<QuickLink title="Migrating from 0.5" icon="installation" href="/docs/migrating/0.5-to-0.6" description="Continue the upgrade from 0.5 to 0.6." />
+
+<QuickLink title="Changelog" icon="presets" href="/changelog" description="Every release, with what changed and where to read more." />
+
+</QuickLinks>
