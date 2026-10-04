@@ -11,7 +11,7 @@ Two layers per exchange.
 | **State (stored fields)** | `body: T`, `headers: ExchangeHeaders` | the payload, every piece of metadata about the exchange (id, route, correlation, split hierarchy, source-emitted facts, cross-cutting concerns like principal/span/tenant) | serialized verbatim; rehydrated verbatim |
 | **Derivations (getters on `DefaultExchange`, and plugin facets)** | `id`, `logger`, and `ex.<namespace>` for each installed plugin that declares a facet (`ex.auth`, `ex.deferral`) | `get id()` reads `headers["routecraft.id"]`; `get logger()` builds a child logger from the framework's base logger and the exchange's id; a facet is the plugin's `facet(exchange)` run on every read: `ex.auth.principal` reads `headers["routecraft.auth.principal"]`, and `ex.deferral` reads the `routecraft.deferral.*` keys and returns the affordance, where reading `.token` mints a resume token from the signer `CONTINUATIONS` provides. Library code that holds a plain `Exchange` reads the same through `principalOf(ex)` and `deferralOf(ex)` | not serialized; reconstructed by instantiating `DefaultExchange` around the rehydrated state |
 
-Application-wide singletons (adapter clients, plugin state, schedulers) live in `context.store`, which is orthogonal: it outlives any individual exchange.
+Application-wide singletons are orthogonal to the exchange and outlive it. What a plugin offers other plugins or adapters is a port (`context.require(PORT)`); an adapter's own per-context state (clients, schedulers) lives in `context.store`.
 
 ## The rules
 
@@ -19,14 +19,14 @@ Application-wide singletons (adapter clients, plugin state, schedulers) live in 
 >
 > **Derivations (must NOT be stored, must be reconstructible):** anything that's a view over state (id, principal lookup, future span lookup) or depends on runtime services (logger). Exposed as getters so call sites read like properties.
 >
-> **Singletons (out-of-band):** application-wide things go in `context.store`.
+> **Singletons (out-of-band):** application-wide things a plugin offers go behind a port; an adapter's own state goes in `context.store`.
 
 A contributor adding new state asks:
 
 1. Is it the payload the route is operating on? --> `body`.
-2. Does the same instance need to outlive the exchange and be shared across routes? --> `context.store` (typed via `StoreRegistry`).
+2. Does the same instance need to outlive the exchange and be shared across routes? --> a port, when a plugin offers it to others; `context.store` (typed via `StoreRegistry`) when it is one adapter's own state.
 3. Anything else per-exchange that must survive the exchange? --> `headers` (typed via `RoutecraftHeaders` declaration merging).
-4. Want ergonomic dotted access (`ex.foo`) for a known core concern? --> add a getter on `DefaultExchange` that reads from `headers`. Plugin-defined concerns export an external helper (`getTenant(ex)`) instead of patching the prototype.
+4. Want ergonomic dotted access (`ex.foo`)? --> for a core concern, a getter on `DefaultExchange` that reads from `headers`; for a plugin's concern, a declared `facet`, which the kernel installs as `ex.<namespace>` and checks for collisions (`RC1114`). Library code reads the same through an exported helper (`principalOf(ex)`, `deferralOf(ex)`).
 
 That's it. No primitive/structured split. No second per-exchange bag. No stored-field "special cases" for cross-cutting concerns. One Principal --> one header key + one getter. One Span (future) --> one header key (and external helper if warranted).
 
@@ -222,7 +222,7 @@ The rule only kicks in when an adapter *does* carry envelope-around-payload.
 - **No PII enforcement at the framework type level.** PII is a logging-policy concern, not a framework-type concern. log4j doesn't ban strings to prevent PII leaks; the log statement and the aggregator filter handle that.
 - **No second bag for "structured" data.** No surveyed framework splits on primitive-vs-structured; frameworks that split (Camel, Koa, Hono) split on wire-vs-app. Routecraft has no wire-mapped bag and won't grow one (wire concerns translate at adapter boundaries).
 - **No ambient-context API yet.** AsyncLocalStorage breaks across queue / split / aggregate / retry boundaries; the source of truth must be on the exchange. A `currentExchange()` helper inside a single operation is a possible future ergonomic on top, not a replacement.
-- **Plugins do not extend `DefaultExchange`'s prototype.** Adding a getter for plugin-defined concerns would lead to arms races and conflicts. Plugins export external helpers (`getTenant(ex)`).
+- **Plugins never patch `DefaultExchange`'s prototype themselves.** The facet socket is the only way on: the kernel installs `ex.<namespace>` for a declared `facet`, one namespace per plugin, refusing a name the exchange already has (`RC1114`). Ad-hoc getters would race and collide.
 - **No deep-clone of structured header values in tap snapshots.** Headers are shallow-frozen (and the constructor shallow-freezes structured values like `Principal`). Mutating nested fields of any structured header value (`ex.auth.principal.claims.foo = ...`) is an anti-pattern the framework does not prevent and does not isolate against. Tap is for observation, not mutation.
 
 ## Why one bag named `headers`

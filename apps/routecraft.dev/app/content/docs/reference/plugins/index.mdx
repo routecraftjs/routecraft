@@ -10,7 +10,7 @@ Built-in plugins that extend the Routecraft runtime, and the full plugin API: th
 
 <Callout>
 
-Core adapter defaults (`cron`, `direct`) are set via dedicated fields on `CraftConfig`, not via plugins. See [Configuration](/docs/reference/configuration) and [Merged Options](/docs/advanced/merged-options).
+Core adapter defaults (`cron`, `direct`) are set with dedicated `CraftConfig` fields. Each field installs the adapter's plugin for you, so you never list it in `plugins`. See [Configuration](/docs/reference/configuration) and [Merged Options](/docs/advanced/merged-options).
 
 </Callout>
 
@@ -179,10 +179,20 @@ The ports the framework ships:
 | `HTTP` | `routecraft.http@1` | `routecraft.http` |
 | `OPS` | `routecraft.ops@1` | `routecraft.ops` |
 | `REMOTES` | `routecraft.remotes@1` | `routecraft.remotes` |
+| `CRON_DEFAULTS` | `routecraft.cron.defaults@1` | `routecraft.cron` |
+| `MAIL` | `routecraft.mail@1` | `routecraft.mail` |
+| `CARDDAV` | `routecraft.carddav@1` | `routecraft.carddav` |
+| `AGENTS` | `routecraft.ai.agents@1` | `routecraft.ai.agent` (`@routecraft/ai`) |
+| `SESSION_STORE` | `routecraft.ai.session-store@1` | `routecraft.ai.sessions` (`@routecraft/ai`) |
+| `MCP` | `routecraft.ai.mcp@1` | `routecraft.ai.mcp` (`@routecraft/ai`) |
+| `LLM` | `routecraft.ai.llm@1` | `routecraft.ai.llm` (`@routecraft/ai`) |
+| `EMBEDDING` | `routecraft.ai.embedding@1` | `routecraft.ai.embedding` (`@routecraft/ai`) |
+| `SURFACES` | `routecraft.ai.surfaces@1` | `routecraft.ai.surfaces` (`@routecraft/ai`) |
+| `SHELL` | `routecraft.os.shell@1` | `routecraft.os.shell` (`@routecraft/os`) |
 
-`RESILIENCE`, `CACHE` and `ENFORCEMENT` fill the chain's positions. The default providers are exported as `resilienceProvider`, `cacheProvider` and `enforcementProvider`, so a replacement can delegate to them.
+`RESILIENCE`, `CACHE` and `ENFORCEMENT` fill the chain's route-scope positions. The default providers are exported as `resilienceProvider`, `cacheProvider` and `enforcementProvider`, so a replacement can delegate to them. A step-scope wrapper (`.retry()` and the rest called after `.from()`) keeps the built-in implementation. A plugin that replaces a port is named once at boot, at warn for `AUTHORITY` and `ENFORCEMENT`.
 
-`AUTHORITY` decides who an exchange acts for and whether to trust it. It provides `mint(claims)`, `brand(principal)`, `isAuthentic(principal)`, `restore(record)`, `isRestored(principal)` and `read(exchange)`. `authorityOf(exchangeOrContext)` returns the application's authority. Every mint and every check goes through it, so a replacement decides both sides; `delegate()` and the ingress mounts take the authority explicitly rather than assuming the default.
+`AUTHORITY` decides who an exchange acts for and whether to trust it. It provides `mint(claims)`, `brand(principal)`, `isAuthentic(principal)`, `restore(record)`, `isRestored(principal)` and `read(exchange)`. `authorityOf(exchangeOrContext)` returns the application's authority. Every mint and every check goes through it, so a replacement decides both sides; `delegate()` and the ingress mounts take the authority explicitly rather than assuming the default. `defaultAuthority` is exported for a replacement that decorates it.
 
 ## Default plugins
 
@@ -227,7 +237,7 @@ The chain around every route runs in a fixed order. **Positions** belong to the 
 | Phase | May | Enforced |
 | --- | --- | --- |
 | `observe` | read | returning anything but `undefined` is `RC1115` |
-| `mutate` | return `{ headers?, body? }` to change the exchange, or nothing | |
+| `mutate` | return `{ headers?, body? }` to change the exchange, or nothing | writing an engine-owned header (`routecraft.id`, `routecraft.route`, `routecraft.operation`, `routecraft.split_hierarchy`) is `RC1115` |
 | `validate` | return nothing to allow, or `refuse(reason)` to refuse | returning anything else is `RC1115`; a refusal fails the run with [`RC5068`](/docs/reference/errors#rc-5068) |
 
 A slot runs observe, then mutate, then validate. `exit` has no validate phase. In the `error` slot the phases are `observe` and `mutate`, and `mutate` is the deciding phase: a hook answers with a recovery body, `recovery.drop()`, `recovery.defer(...)` or `recovery.rethrow()`, or `undefined` to pass, and the first answer decides. Inside a phase, hooks run in the order the application lists the plugins. When two mutate hooks write the same header in one slot, the later wins and the framework warns once per route naming both.
@@ -245,7 +255,7 @@ A slot runs observe, then mutate, then validate. `exit` has no validate phase. I
 | `wrap(proceed, exchange, info)` | `perAttempt` | The wrapper. |
 | `routes` | all | Only these route ids. Combined with `tags` as alternatives. |
 | `tags` | all | Only routes carrying one of these tags. |
-| `runs` | all | The run kinds the hook applies to: `normal`, `resume`, `debounce`, `errorChannel`. Defaults to `normal` only, except in `error`, which defaults to every kind. `beforeAuth`, `afterAuth` and `admitted` see admitted traffic only. |
+| `runs` | all | The run kinds the hook applies to: `normal`, `resume`, `debounce`, `errorChannel`. Defaults to `normal` only, except in `error`, which defaults to every kind. `beforeAuth`, `afterAuth` and `admitted` see admissions only: a normal run, and an admission resume (a park raised before the route admitted the exchange), which runs `afterAuth` and `admitted` around the `authorize` it re-runs. |
 | `writes` | `mutate` | The headers the hook writes, so a conflict is reported at start rather than on the first request. |
 | `mayDefer` | `error` | The hook may answer `recovery.defer()`. Makes every route it applies to deferrable, so the application refuses to start without a deferral runtime ([`RC5052`](/docs/reference/errors#rc-5052)). |
 
@@ -255,7 +265,7 @@ An error hook that throws is reported as `route:error-handler:failed` with `scop
 
 ### Points
 
-A plugin may declare `points: [{ name: 'approvals.decided' }]` and run the hooks other plugins place there from its own step, with `ctx.invoke(name, exchange)` in a step's `execute`. Point names are dotted under the declaring plugin's namespace; two plugins declaring one point, or a point named after a slot, is `RC1113`.
+A plugin may declare `points: [{ name: 'approvals.decided' }]` and run the hooks other plugins place there from its own step, with `ctx.invoke(name, exchange)` in a step's `execute`. Another plugin places a hook there under `hooks.points`: `hooks: { points: { 'approvals.decided': { phase: 'observe', run } } }`. Point names are dotted under the declaring plugin's namespace; two plugins declaring one point, or a point named after a slot, is `RC1113`.
 
 ### Hooks config
 

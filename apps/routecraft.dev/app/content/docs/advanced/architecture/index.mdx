@@ -44,7 +44,7 @@ A failure at any stage unwinds: every plugin that bound is stopped in reverse, a
 
 Plugins never share a store key or a module-level variable. When one plugin offers something another plugin or an adapter uses, it is a port:
 
-- a plugin declares the port in `provides` and calls `c.provide(PORT, value)` in `bind`;
+- a plugin declares the port in `provides` and calls `c.provide(PORT, value)` in `bind`, or declares `replaces` as well to take a default's place, which the application announces at boot;
 - another plugin declares it in `requires` or `optional` and calls `c.require(PORT)` or `c.lookup(PORT)`;
 - an adapter calls `context.require(PORT)` at runtime, while it subscribes or sends.
 
@@ -66,7 +66,7 @@ A port's name carries a version (`routecraft.direct@1`). Two different tokens wi
 
 ## The chain around a route
 
-Every route runs inside a fixed chain. Its **positions** belong to the framework and are filled by whichever plugin provides their port: replace `RESILIENCE` and every `.retry()` in the application runs your retry. Its **slots** sit between the positions, and any number of plugins add hooks there. [Filter chain](/docs/advanced/filter-chain) shows the order and [Hooks](/docs/advanced/plugins#hooks) shows how to add to it.
+Every route runs inside a fixed chain. Its **positions** belong to the framework and are filled by whichever plugin provides their port: replace `RESILIENCE` and every route-scope `.retry()` (one placed before `.from()`) runs your retry. A step-scope wrapper, placed after `.from()` around one step, keeps the built-in implementation. Its **slots** sit between the positions, and any number of plugins add hooks there. [Filter chain](/docs/advanced/filter-chain) shows the order and [Hooks](/docs/advanced/plugins#hooks) shows how to add to it.
 
 An exchange is not always on its first run. Each run carries its **kind**, and a hook declares the kinds it applies to with `runs`:
 
@@ -77,14 +77,14 @@ An exchange is not always on its first run. Each run carries its **kind**, and a
 | `debounce` | The exchange a `.debounce()` held, released |
 | `errorChannel` | A parked exchange retired through the route's error channel, for example when its deadline passed |
 
-The last three re-enter below admission, so the `beforeAuth`, `afterAuth` and `admitted` slots never see them. A hook that declares no `runs` applies to normal runs only, except in the `error` slot, which hears failures on every kind of run.
+Those three re-enter below admission, so the `beforeAuth`, `afterAuth` and `admitted` slots never see them. One `resume` is different: an **admission resume**, a park raised before the route admitted the exchange (a step-up after `authorize` refused). It completes the admission the first run never reached, so it re-runs `authorize` and passes `afterAuth` and `admitted` as an admission would; a policy hook placed after `authorize` cannot be skipped by parking. A hook that declares no `runs` applies to normal runs only, except in the `error` slot, which hears failures on every kind of run.
 
 ## One feature, several plugins
 
 A feature is often one runtime and many contributions to it: one agent runtime and the agents each part of the application registers. Two descriptor fields compose that without the application wiring the runtime itself:
 
 - `installs` brings a plugin along. However many plugins bring one id, it is installed once, and never when the application lists that id itself.
-- `repeatable` lets one plugin be installed several times. A repeatable plugin contributes through another plugin's port and may not provide a port, declare hooks or points, add steps or declare a facet.
+- `repeatable` lets one plugin be installed several times. A repeatable plugin contributes through another plugin's port and may not provide or replace a port, declare hooks or points, add steps or declare a facet.
 
 The application lists only the contributions:
 

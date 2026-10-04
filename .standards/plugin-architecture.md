@@ -194,7 +194,14 @@ A refusal throws `RC5068` naming the hook and its reason, which reaches the
 
 Two mutate hooks writing the same header in one slot: the later wins and the
 framework warns once per route naming both. A hook that declares `writes`
-moves that warning to start.
+moves that warning to start. A mutate hook may not write an engine-owned
+header (`routecraft.id`, `routecraft.route`, `routecraft.operation`,
+`routecraft.split_hierarchy`): that is `RC1115`, the contract `.header()`
+enforces.
+
+Hooks at a point another plugin declares go under `hooks.points`, keyed by
+point name, so the slot keys stay closed and a misspelled slot is a compile
+error.
 
 The application settles conflicts, in config:
 
@@ -221,7 +228,11 @@ positions.
 The run carries its kind, independent of which hooks exist: a resume, a
 debounce release and an error-channel re-entry each report their own kind to
 the `error` slot, to points and to `perAttempt`. Detached runs re-enter below
-admission, so `beforeAuth`, `afterAuth` and `admitted` never run on them.
+admission, so `beforeAuth`, `afterAuth` and `admitted` never run on them,
+with one exception: an admission resume (a park raised before the route
+admitted the exchange) completes the admission its first run never reached,
+so it runs `afterAuth` and `admitted` around the `authorize` it re-runs.
+`beforeAuth` ran on the first run and does not run again.
 
 A `perAttempt` wrapper calls `proceed()` once. A second call is `RC1115`, and
 an attempt the wrapper started is settled before the slot settles even when
@@ -282,7 +293,7 @@ the getter; the exchange's own fields (`id`, `headers`, `body`, `logger`,
 | Plugin | Provides | Steps / hooks / facet |
 |---|---|---|
 | `routecraft.direct` | `DIRECT` (endpoint registry, options) | |
-| `routecraft.resilience` | `RESILIENCE` (throttle, circuitBreaker, retry, timeout, concurrency, delay) | |
+| `routecraft.resilience` | `RESILIENCE` (throttle, circuitBreaker, retry, timeout, concurrency) | |
 | `routecraft.cache` | `CACHE` | |
 | `routecraft.principals` | `AUTHORITY` (mint, brand, isAuthentic, restore, isRestored, read) | |
 | `routecraft.auth` | `ENFORCEMENT` | steps `authenticate`, `delegate`; facet `ex.auth` |
@@ -308,6 +319,24 @@ Position config stays on the builder (`.retry()`, `.authorize()`, `.cache()`
 and the rest) because positions are the framework's; the builder method
 configures the position and the provider fills it. A route that configures a
 position whose provider is missing refuses to start (`RC1111`).
+
+### What a replacement must preserve
+
+Replacing a security-relevant port moves the invariants written against the
+shipped provider. The kernel keeps what it can enforce structurally; the rest
+is the replacement's obligation, and delegating to the exported default
+(`defaultAuthority`, `enforcementProvider`, `cacheProvider`) keeps it.
+
+| Port | The kernel still guarantees | The replacement must guarantee |
+|---|---|---|
+| `AUTHORITY` | every mint, brand, restore and trust check goes through the one provider (`authorityOf`); restored principals come back through `restore` | `isAuthentic` is true only for what it minted or branded, and never for a `restore`d record (`keep()` and `delegate()` trust on `isAuthentic` alone); `restore` returns a new object `isRestored` recognises |
+| `ENFORCEMENT` | the position runs where the chain puts it, and on the run kinds `CHAIN_SURVIVAL` allows | the refusal codes keep their meaning (`RC5012` no principal, `RC5023` not authentic, `RC5043` restored, `RC5015` role or predicate, `RC5038` scope, `RC5034`-`RC5036` actor); a door maps a refusal to the caller only when the shipped gate raised it, so a replacement composes `enforcementProvider`'s gate rather than throwing its own |
+| `CACHE` | check runs after `authorize` and `input`, store after the pipeline | the default key carries the principal and the route, or one caller's cached body serves another |
+| `CONTINUATIONS` | the door order, the compare-and-swap, the continuation hash, the outcome cache and expiry through the error channel | the signer refuses a forged or expired token, and the secret policy holds: no secret is `RC5040` outside a named `NODE_ENV` |
+
+The application names every replaced port at boot, at warn for `AUTHORITY`
+and `ENFORCEMENT`, because a dependency's `installs` can bring a replacement
+the application's own config never mentions.
 
 ## 6. The continuation protocol
 

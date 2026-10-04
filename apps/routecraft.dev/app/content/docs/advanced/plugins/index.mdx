@@ -199,6 +199,17 @@ export const tracedRetry = definePlugin({
 
 A position cannot be moved, removed or added. A route that configures a position no installed plugin provides refuses to start with [`RC1111`](/docs/reference/errors#rc-1111). The positions and their order are described on the [Filter Chain](/docs/advanced/filter-chain) page.
 
+A replacement fills the route-scope positions. The same methods called after `.from()` wrap a single step and keep the built-in implementation.
+
+Replacing a security-relevant port takes on what the default guaranteed. Decorating the exported default, as above, keeps it:
+
+- `AUTHORITY`: `isAuthentic` is true only for what the authority minted or branded, never for a restored record.
+- `ENFORCEMENT`: refusals keep their codes, and a door treats a refusal as the caller's only when the shipped gate raised it, so compose `enforcementProvider`'s gate rather than throwing your own.
+- `CACHE`: the default key carries the principal and the route, or one caller's cached body is served to another.
+- `CONTINUATIONS`: the signer refuses a forged or expired token, and a missing secret is `RC5040` outside a named `NODE_ENV`.
+
+The application names every replaced port once at boot, at warn for `AUTHORITY` and `ENFORCEMENT`.
+
 ## Hooks
 
 The chain around every route has fixed **positions** that belong to the framework, and **slots** between them where any number of plugins add hooks:

@@ -112,7 +112,7 @@ Import only from `@standard-schema/spec` (e.g., `import type { StandardSchemaV1 
 ### Use a plugin when
 
 - Something must be **started, stopped, or managed** as a process (lifecycle). Examples: `mcpPlugin` starts the MCP server, spawns stdio subprocesses.
-- Or you want a **typed, validated config helper** that populates the context store. Document it clearly in JSDoc (e.g., "Config only; no lifecycle hooks."). Example: `llmPlugin`.
+- Or something other plugins or adapters use: the plugin **provides a port** (`definePlugin({ provides: [LLM], bind(c) { c.provide(LLM, ...) } })`). Example: `llmPlugin`, whose providers `llm()` reads through `context.lookup(LLM)`.
 
 Plugins may be lifecycle-only, config-helper-only, or both. Which hook a
 piece of lifecycle work belongs in is covered in
@@ -120,13 +120,13 @@ piece of lifecycle work belongs in is covered in
 
 ### Context store
 
-The context store is the underlying mechanism for sharing config between plugins and adapters. Prefer plugin helpers to populate it (typed options, validation). Advanced users can set store directly: `builder.store(KEY, value)`.
+The context store holds an adapter's own per-context state. It is not how plugins share anything: what crosses a plugin boundary is a port, so no store key is read by a module other than the one that writes it.
 
 ### Route: named vs inline
 
 Adapters in routes can be:
 
-- **Named:** Reference a pre-registered backend by id (e.g., `mcp("browser:screenshot")`, `llm("ollama:llama3")`). Config comes from context store (plugin or `builder.store()`). Preferred for recurring, credentialed, or auditable backends.
+- **Named:** Reference a pre-registered backend by id (e.g., `mcp("browser:screenshot")`, `llm("ollama:llama3")`). The backend comes from the plugin's port (`context.lookup(MCP)`, `context.lookup(LLM)`). Preferred for recurring, credentialed, or auditable backends.
 - **Inline:** Full options in the route (e.g., `http({ url, method })`, `mcp({ url, tool })`, `agent({ modelId, ... })`). Use for ad-hoc or dynamic cases.
 
 ### stdio = plugin only
@@ -166,7 +166,8 @@ Using the package specifier attaches the augmentation to the same `RouteBuilder`
 
 This rule applies to every augmentation block, including:
 
-- `RouteBuilder` sugar (`.log`, `.debug`, `.map`, `.schema`) in `packages/routecraft/src/dsl.ts`
+- the step and facet registries (`StepMethods`, `FacetTypes`, `ShippedPluginTypes`, `DefaultPluginTypes`, `ConfigKeyPlugins`) merged from a shipped plugin, for example `packages/routecraft/src/plugins/deferral/steps.ts`
+- `CraftConfig` keys a package's config applier adds (`adapters/cron/config.ts`, `adapters/mail/config.ts`)
 - `RoutecraftHeaders` entries in `packages/routecraft/src/principal.ts` and per-adapter shared files
 - `StoreRegistry` entries in per-adapter shared files (cron, direct, mail, split, etc.)
 - Any future augmentation of a type exported from `@routecraft/routecraft`

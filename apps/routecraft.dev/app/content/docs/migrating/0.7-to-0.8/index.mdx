@@ -50,7 +50,6 @@ export const audit = definePlugin({
 | 0.7 | 0.8 |
 | --- | --- |
 | `CraftPlugin` | `Plugin`, declared with `definePlugin()` |
-| a function `(ctx) => void` | `definePlugin({ id, bind(c) { ... } })` |
 | `name` (optional) | `id` (required, dotted, unique per application) |
 | `apply(ctx)` | `bind(c)` |
 | `teardown(ctx, info)` | `stop(c, info)`; or register releases with `c.onDispose(fn)` |
@@ -129,6 +128,10 @@ State one plugin hands another, or hands an adapter, is a port: a typed token de
 A custom adapter that read context-wide defaults from a store key reads them from a port its companion plugin provides: `context.lookup(MY_DEFAULTS)`. See [Merged Options](/docs/advanced/merged-options). An adapter's own per-context state may stay in the store.
 
 `CraftConfig.plugins` is a readonly array.
+
+A plugin that is not repeatable is installed once per application. A second `llmPlugin()`, `embeddingPlugin()` or `shellPlugin()` used to replace the first silently; it is now `RC1101`. Merge the options into one install.
+
+The internal `RouteDefinition` fields `preParseFilters`, `postParseFilters` and `postFromFilters` are gone: a route definition carries its chain as configuration, and the chain is built when the route compiles.
 
 ## 6. What is new in 0.8.0 \{#6-what-is-new-in-080}
 
