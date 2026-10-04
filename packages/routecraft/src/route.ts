@@ -83,6 +83,13 @@ export { buildCacheCheckStep, buildCacheStoreStep, buildThrottleCheckStep };
  * Header keys that belong to ONE exchange and never to the next, stripped at
  * every route ingress by {@link DefaultRoute.buildExchange}.
  *
+ * The deferral keys are per-exchange state like the split hierarchy, and an
+ * ingress is a new exchange. `forward()` and a `direct()` destination hand the
+ * target the caller's headers verbatim, so without the strip a continuation
+ * forwarding anywhere would tell the target it is execution two, hand it
+ * another exchange's resume payload, and suppress its own park with a
+ * refusal recorded against unrelated work.
+ *
  * Built from {@link DeferralHeaders} rather than listed, because the list and
  * the keys drifting apart is silent: the stripping site is nowhere near the
  * declaration, and a key that keeps its value across an ingress tells the
@@ -689,11 +696,6 @@ export class DefaultRoute implements Route {
           `The id is generated on every start, so cached entries never match after a restart. Add .id() to the route.`,
       );
     }
-    // One (channel, consumer) pair per source so each ingress gets its own
-    // delivery queue and, for batch routes, its own batch window. All
-    // consumers drive the same shared step pipeline via the handler
-    // registered in start(); the route stays a single logical entity (one id,
-    // one lifecycle event stream) regardless of how many ingresses it exposes.
     this.buildChannelsAndConsumers();
 
     this.watchIntakeAbort();
@@ -780,11 +782,13 @@ export class DefaultRoute implements Route {
    *   unjoinable, and `.aggregate()` would resolve its trailing group id
    *   against the context-wide split-parent store and delete the caller's
    *   still-in-flight entry.
+   * - The deferral headers are dropped too; see {@link PER_EXCHANGE_HEADERS}.
    * - `routecraft.route` and `routecraft.operation` are stamped for the
    *   receiving route.
    *
    * Everything else, principal and correlation id included, is inherited by
-   * reference. See `.standards/security.md` section 3.
+   * reference; a source with no correlation id to forward gets a fresh one.
+   * See `.standards/security.md` section 3.
    *
    * @param message The message data
    * @param headers Optional headers to include
@@ -792,32 +796,9 @@ export class DefaultRoute implements Route {
    * @private
    */
   private buildExchange(message: unknown, headers?: ExchangeHeaders): Exchange {
-    // Preserve the caller's correlation id when the source forwarded one
-    // (route-to-route via direct(), MCP tool calls, HTTP requests carrying
-    // a trace header). Falls back to a fresh UUID for sources that emit
-    // independent exchanges (timer, cron, simple, fresh ingress). This
-    // keeps cross-route logs / spans on the same logical request without
-    // requiring callers to thread the id manually.
     const incomingCorrelationId = headers?.[HeadersKeys.CORRELATION_ID] as
       string | undefined;
-    // Omitted rather than deleted after the fact: `delete` on a fresh literal
-    // drops the object into dictionary mode, and this one becomes the header
-    // bag every step then reads.
-    //
-    // The deferral keys are dropped for the same reason the split hierarchy
-    // and the exchange id are: they are per-exchange state, and an ingress is
-    // a new exchange. `forward()` and a `direct()` destination hand the
-    // target the caller's headers verbatim, so a continuation forwarding
-    // anywhere would otherwise tell the target it is execution two, hand it
-    // another exchange's resume payload, and suppress its own park with a
-    // refusal recorded against work it has nothing to do with.
-    //
-    // Read off `DeferralHeaders` rather than spelled out here, so a key added
-    // there is stripped without anyone remembering this site.
-    //
-    // One pass rather than entries-filter-fromEntries: this runs on every
-    // ingress, and that shape allocates a pair array per header before
-    // discarding most of them.
+    // Omitted, not deleted: `delete` drops the header bag into dictionary mode.
     const incoming = (headers ?? {}) as Record<string, unknown>;
     const inherited: Record<string, unknown> = {};
     for (const key of Object.keys(incoming)) {
@@ -999,6 +980,20 @@ export class DefaultRoute implements Route {
    * 1. Registers each per-source consumer to process messages
    * 2. Subscribes to every source to receive data
    *
+   * `route:started` fires once, when every source has signalled readiness;
+   * a source that emits without calling `ready()` is marked ready by its
+   * first message. `start()` resolves only when every subscription resolves,
+   * so a server ingress (direct, http, mcp) keeps the context alive while a
+   * route of finite sources completes and lets it auto-stop.
+   *
+   * A source that fails to subscribe, synchronously or not, aborts the whole
+   * route so siblings that already subscribed are torn down, and fires
+   * `route:source:failed` first so operators see which ingress died. A
+   * rejection after the source's own controller aborted is teardown noise
+   * and fires nothing. When every ingress of a multi-source route has
+   * completed, the route aborts its own intake, mirroring a single finite
+   * source; in-flight exchanges still drain.
+   *
    * @returns A promise that resolves when the route has started
    * @throws {RoutecraftError} If the route has been aborted
    */
@@ -1007,24 +1002,11 @@ export class DefaultRoute implements Route {
     this.compile();
     // Lifecycle log is emitted only by context (one log per event).
 
-    // Register the shared pipeline handler on every per-source consumer.
-    // Framework-level `.input()` validation is stashed on exchange
-    // internals here and runs INSIDE the pre-from filter chain (position
-    // #4), so any source adapter with an `.input()` schema on the route
-    // inherits validation without per-adapter wiring, and a failure is
-    // routable through the route-scope `.error()` handler. Unrecovered,
-    // the handler's rejection still reaches the source's own caller
-    // (e.g. a direct channel's `send`). See #447.
     const consumerHandler = this.buildConsumerHandler();
     for (const consumer of this.consumers) {
       consumer.register(consumerHandler);
     }
 
-    // Emit `route:started` once ALL sources have signalled readiness. The
-    // route is a single logical entity, so its lifecycle events fire once no
-    // matter how many ingresses it exposes. Every built-in source calls
-    // `onReady`; the enqueue callback also marks readiness as a fallback for
-    // callable sources that produce a message without calling it.
     const total = this.definition.sources.length;
     const readyIndices = new Set<number>();
     let startedEmitted = false;
@@ -1045,27 +1027,12 @@ export class DefaultRoute implements Route {
         ? { discovery: this.definition.discovery }
         : {}),
       ...(this.definition.requiresPrincipal ? { requiresPrincipal: true } : {}),
-      // Read from the consumer's own declaration, and resolved here because
-      // this is where the consumer is known rather than in each source.
       ...(this.definition.consumer.type.buffers === true
         ? { bufferedConsumer: true }
         : {}),
     };
 
-    // Subscribe every source, each into its own channel. A test-time override
-    // is resolved per source so individual ingresses can be mocked. start()
-    // resolves only when ALL subscriptions resolve: server ingresses (direct,
-    // http, mcp) hold open until abort, so a multi-ingress route with any
-    // server ingress keeps the context alive, while a route whose sources are
-    // all finite completes and lets the context auto-stop.
-    // Build AND await every subscription inside the try so both a synchronous
-    // throw while wiring a source (override resolution, a sync callable source)
-    // and an async subscribe rejection hit the same cleanup path. On failure,
-    // abort the route so any sibling ingresses that already subscribed are torn
-    // down (registry entries cleared, pending subscribes resolved) instead of
-    // leaking, then surface the error. `context.start()` already aborts on a
-    // failed route.start(); this makes start() self-cleaning for direct callers
-    // too. Harmless for the single-source case (no siblings).
+    // Built inside the try so a synchronous wiring throw takes the same cleanup path.
     try {
       const subscriptions = this.definition.sources.map(
         (definitionSource, index) => {
@@ -1079,18 +1046,10 @@ export class DefaultRoute implements Route {
             sourceOverride && sourceOverride.source
               ? wrapSourceWithOverride(definitionSource, sourceOverride)
               : definitionSource;
-          // A single-source route hands the source the route's own controller
-          // so a finite source completing (such sources call abort() when done)
-          // stops the route exactly as before. A multi-ingress route gives each
-          // source a child controller linked to the route's: the route aborts
-          // every child, but one finite ingress completing only aborts its own
-          // child and never tears down a sibling ingress (e.g. a long-lived
-          // http/mcp server holding the route open).
+          // One source shares the route's controller, so its completion stops the route.
           const sourceController =
             total === 1 ? this.abortController : this.linkedChildController();
-          // Assemble the Subscription object: the single argument every
-          // source receives. Capabilities are added here as new fields,
-          // never as new positional parameters.
+          // Capabilities are added as new fields, never as positional parameters.
           const subscription: Subscription = {
             context: this.context,
             signal: sourceController.signal,
@@ -1111,16 +1070,6 @@ export class DefaultRoute implements Route {
               });
             },
           };
-          // Coerce to a promise so a void return and an async rejection are
-          // handled uniformly by Promise.all; a synchronous throw is caught by
-          // the surrounding try because the map runs inside it. A rejection
-          // means the source gave up producing (a dead channel), which is a
-          // state operators must be able to alarm on: emit the per-source
-          // event here, before the route-level abort below, so listeners see
-          // which ingress died even on a multi-ingress route. A rejection
-          // after the source's controller aborted is teardown noise (an
-          // orderly stop, or a sibling being torn down because another
-          // source already failed), not a dead channel: skip the event.
           return Promise.resolve(activeSource.subscribe(subscription)).catch(
             (error: unknown) => {
               if (!sourceController.signal.aborted) {
@@ -1149,19 +1098,7 @@ export class DefaultRoute implements Route {
       throw err;
     }
 
-    // Every ingress's subscription resolved. For a multi-ingress route whose
-    // sources are all finite this means every ingress has completed: mirror the
-    // single-source contract (where a finite source aborts the route's own
-    // controller on completion) by aborting here so the route's terminal
-    // lifecycle events fire even when an indefinite sibling route keeps the
-    // context alive. A route holding any server ingress never reaches this with
-    // an un-aborted controller (a server's subscribe only resolves once the
-    // controller is aborted), so the guard makes this a no-op there. The
-    // single-source path is left exactly as before: its source drives
-    // completion.
-    //
-    // INTAKE only. Sources finishing means no more work arrives, not that
-    // exchanges already in the pipeline should be cancelled; those drain.
+    // Intake only: a server ingress never resolves un-aborted, so this is a no-op there.
     if (total > 1 && !this.abortController.signal.aborted) {
       this.abortController.abort("All ingresses completed");
     }
@@ -1203,18 +1140,9 @@ export class DefaultRoute implements Route {
 
       const internals = EXCHANGE_INTERNALS.get(exchange);
       if (internals && parse) {
-        // Stash the source-supplied parser so `runPipeline` applies it
-        // as a synthetic first pipeline step. This is what makes parse
-        // errors surface as normal pipeline events the route can
-        // observe (`.error()` for `'fail'`, `route:exchange:dropped` for
-        // `'drop'`). See #187.
         internals.parse = parse;
         internals.parseFailureMode = parseFailureMode ?? "fail";
       }
-      // Stash the `.input()` validator alongside. With a parser the
-      // synthetic parse step runs it once parse succeeds (input validates
-      // the parsed body, not the raw bytes); without one `runPipeline`
-      // inserts a standalone input step in the same chain position.
       this.attachInputValidation(exchange);
 
       return this.handler(exchange);
@@ -1238,10 +1166,7 @@ export class DefaultRoute implements Route {
     if (!inputSchemas?.body && !inputSchemas?.headers) return;
     const internals = EXCHANGE_INTERNALS.get(exchange);
     if (!internals) return;
-    // The non-emitting variant throws RC5065 cleanly into the step loop's
-    // catch path (which emits `step:failed` and then the error path),
-    // without firing duplicate `exchange:started` / stray
-    // `exchange:dropped` events (see #187, #447).
+    // Non-emitting: the step loop owns the events, so none are duplicated.
     internals.applyValidation = (ex: Exchange) =>
       validateInputOrThrow(this.validationDeps(), ex, inputSchemas);
   }
@@ -1294,10 +1219,7 @@ export class DefaultRoute implements Route {
   resetForRestart(controller: AbortController): void {
     this.abortController = controller;
     this.executionController = new AbortController();
-    // Rebuilt rather than reused: a queue cleared by stop() is still the
-    // queue whose consumer was registered against the previous run, and a
-    // consumer may hold per-run state (a batch window, a debounce hold).
-    // start() registers a fresh handler on whatever is here.
+    // Rebuilt, not reused: a consumer may hold per-run state (a batch window, a debounce hold).
     this.buildChannelsAndConsumers();
     this.watchIntakeAbort();
   }
@@ -1305,6 +1227,13 @@ export class DefaultRoute implements Route {
   /**
    * Process an exchange through the route's steps.
    * Resolves with the result immediately; then waits for background tasks (e.g. tap) before cleanup.
+   *
+   * Output validation runs only on a completed exchange, and a failure there
+   * takes the same path as a thrown step. A deferred exchange skips both the
+   * output stage and completion: its body is the `Deferred` acknowledgment,
+   * not the route's output, and its terminal event was
+   * `route:exchange:deferred`. The source still receives it, which is how
+   * each transport renders the acknowledgment.
    *
    * @param exchange The initial exchange to process
    * @returns A promise that resolves when processing is complete
@@ -1332,15 +1261,6 @@ export class DefaultRoute implements Route {
       startTime,
     ).then(async (piped) => {
       const result = await applyExitSlot(this.executorDeps(), piped, "normal");
-      // Framework-level output validation runs on successful, non-dropped
-      // exchanges before we declare completion. A failure falls through the
-      // same path as a thrown step: errorHandler if set, else a failed result.
-      // A deferred exchange is exempt from the output stage AND from
-      // completion: its body is the `Deferred` acknowledgment rather than
-      // the route's declared output (the two arms of the route's
-      // `Output | Deferred` type), and its terminal event was
-      // `route:exchange:deferred`. The source still receives the exchange,
-      // which is how each transport renders the acknowledgment.
       const finalResult = await applyOutputStage(
         this.validationDeps(),
         this.definition.discovery?.output,
@@ -1375,9 +1295,7 @@ export class DefaultRoute implements Route {
       return finalResult.exchange;
     });
 
-    // Track in-flight work. Use a catch-suppressed wrapper so rejected
-    // handler promises don't trigger unhandled rejection warnings; the
-    // actual rejection is handled by the caller (source adapter / channel).
+    // Catch-suppressed copy: the caller handles the real rejection.
     const tracked = handlerPromise.catch(() => {});
     this.inFlight.add(tracked);
     tracked.finally(() => this.inFlight.delete(tracked));
@@ -1393,6 +1311,11 @@ export class DefaultRoute implements Route {
    * for execution two, which arrives out of band and would otherwise be
    * invisible to the route that owns it.
    *
+   * An admission run re-attaches the `.input()` validator from the live
+   * route's schemas, since the closure cannot cross the store. A source
+   * parser cannot be rebuilt this way, which is why a park above a pending
+   * one is refused at park time.
+   *
    * @internal
    */
   runContinuation(
@@ -1400,13 +1323,6 @@ export class DefaultRoute implements Route {
     steps: ReadonlyArray<Step<Adapter>>,
     kind: DetachedKind = "resume",
   ): Promise<DetachedResult> {
-    // An admission run has to validate its input, and the validator is a
-    // closure the consumer handler normally stashes on the arriving
-    // exchange. A rehydrated exchange carries none, so it is re-attached
-    // here from the same source the handler builds it from: the route's own
-    // `.input()` schemas, which the live route still holds. The source's
-    // parse is NOT re-attachable, and that is the difference the park-time
-    // refusal exists for.
     if (kind === "admission") this.attachInputValidation(exchange);
     const run = runDetachedPipeline(this.executorDeps(), steps, exchange, kind);
     this.trackTask(run);
@@ -1424,6 +1340,16 @@ export class DefaultRoute implements Route {
    * default `route:error` + `context:error` + `route:exchange:failed`
    * path). A second, hand-rolled error path would drift from that one.
    *
+   * The re-entry is a run of this route in its own right, with its own
+   * started / terminal pair. `.output()` validation is not applied to a
+   * recovered body: a re-ask handler returns a notification, not the
+   * route's output. The handler forwards as the deferred exchange, whose
+   * principal came back from the store marked restored, so a target
+   * declaring `.authorize()` refuses it (RC5043): nothing re-verified that
+   * identity across the deferral. The step's adapter id derives from the
+   * caller's `operation`, so a sweeper or deny path is not attributed to
+   * resume in telemetry.
+   *
    * @internal
    */
   async enterErrorChannel(
@@ -1435,11 +1361,6 @@ export class DefaultRoute implements Route {
     const correlationId = exchange.headers[
       HeadersKeys.CORRELATION_ID
     ] as string;
-    // The re-entry is a run of this route in its own right, so it gets its
-    // own started / terminal pair rather than leaving a stray `failed` with
-    // no `started` before it. `.output()` validation is deliberately NOT
-    // applied to a recovered body: what a re-ask handler returns is a
-    // notification, not the route's output.
     this.context.emit("route:exchange:started", {
       routeId: this.definition.id,
       exchangeId: exchange.id,
@@ -1449,13 +1370,6 @@ export class DefaultRoute implements Route {
     delete routeDeps.slots;
     const slots = detachedSlots(routeDeps);
     const deps: ExecutorDeps = {
-      // The memoised deps carry the route's own `buildForward`, so the
-      // re-ask handler forwards as the DEFERRED exchange: its `forward()`
-      // takes the correlation of the work being re-asked about, and its
-      // principal, which came back from the store marked restored. A target
-      // declaring `.authorize()` refuses it for that reason (RC5043), which
-      // is the correct answer: nothing re-verified that identity across the
-      // deferral.
       ...routeDeps,
       ...(slots ? { slots } : {}),
       runKind: "errorChannel",
@@ -1465,10 +1379,6 @@ export class DefaultRoute implements Route {
           {
             operation: OperationType.PROCESS,
             label: operation,
-            // Derived from the caller's label rather than pinned to the
-            // resume operation: a cancellation sweeper or an operator deny
-            // path pushing into this channel must not have its failures
-            // attributed to resume in telemetry.
             adapter: { adapterId: `routecraft.operation.${operation}` },
             execute: () => Promise.reject(error),
           },

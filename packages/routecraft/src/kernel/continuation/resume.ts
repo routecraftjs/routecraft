@@ -140,18 +140,43 @@ export interface ResumeAcknowledgment {
  *    record alone.
  * 3. The route's own `authorize` hook accepts the principal (`RC5056`), if
  *    it declared one. This is where an application's policy runs; the
- *    framework has none of its own.
+ *    framework has none of its own. The door's `elevate` hook runs here
+ *    too (see `runElevator`), and its answer is held until the claim is
+ *    won. Neither hook can transition the record.
  * 4. Only now the lifecycle: a duplicate gets the cached continuation result
  *    rather than a second execution, an expired record `RC5047`, a denied
  *    one `RC5050`. Steps 2 and 3 sit above this deliberately, so a refused
- *    caller learns nothing about the record's state.
+ *    caller learns nothing about the record's state. The deadline is read
+ *    after the hooks settle, so a hook that overran it reports `RC5047`
+ *    rather than reviving into a closed window, and it is checked here as
+ *    well as by the sweeper because a resume can land between the deadline
+ *    and the sweep. Retiring it is a compare-and-swap: winning it is the
+ *    right to notify, so replaying a dead token cannot amplify outbound
+ *    messages.
  * 5. Its route is still registered and still leads to the same continuation
  *    (`RC5048`), so an approval cannot authorize steps that were edited
  *    under it. The hash is COMPARED non-destructively; only a mismatch
  *    reached by a caller steps 2 and 3 already accepted may settle it.
+ *    A static site folds its LIVE schema descriptor into the comparison,
+ *    absence included, because the deferring step's definition is excluded
+ *    from the hashed tail and the stored descriptor compared against itself
+ *    would accept a widened or removed schema. Every other site raised its
+ *    schema in code the route cannot be asked about, so the stored
+ *    descriptor is all there is and the head of the tail covers the
+ *    definition. `meta` is not hashed: it lives only on the record, so the
+ *    policy it snapshots travels with the deferral by construction.
  * 6. The payload satisfies the deferring step's `schema` (`RC5049`, in
  *    the ingress route only), and the compare-and-swap out of `deferred`
  *    is won here and not by a concurrent resume or the expiry sweeper.
+ *    A site with no live schema skips validation; the door's hooks or the
+ *    continuation are the validator. The deadline is re-checked after the
+ *    claim, because a user schema can await past it.
+ *
+ * Once `markResumed` is won, nothing else will ever settle the record, so
+ * every later failure is recorded as the continuation result before it is
+ * rethrown, and a failed store write never masks the original error. A
+ * store failure after the continuation completed is logged, not thrown: the
+ * work is done, and only a duplicate resume's cached reply is lost.
  *
  * Every failure throws in the ingress route. A failure that leaves the
  * approver STRANDED (an expiry, a changed continuation, a denied
@@ -191,16 +216,9 @@ export async function reviveDeferral(
     });
   }
 
-  // Record and credential only: no route lookup, no transition, no
-  // disclosure. Placed above the settled return deliberately, so a holder
-  // whose credential does not belong here cannot use the response to learn
-  // the record's lifecycle state.
+  // Above the settled return, so a foreign credential learns nothing of the lifecycle.
   checkCallBinding(deferral, sub);
 
-  // The application's own policy, and the last thing that runs before the
-  // record's lifecycle becomes observable. It reads the record and the two
-  // principals; it cannot transition anything, and a refusal leaves the
-  // record exactly as it was found.
   const authority = authorityOf(context);
   const hookInput = {
     principal: door.principal,
@@ -212,9 +230,7 @@ export async function reviveDeferral(
     await runAuthorizer(door.authorize, hookInput, context.logger, door.signal);
   }
 
-  // Still step 3, and the placement is the security property: see
-  // `runElevator`. Its answer is HELD here and applied by `rehydrate()` only
-  // once the claim is won.
+  // Held, and applied by `rehydrate()` only once the claim is won.
   const elevated = door.elevate
     ? await runElevator(
         door.elevate,
@@ -237,18 +253,6 @@ export async function reviveDeferral(
     });
   }
 
-  // Checked here as well as by the sweeper: a resume can arrive between the
-  // deadline and the sweep that marks it, and resuming into a window the
-  // route already declared closed is exactly what `ttl` rules out. Reached
-  // after the hook has settled on purpose, so a hook that overran the
-  // deadline reports RC5047 rather than reviving into a closed window.
-  //
-  // The transition is what makes the re-ask exactly-once. Without the
-  // compare-and-swap, every replay of one dead token would emit the event
-  // again, run the deferred route's error channel again, and typically
-  // send the approver another notification: an outbound-message amplifier
-  // driven by a party the token does not authenticate. Winning the CAS is
-  // the right to notify, and the sweeper competes for the same right.
   const deadline = deferral.expiresAt;
   if (deadline !== undefined && deadline.getTime() <= Date.now()) {
     const { cas, error } = await expireDeferral(context, runtime.store, route, {
@@ -256,11 +260,7 @@ export async function reviveDeferral(
       expiresAt: deadline,
     });
     if (!cas.won) {
-      // The winner is not necessarily the sweeper. A concurrent resume can
-      // win `markResumed` right on the deadline, and that resume WAS
-      // accepted: reporting an expiry to this caller would be a false
-      // negative about work that is running. Whoever won says what
-      // happened.
+      // A concurrent resume may have won on the deadline; whoever won says what happened.
       if (cas.deferral) return unresumable(cas.deferral);
     }
     throw error;
@@ -278,42 +278,12 @@ export async function reviveDeferral(
     );
   }
 
-  // For a static site: the descriptor of the LIVE schema, never the stored
-  // one. The stored descriptor is what was folded into
-  // `deferral.continuationHash` at deferral time, so comparing it against
-  // itself is inert and a widened schema would resume into a contract its
-  // approver never saw. The deferring step's own definition is excluded
-  // from the hashed tail by design, which makes this descriptor the ONLY
-  // representation of that step in the digest.
-  //
-  // For every other site the stored descriptor is all there is: the live
-  // schema was raised inside code the route cannot be asked about (a
-  // re-entrant step's own body, or an error handler's `recovery.defer()`
-  // call), so the schema arm IS inert there. What heads the hashed tail
-  // covers the definition instead; the schema is the same residue class as
-  // the behaviour of what the tail calls.
-  //
-  // `meta` is deliberately NOT in the digest. It lives only on the record,
-  // so there is no live copy for it to drift from: a defer site that snapshots
-  // its policy into `meta` gets policy-travels-with-the-deferral by
-  // construction rather than by a tamper check.
-  //
-  // The branch keys on whether the site's schema is READABLE off the route,
-  // not on whether one was found. A static site always describes what it
-  // declares TODAY, absence included: keying on `site.schema` would make a
-  // removed schema fall through to the stored descriptor, compare it against
-  // itself, and accept the deferred payload unvalidated with no re-ask,
-  // which is the exact edit the absent sentinel exists to catch.
+  // Keyed on `schemaIsLive`, not `site.schema`: a removed schema must still hash as absent.
   const current = continuationTailHash(
     site.site.continuation,
     site.schemaIsLive ? describeSchema(site.schema) : deferral.schema,
   );
   if (current !== deferral.continuationHash) {
-    // Reached only by a caller the credential binding and the door's hook
-    // both accepted. `refuseContinuation` denies the record and drives the
-    // approver notification, so a refused holder must never get here: they
-    // would burn the rightful principal's claim and send the message
-    // themselves.
     return await refuseContinuation(
       context,
       runtime.store,
@@ -324,27 +294,11 @@ export async function reviveDeferral(
     );
   }
 
-  // Validation runs against the LIVE schema read off the route: a Standard
-  // Schema is an object with a validate function and cannot be persisted.
-  // Reaching here means the hash check above already confirmed that live
-  // schema is the one the approval was taken against.
-  //
-  // A re-entrant, error-path or admission site has no live schema to read
-  // back (it was declared in a step's or a handler's own code), so the check
-  // is skipped for those: the raw payload reaches the continuation, and the
-  // door's `authorize` / `elevate` or the continuation is the validator.
+  // A Standard Schema cannot be persisted, so only the live one can validate.
   let payload: unknown = request.result;
   if (site.schema) {
     const result = await validateAgainst(site.schema, request.result);
     if (!result.ok) {
-      // Ingress only, deliberately: unlike an expiry or a changed
-      // continuation, a malformed payload is not a change in the world the
-      // deferred route has to react to. It is a per-request input error, and
-      // re-entering the deferred route's error channel for it would hand any
-      // token holder a lever to drive that route's re-ask path (approver
-      // notifications included) with junk. The deferral is left resumable,
-      // so the caller simply corrects the payload; shaping a reply to a bad
-      // payload is the ingress route's own `.error()` handler's job.
       throw rcError("RC5049", result.message, {
         message: `The payload for deferral "${id}" does not satisfy its declared schema: ${result.message}`,
       });
@@ -358,9 +312,6 @@ export async function reviveDeferral(
     ...(request.resumedBy ? { by: request.resumedBy } : {}),
   });
   if (!cas.won) {
-    // Lost the race. Whoever won says what happened: a concurrent resume
-    // yields its cached result, the sweeper an expiry, a cancellation a
-    // denial. Reading the post-attempt record avoids a second store read.
     if (!cas.deferral) {
       throw rcError("RC5046", undefined, {
         message: `Deferral "${id}" disappeared while it was being resumed.`,
@@ -369,11 +320,6 @@ export async function reviveDeferral(
     return unresumable(cas.deferral);
   }
 
-  // The deadline is re-checked AFTER winning the transition. The check
-  // above ran before validating the payload, and validation is a user
-  // schema: it can await. Without this, a payload that arrived in time but
-  // validated slowly would run the continuation past the window its route
-  // declared, which is the one thing `ttl` promises it will not do.
   if (
     deferral.expiresAt !== undefined &&
     deferral.expiresAt.getTime() <= Date.now()
@@ -405,14 +351,6 @@ export async function reviveDeferral(
     throw await reask(context, route, deferral, expiry);
   }
 
-  // Everything from here is under one catch, because this resume has won
-  // `markResumed` and nothing else will ever settle the record. A throw
-  // between the transition and `recordContinuation` (a stored exchange the
-  // deserializer refuses, a `route:exchange:resumed` subscriber that fails)
-  // would otherwise leave the deferral resumed with no continuation result
-  // forever, and every later resume would be told the first resume has not
-  // recorded one yet. Recording the failure keeps a replay idempotent, which
-  // is the contract a claimed deferral owes.
   let continuation: SerializedOutcome;
   try {
     const exchange = rehydrate(context, route, deferral, {
@@ -421,10 +359,7 @@ export async function reviveDeferral(
       ...(request.resumedBy ? { resumedBy: request.resumedBy } : {}),
       ...(elevated ? { elevated } : {}),
     });
-    // The step-owned closure state goes back to the step that deferred it,
-    // through internals rather than headers: it is runtime context for one
-    // re-entrant execution on this process, never exchange state, and must
-    // not be re-serialized into a second deferral.
+    // Internals, not headers: step state must not re-serialize into a second deferral.
     if (site.site.reentrant && deferral.stepState !== undefined) {
       setResumeStepState(exchange, decodePersistable(deferral.stepState));
     }
@@ -443,17 +378,9 @@ export async function reviveDeferral(
       exchange,
       site.site.continuation,
       resumedAt,
-      // Read where the record says the park was raised, which is where the
-      // fact lives; the chain policy is keyed on the kind, not on a flag.
       deferral.errorPath?.origin === "admission" ? "admission" : "resume",
     );
   } catch (error) {
-    // Best-effort, and the ordering is the point: the original error must
-    // reach the ingress route whatever the store does. A throw from
-    // `recordContinuation` here would mask it AND leave the record unsettled,
-    // reproducing one level up the condition this block exists to remove.
-    // `rc` is carried like the expiry path carries RC5047, so a duplicate
-    // resume and an operator dashboard see the code rather than prose.
     const failure = error as { rc?: string; message?: string } | undefined;
     try {
       await runtime.store.recordContinuation(id, {
@@ -475,11 +402,6 @@ export async function reviveDeferral(
   try {
     await runtime.store.recordContinuation(id, continuation);
   } catch (err) {
-    // The work is DONE: destinations fired and the result below is true.
-    // Throwing here would tell the caller the work failed after it
-    // succeeded, and the boot scan would later count the record as a
-    // half-run continuation. A missing cached result only costs a
-    // duplicate resume its cached reply.
     route.logger.error(
       { deferralId: id, err },
       "Could not cache the continuation result of a completed revival. The work finished; a duplicate resume will be told the result is unrecorded.",
@@ -502,14 +424,19 @@ export async function reviveDeferral(
  * attempt and will not match again), so without a latch every replay of a
  * still-valid token would re-drive the deferred route's error channel,
  * approver notifications included, for as long as the token lives. That is
- * the amplifier the expiry path is hardened against and the one the
- * RC5049 narrowing removed; this path had neither guard.
+ * the amplifier the expiry path is hardened against.
+ *
+ * It follows the same claim, deliver, finalize shape as expiry, so a crash
+ * cannot finalize a denial whose re-ask was never delivered. A caller that
+ * loses the claim reports what the winner did: a replay reads back the
+ * stored denial, and a resume that won `markResumed` was accepted. A claim
+ * released before the denial lands leaves the record resumable with a hash
+ * that never matches, which is logged because every replay would re-drive
+ * the re-ask.
  *
  * `denied` is the honest state: the deferral can no longer be honoured,
- * and the route has been told to re-ask rather than to wait. The cost is
- * that rolling the deploy back no longer rescues this exchange, which is
- * consistent with how the design treats a changed continuation (re-ask
- * with a fresh deferral) rather than a new limitation.
+ * and the route has been told to re-ask rather than to wait. Rolling the
+ * deploy back therefore no longer rescues this exchange.
  *
  * @internal
  */
@@ -522,26 +449,14 @@ async function refuseContinuation(
   message: string,
 ): Promise<ResumeAcknowledgment> {
   const error = rcError("RC5048", undefined, { message });
-  // Same claim-deliver-finalize shape as expiry, for the same crash: a
-  // denial finalized before its re-ask was delivered would strand the
-  // approver at a dead link with no signal.
   const cas = await store.claimExpiry(deferral.id, new Date());
   if (!cas.won) {
-    // Whoever won the transition says what happened, as on the expiry and
-    // duplicate paths. A replay that lost to the denial has to read back the
-    // stored denial reason rather than this request's RC5048, and a resume
-    // that won `markResumed` on the way in was accepted: reporting a changed
-    // continuation for it would describe work that is running as refused.
     if (cas.deferral) return unresumable(cas.deferral);
     throw error;
   }
   await reask(context, route, deferral, error);
   const finalized = await store.markDenied(deferral.id, reason);
   if (!finalized.won) {
-    // The claim was released before the denial landed, which puts the record
-    // back to deferred with a hash that can never match again. Every replay
-    // of a still-valid token now re-wins this path and re-drives the re-ask,
-    // which is the outbound amplifier the latch exists to remove.
     context.logger.warn(
       { deferralId: deferral.id, routeId: deferral.routeId, reason },
       "A continuation refusal was released before its denial finalized, so the record is resumable again and a replay will re-drive the re-ask",
@@ -586,6 +501,13 @@ function correlationIdOf(deferral: Deferral): string {
  * cached continuation result is exactly what the first resume produced. The
  * other cases are failures the caller has to see.
  *
+ * No re-ask is driven from here: whoever settled or claimed the record owns
+ * the notification, and re-asking per replay would notify once per request
+ * from a token anyone who saw the link still holds. An outstanding claim is
+ * attributed by when it was taken, not by the clock now: an expiry claim is
+ * only taken past the deadline and a denial claim only before it, so a slow
+ * denial re-ask that crosses the deadline is still reported as a denial.
+ *
  * @internal
  */
 function unresumable(deferral: Deferral): ResumeAcknowledgment {
@@ -594,9 +516,7 @@ function unresumable(deferral: Deferral): ResumeAcknowledgment {
       status: "duplicate",
       deferralId: deferral.id,
       routeId: deferral.routeId,
-      // A resumed deferral whose continuation result is missing means
-      // execution two is still running (or the process died mid-run). Report
-      // it as such rather than inventing a completion.
+      // Missing means execution two is still running or died mid-run.
       continuation: deferral.continuation ?? {
         status: "failed",
         error: {
@@ -608,19 +528,6 @@ function unresumable(deferral: Deferral): ResumeAcknowledgment {
     };
   }
 
-  // No re-ask here, deliberately. The record is ALREADY settled or claimed,
-  // so whoever moved it there (the sweeper, a cancellation, an earlier
-  // resume that lost no race) owns the notification. Re-entering the
-  // route's error channel per arriving replay would notify the approver
-  // once per request rather than once per event, from a token anyone who
-  // saw the original link still holds.
-  //
-  // An outstanding claim is disambiguated by WHEN it was taken, not by the
-  // clock now: an expiry claim is only ever taken once the deadline has
-  // passed, and a denial claim only while it has not, so the claim
-  // timestamp against the deadline says which flow owns the record. The
-  // current time would flip a denial claim into an "expiry" merely because
-  // its slow re-ask crossed the deadline while running.
   const claimRef = deferral.claimedAt ?? new Date();
   const expiryClaim =
     deferral.expiresAt !== undefined &&
@@ -653,6 +560,11 @@ export type ExpiringDeferral = Deferral & { expiresAt: Date };
  * expiry is not exceptional to it. The caller decides whether the error is
  * a return value or a throw.
  *
+ * Claim, deliver, finalize: a claim left outstanding by a crash is released
+ * once its lease elapses and the next sweep redelivers it, where a record
+ * settled before delivery would strand its approver. A crash after delivery
+ * but before finalize redelivers once, so notification is at-least-once.
+ *
  * @internal
  */
 export async function expireDeferral(
@@ -665,12 +577,6 @@ export async function expireDeferral(
   const error = rcError("RC5047", undefined, {
     message: `Deferral "${deferral.id}" expired at ${deadline.toISOString()}.`,
   });
-  // Claim, deliver, finalize. The claim is what makes a crash mid-delivery
-  // healable: a claim left outstanding is released once its lease elapses
-  // and the next sweep redelivers it, where a record
-  // settled before delivery would be terminal with its approver never
-  // told. The cost is that a crash AFTER delivery but before finalize
-  // redelivers once; notification is at-least-once by design.
   const cas = await store.claimExpiry(deferral.id, new Date());
   if (!cas.won) return { cas, error };
 
@@ -684,9 +590,7 @@ export async function expireDeferral(
   await reask(context, route, deferral, error);
   const finalized = await store.markExpired(deferral.id);
   if (!finalized.won) {
-    // Single-node, so the only way to lose a finalize is a lease release
-    // racing an extremely slow delivery. The next sweep pass redelivers,
-    // which is the at-least-once trade already made above.
+    // Single-node: only a lease release racing a very slow delivery loses this.
     context.logger.warn(
       { deferralId: deferral.id },
       "An expiry claim was released before its delivery finalized, so the next sweep will redeliver it.",
@@ -726,9 +630,7 @@ async function reask(
       "resume",
     );
   } catch (channelError) {
-    // The re-ask path is best effort by construction: the caller is already
-    // being handed `error`, and replacing it with whatever the route's own
-    // error handler did would hide the actual revival failure.
+    // Best effort: rethrowing would hide the actual revival failure.
     context.logger.error(
       {
         err: channelError,
@@ -750,6 +652,15 @@ async function reask(
  * `.standards/exchange-state-model.md`). It is stored LIVE (a `Date` in the
  * payload stays a `Date`); the serialization rules apply to it at the next
  * deferral, the same as to every other header.
+ *
+ * An elevated principal replaces the restored one only here, after the
+ * claim, and by reference: `markAuthentic` freezes what it brands, and a
+ * copy would drop the brand and refuse every elevated resume with `RC5023`.
+ *
+ * The refused-scopes header is rewritten on every resumption and deleted
+ * when the record carries none, because a re-parked exchange re-serializes
+ * the first park's header and a stale set would decide the loop-closing
+ * rule for a park that recorded nothing.
  *
  * @internal
  */
@@ -782,27 +693,13 @@ function rehydrate(
             : {}),
         }
       : {}),
-    // The live principal the door minted, in place of the restored one.
-    // Only here, after the claim: the hooks ran long before this, and what
-    // they decided is applied to the run that actually happens.
-    //
-    // By REFERENCE. `markAuthentic` freezes what it brands, so the
-    // constructor's clone-and-freeze defence does not fire and the object
-    // that reaches `.authorize()` is the one the WeakSet knows. Copying it
-    // would silently drop the brand and refuse every elevated resume with
-    // RC5023.
+    // By reference: a copy drops the authenticity brand.
     ...(resumption?.elevated
       ? { [HeadersKeys.AUTH_PRINCIPAL]: resumption.elevated }
       : {}),
   };
 
-  // Written on every resumption, and DELETED when this record carries none.
-  // An exchange that parks, resumes and parks again re-serializes whatever
-  // headers it was carrying, so the second record's stored exchange holds
-  // the FIRST park's value; leaving it in place would let a stale set decide
-  // the loop-closing rule for a park that recorded nothing. Assigning
-  // `undefined` is not the same thing here, because a header key holding
-  // `undefined` still serializes as present.
+  // Delete, not assign undefined: an undefined header still serializes as present.
   if (resumption) {
     const refused = deferral.errorPath?.refusedScopes;
     if (refused) headers[DeferralHeaders.REFUSED_SCOPES] = refused;
@@ -817,6 +714,11 @@ function rehydrate(
 /**
  * Run the continuation and reduce it to the outcome the store caches.
  *
+ * A continuation that reaches another `.defer()` caches no body: the body
+ * is the second deferral's acknowledgment, and handing its token to whoever
+ * resumed the first would give approver A approver B's capability. A
+ * completed run caches its terminal body only when it is storable.
+ *
  * @internal
  */
 async function runContinuation(
@@ -828,10 +730,7 @@ async function runContinuation(
 ): Promise<SerializedOutcome> {
   const result = await route.runContinuation(exchange, continuation, kind);
   if (result.deferred) {
-    // The continuation reached another `.defer()`. Recording a body here
-    // would cache the SECOND deferral's acknowledgment, token included,
-    // and hand it back to whoever resumed the first one: in a two-stage
-    // approval that is approver A receiving approver B's capability.
+    // The body here holds the next deferral's token; never cache it.
     return { status: "deferred", at };
   }
   if (result.dropped) {
@@ -851,10 +750,6 @@ async function runContinuation(
       at,
     };
   }
-  // Only the terminal BODY is cached, and only if it is storable. A route
-  // whose output is not JSON data still resumes correctly; a duplicate
-  // resume then learns that it completed without being handed a body it
-  // could not have round-tripped anyway.
   let body: unknown;
   try {
     body = encodePersistable(result.exchange.body, "terminal body");
@@ -878,6 +773,15 @@ async function runContinuation(
  * validation and its hash comparison uses the stored descriptor. The step
  * itself heads the hashed tail there instead.
  *
+ * An admission park is matched on the record's origin before anything else,
+ * because it shares its position number with the first step's error-path
+ * site. Any other error-path park is resolved only from the error-path
+ * sites, and only for a record whose `errorPath` field says the error path
+ * wrote it: every step carries an error-path site, a static `.defer()`
+ * included, and an unguarded lookup would hand that step's own deferrals a
+ * continuation that re-enters the defer. Lookups go by position because the
+ * record carries a number; the walk is deterministic across processes.
+ *
  * @internal
  */
 function findSite(
@@ -897,25 +801,10 @@ function findSite(
       schemaIsLive?: boolean;
     }
   | undefined {
-  // An ADMISSION park is addressed by the record's own flag rather than by
-  // its position, which it shares with the first step's error-path site.
-  // Checked first so that shared number can never resolve to the wrong one.
   if (deferral.errorPath?.origin === "admission") {
     const site = route.definition.admissionSite;
     return site ? { site } : undefined;
   }
-  // An error-path park at a step's position, and ONLY for a record the
-  // error path wrote. Every step carries an error-path site, a static
-  // `.defer()` step included, so an unguarded lookup here would answer for
-  // that step's own deferrals too and hand them a continuation that
-  // re-enters the defer rather than following it. The record's
-  // framework-owned `errorPath` field is what says which kind of park this
-  // was; it is written for every error-path park and for nothing else.
-  //
-  // Looked up by position rather than by step instance, because the record
-  // carries a number and the map is keyed by instance; the walk is
-  // deterministic, so the same source produces the same numbers in both
-  // processes.
   if (deferral.errorPath) {
     const errorPathSite = findErrorPathSite(route, deferral.position);
     if (errorPathSite) {

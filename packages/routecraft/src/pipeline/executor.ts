@@ -185,6 +185,36 @@ export function detachedSlots(
 /**
  * Run the step loop for an exchange.
  *
+ * The chain is built in the order `.standards/pre-from-filter-chain.md`
+ * fixes. A source-attached `parse` and `.input()` validation become a
+ * synthetic step at the head of the chain (one step when both are present),
+ * so an `RC5016` or `RC5065` flows through `.error()` like any other step
+ * error. Surrounding positions (circuitBreaker, retry, timeout, concurrency)
+ * wrap the tail from the inside out through nested executors; the error
+ * position is this run's catch boundary, not a step.
+ *
+ * Admission is tracked as a fact (the last pre-admission step settled), not
+ * inferred from a failed site lookup: a route-scope resilience segment
+ * throws from a synthetic carrier with no site while being well past
+ * admission, and treating that as an admission park would re-run every
+ * completed step. Only a source parser is unreproducible on resume (it is a
+ * per-message closure), so a park above a pending one is refused; a
+ * standalone `.input()` step is rebuilt from `definition.discovery.input`.
+ *
+ * On a step error with no route handler, the context error chain runs
+ * before the `rethrowUnhandled` escape: a context handler that parks the
+ * exchange has resolved it, and surfacing that to a wrapping retry would
+ * re-run work now waiting on a human. Once an outer abort has fired, a
+ * cooperating step's failure is a consequence of the deadline already
+ * reported (RC5011), so no `route:step:error` is emitted for it.
+ *
+ * A defer raised after the run was cancelled is refused with RC5054, so no
+ * resume link outlives a run its caller already saw fail; an abort that
+ * lands during the store write is resolved inside `deferExchange` before
+ * the deferred event. The error position records the step that actually
+ * failed, keyed by the error object, so an error-path park borrows the
+ * inner step rather than the resilience segment the outer loop holds.
+ *
  * @param exchange The initial exchange to process
  * @param startTime The timestamp when exchange processing started (for duration calculation)
  * @returns The last processed exchange
@@ -202,36 +232,17 @@ export async function runPipeline(
   deferred: boolean;
   error?: unknown;
 }> {
-  // If the source adapter attached a `parse` function (see #187), prepend
-  // a synthetic step that runs it before any user-defined steps. The step
-  // throws an `RC5016` error on parse failure, which then flows through
-  // the same error-handler path as any other step error: the route's
-  // `.error()` handler is invoked, or `route:exchange:failed` fires.
-  //
-  // `.input()` validation (chain position #4) rides the same internals
-  // slot: with a parser it runs inside the parse step (input validates
-  // the parsed body, so #3 and #4 collapse into one step); without one it
-  // becomes a standalone synthetic input step in the same position. Both
-  // paths throw `RC5065` into this run's catch boundary, so a validation
-  // failure is routable through `.error()` regardless of the source
-  // shape (#447).
   const internals = EXCHANGE_INTERNALS.get(exchange);
   const sourceParse = internals?.parse;
   const sourceValidate = internals?.applyValidation;
   const sourceFailureMode = internals?.parseFailureMode ?? "fail";
   if (internals && (sourceParse || sourceValidate)) {
-    // Clear so parse / validation never run twice on the same exchange
-    // (e.g. if the exchange is forwarded back through the queue).
+    // An exchange forwarded back through the queue must not parse twice.
     delete internals.parse;
     delete internals.parseFailureMode;
     delete internals.applyValidation;
   }
 
-  // The chain, in the order `.standards/pre-from-filter-chain.md` fixes.
-  // Positions that surround what follows them (circuitBreaker, retry,
-  // timeout, concurrency) wrap the tail from the inside out, each running it
-  // through a nested executor; the error position is this run's catch
-  // boundary, not a step.
   const positions = deps.positions;
   const def = deps.definition;
   let tail: Step<Adapter>[] = [
@@ -274,28 +285,13 @@ export async function runPipeline(
     tail = [...positions.throttle, ...tail];
   }
 
-  // Hoisted rather than inlined into `initialSteps` so the loop can tell
-  // when it has run. An error-path park raised BEFORE it is an admission
-  // park, and admission is the one resume that has to reproduce this step:
-  // a source-attached parser is a per-message closure, so a park above a
-  // pending one is refused rather than resumed against an unparsed body.
+  // Held by reference so the loop can tell when it has run.
   const admissionStep: Step<Adapter> | undefined = sourceParse
     ? buildParseStep(sourceParse, sourceFailureMode, sourceValidate)
     : sourceValidate
       ? buildInputValidationStep(sourceValidate)
       : undefined;
-  // Only a SOURCE PARSER is unreproducible. A standalone `.input()` step is
-  // rebuilt from `definition.discovery.input`, which the live route still
-  // has, so an admission resume runs it again.
   let pendingSourceParse = sourceParse !== undefined;
-  // The last position the exchange passes through before the route has
-  // admitted it. Tracked as a FACT rather than inferred from a failed site
-  // lookup, because the two are not the same question: a failure can have no
-  // site and still be well past admission (a route-scope resilience segment
-  // throws its own deadline, and the carrier it throws from is synthetic and
-  // never walked). Treating that as an admission park would store position 0
-  // with the whole body as its continuation and re-run every step that had
-  // already completed.
   const slots = deps.slots;
   const preAdmission: Step<Adapter>[] = [
     ...(slots?.beforeAuth ? [slots.beforeAuth] : []),
@@ -320,8 +316,7 @@ export async function runPipeline(
   let failed = false;
   let dropped = false;
   let stepError: unknown;
-  // Track child exchanges so we can emit route:exchange:started/completed for them.
-  // The parent exchange (first one) is handled by handler().
+  // The parent exchange's lifecycle events are emitted by handler().
   const parentExchangeId = exchange.id;
   const seenChildExchanges = new Set<string>();
   const childStartTimes = new Map<string, number>();
@@ -335,22 +330,15 @@ export async function runPipeline(
     ? new Set(parentMap.keys())
     : new Set<string>();
 
-  // Tracks the steps that follow the currently-executing step, refreshed each
-  // loop iteration. `captureDownstream` snapshots it so a step (debounce) can
-  // release a held exchange through its downstream continuation later.
+  // Snapshotted by `captureDownstream` so debounce can release a held
+  // exchange through its continuation later.
   let currentRemaining: Step<Adapter>[] = [];
 
-  // Narrow capability handed to steps. takePending implements the same
-  // splice scan aggregate used to run against the raw queue, so join
-  // semantics (including filter-dropped children: only survivors are
-  // collected, nothing waits) are byte-identical to the pre-outcome engine.
+  // takePending only collects survivors, so a filter-dropped split child
+  // never leaves aggregate waiting.
   const stepContext: StepContext = {
-    // Surface the abandon signal (route-scope timeout) to the steps
-    // themselves, not just the scheduling loop below: a step doing
-    // cancellation-aware IO forwards it into fetch / DB drivers so an
-    // expired attempt stops working, instead of merely having its
-    // outcome discarded. Step-scope `.timeout()` composes on top by
-    // deriving a linked signal per wrapped step.
+    // Handed to steps so cancellation-aware IO stops on expiry, not just
+    // the scheduling loop.
     ...(deps.abortSignal ? { signal: deps.abortSignal } : {}),
     takePending(predicate: (candidate: Exchange) => boolean): Exchange[] {
       const taken: Exchange[] = [];
@@ -365,18 +353,11 @@ export async function runPipeline(
       return taken;
     },
     async runPaths(runs): Promise<void> {
-      // Each path is its own isolated nested pipeline run on a clone. They
-      // run concurrently and we wait for all of them to settle: a path
-      // failure surfaces as that clone's default error events (the nested
-      // deps carry no `rethrowUnhandled`) and never rejects this call, so
-      // one bad path cannot take the route down. The original exchange is
-      // untouched and continues once every path has settled.
+      // No rethrowUnhandled: a failing path fires its own error events and
+      // cannot take the route down.
       await Promise.allSettled(
         runs.map((run) =>
           runPipeline(
-            // Forward any outer abortSignal (a route-scope timeout) so an
-            // expired attempt stops scheduling in-flight paths; omit
-            // rethrowUnhandled so a failing path stays isolated.
             nestedDeps(deps, run.steps, { abortSignal: deps.abortSignal }),
             run.exchange,
             Date.now(),
@@ -390,12 +371,6 @@ export async function runPipeline(
       error?: unknown;
       aborted?: boolean;
     }> {
-      // Single isolated nested run that reports its outcome back. Same
-      // isolation as a runPaths entry (no rethrowUnhandled, so a failure
-      // fires the clone's own error events rather than propagating), but the
-      // result is returned so a caller can react (dispatch failover advances
-      // to the next target on `failed`). The outer abortSignal is forwarded
-      // so a route-scope timeout can stop an in-flight target.
       const result = await runPipeline(
         nestedDeps(deps, run.steps, { abortSignal: deps.abortSignal }),
         run.exchange,
@@ -404,9 +379,7 @@ export async function runPipeline(
       return {
         failed: result.failed,
         dropped: result.dropped,
-        // The nested run stops scheduling once the outer abortSignal fires;
-        // report the truncation so a caller (dispatch failover) does not
-        // mistake an abandoned attempt for a handled exchange.
+        // Without this, failover mistakes an abandoned attempt for a handled one.
         aborted: deps.abortSignal?.aborted === true,
         ...(result.error !== undefined ? { error: result.error } : {}),
       };
@@ -414,11 +387,6 @@ export async function runPipeline(
     captureDownstream(): (
       exchange: Exchange,
     ) => Promise<{ failed: boolean; dropped: boolean }> {
-      // Snapshot the downstream steps for the CURRENT step now; the runner
-      // itself is built by a module-level factory so it captures only
-      // route-stable state. See makeDownstreamRunner for the full contract
-      // (no inherited abort signal, route-scope error handler honored,
-      // output validation applied).
       return makeDownstreamRunner(deps, currentRemaining);
     },
     async invoke(point: string, target: Exchange): Promise<Exchange> {
@@ -444,17 +412,11 @@ export async function runPipeline(
   };
 
   while (queue.length > 0) {
-    // Abandoned segment run (route-scope timeout expired): stop
-    // scheduling. The result of this invocation is already discarded
-    // by the segment step, so running further steps would only produce
-    // side effects after the exchange has failed.
+    // An abandoned run's result is already discarded; further steps would only add side effects.
     if (deps.abortSignal?.aborted) break;
 
     const popped = queue.shift()!;
     const { steps } = popped;
-    // `let` because the engine may rewrap the exchange below to update
-    // bookkeeping headers (operation label) without mutating the frozen
-    // wrapper. Subsequent reads in this iteration use the rewrapped value.
     let exchange = popped.exchange;
     if (steps.length === 0) {
       // Emit route:exchange:completed for child exchanges when their steps are done
@@ -487,10 +449,7 @@ export async function runPipeline(
       seenChildExchanges.add(exchange.id);
       const childNow = Date.now();
       childStartTimes.set(exchange.id, childNow);
-      // Stash the start timestamp on the exchange's internals so
-      // aggregate (and other observers) can read child duration without
-      // a side-Map handed across module boundaries. Internals survive
-      // `rewrap` because rewrap shares them between prev and next.
+      // On internals so aggregate can read child duration; they survive rewrap.
       setStartedAt(exchange, childNow);
       const correlationId = exchange.headers[
         HeadersKeys.CORRELATION_ID
@@ -503,17 +462,12 @@ export async function runPipeline(
     }
 
     const [step, ...remainingSteps] = steps;
-    // Expose the downstream continuation for a step that wants to capture it
-    // (debounce releasing a held exchange later); refreshed every iteration.
     currentRemaining = remainingSteps;
 
     // Prefer the DSL label (e.g., "log") over the raw OperationType (e.g., "tap")
     const stepLabel = step.label ?? step.operation;
 
-    // Update the operation header for this step. Headers are frozen, so
-    // we rewrap onto a derived exchange (preserves id and internals).
-    // The cost is one allocation per step on top of whatever the step
-    // itself produces; in practice the dominant cost is still I/O.
+    // Headers are frozen; rewrap keeps the id and internals.
     exchange = DefaultExchange.rewrap(exchange, {
       headers: { ...exchange.headers, [HeadersKeys.OPERATION]: stepLabel },
     });
@@ -545,20 +499,11 @@ export async function runPipeline(
 
     try {
       const outcome = await step.execute(exchange, stepContext);
-      // The source's parse has now run, so a park raised from here on can be
-      // revived without reproducing it.
       if (step === admissionStep) pendingSourceParse = false;
       if (step === lastPreAdmission) admitted = true;
-      // A settled step consumed any resume step state a revival attached:
-      // the re-entrant host is by construction the first step of its
-      // continuation, so clearing on every committed outcome keeps the
-      // once-only contract while a thrown attempt (a retryable provider
-      // failure) leaves the state in place for the retry to resume.
+      // Cleared only on a settled step, so a thrown attempt keeps the state for its retry.
       clearResumeStepState(exchange);
 
-      // The executor owns scheduling: translate the outcome into queue
-      // entries. Pushes carry no events, so push-vs-emit ordering below
-      // is observationally identical to the old in-step pushes.
       switch (outcome.kind) {
         case "continue":
           queue.push({ exchange: outcome.exchange, steps: remainingSteps });
@@ -578,29 +523,14 @@ export async function runPipeline(
           }
           break;
         case "drop":
-          // The step marked the exchange dropped and emitted its drop
-          // events; schedule nothing.
           break;
         case "defer": {
-          // The exchange defers here and this run ends: the executor
-          // serializes it, writes the deferral, and answers with the
-          // `Deferred` acknowledgment. Nothing is scheduled beyond that
-          // (`steps: []`), no worker waits, and the route stays live for
-          // every other exchange, because the continuation lives in the
-          // store rather than in this process.
           if (!outcome.request) {
             throw rcError("RC5032", undefined, {
               message: `Step "${stepLabel}" returned a "defer" outcome without a defer request, so the engine cannot work out what to defer or what would resume.`,
             });
           }
-          // A cancelled run must not leave a live resume link behind: the
-          // caller is being told the run failed (a timeout, a stop), so an
-          // approver clicking days later would continue work its caller
-          // already saw cancelled. Before the store write, refusing to defer
-          // is free; an abort that lands during the write is resolved
-          // inside `deferExchange` (deny, then RC5054) BEFORE the deferred
-          // event, so one exchange never announces two terminals. The
-          // caller's RC5054 is the notification; no re-ask is delivered.
+          // A cancelled run must not leave a live resume link its caller saw fail.
           if (deps.abortSignal?.aborted) {
             throw rcError("RC5054", deps.abortSignal.reason, {
               message: `Step "${stepLabel}" raised a deferral after its run was cancelled; nothing was deferred.`,
@@ -631,8 +561,6 @@ export async function runPipeline(
           operation: stepLabel,
           ...(adapterLabel ? { adapter: adapterLabel } : {}),
           duration: stepDuration,
-          // Adapter-populated observability metadata (e.g. LLM token
-          // usage from to/enrich getMetadata), carried on the outcome.
           ...("metadata" in outcome && outcome.metadata
             ? { metadata: outcome.metadata }
             : {}),
@@ -645,16 +573,6 @@ export async function runPipeline(
       ] as string;
       const duration = Date.now() - startTime;
 
-      // Emit step-level error, unless this run was already abandoned by
-      // an outer abort (a route-scope timeout that expired). Since the
-      // wrapped step now receives that abort through its StepContext
-      // signal, a cancellation-aware step FAILS on expiry rather than
-      // running to completion with a discarded outcome. That failure is
-      // a consequence of the deadline the segment step has already
-      // reported (RC5011), not an independent step error, so surfacing
-      // it would add a spurious `route:step:error` per expiry for
-      // exactly the steps that cooperate with cancellation. The
-      // abandoned run's result is discarded either way.
       if (!deps.abortSignal?.aborted) {
         deps.context.emit("route:step:error", {
           routeId: deps.routeId,
@@ -665,20 +583,12 @@ export async function runPipeline(
         });
       }
 
-      // The step that actually failed, which is the position an error-path
-      // park borrows. Noted before any ring runs, and keyed by the error
-      // object so a rethrow out of a nested resilience segment carries the
-      // INNER step out to whichever ring decides, rather than the segment
-      // wrapper the outer loop is holding.
       noteFailingStep(exchange, err, step);
 
       /** Apply a ring's decision to this run's bookkeeping. */
       const settle = (decision: ErrorDecision): void => {
         if (decision.kind === "dropped") {
-          // Only a drop of the PARENT exchange marks the run dropped
-          // (suppressing the parent's route:exchange:completed). A dropped
-          // split CHILD resolves that child alone, mirroring the
-          // handler-threw path's failedChildExchanges accounting.
+          // A dropped split child resolves that child alone, not the run.
           if (exchange.id === parentExchangeId) dropped = true;
           return;
         }
@@ -686,8 +596,6 @@ export async function runPipeline(
       };
 
       if (deps.definition.errorHandler) {
-        // Route-scope error-handler events. Step-scope wrappers
-        // emit the same set with `scope: "step"` and `stepLabel`.
         deps.context.emit("route:error-handler:invoked", {
           routeId: deps.routeId,
           exchangeId: exchange.id,
@@ -705,9 +613,6 @@ export async function runPipeline(
             forward,
           );
           if (isRecovery(result) && result.kind === "rethrow") {
-            // Declarative equivalent of `throw error` inside the
-            // handler: fall through to the handler-threw path below
-            // with the original error.
             throw err;
           }
           settle(
@@ -743,29 +648,19 @@ export async function runPipeline(
             scope: "route",
           });
 
-          // The route gave up, which is exactly where the context chain
-          // gets its turn. A handler that decides here resolves the
-          // exchange, so `context:error` and `route:exchange:failed` below
-          // never fire for it.
           const decided = await runContextErrorHandlers(deps, {
             exchange,
-            // The route handler's own failure is what the route left
-            // behind, so that is what the context sees and what reaches the
-            // failure path if nothing decides.
             originalError: handlerErr,
             stepLabel,
             correlationId,
             pendingSourceParse,
             admitted,
-            // The step the LOOP failed at, not one derived from
-            // `handlerErr`: a route handler that throws its own error
-            // produces a fresh one the failing-step map has never seen.
+            // Keyed by `err`: the failing-step map has never seen `handlerErr`.
             failingStep: failingStepOf(exchange, err) ?? step,
           });
           if (decided) {
             settle(decided);
           } else {
-            // Error handler rethrew -- route-level + context-level error
             deps.context.emit("route:error", {
               routeId: deps.routeId,
               error: handlerErr,
@@ -804,11 +699,7 @@ export async function runPipeline(
         };
       }
 
-      // No route handler, so the context chain gets its turn here. Above the
-      // `rethrowUnhandled` escape deliberately: a nested resilience segment
-      // rethrows so the WRAPPING segment can react, and a context handler
-      // that parks the exchange has already resolved it, so surfacing the
-      // failure to a retry would re-run work that is now waiting on a human.
+      // Above the rethrowUnhandled escape: a parked exchange must not reach a wrapping retry.
       const decided = await runContextErrorHandlers(deps, {
         exchange,
         originalError: err,
@@ -830,17 +721,11 @@ export async function runPipeline(
         };
       }
 
-      // No error handler -- inside a nested resilience segment the
-      // parent's failure must surface to the wrapping segment step
-      // (retry decides whether to re-attempt; timeout maps its own
-      // expiry) instead of firing the default error path per attempt.
-      // Failed split children keep the default per-child accounting
-      // below.
+      // Inside a nested segment the wrapping step decides, not the default error path.
       if (deps.rethrowUnhandled && exchange.id === parentExchangeId) {
         throw err;
       }
 
-      // No error handler -- route-level error
       exchange.logger.error(
         {
           operation: stepLabel,
@@ -849,7 +734,6 @@ export async function runPipeline(
         },
         err.meta.message,
       );
-      // No error handler -- route-level + context-level error
       deps.context.emit("route:error", {
         routeId: deps.routeId,
         error: err,
@@ -876,16 +760,11 @@ export async function runPipeline(
         stepError = err;
       }
 
-      // Don't re-throw - error is logged and emitted via events.
-      // The error is returned in the result so callers (e.g. CraftClient)
-      // can handle it. Source adapters catch and continue.
-      // Do NOT return here: the while loop continues so other queue items (e.g. split children) are processed
+      // No return: remaining split children still need processing.
     }
   }
 
-  // Clean up orphaned split parent map entries added during THIS invocation.
-  // Only touch groups that did not exist before runSteps started, to avoid
-  // deleting entries owned by concurrent handlers on the same context.
+  // Pre-existing groups belong to concurrent handlers on the same context.
   if (parentMap && parentMap.size > 0) {
     for (const groupId of Array.from(parentMap.keys())) {
       if (preExistingGroups.has(groupId)) continue;
@@ -901,19 +780,10 @@ export async function runPipeline(
     }
   }
 
-  // Check if the root exchange was dropped (e.g. by a filter). The drop
-  // flag lives on the exchange's shared internals object (see
-  // `markDropped` / `isDropped` in `exchange.ts`), so it survives the
-  // engine's per-step `rewrap`: an operation that marks the rewrapped
-  // exchange handed to it remains visible from the outer parameter
-  // because both reference the same internals.
+  // The drop flag lives on shared internals, so it is visible through rewraps.
   if (isDropped(exchange)) {
     dropped = true;
   }
-
-  // Route-scope cache writes (`cacheConfig`) are handled inline by
-  // the `cache-store` synthetic step appended to `initialSteps` at
-  // the top of this function. Nothing to do here.
 
   return {
     exchange: lastProcessedExchange,
@@ -1021,7 +891,19 @@ function parkedRefusedScopes(
  * A handler that throws is reported and the chain CONTINUES to the next one,
  * and its throw never replaces the error that reaches the failure path. A
  * chain whose first member could take the whole context's error reporting
- * down with it would be worse than no chain.
+ * down with it would be worse than no chain. Applying a decision (a park
+ * refused, a store write or notify failing) is guarded the same way, so the
+ * exchange always reaches a terminal event. A `rethrow` answer declines for
+ * the whole chain: a later handler may not overturn it.
+ *
+ * A run with `rethrowUnhandled` consults no ring at all. Its nested
+ * definition carries no `errorHandler`, so consulting the context ring there
+ * would let a context handler pre-empt the route's own `.error()` and settle
+ * the failure before the declared retry policy ran. Both rings get their
+ * turn at the outermost run once the segment's attempts are exhausted.
+ *
+ * The handler's `forward` is bound to the failing exchange, like a route
+ * `.error()` handler's, so it carries the principal and correlation id.
  *
  * @returns What was decided, or `undefined` when nothing was
  *
@@ -1040,21 +922,10 @@ async function runContextErrorHandlers(
     failingStep?: Step<Adapter>;
   },
 ): Promise<ErrorDecision | undefined> {
-  // A run that exists to surface its failure to a wrapping resilience segment
-  // consults NO error ring.
-  // `nestedDeps` builds the nested definition without `errorHandler`, so the
-  // route ring cannot fire inside a `.retry()`, `.timeout()`, `.circuitBreaker()`
-  // or `.concurrency()` segment; consulting the context ring there would let a
-  // handler registered on the context pre-empt the route's own `.error()`
-  // invisibly, and settle the failure before the declared retry policy ever
-  // ran. Both rings get their turn at the outermost run, in order, once the
-  // segment's attempts are exhausted.
   if (deps.rethrowUnhandled) return undefined;
   const { observe, decide } = deps.context.errorHooks(deps.route);
   if (observe.length === 0 && decide.length === 0) return undefined;
-  // The resume stamps `resumedAt` on the revived exchange, so the header IS
-  // the fact: no continuation reaches a hook without it and no first run
-  // carries it.
+  // Every revival stamps `resumedAt` and no first run carries it.
   const execution =
     args.exchange.headers[DeferralHeaders.RESUMED_AT] !== undefined ? 2 : 1;
   const kind: RunKind = deps.runKind ?? (execution === 2 ? "resume" : "normal");
@@ -1065,9 +936,6 @@ async function runContextErrorHandlers(
     slot: "error",
     kind,
     execution,
-    // Bound to the FAILING exchange, the same as a route `.error()`
-    // handler's, so a forward from here carries the parked exchange's
-    // principal and correlation id by reference.
     forward: deps.buildForward(args.exchange),
   } as const;
 
@@ -1108,18 +976,9 @@ async function runContextErrorHandlers(
       const result = await handler.run(args.originalError, args.exchange, info);
       if (result === undefined) continue;
       if (isRecovery(result) && result.kind === "rethrow") {
-        // Declines on behalf of the whole chain, not just itself: a handler
-        // saying "propagate the original error" has answered the question the
-        // chain exists to ask, and consulting the next one would let a later
-        // handler overturn a decision already taken.
         return undefined;
       }
-      // INSIDE the guard, because applying a decision can fail as readily as
-      // reaching one: a park is refused at a position it cannot be revived
-      // from, or its store write fails, or its notify does. A throw from here
-      // escaping would leave the exchange with no terminal event at all and
-      // the original failure reported nowhere, which is strictly worse than
-      // the failure the handler was trying to improve on.
+      // Inside the try: an escaping park failure would leave no terminal event.
       return await applyErrorDecision(deps, {
         exchange: args.exchange,
         originalError: args.originalError,
@@ -1223,8 +1082,7 @@ async function applyErrorDecision(
     return { kind: "deferred", exchange: deferred };
   }
 
-  // Replace body via rewrap (frozen exchange); keep id and internals so
-  // telemetry continues to reference the same logical exchange.
+  // Rewrap keeps the id, so telemetry follows the same logical exchange.
   const recovered = DefaultExchange.rewrap(args.exchange, {
     body: args.result,
   });
@@ -1268,19 +1126,33 @@ async function applyErrorDecision(
  *   failure inside such a segment is unaffected, because the nested run
  *   notes the real step before it rethrows;
  * - the failure came from above a source-attached parse that a resume cannot
- *   reproduce (`RC5051`). The alternative, running the pending parser at
- *   park time, is refused for a reason that outlives this case:
+ *   reproduce (`RC5051`). The pending parser is never run at park time:
  *   `recovery.defer()` is generic, so a handler may answer it on an `RC5012`
  *   or an `RC5023` as readily as on the `RC5038` a step-up reacts to, and
- *   the framework cannot know which. Parsing here would feed a caller's
- *   bytes to a parser BELOW the authorize position in the general case,
- *   inverting the ordering the pre-from chain fixes;
+ *   parsing here would feed a caller's bytes to a parser below the authorize
+ *   position, inverting the ordering the pre-from chain fixes;
  * - the run is already cancelled (`RC5054`), the same as the `defer`
- *   outcome case.
+ *   outcome case. Cancellation is read from the route's execution signal as
+ *   well as the run's own, because a route-scope handler runs in the outer
+ *   run, which carries no signal when the deadline belongs to a nested
+ *   `.timeout()`. The same composite is handed to `deferExchange`, so a stop
+ *   landing during the write denies the record rather than leaving a live
+ *   link.
  *
  * Plus the loop-closing rule: a resumed exchange is not parked again for
  * scopes a lend was already asked for, so a lend that did not satisfy the
  * gate cannot ask a human forever.
+ *
+ * The failing step is the one the loop held; the error-keyed lookup is the
+ * fallback for a failure inside a route-scope resilience segment, where the
+ * outer loop holds the synthetic carrier. The error alone is not enough: a
+ * route handler that throws its own error hands the context chain one with
+ * no entry.
+ *
+ * The notify hook is bounded by the route's intake signal (widened by an
+ * enclosing `.timeout()`), the same pair the resume `authorize` hook races,
+ * so an unsettled hook cannot hold drain open. It only stops waiting on a
+ * park that already committed; it never refuses one.
  *
  * @internal
  */
@@ -1296,14 +1168,6 @@ async function parkFromErrorPath(
   },
 ): Promise<Exchange> {
   const definition = deps.route.definition;
-  // The step the loop was holding, which is the truth wherever it exists.
-  // The error-keyed lookup is the fallback and covers exactly one case the
-  // loop cannot: a failure raised inside a route-scope resilience segment,
-  // where the OUTER loop holds the synthetic carrier and the nested run
-  // noted the real step on its way past. Inferring the step from the error
-  // alone is not safe on its own, because the error reaching a handler is
-  // not always the one a step threw: a route handler that throws its own
-  // error hands the context chain a fresh one with no entry at all.
   const failing =
     args.failingStep ?? failingStepOf(args.exchange, args.originalError);
   const resolved = failing
@@ -1314,8 +1178,7 @@ async function parkFromErrorPath(
     throw rcError("RC5051", args.originalError, { message: resolved.refusal });
   }
 
-  // Refused rather than approximated: storing position 0 here would re-run
-  // every completed step on resume. See this function's JSDoc.
+  // Storing position 0 here would re-run every completed step on resume.
   if (args.admitted && resolved === undefined) {
     throw rcError("RC5051", args.originalError, {
       message: `Route "${deps.routeId}" failed at a position the defer-site walk does not address, after the exchange had already been admitted. This is a framework-owned position around the pipeline (a route-scope .timeout(), .retry(), .circuitBreaker() or .concurrency() raising its own failure rather than a step's), and parking there would have to resume from the top of the route and re-run every step that already completed. Park from a failure raised by a step instead.`,
@@ -1335,18 +1198,7 @@ async function parkFromErrorPath(
     });
   }
 
-  // A cancelled run must not leave a live resume link behind, exactly as on
-  // the `defer` outcome path: before the store write, refusing to park is
-  // free, and an abort that lands during the write is resolved inside
-  // `deferExchange`.
-  //
-  // Two signals, because a route-scope handler runs in the OUTER run, which
-  // carries none of its own: an enclosing `.timeout()` builds a nested run
-  // and its signal exists only there. `route.signal` is the EXECUTION
-  // signal, which fires when in-flight work is being abandoned rather than
-  // when the route merely stops accepting new work, and that is exactly the
-  // condition this refusal is about: the caller is being told the run
-  // failed, so nothing may stay resumable behind it.
+  // The execution signal, not intake: a route that only stops accepting work still parks.
   const cancellation = anySignal(deps.route.signal, deps.abortSignal);
   if (cancellation?.aborted) {
     throw rcError("RC5054", cancellation.reason, {
@@ -1368,13 +1220,6 @@ async function parkFromErrorPath(
 
   const { notify, ttl, schema, meta, callBinding, stepState } =
     args.directive.request;
-  // The hook's bound, resolved here because only the executor knows both
-  // halves: the route's INTAKE signal, so an unsettled hook cannot hold
-  // drain open forever, widened by an enclosing `.timeout()`. The same pair
-  // `runAuthorizer` races the resume `authorize` hook against, for the same
-  // reason. Deliberately not the execution signal used above: that one
-  // refuses the park outright, while this one only stops WAITING for the
-  // notification of a park that already committed.
   const notifySignal = anySignal(deps.route.intakeSignal, deps.abortSignal);
   return await deferExchange(
     deps.context,
@@ -1396,9 +1241,6 @@ async function parkFromErrorPath(
       },
     },
     deps.routeId,
-    // The post-write cancellation check inside `deferExchange` gets the same
-    // composite the refusal above used, so a stop landing during the write
-    // denies the record rather than leaving a live link.
     cancellation,
   );
 }
@@ -1440,18 +1282,16 @@ const POSITION_CARRIERS: Record<
  * drop, every other run continues with the produced exchange. Shared by
  * the timeout / retry / circuit-breaker segment builders so the mapping
  * lives in one place.
+ *
+ * A run that deferred inside the segment has already been answered, so it
+ * maps to `complete` rather than a second `defer`: the outer run schedules
+ * nothing further and the exchange is deferred once.
  */
 function segmentResultToOutcome(result: {
   exchange: Exchange;
   dropped: boolean;
 }): StepOutcome {
   if (result.dropped) return { kind: "drop" } as const;
-  // A run that deferred inside the segment has already been answered with its
-  // `Deferred` acknowledgment, and the deferring is recorded on the
-  // exchange's shared internals, so the outer run must schedule nothing
-  // further rather than continuing into steps the deferred exchange is no
-  // longer at. It is `complete`, not a second `defer`: the exchange is
-  // deferred once, by the run that reached the step.
   if (isDeferredRun(result.exchange)) {
     return { kind: "complete", exchange: result.exchange } as const;
   }
@@ -1533,8 +1373,8 @@ function buildPositionStep(
  * - Multicast paths omit `rethrowUnhandled` so a path that throws resolves
  *   through the default error path for its own clone (firing that exchange's
  *   `route:error` / `context:error` / `route:exchange:failed`) rather than
- *   propagating -- one failing path neither rejects `runPaths` nor disturbs
- *   the others -- while still forwarding any outer `abortSignal` so a
+ *   propagating, so one failing path neither rejects `runPaths` nor disturbs
+ *   the others, while still forwarding any outer `abortSignal` so a
  *   route-scope timeout can stop in-flight paths.
  *
  * The empty definition is deliberately outside `CHAIN_SURVIVAL`: a nested
@@ -1584,7 +1424,9 @@ function nestedDeps(
  *   stripped.
  *
  * The released exchange gets its own `route:exchange:started` / `:completed`
- * lifecycle pair, and the run is `trackTask`ed so `drain()` waits for it.
+ * lifecycle pair, and the whole release flow (pipeline, output validation,
+ * completion emit) is `trackTask`ed so `drain()` waits for it whether or not
+ * the caller awaits the runner.
  */
 function makeDownstreamRunner(
   deps: ExecutorDeps,
@@ -1597,12 +1439,6 @@ function makeDownstreamRunner(
       releaseExchange,
       "debounce",
     );
-    // Track the ENTIRE release flow (pipeline, output validation, and the
-    // completion emit), not just the pipeline promise: a caller that does not
-    // itself await the runner to completion (debounce's settle latch does,
-    // but the contract must not depend on the caller) would otherwise let
-    // drain() return between the pipeline settling and the validation /
-    // completed emit finishing.
     deps.route.trackTask(release);
     return release;
   };
@@ -1670,8 +1506,6 @@ export function runDetachedPipeline(
     let result = await runPipeline(nested, releaseExchange, start);
     result = await applyExitSlot(nested, result, runKind);
 
-    // The released exchange carries the route's final output, so the same
-    // output stage the source-driven path uses runs here too.
     result = await applyOutputStage(
       {
         routeId: deps.routeId,
@@ -1687,11 +1521,7 @@ export function runDetachedPipeline(
       start,
     );
 
-    // A run that deferred at a `.defer()` ends with the `Deferred`
-    // acknowledgment rather than the route's output, and its terminal
-    // event was `route:exchange:deferred`. Completing it here would both
-    // claim an output it does not carry and give the exchange two
-    // terminal events.
+    // A deferred run already had its terminal event, `route:exchange:deferred`.
     if (!result.failed && !result.dropped && !result.deferred) {
       deps.context.emit("route:exchange:completed", {
         routeId: deps.routeId,
@@ -1844,9 +1674,7 @@ function buildPerAttemptSegmentStep(
         const inner = proceed;
         proceed = () => wrapper.wrap(inner, exchange, info);
       }
-      // An attempt the wrapper started is settled before this step settles,
-      // whether or not the wrapper awaited it: retry must never begin a
-      // second attempt while the first still runs.
+      // Settle the attempt even if the wrapper did not await it, so retry never overlaps.
       try {
         await proceed();
       } catch (err) {

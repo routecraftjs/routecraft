@@ -359,9 +359,7 @@ export function resolveDeferSites(route: RouteDefinition): ResolvedDeferSites {
     deferSteps: [],
     reentrantDeferSteps: [],
     errorPathSites: new Map(),
-    // Nothing in the body has run, so the continuation is the body itself,
-    // as declared: the executor walks nested steps through its own branch
-    // outcomes, so the top-level array is the whole of it.
+    // Nested steps are reached through branch outcomes, so the top level is the whole body.
     admissionSite: { position: 0, continuation: route.steps },
   };
   const counter = { next: 0 };
@@ -372,18 +370,6 @@ export function resolveDeferSites(route: RouteDefinition): ResolvedDeferSites {
   return found;
 }
 
-/**
- * Whether a route can reach a `.resume()`.
- *
- * A resume ingress needs the deferral runtime just as much as a
- * deferring route does: it verifies tokens against the signer and reads
- * the store. Without this a resume-only deployment (the common shape, since
- * the ingress is usually its own capability) starts clean and then refuses
- * every resume at request time, which is the failure the startup check
- * exists to move forward.
- *
- * @internal
- */
 /**
  * Resolve a definition's park sites and write every one of them onto it.
  *
@@ -398,23 +384,17 @@ export function resolveDeferSites(route: RouteDefinition): ResolvedDeferSites {
  *
  * Callers guard on whether the work is already done; this always does it.
  *
+ * Every field is overwritten with the walk's answer, never merged: a
+ * hand-written definition can arrive carrying `deferSteps` its own steps do
+ * not support, which would have startup demand a deferral runtime for a
+ * route that cannot park. Empty answers leave the field absent so the common
+ * case stays cheap to ask about.
+ *
  * @internal
  */
 export function applyResolvedSites(definition: RouteDefinition): void {
   const sites = resolveDeferSites(definition);
-  // Every field written, including to `undefined`, because this is the walk's
-  // answer rather than an addition to whatever was there. A hand-written
-  // definition can arrive carrying `deferSteps` that its own steps do not
-  // support, and leaving that in place would have startup demand a deferral
-  // runtime for a route that cannot park, then have a revival walk a list
-  // that matches nothing.
-  //
-  // Undefined rather than empty where there is nothing, so the common case
-  // stays cheap to ask about.
-  // Deleted rather than set to `undefined`: `exactOptionalPropertyTypes` is
-  // on, so these fields are absent or present, never present and undefined.
-  // A route definition is built once at startup, so the cost of `delete`
-  // here is not the per-exchange one it would be on a header bag.
+  // Deleted, not set to undefined: `exactOptionalPropertyTypes` is on.
   if (sites.deferSteps.length > 0) {
     definition.deferSteps = sites.deferSteps;
   } else {
@@ -434,6 +414,18 @@ export function applyResolvedSites(definition: RouteDefinition): void {
   }
 }
 
+/**
+ * Whether a route can reach a `.resume()`.
+ *
+ * A resume ingress needs the deferral runtime just as much as a
+ * deferring route does: it verifies tokens against the signer and reads
+ * the store. Without this a resume-only deployment (the common shape, since
+ * the ingress is usually its own capability) starts clean and then refuses
+ * every resume at request time, which is the failure the startup check
+ * exists to move forward.
+ *
+ * @internal
+ */
 export function usesResume(route: RouteDefinition): boolean {
   return containsResume(route.steps);
 }
@@ -449,6 +441,13 @@ function containsResume(steps: ReadonlyArray<Step<Adapter>>): boolean {
 
 /**
  * Walk a step array in execution order, assigning positions and sites.
+ *
+ * Every step gets an error-path verdict, not just the defer hosts, because
+ * an error-path park borrows whichever step threw. Its continuation re-enters
+ * that step, like a re-entrant site, since it failed part-way through its
+ * work. A `.split()` step's own park is refused along with everything inside
+ * the fan-out it opens. A defer-capable host in a refused position gets a
+ * stored refusal rather than a build failure (see {@link resolveDeferSites}).
  *
  * @param tail - Steps that run after this array finishes, already flattened.
  *   A branch inherits the tail of the step that contains it, which is what
@@ -477,16 +476,7 @@ function walk(
       splitDepth--;
     }
 
-    // Every step, not just the defer hosts. A park raised from the error
-    // path borrows the failing step's position, and the step that fails is
-    // whichever one threw, so the verdict has to exist for all of them. The
-    // continuation re-enters the failing step itself, like a re-entrant
-    // site: the step failed part-way through the work it was doing, and
-    // nothing before it may run twice.
-    //
-    // `splitDepth` and `sealed` are read AFTER the split / aggregate
-    // adjustment above, so a `.split()` step's own park is refused along
-    // with everything inside the fan-out it opens.
+    // After the adjustment above, so a `.split()` step's own park is refused too.
     found.errorPathSites.set(
       step,
       splitDepth > 0
@@ -524,13 +514,7 @@ function walk(
 
     const host = deferHostOf(step);
     if (host && isDeferCapable(step.adapter)) {
-      // The same positions a static `.defer()` is refused from, with the
-      // same reasons, but recorded rather than thrown: whether a capable
-      // step ever defers is dynamic, so the refusal fires as RC5051 on
-      // the first actual deferral instead of failing every route that
-      // merely places an agent inside a fan-out or a side flow.
-      // A rebuilt walk starts every host clean so a stale field from an
-      // earlier resolution can never outrank the fresh one.
+      // A rebuilt walk starts every host clean so a stale field cannot outrank the fresh one.
       delete host.deferRefusal;
       delete host.deferSite;
       if (splitDepth > 0) {
@@ -538,8 +522,6 @@ function walk(
       } else if (scope.sealed) {
         host.deferRefusal = unrevivablePosition(route.id, "sealed", "raised");
       } else {
-        // The step itself heads the continuation: a re-entrant resume runs
-        // the step again to finish the work it deferred in the middle of.
         host.deferSite = {
           position,
           continuation: [step, ...after],
@@ -550,10 +532,7 @@ function walk(
     }
 
     const nested = nestedStepsOf(step);
-    // Presence of the protocol, not emptiness of its answer: a
-    // `.multicast()` with zero paths legitimately reports none, while a
-    // step that never implemented the protocol reports none for the very
-    // reason this check exists.
+    // Presence of the protocol, not emptiness: a `.multicast()` may have zero paths.
     if (!answersNestedSteps(step) && NESTING_OPERATIONS.has(step.operation)) {
       throw rcError("RC5003", undefined, {
         message:

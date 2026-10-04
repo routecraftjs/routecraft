@@ -38,6 +38,19 @@ import type { NewDeferral } from "./types.ts";
  * reaches the route's `.error()` handler, because the exchange has not been
  * deferred and the route still owns it.
  *
+ * Between the write and the event sit two checks that can still fail the
+ * run, each denying the just-written record claim-first so a replayed token
+ * reads `RC5050`: an abort that raced the write (`RC5054`), and a `notify`
+ * hook that failed (`RC5067`, see {@link runNotify}). Both precede
+ * `route:exchange:deferred`, so one exchange never reaches two terminal
+ * events. The `RC5054` lands whatever the store does, but its message never
+ * claims a denial that did not commit. The degraded-schema warning is also
+ * held until after the write, so no operator is warned about a deferral
+ * that never existed.
+ *
+ * Without a per-defer `ttl` the context default applies; only
+ * `defaultTtl: "never"` yields a deferral with no deadline.
+ *
  * @param context - Context whose deferral runtime holds the store and signer
  * @param exchange - The exchange as the defer step handed it over
  * @param request - What the defer step resolved: schema, meta, TTL, and site
@@ -67,10 +80,6 @@ export async function deferExchange(
     });
   }
 
-  // Per-defer `ttl` first, then the context default. A deferral with
-  // no deadline at all is only reachable through `defaultTtl: "never"`,
-  // because a deferral nobody resumes should eventually reach the route
-  // that asked for it rather than sit in the store forever.
   const { id, deferring, record } = describeRecord(
     exchange,
     routeId,
@@ -81,13 +90,6 @@ export async function deferExchange(
 
   await runtime.store.create(record);
 
-  // A cancellation that raced the store write and lost is resolved HERE,
-  // after the durable write but before the mark and the announcement: the
-  // just-created deferral is denied (claim-first, so a replayed token
-  // reads RC5050 from the settled path) and the run fails with RC5054
-  // without ever emitting `route:exchange:deferred`. Announcing first
-  // would give one `route:exchange:started` two terminals, breaking the events
-  // page's exactly-one lifecycle guarantee.
   if (abortSignal?.aborted) {
     const settled = await denyDeferred(
       context,
@@ -97,10 +99,6 @@ export async function deferExchange(
       "run cancelled",
       record.expiresAt,
     );
-    // The RC5054 must land whatever the store does (the caller was told
-    // the run failed), but it must not claim a denial that did not commit:
-    // a store failure leaves the link live until the ttl retires it, and
-    // the error-level log above is the operator's cue to settle it by hand.
     throw rcError("RC5054", abortSignal.reason, {
       message: settled
         ? `Route "${routeId}" deferred an exchange while its run was being cancelled; the deferral was denied so its resume link is dead.`
@@ -110,10 +108,6 @@ export async function deferExchange(
     });
   }
 
-  // After the durable write, not before: this file's ordering promises that
-  // nothing is announced that cannot be resumed, and a deferral that fails at
-  // serialization or the store write must not leave an operator a warning
-  // about a deferral that never existed.
   if (schema.degraded) {
     deferring.logger.warn(
       { deferralId: id, routeId, position: request.site.position },
@@ -130,16 +124,6 @@ export async function deferExchange(
 
   const deferred = DefaultExchange.rewrap(deferring, { body: ack });
 
-  // BEFORE the terminal event, and that ordering is the exactly-one-terminal
-  // -event invariant rather than a preference. A `notify` that throws denies
-  // the record claim-first and fails the run with RC5067, so announcing the
-  // park first would give one exchange both `route:exchange:deferred` and
-  // `route:exchange:failed`: a subscriber would see a park that is already
-  // dead, and the operator would have to know which of the two to believe.
-  //
-  // What the ordering promise actually protects is untouched: the record is
-  // durable before anyone is told, which is why `notify` cannot hand a human
-  // a token for a park that never committed.
   if (request.notify) {
     await runNotify(context, deferred, request.notify, ack, {
       deferralId: id,
@@ -190,10 +174,9 @@ export async function deferExchange(
  * call in it, so an unsettled hook holds the step, which holds `drain()`, and
  * its latency is caller-visible. An abort is treated exactly as a throw.
  *
- * The residue, stated because it is chosen rather than overlooked: a crash
- * between the write and the notification leaves a record nobody was told
- * about, which the record's ttl retires. The reverse order leaves a dead link
- * in a human's inbox, which nothing retires.
+ * A crash between the write and the notification leaves a record nobody was
+ * told about, which the record's ttl retires; the reverse order would leave a
+ * dead link in a human's inbox, which nothing retires.
  *
  * @throws RC5067 when the hook throws or never settles, carrying the hook's
  *   own failure as the cause
@@ -217,9 +200,6 @@ async function runNotify(
     await settleOrAbort(() => notify(ack), signal);
   } catch (cause) {
     const aborted = cause === HOOK_ABORTED;
-    // Claim-first, exactly as the cancellation path does: a replayed token
-    // then reads RC5050 from the settled path rather than reviving work
-    // whose caller was told it failed.
     const settled = await denyDeferred(
       context,
       deferred,
@@ -245,6 +225,11 @@ async function runNotify(
  * normally. Both must agree on the id, the sequence, the serialised
  * exchange and the hash, or a revival of one would not find what the
  * other wrote.
+ *
+ * The hash covers exactly what a resume would run: a static `.defer()`
+ * excludes itself from its continuation, a re-entrant site includes itself.
+ * `stepState` is stored raw because the store's `create` applies the
+ * plain-JSON rule to it (RC5042) and encodes it exactly once.
  */
 function describeRecord(
   exchange: Exchange,
@@ -270,17 +255,8 @@ function describeRecord(
 
   const schema = describeSchema(request.schema);
   const serialized = serializeExchange(deferring);
-  // The site's continuation is exactly what a resume would run: for a
-  // static `.defer()` it excludes the step itself (it already ran), and
-  // for a re-entrant site it includes it (it runs again). The hash covers
-  // whichever is true.
   const hash = continuationTailHash(request.site.continuation, schema);
-  // `stepState` crosses the persistence boundary raw: the store's `create`
-  // applies the same plain-JSON rule as the exchange (both backends encode
-  // it, refusing a resolver, a secret, or a non-envelope Date with RC5042),
-  // so the deferral still fails here rather than surprising the revival, and
-  // encoding happens exactly once. Encoding it here too would double-wrap
-  // the Date envelope, which the second pass refuses as a reserved shape.
+  // Raw: the store encodes it, and encoding twice double-wraps the Date envelope.
   const stepState = request.stepState;
   const deferredAt = new Date();
   const record: NewDeferral = {
@@ -334,7 +310,9 @@ function describeRecord(
  * @param stepState - Built from the deferral id, so the state a revival
  *   hands back can name the record it came from
  * @param announce - Awaited with the id BEFORE the record is written, so
- *   the caller's own record can name the deferral from the first write on.
+ *   the caller's own record can name the deferral from the first write on:
+ *   a crash between the two leaves a reference to release rather than a
+ *   record nothing points at, which nothing would retire without a ttl.
  *   The opposite ordering to the `notify` hook a `recovery.defer()` directive
  *   carries, which is awaited AFTER its write: this one hands an id to an
  *   in-process caller that can release a dangling reference, while that one
@@ -370,17 +348,9 @@ export async function deferAside(
     { site, stepState: stepState(id) },
     undefined,
   );
-  // The caller learns the id before the record exists, so what it keeps
-  // can name the deferral from the first write on: a crash between the two
-  // leaves a reference to release, not a record nothing points at, and an
-  // aside deferral has no expiry to retire it otherwise. The `notify` hook
-  // on a `recovery.defer()` directive commits the other way round; see this
-  // function's `@param announce` for why both are correct.
   if (announce) await announce(id);
   await runtime.store.create(record);
-  // The run goes on with this exchange, and its headers are frozen: the
-  // successor sequence the record carries is noted on the exchange too,
-  // so a `.defer()` later in the same run does not derive this id.
+  // Headers are frozen; without this a later `.defer()` in the run derives this id.
   noteAsideSequence(exchange, sequence + 1);
   return { deferralId: id };
 }
@@ -424,14 +394,10 @@ async function denyDeferred(
   if (!runtime) return false;
   try {
     const claim = await runtime.store.claimExpiry(deferralId, new Date());
-    // Losing the claim means someone else already settled the record (an
+    // Losing the claim means someone else already settled the record (a
     // resume that raced in, the sweeper). Whoever won owns the outcome.
     if (!claim.won) return true;
-    // `markDenied` is itself a compare-and-swap against the claim. Reporting
-    // a confirmed denial without reading it would be the one thing this
-    // return value exists to prevent: if the claim's lease elapsed in
-    // between, `releaseClaims` has cleared it, the record is resumable
-    // again, and the link the caller was told is dead comes back.
+    // The claim's lease may have elapsed, so only the CAS result confirms the denial.
     const denied = await runtime.store.markDenied(deferralId, reason);
     if (!denied.won) {
       exchange.logger.error(

@@ -140,11 +140,7 @@ const MIGRATIONS: ReadonlyArray<string> = [
    CREATE INDEX deferrals_by_route ON deferrals (route_id, deferred_at, id);
    CREATE INDEX deferrals_retention ON deferrals (state, outcome_at);
    CREATE INDEX deferrals_stranded ON deferrals (outcome_kind, deferred_at);`,
-  // Version 2: what an error-path park records about itself (whether it was
-  // raised before admission, and the scopes the refusal named). Nullable and
-  // unindexed: every record written before this migration is a `.defer()` or
-  // a re-entrant deferral, for which absent is the correct answer, and the
-  // field is only ever read by id on a resume that already has the row.
+  // Version 2: error-path park metadata. Unindexed: only ever read by id.
   `ALTER TABLE deferrals ADD COLUMN error_path TEXT;`,
 ];
 
@@ -202,9 +198,7 @@ export class SqliteDeferralStore implements DeferralStore {
     try {
       initialise(db);
     } catch (cause) {
-      // The handle exists but no store owns it yet, so nothing else would
-      // ever close it. Release it before the error propagates, otherwise a
-      // context that falls back to memory leaves the file locked.
+      // No store owns the handle yet, and an unclosed one leaves the file locked.
       try {
         db.close();
       } catch {
@@ -237,10 +231,7 @@ export class SqliteDeferralStore implements DeferralStore {
           record.meta === undefined
             ? null
             : JSON.stringify(encodePersistable(record.meta, "meta")),
-          // Framework-owned and plain JSON by construction (a boolean and a
-          // string array), so it never goes through `encodePersistable`: it
-          // carries no user value that could hold a Date, a secret or a
-          // resolver.
+          // Framework-owned plain JSON with no user value, so no `encodePersistable`.
           record.errorPath === undefined
             ? null
             : JSON.stringify(record.errorPath),
@@ -253,15 +244,9 @@ export class SqliteDeferralStore implements DeferralStore {
           record.expiresAt ? record.expiresAt.getTime() : null,
         );
     } catch (cause) {
-      // `encodePersistable` runs inside this try, so its RC5042 arrives here
-      // too. Wrapping it as a store failure would replace "stepState holds a
-      // function" with "failed to persist to the sqlite store", and the
-      // memory backend, which encodes outside any catch, would report the
-      // same input differently. Same passthrough `guard` uses below.
+      // RC5042 passes through unwrapped, as the memory backend reports it.
       if (isRoutecraftError(cause)) throw cause;
-      // Discriminate the one failure the contract names. A duplicate id
-      // means the id derivation is wrong, which no retry fixes, so it must
-      // not reach a `.retry()` wrapper as a retryable error.
+      // A duplicate id is a derivation bug no retry fixes, so it must not be retryable.
       const duplicate = /UNIQUE constraint failed/i.test(
         cause instanceof Error ? cause.message : String(cause),
       );
@@ -363,9 +348,7 @@ export class SqliteDeferralStore implements DeferralStore {
     expected: string,
     stepState: unknown,
   ): Promise<DeferralCasResult> {
-    // Outside the transaction on purpose: RC5042 for an unpersistable
-    // replacement is the caller's bug, and reporting it as a store failure
-    // would also leave a lock taken for a write that was never viable.
+    // Outside the transaction: RC5042 here is the caller's bug, not a store failure.
     const encoded = encodePersistable(stepState, "stepState");
     let won = false;
     let row: unknown;
@@ -398,9 +381,7 @@ export class SqliteDeferralStore implements DeferralStore {
             `UPDATE deferrals SET step_state = ?
              WHERE id = ? AND ${RESUMABLE}`,
           )
-          // `create` guards the same way. `bun:sqlite` binds an undefined
-          // parameter as NULL and `better-sqlite3` rejects it, so the branch
-          // is what keeps the two drivers substitutable.
+          // bun:sqlite binds undefined as NULL; better-sqlite3 rejects it.
           .run(encoded === undefined ? null : JSON.stringify(encoded), id);
         won =
           (
@@ -597,12 +578,7 @@ export class SqliteDeferralStore implements DeferralStore {
       // store error this method promises, not as a raw driver throw.
       this.#db.exec("BEGIN IMMEDIATE");
       this.#db.prepare(sql).run(...leadingParams, id);
-      // Read the affected-row count from SQLite rather than from the
-      // driver's run() return value. `bun:sqlite` only began returning
-      // `{ changes }` partway through the 1.1 line, and the declared floor
-      // is 1.1.0, so trusting it would report every compare-and-swap as
-      // lost on an in-range Bun: the row would transition, every caller
-      // would be told it lost the race, and nothing would ever resume.
+      // bun:sqlite's run() only returns { changes } from partway through 1.1.
       won =
         (
           this.#db.prepare("SELECT changes() AS changed").get() as {
@@ -622,9 +598,7 @@ export class SqliteDeferralStore implements DeferralStore {
         message: `Failed to transition deferral "${id}" in the sqlite store.`,
       });
     }
-    // Decoding runs after COMMIT and outside the try: a corrupt column
-    // would otherwise throw with no transaction active, and the rollback's
-    // own "no transaction is active" error would replace the parse failure.
+    // Outside the try: a rollback with no transaction would mask a parse failure.
     return {
       won,
       deferral: row ? toDeferral(row as DeferralRow) : undefined,
@@ -643,12 +617,7 @@ function initialise(db: SqliteDatabase): void {
   // WAL lets the sweeper read while a resume writes. Harmless on
   // `:memory:`, where SQLite ignores the journal mode change.
   db.exec("PRAGMA journal_mode = WAL");
-  // Set explicitly because the drivers disagree: better-sqlite3 defaults to
-  // 5s, bun:sqlite to 0. Without this, a second writer on the same file (an
-  // operator running the CLI against a live deployment, a restart
-  // overlapping the previous shutdown) fails a resume instantly under Bun
-  // and waits under Node, so the bug would not reproduce for whoever is
-  // debugging on the other runtime.
+  // better-sqlite3 defaults busy_timeout to 5s, bun:sqlite to 0.
   db.exec(`PRAGMA busy_timeout = ${BUSY_TIMEOUT_MS}`);
   db.exec("PRAGMA foreign_keys = ON");
   migrate(db);
