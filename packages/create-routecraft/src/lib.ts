@@ -3,11 +3,12 @@
 import { mkdir, writeFile, readFile, readdir, lstat } from "node:fs/promises";
 import { join, resolve, dirname, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
-import { existsSync, lstatSync, readFileSync, realpathSync } from "node:fs";
+import { existsSync, lstatSync, realpathSync } from "node:fs";
 import { execSync, execFileSync } from "node:child_process";
 import { input, select, confirm } from "@inquirer/prompts";
 import { tmpdir } from "node:os";
 import { cp, rm } from "node:fs/promises";
+import { workspaceVersions } from "./versions.js";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const TEMPLATES_DIR = join(__dirname, "../templates");
@@ -35,32 +36,28 @@ export interface InitOptions {
   yes?: boolean;
 }
 
-/**
- * Get the version range to pin for @routecraft/* packages in the scaffolded
- * project. The core train is versioned in lockstep (the fixed group in
- * .changeset/config.json), so this package's own version equals the
- * core version. Reading our own package.json keeps the lookup correct both in
- * the monorepo and in a published install; a cross-package relative path would
- * resolve to an unrelated `node_modules/routecraft` after publishing.
- */
-export function getRoutecraftVersion(): string {
-  try {
-    const packagePath = join(
-      dirname(fileURLToPath(import.meta.url)),
-      "../package.json",
-    );
-    if (existsSync(packagePath)) {
-      const pkg = JSON.parse(readFileSync(packagePath, "utf-8"));
-      if (typeof pkg.version === "string" && pkg.version.length > 0) {
-        return `^${pkg.version}`;
-      }
-    }
-  } catch {
-    // Fallback if we can't read the package.json
-  }
+declare const __ROUTECRAFT_VERSIONS__: Record<string, string> | undefined;
 
-  // Default fallback - use "latest" to always get the newest version
-  return "latest";
+let routecraftVersions: Record<string, string> | undefined;
+
+/**
+ * The range a scaffolded project pins a `@routecraft/*` package at: that
+ * package's own version as of the commit this scaffolder was built from, or
+ * `undefined` for a package it does not know.
+ *
+ * Only the core train shares one number, so the scaffolder's own version is
+ * wrong for the rest: create-routecraft 0.7.1 asked for `@routecraft/os@^0.7.1`
+ * while os stood at 0.7.0, and no scaffold that used os could install. The
+ * published build carries the map (`tsup.config.ts`); a run from source reads
+ * the workspace. Reading `node_modules` instead would find whatever unrelated
+ * copy sits beside an installed scaffolder.
+ */
+export function routecraftVersion(name: string): string | undefined {
+  routecraftVersions ??=
+    typeof __ROUTECRAFT_VERSIONS__ !== "undefined"
+      ? __ROUTECRAFT_VERSIONS__
+      : workspaceVersions(join(__dirname, "../.."));
+  return routecraftVersions[name];
 }
 
 /**
@@ -756,7 +753,6 @@ export async function generateProjectStructure(
   const fromUrlExample = isUrl(options.example);
   const replacements = {
     PROJECT_NAME: options.projectName,
-    ROUTECRAFT_VERSION: getRoutecraftVersion(),
     PACKAGE_MANAGER: getPackageManagerVersion(options.packageManager),
     PACKAGE_MANAGER_RUN: `${getPackageManagerCommand(options.packageManager)} run`,
     BUN_VERSION,
@@ -772,13 +768,21 @@ export async function generateProjectStructure(
   }
 
   // package.json and README.md carry placeholders the caller's answers
-  // resolve: the project name, the package manager, and the version of the
-  // routecraft train this scaffolder belongs to.
-  const packageJson = processTemplate(
-    await readFile(join(TEMPLATES_DIR, "base", "package.json"), "utf-8"),
-    replacements,
+  // resolve: the project name and the package manager. Each `@routecraft/*`
+  // entry is a ROUTECRAFT_VERSION placeholder the pin then replaces.
+  const pkg = JSON.parse(
+    processTemplate(
+      await readFile(join(TEMPLATES_DIR, "base", "package.json"), "utf-8"),
+      replacements,
+    ),
+  ) as Record<string, unknown>;
+  for (const field of ["dependencies", "devDependencies"] as const) {
+    pkg[field] = pinRoutecraftVersions(pkg[field] as Record<string, string>);
+  }
+  await writeFile(
+    join(projectDir, "package.json"),
+    JSON.stringify(pkg, null, 2) + "\n",
   );
-  await writeFile(join(projectDir, "package.json"), packageJson);
   console.log("Created file: package.json");
 
   // The image installs from `bun.lock`, so only a Bun project gets one.
@@ -974,28 +978,35 @@ export async function mergeExamplePackageJson(
 }
 
 /**
- * Give every `@routecraft/*` entry the version this scaffolder belongs to.
+ * Give every `@routecraft/*` entry the version this scaffolder was built
+ * with, per {@link routecraftVersion}.
  *
  * An example repository describes a project's shape. It does not decide
  * which version of the framework the person scaffolding is entitled to, and
  * letting it pin one produced two failures at once: asking for `@canary` and
  * getting whatever the example last committed, and a tree whose packages
- * came from different builds of a train the changeset config versions in
- * lockstep. `@routecraft/os` sat eight days behind the rest that way.
+ * came from different builds. `@routecraft/os` sat eight days behind the rest
+ * that way.
  *
  * The pinned value is replaced rather than warned about, because a warning
  * nobody reads still leaves the wrong tree installed. Everything that is not
- * `@routecraft/*` is the example's to choose and is left alone.
+ * `@routecraft/*`, and a `@routecraft/*` package newer than this scaffolder,
+ * is the example's to choose and is left alone.
  */
 function pinRoutecraftVersions(
   deps: Record<string, string>,
 ): Record<string, string> {
-  const version = getRoutecraftVersion();
   const pinned: Record<string, string> = {};
   for (const [name, range] of Object.entries(deps)) {
-    pinned[name] = name.startsWith("@routecraft/") ? version : range;
+    pinned[name] = pinnedRange(name, range);
   }
   return pinned;
+}
+
+function pinnedRange(name: string, range: string): string {
+  return name.startsWith("@routecraft/")
+    ? (routecraftVersion(name) ?? range)
+    : range;
 }
 
 /**
@@ -1003,7 +1014,7 @@ function pinRoutecraftVersions(
  * `bun install --production` still installs it. When only the example put
  * it under `devDependencies`, the example's range wins, as it does
  * everywhere else in a merge; `@routecraft/*` stays at the scaffolder's
- * version either way.
+ * pin either way.
  */
 function preferRuntimeDependencies(
   pkg: Record<string, unknown>,
@@ -1015,15 +1026,12 @@ function preferRuntimeDependencies(
   const runtime = pkg["dependencies"] as Record<string, string> | undefined;
   const dev = pkg["devDependencies"] as Record<string, string> | undefined;
   if (!runtime || !dev) return;
-  const version = getRoutecraftVersion();
   for (const [name, range] of Object.entries(dev)) {
     if (!Object.hasOwn(runtime, name)) continue;
     const onlyExampleDev =
       Object.hasOwn(example.devDependencies ?? {}, name) &&
       !Object.hasOwn(example.dependencies ?? {}, name);
-    if (onlyExampleDev) {
-      runtime[name] = name.startsWith("@routecraft/") ? version : range;
-    }
+    if (onlyExampleDev) runtime[name] = pinnedRange(name, range);
     delete dev[name];
   }
 }

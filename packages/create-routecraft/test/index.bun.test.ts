@@ -17,7 +17,7 @@ import {
 } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { existsSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
 import {
   assertInsideRepository,
   isSymbolicLink,
@@ -25,7 +25,7 @@ import {
   isExcludedExamplePath,
   mergeExampleDeps,
   mergeExamplePackageJson,
-  getRoutecraftVersion,
+  routecraftVersion,
   parseGitHubExampleUrl,
   resolveExampleRef,
   processTemplate,
@@ -62,6 +62,17 @@ function makeOptions(
 
 async function readJson(filePath: string): Promise<any> {
   return JSON.parse(await readFile(filePath, "utf-8"));
+}
+
+/** A workspace package's own version as a caret range, read independently of the code under test. */
+function ownRange(dir: string): string {
+  const manifest = JSON.parse(
+    readFileSync(
+      new URL(`../../${dir}/package.json`, import.meta.url),
+      "utf-8",
+    ),
+  );
+  return `^${manifest.version}`;
 }
 
 // ─── Unit: processTemplate ───────────────────────────────────────────────────
@@ -353,21 +364,32 @@ describe("generateProjectStructure", () => {
   /**
    * @case package.json substitutes routecraft version in dependencies
    * @preconditions Default options
-   * @expectedResult Dependencies contain routecraft version (not the placeholder)
+   * @expectedResult Each @routecraft/* dependency carries its own package's version, so @routecraft/ai, which versions independently of the core train, is never pinned at the core's number
    */
   test("package.json replaces version placeholders", async () => {
     await generateProjectStructure(projectDir, makeOptions());
 
     const pkg = await readJson(join(projectDir, "package.json"));
 
-    expect(pkg.dependencies["@routecraft/routecraft"]).not.toBe(
-      "ROUTECRAFT_VERSION",
+    expect(pkg.dependencies["@routecraft/routecraft"]).toBe(
+      ownRange("routecraft"),
     );
-    expect(pkg.dependencies["@routecraft/cli"]).not.toBe("ROUTECRAFT_VERSION");
+    expect(pkg.dependencies["@routecraft/ai"]).toBe(ownRange("ai"));
+    expect(pkg.dependencies["@routecraft/cli"]).toBe(ownRange("cli"));
     expect(pkg.devDependencies["@routecraft/cli"]).toBeUndefined();
-    expect(pkg.devDependencies["@routecraft/testing"]).not.toBe(
-      "ROUTECRAFT_VERSION",
+    expect(pkg.devDependencies["@routecraft/testing"]).toBe(
+      ownRange("testing"),
     );
+  });
+
+  /**
+   * @case A @routecraft/* package the scaffolder was not built with
+   * @preconditions routecraftVersion is asked for a package name no workspace package carries
+   * @expectedResult undefined, so the merge keeps the example's own range for a vendor package newer than the scaffolder instead of inventing a version
+   */
+  test("knows no version for a package it was not built with", () => {
+    expect(routecraftVersion("@routecraft/not-a-package")).toBeUndefined();
+    expect(routecraftVersion("@routecraft/os")).toBe(ownRange("os"));
   });
 
   /**
@@ -573,7 +595,7 @@ describe("mergeExamplePackageJson", () => {
   /**
    * @case An example's routecraft pins are replaced by the scaffolder's own
    * @preconditions An example pinning three @routecraft/* packages, two of them at versions the scaffolder did not choose and one it does not itself declare
-   * @expectedResult Every @routecraft/* entry carries the scaffolder's version. Asking for @canary and being handed whatever the example last committed is the defect, and a mixed train across a lockstep-versioned group is the symptom: @routecraft/os sat eight days behind the rest
+   * @expectedResult Every @routecraft/* entry carries that package's own version from the build, so @routecraft/os, which versions independently of the core train, is pinned at a release that exists rather than at the scaffolder's number
    */
   test("replaces an example's routecraft pins with the scaffolder's", async () => {
     await writeFile(
@@ -591,11 +613,11 @@ describe("mergeExamplePackageJson", () => {
     await mergeExamplePackageJson(source, target);
 
     const pkg = await readJson(join(target, "package.json"));
-    const scaffolderVersion = getRoutecraftVersion();
-
-    expect(pkg.dependencies["@routecraft/routecraft"]).toBe(scaffolderVersion);
-    expect(pkg.dependencies["@routecraft/os"]).toBe(scaffolderVersion);
-    expect(pkg.devDependencies["@routecraft/cli"]).toBe(scaffolderVersion);
+    expect(pkg.dependencies["@routecraft/routecraft"]).toBe(
+      ownRange("routecraft"),
+    );
+    expect(pkg.dependencies["@routecraft/os"]).toBe(ownRange("os"));
+    expect(pkg.devDependencies["@routecraft/cli"]).toBe(ownRange("cli"));
     // The example's own choices are its own. Only the framework train is
     // taken out of its hands.
     expect(pkg.dependencies["zod"]).toBe("^4.3.6");
@@ -625,7 +647,7 @@ describe("mergeExamplePackageJson", () => {
     await mergeExamplePackageJson(source, target);
 
     const pkg = await readJson(join(target, "package.json"));
-    expect(pkg.dependencies["@routecraft/cli"]).toBe(getRoutecraftVersion());
+    expect(pkg.dependencies["@routecraft/cli"]).toBe(ownRange("cli"));
     expect(pkg.devDependencies["@routecraft/cli"]).toBeUndefined();
     expect(pkg.devDependencies["eslint"]).toBe("^10.0.2");
   });
@@ -678,7 +700,7 @@ describe("mergeExamplePackageJson", () => {
     await mergeExampleDeps(source, target);
 
     const pkg = await readJson(join(target, "package.json"));
-    expect(pkg.dependencies["@routecraft/cli"]).toBe(getRoutecraftVersion());
+    expect(pkg.dependencies["@routecraft/cli"]).toBe(ownRange("cli"));
     expect(pkg.devDependencies["@routecraft/cli"]).toBeUndefined();
   });
 
@@ -835,8 +857,8 @@ describe("mergeExamplePackageJson", () => {
       test: "bun test",
     });
     expect(pkg.dependencies).toEqual({
-      "@routecraft/routecraft": getRoutecraftVersion(),
-      "@routecraft/ai": getRoutecraftVersion(),
+      "@routecraft/routecraft": ownRange("routecraft"),
+      "@routecraft/ai": ownRange("ai"),
     });
     expect(pkg.devDependencies).toEqual({
       typescript: "^5.9.3",
