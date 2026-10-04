@@ -49,15 +49,15 @@ Each entry in the `servers` record:
 
 ## Mounts and claims
 
-Surfaces register an `HttpMount` via `requireWebIngress(ctx, name)` during plugin `apply()`. A mount declares every path it answers as claims (`exact`, `prefix`, or `pattern`); claims are evaluated once during context start, validated against every other mount on the same server, and only then does the listener bind. Conflicts (duplicate exact path and method, overlapping prefixes, two catch-all `/` fallbacks, a route under another mount's prefix) fail loudly with [`RC5003`](/docs/reference/errors#rc-5003) before anything accepts traffic; registration order never decides ownership. See [Custom mounts](/docs/reference/plugins/httpplugin#custom-mounts) for the plugin-facing walkthrough.
+Surfaces register an `HttpMount` during plugin `bind`, through `requireWebIngress(c.require(WEB_INGRESS), name)`: the servers plugin provides the `WEB_INGRESS` port, and a surface declares it in `requires`. A mount declares every path it answers as claims (`exact`, `prefix`, or `pattern`); claims are evaluated once during context start, validated against every other mount on the same server, and only then does the listener bind. Conflicts (duplicate exact path and method, overlapping prefixes, two catch-all `/` fallbacks, a route under another mount's prefix) fail loudly with [`RC5003`](/docs/reference/errors#rc-5003) before anything accepts traffic; registration order never decides ownership. See [Custom mounts](/docs/reference/plugins/httpplugin#custom-mounts) for the plugin-facing walkthrough.
 
 Authentication on a shared listener is three-tiered: the server verifies credentials (this plugin's `auth`), the mount decides admission and refusal format (its handler pulls verification through a memoized `authenticate()` on the mount context, so public paths never trigger it), and routes check authority with [`.authorize()`](/docs/reference/operations/authorize).
 
 ## Lifecycle
 
-- `apply(ctx)` publishes one ingress registry per declared server on the context store. No socket is bound.
-- `start(ctx)` validates every mount's claims, then binds each listener (`Bun.serve` on Bun, `node:http` on Node 22+) and emits `server:listening { server, host, port }`. A bind failure emits `server:failed` and fails the context start with [`RC5019`](/docs/reference/errors#rc-5019).
-- `teardown(ctx, info)` closes gracefully (stop accepting, reap idle connections, drain in-flight up to `shutdownGrace`, then force-close) and emits `server:closed { server }`.
+- `bind(c)` builds one ingress registry per declared server and provides them through the `WEB_INGRESS` port. No socket is bound.
+- `start(c)` validates every mount's claims, then binds each listener (`Bun.serve` on Bun, `node:http` on Node 22+) and emits `server:listening { server, host, port }`. A bind failure emits `server:failed` and fails the context start with [`RC5019`](/docs/reference/errors#rc-5019).
+- `stop(c)` closes gracefully (stop accepting, reap idle connections, drain in-flight up to `shutdownGrace`, then force-close) and emits `server:closed { server }`.
 - The plugin declares `keepsAlive`, so a context whose routes have all completed keeps running until `stop()` while a listener is up.
 
 ## Events

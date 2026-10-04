@@ -1,0 +1,141 @@
+---
+title: Migrating from 0.7.x to 0.8.0
+---
+
+<Lead>
+What changed between Routecraft 0.7 and 0.8, and how to update.
+</Lead>
+
+0.8.0 is the plugin release. Every feature Routecraft ships beyond the route grammar is now a plugin built on the same sockets a third party uses: direct endpoints, retries, caching, authentication and deferral included. Routes built from the DSL are unchanged. What follows is every change that can break a 0.7 project, in the order most projects meet them.
+
+1. **Plugins are descriptors.** `CraftPlugin`, `apply(ctx)` and `teardown(ctx, info)` are removed; a plugin is `definePlugin({ id, bind, start, stop, ... })` and never receives the `CraftContext`. [Section 1](#1-plugins).
+2. **`ex.principal` is `ex.auth.principal`.** [Section 2](#2-principal).
+3. **`craft.config.ts` default-exports `defineProject(...)`.** A plain config still loads. [Section 3](#3-define-project).
+4. **`registerDsl` is removed.** Route methods come from a plugin's `steps`. [Section 4](#4-steps).
+5. **Store keys that crossed plugins are ports.** [Section 5](#5-ports).
+
+Projects that write no plugin of their own typically need section 2 and nothing else. Section 6 lists what is new, for context.
+
+---
+
+## 1. Plugins \{#1-plugins}
+
+A plugin is a plain descriptor built with `definePlugin()`. It declares a dotted `id`, and its lifecycle functions receive a `PluginContext`: ports, events, its own routes and a small set of execution verbs. A plugin still shaped with `apply` is refused at install with `RC9901` naming the change.
+
+```ts expect-error="CraftPlugin and apply are removed in 0.8"
+import { type CraftPlugin } from '@routecraft/routecraft'
+
+export const audit: CraftPlugin = {
+  apply(ctx) {
+    ctx.on('route:exchange:failed', ({ details }) => {
+      ctx.logger.warn({ route: details.routeId }, 'exchange failed')
+    })
+  },
+}
+```
+
+```ts
+import { definePlugin } from '@routecraft/routecraft'
+
+export const audit = definePlugin({
+  id: 'acme.audit',
+  bind(c) {
+    c.observe('route:exchange:failed', ({ details }) => {
+      c.logger.warn({ route: details.routeId }, 'exchange failed')
+    })
+  },
+})
+```
+
+| 0.7 | 0.8 |
+| --- | --- |
+| `CraftPlugin` | `Plugin`, declared with `definePlugin()` |
+| a function `(ctx) => void` | `definePlugin({ id, bind(c) { ... } })` |
+| `name` (optional) | `id` (required, dotted, unique per application) |
+| `apply(ctx)` | `bind(c)` |
+| `teardown(ctx, info)` | `stop(c, info)`; or register releases with `c.onDispose(fn)` |
+| `ctx.on(event, handler)` | `c.observe(event, handler)` |
+| `ctx.emit(event, details)` | `c.emit(event, details)` |
+| `ctx.setStore` / `ctx.getStore` to share state with an adapter or another plugin | a port: `provides` + `c.provide()`, `requires` + `c.require()` ([section 5](#5-ports)) |
+| `ctx.registerRoutes(...)` | `c.routes.register(...)`, in `bind` only |
+| `ctx.stop()` from a lifecycle function | `c.execution.requestStop()` |
+| `ctx.whenStarted()` | `c.execution.whenStarted()` |
+| `plugin:applying` / `plugin:applied` | `plugin:binding` / `plugin:bound` |
+
+`bind` runs at the same point `apply` did: while the application is installed, before routes are registered. Plugins now bind in dependency order rather than strictly in list order: a plugin that requires a port binds after the plugin that provides it. The default plugins (`routecraft.direct`, `routecraft.resilience`, `routecraft.cache`, `routecraft.principals`, `routecraft.auth`) install ahead of the application's own, so a lifecycle event's `pluginIndex` counts them.
+
+Two new families of fault name the plugin responsible: `RC1101` to `RC1116` for install, resolution, ordering and compile faults, and `RC5068` when a validate hook refuses an exchange. See the [errors reference](/docs/reference/errors#rc-1101).
+
+## 2. `ex.principal` is `ex.auth.principal` \{#2-principal}
+
+The authenticated principal is now the auth plugin's facet. In a route callable, read `ex.auth.principal`. Code that holds a plain `Exchange` (an adapter, a hook, a helper) reads `principalOf(exchange)`. The header it derives from, `routecraft.auth.principal`, is unchanged.
+
+```ts
+craft()
+  .id('whoami')
+  .from(direct())
+  .authenticate(() => ({ scheme: 'test', subject: 'ada' }))
+  .transform((_body, ex) => ex.auth.principal?.subject)
+  .to(log())
+```
+
+`ex.deferral` is unchanged in route callables; outside them, read `deferralOf(exchange)`. The principal authority (`mint`, `brand`, `isAuthentic`, `restore`, `isRestored`, `read`) is the `AUTHORITY` port the default `routecraft.principals` plugin provides. Brand and check through `authorityOf(exchangeOrContext)` instead of `markAuthentic`, `isAuthentic`, `markRestored` and `isRestored`, which are now internal. `delegate()` takes the authority as its fourth argument: `delegate(subject, actor, options, authorityOf(exchange))`.
+
+## 3. `defineProject` \{#3-define-project}
+
+A project declares its plugins and configuration with `defineProject()`, and `craft.config.ts` default-exports the result:
+
+```ts
+// craft.config.ts
+import { defineProject } from '@routecraft/routecraft'
+
+export default defineProject({
+  plugins: [],
+  deferral: {},
+})
+```
+
+`defineProject` returns `{ craft, config, plugins }`. Its `craft()` is typed by exactly the installed plugins, so a route can use a plugin's steps and facet. A named `craftConfig` export or a default-exported config object still loads, so this change is not required; `craft start` reads a project first. See [Plugins](/docs/advanced/plugins#installing-plugins-with-defineproject).
+
+## 4. Route methods come from `steps` \{#4-steps}
+
+`registerDsl` and augmenting `StepBuilderBase` are removed. A plugin's `steps` become builder methods, typed by `step<In, Out>()`:
+
+```ts
+import { definePlugin, step } from '@routecraft/routecraft'
+
+export const shout = definePlugin({
+  id: 'acme.shout',
+  steps: {
+    shout: () => step<string, string>((exchange) => exchange.body.toUpperCase()),
+  },
+})
+```
+
+Build routes that use it with the project's `craft()`. A method generic at the call site declares its type by merging into `StepMethods`. See [Steps](/docs/advanced/plugins#steps).
+
+## 5. Store keys that crossed plugins are ports \{#5-ports}
+
+State one plugin hands another, or hands an adapter, is a port: a typed token declared once with `port<T>("owner.capability@1")`. These store keys are removed:
+
+| 0.7 store key | 0.8 port |
+| --- | --- |
+| `ADAPTER_DIRECT_REGISTRY`, `DIRECT_DEFAULTS` | `DIRECT`; list capabilities with `ctx.capabilities()` |
+| `OPS_HEALTH_STATE`, `OPS_RESOURCES` | `OPS` |
+| `DEFERRAL_RUNTIME` | `CONTINUATIONS` |
+| `CARDDAV_CLIENT_MANAGER` | `CARDDAV` |
+| `ADAPTER_AGENT_REGISTRY`, `ADAPTER_FN_REGISTRY`, `ADAPTER_AGENT_DEFAULT_OPTIONS` and the MCP keys | ports of `@routecraft/ai` |
+
+A custom adapter that read context-wide defaults from a store key reads them from a port its companion plugin provides: `context.lookup(MY_DEFAULTS)`. See [Merged Options](/docs/advanced/merged-options). An adapter's own per-context state may stay in the store.
+
+`CraftConfig.plugins` is a readonly array.
+
+## 6. What is new in 0.8.0 \{#6-what-is-new-in-080}
+
+- **Ports.** Plugins share anything through `port<T>()`, with `requires`, `optional`, `provides` and `replaces`.
+- **Replaceable positions.** `.authorize()`, the resilience operations and `.cache()` are unchanged on the builder, and the default plugins fill them through `ENFORCEMENT`, `RESILIENCE` and `CACHE`. A plugin may replace one.
+- **Hooks.** Plugins add hooks to the slots of the chain (`beforeAuth`, `afterAuth`, `admitted`, `perAttempt`, `exit`, `error`) in the `observe`, `mutate` and `validate` phases. `hooks.order` and `hooks.disable` in config settle conflicts.
+- **The `error` slot.** A plugin hook can recover, drop or park (`recovery.defer()`) a failure the route's own `.error()` did not settle.
+- **Facets.** A plugin's facet is readable as `ex.<namespace>`.
+
+The [Plugins guide](/docs/advanced/plugins) explains each part with a worked example, and the [Plugins reference](/docs/reference/plugins) lists every field.

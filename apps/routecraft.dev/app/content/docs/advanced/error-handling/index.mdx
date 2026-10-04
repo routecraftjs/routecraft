@@ -226,7 +226,7 @@ const { context } = await new ContextBuilder()
   .build()
 ```
 
-For a catch-all, subscribe to `context:error`. This fires for all unhandled errors and for handler failures:
+For a catch-all, subscribe to `context:error`. It fires for unhandled errors and for handler failures, but only when nothing DECIDED the failure. A step `.error()` wrapper, a route [`.error()`](/docs/reference/operations/error) and a plugin hook in the chain's [`error` slot](/docs/advanced/plugins#the-error-slot) all resolve the exchange when they recover, drop or park it, and neither `context:error` nor `route:exchange:failed` fires for a failure any of them resolved. Count on this as "every failure" only where none of the three is in play.
 
 ```ts skip="fragment: context is the one built above"
 context.on('context:error', ({ details }) => {

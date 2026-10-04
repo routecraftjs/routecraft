@@ -77,8 +77,8 @@ craft()
   .authenticate(mailPrincipal) // identification: who is this
   .delegate(async (ex) => {
     // authority: what may the agent do for them
-    if (!ex.principal) return undefined
-    const grant = await grants.find(ex.principal.subject, 'agent:zoe')
+    if (!ex.auth.principal) return undefined
+    const grant = await grants.find(ex.auth.principal.subject, 'agent:zoe')
     if (!grant) return undefined // no consent: principal dropped, the agent acquires nothing
     return { actor: zoeIdentity, scopes: grant.scopes, grantId: grant.id }
   })

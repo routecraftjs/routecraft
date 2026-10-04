@@ -10,7 +10,7 @@ title: llmPlugin
 import { llmPlugin } from '@routecraft/ai'
 ```
 
-Registers LLM provider credentials in the context store. Required when any capability uses `llm()`. Configure once; all `llm()` calls in the context share it.
+Provides the LLM service that `llm()` reads its provider credentials from. Required when any capability uses `llm()`. Configure once; all `llm()` calls in the context share it.
 
 ```ts
 import { llmPlugin } from '@routecraft/ai'

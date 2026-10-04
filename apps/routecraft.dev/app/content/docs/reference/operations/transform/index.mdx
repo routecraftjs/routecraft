@@ -17,7 +17,7 @@ Transform the exchange body using a function. The function receives the body and
 .transform(async (user) => await enrichUserData(user))
 
 // Derive the body from the caller via the second argument
-.transform((order, ex) => ({ ...order, requestedBy: ex.principal?.subject }))
+.transform((order, ex) => ({ ...order, requestedBy: ex.auth.principal?.subject }))
 ```
 
 #### Field helpers: `keep` and `mask`

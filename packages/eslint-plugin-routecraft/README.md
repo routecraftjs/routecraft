@@ -49,7 +49,7 @@ match.
 - `@routecraft/routecraft/require-named-route`: Enforce `.id(<non-empty string>)` before `.from()` in a `craft()` chain
 - `@routecraft/routecraft/batch-before-from`: Enforce `batch()` is used as a route-level operation before `.from()`
 - `@routecraft/routecraft/single-to-per-route`: Warn when a route uses more than one `.to()`
-- `@routecraft/routecraft/restrict-principal-minting`: Principal minting (`.authenticate()`, `authenticate()`, `markAuthentic()`) must be an explicitly sanctioned, per-site exception
+- `@routecraft/routecraft/restrict-principal-minting`: Principal minting (`.authenticate()`, `authenticate()`, `markAuthentic()`, an authority's `mint()` / `brand()`) must be an explicitly sanctioned, per-site exception
 - `@routecraft/routecraft/require-untrusted-shell-args`: Warn when an exchange-derived value is passed to `shell()` (from `@routecraft/os`) without `untrusted()`, so it cannot pose as an option to the program
 - `@routecraft/routecraft/capability-boundaries` (opt-in): Enforce capability module boundaries (Spring Modulith style)
 
@@ -81,7 +81,7 @@ craft()
 
 ### restrict-principal-minting
 
-`.authenticate()` (and the `authenticate()` / `markAuthentic()` helpers) produce an
+`.authenticate()` (and the `authenticate()` / `markAuthentic()` helpers, and an authority's `mint()` / `brand()`) produce an
 authenticity-branded principal that every downstream `authorize()` trusts and that
 propagates across `direct()` calls, so an unreviewed mint anywhere in a codebase is a
 privilege-escalation vector. Minting is legitimate at channel boundaries (a mail route

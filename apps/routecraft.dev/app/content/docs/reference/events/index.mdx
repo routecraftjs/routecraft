@@ -30,7 +30,7 @@ An [`event()`](/docs/reference/adapters/event) route is not delivered the events
 | `context:started` | After context initialization, BEFORE any route or plugin `start()` hook has run. For readiness, await `ctx.whenStarted()` | `{}` |
 | `context:stopping` | Before shutdown begins | `{ reason? }` |
 | `context:stopped` | After all capabilities have stopped | `{ forced, pending }` |
-| `context:error` | Something failed at context level: a plugin's `apply()` or `start()` threw, a capability failed to start, the config was refused, or an exchange failed with no handler left to catch it | `{ error, route?, exchange? }` |
+| `context:error` | Something failed at context level: a plugin's `bind` or `start` threw, a capability failed to start, the config was refused, or an exchange failed with no handler left to catch it | `{ error, route?, exchange? }` |
 
 `context:stopped` reports how the shutdown ended. `forced` is true when the
 drain did not finish inside
@@ -255,11 +255,15 @@ A suppressed duplicate also fires `route:exchange:dropped` with reason `"duplica
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `route:error-handler:invoked` | A `.error()` handler runs (route or step scope) | `{ routeId, exchangeId, correlationId, originalError, failedOperation, scope: "route" \| "step", stepLabel? }` |
-| `route:error-handler:recovered` | Handler returned a value; pipeline continues (step scope) or replaces body (route scope) | Same plus `recoveryStrategy` |
-| `route:error-handler:failed` | Handler itself threw; rethrows for the next layer (route scope or default error path) | Same |
+| `route:error-handler:invoked` | A handler runs, at any of the three scopes | `{ routeId, exchangeId, correlationId, originalError, failedOperation, scope: "route" \| "step" \| "context", stepLabel? }` |
+| `route:error-handler:recovered` | Handler returned a value; pipeline continues (step scope), replaces the body, or parks the exchange | Same plus `recoveryStrategy` |
+| `route:error-handler:failed` | Handler itself threw | Same plus `handlerIndex?` |
 
-`scope` is `"route"` for the catch-all set via `.error()` BEFORE `.from()`, and `"step"` for a wrapper attached AFTER `.from()`. `stepLabel` is the label of the wrapped step when `scope === "step"`. Subscribe to the exact names and branch on `scope` in the payload.
+`scope` names which ring handled it: `"step"` for a wrapper attached AFTER `.from()`, `"route"` for the catch-all set via `.error()` BEFORE `.from()`, and `"context"` for a plugin hook in the chain's [`error` slot](/docs/reference/plugins#slots). `stepLabel` is the label of the wrapped step when `scope === "step"`. `recoveryStrategy` is `"step-error-handler"`, `"route-error-handler"` or `"context-error-handler"`. Subscribe to the exact names and branch on `scope` in the payload.
+
+`handlerIndex` appears on a failure at context scope only, and names which `error` slot hook threw, by its position among the deciding hooks that applied to the route. It exists because "the handler" is ambiguous there: the slot CONTINUES past a hook that throws, so an operator needs to know which one to fix. At route and step scope there is only one handler to blame, and the field is absent.
+
+A failure at context scope is also the one case where `route:error-handler:failed` does not imply the exchange failed: the next hook in the slot may still decide. Conversely, once any handler or hook decides, `context:error` and `route:exchange:failed` do not fire at all.
 
 ### Cache wrapper operations
 
@@ -282,7 +286,9 @@ Concurrent exchanges that share one computation (stampede dedupe) currently emit
 
 ### Agent operations
 
-Emitted by `agent()` destinations. These are the **coarse decision events**: broadcast to every subscriber, no opt-in needed. For token-level streaming use `agent({ stream: true })`, or `AgentOptions.onDelta` for the push form; both are separate per-call channels.
+Emitted by `agent()` destinations, and **declared by `@routecraft/ai`** rather than by core: the package that emits an event is the package that carries its name and payload, the same way the MCP events are declared. `EventDetailsMap` is one map whichever package writes into it, so subscribing is unchanged; importing `@routecraft/ai` is what brings the declarations into scope.
+
+These are the **coarse decision events**: broadcast to every subscriber, no opt-in needed. For token-level streaming use `agent({ stream: true })`, or `AgentOptions.onDelta` for the push form; both are separate per-call channels.
 
 | Event | When it fires | Details |
 | --- | --- | --- |
@@ -312,6 +318,8 @@ Tool input/output (and block-load output) ride in a `_snapshot` envelope. So doe
 `route:agent:tool:denied` fires before any model call, once per tool the policy refused, and carries no `toolCallId` because the tool was never invoked. `reason` is `rule` (a policy decided against it), `rule-error` (a predicate threw, so the tool was denied to fail closed), or `unknown-provenance` (the tool's `source` is missing or names a kind the policy surface does not define, which means a hand-built `ResolvedTool` from outside the type contract; `toolKind` is `unknown`).
 
 Every tool-call event names the conversation the call was made in as `session`, when the agent was dispatched with one. The exchange identity alone cannot: a session's boundary turn runs on the exchange that deferred, which may be an earlier caller's, so a consumer attributing tool calls to a conversation (the ACP mount streaming them to an editor) reads `session` rather than `correlationId`.
+
+`route:agent:tool:result` carries what the tool returned, with one substitution. A tool whose own route PARKED resolves with the framework's [`Deferred`](/docs/reference/operations/defer) acknowledgment, which carries a live resume token; under the default bearer door that token would let whoever holds it resume the parked act, so the bridge records the neutral `DEFERRED_TOOL_PLACEHOLDER` instead. That is what reaches the model's context, the session thread and this snapshot alike, and it is the same placeholder the model already sees when the agent's own `ctx.defer()` comes back. The agent's own run does not park on a downstream park: the turn continues. See [#737](https://github.com/routecraftjs/routecraft/issues/737) for the in-conversation case.
 
 `route:agent:tool:refused` is its call-time counterpart: the tool WAS offered, the model called it, and the tool's guard rejected that particular call. Keeping the two apart matters for what you can count. `denied` says an agent may not have a tool; `refused` says an agent asked for something its grant does not cover, which is the signal that an agent is probing the edges of what it was given. The payload is bounded to identity plus `rc`, the error code the guard threw. The refused input is deliberately absent even under snapshot capture: it is the input least worth trusting, and it can carry a token someone passed as an argument. The refusal also surfaces to the model as an ordinary tool error, so it can retry with a permitted form.
 
@@ -367,22 +375,22 @@ Plugin events are scoped to a plugin ID.
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `plugin:applying` | The plugin's `apply()` hook is about to run, while the context is being built | `{ pluginId, pluginIndex }` |
-| `plugin:applied` | The plugin's `apply()` hook returned | `{ pluginId, pluginIndex }` |
-| `plugin:starting` | The plugin's `start()` hook is about to run, after every route is up | `{ pluginId, pluginIndex }` |
-| `plugin:started` | The plugin's `start()` hook resolved | `{ pluginId, pluginIndex }` |
+| `plugin:binding` | The plugin's `bind` is about to run, while the context is being built | `{ pluginId, pluginIndex }` |
+| `plugin:bound` | The plugin's `bind` returned and it provided every port it declared | `{ pluginId, pluginIndex }` |
+| `plugin:starting` | The plugin's `start` is about to run, after every route is up | `{ pluginId, pluginIndex }` |
+| `plugin:started` | The plugin's `start` resolved | `{ pluginId, pluginIndex }` |
 | `plugin:stopping` | Plugin is about to stop | `{ pluginId, pluginIndex }` |
 | `plugin:stopped` | Plugin has stopped | `{ pluginId, pluginIndex }` |
 
-The event vocabulary matches the lifecycle: applying, starting, stopping. `plugin:applying` / `plugin:applied` bracket `apply()`, which every plugin has and which runs while the context is being built, after routes are registered and before any starts; `plugin:starting` / `plugin:started` bracket the optional `start()` hook, which runs after every route has signalled readiness. A plugin without a `start()` hook emits the applying pair only, so the applying pair never implies the starting pair and a subscriber must not expect four events per plugin. See the [plugin lifecycle](/docs/reference/plugins#lifecycle).
+The event vocabulary matches the lifecycle: binding, starting, stopping. `pluginId` is the plugin's real id (`id#2` for the second install of a repeatable plugin), and `pluginIndex` is its position in dependency order, default plugins included. `plugin:binding` / `plugin:bound` bracket `bind`, which runs while the context is being built, before routes are registered; `plugin:starting` / `plugin:started` bracket `start`, which runs after every route has signalled readiness. The binding pair fires for every plugin, and the starting pair only for a plugin that declares `start`, so a subscriber must not expect four events per plugin. See the [plugin lifecycle](/docs/reference/plugins#lifecycle).
 
-<Callout type="warning" title="plugin:started changed meaning in 0.7">
+<Callout type="warning" title="plugin:applying and plugin:applied are renamed in 0.8">
 
-Before 0.7 `plugin:starting` / `plugin:started` bracketed `apply()` and fired for every plugin. They now bracket the `start()` hook, so they fire later than they used to and ONLY for plugins that declare one; a subscriber watching them for config-only plugins must move to `plugin:applying` / `plugin:applied`. An existing subscriber keeps compiling either way.
+0.8 replaced a plugin's `apply()` with `bind`, and the events that bracketed it are now `plugin:binding` / `plugin:bound`. A subscriber to the old names compiles no longer. `plugin:starting` / `plugin:started` and the stop pair are unchanged.
 
 </Callout>
 
-A failing `start()` hook emits `context:error` and no `plugin:started`, and the context shuts down rather than reporting itself running. `context:started` fires before any route or plugin `start()` hook has run, which makes it the wrong readiness signal: for "the context is up and its plugins have finished starting", await `ctx.whenStarted()` rather than watching for an event.
+A failing `start` emits `context:error` and no `plugin:started`, and the context shuts down rather than reporting itself running. `context:started` fires before any route or plugin `start()` hook has run, which makes it the wrong readiness signal: for "the context is up and its plugins have finished starting", await `ctx.whenStarted()` rather than watching for an event.
 
 ## Authentication events
 
