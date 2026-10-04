@@ -3,7 +3,7 @@ title: Filter chain
 ---
 
 <Lead>
-The fixed order a capability's checks and wrappers run in around your pipeline:
+The fixed order in which a capability's checks and wrappers run around your pipeline:
 `.error()`, `.authorize()`, the source's parse, `.input()`, `.throttle()`,
 `.circuitBreaker()`, `.retry()`, `.timeout()` and `.concurrency()`, then the
 `.cache()` check before your steps and the cache store after them.

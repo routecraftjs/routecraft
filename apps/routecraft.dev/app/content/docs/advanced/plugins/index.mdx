@@ -18,7 +18,7 @@ A plugin is code that runs once when the context starts, before any capabilities
 
 ## Writing a plugin
 
-A plugin is an object with an `apply(context)` method, and a `name` that shows up in logs and `plugin:*` events:
+A plugin is an object with an `apply(context)` method. An optional `name` identifies it in logs and `plugin:*` events; without one, the runtime derives an id:
 
 ```ts
 // plugins/logger.ts
@@ -38,7 +38,7 @@ export default {
 } satisfies CraftPlugin
 ```
 
-A plugin that holds something with a lifetime uses the other two phases, `start` and `teardown`:
+Two more phases are optional: `start` runs once every route has started, and `teardown` releases what the plugin acquired when the context stops. A plugin with a lifetime, such as a timer, uses them. This one only needs `apply`, and keeps its state in the context store:
 
 ```ts
 // plugins/metrics.ts

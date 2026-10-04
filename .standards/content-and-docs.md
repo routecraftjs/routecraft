@@ -27,7 +27,7 @@ outside `docs/` but answers the same question: what changed and how to upgrade.
 
 | Surface | Home | Sidebar | Job | Maintained | Vendor-specific |
 |---|---|---|---|---|---|
-| Foundational concept | `docs/introduction/` | Fundamentals | the platform with its defaults: what it is, how the core works, the default setup of each door | yes | no |
+| Foundational concept | `docs/introduction/` | Fundamentals | the platform with its defaults: what it is, how the core works, the default setup of each door | yes | no, except hosting provider guides (decision test 2) |
 | Advanced concept (+ guides) | `docs/advanced/` | Beyond the defaults | what you add past the defaults, and how to apply it; guides welcome | yes | no |
 | Reference | `docs/reference/` | Reference | every option, lookup | yes | no |
 | Example | `docs/examples/` | Examples | runnable real-world use case; the single source of code | yes | minimal |

@@ -136,7 +136,7 @@ Use `.transform()` when you only need the data. Use `.process()` or `.filter()` 
 
 The exchange is immutable. `DefaultExchange` shallow-freezes the wrapper, its headers, and (when present) the principal at construction, and every field on `Exchange<T>` is `readonly`. The body is intentionally not deep-frozen so adapters can attach arbitrary payloads, but the framework never mutates it and your code should not either.
 
-An exchange is often still needed after a step has used it: `.retry()` re-runs a step on the exchange that step was given, and an `.error()` handler receives the exchange as the failing step saw it. Because no step can change an exchange in place, a re-attempt or a handler always starts from exactly that input, and no step can quietly rewrite a header, such as the authenticated principal, that later steps rely on.
+An exchange is often still needed after a step has used it: `.retry()` re-runs a step on the exchange that step was given, and an `.error()` handler receives the exchange as the failing step saw it. Because no step can replace an exchange's body or headers in place, a re-attempt or a handler starts from that input, and no step can quietly rewrite a header, such as the authenticated principal, that later steps rely on. The freeze is shallow: an object body can still be mutated, and a mutation made before a failure is what the retry and the handler then see. Return a new object rather than changing the one you were given.
 
 Operations that change the exchange return a new one by copy-on-write (spread) rather than mutating in place. The framework re-wraps the returned plain object back into a proper instance, preserving the context binding, route binding, and `id`.
 

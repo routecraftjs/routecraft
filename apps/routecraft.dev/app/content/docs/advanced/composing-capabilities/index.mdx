@@ -44,7 +44,7 @@ export default craft()
   .to(http({ method: 'POST', url: 'https://api.example.com/notifications' }))
 ```
 
-The route's `.id()` is the direct endpoint name, and destinations reference the consumer by that id. Use letters, digits, `-` and `_` only, such as `process-orders`: the same id becomes the tool name when the capability is served over MCP or granted to an agent, and tool names allow nothing else.
+The route's `.id()` is the direct endpoint name, and destinations reference the consumer by that id. Use letters, digits, `-` and `_` only, such as `process-orders`: the id is the tool name when the capability is served over MCP, an agent it is granted to sees it as `direct__<id>`, and tool names allow nothing else.
 
 ## Fan-out
 

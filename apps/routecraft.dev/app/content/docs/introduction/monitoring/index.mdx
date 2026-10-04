@@ -40,23 +40,33 @@ The runtime emits an event for everything that happens inside it. Three of them 
 | `route:source:failed` | A source gave up producing, for example a mail connection that exhausted its reconnects. The capability is about to stop. |
 | `route:exchange:failed` | One exchange ended in an unrecoverable error. Carries `routeId`, `exchangeId`, `duration` and the `error`. |
 
-A plugin that forwards them to your alerting is a file in `plugins/`, which `craft start` loads on its own:
+The runtime already logs each of them. To page someone, forward them to your alerting from a plugin, a file in `plugins/` that `craft start` loads on its own. An unhandled exchange failure fires `context:error` as well as `route:exchange:failed`, so this one forwards `context:error` and `route:source:failed` and sends each failure once:
 
 ```ts
-// plugins/monitoring.ts
+// plugins/alerting.ts
 import type { CraftContext, CraftPlugin } from '@routecraft/routecraft'
 
+async function alert(summary: string, routeId: string | undefined, error: unknown) {
+  const response = await fetch(process.env.ALERT_WEBHOOK_URL!, {
+    method: 'POST',
+    headers: { 'content-type': 'application/json' },
+    body: JSON.stringify({ summary, routeId, error: String(error) }),
+  })
+  if (!response.ok) throw new Error(`alert webhook answered ${response.status}`)
+}
+
 export default {
-  name: 'monitoring',
+  name: 'alerting',
   apply(ctx: CraftContext) {
+    // An alert that cannot be delivered is logged, never allowed to crash the instance.
+    const send = (summary: string, routeId: string | undefined, error: unknown) =>
+      alert(summary, routeId, error).catch((err) => ctx.logger.warn({ err }, 'Alert not sent'))
+
     ctx.on('context:error', ({ details: { error, route } }) => {
-      ctx.logger.error({ err: error, routeId: route?.definition.id }, 'Context error')
+      void send('Context error', route?.definition.id, error)
     })
     ctx.on('route:source:failed', ({ details: { routeId, error } }) => {
-      ctx.logger.error({ err: error, routeId }, 'Source stopped')
-    })
-    ctx.on('route:exchange:failed', ({ details: { routeId, exchangeId, error } }) => {
-      ctx.logger.error({ err: error, routeId, exchangeId }, 'Exchange failed')
+      void send('Source stopped', routeId, error)
     })
   },
 } satisfies CraftPlugin

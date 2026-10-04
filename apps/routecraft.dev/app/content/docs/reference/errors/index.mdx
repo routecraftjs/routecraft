@@ -897,6 +897,8 @@ A block's shape is invalid at construction:
 - `value` is neither a string nor a function.
 - `lifetime` is set to a value other than `"dispatch"` or `"context"`.
 - The `skills({ source })` builder was called with a missing or empty `source`, an invalid `mode`, or an invalid `lifetime`.
+- A nested group contains no block (it is empty, or every member is `false`).
+- A `progressive` block's flattened name (its group path joined to its own name) uses a character other than letters, digits, `_` and `-`, or makes the loader tool name `_block__load__<name>` longer than the provider limit. The block becomes a tool, so it takes a tool's naming rules.
 
 **Suggestion**  
 - Inject-mode blocks: `{ mode: "inject", value: <string | function> }`.

@@ -8,7 +8,7 @@ A capability is one thing your harness can do: a typed TypeScript route that say
 
 ## One folder per capability
 
-A capability lives in its own folder under `capabilities/`, in a file named `route.ts` that default-exports it:
+Each capability normally lives in its own folder under `capabilities/`, in a file named `route.ts` that default-exports it (a file can also export a capability together with the small caller that feeds it, as shown [below](#several-capabilities-in-one-file)):
 
 ```text
 capabilities
@@ -104,7 +104,7 @@ const greet = craft()
 const helloWorld = craft()
   .id("hello-world")
   .from(simple({ name: "Ada" }))
-  .to(direct<GreetInput>("greet"));
+  .to(direct<GreetInput, string>("greet"));
 
 export default [greet, helloWorld];
 ```

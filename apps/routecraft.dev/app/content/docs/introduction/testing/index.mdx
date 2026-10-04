@@ -8,7 +8,7 @@ Test your capabilities with fast unit tests and optional E2E runs.
 
 ## Quick start
 
-A project from `create-routecraft` runs its tests with `bun test`, and each capability keeps its test beside it: `capabilities/hello-world/route.bun.test.ts` next to `route.ts`. The scaffolded test has this shape, which is the one to copy:
+A project from `create-routecraft` runs its tests with `bun run test` (its `test` script runs `bun test`), and each capability keeps its test beside it: `capabilities/hello-world/route.bun.test.ts` next to `route.ts`. The scaffolded test has this shape, which is the one to copy:
 
 <CodeTabs>
 
@@ -46,7 +46,10 @@ describe("hello-world", () => {
     await t.test();
 
     expect(httpMock.calls.send).toHaveLength(1);
-    expect(t.logger.info).toHaveBeenCalled();
+    const logged = (t.logger.info as ReturnType<typeof mock>).mock.calls.find(
+      (call) => call[1] === "LogAdapter output",
+    );
+    expect(logged?.[0].body).toBe("Hello, Leanne Graham!");
   });
 });
 ```
@@ -87,7 +90,10 @@ describe("hello-world", () => {
     await t.test();
 
     expect(httpMock.calls.send).toHaveLength(1);
-    expect(t.logger.info).toHaveBeenCalled();
+    const logged = (t.logger.info as ReturnType<typeof vi.fn>).mock.calls.find(
+      (call) => call[1] === "LogAdapter output",
+    );
+    expect(logged?.[0].body).toBe("Hello, Leanne Graham!");
   });
 });
 ```

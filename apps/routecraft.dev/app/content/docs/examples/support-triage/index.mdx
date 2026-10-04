@@ -96,18 +96,20 @@ export default craft()
 `{ name, guard, description }` adds a per-tool [guard](/docs/reference/plugins/agentplugin#agent-tools)
 or a per-agent description override. A guard runs after the tool's schema has validated the
 arguments, receives them with a context carrying the caller's principal, and throws to deny the
-call. This one keeps customer email addresses out of the internal channel:
+call. This one keeps customer email addresses out of the internal channel, in any field of the
+brief. Pass it as the agent's `tools` in place of the plain list above:
 
 ```ts
 import { tools } from '@routecraft/ai'
 
-tools([
+const triageTools = tools([
   'Direct(lookup-customer)',
   {
     name: 'Direct(post-brief)',
     guard: (input) => {
-      const { summary } = input as { summary: string }
-      if (/[^\s@]+@[^\s@]+/.test(summary)) throw new Error('leave email addresses out of the brief')
+      if (/[^\s@]+@[^\s@]+/.test(JSON.stringify(input))) {
+        throw new Error('leave email addresses out of the brief')
+      }
     },
   },
 ])

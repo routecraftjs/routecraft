@@ -31,6 +31,6 @@ const greetRoute = craft()
 const helloWorldRoute = craft()
   .id("hello-world")
   .from(simple({ userId: 1 }))
-  .to(direct<GreetInput>("greet"));
+  .to(direct<GreetInput, string>("greet"));
 
 export default [greetRoute, helloWorldRoute];

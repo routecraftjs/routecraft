@@ -32,7 +32,7 @@ Yes. One capability calls another with `direct("<id>")` and imports only the typ
 
 ## How do I handle errors?
 
-A failed exchange never stops the capability or the others beside it: the runtime logs it, emits `route:error`, `context:error` and `route:exchange:failed`, and processes the next exchange. Add `.error()` to a capability to recover with your own handler, declare `.input()` so invalid input is refused before any step runs, and alarm on `context:error` as described in [Monitoring](/docs/introduction/monitoring#events-to-alarm-on). [Error handling](/docs/advanced/error-handling) covers `.error()` in full.
+A failed exchange never stops the capability or the others beside it. With no `.error()` handler, the runtime logs it, emits `route:error`, `context:error` and `route:exchange:failed`, and processes the next exchange. Add `.error()` to a capability to recover with your own handler, in which case `route:error:caught` fires instead of the failure events; declare `.input()` so invalid input is refused before any step runs, and alarm on `context:error` as described in [Monitoring](/docs/introduction/monitoring#events-to-alarm-on). [Error handling](/docs/advanced/error-handling) covers `.error()` in full.
 
 ## What adapters are available?
 

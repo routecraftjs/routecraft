@@ -70,7 +70,7 @@ The `csv()` adapter needs its optional peer, `papaparse`:
 bun add papaparse
 ```
 
-Save the capability as `capabilities/file-to-http/route.ts` and `customers.csv` in the project root, then start the project from that folder, since the path is resolved against where the process starts:
+Replace `https://api.example.com/users` with an endpoint you can reach (a local mock or a request-bin service works), save the capability as `capabilities/file-to-http/route.ts` and `customers.csv` in the project root, then start the project from that folder, since the path is resolved against where the process starts:
 
 ```bash
 bun run start
