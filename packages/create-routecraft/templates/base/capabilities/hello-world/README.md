@@ -21,9 +21,9 @@ capabilities may import. `craft start` discovers this folder on its own, so noth
 registers it by hand.
 
 `greet` calls `https://jsonplaceholder.typicode.com`, so the first run needs a network. The
-tests do not: they replace `fetch`, which is also the shape to copy when you write your own.
-The test also mocks the `mcp()` source with `mockAdapter`, so no MCP transport starts and the
-test stays about what the capability does.
+test does not: it stands `mockAdapter(http, ...)` in for the lookup and `mockAdapter(mcp, ...)`
+in for the MCP source, so no request leaves the machine, no MCP transport starts, and the test
+stays about what the capability does. That is the shape to copy when you write your own.
 
 Run the project with `bun run start`, the tests with `bun run test`, and see the project
 README for connecting an agent.

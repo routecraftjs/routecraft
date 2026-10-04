@@ -14,7 +14,7 @@ id. `greet` fetches the user over HTTP and logs a greeting. It needs a network o
 run.
 
 ```bash
-PACKAGE_MANAGER_RUN test        # the capability's own tests, which mock fetch
+PACKAGE_MANAGER_RUN test        # the capability's own tests, which mock the HTTP lookup
 PACKAGE_MANAGER_RUN all         # format, typecheck, lint, test
 ```
 

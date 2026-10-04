@@ -18,9 +18,9 @@ describe("mcp-greet", () => {
   });
 
   /**
-   * @case mcp source yields a payload; the route greets by user and logs the result
+   * @case mcp source yields a payload; the route greets by user and logs the greeting
    * @preconditions mockAdapter(mcp, { source: [...] }) stands in for the MCP server's dispatch
-   * @expectedResult The tap(log()) logs an object whose body.user matches; transform output reaches noop
+   * @expectedResult The tap(log()) after the transform logs "Hello, Ada!"
    */
   it("greets a user from an mcp payload", async () => {
     const mcpMock = mockAdapter(mcp, {
@@ -33,10 +33,9 @@ describe("mcp-greet", () => {
     expect(mcpMock.calls.source).toHaveLength(1);
     expect(mcpMock.calls.source[0].yielded).toBe(1);
 
-    // The tap(log()) in the route logs the payload before transform.
     const infoSpy = t.logger.info as Mock<(...args: unknown[]) => void>;
     const tapLog = infoSpy.mock.calls.find((c) => c[1] === "LogAdapter output");
     expect(tapLog).toBeDefined();
-    expect((tapLog![0] as { body: { user: string } }).body.user).toBe("Ada");
+    expect((tapLog![0] as { body: string }).body).toBe("Hello, Ada!");
   });
 });

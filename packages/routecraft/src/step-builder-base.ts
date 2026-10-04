@@ -448,9 +448,9 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
    * outermost): `.retry().timeout(5000).to(dest)` gives each attempt
    * its own 5s deadline.
    *
-   * @param options - `maxAttempts` (default 3), `backoffMs` (default
-   *   1000), `factor` (growth multiplier, default 1 = fixed),
-   *   `maxBackoffMs` (wait ceiling), `jitter` (`"none"` | `"full"` |
+   * @param options - `maxAttempts` (default 3), `backoff` (a `Duration`,
+   *   default 1000 ms), `factor` (growth multiplier, default 1 = fixed),
+   *   `maxBackoff` (a `Duration`, the wait ceiling), `jitter` (`"none"` | `"full"` |
    *   `0..1`, default `"none"`), `retryOn` (default: skip non-retryable
    *   RoutecraftErrors)
    * @returns This builder (same subclass, same body type)
