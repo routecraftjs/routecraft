@@ -1,5 +1,15 @@
 # create-routecraft
 
+## 0.7.2
+
+### Patch Changes
+
+- [#858](https://github.com/routecraftjs/routecraft/pull/858) [`747f312`](https://github.com/routecraftjs/routecraft/commit/747f312a9d1cd8dfa4d16393476d38901cc8828c) Thanks [@ex0b1t](https://github.com/ex0b1t)! - A scaffolded project is agent-connected from the first run. Its `greet` capability stands behind `mcp()` as well as `direct()`, `craft.config.ts` serves MCP over stdio, `@routecraft/ai` and `@modelcontextprotocol/server` (`^2.0.0`) are dependencies, and the README shows how Claude Code, Cursor and VS Code connect to it and call the tool. `bun run start` still logs the greeting, and the capability's test mocks the `mcp()` source so it starts no transport.
+
+  `@routecraft/ai`'s peer range on `@routecraft/routecraft` is now `>=0.7.2-0 <1.0.0`, so `@routecraft/ai` 0.7.2 needs core 0.7.2 or later.
+
+- [#858](https://github.com/routecraftjs/routecraft/pull/858) [`747f312`](https://github.com/routecraftjs/routecraft/commit/747f312a9d1cd8dfa4d16393476d38901cc8828c) Thanks [@ex0b1t](https://github.com/ex0b1t)! - The scaffolder now pins each `@routecraft/*` package at that package's own version instead of the scaffolder's. Only the core train shares one number; `@routecraft/ai` and `@routecraft/os` version independently, so 0.7.1 asked for `@routecraft/os@^0.7.1`, a release that does not exist, and every scaffold of an example using `@routecraft/os` (craft-harness among them) failed to install. The versions are captured when the scaffolder is built, so they are the ones it was released with.
+
 ## 0.7.1
 
 ### Patch Changes
