@@ -3,7 +3,7 @@ export const navigation = [
     title: 'Getting started',
     href: '/',
     links: [
-      { title: 'Installation', href: '/docs/introduction/installation' },
+      { title: 'What is Routecraft', href: '/docs/introduction' },
       {
         title: 'Tools for agents',
         href: '/docs/introduction/tools-for-agents',
@@ -12,6 +12,7 @@ export const navigation = [
         title: 'An agent of your own',
         href: '/docs/introduction/an-agent-of-your-own',
       },
+      { title: 'Installation', href: '/docs/introduction/installation' },
       { title: 'Changelog', href: '/changelog' },
     ],
   },
@@ -19,7 +20,6 @@ export const navigation = [
     title: 'Fundamentals',
     href: '/docs/introduction',
     links: [
-      { title: 'What is Routecraft', href: '/docs/introduction' },
       {
         title: 'Local harness, team harness',
         href: '/docs/introduction/local-and-team-harness',
