@@ -1,0 +1,193 @@
+---
+title: Architecture
+---
+
+<Lead>
+How the runtime is put together, for anyone writing a plugin: what the kernel owns, what plugins fill in, and the order everything happens in.
+</Lead>
+
+## The kernel and its plugins
+
+Routecraft has two layers. A small **kernel** decides how an application runs. Everything that does work inside it is a **plugin**, including every feature Routecraft ships: `direct()` endpoints, retries, caching, authentication, deferral, HTTP, ops, agents and MCP.
+
+The kernel owns five things and implements none of what plugs into them:
+
+| The kernel owns | What that means |
+| --- | --- |
+| Lifecycle | Installing plugins, ordering them, binding, freezing, starting and stopping them |
+| Resolution | Every port a plugin requires resolves to exactly one provider, or the application refuses to start |
+| Ordering | Plugin hooks are placed in the fixed slots of the [chain](/docs/advanced/filter-chain) around every route |
+| Execution | Running one exchange through a route, step by step |
+| Continuation | How a parked exchange is written, claimed, resumed and expired |
+
+The kernel never names a plugin. It reaches every feature through a **port**, a named and versioned token one plugin provides and anything else looks up. That is the whole contract between the layers, and it is why a plugin you write has the same reach as the ones Routecraft ships: you can add a feature beside them, or replace what one of them provides.
+
+A plugin never receives the `CraftContext`. Its lifecycle functions get a `PluginContext` that reaches the application through ports, events, its own routes and a small set of execution verbs. The [Plugins reference](/docs/reference/plugins#plugin-context) lists every member.
+
+## What happens at boot
+
+Starting an application runs these stages in order. A fault at any of them names the plugin responsible and stops the application before it reports itself running.
+
+1. **Compose.** Each config key that is set (`deferral: {}`, `http: {...}`) becomes its plugin, then the plugins listed in `plugins` follow in order. The [default plugins](/docs/advanced/plugins#default-plugins) go ahead of all of them, minus any whose id the application installs itself, and every plugin's `installs` are brought in once per id.
+2. **Identity.** One plugin per id and one per namespace. A repeatable plugin installed several times is numbered `id#1`, `id#2`, ... (`RC1101` to `RC1103`).
+3. **Resolution.** Every required port resolves to one provider. Two providers of one port need one of them to declare `replaces` (`RC1104` to `RC1106`).
+4. **Order.** Plugins are sorted so a plugin binds after the providers of the ports it uses. A repeatable plugin also binds ahead of every other consumer of its ports, so a plugin that reads what was contributed sees all of it. Otherwise the listed order holds. A cycle is `RC1107`.
+5. **Bind.** Each plugin's `bind` runs, in that order. This is where ports are provided and required, events observed and routes registered.
+6. **Freeze.** After the last `bind`, the application accepts no new ports, routes or contributions (`RC1110`). `c.frozen` turns true.
+7. **Compile.** The application's routes register and compile: every position a route configures (`.retry()`, `.cache()`) and every plugin step it uses (`.defer()`) must have a provider, or the application refuses to start (`RC1111`). Hooks are placed in their slots (`RC1112` to `RC1115`).
+8. **Start.** The routes start and signal readiness, then each plugin's `start` runs.
+9. **Stop.** In reverse order. Each plugin's `stop` runs, then the releases it registered with `c.onDispose`, last registered first.
+
+A failure at any stage unwinds: every plugin that bound is stopped in reverse, and the original error surfaces unchanged. A `bind` that throws partway still has the releases it registered run. [Plugin lifecycle](/docs/advanced/plugins#lifecycle) covers which work belongs in `bind`, `start` and `stop`.
+
+## Ports are the only shared state
+
+Plugins never share a store key or a module-level variable. When one plugin offers something another plugin or an adapter uses, it is a port:
+
+- a plugin declares the port in `provides` and calls `c.provide(PORT, value)` in `bind`;
+- another plugin declares it in `requires` or `optional` and calls `c.require(PORT)` or `c.lookup(PORT)`;
+- an adapter calls `context.require(PORT)` at runtime, while it subscribes or sends.
+
+The ports Routecraft ships:
+
+| Port | Provided by | What it is |
+| --- | --- | --- |
+| `DIRECT` | `routecraft.direct` (default) | The `direct()` endpoint registry and the capabilities it advertises |
+| `RESILIENCE` | `routecraft.resilience` (default) | Throttle, circuit breaker, retry, timeout and concurrency |
+| `CACHE` | `routecraft.cache` (default) | The cache check and cache store positions |
+| `ENFORCEMENT` | `routecraft.auth` (default) | The authorize position |
+| `AUTHORITY` | `routecraft.principals` (default) | Minting, branding and checking principals |
+| `CONTINUATIONS` | `routecraft.deferral` | The store and signer parked exchanges use |
+| `WEB_INGRESS`, `HTTP` | the servers and HTTP plugins | Named listeners and the HTTP mounts on them |
+| `OPS`, `REMOTES` | the ops and remotes plugins | Health and management resources; routes on other instances |
+| `AGENTS`, `SESSION_STORE`, `MCP`, `LLM`, `EMBEDDING`, `SURFACES` | `@routecraft/ai` plugins | Agents, their sessions, MCP, model providers and agent surfaces |
+
+A port's name carries a version (`routecraft.direct@1`). Two different tokens with one name in one application is `RC1103`, which is how two copies of a package loaded side by side are caught.
+
+## The chain around a route
+
+Every route runs inside a fixed chain. Its **positions** belong to the framework and are filled by whichever plugin provides their port: replace `RESILIENCE` and every `.retry()` in the application runs your retry. Its **slots** sit between the positions, and any number of plugins add hooks there. [Filter chain](/docs/advanced/filter-chain) shows the order and [Hooks](/docs/advanced/plugins#hooks) shows how to add to it.
+
+An exchange is not always on its first run. Each run carries its **kind**, and a hook declares the kinds it applies to with `runs`:
+
+| Kind | The run is |
+| --- | --- |
+| `normal` | An exchange admitted from the route's source |
+| `resume` | A parked exchange resumed by its token |
+| `debounce` | The exchange a `.debounce()` held, released |
+| `errorChannel` | A parked exchange retired through the route's error channel, for example when its deadline passed |
+
+The last three re-enter below admission, so the `beforeAuth`, `afterAuth` and `admitted` slots never see them. A hook that declares no `runs` applies to normal runs only, except in the `error` slot, which hears failures on every kind of run.
+
+## One feature, several plugins
+
+A feature is often one runtime and many contributions to it: one agent runtime and the agents each part of the application registers. Two descriptor fields compose that without the application wiring the runtime itself:
+
+- `installs` brings a plugin along. However many plugins bring one id, it is installed once, and never when the application lists that id itself.
+- `repeatable` lets one plugin be installed several times. A repeatable plugin contributes through another plugin's port and may not provide a port, declare hooks or points, add steps or declare a facet.
+
+The application lists only the contributions:
+
+```ts
+import { definePlugin, port, rcError } from '@routecraft/routecraft'
+
+interface Approvers {
+  add(team: string, people: readonly string[]): void
+  of(team: string): readonly string[]
+}
+
+export const APPROVERS = port<Approvers>('acme.approvers@1')
+
+function approversRuntime() {
+  return definePlugin({
+    id: 'acme.approvers',
+    provides: [APPROVERS],
+    bind(c) {
+      const teams = new Map<string, readonly string[]>()
+      c.provide(APPROVERS, {
+        add(team, people) {
+          if (c.frozen) {
+            throw rcError('RC1110', undefined, {
+              message: `Approvers for "${team}" arrived after the application froze.`,
+            })
+          }
+          teams.set(team, people)
+        },
+        of: (team) => teams.get(team) ?? [],
+      })
+    },
+  })
+}
+
+export function approvers(team: string, people: readonly string[]) {
+  return definePlugin({
+    id: 'acme.approvers.team',
+    repeatable: true,
+    requires: [APPROVERS],
+    installs: [approversRuntime()],
+    bind(c) {
+      c.require(APPROVERS).add(team, people)
+    },
+  })
+}
+```
+
+`plugins: [approvers('finance', [...]), approvers('legal', [...])]` installs the runtime once and both contributions. Every contribution binds before any other plugin that requires `APPROVERS`, so a plugin that builds a route per team sees both teams wherever it is listed. A contribution that arrives after the freeze is refused rather than silently missed. `agentPlugin()` is built exactly this way.
+
+## Identity goes through one authority
+
+Who an exchange acts for is a **principal**, and whether to trust it is the `AUTHORITY` port's decision. Every mint and every trust check in the framework goes through the application's authority, `authorityOf(exchangeOrContext)`: the `.authenticate()` step, a source that verifies a token, the `authorize` position, `delegate()`, the resume door.
+
+That makes the authority replaceable as a whole. A plugin that provides `AUTHORITY` with `replaces` decides both what it brands and what it trusts, and nothing in the framework can disagree with it. A principal read back from storage after a resume is **restored**: readable, never authentic, so no gate treats a stored identity as a live one.
+
+A plugin that verifies identity itself brands through the same authority:
+
+```ts skip="fragment: verified comes from your own verification"
+const principal = authorityOf(exchange).brand(verified)
+```
+
+The [`restrict-principal-minting`](/docs/advanced/linting) lint rule flags every such site, so each one is an explicit, reviewed exception.
+
+## Parking and resuming
+
+A route can park an exchange (`.defer()`) and resume it later by a signed token, across restarts. The kernel owns that protocol: writing the record, the door order a resume passes through, the compare-and-swap that makes a resume happen once, and retiring overdue records through the route's error channel.
+
+The kernel reaches storage only through `CONTINUATIONS`. The `routecraft.deferral` plugin (the `deferral` config key) provides it over a memory or SQLite store, mints and verifies resume tokens, and drives the kernel's sweep on its cadence through `c.execution.sweep()`. A plugin that installs with the same id takes its place, for a different store or a different cadence, and the protocol stays the kernel's.
+
+## Typing what a plugin adds
+
+A route built with the root `craft()` is typed by the plugins Routecraft ships. A route built with a project's `craft()` is typed by exactly what that project installs: its listed plugins, the defaults, and the plugin each config key it sets brings. A step or facet of a plugin the project does not install is then a compile error, and in a root `craft()` route it is `RC1111` when the application starts or the facet is read.
+
+A package that adds its own config key registers it with `registerConfigApplier` and declares the plugin type the key installs, so projects that set the key are typed by it:
+
+```ts skip="declaration merging: lives in the package that registers the key"
+import { registerConfigApplier } from '@routecraft/routecraft'
+import { approvalsPlugin, type ApprovalsOptions, type ApprovalsPlugin } from './plugin'
+
+registerConfigApplier('approvals', approvalsPlugin)
+
+declare module '@routecraft/routecraft' {
+  interface CraftConfig {
+    approvals?: ApprovalsOptions
+  }
+  interface ConfigKeyPlugins {
+    approvals: ApprovalsPlugin
+  }
+}
+```
+
+[Steps](/docs/advanced/plugins#steps) and [Facets](/docs/advanced/plugins#facets) show how a plugin declares what it adds.
+
+---
+
+## Related
+
+<QuickLinks>
+
+<QuickLink title="Plugins" icon="plugins" href="/docs/advanced/plugins" description="Write a plugin: lifecycle, ports, hooks, steps and facets." />
+
+<QuickLink title="Filter chain" icon="presets" href="/docs/advanced/filter-chain" description="The positions and slots around every route, in order." />
+
+<QuickLink title="Plugins reference" icon="installation" href="/docs/reference/plugins" description="Every descriptor field, context member, lifecycle stage and fault code." />
+
+</QuickLinks>
