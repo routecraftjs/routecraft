@@ -32,6 +32,8 @@ export {
   type McpInput,
   type McpOutput,
   type McpIcon,
+  type McpUiCsp,
+  type McpUiOptions,
   type McpToolRegistryEntry,
   type McpToolResult,
 } from "./types.ts";

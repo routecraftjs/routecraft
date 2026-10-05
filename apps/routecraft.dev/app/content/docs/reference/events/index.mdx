@@ -436,6 +436,15 @@ Listener lifecycle for the MCP HTTP transport is reported by the generic [server
 
 For tools proxied from registered clients via [`mcpPlugin({ proxy })`](/docs/reference/plugins/mcpplugin#proxying-client-tools), the same three events fire with `proxied: true`, the registered client id as `serverId`, and the tool's name on the remote server as `remoteTool` (`tool` is the exposed, possibly renamed, name). A proxied call whose remote result carries `isError: true` fires `plugin:mcp:tool:failed`.
 
+### View events
+
+Fired by `resources/read` for an [MCP Apps view](/docs/reference/adapters/mcp#mcp-apps-views), not by a tool call. Together they give a view failure rate.
+
+| Event | When it fires | Details |
+| --- | --- | --- |
+| `plugin:mcp:ui:served` | An [MCP Apps view](/docs/reference/adapters/mcp#mcp-apps-views) was served for `resources/read` | `{ tool, uri }` |
+| `plugin:mcp:ui:failed` | An [MCP Apps view](/docs/reference/adapters/mcp#mcp-apps-views) could not be loaded for `resources/read`; the caller got a generic error naming the tool | `{ tool, uri, error }` |
+
 ## ACP plugin events
 
 Emitted by [`acpPlugin`](/docs/reference/plugins/acpplugin) as editors connect and open conversations. They are what tells an operator who is connected without reading a log line.

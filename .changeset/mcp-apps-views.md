@@ -1,0 +1,5 @@
+---
+"@routecraft/ai": minor
+---
+
+A route's MCP tool can ship a view that hosts supporting the MCP Apps extension, such as Claude, render instead of showing the result as JSON. Pass `mcp({ ui: { html, csp?, prefersBorder? } })` on a route that declares `.output()`; `html` is a string or a loader such as `fromFile('./view.html')`. The tool advertises `_meta.ui.resourceUri` (`ui://<server name>/<route id>`) on `tools/list`, and the server now declares the `resources` capability and serves each view through `resources/list` and `resources/read` as `text/html;profile=mcp-app`, behind the same auth and `tools` filter as the tools. A view read emits `plugin:mcp:ui:served`; one that fails to load answers a generic error and emits `plugin:mcp:ui:failed`. Proxied tools do not carry a remote view. Tools without `ui` are unchanged. `fromFile()`'s resolver now takes its four block-resolver arguments as optional, so it also fits `ui.html`; existing calls are unchanged. `mcpPlugin({ name })` now rejects an empty name, which would leave the view URI without an authority.

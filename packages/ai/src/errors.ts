@@ -72,6 +72,21 @@ declare module "@routecraft/routecraft" {
       tool: string;
       reason: string;
     };
+    /** An MCP Apps view was served for `resources/read`. */
+    "plugin:mcp:ui:served": {
+      tool: string;
+      uri: string;
+    };
+    /**
+     * An MCP Apps view could not be loaded for `resources/read`: its
+     * `ui.html` loader threw or resolved to something other than a string.
+     * The host shows the tool's text result instead.
+     */
+    "plugin:mcp:ui:failed": {
+      tool: string;
+      uri: string;
+      error: string;
+    };
     /**
      * An editor opened a connection to the ACP mount and initialized it.
      *

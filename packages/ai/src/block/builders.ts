@@ -140,6 +140,8 @@ export async function skills(options: SkillsOptions): Promise<Blocks> {
  * Return a function-form resolver that reads a UTF-8 text file at
  * dispatch (or context-init) time. Useful when a block's content
  * lives on disk and may be edited without restarting the process.
+ * Every argument is optional, so it also serves as an MCP Apps view loader
+ * (`mcp({ ui: { html: fromFile("./view.html") } })`).
  *
  * Resolves the path against `process.cwd()` so relative paths
  * (`"./prompts/identity.md"`) work the same way the markdown loaders
@@ -163,10 +165,10 @@ export async function skills(options: SkillsOptions): Promise<Blocks> {
 export function fromFile(
   path: string,
 ): (
-  exchange: Exchange<unknown>,
-  context: CraftContext,
-  events: readonly unknown[],
-  client: BlockClient,
+  exchange?: Exchange<unknown>,
+  context?: CraftContext,
+  events?: readonly unknown[],
+  client?: BlockClient,
 ) => Promise<string> {
   if (typeof path !== "string" || path.trim() === "") {
     throw rcError("AI1003", undefined, {

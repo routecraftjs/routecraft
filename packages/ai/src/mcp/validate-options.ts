@@ -45,6 +45,9 @@ export function normalizeMcpPath(raw: string): string {
 }
 
 export function validateMcpPluginOptions(options: McpPluginOptions): void {
+  if (options.name !== undefined && options.name.trim().length === 0) {
+    throw new TypeError("mcpPlugin: name must not be empty");
+  }
   if (options.transport === "http") {
     const removed = options as McpPluginOptions & {
       port?: unknown;
