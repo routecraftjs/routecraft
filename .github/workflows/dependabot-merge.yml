@@ -4,6 +4,10 @@ name: Dependabot auto-merge
 # repo-write trust, so it MUST NOT check out or execute PR-controlled code.
 # It just enables auto-merge; branch protection enforces required checks
 # from the untrusted `pull_request`-triggered CI run before the merge fires.
+#
+# Only npm updates (`dependabot/bun/*` branches) merge on their own, after
+# their cooldown and with majors excluded in dependabot.yml. Action updates
+# run in the release jobs with publishing rights, so a person approves them.
 
 on:
   pull_request_target:
@@ -14,7 +18,9 @@ permissions:
 
 jobs:
   auto-merge:
-    if: github.event.pull_request.user.login == 'dependabot[bot]'
+    if: >-
+      github.event.pull_request.user.login == 'dependabot[bot]'
+      && startsWith(github.event.pull_request.head.ref, 'dependabot/bun/')
     runs-on: ubuntu-latest
     permissions:
       contents: write

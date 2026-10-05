@@ -154,10 +154,10 @@ jobs:
       - name: Build packages
         run: bun run build
         env:
-          # PostHog keys are NEXT_PUBLIC_* so technically safe to expose, but
-          # the PR build artifact is thrown away. Only inject on trusted triggers.
-          NEXT_PUBLIC_POSTHOG_KEY: ${{ github.event_name != 'pull_request' && secrets.NEXT_PUBLIC_POSTHOG_KEY || '' }}
-          NEXT_PUBLIC_POSTHOG_HOST: ${{ github.event_name != 'pull_request' && secrets.NEXT_PUBLIC_POSTHOG_HOST || '' }}
+          # Only on a push to main: merge-queue runs execute PR code that has
+          # not landed yet, so they get no secrets either.
+          NEXT_PUBLIC_POSTHOG_KEY: ${{ github.event_name == 'push' && secrets.NEXT_PUBLIC_POSTHOG_KEY || '' }}
+          NEXT_PUBLIC_POSTHOG_HOST: ${{ github.event_name == 'push' && secrets.NEXT_PUBLIC_POSTHOG_HOST || '' }}
 
       - name: Check bundle size
         run: bun run limit:size
