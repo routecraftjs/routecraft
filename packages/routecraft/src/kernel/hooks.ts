@@ -247,6 +247,8 @@ export class HookTable {
   private readonly points = new Map<string, string>();
   private readonly warned = new Set<string>();
   private readonly declaredConflicts = new Set<string>();
+  /** The table is complete once constructed, so a route's selection is too. */
+  private readonly selections = new Map<string, InstalledHook[]>();
 
   constructor(
     plugins: readonly {
@@ -428,13 +430,18 @@ export class HookTable {
     slot: string,
     routeId: string,
     tags: readonly string[],
-  ): InstalledHook[] {
+  ): readonly InstalledHook[] {
+    const key = `${slot}\u0000${routeId}\u0000${tags.join("\u0000")}`;
+    const cached = this.selections.get(key);
+    if (cached !== undefined) return cached;
     const phases = slot === "perAttempt" ? [undefined] : PHASE_ORDER;
-    return phases.flatMap((phase) =>
+    const selected = phases.flatMap((phase) =>
       this.ordered(slot, phase).filter((entry) =>
         appliesTo(entry.hook as HookBase, routeId, tags),
       ),
     );
+    this.selections.set(key, selected);
+    return selected;
   }
 
   /** Warn once per route, slot, header and pair when two mutate hooks collided at runtime. */
