@@ -882,18 +882,18 @@ export class McpServer {
       html = await loadUiHtml(ui);
     } catch (error) {
       const message = toolErrorLogMessage(error);
-      this.context.logger.error(
+      this.host.logger.error(
         { tool: entry.endpoint, uri, err: error },
         message,
       );
-      this.context.emit("plugin:mcp:ui:failed", {
+      this.host.emit("plugin:mcp:ui:failed", {
         tool: entry.endpoint,
         uri,
         error: message,
       });
       throw new Error(`View for tool "${entry.endpoint}" could not be loaded`);
     }
-    this.context.emit("plugin:mcp:ui:served", { tool: entry.endpoint, uri });
+    this.host.emit("plugin:mcp:ui:served", { tool: entry.endpoint, uri });
     return uiReadResult(uri, ui, html);
   }
 
