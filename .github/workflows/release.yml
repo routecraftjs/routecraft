@@ -93,30 +93,11 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      # The docs freeze in build-and-deploy-docs below keys off v* tags (core
-      # version), while changesets tags per package
-      # (@routecraft/routecraft@x.y.z). Mirror the core version as a v* tag
-      # whenever core was part of a publish.
-      - name: Push core version tag
-        if: steps.changesets.outputs.published == 'true'
-        env:
-          PUBLISHED: ${{ steps.changesets.outputs.publishedPackages }}
-        run: |
-          set -eo pipefail
-          CORE_VERSION=$(echo "$PUBLISHED" | jq -r '.[] | select(.name == "@routecraft/routecraft") | .version')
-          if [ -n "$CORE_VERSION" ]; then
-            git tag "v$CORE_VERSION"
-            git push origin "v$CORE_VERSION"
-            echo "Pushed tag v$CORE_VERSION"
-          else
-            echo "Core package was not published in this run; no v* tag."
-          fi
-
-      # Tags and GitHub Releases for every version on npm that lacks one
-      # (scripts/create-github-releases.mjs). Runs on every push, so a release
-      # that failed here is repaired by the next one.
+      # Tags (package and v*) and GitHub Releases for every version on npm
+      # that lacks one (scripts/create-github-releases.mjs). Runs on every
+      # push, so a release that failed here is repaired by the next one.
       # continue-on-error: the canary and the docs deploy wait on this job.
-      - name: Push package tags and create GitHub Releases
+      - name: Push the release tags and create GitHub Releases
         continue-on-error: true
         env:
           PUBLISHED: ${{ steps.changesets.outputs.publishedPackages }}
@@ -495,9 +476,11 @@ jobs:
           echo "name=$IMAGE" >> "$GITHUB_OUTPUT"
           echo "reference=$IMAGE:$VERSION-$SHORT_SHA" >> "$GITHUB_OUTPUT"
 
-      # Before the push, so an image with a fixable HIGH or CRITICAL finding
-      # never reaches the registry Dokploy deploys from.
-      - name: "Gate: scan the site image"
+      # Reported, not enforced: the image passed the gate on its pull request,
+      # and a CVE published since must not hold back a release. The nightly
+      # rescan files it against the live image.
+      - name: "Scan the site image"
+        continue-on-error: true
         env:
           IMAGE_REFERENCE: ${{ steps.image.outputs.reference }}
         run: |

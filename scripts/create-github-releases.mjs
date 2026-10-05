@@ -1,8 +1,8 @@
 #!/usr/bin/env node
 
 /**
- * Push the tag and create the GitHub Release of every package version that
- * is on npm but has no release yet.
+ * Push the tags and create the GitHub Release of every package version that
+ * is on npm but has no release yet, and the `v*` tag of core's version.
  *
  * The changesets action can do this itself, but when GitHub rejects one
  * release it fails the whole publish step after npm has already published,
@@ -77,7 +77,47 @@ function succeeds(cmd, args) {
   }
 }
 
-/** `{ name, version }` of every candidate, published ones first, deduplicated. */
+/**
+ * Make sure `tag` exists on origin. A tag `changeset publish` just created is
+ * pushed as it is; a missing one goes on the commit that set the version,
+ * since the published tree is the same from there to the publish.
+ *
+ * @param {string} tag
+ * @param {string} dir - The package directory whose manifest set the version
+ * @param {string} version
+ */
+function ensureRemoteTag(tag, dir, version) {
+  const ref = `refs/tags/${tag}`;
+  if (succeeds("git", ["ls-remote", "--exit-code", "--tags", "origin", ref])) {
+    return;
+  }
+  if (!succeeds("git", ["rev-parse", "--verify", "--quiet", ref])) {
+    const versionCommit = execFileSync(
+      "git",
+      [
+        "log",
+        "-1",
+        "--format=%H",
+        `-G"version": "${version}"`,
+        "--",
+        `${dir}/package.json`,
+      ],
+      { encoding: "utf8" },
+    ).trim();
+    if (dryRun) {
+      console.log(`${tag}: would tag ${versionCommit || "HEAD"}`);
+    } else {
+      execFileSync("git", ["tag", tag, versionCommit || "HEAD"]);
+    }
+  }
+  if (dryRun) {
+    console.log(`${tag}: would push the tag`);
+  } else {
+    execFileSync("git", ["push", "origin", ref], { stdio: "inherit" });
+  }
+}
+
+/** Every package version to check, the ones just published first. */
 const candidates = new Map();
 for (const { name, version } of published) {
   candidates.set(`${name}@${version}`, { name, version, justPublished: true });
@@ -97,7 +137,6 @@ for (const [tag, { name, version, justPublished }] of candidates) {
     notCreated(`${tag}: no workspace package is named ${name}.`);
     continue;
   }
-  if (succeeds("gh", ["release", "view", tag, "--repo", repository])) continue;
   // A version that never reached npm gets no tag or release: its publish failed.
   if (
     !justPublished &&
@@ -106,49 +145,14 @@ for (const [tag, { name, version, justPublished }] of candidates) {
     continue;
   }
   try {
-    if (
-      !succeeds("git", [
-        "ls-remote",
-        "--exit-code",
-        "--tags",
-        "origin",
-        `refs/tags/${tag}`,
-      ])
-    ) {
-      if (
-        !succeeds("git", [
-          "rev-parse",
-          "--verify",
-          "--quiet",
-          `refs/tags/${tag}`,
-        ])
-      ) {
-        const versionCommit = execFileSync(
-          "git",
-          [
-            "log",
-            "-1",
-            "--format=%H",
-            `-G"version": "${version}"`,
-            "--",
-            `${dir}/package.json`,
-          ],
-          { encoding: "utf8" },
-        ).trim();
-        if (dryRun) {
-          console.log(`${tag}: would tag ${versionCommit || "HEAD"}`);
-        } else {
-          execFileSync("git", ["tag", tag, versionCommit || "HEAD"]);
-        }
-      }
-      if (dryRun) {
-        console.log(`${tag}: would push the tag`);
-      } else {
-        execFileSync("git", ["push", "origin", `refs/tags/${tag}`], {
-          stdio: "inherit",
-        });
-      }
+    // The docs freeze keys off v* tags, which mirror the core version.
+    if (name === "@routecraft/routecraft") {
+      ensureRemoteTag(`v${version}`, dir, version);
     }
+    if (succeeds("gh", ["release", "view", tag, "--repo", repository])) {
+      continue;
+    }
+    ensureRemoteTag(tag, dir, version);
 
     const changelog = readFileSync(join(rootDir, dir, "CHANGELOG.md"), "utf8");
     const fullChangelogUrl = `https://github.com/${repository}/blob/${encodeURIComponent(tag)}/${dir}/CHANGELOG.md`;

@@ -359,8 +359,10 @@ jobs:
   # optional peer installed, which is where an adapter's library brings a CVE
   # in. Both are built from this checkout's packages, not from npm.
   #
-  # A fixable HIGH or CRITICAL finding fails the job; unfixed ones are reported
-  # but cannot fail it, since nothing in a PR can fix them. Accepted findings
+  # A fixable HIGH or CRITICAL finding fails the job on a pull request and in
+  # the merge queue; unfixed ones are reported but cannot fail it, since nothing
+  # in a PR can fix them. On a push to main the gates only report: a CVE
+  # published after the merge must not block the release. Accepted findings
   # live in .trivyignore.yaml with a reason and an expiry. The SBOMs and SARIF
   # are written before the gate runs, so a failing run still carries them.
   security:
@@ -445,23 +447,28 @@ jobs:
           category: trivy-adapters
 
       - name: "Gate: the starter image"
+        # A gate blocks a pull request, never a release: on main the finding
+        # is reported here and in code scanning, and the nightly rescan files it.
+        continue-on-error: ${{ github.event_name == 'push' }}
         run: |
           .github/scripts/trivy.sh gate image --scanners vuln,secret \
             routecraft-starter:scan
 
       - name: "Gate: the adapters' dependency tree"
+        continue-on-error: ${{ github.event_name == 'push' }}
         run: |
           .github/scripts/trivy.sh gate fs --scanners vuln \
             /scan/ref-adapters/bun.lock
 
       - name: "Gate: the Dockerfile the scaffolder writes"
+        continue-on-error: ${{ github.event_name == 'push' }}
         run: |
           .github/scripts/trivy.sh config --quiet --severity HIGH,CRITICAL \
             --exit-code 1 /scan/ref-starter/Dockerfile
 
   # The docs site's image, scanned the way the release scans it before the
   # push, so a base-image or dependency change is caught on the pull request
-  # rather than at deploy time.
+  # rather than at deploy time. Report-only on main, as in `security`.
   site-image-security:
     needs: [changes]
     if: needs.changes.outputs.docs == 'true'
@@ -487,11 +494,15 @@ jobs:
         run: docker build -f apps/routecraft.dev/Dockerfile -t routecraft-site:scan .
 
       - name: "Gate: the site image"
+        # A gate blocks a pull request, never a release: on main the finding
+        # is reported here and in code scanning, and the nightly rescan files it.
+        continue-on-error: ${{ github.event_name == 'push' }}
         run: |
           .github/scripts/trivy.sh gate image --scanners vuln,secret \
             routecraft-site:scan
 
       - name: "Gate: the site Dockerfile"
+        continue-on-error: ${{ github.event_name == 'push' }}
         run: |
           .github/scripts/trivy.sh config --quiet --severity HIGH,CRITICAL \
             --exit-code 1 apps/routecraft.dev/Dockerfile
