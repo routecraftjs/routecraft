@@ -185,6 +185,7 @@ An agent can still correct itself when the fault is its own. A call the tool's `
 ## Going further
 
 - **Name and brand the server.** What a client shows when it adds your server, and per-tool icons: [mcpPlugin, server identity and branding](/docs/reference/plugins/mcpplugin#server-identity-and-branding).
+- **Render results as a view.** Hosts that support MCP Apps (Claude, ChatGPT, VS Code) can show a tool's result as an HTML card instead of JSON: [`mcp()` adapter reference, MCP Apps views](/docs/reference/adapters/mcp#mcp-apps-views).
 - **Re-expose another server's tools** without writing a capability per tool: [Calling an MCP, proxying](/docs/advanced/call-an-mcp#re-exposing-a-clients-tools).
 - **Tools that wait for a person.** A tool whose capability can defer answers with an acknowledgment instead of its output: the [`mcp()` adapter reference](/docs/reference/adapters/mcp) has the contract, and [Durable agents](/docs/advanced/durable-agents#over-mcp) covers agents that wait.
 

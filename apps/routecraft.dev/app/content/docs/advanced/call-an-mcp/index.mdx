@@ -150,7 +150,7 @@ export const craftConfig = defineConfig({
 })
 ```
 
-Proxied tools appear in `tools/list` with the remote input and output schema, title, description, annotations and icons (the server's own icons when the remote tool has none), and calls dispatch over the client's own transport and auth. How wildcards and exact refs compose, how name collisions resolve, and which names are exposable are in the [mcpPlugin reference](/docs/reference/plugins/mcpplugin#proxying-client-tools).
+Proxied tools appear in `tools/list` with the remote input and output schema, title, description, annotations and icons (the server's own icons when the remote tool has none), and calls dispatch over the client's own transport and auth. A remote tool's `_meta` is not passed through, so a proxied tool never carries the remote's [MCP Apps view](/docs/reference/adapters/mcp#mcp-apps-views): this server cannot serve the remote's `ui://` resource, and hosts show the result without it. How wildcards and exact refs compose, how name collisions resolve, and which names are exposable are in the [mcpPlugin reference](/docs/reference/plugins/mcpplugin#proxying-client-tools).
 
 ### Guarding proxied tools
 

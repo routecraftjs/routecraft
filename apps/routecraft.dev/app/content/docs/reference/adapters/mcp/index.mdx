@@ -145,23 +145,60 @@ These mirror the [MCP specification (2025-03-26) `ToolAnnotations`](https://mode
 
 #### MCP Apps views
 
-`ui` attaches an [MCP Apps](https://github.com/modelcontextprotocol/ext-apps) view to the tool: HTML the host renders the result in instead of showing JSON. The tool advertises `_meta.ui.resourceUri` on `tools/list`, and the server serves the view at that `ui://` URI through `resources/read` with MIME type `text/html;profile=mcp-app`. Hosts without MCP Apps support read the text result as before. See [Rendering results as a view](/docs/advanced/expose-as-mcp#rendering-results-as-a-view) for a working view.
+By default a host shows a tool's result as JSON. A host that supports the [MCP Apps](https://github.com/modelcontextprotocol/ext-apps) extension (Claude web and desktop, ChatGPT, VS Code with GitHub Copilot) can render it in an HTML view instead. `ui` attaches one: the tool advertises `_meta.ui.resourceUri` on `tools/list`, and the server serves the view at that `ui://` URI through `resources/read` with MIME type `text/html;profile=mcp-app`. Hosts without MCP Apps support read the text result as before.
 
 ```ts
+// capabilities/send-mail.ts
 import { fileURLToPath } from 'node:url'
 import { craft } from '@routecraft/routecraft'
 import { fromFile, mcp } from '@routecraft/ai'
 import { z } from 'zod'
 
-const mailCard = fileURLToPath(new URL('./mail-card.html', import.meta.url))
+const mail = z.object({ to: z.string(), subject: z.string(), body: z.string() })
 
 export default craft()
   .id('send-mail')
-  .description('Hold an email for review')
-  .output({ body: z.object({ to: z.string(), subject: z.string() }) })
-  .from(mcp({ ui: { html: fromFile(mailCard), prefersBorder: true } }))
-  .transform(() => ({ to: 'a@example.com', subject: 'Hi' }))
+  .title('Send mail')
+  .description('Hold an email for review before it is sent')
+  .input({ body: mail })
+  .output({ body: mail })
+  .from(mcp({
+    ui: {
+      html: fromFile(fileURLToPath(new URL('./send-mail.html', import.meta.url))),
+      csp: { resourceDomains: ['https://cdn.jsdelivr.net'] },
+      prefersBorder: true,
+    },
+  }))
+  .transform((body) => body)
 ```
+
+The view is a static HTML document. It loads the extension's `App` client, connects to the host, and draws from the tool result's `structuredContent`:
+
+```html
+<!-- capabilities/send-mail.html -->
+<!doctype html>
+<html>
+  <body>
+    <dl id="mail"></dl>
+    <script type="module">
+      import { App } from 'https://cdn.jsdelivr.net/npm/@modelcontextprotocol/ext-apps@2/dist/src/app-with-deps.js'
+
+      const app = new App({ name: 'send-mail', version: '1.0.0' })
+      app.addEventListener('toolresult', ({ structuredContent }) => {
+        const list = document.getElementById('mail')
+        for (const [label, value] of Object.entries(structuredContent ?? {})) {
+          list.append(Object.assign(document.createElement('dt'), { textContent: label }))
+          const text = typeof value === 'string' ? value : JSON.stringify(value)
+          list.append(Object.assign(document.createElement('dd'), { textContent: text }))
+        }
+      })
+      await app.connect()
+    </script>
+  </body>
+</html>
+```
+
+The `csp` lists are the only outside origins the host's sandbox lets the view reach; the example allows the CDN its client is loaded from.
 
 **McpUiOptions:**
 
@@ -174,10 +211,10 @@ export default craft()
 Rules the adapter enforces:
 
 - The route must declare `.output({ body })`; the view draws from `structuredContent`. A `ui` without it fails when the route subscribes with RC5003 naming the route. A malformed `ui` throws RC5003 when `mcp()` is called.
-- The URI is `ui://<server name>/<route id>`, derived from `mcpPlugin({ name })` and the route id, so it cannot collide or drift.
+- The URI is `ui://<server name>/<route id>` (`ui://routecraft/send-mail` with the default name), derived from the MCP server's `name` and the route id, so it cannot collide or drift.
 - The view is served behind the same auth as the tools and follows the `tools` filter: a hidden tool's view is not listed and does not resolve. Every client of the server can read it, so keep the HTML static and let data arrive through the tool result.
 - A loader that throws answers a generic error naming the tool, logs the cause, and emits [`plugin:mcp:ui:failed`](/docs/reference/events#view-events). The cause (often a host path) never reaches the caller.
-- The view receives the wire result, not your route's body: a non-object `.output()` arrives as `{ result }` on the 2025 protocol revision, a [deferrable tool](/docs/advanced/expose-as-mcp#deferrable-tools) can answer with the `{ status: "deferred", ... }` acknowledgment, and an `isError` result carries no `structuredContent`. Write the view to handle each it can meet.
+- The view receives the wire result, not your route's body: a non-object `.output()` arrives as `{ result }` on the 2025 protocol revision, a deferrable tool (see **Deferrable tools** above) can answer with the `{ status: "deferred", ... }` acknowledgment, and an `isError` result carries no `structuredContent`. Write the view to handle each it can meet.
 - The view renders after the tool has run. It is not a confirmation step; use `destructiveHint` and the host's own permission prompt for that.
 
 **Options (McpClientOptions -- destination):**
