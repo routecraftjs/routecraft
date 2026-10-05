@@ -689,6 +689,17 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
+      # always(): without it the `if` is ANDed with success(), which is false
+      # once a needed job was cancelled, and the step is skipped.
       - name: Fail when a job failed or was cancelled
-        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        if: >-
+          always()
+          && (
+            contains(needs.*.result, 'failure')
+            || contains(needs.*.result, 'cancelled')
+            || needs.changes.result != 'success'
+            || needs.validate.result != 'success'
+            || needs.test.result != 'success'
+            || needs.build.result != 'success'
+          )
         run: exit 1
