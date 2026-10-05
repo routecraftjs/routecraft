@@ -1,4 +1,10 @@
 import { describe, expect, test } from "bun:test";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import type { CraftContext, Exchange } from "@routecraft/routecraft";
+import { fromFile, type BlockClient } from "../src/index.ts";
+import type { McpUiOptions } from "../src/mcp/types.ts";
 import {
   loadUiHtml,
   MCP_APP_MIME_TYPE,
@@ -60,5 +66,34 @@ describe("MCP Apps view helpers", () => {
     const ui = { html: () => 42 as unknown as string };
     await expect(loadUiHtml(ui)).rejects.toThrow(/resolved to number/);
     expect(await loadUiHtml({ html: async () => "<p/>" })).toBe("<p/>");
+  });
+});
+
+describe("fromFile as a view loader", () => {
+  /**
+   * @case fromFile() serves both a ui.html loader and a direct block-resolver call
+   * @preconditions A temp file; the resolver typed as McpUiOptions["html"] and called with no arguments, then called with the four block-resolver arguments
+   * @expectedResult Both compile and both resolve to the file's contents
+   */
+  test("fits ui.html and keeps the four-argument call", async () => {
+    const dir = await mkdtemp(join(tmpdir(), "from-file-"));
+    try {
+      const path = join(dir, "view.html");
+      await writeFile(path, "<p>view</p>");
+      const resolver = fromFile(path);
+      const html: McpUiOptions["html"] = resolver;
+
+      expect(await loadUiHtml({ html })).toBe("<p>view</p>");
+      expect(
+        await resolver(
+          {} as Exchange<unknown>,
+          {} as CraftContext,
+          [],
+          {} as BlockClient,
+        ),
+      ).toBe("<p>view</p>");
+    } finally {
+      await rm(dir, { recursive: true, force: true });
+    }
   });
 });
