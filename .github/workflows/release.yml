@@ -478,7 +478,7 @@ jobs:
 
       # Reported, not enforced: the image passed the gate on its pull request,
       # and a CVE published since must not hold back a release. The nightly
-      # rescan files it against the live image.
+      # rescan fails on it against the live image.
       - name: "Scan the site image"
         continue-on-error: true
         env:

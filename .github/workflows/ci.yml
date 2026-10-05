@@ -448,7 +448,7 @@ jobs:
 
       - name: "Gate: the starter image"
         # A gate blocks a pull request, never a release: on main the finding
-        # is reported here and in code scanning, and the nightly rescan files it.
+        # is reported here and in code scanning, and the nightly rescan fails on it.
         continue-on-error: ${{ github.event_name == 'push' }}
         run: |
           .github/scripts/trivy.sh gate image --scanners vuln,secret \
@@ -495,7 +495,7 @@ jobs:
 
       - name: "Gate: the site image"
         # A gate blocks a pull request, never a release: on main the finding
-        # is reported here and in code scanning, and the nightly rescan files it.
+        # is reported here and in code scanning, and the nightly rescan fails on it.
         continue-on-error: ${{ github.event_name == 'push' }}
         run: |
           .github/scripts/trivy.sh gate image --scanners vuln,secret \
