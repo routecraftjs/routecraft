@@ -150,7 +150,8 @@ function remoteTagCommit(tag) {
  * Push `tag` to origin unless it is there. A tag `changeset publish` just
  * created locally is pushed as it is; a missing one is created first. A tag
  * already on origin is never moved: one that disagrees with the published
- * commit is reported for a person to decide.
+ * commit throws, so a person decides, and the docs never freeze to it in
+ * the run that published the version.
  *
  * @param {string} tag
  * @param {() => string | null} commit - Resolves the commit to tag
@@ -161,8 +162,8 @@ function ensureRemoteTag(tag, commit) {
   if (onOrigin) {
     const expected = commit();
     if (expected && expected !== onOrigin) {
-      console.log(
-        `::warning title=Release tag disagrees with npm::${tag} is on ${onOrigin} but was published from ${expected}; left as it is.`,
+      throw new Error(
+        `already on ${onOrigin} but published from ${expected}; left as it is`,
       );
     }
     return;
