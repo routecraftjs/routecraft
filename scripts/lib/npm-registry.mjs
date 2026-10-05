@@ -10,7 +10,7 @@
  *
  * @param {string} path - Registry path, already URI-encoded per segment
  * @param {string} [accept] - Accept header, e.g. the abbreviated metadata type
- * @returns {Promise<any>}
+ * @returns {Promise<unknown>}
  */
 export async function registryJson(path, accept) {
   let res;
@@ -38,8 +38,9 @@ export async function registryJson(path, accept) {
  * @param {string} version
  * @returns {Promise<{ version: string, gitHead?: string } | null>}
  */
-export function publishedVersion(name, version) {
-  return registryJson(
+export async function publishedVersion(name, version) {
+  const manifest = await registryJson(
     `${encodeURIComponent(name)}/${encodeURIComponent(version)}`,
   );
+  return /** @type {{ version: string, gitHead?: string } | null} */ (manifest);
 }

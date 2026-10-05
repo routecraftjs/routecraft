@@ -12,16 +12,17 @@
  * tag the docs freeze reads.
  *
  * Two modes, run as two steps because they fail differently:
- * - `tags`: pushes the package tags and core's `v*` tag. A failure exits
- *   non-zero and fails the release job, so the docs never freeze to a stale
- *   tag; re-running the job finishes it.
+ * - `tags`: pushes the package tags and core's `v*` tag. A failure for a
+ *   version this run published exits non-zero and fails the release job, so
+ *   the docs never freeze to a stale tag; re-running the job finishes it.
  * - `releases`: creates the missing GitHub Releases, each on its own with its
  *   body cut to fit (see `lib/release-notes.mjs`). A failure is a warning and
  *   never holds back the canary or the docs deploy.
  *
- * Both check every workspace package's current version as well as the ones
- * just published, so a version whose tags or Release were never made is
- * finished by the next green push to main.
+ * Both also check every workspace package's current version, so a version
+ * whose tags or Release were never made is finished, as a warning-level
+ * repair, by any green push to main while it is still the current version.
+ * Once a newer version is released, an older one is left for a person.
  *
  * Input: `PUBLISHED`, the action's `publishedPackages` output, a JSON array
  * of `{ name, version }`. `GH_TOKEN` authenticates `gh`. `DRY_RUN=1` prints
@@ -79,9 +80,26 @@ function succeeds(cmd, args) {
 }
 
 /**
+ * The version a commit's manifest holds, or null when the file is absent.
+ *
+ * @param {string} sha
+ * @param {string} path
+ */
+function manifestVersionAt(sha, path) {
+  try {
+    return JSON.parse(
+      execFileSync("git", ["show", `${sha}:${path}`], { encoding: "utf8" }),
+    ).version;
+  } catch {
+    return null;
+  }
+}
+
+/**
  * The commit a published version came from: npm's recorded `gitHead`, else
- * the last commit that set the version in the package's manifest. Null when
- * neither is in this history, so a tag is never guessed onto the wrong tree.
+ * the commit whose manifest first set the version (read from the manifest at
+ * each commit, not matched as text). Null when neither is in this history,
+ * so a tag is never guessed onto the wrong tree.
  *
  * @param {string} dir
  * @param {string} version
@@ -91,31 +109,62 @@ function publishedCommit(dir, version, gitHead) {
   if (gitHead && succeeds("git", ["cat-file", "-e", `${gitHead}^{commit}`])) {
     return gitHead;
   }
-  const versionCommit = execFileSync(
+  const path = `${dir}/package.json`;
+  const history = execFileSync("git", ["log", "--format=%H", "--", path], {
+    encoding: "utf8",
+  })
+    .split("\n")
+    .filter(Boolean);
+  let setBy = null;
+  for (const sha of history) {
+    if (manifestVersionAt(sha, path) === version) setBy = sha;
+    else if (setBy) break;
+  }
+  return setBy;
+}
+
+/**
+ * The commit a tag on origin points at, or null when origin has no such tag.
+ *
+ * @param {string} tag
+ */
+function remoteTagCommit(tag) {
+  const out = execFileSync(
     "git",
     [
-      "log",
-      "-1",
-      "--format=%H",
-      `-G"version": "${version}"`,
-      "--",
-      `${dir}/package.json`,
+      "ls-remote",
+      "--tags",
+      "origin",
+      `refs/tags/${tag}`,
+      `refs/tags/${tag}^{}`,
     ],
     { encoding: "utf8" },
   ).trim();
-  return versionCommit || null;
+  if (!out) return null;
+  // An annotated tag lists its object and then the peeled commit (^{}).
+  const lines = out.split("\n");
+  return lines[lines.length - 1].split("\t")[0];
 }
 
 /**
  * Push `tag` to origin unless it is there. A tag `changeset publish` just
- * created locally is pushed as it is; a missing one is created first.
+ * created locally is pushed as it is; a missing one is created first. A tag
+ * already on origin is never moved: one that disagrees with the published
+ * commit is reported for a person to decide.
  *
  * @param {string} tag
  * @param {() => string | null} commit - Resolves the commit to tag
  */
 function ensureRemoteTag(tag, commit) {
   const ref = `refs/tags/${tag}`;
-  if (succeeds("git", ["ls-remote", "--exit-code", "--tags", "origin", ref])) {
+  const onOrigin = remoteTagCommit(tag);
+  if (onOrigin) {
+    const expected = commit();
+    if (expected && expected !== onOrigin) {
+      console.log(
+        `::warning title=Release tag disagrees with npm::${tag} is on ${onOrigin} but was published from ${expected}; left as it is.`,
+      );
+    }
     return;
   }
   if (!succeeds("git", ["rev-parse", "--verify", "--quiet", ref])) {
@@ -206,12 +255,16 @@ for (const [tag, { name, version, justPublished }] of candidates) {
       ensureRelease(tag, pkg.dir, version);
     }
   } catch (err) {
-    failed++;
+    // Only the tags of this run's publish are load-bearing: finishing an
+    // earlier version, or reaching the registry to find one, can wait for
+    // the next push rather than take the docs deploy down.
+    const blocking = mode === "tags" && justPublished;
+    if (blocking) failed++;
     // The title carries no comma: a workflow command splits its properties on one.
     const title =
       mode === "tags" ? "Release tag not pushed" : "GitHub Release not created";
     console.log(
-      `::${mode === "tags" ? "error" : "warning"} title=${title}::${tag}: ${err.message}`,
+      `::${blocking ? "error" : "warning"} title=${title}::${tag}: ${err.message}`,
     );
   }
 }
