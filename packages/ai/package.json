@@ -24,14 +24,14 @@
   },
   "dependencies": {
     "@standard-schema/spec": "^1.1.0",
-    "ai": "^6.0.283",
+    "ai": "^6.0.293",
     "zod": "^4.6.1"
   },
   "devDependencies": {
     "@agentclientprotocol/sdk": "^1.4.0",
-    "@ai-sdk/anthropic": "^3.0.118",
-    "@ai-sdk/google": "^3.0.122",
-    "@ai-sdk/openai": "^3.0.112",
+    "@ai-sdk/anthropic": "^3.0.123",
+    "@ai-sdk/google": "^3.0.128",
+    "@ai-sdk/openai": "^3.0.119",
     "@ai-sdk/openai-compatible": "^1.0.54",
     "@huggingface/transformers": "^3.8.1",
     "@modelcontextprotocol/client": "^2.0.0",
