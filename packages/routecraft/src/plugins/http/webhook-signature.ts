@@ -256,9 +256,9 @@ const ED25519_KEYS = new Map<string, KeyObject>();
  * holds nothing a leak could sign with.
  */
 function ed25519PublicKey(text: string): KeyObject | null {
-  const cached = ED25519_KEYS.get(text);
-  if (cached !== undefined) return cached;
   const trimmed = text.trim();
+  const cached = ED25519_KEYS.get(trimmed);
+  if (cached !== undefined) return cached;
   try {
     let key: KeyObject;
     if (trimmed.startsWith("-----BEGIN")) {
@@ -274,7 +274,7 @@ function ed25519PublicKey(text: string): KeyObject | null {
       });
     }
     if (key.asymmetricKeyType !== "ed25519") return null;
-    ED25519_KEYS.set(text, key);
+    ED25519_KEYS.set(trimmed, key);
     return key;
   } catch {
     return null;
@@ -360,6 +360,12 @@ export function invalidSignatureOptionsReason(
     }
     if (!isHeaderName(options.timestampHeader)) {
       return `invalid signature.timestampHeader ${describeValue(options.timestampHeader)}. Pass the header carrying the signed unix-seconds timestamp (RFC 7230 token, e.g. "telnyx-timestamp").`;
+    }
+    // Header names are case-insensitive on the wire, so one name read as both would reject every delivery.
+    if (
+      options.timestampHeader.toLowerCase() === options.header.toLowerCase()
+    ) {
+      return `invalid signature.timestampHeader ${describeValue(options.timestampHeader)}. The timestamp and the signature travel in different headers.`;
     }
     if (
       options.separator !== undefined &&

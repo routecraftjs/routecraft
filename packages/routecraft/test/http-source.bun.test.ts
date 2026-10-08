@@ -3849,7 +3849,10 @@ describe("HTTP Source Adapter: raw body and webhook signatures", () => {
    */
   test("ed25519 verifies a Telnyx-shaped delivery and rejects a tampered body", async () => {
     const body = '{"data":{"event_type":"message.received"}}';
-    const bound = await bootSignedHook("/hooks/telnyx", telnyxGate);
+    let runs = 0;
+    const bound = await bootSignedHook("/hooks/telnyx", telnyxGate, () => {
+      runs += 1;
+    });
     t = bound.ctx;
     const headers = {
       "content-type": "application/json",
@@ -3863,6 +3866,7 @@ describe("HTTP Source Adapter: raw body and webhook signatures", () => {
     });
     expect(ok.status).toBe(200);
     expect(await ok.json()).toEqual({ received: true });
+    expect(runs).toBe(1);
 
     const tampered = await fetch(
       `http://127.0.0.1:${bound.port}/hooks/telnyx`,
@@ -3874,6 +3878,7 @@ describe("HTTP Source Adapter: raw body and webhook signatures", () => {
     );
     expect(tampered.status).toBe(401);
     expect(await tampered.text()).toContain("invalid signature");
+    expect(runs).toBe(1);
   });
 
   /**
@@ -4090,11 +4095,11 @@ describe("HTTP Source Adapter: raw body and webhook signatures", () => {
   });
 
   /**
-   * @case An ed25519 gate without a timestamp header, with an illegal one, or with a separator that is not a string
-   * @preconditions A valid key; timestampHeader omitted (as a JS caller can), then "bad header", then separator: 1
-   * @expectedResult RC5003 naming signature.timestampHeader twice, then signature.separator, all at the http({...}) call site
+   * @case An ed25519 gate without a timestamp header, with an illegal one, with one that is the signature header spelled differently, or with a separator that is not a string
+   * @preconditions A valid key; timestampHeader omitted (as a JS caller can), then "bad header", then "X-Signature" against header "x-signature", then separator: 1
+   * @expectedResult RC5003 naming signature.timestampHeader three times, then signature.separator, all at the http({...}) call site; the collision is refused because header names are case-insensitive on the wire and one header read as both would reject every delivery
    */
-  test("ed25519 refuses a missing or illegal timestamp header and a non-string separator at construction", () => {
+  test("ed25519 refuses a missing, illegal or colliding timestamp header and a non-string separator at construction", () => {
     const withoutTimestamp = {
       scheme: "ed25519",
       publicKey: ED_PUBLIC_BASE64,
@@ -4109,6 +4114,9 @@ describe("HTTP Source Adapter: raw body and webhook signatures", () => {
     expect(attempt(withoutTimestamp)).toThrow(/signature\.timestampHeader/);
     expect(
       attempt({ ...withoutTimestamp, timestampHeader: "bad header" }),
+    ).toThrow(/signature\.timestampHeader/);
+    expect(
+      attempt({ ...withoutTimestamp, timestampHeader: "X-Signature" }),
     ).toThrow(/signature\.timestampHeader/);
     expect(
       attempt({
