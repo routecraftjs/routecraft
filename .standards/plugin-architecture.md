@@ -407,9 +407,8 @@ The rows the design left open, decided:
 | RC1113 | two plugins declare one point |
 | RC1114 | a facet not named by its namespace, or named after a reserved field |
 | RC1115 | a hook broke its phase |
-| RC1117 | an invalid descriptor: a missing plugin or hook id, the pre-0.8 shape, a port list holding a non-port |
 | RC1116 | two plugins declare one step, or a step shadows a builder method |
-| RC1117 | an invalid plugin descriptor: no id, the pre-0.8 `apply` shape, a non-port in a port list, or a repeatable plugin declaring what one install may |
+| RC1117 | an invalid plugin descriptor: a missing plugin or hook id, the pre-0.8 `apply` shape, a non-port in a port list, or a repeatable plugin declaring what one install may |
 | RC5068 | a `validate` hook refused the exchange |
 
 ## Related
