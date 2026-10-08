@@ -1,7 +1,7 @@
 import { createRequire } from "node:module";
-import { mkdirSync, openSync, existsSync } from "node:fs";
+import { mkdirSync, mkdtempSync, openSync, existsSync } from "node:fs";
 import { tmpdir } from "node:os";
-import { dirname, resolve, isAbsolute, basename } from "node:path";
+import { dirname, join, resolve, isAbsolute, basename } from "node:path";
 import { homedir } from "node:os";
 import { pino, stdSerializers } from "pino";
 import type { Route } from "./route.ts";
@@ -146,7 +146,12 @@ function getDestination(fileConfig?: string): NodeJS.WritableStream {
         reason: error instanceof Error ? error.message : String(error),
       };
       try {
-        const pathToUse = resolve(tmpdir(), basename(logFile));
+        // A private directory of this process's own: a fixed name under the
+        // shared temp dir could be a symlink somebody else planted.
+        const pathToUse = join(
+          mkdtempSync(join(tmpdir(), "craft-log-")),
+          basename(logFile),
+        );
         const fd = openSync(pathToUse, "a");
         return pinoDest.destination(fd);
       } catch {

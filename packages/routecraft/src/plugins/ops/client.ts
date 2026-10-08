@@ -268,10 +268,17 @@ export function isLoopbackHostname(hostname: string): boolean {
   );
 }
 
+/** The URL without its trailing slashes, in one pass: the input is the caller's. */
+function withoutTrailingSlashes(url: string): string {
+  let end = url.length;
+  while (end > 0 && url.charCodeAt(end - 1) === 47) end -= 1;
+  return url.slice(0, end);
+}
+
 export function createOpsHttpClient(
   options: OpsHttpClientOptions,
 ): OpsHttpClient {
-  const base = options.url.replace(/\/+$/, "");
+  const base = withoutTrailingSlashes(options.url);
   const token = options.token;
   const timeoutMs =
     options.timeout === undefined
