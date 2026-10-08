@@ -151,6 +151,34 @@ describe("the kernel host", () => {
   });
 
   /**
+   * @case A token of a known name the application never saw is looked up at runtime
+   * @preconditions A provider of STORE installed; a second port token with the same name, as a second copy of the declaring module would mint
+   * @expectedResult lookup and require through the foreign token throw RC1103 naming the two-copies cause, rather than an RC1104 or a silent undefined
+   */
+  test("refuses a foreign token of a provided port's name at runtime", async () => {
+    const copy = port<Store>("test.store@1");
+    t = await testContext()
+      .with({
+        plugins: [
+          definePlugin({
+            id: "test.provider",
+            provides: [STORE],
+            bind: (c) => c.provide(STORE, { kind: "a" }),
+          }),
+        ],
+      })
+      .build();
+
+    expect(() => t!.ctx.lookup(copy)).toThrow(
+      expect.objectContaining({ rc: "RC1103" }),
+    );
+    expect(() => t!.ctx.require(copy)).toThrow(
+      expect.objectContaining({ rc: "RC1103" }),
+    );
+    expect(t.ctx.lookup(STORE)).toEqual({ kind: "a" });
+  });
+
+  /**
    * @case A port name that is not owner.capability@version
    * @preconditions port("Store")
    * @expectedResult RC1103 at the declaration

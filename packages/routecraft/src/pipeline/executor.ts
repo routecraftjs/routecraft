@@ -638,6 +638,7 @@ export async function runPipeline(
               pendingSourceParse,
               admitted,
               failingStep: failingStepOf(exchange, err) ?? step,
+              handler: "route",
               ...(deps.route.definition.errorPathSchema
                 ? { schema: deps.route.definition.errorPathSchema }
                 : {}),
@@ -1006,6 +1007,7 @@ async function runContextErrorHandlers(
         pendingSourceParse: args.pendingSourceParse,
         admitted: args.admitted,
         ...(args.failingStep ? { failingStep: args.failingStep } : {}),
+        handler: entry.id,
         ...(handler.schema ? { schema: handler.schema } : {}),
       });
     } catch (thrown) {
@@ -1059,6 +1061,8 @@ async function applyErrorDecision(
     pendingSourceParse: boolean;
     admitted: boolean;
     failingStep?: Step<Adapter>;
+    /** Who decided: the route's own handler, or the error hook's id. */
+    handler: "route" | string;
     /** The deciding handler's declared resume schema, when it parks. */
     schema?: StandardSchemaV1;
   },
@@ -1089,6 +1093,7 @@ async function applyErrorDecision(
       pendingSourceParse: args.pendingSourceParse,
       admitted: args.admitted,
       ...(args.failingStep ? { failingStep: args.failingStep } : {}),
+      handler: args.handler,
       ...(args.schema ? { schema: args.schema } : {}),
     });
     deps.context.emit("route:error-handler:recovered", {
@@ -1186,6 +1191,7 @@ async function parkFromErrorPath(
     pendingSourceParse: boolean;
     admitted: boolean;
     failingStep?: Step<Adapter>;
+    handler: string;
     schema?: StandardSchemaV1;
   },
 ): Promise<Exchange> {
@@ -1259,6 +1265,7 @@ async function parkFromErrorPath(
       ...(notify !== undefined ? { notify } : {}),
       errorPath: {
         origin: admission ? "admission" : "step",
+        handler: args.handler,
         ...(refused ? { refusedScopes: refused } : {}),
       },
     },

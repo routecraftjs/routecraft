@@ -7,6 +7,7 @@ import {
   standardExtensionOf,
 } from "../../shared/standard-schema.ts";
 import type { SerializedExchange, DeferralSchema } from "./types.ts";
+import { STEP_ARGS } from "../../dsl-symbol.ts";
 
 /**
  * Hash the continuation of a deferred exchange: the steps that have NOT run
@@ -101,6 +102,7 @@ import type { SerializedExchange, DeferralSchema } from "./types.ts";
 export function continuationTailHash(
   tail: ReadonlyArray<Step<Adapter>>,
   schema: DeferralSchema,
+  errorPath?: string,
 ): string {
   return sha256(
     canonical({
@@ -109,6 +111,10 @@ export function continuationTailHash(
       // rename verifies unchanged. The wire and the record moved; this
       // string is an internal hash input nobody reads.
       expect: schema.hash,
+      // Folded in only for an error-path park, so a store that drops the
+      // record's `errorPath` cannot hand the resume to a defer site at the
+      // same position: the hash no longer matches and the resume is refused.
+      ...(errorPath !== undefined ? { errorPath } : {}),
     }),
   );
 }
@@ -273,6 +279,7 @@ export function definitionFingerprint(value: unknown): string {
  */
 function describeStep(step: Step<Adapter>): unknown {
   const adapter = step.adapter as Record<string, unknown> | undefined;
+  const stepArgs = (step as { [STEP_ARGS]?: readonly unknown[] })[STEP_ARGS];
   const callables: Record<string, string> = {};
   const config: Record<string, unknown> = {};
   if (adapter) {
@@ -298,6 +305,11 @@ function describeStep(step: Step<Adapter>): unknown {
     // `tagAdapter` already records what the factory was called with, which
     // is the configuration in its most direct form.
     args: (getAdapterArgs(adapter) ?? []).map((arg) => describable(arg)),
+    // A plugin step's factory arguments, stamped by the builder; a core
+    // step has none, so its digest is unchanged.
+    ...(stepArgs !== undefined
+      ? { stepArgs: stepArgs.map((arg) => describable(arg)) }
+      : {}),
   };
 }
 

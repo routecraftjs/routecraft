@@ -255,7 +255,11 @@ function describeRecord(
 
   const schema = describeSchema(request.schema);
   const serialized = serializeExchange(deferring);
-  const hash = continuationTailHash(request.site.continuation, schema);
+  const hash = continuationTailHash(
+    request.site.continuation,
+    schema,
+    request.errorPath?.origin,
+  );
   // Raw: the store encodes it, and encoding twice double-wraps the Date envelope.
   const stepState = request.stepState;
   const deferredAt = new Date();

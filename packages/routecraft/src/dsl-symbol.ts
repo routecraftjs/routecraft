@@ -47,6 +47,16 @@ export const CATALOGUE: unique symbol = Symbol.for(
 export const STEP_PLUGIN: unique symbol = Symbol.for("routecraft.step.plugin");
 
 /**
+ * The arguments a plugin step's factory was called with, stamped on the
+ * step it returned so the continuation hash and the cache fingerprint can
+ * tell `.withTax(0.1)` from `.withTax(0.2)`: the factory's closure is not
+ * otherwise visible to either.
+ *
+ * @internal
+ */
+export const STEP_ARGS: unique symbol = Symbol.for("routecraft.step.args");
+
+/**
  * Symbol used by sub-pipeline builders (the shared PathBuilder for choice and
  * multicast paths) to hand their compiled step array back to their parent Step
  * without exposing a public `.steps()` API. Keeps the "no headless builder"

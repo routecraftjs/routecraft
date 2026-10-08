@@ -74,6 +74,7 @@ import {
   CATALOGUE,
   PUSH_STEP,
   STEP_PLUGIN,
+  STEP_ARGS,
 } from "./dsl-symbol.ts";
 import { rcError } from "./error.ts";
 import type { StepCatalogue } from "./kernel/steps.ts";
@@ -331,6 +332,7 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
         value: (...args: never[]) => {
           const built = factory(...args) as Step<Adapter> & {
             [STEP_PLUGIN]?: string;
+            [STEP_ARGS]?: readonly unknown[];
           };
           if (built[STEP_PLUGIN] !== undefined || Object.isFrozen(built)) {
             throw rcError("RC1116", undefined, {
@@ -339,6 +341,7 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
           }
           built.label ??= name;
           built[STEP_PLUGIN] = plugin;
+          built[STEP_ARGS] = args;
           this.pushStep(built);
           return this;
         },
@@ -373,10 +376,17 @@ export abstract class StepBuilderBase<S extends BuilderState = BuilderState> {
       wrapped = factory(wrapped);
     }
     this.pendingStepWrappers = [];
-    // The route's start check finds a plugin step by this tag, wrapped or not.
-    const plugin = (step as { [STEP_PLUGIN]?: string })[STEP_PLUGIN];
-    if (plugin !== undefined) {
-      (wrapped as { [STEP_PLUGIN]?: string })[STEP_PLUGIN] = plugin;
+    // The route's start check finds a plugin step by this tag, wrapped or
+    // not, and the fingerprint reads its arguments the same way.
+    const tagged = step as {
+      [STEP_PLUGIN]?: string;
+      [STEP_ARGS]?: readonly unknown[];
+    };
+    if (tagged[STEP_PLUGIN] !== undefined) {
+      (wrapped as typeof tagged)[STEP_PLUGIN] = tagged[STEP_PLUGIN];
+      if (tagged[STEP_ARGS] !== undefined) {
+        (wrapped as typeof tagged)[STEP_ARGS] = tagged[STEP_ARGS];
+      }
     }
     return wrapped as unknown as Step<T>;
   }

@@ -462,6 +462,7 @@ export class PluginHost {
   require<T>(port: Port<T>, asker = "the application"): T {
     const provision = this.provisions.get(port.key);
     if (!provision?.provided) {
+      this.refuseForeignToken(port);
       throw rcError("RC1104", undefined, {
         message: `${asker} needs "${port.name}", which no installed plugin provides.`,
       });
@@ -472,7 +473,26 @@ export class PluginHost {
   /** Like {@link require}, but `undefined` when nobody provides it. */
   lookup<T>(port: Port<T>): T | undefined {
     const provision = this.provisions.get(port.key);
+    if (provision === undefined) this.refuseForeignToken(port);
     return provision?.provided ? (provision.value as T) : undefined;
+  }
+
+  /**
+   * A token this application never saw, under a name it did: a second copy
+   * of the module declaring the port is loaded, and its adapters and steps
+   * would otherwise fail somewhere unrelated (an `RC1104`, an `RC5052`, a
+   * `lookup` that quietly drops configuration).
+   *
+   * @throws RC1103
+   */
+  private refuseForeignToken(port: AnyPort): void {
+    for (const known of this.provisions.keys()) {
+      if (known !== port.key && known.description === port.name) {
+        throw rcError("RC1103", undefined, {
+          message: `"${port.name}" was asked for through a token this application does not hold, while it holds another token of that name. Two copies of the module declaring this port are loaded (a global CLI beside a project's own install, or two versions in one dependency tree); deduplicate the dependency so every plugin, adapter and route shares one.`,
+        });
+      }
+    }
   }
 
   /** Whether any installed plugin provides the port, bound or not. */

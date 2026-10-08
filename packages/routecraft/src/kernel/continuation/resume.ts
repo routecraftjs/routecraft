@@ -35,6 +35,7 @@ import type { ErrorHook } from "../hooks.ts";
 import type { Principal } from "../../principal.ts";
 import { resumable } from "./types.ts";
 import type {
+  ErrorPathRecord,
   DeferralSchema,
   PrincipalRef,
   SerializedOutcome,
@@ -284,6 +285,7 @@ export async function reviveDeferral(
   const current = continuationTailHash(
     site.site.continuation,
     site.schemaIsLive ? describeSchema(site.schema) : deferral.schema,
+    deferral.errorPath?.origin,
   );
   if (current !== deferral.continuationHash) {
     return await refuseContinuation(
@@ -806,7 +808,12 @@ function findSite(
     }
   | undefined {
   if (deferral.errorPath) {
-    const schema = liveErrorPathSchema(context, route, deferral.schema);
+    const schema = liveErrorPathSchema(
+      context,
+      route,
+      deferral.errorPath,
+      deferral.schema,
+    );
     const live = {
       schemaIsLive: true,
       ...(schema !== undefined ? { schema } : {}),
@@ -841,24 +848,28 @@ function findSite(
 
 /**
  * The schema an error-path park's resume payload is validated against, read
- * live off the route: the `.error(handler, { schema })` and every error
- * hook's `schema`, whichever the record's descriptor identifies. The record
- * does not say which handler parked, so the hash picks it; with none
- * matching, the hash comparison that follows refuses the resume as a
- * changed continuation. A record parked without a schema is refused the
- * same way once any handler declares one, as a static site is when its
- * schema appears.
+ * live off the handler that parked it: the route's `.error(handler, {
+ * schema })` or the error hook the record names. A handler that declares
+ * none, or that is gone, yields no schema, and the hash comparison that
+ * follows decides whether that matches what was parked. A record written
+ * before the handler was recorded falls back to the descriptor: the one
+ * declared schema the stored hash identifies.
  */
 function liveErrorPathSchema(
   context: CraftContext,
   route: Route,
+  errorPath: ErrorPathRecord,
   stored: DeferralSchema,
 ): StandardSchemaV1 | undefined {
+  if (errorPath.handler === "route") return route.definition.errorPathSchema;
+  const hooks = context.errorHooks(route).decide;
+  if (errorPath.handler !== undefined) {
+    const parker = hooks.find((entry) => entry.id === errorPath.handler);
+    return parker ? (parker.hook as ErrorHook).schema : undefined;
+  }
   const declared = [
     route.definition.errorPathSchema,
-    ...context
-      .errorHooks(route)
-      .decide.map((entry) => (entry.hook as ErrorHook).schema),
+    ...hooks.map((entry) => (entry.hook as ErrorHook).schema),
   ].filter((schema): schema is StandardSchemaV1 => schema !== undefined);
   if (stored.absent) return declared[0];
   return declared.find((schema) => describeSchema(schema).hash === stored.hash);

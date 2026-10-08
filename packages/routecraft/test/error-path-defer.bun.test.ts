@@ -368,6 +368,111 @@ describe("recovery.defer: parking an exchange from the error path", () => {
   });
 
   /**
+   * @case The route's handler parks without a schema while an error hook on the same route declares one
+   * @preconditions .error(handler) with no schema parks the failure; a plugin's error hook with mayDefer and schema: Decision also applies to the route but is never consulted
+   * @expectedResult The record names the route handler as the parker, and a resume with a payload the hook's schema would refuse is accepted: only the parking handler's schema counts
+   */
+  test("a park is validated against the schema of the handler that parked it", async () => {
+    const store = new MemoryDeferralStore();
+    let failOnce = true;
+    t = await testContext()
+      .with({
+        ...shared(store),
+        plugins: [
+          definePlugin({
+            id: "test.other",
+            hooks: {
+              error: {
+                id: "park",
+                phase: "mutate",
+                mayDefer: true,
+                schema: Decision,
+                run: () => recovery.defer({ ttl: "1h" }),
+              },
+            },
+          }),
+        ],
+      })
+      .routes([
+        craft()
+          .id("work")
+          .error(() => recovery.defer({ ttl: "1h" }))
+          .from(direct())
+          .transform((body) => {
+            if (failOnce) {
+              failOnce = false;
+              throw new Error("needs a human");
+            }
+            return body;
+          })
+          .to(noop()),
+        craft().id("answers").from(direct()).resume(payloadFrom),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const deferred = asDeferred(await t.client.sendDirect("work", {}));
+    expect((await store.get(deferred.deferralId))?.errorPath?.handler).toBe(
+      "route",
+    );
+
+    const ack = (await t.client.sendDirect("answers", {
+      token: deferred.token,
+      result: { approved: "not a boolean" },
+    })) as { status: string; continuation: { status: string } };
+    expect(ack.status).toBe("resumed");
+    expect(ack.continuation.status).toBe("completed");
+  });
+
+  /**
+   * @case A store that drops the record's errorPath
+   * @preconditions A park from the error path at a step; a store whose get() returns the record without its errorPath, as a backend written before the field would
+   * @expectedResult The resume is refused with RC5048 rather than addressed against a defer site at the same position with no schema
+   */
+  test("a store that loses errorPath cannot hand the resume to another site", async () => {
+    const backing = new MemoryDeferralStore();
+    const lossy = storeWith(backing, {
+      get: async (id: string) => {
+        const read = await backing.get(id);
+        if (!read) return read;
+        const rest = { ...read };
+        delete (rest as { errorPath?: unknown }).errorPath;
+        return rest;
+      },
+    });
+    t = await testContext()
+      .with({ deferral: { store: lossy, secret: SECRET } })
+      .routes([
+        craft()
+          .id("work")
+          .error(
+            (error) =>
+              (error as Error).message.includes("needs a human")
+                ? recovery.defer({ ttl: "1h" })
+                : recovery.rethrow(),
+            { schema: Decision },
+          )
+          .from(direct())
+          .transform(() => {
+            throw new Error("needs a human");
+          })
+          .to(noop()),
+        craft().id("answers").from(direct()).resume(payloadFrom),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const deferred = asDeferred(await t.client.sendDirect("work", {}));
+
+    await expect(
+      t.client.sendDirect("answers", {
+        token: deferred.token,
+        result: { approved: true },
+      }),
+    ).rejects.toMatchObject({ rc: "RC5048" });
+  });
+
+  /**
    * @case A step-scope .error() declares a schema
    * @preconditions .error(handler, { schema }) placed after .from()
    * @expectedResult RC5003 at the call: a step-scope handler cannot park, so it has no resume payload to describe

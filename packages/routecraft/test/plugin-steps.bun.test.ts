@@ -14,6 +14,10 @@ import {
   type BodyOf,
   type Exchange,
 } from "../src/index.ts";
+import {
+  continuationTailHash,
+  describeSchema,
+} from "../src/kernel/continuation/hash.ts";
 
 interface Order {
   readonly id: string;
@@ -376,5 +380,31 @@ describe("plugin facets", () => {
     await t.startAndWaitReady();
 
     expect((await t.client.sendDirect("whoami", "x")) as unknown).toBe("ada");
+  });
+});
+
+describe("plugin step fingerprints", () => {
+  /**
+   * @case Two installs of one plugin step with different factory arguments
+   * @preconditions Routes built with a project installing pricing, one calling .withTax(0.1) and one .withTax(0.2)
+   * @expectedResult Their continuation hashes differ, so a cache or a deferred exchange built under one argument cannot be served under the other; the same argument hashes alike
+   */
+  test("a step's factory arguments are part of its fingerprint", () => {
+    const { craft: build } = defineProject({ plugins: [pricing] });
+    const tail = (rate: number) =>
+      build()
+        .id(`priced-${rate}`)
+        .from<Order>(direct())
+        .withTax(rate)
+        .to(noop())
+        .build()[0]!.steps;
+    const schema = describeSchema();
+
+    expect(continuationTailHash(tail(0.1), schema)).not.toBe(
+      continuationTailHash(tail(0.2), schema),
+    );
+    expect(continuationTailHash(tail(0.1), schema)).toBe(
+      continuationTailHash(tail(0.1), schema),
+    );
   });
 });

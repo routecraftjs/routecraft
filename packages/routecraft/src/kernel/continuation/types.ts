@@ -419,6 +419,14 @@ export interface ErrorPathRecord {
    * door with nothing to lend within.
    */
   readonly refusedScopes?: readonly string[];
+  /**
+   * Who parked it: `"route"` for the route's own `.error()`, otherwise the
+   * error hook's id (`pluginId/hookId`). The resume door reads that
+   * handler's declared `schema` back live and validates the payload against
+   * it; without this it would have to guess among every handler's schema.
+   * Optional only for records written before the field existed.
+   */
+  readonly handler?: string;
 }
 
 /**
