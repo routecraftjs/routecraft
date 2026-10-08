@@ -6,6 +6,10 @@ updates:
     directories: ["/", "/.github/actions/*"]
     schedule:
       interval: "weekly"
+    # Longer than GitHub's default: a hijacked action release is usually
+    # caught within days. These PRs also need a human approval to merge.
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 10
     commit-message:
       prefix: "chore"

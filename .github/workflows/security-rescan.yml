@@ -3,9 +3,12 @@ name: Security rescan
 # A release is scanned when it is built, but CVEs are published afterwards.
 # This rescans what users run today (the latest published packages, scaffolded
 # the way `create-routecraft` scaffolds them, and the live docs-site image)
-# against the current vulnerability database. A fixable HIGH or CRITICAL
-# finding opens one tracking issue, which the first clean run closes. The pull-request gate lives
-# in ci.yml; the rules are in .standards/security.md.
+# against the current vulnerability database. Findings go to code scanning
+# and the run summary, never to the run's result: a scheduled run reports on
+# main's head commit, and a CVE published after the merge is not a broken
+# main. Only a scan that itself fails fails the run. The pull-request gate,
+# which forces the fix, lives in ci.yml; the rules are in
+# .standards/security.md.
 on:
   schedule:
     - cron: "23 5 * * *"
@@ -25,8 +28,8 @@ jobs:
       contents: read
       # Pull the live site image from GHCR.
       packages: read
-      # Open or update the tracking issue.
-      issues: write
+      # Upload the SARIF to code scanning.
+      security-events: write
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -58,36 +61,36 @@ jobs:
           docker tag "ghcr.io/$OWNER/routecraft.dev:latest" routecraft-site:rescan
 
       # Each scan records its verdict instead of stopping the job, so one
-      # failure does not hide the others. A scanner error is not a finding: it
-      # fails the run but never opens the tracking issue.
+      # failure does not hide the others.
       - name: Scan
         id: scan
         run: |
           set -uo pipefail
           FAILED=""
           ERRORED=""
-          mkdir -p "$RUNNER_TEMP/reports"
-          VERDICTS="$RUNNER_TEMP/verdicts.md"
-          : > "$VERDICTS"
+          mkdir -p "$RUNNER_TEMP/reports" "$RUNNER_TEMP/sarif"
           scan() {
             local label="$1"; shift
             local out="$RUNNER_TEMP/reports/$label.txt"
             # The step shell runs with -e, so an unguarded gate exit 3 ends the step.
             local rc=0
             .github/scripts/trivy.sh gate "$@" > "$out" 2>&1 || rc=$?
+            .github/scripts/trivy.sh "$@" --quiet --ignorefile .trivyignore.yaml \
+              --format sarif --output "/scan/sarif/$label.sarif" >> "$out" 2>&1 \
+              && echo "sarif-$label=true" >> "$GITHUB_OUTPUT" || rc=2
             case "$rc" in
-              0) echo "- **$label**: clean" >> "$VERDICTS" ;;
+              0) echo "### $label: clean" >> "$GITHUB_STEP_SUMMARY" ;;
               3) FAILED="$FAILED $label"
-                 echo "- **$label**: fixable HIGH or CRITICAL findings" >> "$VERDICTS" ;;
+                 echo "### $label: fixable HIGH or CRITICAL findings" >> "$GITHUB_STEP_SUMMARY" ;;
               *) ERRORED="$ERRORED $label"
-                 echo "- **$label**: the scan itself failed" >> "$VERDICTS" ;;
+                 echo "### $label: the scan itself failed" >> "$GITHUB_STEP_SUMMARY" ;;
             esac
-            { echo "### $label"; echo; echo '```'; cat "$out"; echo '```'; echo; } >> "$GITHUB_STEP_SUMMARY"
+            { echo; echo '```'; cat "$out"; echo '```'; echo; } >> "$GITHUB_STEP_SUMMARY"
           }
           scan starter-image image --scanners vuln,secret routecraft-starter:rescan
           scan adapters fs --scanners vuln /scan/ref-adapters/bun.lock
           scan site-image image --scanners vuln,secret routecraft-site:rescan
-          echo "failed=${FAILED# }" >> "$GITHUB_OUTPUT"
+          [ -z "$FAILED" ] || echo "::warning title=Security rescan::Fixable HIGH or CRITICAL findings in:$FAILED"
           echo "errored=${ERRORED# }" >> "$GITHUB_OUTPUT"
 
       - name: Upload the scan reports
@@ -97,46 +100,32 @@ jobs:
           name: rescan-reports
           path: ${{ runner.temp }}/reports
 
-      # The issue carries the verdicts and a link; the tables stay in the run,
-      # since a few hundred detailed rows pass GitHub's issue body limit.
-      - name: Update the tracking issue
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          FAILED: ${{ steps.scan.outputs.failed }}
-          ERRORED: ${{ steps.scan.outputs.errored }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
-        run: |
-          set -eo pipefail
-          TITLE="Security rescan: fixable HIGH or CRITICAL findings in released artefacts"
-          NUMBER="$(gh issue list --state open --search "\"$TITLE\" in:title" --json number,title \
-            --jq ".[] | select(.title == \"$TITLE\") | .number" | head -n1)"
-          if [ -z "$FAILED" ]; then
-            # A scan that failed to run proves nothing, so the issue stays open.
-            if [ -n "$NUMBER" ] && [ -z "$ERRORED" ]; then
-              gh issue close "$NUMBER" --comment "The rescan is clean again: $RUN_URL"
-            fi
-            exit 0
-          fi
-          BODY="$RUNNER_TEMP/body.md"
-          {
-            echo "The scheduled rescan found fixable HIGH or CRITICAL vulnerabilities in: $FAILED."
-            echo
-            echo "Fix it, or record why it cannot be fixed yet in \`.trivyignore.yaml\` with an expiry (see \`.standards/security.md\` § 13). The findings are in the run's summary and its \`rescan-reports\` artifact: $RUN_URL"
-            echo
-            cat "$RUNNER_TEMP/verdicts.md"
-          } > "$BODY"
-          if [ -n "$NUMBER" ]; then
-            gh issue comment "$NUMBER" --body-file "$BODY"
-          else
-            gh issue create --title "$TITLE" --body-file "$BODY"
-          fi
+      # A category per target, so a clean scan of one never closes another's alerts.
+      - name: Upload the starter image findings to code scanning
+        if: always() && steps.scan.outputs.sarif-starter-image == 'true'
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          sarif_file: ${{ runner.temp }}/sarif/starter-image.sarif
+          category: trivy-rescan-starter-image
 
-      - name: Fail the run
-        if: steps.scan.outputs.failed != '' || steps.scan.outputs.errored != ''
+      - name: Upload the adapter dependency findings to code scanning
+        if: always() && steps.scan.outputs.sarif-adapters == 'true'
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          sarif_file: ${{ runner.temp }}/sarif/adapters.sarif
+          category: trivy-rescan-adapters
+
+      - name: Upload the site image findings to code scanning
+        if: always() && steps.scan.outputs.sarif-site-image == 'true'
+        uses: github/codeql-action/upload-sarif@2892aa5e19bbd11bc0cff5427e3b750a04d9e3c2 # v4.38.2
+        with:
+          sarif_file: ${{ runner.temp }}/sarif/site-image.sarif
+          category: trivy-rescan-site-image
+
+      - name: Fail when a scan could not run
+        if: steps.scan.outputs.errored != ''
         env:
-          FAILED: ${{ steps.scan.outputs.failed }}
           ERRORED: ${{ steps.scan.outputs.errored }}
         run: |
-          [ -z "$FAILED" ] || echo "::error title=Security rescan::Fixable HIGH or CRITICAL findings in: $FAILED"
-          [ -z "$ERRORED" ] || echo "::error title=Security rescan::The scan failed for: $ERRORED"
+          echo "::error title=Security rescan::The scan failed for: $ERRORED"
           exit 1
