@@ -527,6 +527,60 @@ describe("the error slot", () => {
   });
 
   /**
+   * @case An error hook recovers a split child that is not the last one
+   * @preconditions No route .error(); a plugin's error hook recovers with a body; three children, the first throws; an aggregate joins the children
+   * @expectedResult The recovered child completes alone and never reaches the join; both siblings run and the join receives them; the parent completes
+   */
+  test("a hook's decision on a split child settles that child alone", async () => {
+    const seen: number[] = [];
+    const joined: unknown[] = [];
+    const completed: string[] = [];
+    let parentId: string | undefined;
+    t = await testContext()
+      .with({
+        plugins: [
+          errorPlugin("test.recover", {
+            id: "recover",
+            phase: "mutate",
+            run: () => ({ recovered: true }),
+          }),
+        ],
+      })
+      .on("route:exchange:started", ({ details }) => {
+        parentId ??= details.exchangeId;
+      })
+      .on("route:exchange:completed", ({ details }) => {
+        completed.push(details.exchangeId);
+      })
+      .routes([
+        craft()
+          .id("fan")
+          .from(direct())
+          .split()
+          .transform((n: unknown) => {
+            if (n === 1) throw new Error("boom");
+            seen.push(n as number);
+            return n;
+          })
+          .aggregate()
+          .tap((ex) => {
+            joined.push(ex.body);
+          })
+          .to(noop()),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    await t.client.sendDirect("fan", [1, 2, 3]);
+
+    expect(seen).toEqual([2, 3]);
+    expect(joined).toEqual([[2, 3]]);
+    expect(completed).toContain(parentId as string);
+    expect(completed).toHaveLength(4);
+    expect(t.errors).toHaveLength(0);
+  });
+
+  /**
    * @case A hook can drop the exchange as well as recover it
    * @preconditions A hook answering recovery.drop
    * @expectedResult The exchange is dropped, with the reason on the drop event

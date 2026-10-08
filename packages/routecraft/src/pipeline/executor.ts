@@ -586,11 +586,22 @@ export async function runPipeline(
 
       noteFailingStep(exchange, err, step);
 
-      /** Apply a ring's decision to this run's bookkeeping. */
+      const isChild = exchange.id !== parentExchangeId;
+      /**
+       * Apply a ring's decision to this run's bookkeeping. A split child's
+       * decision settles that child alone: a recovered child completes with
+       * its own terminal event and never becomes the run's result, and its
+       * siblings and the join after them still run.
+       */
       const settle = (decision: ErrorDecision): void => {
         if (decision.kind === "dropped") {
-          // A dropped split child resolves that child alone, not the run.
-          if (exchange.id === parentExchangeId) dropped = true;
+          if (!isChild) dropped = true;
+          return;
+        }
+        if (isChild) {
+          if (decision.kind === "recovered") {
+            queue.push({ exchange: decision.exchange, steps: [] });
+          }
           return;
         }
         lastProcessedExchange = decision.exchange;
@@ -693,7 +704,8 @@ export async function runPipeline(
           }
         }
 
-        // Pipeline does not resume after error handler (success or failure)
+        // The pipeline does not resume after the handler, success or failure.
+        if (isChild) continue;
         return {
           exchange: lastProcessedExchange,
           failed,
@@ -716,6 +728,7 @@ export async function runPipeline(
       if (decided) {
         settle(decided);
         // Same as after a route handler: the pipeline does not resume.
+        if (isChild) continue;
         return {
           exchange: lastProcessedExchange,
           failed,

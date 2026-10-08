@@ -374,6 +374,53 @@ describe("Recovery directives (recovery.drop / recovery.rethrow)", () => {
   });
 
   /**
+   * @case A route-scope recovery of a split child that is not the last one
+   * @preconditions Three children; the first throws; the route-scope handler recovers it with a body; an aggregate joins the children
+   * @expectedResult The recovered child completes with its own event and never reaches the join; both siblings still run and the join receives them; the parent completes with the join's output, not the recovered child's body
+   */
+  test("route-scope recovery of a split child lets its siblings and the join run", async () => {
+    const seen: number[] = [];
+    const joined: unknown[] = [];
+    const completedIds: string[] = [];
+    let parentId: string | undefined;
+
+    t = await testContext()
+      .on("route:exchange:started", ({ details }) => {
+        parentId ??= details.exchangeId;
+      })
+      .on("route:exchange:completed", ({ details }) => {
+        completedIds.push(details.exchangeId);
+      })
+      .routes(
+        craft()
+          .id("split-child-recover")
+          .error(() => ({ recovered: true }))
+          .from(simple([[1, 2, 3]]))
+          .split()
+          .transform((n: unknown) => {
+            if (n === 1) throw new Error("boom");
+            seen.push(n as number);
+            return n;
+          })
+          .aggregate()
+          .tap((ex) => {
+            joined.push(ex.body);
+          }),
+      )
+      .build();
+
+    await t.test();
+
+    expect(seen).toEqual([2, 3]);
+    expect(joined).toEqual([[2, 3]]);
+    expect(parentId).toBeDefined();
+    // The parent and all three children completed: the recovered one on its own.
+    expect(completedIds).toContain(parentId as string);
+    expect(completedIds).toHaveLength(4);
+    expect(t.errors).toHaveLength(0);
+  });
+
+  /**
    * @case Route-scope handler returns recovery.rethrow()
    * @preconditions Route with .error() returning recovery.rethrow() and a step throwing "original"
    * @expectedResult Behaves exactly like the handler throwing the original error: error-handler:failed, route:error, context:error, and exchange:failed fire with the original error
