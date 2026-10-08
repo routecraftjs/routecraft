@@ -520,9 +520,9 @@ Two mounts may claim the same path on different listeners; the same path on one 
 
 ### Signed webhooks
 
-Webhook providers (GitHub, Stripe, and others) HMAC-sign the exact bytes they POST. Re-serialising the parsed body is not byte-faithful (key order, whitespace, and unicode escaping all differ), so verification needs the raw wire bytes. The source covers this two ways.
+Webhook providers (GitHub, Stripe, and others) sign the exact bytes they POST, most with an HMAC and some with a public-key signature. Re-serialising the parsed body is not byte-faithful (key order, whitespace, and unicode escaping all differ), so verification needs the raw wire bytes. The source covers this two ways.
 
-**Built-in verification (preferred).** Declare the check on the source and the plugin verifies the raw bytes before any route step runs. A missing, invalid, or expired signature returns `401 { error: "unauthorized", reason }` and emits `auth:rejected` with `scheme: "signature"`. Comparison is timing-safe.
+**Built-in verification (preferred).** Declare the check on the source and the plugin verifies the raw bytes before any route step runs. A missing, invalid, or expired signature returns `401 { error: "unauthorized", reason }` and emits `auth:rejected` with `scheme: "signature"`. Secret comparison is timing-safe.
 
 ```typescript skip="fragment: handlePush, handlePaymentEvent, toInboundMessage are illustrative"
 // GitHub: X-Hub-Signature-256 = "sha256=<hmac-sha256-hex>"
@@ -576,11 +576,11 @@ export const birdHook = craft()
   .to(direct('agent'))
 ```
 
-Schemes: `"hmac-sha256-hex"` (hex HMAC-SHA256, optional `prefix` such as GitHub's `sha256=`), `"hmac-sha1-hex"` (legacy providers; prefer sha256 when offered), `"stripe-timestamped"` (`t=<unix>,v1=<hex>` with freshness checking; expired timestamps reject with reason `signature expired`), and `"standard-webhooks"` ([the specification](https://www.standardwebhooks.com/), used by Resend, Bird and Svix). The rejection reasons are a bounded vocabulary: `missing signature header`, `invalid signature`, `signature expired`.
+Schemes: `"hmac-sha256-hex"` (hex HMAC-SHA256, optional `prefix` such as GitHub's `sha256=`), `"hmac-sha1-hex"` (legacy providers; prefer sha256 when offered), `"stripe-timestamped"` (`t=<unix>,v1=<hex>` with freshness checking; expired timestamps reject with reason `signature expired`), `"standard-webhooks"` ([the specification](https://www.standardwebhooks.com/), used by Resend, Bird and Svix), and `"ed25519"` (a public-key signature over the body, used by Telnyx and Discord). The rejection reasons are a bounded vocabulary: `missing signature header`, `invalid signature`, `signature expired`.
 
-`"standard-webhooks"` differs from the other three in what it needs from you, because the specification fixes what they leave open:
+`"standard-webhooks"` differs from the other four in what it needs from you, because the specification fixes what they leave open:
 
-- **There is no `header` to set.** The specification fixes all three names (`webhook-signature`, `webhook-id`, `webhook-timestamp`), so this scheme takes a secret and nothing else, and the option type refuses a header on it. `header` stays required for the other three schemes, which fix no names of their own.
+- **There is no `header` to set.** The specification fixes all three names (`webhook-signature`, `webhook-id`, `webhook-timestamp`), so this scheme takes a secret and nothing else, and the option type refuses a header on it. `header` stays required for the other four schemes, `"ed25519"` included, which fix no names of their own.
 - **The secret is base64.** Pass it as the provider shows it, `whsec_` prefix and all; the prefix is stripped and the rest decoded to the signing key. Padding is optional. A secret that is not base64 fails at the `http({...})` call site rather than on the first delivery.
 - **Several signatures may arrive at once**, space separated, which is what key rotation looks like. Any `v1` entry that matches admits the delivery.
 - **`toleranceSec`** works as it does for Stripe, defaulting to 300 seconds, and a delivery outside it rejects `signature expired`. A delivery missing `webhook-id` or `webhook-timestamp` rejects `missing signature header`: nothing was presented to verify.
@@ -588,9 +588,31 @@ Schemes: `"hmac-sha256-hex"` (hex HMAC-SHA256, optional `prefix` such as GitHub'
 - **Redeliveries inside the tolerance window are yours to deduplicate.** The window bounds replay by age, and the specification's answer to the rest is `webhook-id`, which is stable across retries. Read it from `routecraft.http.rawHeaders['webhook-id']` when a duplicate delivery would do damage; the raw headers are on every HTTP exchange and need no opt-in, so deduplicating costs you nothing extra to retain.
 - **`prefix` is ignored**, as it is for `stripe-timestamped`.
 
-This covers the symmetric half of the specification. Asymmetric signatures (`v1a`, ed25519, `whpk_` keys) are not verified, and a `v1a` entry is skipped like any other unsupported version. Note also that Svix sends `svix-id`, `svix-timestamp` and `svix-signature` unless the sender is on a tier that white-labels them to the `webhook-` prefix. A `svix-` delivery does not verify through this option: use the manual escape hatch below for one, or ask the sender to white-label its headers. The scheme deliberately offers no per-header override, since renaming only the signature header would build a route that constructs cleanly and then rejects every delivery.
+This covers the symmetric half of the specification. Its asymmetric entries (`v1a`, verified with `whpk_` public keys) are not supported through this scheme, and a `v1a` entry is skipped like any other unsupported version; a provider that signs with a bare Ed25519 key of its own is the `"ed25519"` scheme below. Note also that Svix sends `svix-id`, `svix-timestamp` and `svix-signature` unless the sender is on a tier that white-labels them to the `webhook-` prefix. A `svix-` delivery does not verify through this option: use the manual escape hatch below for one, or ask the sender to white-label its headers. The scheme deliberately offers no per-header override, since renaming only the signature header would build a route that constructs cleanly and then rejects every delivery.
 
-Rules enforced at construction (`RC5003` from the `http({...})` call site): `signature` requires a body-bearing method (`POST`, `PUT`, `PATCH`), a non-empty `secret`, and a known `scheme`. At request time, oversized bodies still return 413 before any signature computation, and an empty body on a signature-gated route is verified rather than waved through. The gate is independent of the mount wall; webhook endpoints typically live on a public mount, since the signature is the credential.
+`"ed25519"` is the one asymmetric scheme. The provider signs with a private key it never shares and publishes the public half, so the route holds nothing a leak could turn into a forged delivery. What it takes:
+
+- **`publicKey`** in place of `secret`: the raw 32 bytes in base64 or hex, as the provider's dashboard shows them, or an SPKI `PUBLIC KEY` PEM block. A key that does not parse fails at the `http({...})` call site, and so does a private key in any form: the route is meant to hold nothing that can sign.
+- **`header`**, the signature header, carrying the 64-byte signature in base64 or hex. Nothing fixes the name, so it is required.
+- **`timestampHeader`**, the header carrying the unix-seconds timestamp the provider signed. Required: the signed payload is `<timestamp><separator><raw body>`, a timestamp outside `toleranceSec` (default 300) rejects `signature expired`, and a delivery without the header rejects `missing signature header`. Every provider on this scheme sends one, and a gate without it would admit a captured delivery forever.
+- **`separator`**, the text between the timestamp and the body. Telnyx signs `<timestamp>|<body>`, Discord `<timestamp><body>`. Defaults to the empty string.
+- **A passing signature authenticates the sending system, not a person**, exactly as for `"standard-webhooks"`: the gate attaches no principal, and whatever the payload says about an end user is the sender's claim.
+
+```typescript skip="fragment: a chain shown without its route"
+.from(http({
+  path: '/hooks/telnyx',
+  method: 'POST',
+  signature: {
+    scheme: 'ed25519',
+    publicKey: process.env.TELNYX_PUBLIC_KEY!,   // Mission Control > Keys & Credentials > Public Key
+    header: 'telnyx-signature-ed25519',
+    timestampHeader: 'telnyx-timestamp',
+    separator: '|',
+  },
+}))
+```
+
+Rules enforced at construction (`RC5003` from the `http({...})` call site): `signature` requires a body-bearing method (`POST`, `PUT`, `PATCH`), a non-empty `secret` (for `"ed25519"`, a parseable `publicKey` and a `timestampHeader`), and a known `scheme`. At request time, oversized bodies still return 413 before any signature computation, and an empty body on a signature-gated route is verified rather than waved through. The gate is independent of the mount wall; webhook endpoints typically live on a public mount, since the signature is the credential.
 
 **Manual verification (escape hatch).** For providers whose scheme is not built in, opt in to the raw bytes and verify in a route step. Note the semantics differ from the built-in gate: `.filter()` drops an unsigned or invalid delivery (the exchange ends with a `route:exchange:dropped` event and the sender receives the route's normal empty response), it does not return 401 or raise RC5039. That is usually fine for webhooks, since providers only distinguish 2xx from non-2xx, but if you need an explicit 401 use the built-in `signature` option or set the response status yourself before dropping.
 
