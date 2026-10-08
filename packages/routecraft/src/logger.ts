@@ -268,30 +268,27 @@ export function childBindings(
   context: CraftContext | Route | Exchange,
 ): Record<string, unknown> {
   if (isCraftContext(context)) {
-    const ctx = context as CraftContext;
-    const bindings: Record<string, unknown> = { contextId: ctx.contextId };
-    if (ctx.name !== undefined) bindings["service.name"] = ctx.name;
+    const bindings: Record<string, unknown> = { contextId: context.contextId };
+    if (context.name !== undefined) bindings["service.name"] = context.name;
     return bindings;
   }
   if (isRoute(context)) {
-    const route = context as Route;
     const bindings: Record<string, unknown> = {
-      contextId: route.context.contextId,
-      route: route.definition.id,
+      contextId: context.context.contextId,
+      route: context.definition.id,
     };
-    if (route.context.name !== undefined)
-      bindings["service.name"] = route.context.name;
+    if (context.context.name !== undefined)
+      bindings["service.name"] = context.context.name;
     return bindings;
   }
   if (isExchange(context)) {
-    const ex = context as Exchange;
-    const ctx = getExchangeContext(ex);
+    const ctx = getExchangeContext(context);
     if (ctx) {
       const bindings: Record<string, unknown> = {
         contextId: ctx.contextId,
-        route: ex.headers[HeadersKeys.ROUTE_ID],
-        correlationId: ex.headers[HeadersKeys.CORRELATION_ID],
-        exchangeId: ex.id,
+        route: context.headers[HeadersKeys.ROUTE_ID],
+        correlationId: context.headers[HeadersKeys.CORRELATION_ID],
+        exchangeId: context.id,
       };
 
       if (ctx.name !== undefined) bindings["service.name"] = ctx.name;
@@ -299,7 +296,7 @@ export function childBindings(
       // Include non-PII auth identifiers from the principal when present.
       // Only subject and issuer are safe for logs; fields like email,
       // name, and roles are omitted to avoid leaking PII.
-      const principal = principalOf(ex);
+      const principal = principalOf(context);
       if (principal?.subject !== undefined)
         bindings["auth.subject"] = principal.subject;
       if (principal?.issuer !== undefined)

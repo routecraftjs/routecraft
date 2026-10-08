@@ -39,7 +39,7 @@ export type HttpSignatureRejectionError = HttpBodyError & {
 export function isSignatureRejection(
   err: unknown,
 ): err is HttpSignatureRejectionError {
-  return isRoutecraftError(err) && (err as RoutecraftError).rc === "RC5039";
+  return isRoutecraftError(err) && err.rc === "RC5039";
 }
 
 /**

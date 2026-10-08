@@ -419,9 +419,7 @@ export async function createSmtpTransport(
  * install hint and stop instead of burning reconnect attempts into RC5010.
  */
 export function isMissingPeerError(error: unknown): boolean {
-  return (
-    isRoutecraftError(error) && (error as { rc?: unknown }).rc === "RC5017"
-  );
+  return isRoutecraftError(error) && error.rc === "RC5017";
 }
 
 /**

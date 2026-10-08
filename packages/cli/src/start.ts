@@ -219,7 +219,7 @@ async function loadConfig(configPath: string): Promise<CraftConfig> {
     default?: unknown;
   };
   if (isProject(module.default)) {
-    return (module.default as { config: CraftConfig }).config;
+    return module.default.config;
   }
   if (module.craftConfig !== undefined) return module.craftConfig;
   if (isConfigObject(module.default)) return module.default;

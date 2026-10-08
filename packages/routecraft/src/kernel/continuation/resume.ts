@@ -7,6 +7,7 @@ import {
   validateAgainst,
 } from "../../pipeline/validation.ts";
 import { rcError } from "../../error.ts";
+import { rcCodeOf } from "../../brand.ts";
 import {
   type Exchange,
   DefaultExchange,
@@ -404,12 +405,19 @@ export async function reviveDeferral(
       deferral.errorPath?.origin === "admission" ? "admission" : "resume",
     );
   } catch (error) {
-    const failure = error as { rc?: string; message?: string } | undefined;
+    // Best-effort, and the ordering is the point: the original error must
+    // reach the ingress route whatever the store does. A throw from
+    // `recordContinuation` here would mask it AND leave the record unsettled,
+    // reproducing one level up the condition this block exists to remove.
+    // `rc` is carried like the expiry path carries RC5047, so a duplicate
+    // resume and an operator dashboard see the code rather than prose.
+    const rc = rcCodeOf(error);
+    const failure = error as { message?: string } | undefined;
     try {
       await runtime.store.recordContinuation(id, {
         status: "failed",
         error: {
-          ...(typeof failure?.rc === "string" ? { rc: failure.rc } : {}),
+          ...(rc === undefined ? {} : { rc }),
           message: failure?.message ?? "the revival failed",
         },
         at: resumedAt,
@@ -760,13 +768,13 @@ async function runContinuation(
     return { status: "dropped", reason: "dropped by the route", at };
   }
   if (result.failed) {
+    const rc = rcCodeOf(result.error);
     const error = result.error as
-      | { rc?: string; meta?: { message?: string }; message?: string }
-      | undefined;
+      { meta?: { message?: string }; message?: string } | undefined;
     return {
       status: "failed",
       error: {
-        ...(typeof error?.rc === "string" ? { rc: error.rc } : {}),
+        ...(rc === undefined ? {} : { rc }),
         message:
           error?.meta?.message ?? error?.message ?? "the continuation failed",
       },

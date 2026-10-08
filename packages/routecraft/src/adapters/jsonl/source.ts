@@ -1,3 +1,4 @@
+import { isRoutecraftError } from "../../brand.ts";
 import * as fsp from "node:fs/promises";
 import type { Source, CallableSource } from "../../operations/from.ts";
 import type { JsonlFileOptions } from "./types.ts";
@@ -94,13 +95,7 @@ export class JsonlSourceAdapter<T = unknown> implements Source<T | T[]> {
         // Preserve framework error codes (e.g. RC5016 from `'abort'` mode).
         // `throwFileError` wraps as `RC5010` which would mask the original
         // parse-error code, so re-throw RC-bearing errors as-is.
-        if (
-          typeof err === "object" &&
-          err !== null &&
-          "rc" in (err as Record<string, unknown>)
-        ) {
-          throw err;
-        }
+        if (isRoutecraftError(err)) throw err;
         throwFileError("jsonl", filePath, err);
       }
       return;

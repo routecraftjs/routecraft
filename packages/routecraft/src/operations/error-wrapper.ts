@@ -6,7 +6,7 @@ import {
   DefaultExchange,
   markDropped,
 } from "../exchange.ts";
-import { rcError, RoutecraftError } from "../error.ts";
+import { processError, rcError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
 import { isRecovery, applyDropDirective } from "../recovery.ts";
 import type { ErrorHandler } from "../route.ts";
@@ -71,19 +71,9 @@ export class ErrorWrapperStep<
     try {
       return await this.inner.execute(exchange, ctx);
     } catch (rawInnerError) {
-      // Normalise the thrown value to `RoutecraftError` so the
-      // step-scope handler receives the same shape the route-scope
-      // handler does (route.ts's `processError` does the same).
-      // Handlers that branch on `error.rc` / `error.meta.message`
-      // work in both positions without special-casing.
-      const innerError: RoutecraftError = isRoutecraftError(rawInnerError)
-        ? (rawInnerError as RoutecraftError)
-        : rcError("RC5001", rawInnerError, {
-            message:
-              rawInnerError instanceof Error
-                ? rawInnerError.message
-                : String(rawInnerError),
-          });
+      // The step-scope handler receives the same shape the route-scope
+      // handler does, so one that branches on `error.rc` works in both.
+      const innerError = processError(rawInnerError);
       const routeId = route?.definition.id;
       if (route && context && routeId) {
         context.emit("route:error-handler:invoked", {
@@ -184,7 +174,7 @@ export class ErrorWrapperStep<
         // (or the default error path when none is set). Wrap raw
         // throws in `RoutecraftError` for consistent observability;
         // pass-through if already an RoutecraftError.
-        throw handlerError instanceof RoutecraftError
+        throw isRoutecraftError(handlerError)
           ? handlerError
           : rcError("RC5001", handlerError, {
               message: `Step-scope .error() handler for "${stepLabel}" threw`,

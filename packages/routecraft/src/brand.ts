@@ -7,6 +7,7 @@ import type { AnyRouteBuilder } from "./builder.ts";
 import type { CraftContext } from "./context.ts";
 import type { RoutecraftError } from "./error.ts";
 import type { Exchange } from "./exchange.ts";
+import type { Project } from "./project.ts";
 import type { Route, RouteDefinition } from "./route.ts";
 
 export const BRAND = {
@@ -107,41 +108,36 @@ export function isBranded(obj: unknown, key: symbol): boolean {
 }
 
 /**
- * Returns true if the value is a CraftContext instance.
+ * Narrows `obj` to `CraftContext` when it carries the CraftContext brand.
+ *
+ * Every guard here checks the brand, not the shape, so it also holds for an
+ * instance created by another copy of this package in the same process.
  */
 export function isCraftContext(obj: unknown): obj is CraftContext {
   return isBranded(obj, BRAND.CraftContext);
 }
 
-/**
- * Returns true if the value is a Route (DefaultRoute) instance.
- */
+/** Narrows `obj` to `Route` when it carries the DefaultRoute brand. */
 export function isRoute(obj: unknown): obj is Route {
   return isBranded(obj, BRAND.DefaultRoute);
 }
 
-/** Whether a value is a project built by `defineProject`. */
-export function isProject(obj: unknown): boolean {
+/** Narrows `obj` to `Project` when it carries the Project brand, so a project built by `defineProject`. */
+export function isProject(obj: unknown): obj is Project<unknown> {
   return isBranded(obj, BRAND.Project);
 }
 
-/**
- * Returns true if the value is a RouteBuilder instance (has .build()).
- */
+/** Narrows `obj` to `AnyRouteBuilder` when it carries the RouteBuilder brand. */
 export function isRouteBuilder(obj: unknown): obj is AnyRouteBuilder {
   return isBranded(obj, BRAND.RouteBuilder);
 }
 
-/**
- * Returns true if the value is a RouteDefinition (from craft().from().build()).
- */
+/** Narrows `obj` to `RouteDefinition` when it carries the RouteDefinition brand. */
 export function isRouteDefinition(obj: unknown): obj is RouteDefinition {
   return isBranded(obj, BRAND.RouteDefinition);
 }
 
-/**
- * Returns true if the value is a RoutecraftError instance.
- */
+/** Narrows `obj` to `RoutecraftError` when it carries the RoutecraftError brand. */
 export function isRoutecraftError(obj: unknown): obj is RoutecraftError {
   return isBranded(obj, BRAND.RoutecraftError);
 }
@@ -155,9 +151,7 @@ export function rcCodeOf(error: unknown): string | undefined {
   return isRoutecraftError(error) ? error.rc : undefined;
 }
 
-/**
- * Returns true if the value is an Exchange instance.
- */
+/** Narrows `obj` to `Exchange` when it carries the Exchange brand. */
 export function isExchange(obj: unknown): obj is Exchange {
   return isBranded(obj, BRAND.Exchange);
 }
