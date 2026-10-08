@@ -832,7 +832,11 @@ export interface EventDetailsMap {
     scope: "route" | "step";
     /** True when the exchange had to queue before a slot freed. */
     waited: boolean;
-    /** Slots in use (including this one) at admission time. */
+    /**
+     * Slots in use at admission time, including this one. A route stopping
+     * while the exchange was queued admits it without a slot, so there the
+     * count excludes it.
+     */
     inUse: number;
     key?: string;
     label?: string;

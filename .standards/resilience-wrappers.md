@@ -117,7 +117,9 @@ A wrapper that is a chain position at route scope (`retry`, `timeout`,
 of its own: the behaviour is the provider's position, and the wrapper
 resolves the provider through the port when the exchange runs
 (both helpers live in `operations/position-run.ts` and build once per
-application). `runStepPosition` resolves a `Position` from `RESILIENCE` and
+application, except the throttle position, which `positionFor` builds once
+per route through `perRoute` because its gate bakes the route id into its
+events). `runStepPosition` resolves a `Position` from `RESILIENCE` and
 runs it with a `PositionRun` whose `attempt` is the wrapped step and whose
 `scope` is `"step"`; the cache wrapper resolves its position from `CACHE`
 through `positionFor` and runs it with a `CacheRun`, that port's own run
