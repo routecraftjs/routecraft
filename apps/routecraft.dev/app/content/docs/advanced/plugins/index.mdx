@@ -347,6 +347,61 @@ export default defineProject({
 
 A name that matches no installed hook is `RC1112`. A position is never disabled.
 
+## Points
+
+The slots are the framework's moments. A **point** is a moment a plugin declares inside its own step, so that other plugins can hook it the same way: an approvals plugin declares `approvals.decided` and runs the hooks placed there at the instant a decision lands, and an audit plugin written by someone else records every decision without the approvals plugin knowing it exists.
+
+A point is declared in `points` and invoked from the step with `ctx.invoke(name, exchange)`, which runs the hooks there phase by phase and returns the exchange as the last mutate left it. The step is written in the raw form, because the function form of `step()` hands the step only its abort signal:
+
+```ts
+import { definePlugin, step, OperationType } from '@routecraft/routecraft'
+
+interface Decision {
+  readonly request: string
+  readonly approved: boolean
+}
+
+export const approvals = definePlugin({
+  id: 'acme.approvals',
+  points: [{ name: 'approvals.decided' }],
+  steps: {
+    decided: () =>
+      step<Decision, Decision>({
+        operation: OperationType.PROCESS,
+        adapter: { adapterId: 'acme.approvals.decided' },
+        async execute(exchange, ctx) {
+          return { kind: 'continue', exchange: await ctx.invoke('approvals.decided', exchange) }
+        },
+      }),
+  },
+})
+```
+
+Another plugin hooks the point under `hooks.points`, with the same phases as a slot:
+
+```ts
+import { definePlugin, refuse } from '@routecraft/routecraft'
+
+export const audit = definePlugin({
+  id: 'acme.audit',
+  hooks: {
+    points: {
+      'approvals.decided': {
+        id: 'recordDecision',
+        phase: 'validate',
+        run(exchange) {
+          const { request, approved } = exchange.body as { request: string; approved: boolean }
+          exchange.logger.info({ request, approved }, 'decision recorded')
+          return request.length === 0 ? refuse('a decision names its request', { kind: 'invalid' }) : undefined
+        },
+      },
+    },
+  },
+})
+```
+
+Point names are dotted under the declaring plugin's namespace. A hook at a point nobody declares is `RC1112`; two plugins declaring one point, or a point named after a slot, is `RC1113`. The ops route detail lists the hooks at every point beside the slot hooks, so an operator can see what runs on a route.
+
 ## Steps
 
 A plugin's `steps` become builder methods. Each entry takes the method's arguments and returns a step built with `step<In, Out>()`, which types the method by the body it accepts and the body it leaves:

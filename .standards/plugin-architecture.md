@@ -203,6 +203,13 @@ Hooks at a point another plugin declares go under `hooks.points`, keyed by
 point name, so the slot keys stay closed and a misspelled slot is a compile
 error.
 
+Points ship with no shipped consumer, which the positioning check
+challenged. Overruled by Jaco on 2026-10-08: a point is the extension
+point a third-party plugin offers to other plugins, and the framework's own
+plugins not needing one yet says nothing about an ecosystem plugin's need.
+The check's holder watches for the pattern: a second concept kept on the
+same reasoning is the signal, not this one.
+
 The application settles conflicts, in config:
 
 ```ts
