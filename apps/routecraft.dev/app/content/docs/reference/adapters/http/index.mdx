@@ -576,7 +576,7 @@ export const birdHook = craft()
   .to(direct('agent'))
 ```
 
-Schemes: `"hmac-sha256-hex"` (hex HMAC-SHA256, optional `prefix` such as GitHub's `sha256=`), `"hmac-sha1-hex"` (legacy providers; prefer sha256 when offered), `"stripe-timestamped"` (`t=<unix>,v1=<hex>` with freshness checking; expired timestamps reject with reason `signature expired`), and `"standard-webhooks"` ([the specification](https://www.standardwebhooks.com/), used by Resend, Bird and Svix). The rejection reasons are a bounded vocabulary: `missing signature header`, `invalid signature`, `signature expired`.
+Schemes: `"hmac-sha256-hex"` (hex HMAC-SHA256, optional `prefix` such as GitHub's `sha256=`), `"hmac-sha1-hex"` (legacy providers; prefer sha256 when offered), `"stripe-timestamped"` (`t=<unix>,v1=<hex>` with freshness checking; expired timestamps reject with reason `signature expired`), `"standard-webhooks"` ([the specification](https://www.standardwebhooks.com/), used by Resend, Bird and Svix), and `"ed25519"` (a public-key signature over the body, used by Telnyx and Discord). The rejection reasons are a bounded vocabulary: `missing signature header`, `invalid signature`, `signature expired`.
 
 `"standard-webhooks"` differs from the other three in what it needs from you, because the specification fixes what they leave open:
 
@@ -590,7 +590,28 @@ Schemes: `"hmac-sha256-hex"` (hex HMAC-SHA256, optional `prefix` such as GitHub'
 
 This covers the symmetric half of the specification. Asymmetric signatures (`v1a`, ed25519, `whpk_` keys) are not verified, and a `v1a` entry is skipped like any other unsupported version. Note also that Svix sends `svix-id`, `svix-timestamp` and `svix-signature` unless the sender is on a tier that white-labels them to the `webhook-` prefix. A `svix-` delivery does not verify through this option: use the manual escape hatch below for one, or ask the sender to white-label its headers. The scheme deliberately offers no per-header override, since renaming only the signature header would build a route that constructs cleanly and then rejects every delivery.
 
-Rules enforced at construction (`RC5003` from the `http({...})` call site): `signature` requires a body-bearing method (`POST`, `PUT`, `PATCH`), a non-empty `secret`, and a known `scheme`. At request time, oversized bodies still return 413 before any signature computation, and an empty body on a signature-gated route is verified rather than waved through. The gate is independent of the mount wall; webhook endpoints typically live on a public mount, since the signature is the credential.
+`"ed25519"` is the one asymmetric scheme. The provider signs with a private key it never shares and publishes the public half, so the route holds nothing a leak could turn into a forged delivery. What it takes:
+
+- **`publicKey`** in place of `secret`: the raw 32 bytes in base64 or hex, as the provider's dashboard shows them, or an SPKI PEM block. A key that does not parse fails at the `http({...})` call site.
+- **`header`**, the signature header, carrying the 64-byte signature in base64 or hex. Nothing fixes the name, so it is required.
+- **`timestampHeader`**, optional. When set, the signed payload is `<timestamp><separator><raw body>` and a timestamp outside `toleranceSec` (default 300) rejects `signature expired`; a delivery without it rejects `missing signature header`. Without `timestampHeader` the body alone is signed and replay is yours to bound.
+- **`separator`**, the text between the timestamp and the body. Telnyx signs `<timestamp>|<body>`, Discord `<timestamp><body>`. Defaults to the empty string.
+
+```typescript skip="fragment: a chain shown without its route"
+.from(http({
+  path: '/hooks/telnyx',
+  method: 'POST',
+  signature: {
+    scheme: 'ed25519',
+    publicKey: process.env.TELNYX_PUBLIC_KEY!,   // Mission Control > Keys & Credentials > Public Key
+    header: 'telnyx-signature-ed25519',
+    timestampHeader: 'telnyx-timestamp',
+    separator: '|',
+  },
+}))
+```
+
+Rules enforced at construction (`RC5003` from the `http({...})` call site): `signature` requires a body-bearing method (`POST`, `PUT`, `PATCH`), a non-empty `secret` (a parseable `publicKey` for `"ed25519"`), and a known `scheme`. At request time, oversized bodies still return 413 before any signature computation, and an empty body on a signature-gated route is verified rather than waved through. The gate is independent of the mount wall; webhook endpoints typically live on a public mount, since the signature is the credential.
 
 **Manual verification (escape hatch).** For providers whose scheme is not built in, opt in to the raw bytes and verify in a route step. Note the semantics differ from the built-in gate: `.filter()` drops an unsigned or invalid delivery (the exchange ends with a `route:exchange:dropped` event and the sender receives the route's normal empty response), it does not return 401 or raise RC5039. That is usually fine for webhooks, since providers only distinguish 2xx from non-2xx, but if you need an explicit 401 use the built-in `signature` option or set the response status yourself before dropping.
 
