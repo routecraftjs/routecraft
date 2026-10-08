@@ -120,6 +120,7 @@ describe("MCP 2026-07-28 stateless revision", () => {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
+        "MCP-Protocol-Version": "2026-07-28",
         Accept: "application/json, text/event-stream",
         ...headers,
       },
