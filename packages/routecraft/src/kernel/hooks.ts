@@ -298,6 +298,23 @@ export interface InstalledHook<H = ExchangeHook | WrapperHook | ErrorHook> {
   readonly hook: H;
 }
 
+/**
+ * One hook as it applies to one route, for whoever reads the route from
+ * outside: the ops route detail, a plugin listing what runs on a route.
+ * Names the plugin and the hook, never the hook's code.
+ */
+export interface RouteHookView {
+  /** The slot, or the point when `point` is true. */
+  readonly slot: string;
+  /** True for a point a plugin declared rather than a slot of the chain. */
+  readonly point: boolean;
+  /** Absent for a `perAttempt` wrapper, which has no phase. */
+  readonly phase?: Phase;
+  readonly plugin: string;
+  /** `pluginId/hookId`, the name `hooks.order` and `hooks.disable` address. */
+  readonly id: string;
+}
+
 const PHASE_ORDER: readonly Phase[] = ["observe", "mutate", "validate"];
 
 function hookName(hook: { id?: string }, fn: unknown, index: number): string {
@@ -478,6 +495,33 @@ export class HookTable {
   /** Whether a point of this name was declared. */
   hasPoint(name: string): boolean {
     return this.points.has(name);
+  }
+
+  /**
+   * Every hook that applies to a route, in the order it runs: slot by slot
+   * in chain order and phase by phase within a slot, then the declared
+   * points in declaration order.
+   */
+  describeRoute(
+    routeId: string,
+    tags: readonly string[],
+  ): readonly RouteHookView[] {
+    const places = [
+      ...SLOTS.map((slot) => ({ slot, point: false })),
+      ...[...this.points.keys()].map((slot) => ({ slot, point: true })),
+    ];
+    return places.flatMap(({ slot, point }) =>
+      this.forRoute(slot, routeId, tags).map((entry) => {
+        const phase = (entry.hook as { phase?: Phase }).phase;
+        return {
+          slot,
+          point,
+          ...(phase !== undefined ? { phase } : {}),
+          plugin: entry.pluginId,
+          id: entry.id,
+        };
+      }),
+    );
   }
 
   /**

@@ -14,6 +14,7 @@ import type {
   DeferralState,
   DeferralWaitingFor,
 } from "../../kernel/continuation/types.ts";
+import type { RouteHookView } from "../../kernel/hooks.ts";
 
 /**
  * The four-member health vocabulary.
@@ -518,10 +519,23 @@ export interface OpsRouteSummary {
   remote?: string;
 }
 
-/** One route in full. Adds the schema renderings to the summary. */
+/** One plugin hook as it applies to a route, in the ops route detail. */
+export type OpsRouteHook = RouteHookView;
+
+/**
+ * One route in full. Adds the schema renderings and the plugin hooks to the
+ * summary.
+ */
 export interface OpsRouteDetail extends OpsRouteSummary {
   input?: OpsRouteSchemas;
   output?: OpsRouteSchemas;
+  /**
+   * The plugin hooks that run on this route, in the order they run. Nothing
+   * in a route's own code shows them, so this is where an operator finds
+   * which hook refused a call. Absent for an imported route, whose hooks run
+   * on the remote.
+   */
+  hooks?: OpsRouteHook[];
 }
 
 /** Documented filters on `GET /ops/routes`. */

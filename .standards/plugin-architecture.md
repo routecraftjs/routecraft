@@ -72,7 +72,7 @@ A plugin is a plain descriptor, built with `definePlugin()`:
 | `provide(port, value)` | in `bind` only, a port this plugin declared in `provides` |
 | `observe(event, handler)` / `emit(event, details)` | the event bus |
 | `onDispose(fn)` | released at stop, LIFO, every one run even when another throws; also when this plugin's own `bind` throws after registering it |
-| `routes` | `register(...definitions)` in `bind`; `list()` and `get(id)` read views |
+| `routes` | `register(...definitions)` in `bind`; `list()`, `get(id)` and `hooksOf(id)` read views |
 | `execution` | `deliver` (resolves `unknown`; the caller narrows), `resume`, `sweep`, `capabilities`, `whenStarted`, `requestStop` |
 | `frozen` | true once the last `bind` returned; a provider collecting contributions through its port refuses later ones with `RC1110` |
 | `logger`, `id`, `namespace` | |

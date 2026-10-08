@@ -656,6 +656,11 @@ export class CraftContext {
           const route = this.getRouteById(id);
           return route ? view(route) : undefined;
         },
+        hooksOf: (id: string) => {
+          const route = this.getRouteById(id);
+          if (!route || !this.hooks) return [];
+          return this.hooks.describeRoute(id, routeTags(route.definition));
+        },
       },
       execution: {
         deliver: (

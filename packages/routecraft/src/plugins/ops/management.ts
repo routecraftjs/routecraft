@@ -141,7 +141,7 @@ function frameBytes(item: OpsEventTailItem): number {
  * (routes, execution, events) plus what other plugins contributed to it.
  */
 export interface ManagementHost {
-  readonly routes: Pick<PluginRoutes, "list" | "get">;
+  readonly routes: Pick<PluginRoutes, "list" | "get" | "hooksOf">;
   readonly execution: Pick<Execution, "capabilities" | "deliver">;
   observe: PluginContext["observe"];
   /** Whether an endpoint declared itself internal (`direct({ internal: true })`). */
@@ -337,7 +337,7 @@ export function createManagementApi(host: ManagementHost): ManagementApi {
     describeRoute(id: string): OpsRouteDetail | undefined {
       const capabilities = capabilityIndex();
       const route = localRoute(id, capabilities);
-      if (route) return detail(route, capabilities);
+      if (route) return detail(route, capabilities, host.routes.hooksOf);
       const imported = remoteIndex().get(id);
       return imported === undefined ? undefined : detailRemote(imported);
     },
@@ -494,6 +494,7 @@ function summarise(
 function detail(
   route: RouteView,
   capabilities: Map<string, Capability>,
+  hooksOf: PluginRoutes["hooksOf"],
 ): OpsRouteDetail {
   const { definition } = route;
   const capability = capabilities.get(definition.id);
@@ -507,6 +508,7 @@ function detail(
     ...summarise(route, capabilities),
     ...(input !== undefined ? { input } : {}),
     ...(output !== undefined ? { output } : {}),
+    hooks: [...hooksOf(definition.id)],
   };
 }
 

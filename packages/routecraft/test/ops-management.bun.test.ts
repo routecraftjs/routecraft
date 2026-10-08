@@ -673,6 +673,88 @@ describe("the ops management API", () => {
   });
 
   /**
+   * @case One route is described with the plugin hooks that run on it
+   * @preconditions Two plugins: one with a beforeAuth mutate hook on every route, an exit observe hook scoped to the tag "audited" and a perAttempt wrapper; one declaring a point with a hook at it from the other. Route "greet" carries the tag; route "plain" does not
+   * @expectedResult "greet" lists the hooks in run order, slot by slot then the point, each naming its plugin, id and phase (none for the wrapper); "plain" omits the tag-scoped hook. Nothing in a route's own code shows these, so the detail is where an operator finds which hook ran
+   */
+  test("describes one route with the hooks that apply to it", async () => {
+    const port = await start({
+      tiers: { introspection: true },
+      routes: [
+        craft().id("greet").tag("audited").from(direct()).to(noop()),
+        craft().id("plain").from(direct()).to(noop()),
+      ],
+      plugins: [
+        definePlugin({
+          id: "test.tenancy",
+          points: [{ name: "tenancy.resolved" }],
+          hooks: {
+            beforeAuth: { id: "tenant", phase: "mutate", run: () => undefined },
+            exit: {
+              id: "audit",
+              phase: "observe",
+              tags: ["audited"],
+              run: () => undefined,
+            },
+            perAttempt: { id: "time", wrap: (proceed) => proceed() },
+          },
+        }),
+        definePlugin({
+          id: "test.audit",
+          hooks: {
+            points: {
+              "tenancy.resolved": {
+                id: "record",
+                phase: "observe",
+                run: () => undefined,
+              },
+            },
+          },
+        }),
+      ],
+    });
+
+    const greet = await call<OpsRouteDetail>(port, "/ops/routes/greet");
+    expect(greet.status).toBe(200);
+    expect(greet.body.hooks).toEqual([
+      {
+        slot: "beforeAuth",
+        point: false,
+        phase: "mutate",
+        plugin: "test.tenancy",
+        id: "test.tenancy/tenant",
+      },
+      {
+        slot: "perAttempt",
+        point: false,
+        plugin: "test.tenancy",
+        id: "test.tenancy/time",
+      },
+      {
+        slot: "exit",
+        point: false,
+        phase: "observe",
+        plugin: "test.tenancy",
+        id: "test.tenancy/audit",
+      },
+      {
+        slot: "tenancy.resolved",
+        point: true,
+        phase: "observe",
+        plugin: "test.audit",
+        id: "test.audit/record",
+      },
+    ]);
+
+    const plain = await call<OpsRouteDetail>(port, "/ops/routes/plain");
+    expect(plain.body.hooks?.map((hook) => hook.id)).toEqual([
+      "test.tenancy/tenant",
+      "test.tenancy/time",
+      "test.audit/record",
+    ]);
+  });
+
+  /**
    * @case An unknown route id answers 404 on the detail resource
    * @preconditions Introspection open, an id no route declares
    * @expectedResult 404

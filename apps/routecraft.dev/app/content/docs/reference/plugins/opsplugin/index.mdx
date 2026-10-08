@@ -281,6 +281,31 @@ Query parameters narrow the one collection:
 | `limit` | Page size. A positive integer, at most 200. Defaults to 50 |
 | `after` | The `nextCursor` from the previous page |
 
+### Describing a route
+
+```bash
+curl -H "authorization: Bearer $TOKEN" 'http://127.0.0.1:8080/ops/routes/greet'
+```
+
+```json
+{
+  "id": "greet",
+  "dispatchable": true,
+  "enabled": true,
+  "sources": ["direct"],
+  "requiresPrincipal": false,
+  "title": "Greeter",
+  "input": { "body": { "type": "object", "properties": { "name": { "type": "string" } } } },
+  "hooks": [
+    { "slot": "beforeAuth", "point": false, "phase": "mutate", "plugin": "acme.tenancy", "id": "acme.tenancy/normaliseTenant" },
+    { "slot": "afterAuth", "point": false, "phase": "validate", "plugin": "acme.same-tenant", "id": "acme.same-tenant/principalMatchesTenant" },
+    { "slot": "approvals.decided", "point": true, "phase": "observe", "plugin": "acme.audit", "id": "acme.audit/recordDecision" }
+  ]
+}
+```
+
+The detail adds the declared schemas, rendered to JSON Schema where the library exposes one, and **`hooks`: every [plugin hook](/docs/advanced/plugins#hooks) that runs on this route, in the order it runs**, slot by slot in chain order and then point by point. Nothing in a route's own code shows which plugins hook it, so when a call is refused with [`RC5068`](/docs/reference/errors#rc-5068) this is where an operator finds the hook, under the `id` that `hooks.disable` and `hooks.order` address. A `perAttempt` wrapper carries no `phase`. An imported route has no `hooks`: its hooks run on the remote.
+
 ### Paging
 
 **Every collection response is an object carrying `items` and an optional `nextCursor`, never a bare array.** The contract, from the first release: if `nextCursor` is present there is more, and a correct client follows it. A client written against "this endpoint never paginates" is a client that silently reads page one forever the day it does.

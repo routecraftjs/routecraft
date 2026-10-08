@@ -8,7 +8,7 @@ import type {
   ResumeRequest,
 } from "./continuation/resume.ts";
 import type { AnyPort, Port } from "./port.ts";
-import type { Hooks, PointDeclaration } from "./hooks.ts";
+import type { Hooks, PointDeclaration, RouteHookView } from "./hooks.ts";
 import type { StepFactory } from "./steps.ts";
 
 /** The logger every plugin context carries. */
@@ -58,6 +58,11 @@ export interface PluginRoutes {
   list(): readonly RouteView[];
   /** One route by id. */
   get(id: string): RouteView | undefined;
+  /**
+   * The hooks that apply to a route, in the order they run. Empty for an
+   * unknown route and before the routes compile.
+   */
+  hooksOf(id: string): readonly RouteHookView[];
 }
 
 /**

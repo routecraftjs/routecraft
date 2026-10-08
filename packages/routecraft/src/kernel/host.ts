@@ -562,6 +562,7 @@ export class PluginHost {
         },
         list: () => env.routes.list(),
         get: (routeId) => env.routes.get(routeId),
+        hooksOf: (routeId) => env.routes.hooksOf(routeId),
       },
       execution: env.execution,
       get frozen() {

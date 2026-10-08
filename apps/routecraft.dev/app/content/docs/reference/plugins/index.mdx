@@ -100,6 +100,7 @@ A plain config object still loads: `craft start` accepts a default-exported `def
 | `frozen` | True once the last `bind` returned. A plugin that collects contributions through its port refuses later ones with [`RC1110`](/docs/reference/errors#rc-1110). |
 | `routes.register(...definitions)` | Add routes. In `bind` only (`RC1110` afterwards). |
 | `routes.list()`, `routes.get(id)` | Read-only views of registered routes: `id`, `definition`, `enabled`, `disabledReason`. |
+| `routes.hooksOf(id)` | The hooks that apply to a route in the order they run, each as `{ slot, point, phase?, plugin, id }`. Empty before the routes compile. |
 | `execution` | The verbs that drive the application, below. |
 
 ### Execution
