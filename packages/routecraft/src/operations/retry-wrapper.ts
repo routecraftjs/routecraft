@@ -1,5 +1,5 @@
 import type { Exchange } from "../exchange.ts";
-import { rcError, RoutecraftError } from "../error.ts";
+import { rcError } from "../error.ts";
 import { isRoutecraftError } from "../brand.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import { WrapperStep, type RequiredPosition } from "./wrapper.ts";
@@ -88,7 +88,7 @@ export interface ResolvedRetryOptions {
  */
 export function defaultRetryOn(error: Error): boolean {
   if (isRoutecraftError(error)) {
-    return (error as RoutecraftError).retryable !== false;
+    return error.retryable !== false;
   }
   return true;
 }

@@ -8,6 +8,7 @@ import {
   isRouteDefinition,
   isRoutecraftError,
   isExchange,
+  rcCodeOf,
   rcError,
 } from "@routecraft/routecraft";
 import { testContext } from "@routecraft/testing";
@@ -120,5 +121,19 @@ describe("Brand type guards (cross-instance identity)", () => {
     expect(isExchange(captured)).toBe(true);
     expect(isExchange({})).toBe(false);
     await t.stop();
+  });
+
+  /**
+   * @case The guards narrow, so a caller reads the branded fields without a cast
+   * @preconditions A RoutecraftError built by rcError, checked through isRoutecraftError
+   * @expectedResult `rc` and `meta.message` are readable on the narrowed value, and
+   *   rcCodeOf agrees with the field it reads
+   */
+  test("isRoutecraftError narrows to RoutecraftError", () => {
+    const err: unknown = rcError("RC5001", undefined, { message: "boom" });
+    if (!isRoutecraftError(err)) throw new Error("expected a RoutecraftError");
+    expect(err.rc).toBe("RC5001");
+    expect(err.meta.message).toBe("boom");
+    expect(rcCodeOf(err)).toBe(err.rc);
   });
 });

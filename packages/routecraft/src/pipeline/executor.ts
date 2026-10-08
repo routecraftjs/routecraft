@@ -1741,7 +1741,7 @@ function buildPerAttemptSegmentStep(
  */
 export function processError(error: unknown): RoutecraftError {
   if (isRoutecraftError(error)) {
-    return error as RoutecraftError;
+    return error;
   }
   const msg = error instanceof Error ? error.message : String(error);
   return rcError("RC5001", error, { message: msg });

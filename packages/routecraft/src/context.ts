@@ -1532,7 +1532,7 @@ export class CraftContext {
           return { routeId: route.definition.id, success: true as const };
         } catch (error) {
           const msg = isRoutecraftError(error)
-            ? (error as { meta: { message: string } }).meta.message
+            ? error.meta.message
             : error instanceof Error
               ? error.message
               : "Route failed to start";
@@ -1614,7 +1614,7 @@ export class CraftContext {
       })
       .catch((error) => {
         const msg = isRoutecraftError(error)
-          ? (error as { meta: { message: string } }).meta.message
+          ? error.meta.message
           : error instanceof Error
             ? error.message
             : "Context start failed";

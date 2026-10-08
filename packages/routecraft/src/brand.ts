@@ -3,6 +3,12 @@
  * Shared across all copies of @routecraft/routecraft in a process (e.g. CLI vs user module).
  */
 
+import type { AnyRouteBuilder } from "./builder.ts";
+import type { CraftContext } from "./context.ts";
+import type { RoutecraftError } from "./error.ts";
+import type { Exchange } from "./exchange.ts";
+import type { Route, RouteDefinition } from "./route.ts";
+
 export const BRAND = {
   CraftContext: Symbol.for("routecraft.CraftContext"),
   DefaultRoute: Symbol.for("routecraft.DefaultRoute"),
@@ -103,14 +109,14 @@ export function isBranded(obj: unknown, key: symbol): boolean {
 /**
  * Returns true if the value is a CraftContext instance.
  */
-export function isCraftContext(obj: unknown): boolean {
+export function isCraftContext(obj: unknown): obj is CraftContext {
   return isBranded(obj, BRAND.CraftContext);
 }
 
 /**
  * Returns true if the value is a Route (DefaultRoute) instance.
  */
-export function isRoute(obj: unknown): boolean {
+export function isRoute(obj: unknown): obj is Route {
   return isBranded(obj, BRAND.DefaultRoute);
 }
 
@@ -122,39 +128,36 @@ export function isProject(obj: unknown): boolean {
 /**
  * Returns true if the value is a RouteBuilder instance (has .build()).
  */
-export function isRouteBuilder(obj: unknown): boolean {
+export function isRouteBuilder(obj: unknown): obj is AnyRouteBuilder {
   return isBranded(obj, BRAND.RouteBuilder);
 }
 
 /**
  * Returns true if the value is a RouteDefinition (from craft().from().build()).
  */
-export function isRouteDefinition(obj: unknown): boolean {
+export function isRouteDefinition(obj: unknown): obj is RouteDefinition {
   return isBranded(obj, BRAND.RouteDefinition);
 }
 
 /**
  * Returns true if the value is a RoutecraftError instance.
  */
-export function isRoutecraftError(obj: unknown): boolean {
+export function isRoutecraftError(obj: unknown): obj is RoutecraftError {
   return isBranded(obj, BRAND.RoutecraftError);
 }
 
 /**
  * A RoutecraftError's RC code, or `undefined` for anything else.
  *
- * Lives beside the guard because every caller of one wants the other, and the
- * knowledge that the code sits on `.rc` was previously re-encoded as an
- * unchecked cast at each site. A cast fails silently when the field moves; one
- * reader fails loudly.
+ * Lives beside the guard because every caller of one wants the other.
  */
 export function rcCodeOf(error: unknown): string | undefined {
-  return isRoutecraftError(error) ? (error as { rc?: string }).rc : undefined;
+  return isRoutecraftError(error) ? error.rc : undefined;
 }
 
 /**
  * Returns true if the value is an Exchange instance.
  */
-export function isExchange(obj: unknown): boolean {
+export function isExchange(obj: unknown): obj is Exchange {
   return isBranded(obj, BRAND.Exchange);
 }
