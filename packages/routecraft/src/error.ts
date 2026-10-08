@@ -307,7 +307,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Definition",
     message: "Invalid plugin descriptor",
     suggestion:
-      "A plugin is a descriptor built with definePlugin({ id, ... }). The message names the field that is wrong: a missing id, the pre-0.8 apply() shape, a port list holding something other than ports, or a repeatable plugin declaring what only one install may.",
+      "A plugin is a descriptor built with definePlugin({ id, ... }). The message names the field that is wrong: a missing plugin or hook id, the pre-0.8 apply() shape, a port list holding something other than ports, or a repeatable plugin declaring what only one install may.",
     docs: `${DOCS_BASE}#rc-1117`,
     retryable: false,
   },

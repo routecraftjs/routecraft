@@ -8,11 +8,13 @@ import {
   definePlugin,
   direct,
   isHookRefusal,
-  markAuthentic,
+  defaultAuthority,
   noop,
   refuse,
   type Adapter,
+  type ErrorHook,
   type Exchange,
+  type ExchangeHook,
   type HookInfo,
   type Hooks,
   type HooksConfig,
@@ -22,14 +24,53 @@ import {
   type Principal,
   type Source,
   type Step,
+  type WrapperHook,
 } from "../src/index.ts";
 import { PUSH_STEP } from "../src/dsl-symbol.ts";
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 /** A plugin with the given hooks and nothing else. */
-function plugin(id: string, hooks: Hooks): Plugin {
-  return definePlugin({ id, hooks });
+/** Hooks as a test writes them: an id defaults to the slot and position. */
+type Loosen<H> = H extends object
+  ? Omit<H, "id"> & { readonly id?: string }
+  : never;
+type ElementOf<T> = T extends readonly (infer E)[] ? E : T;
+type LooseSlot<T> = Loosen<ElementOf<Exclude<T, undefined>>>;
+type LooseHooks = {
+  readonly [K in Exclude<keyof Hooks, "points">]?:
+    LooseSlot<Hooks[K]> | readonly LooseSlot<Hooks[K]>[];
+} & {
+  readonly points?: Readonly<
+    Record<string, Loosen<ExchangeHook> | readonly Loosen<ExchangeHook>[]>
+  >;
+};
+type LooseHook = Loosen<ExchangeHook | WrapperHook | ErrorHook>;
+
+function named(slot: string, hooks: LooseHook | readonly LooseHook[]): unknown {
+  const list = Array.isArray(hooks) ? hooks : [hooks];
+  const stamped = list.map((hook, index) => ({
+    id: `${slot}${index}`,
+    ...hook,
+  }));
+  return Array.isArray(hooks) ? stamped : stamped[0];
+}
+
+function plugin(id: string, hooks: LooseHooks): Plugin {
+  const { points, ...slots } = hooks;
+  const built: Record<string, unknown> = {};
+  for (const [slot, declared] of Object.entries(slots)) {
+    if (declared !== undefined) built[slot] = named(slot, declared);
+  }
+  if (points !== undefined) {
+    built["points"] = Object.fromEntries(
+      Object.entries(points).map(([point, declared]) => [
+        point,
+        named(point, declared),
+      ]),
+    );
+  }
+  return definePlugin({ id, hooks: built as Hooks });
 }
 
 /** An observe hook that records `label` each time it runs. */
@@ -62,7 +103,7 @@ function principalSource<T>(body: T, principal?: Principal): Source<T> {
   return {
     subscribe: async (sub) => {
       const headers = principal
-        ? { "routecraft.auth.principal": markAuthentic(principal) }
+        ? { "routecraft.auth.principal": defaultAuthority.brand(principal) }
         : undefined;
       await sub.emit({ message: body, ...(headers ? { headers } : {}) });
     },
@@ -159,6 +200,7 @@ describe("chain hooks", () => {
       subject: "user-1",
     };
     const slot = (name: string): ObserveHook => ({
+      id: name,
       phase: "observe",
       run(exchange, info) {
         seen.push(`${info.routeId}:${name}`);

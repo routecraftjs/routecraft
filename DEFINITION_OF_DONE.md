@@ -118,6 +118,10 @@ The checklists below apply to **packages that ship code**: anything under `packa
 
 - [ ] Add to the reference page with interface, options, and example
 - [ ] Update the conceptual guide if it introduces new plugin patterns
+- [ ] `requires`, `optional` and `provides` match what `bind` calls (`RC1108` / `RC1109` fire otherwise); a plugin that replaces `AUTHORITY` or `ENFORCEMENT` is named at boot
+- [ ] Every hook declares an `id` and the `runs` kinds it applies to; a validate hook's refusal picks the kind the caller can act on
+- [ ] A new kernel fault has an `RC11xx` row in `error.ts`, `errors.json` and the errors page
+- [ ] `test/type-budget.bun.test.ts` still passes with the plugin's steps and facet
 
 ## When you touch authentication, authorization, or token handling
 

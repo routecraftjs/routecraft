@@ -13,12 +13,16 @@ import {
   createConnectionCache,
   type ConnectionCache,
 } from "./http-client-cache.ts";
-import { MCP, createMcpService, type McpService } from "./port.ts";
+import {
+  MCP,
+  createMcpService,
+  type McpClientConfig,
+  type McpService,
+} from "./port.ts";
 import type {
   McpClientHttpConfig,
   McpClientStdioConfig,
   McpPluginOptions,
-  McpStdioToolCaller,
   McpTool,
 } from "./types.ts";
 import { validateMcpPluginOptions } from "./validate-options.ts";
@@ -66,11 +70,9 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
     optional: [WEB_INGRESS],
     async bind(c: PluginContext) {
       const stdio = new Map<string, StdioClientManager>();
+      const clients = new Map<string, McpClientConfig>();
       // Shared, so the disposer that removes a manager removes what dispatch sees.
-      const service: McpService = {
-        ...createMcpService(),
-        stdio: stdio as Map<string, McpStdioToolCaller>,
-      };
+      const service: McpService = createMcpService({ stdio, clients });
       c.provide(MCP, service);
 
       // Registered ahead of every refresh timer: disposers run in reverse, so
@@ -86,7 +88,7 @@ export function mcpPlugin(options: McpPluginOptions = {}): Plugin {
       );
 
       for (const [serverId, config] of Object.entries(options.clients ?? {})) {
-        service.clients.set(serverId, config);
+        clients.set(serverId, config);
         if (isStdioConfig(config)) {
           await startStdioClient(c, stdio, serverId, config, service.tools);
         } else {

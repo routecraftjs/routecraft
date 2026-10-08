@@ -22,27 +22,30 @@ import { fileURLToPath, pathToFileURL } from "node:url";
 // which the ESM loader requires for absolute specifiers on Windows.
 const pkgRoot = fileURLToPath(new URL("..", import.meta.url));
 
-function collectSourceKeys(dir, keys = new Set()) {
+// Anchored to line start so indented JSDoc examples do not match; real
+// registrations are top-level statements.
+const APPLIER_CALL = /^registerConfigApplier\(\s*"([^"]+)"/gm;
+const SHIPPED_CALL = /^registerShippedPlugin\(/gm;
+
+function collectSourceKeys(dir, found = { keys: new Set(), shipped: 0 }) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {
     const path = join(dir, entry.name);
     if (entry.isDirectory()) {
-      collectSourceKeys(path, keys);
+      collectSourceKeys(path, found);
     } else if (entry.name.endsWith(".ts")) {
       const source = readFileSync(path, "utf8");
-      // Anchored to line start so indented JSDoc examples do not match;
-      // real registrations are top-level statements.
-      for (const match of source.matchAll(
-        /^registerConfigApplier\(\s*"([^"]+)"/gm,
-      )) {
-        keys.add(match[1]);
+      for (const match of source.matchAll(APPLIER_CALL)) {
+        found.keys.add(match[1]);
       }
+      found.shipped += [...source.matchAll(SHIPPED_CALL)].length;
     }
   }
-  return keys;
+  return found;
 }
 
-const expected = [...collectSourceKeys(join(pkgRoot, "src"))].sort();
-if (expected.length === 0) {
+const found = collectSourceKeys(join(pkgRoot, "src"));
+const expected = [...found.keys].sort();
+if (expected.length === 0 || found.shipped === 0) {
   console.error(
     "verify-dist: found no registerConfigApplier() calls under src/; the scan is broken.",
   );
@@ -75,7 +78,22 @@ if (missing.length > 0) {
   process.exit(1);
 }
 
+// The shipped-plugin registry is module-local by design, so the bundle is
+// read for the registration calls themselves: one per `registerShippedPlugin`
+// statement under src/, each at the top level of its module.
+const bundle = readFileSync(join(pkgRoot, entry), "utf8");
+const shippedInBundle = [
+  ...bundle.matchAll(/(?<!function )registerShippedPlugin\(/g),
+].length;
+if (shippedInBundle < found.shipped) {
+  console.error(
+    `verify-dist: ${entry} carries ${shippedInBundle} registerShippedPlugin() call(s); src/ has ${found.shipped}. ` +
+      "A default plugin's registration was tree-shaken out of the bundle, so an application would start without it.",
+  );
+  process.exit(1);
+}
+
 console.log(
-  `verify-dist: ${entry} registers ${expected.length} config appliers (${expected.join(", ")}).`,
+  `verify-dist: ${entry} registers ${expected.length} config appliers (${expected.join(", ")}) and ${found.shipped} shipped plugins.`,
 );
 process.exit(0);

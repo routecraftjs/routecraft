@@ -48,7 +48,7 @@ import {
   type ProtocolIssue,
 } from "./protocol.ts";
 import { surfaceFor, turnSurfaceOf } from "./registry.ts";
-import { SURFACES, type SurfaceState } from "./state.ts";
+import { surfacesOf, type SurfaceState } from "./state.ts";
 import { SurfaceDisconnected } from "./errors.ts";
 import {
   withSession,
@@ -376,11 +376,6 @@ export function hasSurface(exchange: Exchange<unknown>): boolean {
   if (state === undefined) return false;
   const ref = refFor(state, exchange);
   return ref !== undefined && surfaceFor(state, ref) !== undefined;
-}
-
-/** The application's surfaces, or `undefined` when no backend is installed. */
-function surfacesOf(exchange: Exchange<unknown>): SurfaceState | undefined {
-  return getExchangeContext(exchange)?.lookup(SURFACES);
 }
 
 /**

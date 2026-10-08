@@ -55,8 +55,8 @@ function getRegistry(): Map<string, AnyConfigApplier> {
  * Ecosystem packages call this once at module load time (typically from a
  * side-effect import) so that setting `config[key]` becomes equivalent to
  * pushing the corresponding plugin onto `config.plugins`. Resulting plugins
- * participate in the standard lifecycle: `apply()` runs during
- * `initPlugins()`, `teardown()` runs during `context.stop()`.
+ * participate in the standard lifecycle: `bind()` runs while the application
+ * is installed, `stop()` runs during `context.stop()`.
  *
  * The framework invokes the applier whenever `config[key] !== undefined`.
  * Falsy values (`false`, `0`, `""`, `null`) are still passed through; only

@@ -56,10 +56,13 @@ type ToolCallScoped = ExchangeScoped & {
  */
 declare module "@routecraft/routecraft" {
   interface EventDetailsMap {
-    // -- Agent (emitted by agent() destinations in this package) --
-    // Sensitive payloads (tool input/output, thrown errors that may echo
-    // them) ride in the `_snapshot` envelope: the bus always carries them,
-    // but the telemetry sink persists them only when snapshot capture is on.
+    /**
+     * An `agent()` destination began a run. Across the agent events,
+     * sensitive payloads (tool input and output, thrown errors that may
+     * echo them) ride in the `_snapshot` envelope: the bus always carries
+     * them, and the telemetry sink persists them only when snapshot capture
+     * is on.
+     */
     "route:agent:started": ExchangeScoped & {
       agentName?: string;
       model: string;
@@ -169,12 +172,11 @@ declare module "@routecraft/routecraft" {
       error: unknown;
     };
 
-    // -- Agent sessions (emitted by @routecraft/ai for agent() dispatches
-    // that carry `session`). `agentName` is the session's agent: the
-    // registered name, or the route id for an inline agent.
     /**
      * A message arrived for a session whose turn is running and was queued
      * for the next turn boundary. The caller was acknowledged, not answered.
+     * On every session event, `agentName` is the session's agent: the
+     * registered name, or the route id for an inline agent.
      */
     "route:agent:session:queued": ExchangeScoped & {
       agentName: string;
@@ -249,9 +251,12 @@ declare module "@routecraft/routecraft" {
       duration: number;
     };
 
-    // -- Agent / tool registration (emitted once per registered agent / fn
-    // on context:started by agentPlugin, so observability consumers can
-    // list agents and tools before any of them runs) --
+    /**
+     * A registered agent was announced, once per agent when the agent
+     * runtime starts, so observability consumers list agents and tools
+     * before any of them runs. `agent:tool:registered` does the same for
+     * each registered function.
+     */
     "agent:registered": {
       agentId: string;
       description?: string;

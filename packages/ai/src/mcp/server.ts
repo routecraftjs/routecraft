@@ -1,5 +1,5 @@
 import type {
-  Port,
+  PortLookup,
   EventDetailsMap,
   EventHandler,
   EventName,
@@ -219,13 +219,10 @@ export interface McpServerHost {
    * Where the HTTP mount looks up the `WEB_INGRESS` port for its named
    * server: the plugin context, which declares the port optional.
    */
-  readonly ingress: IngressLookup;
+  readonly ingress: PortLookup;
   /** Brands the identities the server verifies, for the gates to trust. */
   readonly authority: Authority;
 }
-
-/** Anything that can look a port up: a plugin context, or a context. */
-type IngressLookup = { lookup<T>(port: Port<T>): T | undefined };
 
 /**
  * McpServer wraps the MCP SDK and bridges it to Routecraft's DirectChannel
@@ -243,7 +240,7 @@ type IngressLookup = { lookup<T>(port: Port<T>): T | undefined };
 export class McpServer {
   private readonly host: McpServerHost;
   private readonly service: McpService;
-  private context: IngressLookup;
+  private context: PortLookup;
   private options: McpServerResolvedOptions;
   private mcpHandler: McpHttpHandler | null = null;
   private unmountHttp: (() => void) | null = null;

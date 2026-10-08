@@ -2,7 +2,12 @@ import { afterEach, describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
 import { mcp, McpHeadersKeys } from "../src/index.ts";
 import { mcpPort, mcpService } from "./helpers/mcp-port.ts";
-import { MCP, createMcpService, type McpService } from "../src/mcp/port.ts";
+import {
+  MCP,
+  createMcpService,
+  type McpClientConfig,
+} from "../src/mcp/port.ts";
+import type { McpLocalToolEntry } from "../src/mcp/types.ts";
 import { McpEnricherAdapter } from "../src/mcp/adapters/mcp/enricher.ts";
 import { testContext, type TestContext } from "@routecraft/testing";
 import { craft, simple, direct, DefaultExchange } from "@routecraft/routecraft";
@@ -378,6 +383,33 @@ describe("mcp() DSL function", () => {
   });
 
   /**
+   * @case The service's registration method owns the one-tool-per-endpoint invariant
+   * @preconditions An MCP service seeded through the port's factory; one entry registered, the same endpoint registered again, then the first withdrawn and a stale withdrawal replayed
+   * @expectedResult The second registration is refused with RC5003 naming the endpoint, withdrawal removes exactly the entry it registered, and a withdrawal replayed after a re-registration leaves the newer entry in place
+   */
+  test("registerLocal refuses a duplicate endpoint and withdraws only its own entry", () => {
+    const service = createMcpService();
+    const entry = (description: string): McpLocalToolEntry => ({
+      endpoint: "tool",
+      description,
+      handler: () => Promise.reject(new Error("unused")),
+    });
+    const withdrawFirst = service.registerLocal(entry("first"));
+
+    expect(() => service.registerLocal(entry("second"))).toThrow(
+      expect.objectContaining({ rc: "RC5003" }),
+    );
+    expect(service.local.get("tool")?.description).toBe("first");
+
+    withdrawFirst();
+    expect(service.local.has("tool")).toBe(false);
+
+    service.registerLocal(entry("third"));
+    withdrawFirst();
+    expect(service.local.get("tool")?.description).toBe("third");
+  });
+
+  /**
    * @case mcp() with McpClientOptions returns McpAdapter (facade) for remote server
    * @preconditions Call mcp({ url, tool })
    * @expectedResult Returns adapter with adapterId routecraft.adapter.mcp and send method
@@ -484,7 +516,7 @@ describe("dispatchMcpCall: RC5003 error wrapping", () => {
                   throw original;
                 },
               });
-              c.provide(MCP, { ...createMcpService(), stdio: managers });
+              c.provide(MCP, createMcpService({ stdio: managers }));
             },
           },
         ],
@@ -536,7 +568,7 @@ describe("dispatchMcpCall: RC5003 error wrapping", () => {
                   throw original;
                 },
               });
-              c.provide(MCP, { ...createMcpService(), stdio: managers });
+              c.provide(MCP, createMcpService({ stdio: managers }));
             },
           },
         ],
@@ -570,9 +602,9 @@ describe("dispatchMcpCall: RC5003 error wrapping", () => {
             id: "test.mcp-fixture",
             provides: [MCP],
             bind(c) {
-              const servers: McpService["clients"] = new Map();
+              const servers = new Map<string, McpClientConfig>();
               servers.set("bad", { url: "not a url" });
-              c.provide(MCP, { ...createMcpService(), clients: servers });
+              c.provide(MCP, createMcpService({ clients: servers }));
             },
           },
         ],

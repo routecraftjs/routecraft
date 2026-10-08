@@ -23,7 +23,7 @@ import {
   runElevator,
 } from "./door.ts";
 import { DeferralHeaders } from "./exchange-state.ts";
-import { CONTINUATIONS } from "./port.ts";
+import { requireContinuations } from "./port.ts";
 import {
   decodePersistable,
   deserializeExchange,
@@ -95,6 +95,13 @@ export interface ResumeDoor {
   readonly principal?: Principal;
   /** The ingress step's abort signal, which is what bounds an async hook. */
   readonly signal?: AbortSignal;
+  /**
+   * The ingress route, so a door that dispatched it reads a rejected
+   * payload (`RC5049`) as the submitter's input error, the way it reads
+   * the route's own `.input()` refusal. Absent on a plugin-driven resume,
+   * where no caller is waiting for an answer.
+   */
+  readonly routeId?: string;
 }
 
 /**
@@ -203,13 +210,10 @@ export async function reviveDeferral(
   request: ResumeRequest,
   door: ResumeDoor = {},
 ): Promise<ResumeAcknowledgment> {
-  const runtime = context.lookup(CONTINUATIONS);
-  if (!runtime) {
-    throw rcError("RC5052", undefined, {
-      message:
-        "Cannot resume: this context has no deferral runtime, so no token it was handed can be verified. Add deferral: {} to defineConfig.",
-    });
-  }
+  const runtime = requireContinuations(
+    context,
+    "Cannot resume: no token this application was handed can be verified",
+  );
 
   const { id, sub } = runtime.signer.verify(request.token);
   const deferral = await runtime.store.get(id);
@@ -303,7 +307,13 @@ export async function reviveDeferral(
   if (site.schema) {
     const result = await validateAgainst(site.schema, request.result);
     if (!result.ok) {
-      throw rcError("RC5049", result.message, {
+      const cause = new Error(result.message);
+      if (door.routeId !== undefined) {
+        Object.assign(cause, {
+          invalid: { in: "body", issues: result.issues, routeId: door.routeId },
+        });
+      }
+      throw rcError("RC5049", cause, {
         message: `The payload for deferral "${id}" does not satisfy its declared schema: ${result.message}`,
       });
     }

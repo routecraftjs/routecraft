@@ -304,7 +304,7 @@ curl -H "authorization: Bearer $TOKEN" 'http://127.0.0.1:8080/ops/routes/greet'
 }
 ```
 
-The detail adds the declared schemas, rendered to JSON Schema where the library exposes one, and **`hooks`: every [plugin hook](/docs/advanced/plugins#hooks) that runs on this route, in the order it runs**, slot by slot in chain order and then point by point. Nothing in a route's own code shows which plugins hook it, so when a call is refused with [`RC5068`](/docs/reference/errors#rc-5068) this is where an operator finds the hook, under the `id` that `hooks.disable` and `hooks.order` address. A `perAttempt` wrapper carries no `phase`. An imported route has no `hooks`: its hooks run on the remote.
+The detail adds the declared schemas, rendered to JSON Schema where the library exposes one, and **`hooks`: every [plugin hook](/docs/advanced/plugins#hooks) that runs on this route, in the order it runs**, slot by slot in chain order and then point by point. Nothing in a route's own code shows which plugins hook it, so when a call is refused with [`RC5068`](/docs/reference/errors#rc-5068) this is where an operator finds the hook, under the `id` that `hooks.disable` and `hooks.order` address. A `perAttempt` wrapper carries no `phase`. An imported route has no `hooks`: its hooks run on the remote. The field is served under the `introspection` tier, which is off by default: a hook's id is operator data, and the refused caller's door never carries it, so open the tier to a credential, never to the public `default` server. A point hook is listed on every route its `routes` or `tags` filter matches, whether or not that route's steps invoke the point.
 
 ### Paging
 

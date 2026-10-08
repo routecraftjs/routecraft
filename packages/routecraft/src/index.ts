@@ -17,7 +17,6 @@ export {
 } from "./auth/authorize.ts";
 export { authenticate, type PrincipalClaims } from "./auth/authenticate.ts";
 export { delegate, type DelegateOptions } from "./auth/delegate.ts";
-export { isAuthentic, markAuthentic } from "./auth/authentic.ts";
 export { isDevelopmentRuntime } from "./shared/runtime-env.ts";
 export {
   classifyRejectionReason,
@@ -79,7 +78,12 @@ export {
   type RouteView,
   type StopInfo,
 } from "./kernel/plugin.ts";
-export { port, type AnyPort, type Port } from "./kernel/port.ts";
+export {
+  port,
+  type AnyPort,
+  type Port,
+  type PortLookup,
+} from "./kernel/port.ts";
 export {
   CACHE,
   ENFORCEMENT,
@@ -109,6 +113,7 @@ export { directPlugin } from "./plugins/direct/index.ts";
 export {
   isHookRefusal,
   refuse,
+  REFUSAL_KINDS,
   SLOTS,
   type ErrorHook,
   type ErrorHookInfo,

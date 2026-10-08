@@ -9,7 +9,8 @@ import { WrapperStep } from "./wrapper.ts";
 import { cancellableSleep, SleepAbortedError } from "./cancellable-sleep.ts";
 import { DEFAULT_MAX_KEYS, validateMaxKeys } from "./max-keys.ts";
 import { RouteScopedController } from "./route-scoped-controller.ts";
-import { stepPosition, stepScopeOf } from "./position-run.ts";
+import { positionFor, stepScopeOf } from "./position-run.ts";
+import { RESILIENCE } from "../kernel/positions.ts";
 
 /**
  * Time window a `.throttle()` rate is measured over.
@@ -554,10 +555,11 @@ export class ThrottleWrapperStep<
     exchange: Exchange,
     ctx: StepContext,
   ): Promise<StepOutcome> {
-    const gate = stepPosition(
+    const gate = positionFor(
       this.#gates,
       exchange,
       this,
+      RESILIENCE,
       "throttle",
       (provider) =>
         provider.throttle(this.#options, stepScopeOf(this, exchange)),

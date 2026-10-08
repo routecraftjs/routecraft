@@ -174,6 +174,7 @@ export const recovery = {
    *   id: "acme.step-up",
    *   hooks: {
    *     error: {
+   *       id: "parkForStepUp",
    *       phase: "mutate",
    *       mayDefer: true,
    *       schema: decision,

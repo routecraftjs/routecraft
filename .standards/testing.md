@@ -80,6 +80,8 @@ The `test(...)` string itself is the searchable label. Keep it short and declara
 | `fixture(path)` | Load a JSON fixture file. `fixtureEach(path, test, run)` runs one test per array entry, using `entry.name` as the test name; pass your runner's `test` function as the second argument (e.g. `test` from `bun:test`). |
 | `createSpyLogger(fn?)` / `createNoopSpyLogger(fn?)` | Capture or silence log output. `testContext()` builds the spy logger internally; assert via `t.logger.warn.mock.calls`, or pass your runner's mock factory (`testContext({ fn: mock })` for bun:test, `{ fn: vi.fn }` for Vitest) for native matcher support. |
 
+A plugin's hook or step has no helper of its own: test it through `testContext().with({ plugins: [definePlugin({ id, hooks })] })` over a route built with `craft()`, which exercises the slot order, the phase checks and the door mapping the hook meets in production. A hook's `run` is an ordinary function and may be called directly for its pure parts; a step is tested through a route that places it.
+
 ## 4. After a public option rename, the gate does not prove the sweep
 
 A green `bun run all` proves nothing about the places a renamed option can still

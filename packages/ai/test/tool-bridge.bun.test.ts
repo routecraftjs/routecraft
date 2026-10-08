@@ -1,6 +1,6 @@
 import { describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
-import { isAuthentic, markAuthentic } from "@routecraft/routecraft";
+import { defaultAuthority } from "@routecraft/routecraft";
 import { buildVercelTools } from "../src/agent/tool-bridge.ts";
 import type { ResolvedTool } from "../src/agent/tools/selection.ts";
 
@@ -148,7 +148,7 @@ describe("buildVercelTools: execute path", () => {
     const captured: Array<boolean> = [];
     const handler = mock(
       async (_input: unknown, ctx: { principal?: object }) => {
-        captured.push(isAuthentic(ctx.principal));
+        captured.push(defaultAuthority.isAuthentic(ctx.principal));
         return "done";
       },
     );
@@ -160,7 +160,7 @@ describe("buildVercelTools: execute path", () => {
       handler: handler as ResolvedTool["handler"],
     };
 
-    const authentic = markAuthentic({
+    const authentic = defaultAuthority.brand({
       kind: "jwt" as const,
       scheme: "bearer" as const,
       subject: "verified",

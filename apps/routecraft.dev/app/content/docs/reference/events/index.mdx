@@ -255,15 +255,15 @@ A suppressed duplicate also fires `route:exchange:dropped` with reason `"duplica
 
 | Event | When it fires | Details |
 | --- | --- | --- |
-| `route:error-handler:invoked` | A handler runs, at any of the three scopes | `{ routeId, exchangeId, correlationId, originalError, failedOperation, scope: "route" \| "step" \| "context", stepLabel? }` |
+| `route:error-handler:invoked` | A handler runs, at any of the three scopes | `{ routeId, exchangeId, correlationId, originalError, failedOperation, scope: "route" \| "step" \| "slot", stepLabel? }` |
 | `route:error-handler:recovered` | Handler returned a value; pipeline continues (step scope), replaces the body, or parks the exchange | Same plus `recoveryStrategy` |
-| `route:error-handler:failed` | Handler itself threw | Same plus `handlerIndex?` |
+| `route:error-handler:failed` | Handler itself threw | Same plus `hook?` |
 
-`scope` names which ring handled it: `"step"` for a wrapper attached AFTER `.from()`, `"route"` for the catch-all set via `.error()` BEFORE `.from()`, and `"context"` for a plugin hook in the chain's [`error` slot](/docs/reference/plugins#slots). `stepLabel` is the label of the wrapped step when `scope === "step"`. `recoveryStrategy` is `"step-error-handler"`, `"route-error-handler"` or `"context-error-handler"`. Subscribe to the exact names and branch on `scope` in the payload.
+`scope` names which ring handled it: `"step"` for a wrapper attached AFTER `.from()`, `"route"` for the catch-all set via `.error()` BEFORE `.from()`, and `"slot"` for a plugin hook in the chain's [`error` slot](/docs/reference/plugins#slots). `stepLabel` is the label of the wrapped step when `scope === "step"`. `recoveryStrategy` is `"step-error-handler"`, `"route-error-handler"` or `"error-slot-hook"`. Subscribe to the exact names and branch on `scope` in the payload.
 
-`handlerIndex` appears on a failure at context scope only, and names which `error` slot hook threw, by its position among the deciding hooks that applied to the route. It exists because "the handler" is ambiguous there: the slot CONTINUES past a hook that throws, so an operator needs to know which one to fix. At route and step scope there is only one handler to blame, and the field is absent.
+`hook` appears on a failure at slot scope only, and names which `error` slot hook threw, as the `pluginId/hookId` that `hooks.disable` addresses. It exists because "the handler" is ambiguous there: the slot CONTINUES past a hook that throws, so an operator needs to know which one to fix. At route and step scope there is only one handler to blame, and the field is absent.
 
-A failure at context scope is also the one case where `route:error-handler:failed` does not imply the exchange failed: the next hook in the slot may still decide. Conversely, once any handler or hook decides, `context:error` and `route:exchange:failed` do not fire at all.
+A failure at slot scope is also the one case where `route:error-handler:failed` does not imply the exchange failed: the next hook in the slot may still decide. Conversely, once any handler or hook decides, `context:error` and `route:exchange:failed` do not fire at all.
 
 ### Cache wrapper operations
 

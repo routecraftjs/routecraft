@@ -20,7 +20,7 @@ import {
   effectiveSequence,
   deferralIdOf,
 } from "./exchange-state.ts";
-import { CONTINUATIONS } from "./port.ts";
+import { CONTINUATIONS, requireContinuations } from "./port.ts";
 import { serializeExchange } from "./serialize.ts";
 import { type Deferred, createDeferred } from "./deferred.ts";
 import type { NewDeferral } from "./types.ts";
@@ -73,12 +73,10 @@ export async function deferExchange(
   routeId: string,
   abortSignal?: AbortSignal,
 ): Promise<Exchange> {
-  const runtime = context.lookup(CONTINUATIONS);
-  if (!runtime) {
-    throw rcError("RC5052", undefined, {
-      message: `Route "${routeId}" reached a .defer() but this context has no deferral runtime. Add deferral: {} to defineConfig.`,
-    });
-  }
+  const runtime = requireContinuations(
+    context,
+    `Route "${routeId}" reached a .defer()`,
+  );
 
   const { id, deferring, record } = describeRecord(
     exchange,
@@ -337,12 +335,10 @@ export async function deferAside(
   stepState: (deferralId: string) => unknown,
   announce?: (deferralId: string) => Promise<void>,
 ): Promise<{ deferralId: string }> {
-  const runtime = context.lookup(CONTINUATIONS);
-  if (!runtime) {
-    throw rcError("RC5052", undefined, {
-      message: `Route "${routeId}" needs a continuation stored for a later turn, and this context has no deferral runtime. Add deferral: {} to defineConfig.`,
-    });
-  }
+  const runtime = requireContinuations(
+    context,
+    `Route "${routeId}" needs a continuation stored for a later turn`,
+  );
   const floor = asideSequenceOf(exchange);
   const sequence = effectiveSequence(exchange.headers, floor);
   const id = deferralIdOf(exchange.headers, exchange.id, floor);

@@ -289,11 +289,7 @@ export async function runElevator(
     throw refused("threw", err);
   }
 
-  // A re-mint is by construction a fresh verification, so what comes back
-  // must be live. A restored principal would mean the door handed back
-  // something it read out of storage, which is the laundering `markRestored`
-  // exists to stop; `isAuthentic` is the positive check, and the two are not
-  // each other's inverse, so a self-asserted plain object fails here too.
+  // The positive check: a restored record and a plain object both fail it.
   if (!authority.isAuthentic(elevated)) {
     throw refused("returned a principal that was not verified live");
   }
@@ -333,16 +329,10 @@ function elevationDeviation(
   bound: readonly string[] | undefined,
 ): string | undefined {
   if (!parked) {
-    // Nothing parked means nothing to lend WITHIN: the rule is expressed as
-    // a difference from the parked principal, and there is no such thing to
-    // differ from. A door wanting to authorize an anonymous park has to do
-    // it with `authorize`, which answers exactly that question.
+    // Nothing parked means nothing to lend within; `authorize` answers an anonymous park.
     return "returned a principal for a deferral that parked without one";
   }
-  // A principal is application data: an actor chain that loops would make
-  // `JSON.stringify` throw, and a raw TypeError out of the elevator reads as
-  // a framework fault rather than as a principal it declined to accept. An
-  // identity this function cannot compare is one it must not approve.
+  // An identity this function cannot compare (a looping actor chain) is not approved.
   let same: boolean;
   try {
     same = identicalJson(
@@ -389,11 +379,8 @@ function comparableIdentity(principal: Principal): unknown {
     ),
     ...(actor
       ? {
-          // Only the OUTERMOST actor's scopes are lendable. Its own `actor`
-          // chain is left untouched inside this object, so every prior actor
-          // is compared whole, scopes included: RFC 8693 section 4.1 makes
-          // them audit data rather than a policy input, and nothing may lend
-          // to them.
+          // Only the outermost actor's scopes are lendable; prior actors
+          // compare whole (RFC 8693 section 4.1).
           actor: without(
             actor as unknown as Record<string, unknown>,
             (key) => VERIFICATION_FIELDS.has(key) || key === "scopes",
@@ -495,9 +482,6 @@ function stableJson(value: unknown): string {
 }
 
 function isRefusal(err: unknown): boolean {
-  // The BRAND, not a matching `rc` property. A hook is application code and
-  // may reject with anything, including an object shaped like one of these
-  // refusals; passing that through would report the hook's own message as
-  // the framework's verdict and skip logging it as a hook that threw.
+  // By brand: a hook may reject with an object shaped like a refusal.
   return rcCodeOf(err) === "RC5056";
 }

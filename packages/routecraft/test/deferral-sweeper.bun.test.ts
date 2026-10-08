@@ -3,7 +3,6 @@ import { z } from "zod";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
   MemoryDeferralStore,
-  CONTINUATIONS,
   craft,
   direct,
   noop,
@@ -637,7 +636,7 @@ describe("the deferral sweeper", () => {
   /**
    * @case Shutdown arriving while a sweep is mid-batch
    * @preconditions A store whose close() records when it ran, and a sweep held open inside markExpired until after teardown has begun
-   * @expectedResult The store closes only after the sweep finishes. A sweep outliving teardown meets a closed handle, and a retirement that already won its transition re-enters a drained route: the record settles expired with its approver never told, and nothing revisits it
+   * @expectedResult stop() resolves only after the sweep finishes, so a store the plugin opened closes after it. A sweep outliving teardown meets a closed handle, and a retirement that already won its transition re-enters a drained route: the record settles expired with its approver never told, and nothing revisits it
    */
   test("teardown waits for a sweep already in flight", async () => {
     const backing = new MemoryDeferralStore();
@@ -677,19 +676,18 @@ describe("the deferral sweeper", () => {
       .build());
     await context.startAndWaitReady();
 
-    // The store is supplied, so the plugin does not own it and would not
-    // close it. Owning it is what makes the ordering observable, and it is
-    // the shape a real deployment has.
-    const runtime = context.ctx.require(CONTINUATIONS);
-    (runtime as { ownsStore: boolean }).ownsStore = true;
-
+    // The store is supplied, so the plugin leaves closing it to the test:
+    // stop() resolving is where the awaited sweep becomes observable, and
+    // the plugin closes a store it opened only after that same await.
     await store.create(overdue("def-mid-sweep"));
     await reachedTransition;
     const stopping = context.stop();
     releaseSweep();
     await stopping;
+    order.push("stop resolved");
+    await store.close();
 
-    expect(order).toEqual(["sweep finished", "store closed"]);
+    expect(order).toEqual(["sweep finished", "stop resolved", "store closed"]);
   });
 
   /**

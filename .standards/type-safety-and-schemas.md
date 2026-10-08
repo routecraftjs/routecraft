@@ -140,10 +140,10 @@ Routes **never** spawn processes. Stdio MCP clients are registered in `mcpPlugin
 Every `declare module` block inside `packages/*/src/**` must target the published package specifier, never a relative path.
 
 ```ts
-// Good
+// Good: a step method generic at the call site, merged into StepMethods
 declare module "@routecraft/routecraft" {
-  interface RouteBuilder<Current> {
-    myMethod(...): RouteBuilder<Current>;
+  interface StepMethods<Current> {
+    myMethod<T>(schema: StandardSchemaV1<T>): RouteBuilder<T>;
   }
 }
 
@@ -151,6 +151,10 @@ declare module "@routecraft/routecraft" {
 declare module "./builder.ts" { ... }
 declare module "../exchange.ts" { ... }
 ```
+
+A plugin's ordinary steps need no augmentation at all: `steps` on the
+descriptor become builder methods typed by `step<In, Out>()`, and the
+project's `craft()` carries exactly the installed plugins' methods.
 
 ### Why
 

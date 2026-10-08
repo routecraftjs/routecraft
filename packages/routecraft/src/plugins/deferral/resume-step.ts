@@ -218,6 +218,7 @@ export class ResumeStep<In = unknown> implements Step<ResumeAdapter> {
         ...(this.elevate !== undefined ? { elevate: this.elevate } : {}),
         ...(live ? { principal: live } : {}),
         ...(hookSignal ? { signal: hookSignal } : {}),
+        ...(route ? { routeId: route.definition.id } : {}),
       },
     );
 

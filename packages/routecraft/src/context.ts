@@ -17,7 +17,10 @@ import { logger, childBindings } from "./logger.ts";
 import { type AdapterOverride, RC_ADAPTER_OVERRIDES } from "./testing-hooks.ts";
 import { configuredPlugins, getConfigAppliers } from "./config-applier.ts";
 import { DIRECT } from "./kernel/direct.ts";
-import { CONTINUATIONS } from "./kernel/continuation/port.ts";
+import {
+  CONTINUATIONS,
+  CONTINUATIONS_REMEDY,
+} from "./kernel/continuation/port.ts";
 import { ContinuationSweeper } from "./kernel/continuation/sweep.ts";
 import { applyResolvedSites } from "./kernel/continuation/sites.ts";
 import {
@@ -38,7 +41,6 @@ import type { Plugin, RouteView } from "./kernel/plugin.ts";
 import {
   HookTable,
   routeTags,
-  type ErrorHook,
   type HooksConfig,
   type InstalledHook,
 } from "./kernel/hooks.ts";
@@ -398,8 +400,8 @@ export class CraftContext {
    * The plugin lifecycle hook currently awaiting, so a `stop()` that lands
    * mid-boot can let it finish before teardown runs.
    *
-   * Scoped to `apply()` and `start()` alone, never `run()`: for an
-   * indefinite route `run()` resolves only once the context stops, so
+   * Scoped to `bind()` and `start()` alone, never the context's own run:
+   * for an indefinite route that resolves only once the context stops, so
    * waiting on it would deadlock the shutdown this ordering exists to serve.
    */
   private pluginHookInFlight: Promise<void> | undefined;
@@ -456,10 +458,8 @@ export class CraftContext {
       this.pluginList.push(...configuredPlugins(config));
 
       // A set config key that is neither a base key nor a registered applier
-      // is dead weight: a typo (`htttp`), or an applier whose registering
-      // module never loaded (the config-applier bundle regression shipped
-      // exactly this way, with `mail: {...}` silently ignored). Warn instead
-      // of throwing because appliers are an open registry and a false
+      // is a typo, or an applier whose registering module never loaded. A
+      // warning, not a throw: appliers are an open registry, and a false
       // positive must not take down an otherwise valid context.
       for (const key of Object.keys(configRecord)) {
         if (configRecord[key] === undefined) continue;
@@ -503,18 +503,14 @@ export class CraftContext {
     }
     const host = this.host;
     for (const entry of host.ordered) {
-      // Same guard as startPlugins(), for the same reason: once teardown has
-      // walked the bound set, a plugin bound after it acquires resources
-      // nothing will ever release.
+      // Once teardown has walked the bound set, a plugin bound after it
+      // acquires resources nothing will ever release.
       if (this.hasStopped) return;
       const pluginId = entry.id;
       const pluginIndex = entry.index;
       try {
         this.emit("plugin:binding", { pluginId, pluginIndex });
-        // Re-checked after the emit, not only at the loop head: handlers run
-        // synchronously, so a subscriber calling stop() lands between the two
-        // and the hook would otherwise start into a shutdown already waiting
-        // for it.
+        // A synchronous subscriber can stop the context inside the emit.
         if (this.hasStopped) return;
         const context = host.contextFor(entry, this.hostEnvironment());
         await this.runLifecycleHook(async () => {
@@ -797,10 +793,8 @@ export class CraftContext {
           : ("waiting" as const),
       ]),
     );
-    // A disabled route is settled before the gate is armed rather than left
-    // to time out: it is never going to emit `route:started`, and making
-    // every boot with one dormant capability wait out the readiness bound
-    // would turn a deliberate configuration state into a slow start.
+    // A disabled route never emits `route:started`, so it is settled before
+    // the gate is armed rather than left to time out.
     const waits = this.routes
       .filter((route) => !disabled.has(route.definition.id))
       .map(
@@ -833,13 +827,8 @@ export class CraftContext {
           if (timer) clearTimeout(timer);
         },
       ),
-      // A route that failed or completed counts as settled, not started, so
-      // the gate stops waiting on it while the summary still reports what
-      // actually happened to it. A FAILURE is the final word: a source that
-      // signalled readiness and then rejected (an async callable that fails
-      // on its first await, which is what a bad credential or a refused
-      // connect looks like) did not come up, and the summary must not report
-      // it as started just because `route:started` had already fired.
+      // A failure is the final word: a source that signalled readiness and
+      // then rejected did not come up, whatever `route:started` said.
       settle: (routeId: string, outcome: RouteBootOutcome) => {
         if (outcomes.get(routeId) === "disabled") return;
         if (outcome === "failed" || outcomes.get(routeId) !== "started") {
@@ -896,7 +885,7 @@ export class CraftContext {
    * Run every plugin's optional `start()`, in registration order.
    *
    * Separate from {@link CraftContext.initPlugins} because the two phases
-   * answer different questions. `apply()` wires the context and runs at
+   * answer different questions. `bind()` wires the application and runs at
    * build time; `start()` begins work and needs the routes running. The
    * deferral sweeper is the first consumer: it re-enters a route's error
    * channel when a deferred exchange expires, which is not something that can
@@ -911,9 +900,7 @@ export class CraftContext {
    */
   private async startPlugins(): Promise<void> {
     for (const entry of this.host?.ordered ?? []) {
-      // Re-checked per hook, not only on entry: a stop() arriving while an
-      // earlier hook is mid-await has already torn the plugins down, and a
-      // hook launched after that begins work nothing will ever stop.
+      // A stop() that landed mid-await has already torn the plugins down.
       if (this.hasStopped) return;
       const start = entry.plugin.start;
       if (typeof start !== "function") continue;
@@ -921,8 +908,7 @@ export class CraftContext {
       const pluginIndex = entry.index;
       try {
         this.emit("plugin:starting", { pluginId, pluginIndex });
-        // See initPlugins(): a synchronous subscriber can stop the context
-        // between the loop guard and this call.
+        // A synchronous subscriber can stop the context inside the emit.
         if (this.hasStopped) return;
 
         await this.runLifecycleHook(async () => {
@@ -1004,9 +990,9 @@ export class CraftContext {
     // route in the context, including one that declares no defer site of its
     // own, so it is checked before the per-route markers and reported without
     // naming a route: no route is the offender.
-    if (this.hasDeferringErrorHandler()) {
+    if (this.hasDeferringErrorHook()) {
       this.refuseWithoutDeferralRuntime(
-        "A context error handler registered with { mayDefer: true } can park any exchange in this context, but this context has no deferral runtime. Add deferral: {} to defineConfig (or deferral: { store, secret } to be explicit).",
+        `An error slot hook declared with { mayDefer: true } can park any exchange in this application, but this application has no deferral runtime. ${CONTINUATIONS_REMEDY}`,
       );
     }
     const deferring = this.routes.find(
@@ -1020,7 +1006,7 @@ export class CraftContext {
     if (!offender) return;
     const reached = deferring ? ".defer()" : ".resume()";
     this.refuseWithoutDeferralRuntime(
-      `Route "${offender.definition.id}" can reach a ${reached}, but this context has no deferral runtime. Add deferral: {} to defineConfig (or deferral: { store, secret } to be explicit).`,
+      `Route "${offender.definition.id}" can reach a ${reached}, but this application has no deferral runtime. ${CONTINUATIONS_REMEDY}`,
     );
   }
 
@@ -1054,17 +1040,12 @@ export class CraftContext {
     observe: readonly InstalledHook[];
     decide: readonly InstalledHook[];
   } {
-    const table = this.hookTable;
-    if (!table) return { observe: [], decide: [] };
-    const all = table.forRoute(
-      "error",
-      route.definition.id,
-      routeTags(route.definition),
+    return (
+      this.hookTable?.errorHooks(
+        route.definition.id,
+        routeTags(route.definition),
+      ) ?? { observe: [], decide: [] }
     );
-    return {
-      observe: all.filter((e) => (e.hook as ErrorHook).phase === "observe"),
-      decide: all.filter((e) => (e.hook as ErrorHook).phase === "mutate"),
-    };
   }
 
   /**
@@ -1075,10 +1056,8 @@ export class CraftContext {
    * deferability per route would otherwise under-advertise every route that
    * declares no defer site of its own.
    */
-  hasDeferringErrorHandler(): boolean {
-    return (this.hookTable?.ordered("error") ?? []).some(
-      (entry) => (entry.hook as ErrorHook).mayDefer === true,
-    );
+  hasDeferringErrorHook(): boolean {
+    return this.hookTable?.mayDefer() ?? false;
   }
 
   /**
@@ -1402,6 +1381,27 @@ export class CraftContext {
     }
   }
 
+  /**
+   * The boot, from the plugins' bind to the routes listening and the
+   * plugins' start.
+   *
+   * Every await is a turn a concurrent `stop()` can land on, so the boot
+   * re-checks `hasStopped` after each one and returns quietly when a stop
+   * already tore the plugins down: starting routes then would announce boot
+   * progress for an application that is gone, and a `start()` hook would
+   * begin work nothing will ever stop. Waiting for that shutdown before
+   * returning keeps `start()` from resolving while teardown runs.
+   *
+   * Enablement predicates are evaluated as one batch before any route
+   * starts, so a disabled route never subscribes even briefly (a mail source
+   * with no credentials would connect and fail); one slow predicate delays
+   * the decision only. A context whose routes declare no predicate skips
+   * the batch and reaches the start loop without an await.
+   *
+   * Plugins start once the routes are listening, and the enablement cadence
+   * is armed once the boot has settled: a cadence firing into a context that
+   * is still starting could transition a route the boot gate is waiting on.
+   */
   private async run(): Promise<void> {
     const started = this.ensureStartedGate();
     try {
@@ -1428,13 +1428,7 @@ export class CraftContext {
       throw err;
     }
 
-    // A stop() that landed while the plugins were applying has already torn
-    // them down. Starting routes now announces boot progress for a context
-    // that is gone: route:starting fires after context:stopped, every route
-    // refuses with RC3001 against its aborted controller, and the boot
-    // summary reports a failed boot for what was a clean shutdown. Waiting
-    // for that shutdown before returning also keeps start() from resolving
-    // while teardown is still running.
+    // stop() during bind already tore the plugins down; do not announce boot.
     if (this.hasStopped) {
       // The shutdown's own failure belongs to whoever called stop().
       await this.shutdownPromise?.catch(() => undefined);
@@ -1447,27 +1441,13 @@ export class CraftContext {
     );
     this.emit("context:starting", {});
 
-    // Every predicate is evaluated here, as one batch, BEFORE any route
-    // starts. A disabled route must never subscribe even briefly: a mail
-    // source with no credentials would connect and fail, which is the
-    // failure this feature exists to prevent. Batched rather than folded
-    // into each route's start so one slow predicate delays the decision
-    // only, never an unrelated route coming up.
-    //
-    // Guarded rather than awaited unconditionally: every await here is a
-    // turn a concurrent `stop()` can land on, so a context whose routes
-    // declare no predicate must reach the start loop exactly as directly
-    // as it did before this feature existed.
     let disabled: ReadonlySet<string> = EMPTY_ROUTE_IDS;
     const declaring = this.routes.filter(
       (route) => route.definition.enablement,
     );
     if (declaring.length > 0) {
       disabled = await this.enablement.evaluateForBoot(declaring);
-      // Same re-check the post-readiness path makes: a stop() that landed
-      // while the predicates were running has already torn the plugins
-      // down, and starting routes now would announce boot progress for a
-      // context that is gone.
+      // Same re-check as above.
       if (this.hasStopped) {
         await this.shutdownPromise?.catch(() => undefined);
         return;
@@ -1528,16 +1508,9 @@ export class CraftContext {
     try {
       await routes.ready;
       this.logBootSummary(routes.outcomes);
-      // Re-checked after the wait: a stop() arriving while routes were
-      // still coming up has already torn the plugins down, and a start()
-      // hook run now would begin work on a stopped context with nothing
-      // left to ever tear it down.
+      // Same re-check as above.
       if (!this.hasStopped) await this.startPlugins();
-      // Armed only once the boot has settled: a cadence firing into a
-      // context that is still starting could transition a route the boot
-      // gate is still waiting on. Awaited, so a cadence that cannot be
-      // armed fails the boot instead of leaving the route silently without
-      // the refresh it declared.
+      // Awaited: a cadence that cannot be armed fails the boot.
       if (!this.hasStopped) await this.enablement.startRefreshing(this.routes);
     } catch (err) {
       started.reject(err);
@@ -1568,15 +1541,9 @@ export class CraftContext {
 
         // Check if all routes completed successfully
         const allFulfilled = results.every((r) => r.status === "fulfilled");
-        // A disabled route has not COMPLETED, it never ran, so it must not
-        // be counted as work that finished. But suppressing the auto-stop
-        // for EVERY disabled route strands the context: a route disabled
-        // under the default MANUAL cadence has no in-process path back to
-        // enabled, so nothing would ever re-evaluate it and the wait buys
-        // nothing while costing the whole shutdown (no plugin teardown, no
-        // `context:stopped`). Suppress only for a cadence that re-evaluates
-        // on its own; its timer is ref'd for the same reason, so the two
-        // decisions cannot disagree.
+        // A disabled route never ran, so it is not finished work; the
+        // auto-stop waits only for a cadence that will re-evaluate it, since
+        // under the manual cadence nothing ever would.
         const awaitingCadence = [...this.enablement.disabled().keys()].some(
           (routeId) =>
             isLiveCadence(
@@ -1724,7 +1691,7 @@ export class CraftContext {
    * rethrow the original error.
    *
    * `build()` never returns a context when it fails, so the caller has no
-   * handle to run teardown against: whatever an `apply()` opened (a database
+   * handle to run teardown against: whatever a `bind()` opened (a database
    * handle, a socket, an interval) is unreachable and stays open. Under a
    * supervisor that retries boot, one handle leaks per attempt, and with
    * SQLite the held handle also keeps the file locked, so a transient boot
@@ -1740,26 +1707,20 @@ export class CraftContext {
 
   private async performShutdown(): Promise<ShutdownOutcome> {
     this.logger.info({}, "Stopping Routecraft context");
-    // Before anything is torn down: a refresh firing mid-shutdown would
-    // start a route the shutdown has already walked past, leaving an
-    // ingress open behind the drain.
+    // First: a refresh firing mid-shutdown would start a route the walk
+    // already passed.
     this.enablement.stop();
     this.emit("context:stopping", { reason: undefined });
 
-    // STAGE ONE. Close intake: sources stop producing, no new exchange is
-    // admitted. Deliberately not the execution signal, so an exchange
-    // already in the pipeline (an agent mid-tool-call, a deferral
-    // continuation) runs to its natural end. Dedicated force signals and the
-    // shutdown deadline are what abandon work that does not finish in time.
+    // Stage one closes intake, never the execution signal: an exchange
+    // already in the pipeline runs to its end or to the shutdown deadline.
     for (const route of this.routes) {
       this.logger.info({ route: route.definition.id }, "Stopping route");
       const controller = this.controllers.get(route.definition.id);
       controller?.abort("context.stop()");
     }
 
-    // Drain, bounded. Past the deadline the work is abandoned rather than
-    // waited out: an unbounded stage one hands the outcome to the platform's
-    // kill timer, which is what this bound exists to take back.
+    // Bounded: past the deadline the work is abandoned, not waited out.
     const drain = Promise.all(this.routes.map((r) => r.drain()));
     let drainError: unknown;
     let forced = false;
@@ -1785,7 +1746,7 @@ export class CraftContext {
     }
 
     // A stop() racing boot lets the hook already awaiting finish first, so
-    // a plugin is never torn down while its own apply() or start() is still
+    // a plugin is never torn down while its own bind() or start() is still
     // acquiring. Outside that race this settles immediately.
     await this.settlePluginHook();
 

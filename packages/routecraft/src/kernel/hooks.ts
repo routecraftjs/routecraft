@@ -51,15 +51,19 @@ declare const REFUSAL: unique symbol;
  * `not_found` 404, `conflict` 409, `gone` 410, `rate_limited` 429,
  * `unavailable` 503), the MCP server as a tool error naming it.
  */
-export type RefusalKind =
-  | "invalid"
-  | "unauthenticated"
-  | "forbidden"
-  | "not_found"
-  | "conflict"
-  | "gone"
-  | "rate_limited"
-  | "unavailable";
+export const REFUSAL_KINDS = [
+  "invalid",
+  "unauthenticated",
+  "forbidden",
+  "not_found",
+  "conflict",
+  "gone",
+  "rate_limited",
+  "unavailable",
+] as const;
+
+/** How a door answers a refusal; one of {@link REFUSAL_KINDS}. */
+export type RefusalKind = (typeof REFUSAL_KINDS)[number];
 
 /** A validate hook's refusal, built with {@link refuse}. */
 export interface Refusal {
@@ -109,16 +113,7 @@ export interface HookRefusal extends Error {
   };
 }
 
-const REFUSAL_KINDS: ReadonlySet<string> = new Set<RefusalKind>([
-  "invalid",
-  "unauthenticated",
-  "forbidden",
-  "not_found",
-  "conflict",
-  "gone",
-  "rate_limited",
-  "unavailable",
-]);
+const KNOWN_KINDS: ReadonlySet<string> = new Set(REFUSAL_KINDS);
 
 /**
  * Whether `value` (an `RC5068` error's `cause`) carries the
@@ -137,7 +132,7 @@ export function isHookRefusal(value: unknown): value is HookRefusal {
     typeof fields["slot"] === "string" &&
     typeof fields["routeId"] === "string" &&
     typeof fields["reason"] === "string" &&
-    REFUSAL_KINDS.has(fields["kind"] as string)
+    KNOWN_KINDS.has(fields["kind"] as string)
   );
 }
 
@@ -154,9 +149,12 @@ export interface ExchangePatch {
 interface HookBase {
   /**
    * The hook's name, which `hooks.order` and `hooks.disable` address as
-   * `pluginId/name`. Defaults to the name of its function.
+   * `pluginId/id`. Required, and stable across the plugin's releases: an
+   * application that disables or reorders a hook names it, so a name that
+   * followed the function's name or its position would move under that
+   * config on a bundle or a patch release.
    */
-  readonly id?: string;
+  readonly id: string;
   /** Only these routes. Combined with `tags` as alternatives. */
   readonly routes?: readonly string[];
   /** Only routes carrying one of these tags. */
@@ -232,7 +230,8 @@ export interface ErrorHookInfo extends HookInfo {
  * `.error()` did not settle. In `observe` it only hears. In `mutate` it may
  * answer with a recovery body, `recovery.drop()`, `recovery.defer()` or
  * `recovery.rethrow()`; `undefined` passes to the next hook, and the first
- * answer decides.
+ * answer decides. Any other value is the recovery body, a logger's return
+ * included, so a mutate hook that means to pass returns nothing.
  */
 export interface ErrorHook extends HookBase {
   readonly phase: "observe" | "mutate";
@@ -325,12 +324,6 @@ export interface RouteHookView {
 
 const PHASE_ORDER: readonly Phase[] = ["observe", "mutate", "validate"];
 
-function hookName(hook: { id?: string }, fn: unknown, index: number): string {
-  if (hook.id) return hook.id;
-  const name = typeof fn === "function" ? fn.name : "";
-  return name && name !== "run" && name !== "wrap" ? name : `hook${index}`;
-}
-
 function asList<T>(value: OneOrMany<T> | undefined): readonly T[] {
   if (value === undefined) return [];
   return Array.isArray(value) ? (value as readonly T[]) : [value as T];
@@ -393,11 +386,10 @@ export class HookTable {
             message: `Plugin "${plugin.id}" declares a hook in "${slot}", which is not a slot of the chain (${SLOTS.join(", ")}). A hook at a point goes under hooks.points.`,
           });
         }
-        asList(declared).forEach((hook, index) => {
+        for (const hook of asList(declared)) {
           const h = hook as ExchangeHook & WrapperHook & ErrorHook;
           this.checkShape(plugin.id, slot, h);
-          const fn = slot === "perAttempt" ? h.wrap : h.run;
-          const id = `${plugin.id}/${hookName(h, fn, index)}`;
+          const id = `${plugin.id}/${h.id}`;
           const list = this.bySlot.get(slot) ?? [];
           if (list.some((existing) => existing.id === id)) {
             throw rcError("RC1112", undefined, {
@@ -406,7 +398,7 @@ export class HookTable {
           }
           list.push({ pluginId: plugin.id, id, slot, hook: h });
           this.bySlot.set(slot, list);
-        });
+        }
       }
     }
     this.checkConfig();
@@ -419,6 +411,11 @@ export class HookTable {
     hook: Partial<ExchangeHook & WrapperHook & ErrorHook>,
   ): void {
     const where = `Plugin "${pluginId}" hook in "${slot}"`;
+    if (typeof hook.id !== "string" || hook.id.length === 0) {
+      throw rcError("RC1117", undefined, {
+        message: `${where} has no id. Every hook names itself, so hooks.order and hooks.disable can address it as "${pluginId}/<id>".`,
+      });
+    }
     if (slot === "perAttempt") {
       if (typeof hook.wrap !== "function") {
         throw rcError("RC1115", undefined, {
@@ -569,6 +566,36 @@ export class HookTable {
     );
     this.selections.set(key, selected);
     return selected;
+  }
+
+  /**
+   * The `error` slot hooks that apply to one route: the `observe` ones,
+   * which hear the failure, and the `mutate` ones, which may decide it, each
+   * in effective order.
+   */
+  errorHooks(
+    routeId: string,
+    tags: readonly string[],
+  ): {
+    observe: readonly InstalledHook[];
+    decide: readonly InstalledHook[];
+  } {
+    const all = this.forRoute("error", routeId, tags);
+    return {
+      observe: all.filter((e) => (e.hook as ErrorHook).phase === "observe"),
+      decide: all.filter((e) => (e.hook as ErrorHook).phase === "mutate"),
+    };
+  }
+
+  /**
+   * Whether any live `error` slot hook declared it may park an exchange.
+   * Such a hook can defer ANY route it applies to, so the answer is read
+   * per application rather than per route.
+   */
+  mayDefer(): boolean {
+    return this.ordered("error").some(
+      (entry) => (entry.hook as ErrorHook).mayDefer === true,
+    );
   }
 
   /** Warn once per route, slot, header and pair when two mutate hooks collided at runtime. */

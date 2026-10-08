@@ -4,7 +4,7 @@ import {
   craft,
   direct,
   DedupeStep,
-  markAuthentic,
+  defaultAuthority,
   RoutecraftError,
   type Exchange,
   type Principal,
@@ -44,7 +44,7 @@ function sameBodyFrom(principals: Principal[]): Source<string> {
       for (const p of principals) {
         await sub.emit({
           message: "same",
-          headers: { "routecraft.auth.principal": markAuthentic(p) },
+          headers: { "routecraft.auth.principal": defaultAuthority.brand(p) },
         });
       }
     },

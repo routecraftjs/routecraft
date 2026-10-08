@@ -139,9 +139,7 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
           "MCP plugin required: routes using .from(mcp(...)) require the MCP plugin. Add `mcp: {}` to defineConfig({...}) in craft.config.ts, or mcpPlugin() to the plugins of a context you build yourself.",
       });
     }
-    const registry = service.local;
-
-    if (registry.has(endpoint)) {
+    if (service.local.has(endpoint)) {
       throw rcError("RC5003", undefined, {
         message: `Duplicate MCP tool endpoint "${endpoint}": another .from(mcp(...)) route already registered this endpoint in the same context`,
         suggestion:
@@ -202,19 +200,12 @@ export class McpSourceAdapter implements Source<McpMessage<undefined>> {
     // (including one dispatched synchronously from inside addEventListener if
     // the signal is already aborted) will run the cleanup, so the entry never
     // outlives its teardown handler.
-    sub.signal.addEventListener(
-      "abort",
-      () => {
-        registry.delete(endpoint);
-      },
-      { once: true },
-    );
-
     if (sub.signal.aborted) {
       return;
     }
 
-    registry.set(endpoint, entry);
+    const withdraw = service.registerLocal(entry);
+    sub.signal.addEventListener("abort", withdraw, { once: true });
 
     sub.ready();
 

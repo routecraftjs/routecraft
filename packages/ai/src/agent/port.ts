@@ -51,12 +51,12 @@ export interface AgentRegistry {
    */
   sessions(): AgentSessionRuntime;
   /**
-   * Resolved deferred functions by id, so a tool resolved at start is not
-   * resolved again at dispatch.
-   *
-   * @internal
+   * What a deferred function resolved to when the runtime started, so a
+   * dispatch reads the resolution made then rather than making its own.
+   * `undefined` before the runtime started, or for a function that is not
+   * deferred.
    */
-  readonly resolvedFunctions: Map<string, FnOptions>;
+  resolvedFunction(id: string): FnOptions | undefined;
 }
 
 /** The agent registry the agent runtime plugin provides. */

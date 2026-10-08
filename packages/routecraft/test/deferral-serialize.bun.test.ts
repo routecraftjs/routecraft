@@ -5,7 +5,7 @@ import {
   HeadersKeys,
   authenticate,
   authorize,
-  isAuthentic,
+  defaultAuthority,
   isRestored,
   type Exchange,
   principalOf,
@@ -443,7 +443,7 @@ describe("restored principals", () => {
    */
   test("marks a rehydrated principal restored rather than authentic", () => {
     const principal = authenticate({ subject: "user:jaco", roles: ["admin"] });
-    expect(isAuthentic(principal)).toBe(true);
+    expect(defaultAuthority.isAuthentic(principal)).toBe(true);
 
     const revived = deserializeExchange(
       context,
@@ -454,7 +454,7 @@ describe("restored principals", () => {
 
     expect(principalOf(revived)?.subject).toBe("user:jaco");
     expect(isRestored(principalOf(revived))).toBe(true);
-    expect(isAuthentic(principalOf(revived))).toBe(false);
+    expect(defaultAuthority.isAuthentic(principalOf(revived))).toBe(false);
   });
 
   /**
@@ -515,6 +515,6 @@ describe("restored principals", () => {
     const twice = deserializeExchange(context, serializeExchange(once));
 
     expect(isRestored(principalOf(twice))).toBe(true);
-    expect(isAuthentic(principalOf(twice))).toBe(false);
+    expect(defaultAuthority.isAuthentic(principalOf(twice))).toBe(false);
   });
 });

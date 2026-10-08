@@ -21,7 +21,7 @@ const ruleTester = new RuleTester({
 });
 
 /**
- * @case restrict-principal-minting rule: every minting form is flagged with a branch-identifying message (route .authenticate() on craft chains including aliased and namespace craft, named, aliased, computed-member, and namespace imports of authenticate/markAuthentic from @routecraft/routecraft, import-after-use, and mint()/brand() on the authority from authorityOf(), a const holding it, or require(AUTHORITY)); non-minting chains, same-named symbols from other modules, shadowing locals, and foreign craft() pass; the chain report anchors on the .authenticate property so the documented eslint-disable-next-line placement suppresses it
+ * @case restrict-principal-minting rule: every minting form is flagged with a branch-identifying message (route .authenticate() on craft chains including aliased and namespace craft, named, aliased, computed-member, and namespace imports of authenticate from @routecraft/routecraft, import-after-use, and mint()/brand() on the authority from authorityOf(), a const holding it, require(AUTHORITY), or the exported defaultAuthority as a named or namespace import); non-minting chains, same-named symbols from other modules, shadowing locals, and foreign craft() pass; the chain report anchors on the .authenticate property so the documented eslint-disable-next-line placement suppresses it
  * @preconditions Source snippets covering craft chains with and without .authenticate, helper imports from routecraft and from unrelated modules, aliased, namespace, computed-member and hoisted import call forms, shadowed bindings, and a multi-line chain with line/column expectations
  * @expectedResult Valid cases produce no errors; each invalid case produces one restrictedMint error per mint call carrying the expected data.what, and the multi-line chain error anchors on the .authenticate line
  */
@@ -31,7 +31,9 @@ ruleTester.run("restrict-principal-minting", restrictPrincipalMintingRule, {
       // brand() and mint() on anything other than the authority
       code: `
         import { authorityOf } from "./local";
+        import { defaultAuthority } from "./authority";
         authorityOf(x).brand(p);
+        defaultAuthority.brand(p);
         let authority = make();
         authority.mint({ subject: "x" });
         tokens.brand(p);
@@ -183,12 +185,28 @@ export default craft()
       ],
     },
     {
+      // the exported default authority is an authority
       code: `
-        import { markAuthentic } from "@routecraft/routecraft";
-        markAuthentic(fakePrincipal);
+        import { defaultAuthority } from "@routecraft/routecraft";
+        defaultAuthority.brand(fakePrincipal);
+        defaultAuthority.mint({ subject: "hacker" });
       `,
       errors: [
-        { messageId: "restrictedMint", data: { what: "markAuthentic()" } },
+        { messageId: "restrictedMint", data: { what: "authority.brand()" } },
+        { messageId: "restrictedMint", data: { what: "authority.mint()" } },
+      ],
+    },
+    {
+      // through a namespace import, and through a const holding it
+      code: `
+        import * as rc from "@routecraft/routecraft";
+        rc.defaultAuthority.brand(fakePrincipal);
+        const authority = rc.defaultAuthority;
+        authority.mint({ subject: "hacker" });
+      `,
+      errors: [
+        { messageId: "restrictedMint", data: { what: "authority.brand()" } },
+        { messageId: "restrictedMint", data: { what: "authority.mint()" } },
       ],
     },
     {
@@ -205,10 +223,10 @@ export default craft()
       // computed member access does not evade the rule
       code: `
         import * as rc from "@routecraft/routecraft";
-        const principal = rc["markAuthentic"](fakePrincipal);
+        const principal = rc["authenticate"](fakePrincipal);
       `,
       errors: [
-        { messageId: "restrictedMint", data: { what: "markAuthentic()" } },
+        { messageId: "restrictedMint", data: { what: "authenticate()" } },
       ],
     },
     {
@@ -254,8 +272,8 @@ export default craft()
     {
       // one report per mint call
       code: `
-        import { craft, simple, noop, markAuthentic } from "@routecraft/routecraft";
-        markAuthentic(fake);
+        import { craft, simple, noop, defaultAuthority } from "@routecraft/routecraft";
+        defaultAuthority.brand(fake);
         export default craft()
           .id("double")
           .from(simple({}))
@@ -263,7 +281,7 @@ export default craft()
           .to(noop());
       `,
       errors: [
-        { messageId: "restrictedMint", data: { what: "markAuthentic()" } },
+        { messageId: "restrictedMint", data: { what: "authority.brand()" } },
         { messageId: "restrictedMint", data: { what: ".authenticate()" } },
       ],
     },

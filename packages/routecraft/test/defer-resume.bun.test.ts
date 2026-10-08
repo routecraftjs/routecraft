@@ -2,6 +2,7 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { z } from "zod";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
+  callerRefusalOf,
   MemoryDeferralStore,
   CONTINUATIONS,
   authorize,
@@ -248,7 +249,7 @@ describe("defer and resume", () => {
   /**
    * @case An answer that does not satisfy the deferring step's expect schema
    * @preconditions A deferred payout; the resume presents { approved: "yes" }
-   * @expectedResult RC5049 in the ingress route ONLY (the deferred route's own .error() never sees it), nothing after the defer runs, and the deferral stays resumable so a corrected answer completes normally
+   * @expectedResult RC5049 in the ingress route ONLY (the deferred route's own .error() never sees it), classified as the submitter's input error for the ingress route and nobody else's, nothing after the defer runs, and the deferral stays resumable so a corrected answer completes normally
    */
   test("an answer that fails expect is refused with RC5049 and leaves the deferral resumable", async () => {
     const ran: unknown[] = [];
@@ -284,12 +285,22 @@ describe("defer and resume", () => {
       }),
     );
 
-    await expect(
-      t.client.sendDirect("answers", {
+    const rejected: unknown = await t.client
+      .sendDirect("answers", {
         token: deferred.token,
         result: { approved: "yes" },
-      }),
-    ).rejects.toMatchObject({ rc: "RC5049" });
+      })
+      .then(
+        () => undefined,
+        (error: unknown) => error,
+      );
+    expect(rejected).toMatchObject({ rc: "RC5049" });
+    expect(
+      callerRefusalOf(rejected, { routeId: "answers", principal: undefined }),
+    ).toMatchObject({ kind: "input", in: "body" });
+    expect(
+      callerRefusalOf(rejected, { routeId: "payout", principal: undefined }),
+    ).toBeUndefined();
     expect(ran).toHaveLength(0);
     expect(caught).toHaveLength(0);
 

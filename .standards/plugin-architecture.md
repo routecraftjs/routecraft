@@ -87,7 +87,11 @@ key crosses a plugin boundary.
 
 `port<T>("name@version")` returns a token. Two different tokens with one name
 in one application is `RC1103`, which is how two copies of a contract module in
-one process are caught. A plugin requires a capability, never a plugin.
+one process are caught: at install, when two installed plugins declare them,
+and at lookup, when a token the application never saw is presented under a
+name it holds (an adapter from a second copy of the package asking the first
+copy's application). The second case would otherwise be an adapter silently
+dropping its configuration. A plugin requires a capability, never a plugin.
 
 ### Lifecycle
 
@@ -210,7 +214,10 @@ plugins not needing one yet says nothing about an ecosystem plugin's need.
 The check's holder watches for the pattern: a second concept kept on the
 same reasoning is the signal, not this one.
 
-The application settles conflicts, in config:
+Every hook names itself with `id`, and `hooks.order` and `hooks.disable`
+address it as `pluginId/id`; a hook without one is `RC1117`. The name is
+part of the plugin's public surface, so it is stable across releases. The
+application settles conflicts, in config:
 
 ```ts
 hooks: {
@@ -239,7 +246,10 @@ admission, so `beforeAuth`, `afterAuth` and `admitted` never run on them,
 with one exception: an admission resume (a park raised before the route
 admitted the exchange) completes the admission its first run never reached,
 so it runs `afterAuth` and `admitted` around the `authorize` it re-runs.
-`beforeAuth` ran on the first run and does not run again.
+`beforeAuth` ran on the first run and does not run again. Those two slots
+see the admission as kind `normal`, so a hook keeping the default `runs`
+guards it, while the `error` slot, points and `perAttempt` see the same run
+as kind `resume`.
 
 A `perAttempt` wrapper calls `proceed()` once. A second call is `RC1115`, and
 an attempt the wrapper started is settled before the slot settles even when
@@ -397,6 +407,7 @@ The rows the design left open, decided:
 | RC1113 | two plugins declare one point |
 | RC1114 | a facet not named by its namespace, or named after a reserved field |
 | RC1115 | a hook broke its phase |
+| RC1117 | an invalid descriptor: a missing plugin or hook id, the pre-0.8 shape, a port list holding a non-port |
 | RC1116 | two plugins declare one step, or a step shadows a builder method |
 | RC1117 | an invalid plugin descriptor: no id, the pre-0.8 `apply` shape, a non-port in a port list, or a repeatable plugin declaring what one install may |
 | RC5068 | a `validate` hook refused the exchange |

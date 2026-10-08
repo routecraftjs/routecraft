@@ -4,9 +4,8 @@ import {
   craft,
   direct,
   HeadersKeys,
-  isAuthentic,
   isRoutecraftError,
-  markAuthentic,
+  defaultAuthority,
   log,
 } from "@routecraft/routecraft";
 import { testContext, type TestContext } from "@routecraft/testing";
@@ -356,7 +355,7 @@ describe("tool builders - directTool dispatch", () => {
 
   /**
    * @case directTool forwards authenticity only when the calling principal is authentic
-   * @preconditions Downstream route records isAuthentic(ex.auth.principal); handler invoked once with an authentic principal and once with a self-asserted plain object carrying the same fields
+   * @preconditions Downstream route records defaultAuthority.isAuthentic(ex.auth.principal); handler invoked once with an authentic principal and once with a self-asserted plain object carrying the same fields
    * @expectedResult Authentic in -> authentic downstream; self-asserted in -> non-authentic downstream (no laundering across the agent -> tool boundary)
    */
   test("dispatchDirect forwards authenticity only for authentic principals", async () => {
@@ -369,7 +368,9 @@ describe("tool builders - directTool dispatch", () => {
           .input(z.object({}))
           .from(direct())
           .process((ex) => {
-            downstreamAuthentic = isAuthentic(ex.auth.principal);
+            downstreamAuthentic = defaultAuthority.isAuthentic(
+              ex.auth.principal,
+            );
             return { ...ex, body: { ok: true } };
           })
           .to(log()),
@@ -391,7 +392,7 @@ describe("tool builders - directTool dispatch", () => {
       {},
       {
         ...base,
-        principal: markAuthentic({
+        principal: defaultAuthority.brand({
           kind: "jwt" as const,
           scheme: "bearer" as const,
           subject: "verified",
@@ -453,7 +454,7 @@ describe("tool builders - directTool dispatch", () => {
       {},
       {
         ...base,
-        principal: markAuthentic({
+        principal: defaultAuthority.brand({
           kind: "jwt" as const,
           scheme: "bearer" as const,
           subject: "verified-admin",

@@ -479,7 +479,7 @@ export type ExchangeScoped = {
  * is reached only where the route's own handling gave up (no route handler,
  * or one that rethrew or threw).
  */
-export type ErrorHandlerScope = "route" | "step" | "context";
+export type ErrorHandlerScope = "route" | "step" | "slot";
 
 /**
  * Every event the framework emits, mapped to its detail payload.
@@ -884,12 +884,12 @@ export interface EventDetailsMap {
     recoveryStrategy?: string;
     scope?: ErrorHandlerScope;
     /**
-     * Which error-slot hook failed, as its index in the slot's effective
-     * order. Present only when `scope === "context"`, where "the handler"
-     * is ambiguous: the slot continues past a hook that throws, so an
-     * operator needs to know which one to fix.
+     * Which `error` slot hook threw, as `pluginId/hookId`. Present only when
+     * `scope === "slot"`, where "the handler" is ambiguous: the slot
+     * continues past a hook that throws, so an operator needs to know which
+     * one to fix.
      */
-    handlerIndex?: number;
+    hook?: string;
     stepLabel?: string;
   };
 

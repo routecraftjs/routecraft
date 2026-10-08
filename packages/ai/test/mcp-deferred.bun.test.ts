@@ -263,7 +263,7 @@ describe("MCP carries Deferred (#581)", () => {
           new DefaultExchange(t!.ctx, { ...request, body: { nonsense: 1 } }),
         ),
     };
-    const local = mcpService(t.ctx).local;
+    const local = mcpService(t.ctx).local as Map<string, McpLocalToolEntry>;
     local.clear();
     local.set("junk-tool", entry);
 

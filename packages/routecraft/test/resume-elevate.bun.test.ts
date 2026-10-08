@@ -147,6 +147,7 @@ describe("the resume elevate hook", () => {
             id: "test.tenancy",
             hooks: {
               afterAuth: {
+                id: "tenant",
                 phase: "validate",
                 routes: ["archive"],
                 run: () => {

@@ -15,8 +15,7 @@ import {
   authorize,
   craft,
   HeadersKeys,
-  isAuthentic,
-  markAuthentic,
+  defaultAuthority,
   simple,
   type Principal,
   type PrincipalClaims,
@@ -58,7 +57,7 @@ describe("delegate() helper", () => {
     expect(delegated.roles).toEqual(["member", "admin"]);
     expect(delegated.actor?.subject).toBe("agent:zoe");
     expect(delegated.actor?.subjectProfile).toBe("ai_agent");
-    expect(isAuthentic(delegated)).toBe(true);
+    expect(defaultAuthority.isAuthentic(delegated)).toBe(true);
   });
 
   /**
@@ -379,7 +378,7 @@ describe("delegation state cannot be forged", () => {
       subject: "agent:zoe",
     };
     const sharedRoles = ["member"];
-    const principal = markAuthentic({
+    const principal = defaultAuthority.brand({
       kind: "custom",
       scheme: "custom",
       subject: "user_jaco",
@@ -409,7 +408,7 @@ describe("delegation state cannot be forged", () => {
       subject: "agent:loop",
     };
     (cyclic as { actor?: Principal }).actor = cyclic;
-    const principal = markAuthentic({
+    const principal = defaultAuthority.brand({
       kind: "custom",
       scheme: "custom",
       subject: "user_jaco",

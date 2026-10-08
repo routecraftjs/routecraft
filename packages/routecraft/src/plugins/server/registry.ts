@@ -5,7 +5,7 @@ import {
   resolveRequestValidation,
   type ResolvedRequestValidation,
 } from "./request-validation.ts";
-import { port, type Port } from "../../kernel/port.ts";
+import { port, type PortLookup } from "../../kernel/port.ts";
 import type { PluginLogger } from "../../kernel/plugin.ts";
 import type { EventDetailsMap, EventName } from "../../types.ts";
 import { rcError } from "../../error.ts";
@@ -599,10 +599,7 @@ export class HttpMountRegistry implements WebIngress {
  * @throws RC5003 when no server by that name is defined
  */
 export function requireWebIngress(
-  from:
-    | ReadonlyMap<string, WebIngress>
-    | { lookup<T>(port: Port<T>): T | undefined }
-    | undefined,
+  from: ReadonlyMap<string, WebIngress> | PortLookup | undefined,
   serverName = "default",
 ): WebIngress {
   const ingresses =

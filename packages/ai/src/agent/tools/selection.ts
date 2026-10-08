@@ -762,11 +762,11 @@ function declaredFn(
   name: string,
   entry: FnEntry,
 ): FnOptions {
-  return resolveFnOptions(
-    toolHostOf(ctx),
-    name,
-    entry,
-    ctx.lookup(AGENTS)?.resolvedFunctions ?? new Map<string, FnOptions>(),
+  // Resolved once at start for every registered deferred function; a
+  // dispatch before that (a context never started) resolves for itself.
+  return (
+    ctx.lookup(AGENTS)?.resolvedFunction(name) ??
+    resolveFnOptions(toolHostOf(ctx), name, entry, new Map<string, FnOptions>())
   );
 }
 

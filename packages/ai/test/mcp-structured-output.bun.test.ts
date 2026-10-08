@@ -263,7 +263,7 @@ describe("MCP structured output (#574)", () => {
     const carried = result.advertisedOutputSchema;
     expect(Array.isArray(carried?.["oneOf"])).toBe(true);
 
-    mcpService(t.ctx).local.delete("approve-payout");
+    (mcpService(t.ctx).local as Map<string, unknown>).delete("approve-payout");
 
     expect(result.advertisedOutputSchema).toBe(carried);
     expect(Array.isArray(result.advertisedOutputSchema?.["oneOf"])).toBe(true);

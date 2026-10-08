@@ -53,6 +53,8 @@ export const audit = definePlugin({
 | `name` (optional) | `id` (required, dotted, unique per application) |
 | `apply(ctx)` | `bind(c)` |
 | `teardown(ctx, info)` | `stop(c, info)`; or register releases with `c.onDispose(fn)` |
+| `ctx.registerHandler(handler)` and the `handlers` config key (#818) | a hook in the `error` slot: `hooks: { error: { id, phase: 'mutate', run } }`, with `mayDefer: true` when it may park ([section 6](#6-what-is-new-in-080)) |
+| `route:error-handler:*` events with `scope: "context"` and `handlerIndex` | `scope: "slot"` and `hook` (the `pluginId/hookId`), `recoveryStrategy: "error-slot-hook"` |
 | `ctx.on(event, handler)` | `c.observe(event, handler)` |
 | `ctx.emit(event, details)` | `c.emit(event, details)` |
 | `ctx.setStore` / `ctx.getStore` to share state with an adapter or another plugin | a port: `provides` + `c.provide()`, `requires` + `c.require()` ([section 5](#5-ports)) |
@@ -78,7 +80,7 @@ craft()
   .to(log())
 ```
 
-`ex.deferral` is unchanged in route callables; outside them, read `deferralOf(exchange)`. The principal authority (`mint`, `brand`, `isAuthentic`, `restore`, `isRestored`, `read`) is the `AUTHORITY` port the default `routecraft.principals` plugin provides. Brand and check through `authorityOf(exchangeOrContext)` instead of `markAuthentic`, `isAuthentic`, `markRestored` and `isRestored`, which are now internal. `delegate()` takes the authority as its fourth argument: `delegate(subject, actor, options, authorityOf(exchange))`.
+`ex.deferral` is unchanged in route callables; outside them, read `deferralOf(exchange)`. The principal authority (`mint`, `brand`, `isAuthentic`, `restore`, `isRestored`, `read`) is the `AUTHORITY` port the default `routecraft.principals` plugin provides. Brand and check through `authorityOf(exchangeOrContext)` instead of `markAuthentic`, `isAuthentic`, `markRestored` and `isRestored`, which are no longer exported; the default authority is exported as `defaultAuthority` for a replacement that decorates it, and the `restrict-principal-minting` lint rule flags its `mint()` and `brand()` too. `delegate()` takes the authority as its fourth argument: `delegate(subject, actor, options, authorityOf(exchange))`.
 
 ## 3. `defineProject` \{#3-define-project}
 
@@ -137,7 +139,7 @@ The internal `RouteDefinition` fields `preParseFilters`, `postParseFilters` and 
 
 - **Ports.** Plugins share anything through `port<T>()`, with `requires`, `optional`, `provides` and `replaces`.
 - **Replaceable positions.** `.authorize()`, the resilience operations and `.cache()` are unchanged on the builder, and the default plugins fill them through `ENFORCEMENT`, `RESILIENCE` and `CACHE`. A plugin may replace one, and the replacement fills the same methods placed after `.from()` too.
-- **Hooks.** Plugins add hooks to the slots of the chain (`beforeAuth`, `afterAuth`, `admitted`, `perAttempt`, `exit`, `error`) in the `observe`, `mutate` and `validate` phases. `hooks.order` and `hooks.disable` in config settle conflicts. A validate hook's `refuse(reason, { kind })` is answered at the door the caller came through with the status its kind maps to.
+- **Hooks.** Plugins add hooks to the slots of the chain (`beforeAuth`, `afterAuth`, `admitted`, `perAttempt`, `exit`, `error`) in the `observe`, `mutate` and `validate` phases. Every hook declares an `id`; `hooks.order` and `hooks.disable` in config address it as `pluginId/id` and settle conflicts. A validate hook's `refuse(reason, { kind })` is answered at the door the caller came through with the status its kind maps to.
 - **The `error` slot.** A plugin hook can recover, drop or park (`recovery.defer()`) a failure the route's own `.error()` did not settle.
 - **Error-path parks are validated.** `.error(handler, { schema })` and an error hook's `schema` declare what a resume payload must satisfy when the handler parks; the resume door validates it (`RC5049`) and refuses a resume whose schema changed (`RC5048`).
 - **Facets.** A plugin's facet is readable as `ex.<namespace>`.

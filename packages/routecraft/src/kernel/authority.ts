@@ -1,9 +1,9 @@
 import type { PrincipalClaims } from "../principal.ts";
-import type { CraftContext } from "../context.ts";
+import { isCraftContext } from "../brand.ts";
 import { getExchangeContext, type Exchange } from "../exchange.ts";
 import type { Principal } from "../principal.ts";
 import { rcError } from "../error.ts";
-import { port } from "./port.ts";
+import { port, type PortLookup } from "./port.ts";
 
 /**
  * Who an exchange acts for, and how much to trust it. What the
@@ -65,14 +65,16 @@ export function setFallbackAuthority(authority: Authority): void {
  * nothing could have replaced it.
  */
 export function authorityOf(
-  from: Exchange | Pick<CraftContext, "lookup"> | undefined,
+  from: Exchange | PortLookup | undefined,
 ): Authority {
+  // By brand, never by a `lookup` property: a facet of that name would sit
+  // on every exchange's prototype.
   const context =
-    from !== undefined && "lookup" in from
-      ? from
-      : from !== undefined
-        ? getExchangeContext(from)
-        : undefined;
+    from === undefined
+      ? undefined
+      : isCraftContext(from)
+        ? (from as PortLookup)
+        : getExchangeContext(from as Exchange);
   const found = context?.lookup(AUTHORITY) ?? fallback;
   if (found === undefined) {
     throw rcError("RC1104", undefined, {

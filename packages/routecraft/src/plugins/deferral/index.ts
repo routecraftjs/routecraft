@@ -50,6 +50,36 @@ const DEFERRAL_CLAIMANT = "deferral: { store }";
 
 export { CONTINUATIONS, type DeferralRuntime };
 
+/**
+ * What resolving the `deferral` config produced: the runtime the plugin
+ * provides through {@link CONTINUATIONS}, and what it keeps for itself.
+ */
+export interface ResolvedDeferral {
+  /** What the kernel reads, provided through `CONTINUATIONS`. */
+  readonly runtime: DeferralRuntime;
+  /**
+   * What the store resolved to, for the startup log line. `custom` is a
+   * store the caller supplied; reporting it as `sqlite` would mislead
+   * exactly the operators who configured a backend deliberately, on the one
+   * field that answers "is this deployment durable, and against what".
+   */
+  readonly backend: "sqlite" | "memory" | "custom";
+  /**
+   * False when the caller supplied the store, in which case they own its
+   * lifecycle and the plugin must not close it at stop. A user-supplied
+   * backend typically wraps a pool shared with the rest of the application,
+   * or is reused across two contexts in one process (which is how a
+   * restart-durability test is written).
+   */
+  readonly ownsStore: boolean;
+  /**
+   * Milliseconds between sweeps. Resolved here rather than in `start()` so
+   * a malformed duration fails while the application is still being built,
+   * which is the rule the rest of this config already follows.
+   */
+  readonly sweepIntervalMs: number;
+}
+
 declare module "@routecraft/routecraft" {
   interface CraftConfig {
     /**
@@ -179,7 +209,7 @@ export interface DeferralTestSeams {
 export async function createDeferralRuntime(
   host: { readonly logger: PluginLogger },
   config: DeferralConfig & DeferralTestSeams = {},
-): Promise<DeferralRuntime> {
+): Promise<ResolvedDeferral> {
   const configuredTtl = config.defaultTtl ?? DEFAULT_DEFERRAL_TTL;
   const defaultTtlMs =
     configuredTtl === "never"
@@ -218,19 +248,21 @@ export async function createDeferralRuntime(
    */
   const runtime = (
     store: DeferralStore,
-    backend: DeferralRuntime["backend"],
+    backend: ResolvedDeferral["backend"],
     ownsStore: boolean,
     path?: string,
-  ): DeferralRuntime => ({
-    store,
-    signer,
+  ): ResolvedDeferral => ({
+    runtime: {
+      store,
+      signer,
+      expiryLeaseMs,
+      ...(retentionMs !== undefined ? { retentionMs } : {}),
+      ...(defaultTtlMs !== undefined ? { defaultTtlMs } : {}),
+      ...(path !== undefined ? { path } : {}),
+    },
     backend,
     ownsStore,
     sweepIntervalMs,
-    expiryLeaseMs,
-    ...(retentionMs !== undefined ? { retentionMs } : {}),
-    ...(defaultTtlMs !== undefined ? { defaultTtlMs } : {}),
-    ...(path !== undefined ? { path } : {}),
   });
 
   // A present-but-empty environment variable means unset, not "open the
@@ -307,7 +339,7 @@ export function deferralPlugin(config: DeferralConfig = {}): DeferralPlugin {
   // first cadence, leaving its interval running against a store about to close.
   const runs = new WeakMap<
     PluginContext,
-    { runtime: DeferralRuntime; cadence?: SweepCadence }
+    { resolved: ResolvedDeferral; cadence?: SweepCadence }
   >();
 
   return definePlugin({
@@ -319,10 +351,10 @@ export function deferralPlugin(config: DeferralConfig = {}): DeferralPlugin {
     async bind(c: PluginContext) {
       // Registration first: it throws on a name collision, and a bind that
       // throws after opening the store would leave its handle to the unwind.
-      registerDeferralsResource(c, () => runs.get(c)?.runtime);
-      const runtime = await createDeferralRuntime(c, config);
-      runs.set(c, { runtime });
-      c.provide(CONTINUATIONS, runtime);
+      registerDeferralsResource(c, () => runs.get(c)?.resolved.runtime);
+      const resolved = await createDeferralRuntime(c, config);
+      runs.set(c, { resolved });
+      c.provide(CONTINUATIONS, resolved.runtime);
     },
     async start(c: PluginContext) {
       const run = runs.get(c);
@@ -332,7 +364,7 @@ export function deferralPlugin(config: DeferralConfig = {}): DeferralPlugin {
       await c.execution.sweep({ boot: true });
       run.cadence = new SweepCadence(
         () => c.execution.sweep(),
-        run.runtime.sweepIntervalMs,
+        run.resolved.sweepIntervalMs,
         c.logger,
       );
       run.cadence.start();
@@ -343,7 +375,7 @@ export function deferralPlugin(config: DeferralConfig = {}): DeferralPlugin {
       runs.delete(c);
       // Awaited before the store closes, so no pass meets a closed handle.
       await run.cadence?.stop();
-      if (run.runtime.ownsStore) await run.runtime.store.close();
+      if (run.resolved.ownsStore) await run.resolved.runtime.store.close();
     },
   });
 }

@@ -5,9 +5,7 @@ import { McpServer } from "../../src/mcp/server.ts";
 import type { McpPluginOptions } from "../../src/mcp/types.ts";
 
 /** What a test seeds the MCP service with. */
-export type McpSeed = Partial<
-  Pick<McpService, "tools" | "stdio" | "clients" | "local">
->;
+export type McpSeed = Parameters<typeof createMcpService>[0];
 
 /**
  * A plugin that provides the MCP port without starting a server or any
@@ -19,7 +17,7 @@ export function mcpPort(seed: McpSeed = {}): Plugin {
     id: "test.mcp",
     provides: [MCP],
     bind(c) {
-      c.provide(MCP, { ...createMcpService(), ...seed });
+      c.provide(MCP, createMcpService(seed));
     },
   };
 }

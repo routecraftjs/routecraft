@@ -137,7 +137,11 @@ export interface PluginContext {
    * @throws RC1110 after the application froze
    */
   provide<T>(port: Port<T>, value: T): void;
-  /** Subscribe to an event, or `"*"` for all. Returns the unsubscribe. */
+  /**
+   * Subscribe to an event, or `"*"` for all. Returns the unsubscribe, for a
+   * subscription that ends before the plugin does; every subscription is
+   * released with the plugin's disposers at stop, so none needs tracking.
+   */
   observe<K extends EventName>(
     event: K | "*",
     handler: EventHandler<K>,

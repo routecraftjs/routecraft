@@ -320,12 +320,12 @@ export interface ResolvedDeferSites {
  */
 export function routeCanDefer(
   definition: RouteDefinition,
-  context?: Pick<CraftContext, "hasDeferringErrorHandler">,
+  context?: Pick<CraftContext, "hasDeferringErrorHook">,
 ): boolean {
   return (
     (definition.deferSteps?.length ?? 0) > 0 ||
     (definition.reentrantDeferSteps?.length ?? 0) > 0 ||
-    context?.hasDeferringErrorHandler() === true
+    context?.hasDeferringErrorHook() === true
   );
 }
 

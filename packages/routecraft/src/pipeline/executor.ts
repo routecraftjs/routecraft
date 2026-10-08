@@ -664,7 +664,7 @@ export async function runPipeline(
             scope: "route",
           });
 
-          const decided = await runContextErrorHandlers(deps, {
+          const decided = await runErrorSlot(deps, {
             exchange,
             originalError: handlerErr,
             stepLabel,
@@ -677,25 +677,13 @@ export async function runPipeline(
           if (decided) {
             settle(decided);
           } else {
-            deps.context.emit("route:error", {
-              routeId: deps.routeId,
-              error: handlerErr,
-              route: deps.route,
+            announceFailure(
+              deps,
               exchange,
-            });
-            deps.context.emit("context:error", {
-              error: handlerErr,
-              route: deps.route,
-              exchange,
-            });
-            deps.context.emit("route:exchange:failed", {
-              routeId: deps.routeId,
-              exchangeId: exchange.id,
+              handlerErr,
               correlationId,
               duration,
-              error: handlerErr,
-              exchange,
-            });
+            );
             if (exchange.id !== parentExchangeId) {
               failedChildExchanges.add(exchange.id);
             } else {
@@ -717,7 +705,7 @@ export async function runPipeline(
       }
 
       // Above the rethrowUnhandled escape: a parked exchange must not reach a wrapping retry.
-      const decided = await runContextErrorHandlers(deps, {
+      const decided = await runErrorSlot(deps, {
         exchange,
         originalError: err,
         stepLabel,
@@ -752,25 +740,7 @@ export async function runPipeline(
         },
         err.meta.message,
       );
-      deps.context.emit("route:error", {
-        routeId: deps.routeId,
-        error: err,
-        route: deps.route,
-        exchange,
-      });
-      deps.context.emit("context:error", {
-        error: err,
-        route: deps.route,
-        exchange,
-      });
-      deps.context.emit("route:exchange:failed", {
-        routeId: deps.routeId,
-        exchangeId: exchange.id,
-        correlationId,
-        duration,
-        error: err,
-        exchange,
-      });
+      announceFailure(deps, exchange, err, correlationId, duration);
       if (exchange.id !== parentExchangeId) {
         failedChildExchanges.add(exchange.id);
       } else {
@@ -927,7 +897,7 @@ function parkedRefusedScopes(
  *
  * @internal
  */
-async function runContextErrorHandlers(
+async function runErrorSlot(
   deps: ExecutorDeps,
   args: {
     exchange: Exchange;
@@ -980,7 +950,7 @@ async function runContextErrorHandlers(
   const handlers = decide.filter((entry) =>
     runsOn(entry.hook as ErrorHook, kind, "error"),
   );
-  for (const [index, entry] of handlers.entries()) {
+  for (const entry of handlers) {
     const handler = entry.hook as ErrorHook;
     deps.context.emit("route:error-handler:invoked", {
       routeId: deps.routeId,
@@ -988,7 +958,7 @@ async function runContextErrorHandlers(
       correlationId: args.correlationId,
       originalError: args.originalError,
       failedOperation: args.stepLabel,
-      scope: "context",
+      scope: "slot",
     });
     try {
       const result = await handler.run(args.originalError, args.exchange, info);
@@ -1003,7 +973,7 @@ async function runContextErrorHandlers(
         result,
         stepLabel: args.stepLabel,
         correlationId: args.correlationId,
-        scope: "context",
+        scope: "slot",
         pendingSourceParse: args.pendingSourceParse,
         admitted: args.admitted,
         ...(args.failingStep ? { failingStep: args.failingStep } : {}),
@@ -1016,8 +986,8 @@ async function runContextErrorHandlers(
         {
           operation: args.stepLabel,
           err: handlerErr,
-          context: "context error handler",
-          handlerIndex: index,
+          context: "error-slot hook",
+          hook: entry.id,
         },
         handlerErr.meta.message,
       );
@@ -1027,9 +997,9 @@ async function runContextErrorHandlers(
         correlationId: args.correlationId,
         originalError: args.originalError,
         failedOperation: args.stepLabel,
-        recoveryStrategy: "context-error-handler",
-        scope: "context",
-        handlerIndex: index,
+        recoveryStrategy: "error-slot-hook",
+        scope: "slot",
+        hook: entry.id,
       });
       continue;
     }
@@ -1057,7 +1027,7 @@ async function applyErrorDecision(
     result: unknown;
     stepLabel: string;
     correlationId: string;
-    scope: "route" | "context";
+    scope: "route" | "slot";
     pendingSourceParse: boolean;
     admitted: boolean;
     failingStep?: Step<Adapter>;
@@ -1068,7 +1038,7 @@ async function applyErrorDecision(
   },
 ): Promise<ErrorDecision> {
   const strategy =
-    args.scope === "route" ? "route-error-handler" : "context-error-handler";
+    args.scope === "route" ? "route-error-handler" : "error-slot-hook";
 
   if (isRecovery(args.result) && args.result.kind === "drop") {
     applyDropDirective({
@@ -1634,27 +1604,47 @@ export async function applyExitSlot<
   } catch (thrown) {
     const err = processError(thrown);
     const exchange = result.exchange;
-    deps.context.emit("route:error", {
-      routeId: deps.routeId,
-      error: err,
-      route: deps.route,
+    // The one place this failure is logged: the hook threw after the work
+    // completed, so no handler ring sees it.
+    exchange.logger.error({ err, slot: "exit" }, err.meta.message);
+    announceFailure(
+      deps,
       exchange,
-    });
-    deps.context.emit("context:error", {
-      error: err,
-      route: deps.route,
-      exchange,
-    });
-    deps.context.emit("route:exchange:failed", {
-      routeId: deps.routeId,
-      exchangeId: exchange.id,
-      correlationId: exchange.headers[HeadersKeys.CORRELATION_ID] as string,
-      duration: Date.now() - (getStartedAt(exchange) ?? Date.now()),
-      error: err,
-      exchange,
-    });
+      err,
+      exchange.headers[HeadersKeys.CORRELATION_ID] as string,
+      Date.now() - (getStartedAt(exchange) ?? Date.now()),
+    );
     return { ...result, failed: true, error: err };
   }
+}
+
+/**
+ * The exchange's terminal failure, announced once: `route:error`,
+ * `context:error` and `route:exchange:failed`, in that order. Every failure
+ * path announces through here, so the three cannot drift apart.
+ */
+function announceFailure(
+  deps: ExecutorDeps,
+  exchange: Exchange,
+  error: RoutecraftError,
+  correlationId: string,
+  duration: number,
+): void {
+  deps.context.emit("route:error", {
+    routeId: deps.routeId,
+    error,
+    route: deps.route,
+    exchange,
+  });
+  deps.context.emit("context:error", { error, route: deps.route, exchange });
+  deps.context.emit("route:exchange:failed", {
+    routeId: deps.routeId,
+    exchangeId: exchange.id,
+    correlationId,
+    duration,
+    error,
+    exchange,
+  });
 }
 
 /**

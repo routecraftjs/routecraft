@@ -8,6 +8,12 @@ import {
 import type { CraftContext } from "../context.ts";
 import type { Route } from "../route.ts";
 
+/** What a step-scope wrapper is, for the scope and the run it builds. */
+export interface WrappingStep {
+  readonly label?: string;
+  readonly operation: OperationType;
+}
+
 /**
  * Per-exchange event-scope bindings shared by every resilience wrapper's
  * `runInner`. Derives the route, context, route id, step label, and
@@ -36,7 +42,7 @@ import type { Route } from "../route.ts";
  */
 export function wrapperEventScope(
   exchange: Exchange,
-  step: { label?: string; operation: OperationType },
+  step: WrappingStep,
 ): {
   route: Route | undefined;
   context: CraftContext | undefined;

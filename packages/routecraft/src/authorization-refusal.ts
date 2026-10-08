@@ -157,32 +157,18 @@ export function isAuthorizationRefusal(
 export function insufficientAuthorityOf(
   error: unknown,
 ): InsufficientAuthority["missing"] | undefined {
-  // `rcCodeOf` reads the code off a BRANDED error and answers `undefined`
-  // for anything else, which is the check that matters: a plain object
-  // carrying `rc: "RC5038"` is not a refusal this framework raised, and a
-  // thrown value is not always in-process code's own. An adapter rejecting
-  // with a parsed remote payload would otherwise let that payload name the
-  // scopes a park records as its lend bound, which is the one thing the
-  // bound exists to stop a door widening.
+  // By brand: a remote payload shaped like a refusal must not name a lend bound.
   if (rcCodeOf(error) !== "RC5038") return undefined;
   const cause = (error as { cause?: unknown }).cause;
   if (typeof cause !== "object" || cause === null) return undefined;
   const missing = (cause as Partial<InsufficientAuthority>).missing;
   if (typeof missing !== "object" || missing === null) return undefined;
-  // Shape-checked rather than trusted: the cause is an ordinary `Error` an
-  // application may also throw by hand (the documented pre-`anyScope`
-  // workaround), so a `missing` that is not the documented shape must read
-  // as absent rather than as an empty lend bound.
+  // A hand-thrown cause of the wrong shape reads as absent, never as an empty bound.
   if (!Array.isArray(missing.scopes)) return undefined;
   if (!missing.scopes.every((scope) => typeof scope === "string")) {
     return undefined;
   }
-  // The optional fields are checked too, and a bad one refuses the whole
-  // detail rather than being dropped. Both drive what a consent flow asks a
-  // human for: `mode` decides whether one scope suffices or all are needed,
-  // and `effective` decides whether lending on the actor's ring could ever
-  // open this door. A detail we only half understand is not one to build an
-  // approval request from.
+  // A bad optional field refuses the whole detail: both drive what a consent flow asks for.
   if (
     missing.mode !== undefined &&
     missing.mode !== "all" &&

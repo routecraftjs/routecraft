@@ -25,7 +25,8 @@ import {
   type CacheProvider,
   defaultMemoryCacheProvider,
 } from "./cache-provider.ts";
-import { stepCache, stepScopeOf } from "./position-run.ts";
+import { positionFor } from "./position-run.ts";
+import { CACHE } from "../kernel/positions.ts";
 import type { CacheStep } from "../kernel/positions.ts";
 
 /**
@@ -61,11 +62,11 @@ export interface CacheOptions<Current = unknown> {
    * A custom `key` is used VERBATIM: nothing is added to it. Every route
    * and step on the same provider shares entries for equal keys, and so
    * does every caller, so put the route (`ex.headers[HeadersKeys.ROUTE_ID]`)
-   * and the caller's identity (`ex.principal?.issuer` and `subject`) in
-   * the key, and drop the principal only when every caller sees the same
+   * and the caller's identity (`principalOf(ex)?.issuer` and `subject`)
+   * in the key, and drop the principal only when every caller sees the same
    * answer. On a route that admits delegation, add the current actor
-   * (`ex.principal?.actor?.issuer` and `subject`) as well, or two delegates
-   * acting for the same subject share entries.
+   * (`principalOf(ex)?.actor?.issuer` and `subject`) as well, or two
+   * delegates acting for the same subject share entries.
    *
    * Performance: the default hashes a JSON serialisation of the body on
    * every exchange. For hot paths or large bodies (file contents, large
@@ -132,11 +133,8 @@ export type CacheKeyScope =
   | { readonly kind: "step"; readonly routeId: string; readonly site: string };
 
 /**
- * Internal resolved shape of {@link CacheOptions}: every field is
- * populated, with defaults filled in. Shared between the step-scope
- * wrapper and the route-scope filter steps.
- *
- * @internal
+ * {@link CacheOptions} with every field populated, defaults filled in: what
+ * a `CACHE` provider receives, at route scope and at step scope alike.
  */
 export interface ResolvedCacheOptions<Current = unknown> {
   key: (exchange: Exchange<Current>, scope: CacheKeyScope) => string;
@@ -192,10 +190,10 @@ export function defaultCacheKey(
         `Default cache key for route "${scope.routeId}" has nothing to key on: the exchange body is undefined. ` +
         "A bodiless request such as an http() GET carries its input in the routecraft.http.params and " +
         "routecraft.http.query headers, which the default key does not read. Supply a key, e.g. " +
-        "cache({ key: (ex) => JSON.stringify([ex.headers['routecraft.route'], ex.principal?.issuer, " +
-        "ex.principal?.subject, ex.headers['routecraft.http.params'], ex.headers['routecraft.http.query']]) }). " +
+        "cache({ key: (ex) => JSON.stringify([ex.headers['routecraft.route'], principalOf(ex)?.issuer, " +
+        "principalOf(ex)?.subject, ex.headers['routecraft.http.params'], ex.headers['routecraft.http.query']]) }). " +
         "A custom key is used verbatim: drop the principal only when every caller sees the same answer, " +
-        "and on a route that admits delegation add each ex.principal.actor hop as well.",
+        "and on a route that admits delegation add each principalOf(ex)?.actor hop as well.",
     });
   }
   let bodyHash: string;
@@ -433,11 +431,18 @@ export class CacheWrapperStep<
           });
     }
 
-    const cache = stepCache(this.#runs, exchange, this, (provider) =>
-      provider.wrap(this.#options),
+    const cache = positionFor(
+      this.#runs,
+      exchange,
+      this,
+      CACHE,
+      "cache",
+      (provider) => provider.wrap(this.#options),
     );
     return cache.run({
-      ...stepScopeOf(this, exchange),
+      routeId,
+      scope: "step",
+      stepLabel,
       exchange,
       key,
       emit: (event, details) => context?.emit(event, details),

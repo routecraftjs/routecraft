@@ -127,7 +127,7 @@ Load one or more capabilities from a TypeScript file and start the Routecraft co
 craft run <file> [--env <.env path>] [--profile <name>]
 ```
 
-The file must export a capability (or array of capabilities) as its default export, and optionally a `craftConfig` named export. See the [Configuration reference](/docs/reference/configuration) for the config export format.
+The file must export a capability (or array of capabilities) as its default export, and optionally a `craftConfig` named export. A file whose routes are built with a project's `craft()` exports that project's config as `craftConfig` (`export const craftConfig = project.config`), or the plugin steps it uses fail with `RC1111` when the route runs. See the [Configuration reference](/docs/reference/configuration) for the config export format.
 
 Options:
 
@@ -172,7 +172,7 @@ What it loads, and in what order:
 1. `craft.config.ts` from the project root: a default-exported `defineProject(...)`, or
    else a named `craftConfig` export, or else a default-exported config object. Importing
    this file is what pulls plugins and ecosystem packages into the module graph.
-2. `plugins/`, one plugin instance per module.
+2. `plugins/`, one plugin descriptor default-exported per module. A discovered plugin is added to what `craft.config.ts` installs, so a plugin listed there and present in `plugins/` is installed twice and refused with `RC1101`; keep each in one place. Routes under `capabilities/` built with the project's `craft()` are typed by the plugins `defineProject` lists, so a step of a plugin only `plugins/` supplies is a compile error even though it runs: list such a plugin in the project.
 3. Folder discoverers, ordered by the dependencies they declare. `@routecraft/ai` claims
    `skills/` and `agents/`, and the agents discoverer declares `after: ["skills"]` so an
    agent can compose the house skills rather than replacing them.

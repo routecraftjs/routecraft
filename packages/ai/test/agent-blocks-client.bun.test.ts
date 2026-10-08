@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, mock, test } from "bun:test";
 import {
   craft,
   direct,
-  markAuthentic,
+  defaultAuthority,
   simple,
   type Principal,
   type Source,
@@ -106,7 +106,9 @@ describe("agent blocks: resolver client.forward()", () => {
       subscribe: async (sub) => {
         await sub.emit({
           message: "hi",
-          headers: { "routecraft.auth.principal": markAuthentic(principal) },
+          headers: {
+            "routecraft.auth.principal": defaultAuthority.brand(principal),
+          },
         });
       },
     };

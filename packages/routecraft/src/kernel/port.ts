@@ -25,6 +25,11 @@ export interface Port<T> {
 /** A port of any type, for collections that only compare identity. */
 export type AnyPort = Pick<Port<never>, "name" | "key">;
 
+/** Anything a port is looked up on: a plugin context, or a context. */
+export interface PortLookup {
+  lookup<T>(port: Port<T>): T | undefined;
+}
+
 const PORT_NAME = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)*@[0-9]+$/;
 
 /**

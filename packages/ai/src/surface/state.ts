@@ -11,7 +11,12 @@
  * see each other's connections.
  */
 
-import { port, type PluginLogger } from "@routecraft/routecraft";
+import {
+  getExchangeContext,
+  port,
+  type Exchange,
+  type PluginLogger,
+} from "@routecraft/routecraft";
 import type { AgentSurfaceRef } from "./header.ts";
 import type { AgentSurfaceConnection, SurfaceRequest } from "./types.ts";
 
@@ -115,6 +120,17 @@ export interface SurfaceState {
  * no surface: `surface()` answers `AI1013` and `hasSurface()` is false.
  */
 export const SURFACES = port<SurfaceState>("routecraft.ai.surfaces@1");
+
+/**
+ * The application's surfaces, or `undefined` when no backend is installed.
+ *
+ * @internal
+ */
+export function surfacesOf(
+  exchange: Exchange<unknown>,
+): SurfaceState | undefined {
+  return getExchangeContext(exchange)?.lookup(SURFACES);
+}
 
 /** @internal */
 export function createSurfaceState(

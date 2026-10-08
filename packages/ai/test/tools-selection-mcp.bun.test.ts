@@ -94,11 +94,10 @@ async function buildCtxWithMcp(
                 },
               });
             }
-            c.provide(MCP, {
-              ...createMcpService(),
-              tools: registry,
-              stdio: managers,
-            });
+            c.provide(
+              MCP,
+              createMcpService({ tools: registry, stdio: managers }),
+            );
           },
         },
       ],

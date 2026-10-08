@@ -1,4 +1,4 @@
-import type { PluginContext } from "../../kernel/plugin.ts";
+import type { PortLookup } from "../../kernel/port.ts";
 import { rcError } from "../../error.ts";
 import {
   DEFAULT_PAGE_SIZE,
@@ -192,7 +192,7 @@ function listingOf(store: DeferralStore): DeferralStore["list"] {
  * @internal
  */
 export function registerDeferralsResource(
-  c: Pick<PluginContext, "lookup">,
+  c: PortLookup,
   continuations: () => DeferralRuntime | undefined,
 ): void {
   registerOpsResource<OpsDeferralSummary>(c, {

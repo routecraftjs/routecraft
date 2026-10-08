@@ -76,6 +76,7 @@ export {
 export type {
   DeferralConfig,
   DeferralRuntime,
+  ResolvedDeferral,
   DeferralStoreConfig,
   DeferralTestSeams,
 } from "./index.ts";

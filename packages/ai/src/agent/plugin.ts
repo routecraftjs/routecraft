@@ -3,7 +3,6 @@ import {
   OPS,
   REMOTES,
   parsePageQuery,
-  rcCodeOf,
   type Plugin,
   type PluginContext,
   type OpsPage,
@@ -164,6 +163,8 @@ export function agentPlugin(options: AgentPluginOptions = {}): Plugin {
 interface AgentRun {
   readonly registry: AgentRegistryImpl;
   readonly tools: ToolHost;
+  /** The session runtime, or `undefined` without a continuations store. */
+  readonly sessions: AgentSessionRuntime | undefined;
   boot?: Promise<void> | undefined;
 }
 
@@ -224,10 +225,10 @@ export function agentRuntimePlugin(): Plugin {
           c.execution.deliver(endpoint, body, headers),
         sessions: () => registry.sessions(),
       };
-      runs.set(c, { registry, tools });
+      runs.set(c, { registry, tools, sessions: runtime });
       c.provide(AGENTS, registry);
       const ops = c.lookup(OPS);
-      if (ops !== undefined) registerSessionsResource(registry, ops);
+      if (ops !== undefined) registerSessionsResource(runtime, ops);
     },
 
     /**
@@ -248,7 +249,10 @@ export function agentRuntimePlugin(): Plugin {
       if (!run) return;
       resolveLazyTools(run);
       emitRegistrations(c, run);
-      run.boot = driveSessionsAtBoot(c, run.registry);
+      run.boot =
+        run.sessions === undefined
+          ? undefined
+          : driveSessionsAtBoot(c, run.sessions);
     },
 
     /**
@@ -276,15 +280,8 @@ export function agentRuntimePlugin(): Plugin {
  */
 function driveSessionsAtBoot(
   c: PluginContext,
-  registry: AgentRegistryImpl,
-): Promise<void> | undefined {
-  let runtime: AgentSessionRuntime;
-  try {
-    runtime = registry.sessions();
-  } catch (err) {
-    if (rcCodeOf(err) === "RC5052") return undefined;
-    throw err;
-  }
+  runtime: AgentSessionRuntime,
+): Promise<void> {
   return runtime.driveBoot().then(
     ({ revived, lostBackground }) => {
       if (revived > 0 || lostBackground > 0) {
@@ -332,22 +329,13 @@ const SESSIONS_RESOURCE = "agent-sessions";
 const OPS_SCOPE: AgentSessionScope = "operator";
 
 function registerSessionsResource(
-  registry: AgentRegistryImpl,
+  sessions: AgentSessionRuntime | undefined,
   ops: OpsService,
 ): void {
-  const runtime = (): AgentSessionRuntime | undefined => {
-    try {
-      return registry.sessions();
-    } catch (err) {
-      if (rcCodeOf(err) === "RC5052") return undefined;
-      throw err;
-    }
-  };
   ops.registerResource<AgentSessionSummary>({
     name: SESSIONS_RESOURCE,
     async list(query): Promise<OpsPage<AgentSessionSummary>> {
-      const sessions = runtime();
-      if (!sessions) return { items: [] };
+      if (sessions === undefined) return { items: [] };
       const agent = query["agent"];
       return sessions.summaries({
         scope: OPS_SCOPE,
@@ -360,7 +348,7 @@ function registerSessionsResource(
       // path is `/ops/agent-sessions/{session}` rather than a pair.
       if (segments.length !== 1) return undefined;
       const [session] = segments as [string];
-      return runtime()?.summary(session, OPS_SCOPE);
+      return sessions?.summary(session, OPS_SCOPE);
     },
   });
 }

@@ -152,10 +152,11 @@ export interface CallerRefusalOrigin {
  *
  * Attribution is by origin, never by code:
  *
- * - `RC5065` maps only when it carries the `InputValidationFailure` detail
- *   for the dispatched route. One without it was thrown by something other
- *   than `.input()`, and one naming another route came up through
- *   `direct()`, so neither is the caller's.
+ * - `RC5065` and `RC5049` map only when they carry the
+ *   `InputValidationFailure` detail for the dispatched route. One without it
+ *   was thrown by something other than `.input()` or the resume door, and
+ *   one naming another route came up through `direct()`, so neither is the
+ *   caller's.
  * - `RC5068` maps only when it carries the `HookRefusal` detail for the
  *   dispatched route, for the same reason. A hook refusing as
  *   `unauthenticated` on a door that reads no credential is answered as
@@ -181,7 +182,7 @@ export function callerRefusalOf(
   origin: CallerRefusalOrigin,
 ): CallerRefusal | undefined {
   const code = rcCodeOf(error);
-  if (code === "RC5065") {
+  if (code === "RC5065" || code === "RC5049") {
     const cause = (error as Error).cause;
     if (
       !isInputValidationFailure(cause) ||

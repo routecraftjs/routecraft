@@ -8,7 +8,7 @@ import {
   definePlugin,
   direct,
   isInputValidationFailure,
-  markAuthentic,
+  defaultAuthority,
   noop,
   rcError,
   refuse,
@@ -44,7 +44,7 @@ describe("callerRefusalOf()", () => {
     t = undefined;
   });
 
-  const principal = markAuthentic<Principal>({
+  const principal = defaultAuthority.brand<Principal>({
     kind: "custom",
     scheme: "bearer",
     subject: "user-1",

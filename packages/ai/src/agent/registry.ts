@@ -35,6 +35,7 @@ export class AgentRegistryImpl implements AgentRegistry {
   readonly agents = new Map<string, AgentRegisteredOptions>();
   readonly functions = new Map<string, FnEntry>();
   readonly toolPolicies: AgentToolPolicy[] = [];
+  /** Resolved deferred functions by id, filled when the runtime starts. */
   readonly resolvedFunctions = new Map<string, FnOptions>();
   #defaults: AgentDefaultOptions | undefined;
 
@@ -98,6 +99,10 @@ export class AgentRegistryImpl implements AgentRegistry {
     if (this.runtime === undefined) throw noContinuationsStore();
     return this.runtime;
   }
+
+  resolvedFunction(id: string): FnOptions | undefined {
+    return this.resolvedFunctions.get(id);
+  }
 }
 
 /** What a late contribution carried, for the refusal to name. */
@@ -141,13 +146,7 @@ function validateRegisteredAgent(
         `backed by a route.`,
     });
   }
-  // A registered agent is reached through `agent("id")`, whose overloads
-  // declare `AgentResult`: there is no literal in the options object for the
-  // widening overload to see. Accepting `stream` here would type every
-  // by-name call as the consolidated result while the dispatch handed back
-  // an iterable. It is also the wrong home for the option, because whether a
-  // route's output is a stream belongs to that route, not to a definition
-  // shared across every caller.
+  // `agent("id")` is typed as the consolidated result; a stream belongs to the route.
   if (options.stream !== undefined) {
     throw rcError("RC5003", undefined, {
       message:
@@ -269,10 +268,7 @@ export function validateToolPolicy(
       });
     }
     const rule = raw[key as AgentToolPolicyKind] as AgentToolRule | undefined;
-    // An explicit `undefined` is rejected, not skipped. Owning the key with
-    // an undefined value satisfies the missing-key check above while
-    // `ruleAdmits` treats it as a denial at dispatch, which is precisely the
-    // silent strip that requiring every key exists to prevent.
+    // An explicit `undefined` would pass the key check and deny at dispatch.
     if (typeof rule !== "boolean" && typeof rule !== "function") {
       throw rcError("RC5003", undefined, {
         message: `agentPlugin: "toolPolicy.${key}" must be a boolean or a (tool, ctx) => boolean predicate (got ${typeof rule}).`,
@@ -305,10 +301,7 @@ function mergePluginDefaults(
       message: `agentPlugin: "defaultOptions.tools" is already set on this context. Combine selectors into a single tools([...]) call.`,
     });
   }
-  // Blocks merge additively: each contribution adds named entries, and a
-  // name set twice throws so one is never silently picked. This differs
-  // from `model` / `tools` (single-valued) and matches how blocks compose
-  // per agent: independent named contributions.
+  // Blocks merge by name, and a name set twice throws.
   let mergedBlocks: typeof existing.blocks | undefined;
   if (existing.blocks !== undefined || next.blocks !== undefined) {
     mergedBlocks = { ...(existing.blocks ?? {}) };

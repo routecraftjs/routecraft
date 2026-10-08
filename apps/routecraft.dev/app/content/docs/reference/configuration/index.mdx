@@ -128,7 +128,7 @@ export const craftConfig = defineConfig({
 })
 ```
 
-The keys apply in a fixed order (`llm`, `mcp`, `embedding`, `agent`, `sessions`, `acp`), whatever order they are written in, and before anything in `plugins`. That is what lets `acp` serve the agents `agent` registered in any key order, where the `plugins: [acpPlugin()]` form has to be listed after `agentPlugin()`.
+The keys apply in a fixed order (`llm`, `mcp`, `embedding`, `agent`, `sessions`, `acp`), whatever order they are written in, and before anything in `plugins`. Plugins then bind in dependency order, and a repeatable contribution such as `agentPlugin()` binds ahead of the other consumers of its port, so `acp` and `plugins: [acpPlugin()]` alike serve every registered agent whatever the list order.
 
 The legacy `plugins: [llmPlugin(...)]` form continues to work and is the right escape hatch for shared plugin instances or programmatic composition.
 

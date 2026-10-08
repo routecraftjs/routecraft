@@ -192,7 +192,7 @@ interface ActiveTurn {
 export function noContinuationsStore(): Error {
   return rcError("RC5052", undefined, {
     message:
-      "agent({ session }) stores a turn's continuation in the deferral store, and this context has none. Add a `deferral` block to defineConfig (the sqlite backend is the default) so a turn that ends with work outstanding can be revived.",
+      "agent({ session }) stores a turn's continuation in the deferral store, and this application has no deferral runtime. Add deferral: {} to defineProject (or defineConfig) to take the defaults, or deferral: { store, secret } to be explicit.",
   });
 }
 

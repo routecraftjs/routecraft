@@ -50,7 +50,6 @@ interface Runtime {
   state: HealthState;
   /** What other plugins contributed through {@link OPS}. */
   contributions: OpsContributions;
-  unsubscribes: (() => void)[];
   /** The mount's effective validator exists (its own auth, or the server's). */
   authConfigured: boolean;
   /** Every indicator name registered on the ledger, from options and contributions. */
@@ -161,7 +160,6 @@ export function opsPlugin(options: OpsPluginOptions = {}): Plugin {
       const runtime: Runtime = {
         state,
         contributions,
-        unsubscribes: [],
         authConfigured: mountAuth.configured,
         indicatorNames: names,
         contributed: [],
@@ -206,77 +204,75 @@ export function opsPlugin(options: OpsPluginOptions = {}): Plugin {
       }
       const hasBoundIndicators = boundIndicators.size > 0;
 
-      const { unsubscribes } = runtime;
-      unsubscribes.push(
-        // `context:started` is deliberately not subscribed. It fires before
-        // routes are started, so readiness taken from it would answer 200 to
-        // an orchestrator while a source is still coming up. The context is
-        // marked started in this plugin's own start() hook instead, which the
-        // framework runs after route readiness settles.
-        c.observe("context:stopping", () => state.contextStopping()),
-        c.observe("route:started", ({ details }) => {
-          state.routeStarted(details.routeId);
-        }),
-        c.observe("route:stopped", ({ details }) => {
-          state.routeStopped(details.routeId);
-        }),
-        // Disabled is reported distinctly from failed, WITH its reason, and
-        // never degrades the aggregate: an operator reading /ops sees
-        // "mail-inbound: disabled (MAIL_USER, MAIL_APP_PASSWORD unset)" and
-        // knows immediately that nothing is broken.
-        c.observe("route:enablement:changed", ({ details }) => {
-          if (details.enabled) {
-            state.clearRouteDisabled(details.routeId);
-          } else {
-            state.setRouteDisabled(
-              details.routeId,
-              details.reason ?? "disabled by its enabled() predicate",
-            );
+      // Released with the plugin: the kernel disposes every observe at stop.
+      // `context:started` is deliberately not subscribed. It fires before
+      // routes are started, so readiness taken from it would answer 200 to
+      // an orchestrator while a source is still coming up. The context is
+      // marked started in this plugin's own start() hook instead, which the
+      // framework runs after route readiness settles.
+      c.observe("context:stopping", () => state.contextStopping());
+      c.observe("route:started", ({ details }) => {
+        state.routeStarted(details.routeId);
+      });
+      c.observe("route:stopped", ({ details }) => {
+        state.routeStopped(details.routeId);
+      });
+      // Disabled is reported distinctly from failed, WITH its reason, and
+      // never degrades the aggregate: an operator reading /ops sees
+      // "mail-inbound: disabled (MAIL_USER, MAIL_APP_PASSWORD unset)" and
+      // knows immediately that nothing is broken.
+      c.observe("route:enablement:changed", ({ details }) => {
+        if (details.enabled) {
+          state.clearRouteDisabled(details.routeId);
+        } else {
+          state.setRouteDisabled(
+            details.routeId,
+            details.reason ?? "disabled by its enabled() predicate",
+          );
+        }
+      });
+      // The only route-liveness signal. `context:error` is deliberately not
+      // subscribed: it fires for every unhandled exchange error and for any
+      // throwing event handler, so reading it as a dead source would make
+      // one refused caller report the route down.
+      c.observe("route:source:failed", ({ details }) => {
+        state.sourceDied(details.routeId);
+      });
+      c.observe("route:exchange:completed", ({ details }) => {
+        state.exchangeCompleted(details.routeId);
+        if (hasBoundIndicators) {
+          for (const name of boundIndicators.get(details.routeId) ?? []) {
+            state.reportIndicator(name, { status: "up" });
           }
-        }),
-        // The only route-liveness signal. `context:error` is deliberately not
-        // subscribed: it fires for every unhandled exchange error and for any
-        // throwing event handler, so reading it as a dead source would make
-        // one refused caller report the route down.
-        c.observe("route:source:failed", ({ details }) => {
-          state.sourceDied(details.routeId);
-        }),
-        c.observe("route:exchange:completed", ({ details }) => {
-          state.exchangeCompleted(details.routeId);
-          if (hasBoundIndicators) {
-            for (const name of boundIndicators.get(details.routeId) ?? []) {
-              state.reportIndicator(name, { status: "up" });
-            }
+        }
+      });
+      // `route:exchange:dropped` is deliberately not subscribed. A drop is
+      // the third terminal state and suppresses `completed`, but it is not
+      // evidence either way: the exchange may have been filtered out before
+      // the dependency was ever reached. Reporting a verdict from it would
+      // be inventing one, so a bound indicator on a route that only drops
+      // goes stale, which is the truthful answer.
+      c.observe("route:exchange:failed", ({ details }) => {
+        state.exchangeFailed(details.routeId);
+        if (hasBoundIndicators) {
+          for (const name of boundIndicators.get(details.routeId) ?? []) {
+            state.reportIndicator(name, { status: "down" });
           }
-        }),
-        // `route:exchange:dropped` is deliberately not subscribed. A drop is
-        // the third terminal state and suppresses `completed`, but it is not
-        // evidence either way: the exchange may have been filtered out before
-        // the dependency was ever reached. Reporting a verdict from it would
-        // be inventing one, so a bound indicator on a route that only drops
-        // goes stale, which is the truthful answer.
-        c.observe("route:exchange:failed", ({ details }) => {
-          state.exchangeFailed(details.routeId);
-          if (hasBoundIndicators) {
-            for (const name of boundIndicators.get(details.routeId) ?? []) {
-              state.reportIndicator(name, { status: "down" });
-            }
-          }
-        }),
-        // A breaker is the one thing that turns repeated failure into a health
-        // signal, because it is the one thing that actually stops the route
-        // serving. Both scopes count: a step-scope breaker still means part of
-        // this route is refusing work.
-        c.observe("route:circuitBreaker:opened", ({ details }) => {
-          state.circuitOpened(details.routeId, details.stepLabel, "open");
-        }),
-        c.observe("route:circuitBreaker:halfOpen", ({ details }) => {
-          state.circuitOpened(details.routeId, details.stepLabel, "half-open");
-        }),
-        c.observe("route:circuitBreaker:closed", ({ details }) => {
-          state.circuitClosed(details.routeId, details.stepLabel);
-        }),
-      );
+        }
+      });
+      // A breaker is the one thing that turns repeated failure into a health
+      // signal, because it is the one thing that actually stops the route
+      // serving. Both scopes count: a step-scope breaker still means part of
+      // this route is refusing work.
+      c.observe("route:circuitBreaker:opened", ({ details }) => {
+        state.circuitOpened(details.routeId, details.stepLabel, "open");
+      });
+      c.observe("route:circuitBreaker:halfOpen", ({ details }) => {
+        state.circuitOpened(details.routeId, details.stepLabel, "half-open");
+      });
+      c.observe("route:circuitBreaker:closed", ({ details }) => {
+        state.circuitClosed(details.routeId, details.stepLabel);
+      });
 
       const health = createHealthHandler({
         state,
@@ -445,7 +441,6 @@ export function opsPlugin(options: OpsPluginOptions = {}): Plugin {
         // these subscriptions are gone. Without it a store reader would see a
         // context draining forever.
         runtime.state.contextStopped();
-        for (const unsubscribe of runtime.unsubscribes) unsubscribe();
         for (const indicator of indicators) unbindIndicator(indicator, c);
         for (const { entry, sink } of runtime.contributed) {
           entry.sinks.delete(sink);

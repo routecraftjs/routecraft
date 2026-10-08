@@ -1,6 +1,5 @@
-import type { CraftContext } from "../context.ts";
 import { rcError } from "../error.ts";
-import type { Port } from "../kernel/port.ts";
+import type { Port, PortLookup } from "../kernel/port.ts";
 import {
   CACHE,
   ENFORCEMENT,
@@ -54,7 +53,7 @@ type PositionFields = Pick<
  */
 export function compilePositions(
   definition: PositionFields,
-  context: Pick<CraftContext, "lookup">,
+  context: PortLookup,
 ): CompiledPositions {
   const provider = <T>(target: Port<T>, method: string): T => {
     const found = context.lookup(target);

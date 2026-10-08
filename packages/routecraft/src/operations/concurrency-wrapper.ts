@@ -9,7 +9,7 @@ import { SleepAbortedError } from "./cancellable-sleep.ts";
 import { DEFAULT_MAX_KEYS, validateMaxKeys } from "./max-keys.ts";
 import { RouteScopedController } from "./route-scoped-controller.ts";
 import { Semaphore } from "./semaphore.ts";
-import { stepPosition, stepPositionRun } from "./position-run.ts";
+import { runStepPosition } from "./position-run.ts";
 import type { Position } from "../kernel/positions.ts";
 
 /**
@@ -74,10 +74,8 @@ export interface ConcurrencyOptions {
 }
 
 /**
- * {@link ConcurrencyOptions} with every behavioural field populated. Shared
- * by the step-scope wrapper and the route-scope segment.
- *
- * @internal
+ * {@link ConcurrencyOptions} with every behavioural field populated: what a
+ * `RESILIENCE` provider receives, at route scope and at step scope alike.
  */
 export interface ResolvedConcurrencyOptions {
   max: number;
@@ -507,13 +505,14 @@ export class ConcurrencyWrapperStep<
     exchange: Exchange,
     ctx: StepContext,
   ): Promise<StepOutcome> {
-    const position = stepPosition(
-      this.#positions,
-      exchange,
+    return runStepPosition(
       this,
+      this.inner,
+      this.#positions,
       "concurrency",
       (provider) => provider.concurrency(this.#options),
+      exchange,
+      ctx,
     );
-    return position.run(stepPositionRun(this, this.inner, exchange, ctx));
   }
 }

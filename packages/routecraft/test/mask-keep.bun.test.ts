@@ -12,7 +12,7 @@ import {
   DefaultExchange,
   HeadersKeys,
   keep,
-  markAuthentic,
+  defaultAuthority,
   mask,
   type CallableTransformer,
   type Exchange,
@@ -60,7 +60,7 @@ function mk<T>(body: T, principal?: Principal): Exchange<T> {
 // keep trusts only authentic principals, so brand the test principal the way a
 // source verifier or authenticate() would.
 function who(roles: string[], email = "a@x.com"): Principal {
-  return markAuthentic({
+  return defaultAuthority.brand({
     kind: "custom",
     scheme: "bearer",
     subject: "u",

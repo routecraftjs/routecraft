@@ -1,4 +1,5 @@
-import { port } from "../port.ts";
+import { rcError } from "../../error.ts";
+import { port, type PortLookup } from "../port.ts";
 import type { DeferralStore } from "./types.ts";
 
 /**
@@ -107,46 +108,57 @@ export interface ResumeTokenSigning {
 }
 
 /**
- * The resolved per-context deferral runtime: one store, one signer.
+ * What the `CONTINUATIONS` provider hands the kernel: one store, one signer,
+ * and the deadlines the park, resume and sweep apply. What the provider
+ * keeps for itself (whether it opened the store, how often it sweeps) stays
+ * in its own closure, so a replacement supplies only what the kernel reads.
  */
 export interface DeferralRuntime {
   readonly store: DeferralStore;
   readonly signer: ResumeTokenSigning;
   /**
-   * What the store resolved to, for the startup log line. `custom` is a
-   * store the caller supplied; reporting it as `sqlite` would mislead
-   * exactly the operators who configured a backend deliberately, on the one
-   * field that answers "is this deployment durable, and against what".
-   */
-  readonly backend: "sqlite" | "memory" | "custom";
-  /**
-   * False when the caller supplied the store, in which case they own its
-   * lifecycle and the plugin must not close it on teardown. A user-supplied
-   * backend typically wraps a pool shared with the rest of the application,
-   * or is reused across two contexts in one process (which is how a
-   * restart-durability test is written).
-   */
-  readonly ownsStore: boolean;
-  /**
    * Milliseconds a deferral stays resumable when `.defer()` names no
-   * `ttl`. Undefined when the context opted out with `defaultTtl: "never"`,
-   * which is the only way to defer something with no deadline at all.
+   * `ttl`. Undefined when the application opted out with
+   * `defaultTtl: "never"`, which is the only way to defer something with no
+   * deadline at all.
    */
   readonly defaultTtlMs?: number;
-  /**
-   * Milliseconds between sweeps. Resolved here rather than in the plugin's
-   * `start()` hook so a malformed duration fails while the context is still
-   * being built, which is the rule the rest of this config already follows.
-   */
-  readonly sweepIntervalMs: number;
   /** Milliseconds an expiry-delivery claim is honoured before redelivery. */
   readonly expiryLeaseMs: number;
   /** Milliseconds settled records are kept. Undefined means keep forever. */
   readonly retentionMs?: number;
   /**
-   * The database file the sqlite store opened. Another store that must not
-   * share a file with this one reads it here, through the port, because
-   * the two are resolved by different plugins.
+   * The file or location the store opened, when it has one. Another store
+   * that must not share it reads it here, through the port, because the two
+   * are resolved by different plugins.
    */
   readonly path?: string;
+}
+
+/** How a missing continuations provider is remedied, in every refusal. */
+export const CONTINUATIONS_REMEDY =
+  "Add deferral: {} to defineProject (or defineConfig) to take the defaults, or deferral: { store, secret } to be explicit.";
+
+/**
+ * The application's continuations provider, for a caller that cannot go
+ * on without one.
+ *
+ * @param context - Where the port is looked up; `undefined` when the caller
+ *   has no application at all
+ * @param attempted - What was being done, for the refusal to name
+ * @throws RC5052 when no installed plugin provides `CONTINUATIONS`
+ *
+ * @internal
+ */
+export function requireContinuations(
+  context: PortLookup | undefined,
+  attempted: string,
+): DeferralRuntime {
+  const runtime = context?.lookup(CONTINUATIONS);
+  if (!runtime) {
+    throw rcError("RC5052", undefined, {
+      message: `${attempted}, but this application has no deferral runtime. ${CONTINUATIONS_REMEDY}`,
+    });
+  }
+  return runtime;
 }

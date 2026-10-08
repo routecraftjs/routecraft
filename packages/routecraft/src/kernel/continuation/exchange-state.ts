@@ -1,8 +1,7 @@
 import type { CraftContext } from "../../context.ts";
 import type { ExchangeHeaders } from "../../exchange.ts";
 import { rcError } from "../../error.ts";
-import { CONTINUATIONS } from "./port.ts";
-import { deferralIdFor } from "./port.ts";
+import { deferralIdFor, requireContinuations } from "./port.ts";
 import type { PrincipalRef } from "./types.ts";
 
 /**
@@ -143,14 +142,10 @@ export function deferralAffordance(
   const sequence = effectiveSequence(headers, floor);
   const id = deferralIdOf(headers, exchangeId, floor);
   const mint = (callBinding?: string): string => {
-    const runtime = context?.lookup(CONTINUATIONS);
-    if (!runtime) {
-      throw rcError("RC5052", undefined, {
-        message:
-          "Cannot mint a resume token: this context has no deferral runtime. Add deferral: {} to defineConfig.",
-      });
-    }
-    return runtime.signer.mint(id, new Date(), callBinding);
+    return requireContinuations(
+      context,
+      "Cannot mint a resume token",
+    ).signer.mint(id, new Date(), callBinding);
   };
   return {
     id,

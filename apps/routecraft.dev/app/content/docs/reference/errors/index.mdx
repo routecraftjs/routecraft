@@ -97,7 +97,7 @@ Give one of the two plugins an explicit `namespace`.
 Port name invalid or claimed by two tokens
 
 **Why it happens**  
-A port name is not of the form `owner.capability@version`, or two different `port()` tokens with the same name are present in one application. The second case means two copies of the module that declares the port are loaded, so a provider and its consumer hold different tokens for what looks like one contract.
+A port name is not of the form `owner.capability@version`, or two different `port()` tokens with the same name are present in one application: two were declared by installed plugins, or a lookup presented a token the application never saw under a name it holds. Either way two copies of the module that declares the port are loaded, so a provider and its consumer hold different tokens for what looks like one contract. The lookup case is what a `craft run` over a file that resolves its own copy of the package hits, where the silent outcome would be an adapter dropping its configuration.
 
 **Suggestion**  
 Name the port `owner.capability@1` and declare it once, at module scope, with `port()`. For a duplicate, deduplicate the dependency that declares it so every plugin shares one copy.
@@ -223,10 +223,10 @@ Remove one of the plugins, or rename the step. Build a new step on every call of
 Invalid plugin descriptor
 
 **Why it happens**  
-Something installed as a plugin is not a valid descriptor: it has no dotted `id`, it still has the pre-0.8 `apply(ctx)` shape, a `requires`, `optional`, `provides` or `replaces` list holds something other than ports, a hook or lifecycle field is not a function, or a `repeatable` plugin declares what only one install may (a port it provides or replaces, hooks, points, steps or a facet). Raised before any plugin binds.
+Something installed as a plugin is not a valid descriptor: it has no dotted `id`, it still has the pre-0.8 `apply(ctx)` shape, a `requires`, `optional`, `provides` or `replaces` list holds something other than ports, a hook or lifecycle field is not a function, a hook has no `id`, or a `repeatable` plugin declares what only one install may (a port it provides or replaces, hooks, points, steps or a facet). Raised before any plugin binds.
 
 **Suggestion**  
-Build the plugin with `definePlugin({ id, ... })`. The message names the plugin's position, or the plugin that brought it, and the field at fault. A pre-0.8 plugin moves `apply` into `bind(c)` and `teardown` into `stop(c, info)`; see the [0.7 to 0.8 migration guide](/docs/migrating/0.7-to-0.8).
+Build the plugin with `definePlugin({ id, ... })`. The message names the plugin's position, or the plugin that brought it, and the field at fault. Every hook names itself with `id`, because `hooks.order` and `hooks.disable` address it as `pluginId/id` and a name that followed the function or its position would move under that config. A pre-0.8 plugin moves `apply` into `bind(c)` and `teardown` into `stop(c, info)`; see the [0.7 to 0.8 migration guide](/docs/migrating/0.7-to-0.8).
 
 ## RC2001
 Invalid operation type
@@ -570,15 +570,15 @@ Supply an explicit `key` function that returns a stable string identifier. A cus
   key: (e) =>
     JSON.stringify([
       e.headers[HeadersKeys.ROUTE_ID],
-      e.principal?.issuer,
-      e.principal?.subject,
+      principalOf(e)?.issuer,
+      principalOf(e)?.subject,
       e.headers['routecraft.http.params'],
       e.headers['routecraft.http.query'],
     ]),
 })
 ```
 
-Drop the principal only when every caller sees the same answer. On a route that admits delegation, add the current actor (`e.principal?.actor?.issuer`, `e.principal?.actor?.subject`) as well. See [cache key](/docs/reference/operations/cache#cache-key).
+Drop the principal only when every caller sees the same answer. On a route that admits delegation, add the current actor (`principalOf(e)?.actor?.issuer`, `principalOf(e)?.actor?.subject`) as well. See [cache key](/docs/reference/operations/cache#cache-key).
 
 This error is not retryable: the same exchange fails key derivation the same way every time.
 
@@ -622,14 +622,14 @@ Supply an explicit `key` function that returns a stable string identifier. A cus
 .dedupe({
   key: (e) =>
     JSON.stringify([
-      e.principal?.issuer,
-      e.principal?.subject,
+      principalOf(e)?.issuer,
+      principalOf(e)?.subject,
       (e.body as { id: unknown }).id,
     ]),
 })
 ```
 
-On a route that admits delegation, add the current actor (`e.principal?.actor?.issuer`, `e.principal?.actor?.subject`) as well. See [dedupe](/docs/reference/operations/dedupe).
+On a route that admits delegation, add the current actor (`principalOf(e)?.actor?.issuer`, `principalOf(e)?.actor?.subject`) as well. See [dedupe](/docs/reference/operations/dedupe).
 
 This error is not retryable: the same exchange fails key derivation the same way every time.
 
@@ -801,6 +801,8 @@ The payload handed to `.resume()` failed the `schema` declared at the deferring 
 
 **Suggestion**  
 The deferral is left resumable, so a corrected payload still works. Check the mapping function in `.resume((ex) => ({ token, result }))`: it owns the SHAPE of the payload, while validation happens at revival because only the deferral knows the schema.
+
+A door that dispatched the ingress route answers the submitter the way it answers the route's own `.input()` refusal: the `http()` source and the ops dispatch door answer 400 with the schema's issues in the shape given under [RC5065](#rc-5065), the MCP server a tool error carrying them, the ACP mount `-32602`. A plugin resuming through `c.execution.resume()` has no caller waiting, so there the code alone is raised.
 
 ## RC5050
 Deferral denied
@@ -1023,7 +1025,7 @@ Refused by a validate hook
 **Why it happens**  
 A plugin's `validate` hook returned `refuse(reason, { kind })` for this exchange. The message names the hook (`pluginId/hookId`), the slot it ran in, the kind and the reason. The refusal reaches the route's `.error()` and the `error` slot like any other failure.
 
-A door that dispatched the route answers the caller with the kind and the reason, never the hook: the `http()` source and the ops dispatch door map the kind to a status (`invalid` 400, `unauthenticated` 401, `forbidden` 403, `not_found` 404, `conflict` 409, `gone` 410, `rate_limited` 429, `unavailable` 503) and answer `{ "error": "<status text>", "code": "RC5068", "reason": "<the hook's reason>" }`; the MCP server answers a tool error naming the kind and the reason. An `unauthenticated` refusal on a door that reads no credential is answered as `forbidden`. The same code raised by a nested `direct()` call stays the instance's and answers as any other failure.
+A door that dispatched the route answers the caller with the kind and the reason, never the hook: the `http()` source and the ops dispatch door map the kind to a status (`invalid` 400, `unauthenticated` 401, `forbidden` 403, `not_found` 404, `conflict` 409, `gone` 410, `rate_limited` 429, `unavailable` 503) and answer `{ "error": "<status text>", "code": "RC5068", "reason": "<the hook's reason>" }`; the MCP server answers a tool error naming the kind and the reason; the ACP mount answers `-32602` for `invalid` and `-32001` for every other kind, with `{ code, kind, reason }` in the error's data. An `unauthenticated` refusal on a door that reads no credential is answered as `forbidden`. The same code raised by a nested `direct()` call stays the instance's and answers as any other failure.
 
 **Suggestion**  
 Read the reason in the message: it is usually a property of the request (a missing header, a principal outside a tenant). A route can answer the refusal in its own `.error()`. If the hook is wrong for this application, switch it off by id with `hooks.disable`, or scope it with the hook's `routes` or `tags`. Writing a hook, pick the kind the caller can act on and write the reason for the caller: both cross the wire.

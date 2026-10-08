@@ -1,7 +1,7 @@
 import type { HealthLedger } from "./state";
 import { rcError } from "../../error";
 import { port } from "../../kernel/port.ts";
-import type { PluginContext } from "../../kernel/plugin.ts";
+import type { PortLookup } from "../../kernel/port.ts";
 import type { Duration } from "../../shared/duration.ts";
 import type { RemoteRoute } from "../remotes/store";
 import { assertIndicatorName } from "./indicator";
@@ -178,7 +178,7 @@ export class OpsContributions implements OpsService {
  * @throws RC5053 on a reserved or malformed name, or a name already taken
  */
 export function registerOpsResource<TItem>(
-  c: Pick<PluginContext, "lookup">,
+  c: PortLookup,
   resource: OpsResource<TItem>,
 ): void {
   assertResourceName(resource.name);
@@ -197,7 +197,7 @@ export function registerOpsResource<TItem>(
  * @throws RC5053 on a malformed name, or a name another contributor took
  */
 export function contributeOpsIndicator(
-  c: Pick<PluginContext, "lookup">,
+  c: PortLookup,
   definition: IndicatorContribution,
 ): (health: Health) => void {
   assertIndicatorName(definition.name, "contributeOpsIndicator");

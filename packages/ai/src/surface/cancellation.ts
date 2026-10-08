@@ -47,14 +47,13 @@
 
 import {
   HeadersKeys,
-  getExchangeContext,
   type Exchange,
   type PluginContext,
 } from "@routecraft/routecraft";
 import type { AgentSurfaceRef } from "./header.ts";
 import { surfaceFor } from "./registry.ts";
 import {
-  SURFACES,
+  surfacesOf,
   type SurfaceCleanup,
   type SurfaceRegistration,
   type SurfaceState,
@@ -299,7 +298,7 @@ export function registerCleanup(
   connection: AgentSurfaceConnection,
   requests: readonly SurfaceRequest[],
 ): () => void {
-  const state = getExchangeContext(exchange)?.lookup(SURFACES);
+  const state = surfacesOf(exchange);
   if (state === undefined) return () => undefined;
   const registered = state.cleanups;
   const added: SurfaceCleanup[] = requests.map((request) => ({
@@ -475,30 +474,26 @@ export function bindSurfaceLifecycle(
   state: SurfaceState,
   c: Pick<PluginContext, "observe" | "onDispose">,
 ): void {
-  c.onDispose(
-    c.observe("route:agent:session:interrupted", ({ details }) => {
-      cancelSurfaceTurn(
-        state,
-        details.session,
-        details.correlationId,
-        details.exchangeId,
-      );
-    }),
-  );
+  c.observe("route:agent:session:interrupted", ({ details }) => {
+    cancelSurfaceTurn(
+      state,
+      details.session,
+      details.correlationId,
+      details.exchangeId,
+    );
+  });
   for (const ended of [
     "route:exchange:completed",
     "route:exchange:failed",
     "route:exchange:dropped",
   ] as const) {
-    c.onDispose(
-      c.observe(ended, ({ details }) => {
-        // The cleanup first: a cancelled turn's own exchange settling is
-        // what releases it, and it must claim its registrations before the
-        // same exchange ending drops anything.
-        releaseCancel(state, details.exchangeId);
-        releaseExchange(state, details.exchangeId);
-      }),
-    );
+    c.observe(ended, ({ details }) => {
+      // The cleanup first: a cancelled turn's own exchange settling is
+      // what releases it, and it must claim its registrations before the
+      // same exchange ending drops anything.
+      releaseCancel(state, details.exchangeId);
+      releaseExchange(state, details.exchangeId);
+    });
   }
   c.onDispose(() => {
     for (const waiting of state.pendingCancels.values()) {

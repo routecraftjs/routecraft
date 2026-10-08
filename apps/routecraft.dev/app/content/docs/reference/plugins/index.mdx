@@ -94,8 +94,8 @@ A plain config object still loads: `craft start` accepts a default-exported `def
 | `require(port)` | The provider of a port declared in `requires` or `optional`. Throws `RC1108` for an undeclared port and `RC1104` when an optional port has no provider. |
 | `lookup(port)` | Like `require`, but `undefined` when an optional port has no provider. |
 | `provide(port, value)` | Provide a port declared in `provides`. In `bind` only: `RC1109` for an undeclared port, `RC1110` after the application froze. |
-| `observe(event, handler)` | Subscribe to an [event](/docs/reference/events). Returns the unsubscribe function. |
-| `emit(event, details)` | Emit an event. |
+| `observe(event, handler)` | Subscribe to an [event](/docs/reference/events). Returns the unsubscribe function, for a subscription that ends before the plugin does; every subscription is released with the plugin at stop, so none needs tracking. |
+| `emit(event, details)` | Emit an event. Any name the `EventDetailsMap` declares is accepted, the framework's included, so a plugin emits under its own names (declared by augmenting `EventDetailsMap`) and never poses as the framework to telemetry or audit. |
 | `onDispose(fn)` | Register a release that runs at stop, after the plugin's own `stop`, in reverse registration order. Every one runs even when another throws, and they run when this plugin's own `bind` throws after registering them. |
 | `frozen` | True once the last `bind` returned. A plugin that collects contributions through its port refuses later ones with [`RC1110`](/docs/reference/errors#rc-1110). |
 | `routes.register(...definitions)` | Add routes. In `bind` only (`RC1110` afterwards). |
@@ -191,7 +191,7 @@ The ports the framework ships:
 | `SURFACES` | `routecraft.ai.surfaces@1` | `routecraft.ai.surfaces` (`@routecraft/ai`) |
 | `SHELL` | `routecraft.os.shell@1` | `routecraft.os.shell` (`@routecraft/os`) |
 
-`RESILIENCE`, `CACHE` and `ENFORCEMENT` fill the chain's route-scope positions. The default providers are exported as `resilienceProvider`, `cacheProvider` and `enforcementProvider`, so a replacement can delegate to them. A step-scope wrapper (`.retry()` and the rest called after `.from()`) keeps the built-in implementation. A plugin that replaces a port is named once at boot, at warn for `AUTHORITY` and `ENFORCEMENT`.
+`RESILIENCE`, `CACHE` and `ENFORCEMENT` fill the chain's route-scope positions. The default providers are exported as `resilienceProvider`, `cacheProvider` and `enforcementProvider`, so a replacement can delegate to them. A step-scope wrapper (`.retry()` and the rest called after `.from()`) resolves the same provider when the exchange runs, so a replacement fills both scopes (see [Slots](#slots)). A plugin that replaces a port is named once at boot, at warn for `AUTHORITY` and `ENFORCEMENT`.
 
 `AUTHORITY` decides who an exchange acts for and whether to trust it. It provides `mint(claims)`, `brand(principal)`, `isAuthentic(principal)`, `restore(record)`, `isRestored(principal)` and `read(exchange)`. `authorityOf(exchangeOrContext)` returns the application's authority. Every mint and every check goes through it, so a replacement decides both sides; `delegate()` and the ingress mounts take the authority explicitly rather than assuming the default. `defaultAuthority` is exported for a replacement that decorates it.
 
@@ -240,7 +240,7 @@ The resilience methods and `.cache()` placed after `.from()` are the same positi
 | Phase | May | Enforced |
 | --- | --- | --- |
 | `observe` | read | returning anything but `undefined` is `RC1115` |
-| `mutate` | return `{ headers?, body? }` to change the exchange, or nothing | writing an engine-owned header (`routecraft.id`, `routecraft.route`, `routecraft.operation`, `routecraft.split_hierarchy`) is `RC1115` |
+| `mutate` | return `{ headers?, body? }` to change the exchange, or nothing | writing an engine-owned header (`routecraft.id`, `routecraft.route`, `routecraft.operation`, `routecraft.split_hierarchy`) is `RC1115`. A body patch is applied as returned and never re-validated: in `beforeAuth` and `afterAuth` the route's `.input()` validates it afterwards, in `admitted` and `exit` it is trusted, so a hook there adds to the validated shape rather than replacing it, and a hook that must replace the body belongs in `afterAuth` |
 | `validate` | return nothing to allow, or `refuse(reason, { kind? })` to refuse | returning anything else is `RC1115`; a refusal fails the run with [`RC5068`](/docs/reference/errors#rc-5068), and a door answers the caller with the kind (`invalid`, `unauthenticated`, `forbidden` by default, `not_found`, `conflict`, `gone`, `rate_limited`, `unavailable`) and the reason |
 
 A slot runs observe, then mutate, then validate. `exit` has no validate phase. In the `error` slot the phases are `observe` and `mutate`, and `mutate` is the deciding phase: a hook answers with a recovery body, `recovery.drop()`, `recovery.defer(...)` or `recovery.rethrow()`, or `undefined` to pass, and the first answer decides. Inside a phase, hooks run in the order the application lists the plugins. When two mutate hooks write the same header in one slot, the later wins and the framework warns once per route naming both.
@@ -251,25 +251,25 @@ A slot runs observe, then mutate, then validate. `exit` has no validate phase. I
 
 | Field | Applies to | Meaning |
 | --- | --- | --- |
-| `id` | all | The hook's name, addressed as `pluginId/id` by `hooks.order` and `hooks.disable`. Defaults to the function's name. |
+| `id` | all | The hook's name, addressed as `pluginId/id` by `hooks.order` and `hooks.disable`. Required, and stable across the plugin's releases: a hook without one is `RC1117`. |
 | `phase` | all but `perAttempt` | `observe`, `mutate` or `validate`. |
 | `run(exchange, info)` | exchange slots and points | The hook. |
 | `run(error, exchange, info)` | `error` | The error hook. |
 | `wrap(proceed, exchange, info)` | `perAttempt` | The wrapper. |
 | `routes` | all | Only these route ids. Combined with `tags` as alternatives. |
 | `tags` | all | Only routes carrying one of these tags. |
-| `runs` | all | The run kinds the hook applies to: `normal`, `resume`, `debounce`, `errorChannel`. Defaults to `normal` only, except in `error`, which defaults to every kind. `beforeAuth`, `afterAuth` and `admitted` see admissions only: a normal run, and an admission resume (a park raised before the route admitted the exchange), which runs `afterAuth` and `admitted` around the `authorize` it re-runs. |
+| `runs` | all | The run kinds the hook applies to: `normal`, `resume`, `debounce`, `errorChannel`. Defaults to `normal` only, except in `error`, which defaults to every kind. `beforeAuth`, `afterAuth` and `admitted` see admissions only: a normal run, and an admission resume (a park raised before the route admitted the exchange), which runs `afterAuth` and `admitted` around the `authorize` it re-runs. An admission resume is an admission, so those slots see it as kind `normal` and a hook keeping the default runs on it; the `error` slot, points and `perAttempt` see the same run as kind `resume`. |
 | `writes` | `mutate` | The headers the hook writes, so a conflict is reported at start rather than on the first request. |
 | `mayDefer` | `error` | The hook may answer `recovery.defer()`. Makes every route it applies to deferrable, so the application refuses to start without a deferral runtime ([`RC5052`](/docs/reference/errors#rc-5052)). |
 | `schema` | `error` | What a resume payload must satisfy when the hook parks with `recovery.defer()`. Read back live at the resume door and validated there ([`RC5049`](/docs/reference/errors#rc-5049)); a schema that changed or disappeared under a parked exchange refuses the resume ([`RC5048`](/docs/reference/errors#rc-5048)). |
 
 `info` carries `routeId`, `tags`, `slot` and `kind`. An error hook's `info` also carries `execution` (`1` on the first run, `2` once the exchange is a resumed continuation) and `forward`, which sends to a `direct()` endpoint under the failing exchange's principal.
 
-An error hook that throws is reported as `route:error-handler:failed` with `scope: "context"` and a `handlerIndex`, and the slot continues to the next hook. A failure an error hook decides reaches neither `context:error` nor `route:exchange:failed`.
+An error hook that throws is reported as `route:error-handler:failed` with `scope: "slot"` and the hook's id under `hook`, and the slot continues to the next hook. A failure an error hook decides reaches neither `context:error` nor `route:exchange:failed`.
 
 ### Points
 
-A plugin may declare `points: [{ name: 'approvals.decided' }]` and run the hooks other plugins place there from its own step, with `ctx.invoke(name, exchange)` in a step's `execute`. Another plugin places a hook there under `hooks.points`: `hooks: { points: { 'approvals.decided': { phase: 'observe', run } } }`. Point names are dotted under the declaring plugin's namespace; two plugins declaring one point, or a point named after a slot, is `RC1113`.
+A plugin may declare `points: [{ name: 'approvals.decided' }]` and run the hooks other plugins place there from its own step, with `ctx.invoke(name, exchange)` in a step's `execute`. Another plugin places a hook there under `hooks.points`: `hooks: { points: { 'approvals.decided': { id: 'recordDecision', phase: 'observe', run } } }`. Point names are dotted under the declaring plugin's namespace; two plugins declaring one point, or a point named after a slot, is `RC1113`.
 
 ### Hooks config
 

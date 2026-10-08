@@ -13,7 +13,7 @@ import {
   direct,
   http,
   jwt,
-  markAuthentic,
+  defaultAuthority,
   MemoryCacheProvider,
   noop,
   otherwise,
@@ -1346,7 +1346,7 @@ describe(".cache() route scope: dual-mode wrapper", () => {
       return {
         subscribe: async (sub) => {
           const headers = principal
-            ? { "routecraft.auth.principal": markAuthentic(principal) }
+            ? { "routecraft.auth.principal": defaultAuthority.brand(principal) }
             : undefined;
           await sub.emit({ message: body, ...(headers ? { headers } : {}) });
         },
@@ -1754,7 +1754,9 @@ describe(".cache() default key identity", () => {
           await sub.emit({
             message: "same",
             headers: {
-              "routecraft.auth.principal": markAuthentic(principal(subject)),
+              "routecraft.auth.principal": defaultAuthority.brand(
+                principal(subject),
+              ),
             },
           });
         }
@@ -2191,7 +2193,9 @@ describe(".cache() default key identity", () => {
           await sub.emit({
             message: "same",
             headers: {
-              "routecraft.auth.principal": markAuthentic(delegated(actor)),
+              "routecraft.auth.principal": defaultAuthority.brand(
+                delegated(actor),
+              ),
             },
           });
         }
@@ -2251,7 +2255,9 @@ describe(".cache() default key identity", () => {
         for (const principal of [cyclic, cyclic, plain]) {
           await sub.emit({
             message: "same",
-            headers: { "routecraft.auth.principal": markAuthentic(principal) },
+            headers: {
+              "routecraft.auth.principal": defaultAuthority.brand(principal),
+            },
           });
         }
       },

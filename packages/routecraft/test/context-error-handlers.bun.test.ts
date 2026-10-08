@@ -20,8 +20,17 @@ import { asDeferred } from "./helpers/deferral.ts";
 const SECRET = "context-error-handler-test-secret-0123456789";
 
 /** A plugin carrying one or more hooks in the `error` slot. */
-function errorPlugin(id: string, hooks: ErrorHook | ErrorHook[]): Plugin {
-  return definePlugin({ id, hooks: { error: hooks } });
+/** An error hook as a test writes it: the id defaults to its position. */
+type LooseErrorHook = Omit<ErrorHook, "id"> & { readonly id?: string };
+
+function errorPlugin(
+  id: string,
+  hooks: LooseErrorHook | LooseErrorHook[],
+): Plugin {
+  const named = (Array.isArray(hooks) ? hooks : [hooks]).map(
+    (hook, index): ErrorHook => ({ id: `hook${index}`, ...hook }),
+  );
+  return definePlugin({ id, hooks: { error: named } });
 }
 
 /** A route on a direct endpoint whose only step throws `message`. */
@@ -113,29 +122,33 @@ describe("the error slot", () => {
   });
 
   /**
-   * @case A hook without an explicit id is addressed by the name of its run function
-   * @preconditions An error hook whose run is a named function, disabled as pluginId/functionName
-   * @expectedResult The name resolves, the build succeeds, and the hook is never consulted
+   * @case A hook names itself, because the application's config addresses it by that name
+   * @preconditions An error hook declared without an id, bypassing the types as plain JavaScript would
+   * @expectedResult The build fails with RC1117 naming the plugin and the slot, before any route runs
    */
-  test("a hook's name defaults to the name of its run function", async () => {
-    let consulted = 0;
-    function parkOnFailure(): unknown {
-      consulted += 1;
-      return { by: "hook" };
-    }
-    t = await testContext()
-      .with({
-        plugins: [
-          errorPlugin("test.named", { phase: "mutate", run: parkOnFailure }),
-        ],
-        hooks: { disable: ["test.named/parkOnFailure"] },
-      })
-      .routes([failing("work")])
-      .build();
-    await t.startAndWaitReady();
-
-    await expect(t.client.sendDirect("work", {})).rejects.toThrow("boom");
-    expect(consulted).toBe(0);
+  test("a hook without an id is refused at build with RC1117", async () => {
+    await expect(
+      testContext()
+        .with({
+          plugins: [
+            definePlugin({
+              id: "test.anonymous",
+              hooks: {
+                error: {
+                  phase: "mutate",
+                  run: () => ({ by: "hook" }),
+                } as never,
+              },
+            }),
+          ],
+        })
+        .build(),
+    ).rejects.toMatchObject({
+      rc: "RC1117",
+      message: expect.stringContaining(
+        'Plugin "test.anonymous" hook in "error" has no id',
+      ),
+    });
   });
 
   /**
@@ -424,10 +437,10 @@ describe("the error slot", () => {
   /**
    * @case A hook that throws does not take the slot down with it
    * @preconditions A first mutate hook that throws and a second that recovers
-   * @expectedResult The throw is reported with scope "context" and handlerIndex 0, and the slot continues to the second
+   * @expectedResult The throw is reported with scope "slot" naming the hook, and the slot continues to the second
    */
   test("a hook that throws is reported and the slot continues", async () => {
-    const failures: Array<{ scope?: string; handlerIndex?: number }> = [];
+    const failures: Array<{ scope?: string; hook?: string }> = [];
     const invoked: Array<string | undefined> = [];
     t = await testContext()
       .with({
@@ -449,9 +462,7 @@ describe("the error slot", () => {
     t.ctx.on("route:error-handler:failed", ({ details }) => {
       failures.push({
         ...(details.scope !== undefined ? { scope: details.scope } : {}),
-        ...(details.handlerIndex !== undefined
-          ? { handlerIndex: details.handlerIndex }
-          : {}),
+        ...(details.hook !== undefined ? { hook: details.hook } : {}),
       });
     });
     t.ctx.on("route:error-handler:invoked", ({ details }) => {
@@ -462,8 +473,8 @@ describe("the error slot", () => {
     const body = (await t.client.sendDirect("work", {})) as { by: string };
 
     expect(body.by).toBe("second");
-    expect(failures).toEqual([{ scope: "context", handlerIndex: 0 }]);
-    expect(invoked).toEqual(["context", "context"]);
+    expect(failures).toEqual([{ scope: "slot", hook: "test.broken/hook0" }]);
+    expect(invoked).toEqual(["slot", "slot"]);
   });
 
   /**
@@ -678,7 +689,7 @@ describe("the error slot", () => {
       .build();
 
     await t.startAndWaitReady();
-    expect(t.ctx.hasDeferringErrorHandler()).toBe(false);
+    expect(t.ctx.hasDeferringErrorHook()).toBe(false);
     const route = t.ctx.getRoutes().find((r) => r.definition.id === "work")!;
     expect(routeCanDefer(route.definition, t.ctx)).toBe(false);
   });
@@ -704,7 +715,7 @@ describe("the error slot", () => {
       .routes([craft().id("work").from(direct()).to(noop())])
       .build();
     let route = t.ctx.getRoutes().find((r) => r.definition.id === "work")!;
-    expect(t.ctx.hasDeferringErrorHandler()).toBe(true);
+    expect(t.ctx.hasDeferringErrorHook()).toBe(true);
     expect(routeCanDefer(route.definition, t.ctx)).toBe(true);
     expect(routeCanDefer(route.definition)).toBe(false);
     await t.stop();
@@ -714,7 +725,7 @@ describe("the error slot", () => {
       .routes([craft().id("work").from(direct()).to(noop())])
       .build();
     route = t.ctx.getRoutes().find((r) => r.definition.id === "work")!;
-    expect(t.ctx.hasDeferringErrorHandler()).toBe(false);
+    expect(t.ctx.hasDeferringErrorHook()).toBe(false);
     expect(routeCanDefer(route.definition, t.ctx)).toBe(false);
     await t.startAndWaitReady();
   });
@@ -1077,6 +1088,7 @@ describe("the error slot", () => {
             id: "test.kinds",
             hooks: {
               beforeAuth: {
+                id: "ingressOnly",
                 phase: "validate",
                 run: () => {
                   admissionRuns++;
@@ -1292,7 +1304,7 @@ describe("the error slot", () => {
           plugins: [
             definePlugin({
               id: "test.norun",
-              hooks: { error: { phase: "mutate" } as never },
+              hooks: { error: { id: "norun", phase: "mutate" } as never },
             }),
           ],
         })
@@ -1306,7 +1318,11 @@ describe("the error slot", () => {
             definePlugin({
               id: "test.validates",
               hooks: {
-                error: { phase: "validate", run: () => undefined } as never,
+                error: {
+                  id: "validates",
+                  phase: "validate",
+                  run: () => undefined,
+                } as never,
               },
             }),
           ],

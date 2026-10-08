@@ -16,7 +16,7 @@ import {
   craft,
   type InsufficientAuthority,
   isAuthorizationRefusal,
-  markAuthentic,
+  defaultAuthority,
   noop,
   rcError,
   simple,
@@ -42,7 +42,7 @@ function principalSource<T>(body: T, principal?: Principal): Source<T> {
   return {
     subscribe: async (sub) => {
       const headers = principal
-        ? { "routecraft.auth.principal": markAuthentic(principal) }
+        ? { "routecraft.auth.principal": defaultAuthority.brand(principal) }
         : undefined;
       await sub.emit({ message: body, ...(headers ? { headers } : {}) });
     },
@@ -1351,7 +1351,7 @@ describe("insufficientAuthorityOf", () => {
   test("reads the detail off a refusal the framework raised", async () => {
     const thrown = await refuse(
       { scopes: ["payout:write"] },
-      markAuthentic({
+      defaultAuthority.brand({
         subject: "agent",
         scopes: ["payout:read"],
       } as unknown as Principal),
@@ -1388,7 +1388,10 @@ describe("insufficientAuthorityOf", () => {
   test("refuses a detail whose mode or effective is not the documented shape", async () => {
     const real = await refuse(
       { scopes: ["payout:write"] },
-      markAuthentic({ subject: "agent", scopes: [] } as unknown as Principal),
+      defaultAuthority.brand({
+        subject: "agent",
+        scopes: [],
+      } as unknown as Principal),
     );
     const detail = real.cause.missing as unknown as Record<string, unknown>;
 
@@ -1414,7 +1417,10 @@ describe("insufficientAuthorityOf", () => {
   test("accepts a detail carrying only scopes, as an application may throw", async () => {
     const real = await refuse(
       { scopes: ["payout:write"] },
-      markAuthentic({ subject: "agent", scopes: [] } as unknown as Principal),
+      defaultAuthority.brand({
+        subject: "agent",
+        scopes: [],
+      } as unknown as Principal),
     );
     delete (real.cause.missing as { mode?: unknown }).mode;
     delete (real.cause.missing as { effective?: unknown }).effective;
@@ -1435,7 +1441,10 @@ describe("insufficientAuthorityOf", () => {
   test("returns a frozen copy rather than a live reference", async () => {
     const thrown = await refuse(
       { scopes: ["payout:write"] },
-      markAuthentic({ subject: "agent", scopes: [] } as unknown as Principal),
+      defaultAuthority.brand({
+        subject: "agent",
+        scopes: [],
+      } as unknown as Principal),
     );
 
     const refusal = insufficientAuthorityOf(thrown)!;
@@ -1463,7 +1472,7 @@ describe("isAuthorizationRefusal()", () => {
    * @expectedResult The failure is an RC5015 refusal with no caller given and for "guarded" with that exact principal; not for another route id, and not for an equal-looking copy of the principal
    */
   test("recognises a refusal raised by authorize()", async () => {
-    const principal = markAuthentic<Principal>({
+    const principal = defaultAuthority.brand<Principal>({
       kind: "custom",
       scheme: "bearer",
       subject: "user-1",
@@ -1502,7 +1511,7 @@ describe("isAuthorizationRefusal()", () => {
    * @expectedResult The RC5038 is a refusal, but not one of the caller the route was entered with
    */
   test("does not attribute a replacement identity's refusal to the caller", async () => {
-    const principal = markAuthentic<Principal>({
+    const principal = defaultAuthority.brand<Principal>({
       kind: "custom",
       scheme: "bearer",
       subject: "user-1",

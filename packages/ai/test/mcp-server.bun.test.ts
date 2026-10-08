@@ -3860,7 +3860,7 @@ describe("McpServer", () => {
      */
     async function serveUnvalidated(body: unknown): Promise<McpServer> {
       const srv = await serve();
-      const local = mcpService(t.ctx).local;
+      const local = mcpService(t.ctx).local as Map<string, McpLocalToolEntry>;
       local.clear();
       local.set("unchecked", {
         endpoint: "unchecked",
@@ -3882,7 +3882,7 @@ describe("McpServer", () => {
         .with({ plugins: [mcpPort()] })
         .build();
       await t.startAndWaitReady();
-      mcpService(t.ctx).local.set("unchecked", {
+      mcpService(t.ctx).registerLocal({
         endpoint: "unchecked",
         description: "Returns a body nobody validated",
         output: {

@@ -5,7 +5,7 @@ import {
   direct,
   getExchangeRoute,
   HeadersKeys,
-  markAuthentic,
+  defaultAuthority,
   markRestored,
   simple,
   type Exchange,
@@ -23,7 +23,7 @@ import {
 function principalSource<T>(
   body: T,
   principal?: Principal,
-  mark: (p: Principal) => Principal = markAuthentic,
+  mark: (p: Principal) => Principal = (p) => defaultAuthority.brand(p),
 ): Source<T> {
   return {
     subscribe: async (sub) => {
@@ -300,7 +300,9 @@ describe("forward() header propagation", () => {
       .build();
 
     await t.startAndWaitReady();
-    const headers = { [HeadersKeys.AUTH_PRINCIPAL]: markAuthentic(principal) };
+    const headers = {
+      [HeadersKeys.AUTH_PRINCIPAL]: defaultAuthority.brand(principal),
+    };
     // First call fails and trips the breaker; the second meets it open and
     // takes the fallback, which is the path under test.
     await expect(

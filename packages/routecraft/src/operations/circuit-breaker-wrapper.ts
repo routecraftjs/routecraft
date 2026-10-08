@@ -10,7 +10,7 @@ import { type Duration, parseDuration } from "../shared/duration.ts";
 import { rejectStaleOptions } from "../shared/stale-options.ts";
 import { defaultRetryOn } from "./retry-wrapper.ts";
 import { RouteScopedController } from "./route-scoped-controller.ts";
-import { stepPosition, stepPositionRun } from "./position-run.ts";
+import { runStepPosition } from "./position-run.ts";
 import type { Position } from "../kernel/positions.ts";
 
 /**
@@ -568,13 +568,14 @@ export class CircuitBreakerWrapperStep<
     exchange: Exchange,
     ctx: StepContext,
   ): Promise<StepOutcome> {
-    const position = stepPosition(
-      this.#positions,
-      exchange,
+    return runStepPosition(
       this,
+      this.inner,
+      this.#positions,
       "circuitBreaker",
       (provider) => provider.circuitBreaker(this.#options),
+      exchange,
+      ctx,
     );
-    return position.run(stepPositionRun(this, this.inner, exchange, ctx));
   }
 }

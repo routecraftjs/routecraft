@@ -100,6 +100,7 @@ Tools are an allowlist of capabilities, never a blacklist. An agent can also be 
 - **Isolated host execution.** [`shell()`](https://routecraft.dev/docs/reference/adapters/shell) runs commands in an isolation tier, including a throwaway Docker container per command, with egress denied by default.
 - **A management API and a CLI to drive it.** The [ops plugin](https://routecraft.dev/docs/reference/plugins/opsplugin) serves health, readiness, a route listing and dispatch behind scope-gated tiers; `craft exec` and `craft ops` are its clients. [CLI reference](https://routecraft.dev/docs/reference/cli).
 - **Secure by design.** JWT, JWKS and API-key validators, `.authorize()` at route entry, principals that follow an exchange through every hop. [Securing capabilities](https://routecraft.dev/docs/advanced/securing-capabilities).
+- **One way to extend it.** A plugin is a descriptor: it provides and requires typed ports, adds hooks to the fixed chain's slots, declares builder steps and a facet on the exchange, and may replace what fills a chain position. The framework's own features are plugins built the same way. [Plugins](https://routecraft.dev/docs/advanced/plugins).
 
 ## Add Routecraft to an existing project
 

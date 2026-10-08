@@ -2,7 +2,7 @@ import type { Exchange } from "../exchange.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import { WrapperStep } from "./wrapper.ts";
 import { type Duration, parseDuration } from "../shared/duration.ts";
-import { stepPosition, stepPositionRun } from "./position-run.ts";
+import { runStepPosition } from "./position-run.ts";
 import type { Position } from "../kernel/positions.ts";
 
 /**
@@ -126,13 +126,14 @@ export class TimeoutWrapperStep<
     exchange: Exchange,
     ctx: StepContext,
   ): Promise<StepOutcome> {
-    const position = stepPosition(
-      this.#positions,
-      exchange,
+    return runStepPosition(
       this,
+      this.inner,
+      this.#positions,
       "timeout",
       (provider) => provider.timeout(this.#options),
+      exchange,
+      ctx,
     );
-    return position.run(stepPositionRun(this, this.inner, exchange, ctx));
   }
 }
