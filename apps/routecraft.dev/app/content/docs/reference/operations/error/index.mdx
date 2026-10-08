@@ -46,7 +46,7 @@ craft()
   .process(mightFail)
   .to(destination)
 
-// Rethrow critical errors to context level
+// Rethrow errors a retry cannot heal to context level
 craft()
   .id('rethrow-critical')
   .error((error) => {
