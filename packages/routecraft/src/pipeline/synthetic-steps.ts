@@ -1,3 +1,4 @@
+import type { PositionScope } from "../kernel/positions.ts";
 import {
   type Exchange,
   HeadersKeys,
@@ -504,6 +505,7 @@ const THROTTLE_CHECK_STEP_ADAPTER: Adapter = {
  */
 export function buildThrottleCheckStep(
   options: ResolvedThrottleOptions,
+  scope: PositionScope,
 ): Step<Adapter> {
   const controller = new ThrottleController(options);
   return {
@@ -514,18 +516,15 @@ export function buildThrottleCheckStep(
     async execute(exchange) {
       const route = getExchangeRoute(exchange);
       const context = getExchangeContext(exchange);
-      const routeId =
-        route?.definition.id ??
-        (exchange.headers[HeadersKeys.ROUTE_ID] as string);
       const correlationId = exchange.headers[
         HeadersKeys.CORRELATION_ID
       ] as string;
       const scoped = {
-        routeId,
+        routeId: scope.routeId,
         exchangeId: exchange.id,
         correlationId,
-        stepLabel: "route",
-        scope: "route" as const,
+        stepLabel: scope.stepLabel,
+        scope: scope.scope,
         ...(controller.label !== undefined ? { label: controller.label } : {}),
       };
 

@@ -136,7 +136,7 @@ The internal `RouteDefinition` fields `preParseFilters`, `postParseFilters` and 
 ## 6. What is new in 0.8.0 \{#6-what-is-new-in-080}
 
 - **Ports.** Plugins share anything through `port<T>()`, with `requires`, `optional`, `provides` and `replaces`.
-- **Replaceable positions.** `.authorize()`, the resilience operations and `.cache()` are unchanged on the builder, and the default plugins fill them through `ENFORCEMENT`, `RESILIENCE` and `CACHE`. A plugin may replace one.
+- **Replaceable positions.** `.authorize()`, the resilience operations and `.cache()` are unchanged on the builder, and the default plugins fill them through `ENFORCEMENT`, `RESILIENCE` and `CACHE`. A plugin may replace one, and the replacement fills the same methods placed after `.from()` too.
 - **Hooks.** Plugins add hooks to the slots of the chain (`beforeAuth`, `afterAuth`, `admitted`, `perAttempt`, `exit`, `error`) in the `observe`, `mutate` and `validate` phases. `hooks.order` and `hooks.disable` in config settle conflicts. A validate hook's `refuse(reason, { kind })` is answered at the door the caller came through with the status its kind maps to.
 - **The `error` slot.** A plugin hook can recover, drop or park (`recovery.defer()`) a failure the route's own `.error()` did not settle.
 - **Error-path parks are validated.** `.error(handler, { schema })` and an error hook's `schema` declare what a resume payload must satisfy when the handler parks; the resume door validates it (`RC5049`) and refuses a resume whose schema changed (`RC5048`).

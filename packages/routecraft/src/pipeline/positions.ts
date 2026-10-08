@@ -80,7 +80,11 @@ export function compilePositions(
       provider(ENFORCEMENT, "authorize").authorize(options),
     ),
     throttle: (throttle ?? []).map((options) =>
-      provider(RESILIENCE, "throttle").throttle(options, definition.id),
+      provider(RESILIENCE, "throttle").throttle(options, {
+        routeId: definition.id,
+        scope: "route",
+        stepLabel: "route",
+      }),
     ),
     ...(circuitBreaker
       ? {

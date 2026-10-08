@@ -5,11 +5,12 @@ import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import type { CraftContext } from "../context.ts";
 import type { RouteKey } from "../kernel/positions.ts";
 import { WrapperStep } from "./wrapper.ts";
-import { wrapperEventScope } from "./event-scope.ts";
 import { SleepAbortedError } from "./cancellable-sleep.ts";
 import { DEFAULT_MAX_KEYS, validateMaxKeys } from "./max-keys.ts";
 import { RouteScopedController } from "./route-scoped-controller.ts";
 import { Semaphore } from "./semaphore.ts";
+import { stepPosition, stepPositionRun } from "./position-run.ts";
+import type { Position } from "../kernel/positions.ts";
 
 /**
  * Options for the `.concurrency()` wrapper (step scope and route scope).
@@ -491,49 +492,28 @@ export class ConcurrencyWrapperStep<
   T extends Adapter = Adapter,
 > extends WrapperStep<T> {
   readonly #options: ResolvedConcurrencyOptions;
-  readonly #controller: ConcurrencyController;
+  readonly #positions = new WeakMap<object, Position>();
 
   constructor(inner: Step<T>, options: ConcurrencyOptions) {
     super(inner);
     this.#options = resolveConcurrencyOptions(options);
-    this.#controller = new ConcurrencyController(this.#options);
   }
 
   protected override describeOptions(): unknown {
     return this.#options;
   }
 
-  protected override async runInner(
+  protected override runInner(
     exchange: Exchange,
     ctx: StepContext,
   ): Promise<StepOutcome> {
-    const { route, context, routeId, stepLabel, correlationId } =
-      wrapperEventScope(exchange, this);
-    const shouldEmit = Boolean(route && context && routeId);
-    const scoped: ConcurrencyEventScope = {
-      routeId: routeId as string,
-      exchangeId: exchange.id,
-      correlationId,
-      stepLabel,
-      scope: "step",
-      ...(this.#controller.label !== undefined
-        ? { label: this.#controller.label }
-        : {}),
-    };
-
-    return executeWithConcurrency(
-      this.#controller,
+    const position = stepPosition(
+      this.#positions,
       exchange,
-      route,
-      {
-        // Intake: a queued exchange is released as soon as shutdown begins
-        // and admitted with a no-op release (see `#joinWaitLine`), so the
-        // drain runs it instead of leaving it deferred behind a slot that will
-        // never free.
-        ...(route ? { signal: route.intakeSignal } : {}),
-        ...concurrencyEmitHooks(context, scoped, shouldEmit),
-      },
-      () => this.inner.execute(exchange, ctx),
+      this,
+      "concurrency",
+      (provider) => provider.concurrency(this.#options),
     );
+    return position.run(stepPositionRun(this, this.inner, exchange, ctx));
   }
 }

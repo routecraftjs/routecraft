@@ -199,7 +199,7 @@ export const tracedRetry = definePlugin({
 
 A position cannot be moved, removed or added. A route that configures a position no installed plugin provides refuses to start with [`RC1111`](/docs/reference/errors#rc-1111). The positions and their order are described on the [Filter Chain](/docs/advanced/filter-chain) page.
 
-A replacement fills the route-scope positions. The same methods called after `.from()` wrap a single step and keep the built-in implementation.
+A replacement fills both scopes. The same methods called after `.from()` wrap a single step, and the wrapper resolves the same provider when the exchange runs: the run it hands the position carries `scope: 'step'` and the wrapped step's label instead of `'route'`, so one `retry` implementation serves a route and a step alike. `throttle` takes the scope as its second argument, and a step-scope `.cache()` goes through the `CACHE` provider's `wrap`.
 
 Replacing a security-relevant port takes on what the default guaranteed. Decorating the exported default, as above, keeps it:
 

@@ -169,7 +169,7 @@ Move the contribution into `bind(c)`. Work that needs running routes belongs in 
 Route needs a port nobody provides
 
 **Why it happens**  
-A route uses something only a plugin can provide and no installed plugin provides it: a chain position such as `.retry()` or `.authorize()` whose provider was removed, a step such as `.defer()` or a third-party plugin's method on a route started in an application that does not install that plugin, or a read of that plugin's facet (`ex.deferral`) in such a route. A step or position fails the start; a facet fails at the read.
+A route uses something only a plugin can provide and no installed plugin provides it: a chain position such as `.retry()` or `.authorize()` whose provider was removed, a step such as `.defer()` or a third-party plugin's method on a route started in an application that does not install that plugin, or a read of that plugin's facet (`ex.deferral`) in such a route. A step or position fails the start; a facet fails at the read; a resilience method or `.cache()` wrapping one step after `.from()` fails when the exchange reaches it.
 
 **Suggestion**  
 Install the plugin the message names, in the same application that runs the route. A route built with a project's `craft()` must run in a context started from that project's config.

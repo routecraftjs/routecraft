@@ -6,10 +6,10 @@ import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import type { CraftContext } from "../context.ts";
 import type { Route } from "../route.ts";
 import { WrapperStep } from "./wrapper.ts";
-import { wrapperEventScope } from "./event-scope.ts";
 import { cancellableSleep, SleepAbortedError } from "./cancellable-sleep.ts";
 import { DEFAULT_MAX_KEYS, validateMaxKeys } from "./max-keys.ts";
 import { RouteScopedController } from "./route-scoped-controller.ts";
+import { stepPosition, stepScopeOf } from "./position-run.ts";
 
 /**
  * Time window a `.throttle()` rate is measured over.
@@ -539,12 +539,11 @@ export class ThrottleWrapperStep<
   T extends Adapter = Adapter,
 > extends WrapperStep<T> {
   readonly #options: ResolvedThrottleOptions;
-  readonly #controller: ThrottleController;
+  readonly #gates = new WeakMap<object, Step<Adapter>>();
 
   constructor(inner: Step<T>, options: ThrottleOptions) {
     super(inner);
     this.#options = resolveThrottleOptions(options);
-    this.#controller = new ThrottleController(this.#options);
   }
 
   protected override describeOptions(): unknown {
@@ -555,25 +554,15 @@ export class ThrottleWrapperStep<
     exchange: Exchange,
     ctx: StepContext,
   ): Promise<StepOutcome> {
-    const { route, context, routeId, stepLabel, correlationId } =
-      wrapperEventScope(exchange, this);
-    const shouldEmit = route && context && routeId;
-    const scoped: ThrottleEventScope = {
-      routeId: routeId as string,
-      exchangeId: exchange.id,
-      correlationId,
-      stepLabel,
-      scope: "step",
-      ...(this.#controller.label !== undefined
-        ? { label: this.#controller.label }
-        : {}),
-    };
-
-    await this.#controller.acquire(exchange, route, {
-      ...(route ? { signal: route.intakeSignal } : {}),
-      ...throttleEmitHooks(context, scoped, Boolean(shouldEmit)),
-    });
-
-    return await this.inner.execute(exchange, ctx);
+    const gate = stepPosition(
+      this.#gates,
+      exchange,
+      this,
+      "throttle",
+      (provider) =>
+        provider.throttle(this.#options, stepScopeOf(this, exchange)),
+    );
+    await gate.execute(exchange, ctx);
+    return this.inner.execute(exchange, ctx);
   }
 }

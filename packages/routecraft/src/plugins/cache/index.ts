@@ -5,6 +5,7 @@ import {
   buildCacheCheckStep,
   buildCacheStoreStep,
 } from "../../pipeline/synthetic-steps.ts";
+import { cacheStepRun } from "../../operations/cache-wrapper.ts";
 
 /**
  * The framework's cache positions: what fills `cacheCheck` and `cacheStore`
@@ -13,6 +14,7 @@ import {
 export const cacheProvider: CachePositions = {
   check: (options) => buildCacheCheckStep(options),
   store: (options) => buildCacheStoreStep(options),
+  wrap: (options) => cacheStepRun(options),
 };
 
 /** The plugin that provides {@link CACHE}, installed by default. */

@@ -29,15 +29,22 @@ import {
   type ConcurrencyEventScope,
 } from "../../operations/concurrency-wrapper.ts";
 
-/** The event fields every route-scope resilience event carries. */
+/** The event fields every resilience event carries, at either scope. */
 function scopeOf(run: PositionRun) {
   return {
     routeId: run.routeId,
     exchangeId: run.exchange.id,
     correlationId: run.exchange.headers[HeadersKeys.CORRELATION_ID] as string,
-    stepLabel: "route",
-    scope: "route" as const,
+    stepLabel: run.stepLabel,
+    scope: run.scope,
   };
+}
+
+/** What a position names in a message: the route, or the step it wraps. */
+function subjectOf(run: PositionRun): string {
+  return run.scope === "route"
+    ? `Route "${run.routeId}" pipeline`
+    : `Step "${run.stepLabel}"`;
 }
 
 /**
@@ -46,7 +53,7 @@ function scopeOf(run: PositionRun) {
  * plugin replaces {@link RESILIENCE}.
  */
 export const resilienceProvider: ResiliencePositions = {
-  throttle: (options) => buildThrottleCheckStep(options),
+  throttle: (options, scope) => buildThrottleCheckStep(options, scope),
 
   circuitBreaker(options): Position {
     // Built once per route, so the window and the open/half-open machine are
@@ -70,7 +77,9 @@ export const resilienceProvider: ResiliencePositions = {
               run.exchange,
               controller.options,
               run.forward,
-              `for route "${run.routeId}"`,
+              run.scope === "route"
+                ? `for route "${run.routeId}"`
+                : `for step "${run.stepLabel}"`,
             ),
           () => run.attempt(run.abandon),
         );
@@ -140,7 +149,7 @@ export const resilienceProvider: ResiliencePositions = {
         } catch (err) {
           if (!(err instanceof DeadlineExceededError)) throw err;
           const timeoutError = rcError("RC5011", undefined, {
-            message: `Route "${run.routeId}" pipeline exceeded its ${timeoutMs}ms timeout`,
+            message: `${subjectOf(run)} exceeded its ${timeoutMs}ms timeout`,
           });
           // Stop the abandoned attempt: it schedules nothing further, and
           // its in-flight step sees the abort through its signal, with the

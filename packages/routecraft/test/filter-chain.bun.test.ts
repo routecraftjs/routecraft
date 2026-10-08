@@ -1,6 +1,8 @@
 import { afterEach, describe, expect, test } from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
+  CACHE,
+  cacheProvider,
   craft,
   definePlugin,
   direct,
@@ -10,6 +12,8 @@ import {
   resilienceProvider,
   simple,
   noop,
+  type PositionRun,
+  type StepOutcome,
 } from "@routecraft/routecraft";
 import { compilePositions } from "../src/pipeline/positions.ts";
 
@@ -146,6 +150,126 @@ describe("pre-from filter chain assembly", () => {
         ),
       }),
     );
+  });
+
+  /**
+   * @case A plugin replacing RESILIENCE fills the same methods placed after .from()
+   * @preconditions A plugin provides and replaces RESILIENCE, delegating to the default provider but recording each position's scope; a route wraps one step in .retry(), .timeout(), .circuitBreaker(), .concurrency() and .throttle()
+   * @expectedResult Every step-scope wrapper runs through the replacement with scope "step" and the wrapped step's label, so one port fills both scopes
+   */
+  test("a plugin replacing RESILIENCE fills the step-scope wrappers", async () => {
+    const seen: string[] = [];
+    const recording = definePlugin({
+      id: "test.recording-resilience",
+      provides: [RESILIENCE],
+      replaces: [RESILIENCE],
+      bind(c) {
+        const wrap = (
+          name: string,
+          build: () => { run(run: PositionRun): Promise<StepOutcome> },
+        ) => {
+          const inner = build();
+          return {
+            run(run: PositionRun) {
+              seen.push(`${name}:${run.scope}:${run.stepLabel}`);
+              return inner.run(run);
+            },
+          };
+        };
+        c.provide(RESILIENCE, {
+          throttle(options, scope) {
+            seen.push(`throttle:${scope.scope}:${scope.stepLabel}`);
+            return resilienceProvider.throttle(options, scope);
+          },
+          circuitBreaker: (options) =>
+            wrap("circuitBreaker", () =>
+              resilienceProvider.circuitBreaker(options),
+            ),
+          retry: (options) =>
+            wrap("retry", () => resilienceProvider.retry(options)),
+          timeout: (options) =>
+            wrap("timeout", () => resilienceProvider.timeout(options)),
+          concurrency: (options) =>
+            wrap("concurrency", () => resilienceProvider.concurrency(options)),
+        });
+      },
+    });
+    t = await testContext()
+      .with({ plugins: [recording] })
+      .routes(
+        craft()
+          .id("wrapped")
+          .from(direct())
+          .retry({ maxAttempts: 2 })
+          .timeout("1s")
+          .circuitBreaker({ failureThreshold: 3 })
+          .concurrency({ max: 2 })
+          .throttle({ rate: 100, per: "1s" })
+          .transform((body) => body)
+          .to(noop()),
+      )
+      .build();
+    await t.startAndWaitReady();
+
+    await t.client.sendDirect("wrapped", "a");
+
+    expect(seen).toEqual([
+      "retry:step:transform",
+      "timeout:step:transform",
+      "circuitBreaker:step:transform",
+      "concurrency:step:transform",
+      "throttle:step:transform",
+    ]);
+  });
+
+  /**
+   * @case A plugin replacing CACHE fills a .cache() placed after .from()
+   * @preconditions A plugin provides and replaces CACHE, delegating to the default provider but counting step-scope runs; a route wraps one step in .cache()
+   * @expectedResult The wrapper runs through the replacement's wrap position on every exchange, with the key the wrapper derived, and a second call is served from the cache
+   */
+  test("a plugin replacing CACHE fills the step-scope cache", async () => {
+    const keys: string[] = [];
+    let inner = 0;
+    const counting = definePlugin({
+      id: "test.counting-cache",
+      provides: [CACHE],
+      replaces: [CACHE],
+      bind(c) {
+        c.provide(CACHE, {
+          ...cacheProvider,
+          wrap(options) {
+            const position = cacheProvider.wrap(options);
+            return {
+              run(run) {
+                keys.push(`${run.scope}:${run.stepLabel}:${run.key}`);
+                return position.run(run);
+              },
+            };
+          },
+        });
+      },
+    });
+    t = await testContext()
+      .with({ plugins: [counting] })
+      .routes(
+        craft()
+          .id("cached")
+          .from(direct())
+          .cache({ key: () => "same" })
+          .transform((body) => {
+            inner++;
+            return body;
+          })
+          .to(noop()),
+      )
+      .build();
+    await t.startAndWaitReady();
+
+    await t.client.sendDirect("cached", "a");
+    await t.client.sendDirect("cached", "b");
+
+    expect(keys).toEqual(["step:transform:same", "step:transform:same"]);
+    expect(inner).toBe(1);
   });
 
   /**

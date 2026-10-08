@@ -85,9 +85,12 @@ export {
   ENFORCEMENT,
   RESILIENCE,
   type CachePositions,
+  type CacheRun,
+  type CacheStep,
   type EnforcementPositions,
   type Position,
   type PositionRun,
+  type PositionScope,
   type ResiliencePositions,
   type RouteKey,
 } from "./kernel/positions.ts";

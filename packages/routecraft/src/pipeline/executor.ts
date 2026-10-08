@@ -1340,6 +1340,8 @@ function buildPositionStep(
       const resumeSnapshot = peekResumeStepState(exchange);
       return position.run({
         routeId: deps.routeId,
+        scope: "route",
+        stepLabel: "route",
         route: deps.route,
         exchange,
         signal: anySignal(deps.route.intakeSignal, abandon),

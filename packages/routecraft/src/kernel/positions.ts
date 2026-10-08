@@ -23,11 +23,24 @@ import { port } from "./port.ts";
 export type RouteKey = object;
 
 /**
- * One run of a position: what the kernel hands the provider each time an
- * exchange reaches it.
+ * Where a position runs: around the whole route (`route`, placed before
+ * `.from()`), or around one step (`step`, placed after it). The provider's
+ * events carry both, so an observer tells a route-scope retry from a
+ * step-scope one.
  */
-export interface PositionRun {
+export interface PositionScope {
   readonly routeId: string;
+  readonly scope: "route" | "step";
+  /** `"route"` at route scope; the wrapped step's label at step scope. */
+  readonly stepLabel: string;
+}
+
+/**
+ * One run of a position: what the kernel hands the provider each time an
+ * exchange reaches it, at either scope. At step scope `attempt` runs the
+ * wrapped step.
+ */
+export interface PositionRun extends PositionScope {
   /** Stable per route; key per-route state by it. */
   readonly route: RouteKey;
   readonly exchange: Exchange;
@@ -62,21 +75,47 @@ export interface Position {
 
 /**
  * What the `RESILIENCE` port provides: the five resilience positions of the
- * chain. Built once per route when the route first runs.
+ * chain. Built once per route when the route first runs, and once per
+ * wrapped step for the same methods placed after `.from()`, which resolve
+ * the provider at run time: one port fills both scopes.
  */
 export interface ResiliencePositions {
   /** An admission gate, run once per exchange outside the attempts. */
-  throttle(options: ResolvedThrottleOptions, routeId: string): Step<Adapter>;
+  throttle(
+    options: ResolvedThrottleOptions,
+    scope: PositionScope,
+  ): Step<Adapter>;
   circuitBreaker(options: ResolvedCircuitBreakerOptions): Position;
   retry(options: ResolvedRetryOptions): Position;
   timeout(options: ResolvedTimeoutOptions): Position;
   concurrency(options: ResolvedConcurrencyOptions): Position;
 }
 
-/** What the `CACHE` port provides: the two cache positions. */
+/**
+ * One run of a step-scope cache: the key the wrapper derived for this
+ * exchange, and the wrapped step to run on a miss.
+ */
+export interface CacheRun extends PositionScope {
+  readonly exchange: Exchange;
+  readonly key: string;
+  /** Run the wrapped step once; its outcome is what a miss produces. */
+  attempt(): Promise<StepOutcome>;
+  emit<K extends EventName>(event: K, details: EventDetailsMap[K]): void;
+}
+
+/** A step-scope cache position, built once per wrapped step. */
+export interface CacheStep {
+  run(run: CacheRun): Promise<StepOutcome>;
+}
+
+/**
+ * What the `CACHE` port provides: the two route-scope cache positions, and
+ * the one position a `.cache()` placed after `.from()` wraps a step in.
+ */
 export interface CachePositions {
   check(options: ResolvedCacheOptions): Step<Adapter>;
   store(options: ResolvedCacheOptions): Step<Adapter>;
+  wrap(options: ResolvedCacheOptions): CacheStep;
 }
 
 /** What the `ENFORCEMENT` port provides: the authorize position. */

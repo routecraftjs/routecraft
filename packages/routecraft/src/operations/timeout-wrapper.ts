@@ -1,10 +1,9 @@
 import type { Exchange } from "../exchange.ts";
-import { anySignal } from "../shared/abort.ts";
-import { wrapperEventScope } from "./event-scope.ts";
-import { rcError } from "../error.ts";
 import type { Adapter, Step, StepContext, StepOutcome } from "../types.ts";
 import { WrapperStep } from "./wrapper.ts";
 import { type Duration, parseDuration } from "../shared/duration.ts";
+import { stepPosition, stepPositionRun } from "./position-run.ts";
+import type { Position } from "../kernel/positions.ts";
 
 /**
  * Route-scope `.timeout()` config. This is the shape stored on
@@ -111,87 +110,29 @@ export async function raceWithDeadline<R>(
 export class TimeoutWrapperStep<
   T extends Adapter = Adapter,
 > extends WrapperStep<T> {
-  readonly #timeoutMs: number;
+  readonly #options: ResolvedTimeoutOptions;
+  readonly #positions = new WeakMap<object, Position>();
 
   constructor(inner: Step<T>, duration: Duration) {
     super(inner);
-    this.#timeoutMs = resolveTimeoutOptions(duration).timeoutMs;
+    this.#options = resolveTimeoutOptions(duration);
   }
 
   protected override describeOptions(): unknown {
-    return { timeoutMs: this.#timeoutMs };
+    return this.#options;
   }
 
-  protected override async runInner(
+  protected override runInner(
     exchange: Exchange,
     ctx: StepContext,
   ): Promise<StepOutcome> {
-    const { route, context, routeId, stepLabel, correlationId } =
-      wrapperEventScope(exchange, this);
-    const shouldEmit = route && context && routeId;
-
-    if (shouldEmit) {
-      context.emit("route:timeout:started", {
-        routeId,
-        exchangeId: exchange.id,
-        correlationId,
-        stepLabel,
-        scope: "step",
-        timeoutMs: this.#timeoutMs,
-      });
-    }
-
-    // Per-execution controller: aborts when THIS deadline expires so the
-    // inner step can cancel in-flight IO. Linked to any enclosing signal
-    // (route-scope abandon, outer step-scope timeout) via AbortSignal.any
-    // so the earliest deadline wins; the composed signal replaces
-    // `ctx.signal` for the inner step only, every other StepContext
-    // capability passes through untouched.
-    const controller = new AbortController();
-    const innerCtx: StepContext = {
-      ...ctx,
-      signal: anySignal(ctx.signal, controller.signal),
-    };
-
-    const start = Date.now();
-    try {
-      const outcome = await raceWithDeadline(
-        this.inner.execute(exchange, innerCtx),
-        this.#timeoutMs,
-      );
-      if (shouldEmit) {
-        context.emit("route:timeout:stopped", {
-          routeId,
-          exchangeId: exchange.id,
-          correlationId,
-          stepLabel,
-          scope: "step",
-          timeoutMs: this.#timeoutMs,
-          elapsed: Date.now() - start,
-        });
-      }
-      return outcome;
-    } catch (err) {
-      if (!(err instanceof DeadlineExceededError)) throw err;
-      const timeoutError = rcError("RC5011", undefined, {
-        message: `Step "${stepLabel}" exceeded its ${this.#timeoutMs}ms timeout`,
-      });
-      // Abort BEFORE emitting so cancellation-aware IO in the abandoned
-      // run stops as early as possible; the reason surfaces as the
-      // rejection of any fetch()/driver call holding the signal.
-      controller.abort(timeoutError);
-      if (shouldEmit) {
-        context.emit("route:timeout:expired", {
-          routeId,
-          exchangeId: exchange.id,
-          correlationId,
-          stepLabel,
-          scope: "step",
-          timeoutMs: this.#timeoutMs,
-          elapsed: Date.now() - start,
-        });
-      }
-      throw timeoutError;
-    }
+    const position = stepPosition(
+      this.#positions,
+      exchange,
+      this,
+      "timeout",
+      (provider) => provider.timeout(this.#options),
+    );
+    return position.run(stepPositionRun(this, this.inner, exchange, ctx));
   }
 }

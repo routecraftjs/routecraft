@@ -233,6 +233,8 @@ The chain around every route runs in a fixed order. **Positions** belong to the 
 
 `SLOTS` exports the slot names in order. A hook in a slot or point that does not exist is `RC1112`.
 
+The resilience methods and `.cache()` placed after `.from()` are the same positions around one step. The wrapper resolves the same provider when the exchange runs, with `scope: "step"` and the step's label on the `PositionRun` (`"route"` and `"route"` at route scope), so a plugin replacing `RESILIENCE` or `CACHE` fills both scopes; `throttle(options, scope)` takes the scope, and the step-scope cache runs through `CachePositions.wrap`. A step wrapped in a method no installed plugin provides fails with `RC1111` when it runs.
+
 ### Phases
 
 | Phase | May | Enforced |
