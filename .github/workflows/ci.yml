@@ -12,6 +12,11 @@ on:
   # and the required check then waits forever. `changes` skips the heavy jobs.
   pull_request:
     branches: ["main"]
+  # The merge queue runs CI on the exact result of the merge, at merge time, so
+  # a check whose inputs moved after the PR's last run (a new CVE in the live
+  # database, a release-shaped commit) fails in the queue rather than on main.
+  merge_group:
+    types: [checks_requested]
 
 permissions:
   contents: read
@@ -28,13 +33,15 @@ jobs:
   changes:
     runs-on: ubuntu-latest
     outputs:
-      packages: ${{ steps.filter.outputs.packages }}
-      docs: ${{ steps.filter.outputs.docs }}
+      # The queue runs everything: it is the last check before main.
+      packages: ${{ github.event_name == 'merge_group' || steps.filter.outputs.packages }}
+      docs: ${{ github.event_name == 'merge_group' || steps.filter.outputs.docs }}
     steps:
       - name: Checkout
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
       - name: Detect changed paths
+        if: github.event_name != 'merge_group'
         uses: dorny/paths-filter@ceb8a2b8f2d89434be7ff52d3de7ec3738c5cc9d # v4.0.3
         id: filter
         with:
@@ -147,10 +154,10 @@ jobs:
       - name: Build packages
         run: bun run build
         env:
-          # PostHog keys are NEXT_PUBLIC_* so technically safe to expose, but
-          # the PR build artifact is thrown away. Only inject on trusted triggers.
-          NEXT_PUBLIC_POSTHOG_KEY: ${{ github.event_name != 'pull_request' && secrets.NEXT_PUBLIC_POSTHOG_KEY || '' }}
-          NEXT_PUBLIC_POSTHOG_HOST: ${{ github.event_name != 'pull_request' && secrets.NEXT_PUBLIC_POSTHOG_HOST || '' }}
+          # Only on a push to main: merge-queue runs execute PR code that has
+          # not landed yet, so they get no secrets either.
+          NEXT_PUBLIC_POSTHOG_KEY: ${{ github.event_name == 'push' && secrets.NEXT_PUBLIC_POSTHOG_KEY || '' }}
+          NEXT_PUBLIC_POSTHOG_HOST: ${{ github.event_name == 'push' && secrets.NEXT_PUBLIC_POSTHOG_HOST || '' }}
 
       - name: Check bundle size
         run: bun run limit:size
@@ -352,8 +359,10 @@ jobs:
   # optional peer installed, which is where an adapter's library brings a CVE
   # in. Both are built from this checkout's packages, not from npm.
   #
-  # A fixable HIGH or CRITICAL finding fails the job; unfixed ones are reported
-  # but cannot fail it, since nothing in a PR can fix them. Accepted findings
+  # A fixable HIGH or CRITICAL finding fails the job on a pull request and in
+  # the merge queue; unfixed ones are reported but cannot fail it, since nothing
+  # in a PR can fix them. On a push to main the gates only report: a CVE
+  # published after the merge must not block the release. Accepted findings
   # live in .trivyignore.yaml with a reason and an expiry. The SBOMs and SARIF
   # are written before the gate runs, so a failing run still carries them.
   security:
@@ -438,23 +447,26 @@ jobs:
           category: trivy-adapters
 
       - name: "Gate: the starter image"
+        continue-on-error: ${{ github.event_name == 'push' }}
         run: |
           .github/scripts/trivy.sh gate image --scanners vuln,secret \
             routecraft-starter:scan
 
       - name: "Gate: the adapters' dependency tree"
+        continue-on-error: ${{ github.event_name == 'push' }}
         run: |
           .github/scripts/trivy.sh gate fs --scanners vuln \
             /scan/ref-adapters/bun.lock
 
       - name: "Gate: the Dockerfile the scaffolder writes"
+        continue-on-error: ${{ github.event_name == 'push' }}
         run: |
           .github/scripts/trivy.sh config --quiet --severity HIGH,CRITICAL \
             --exit-code 1 /scan/ref-starter/Dockerfile
 
   # The docs site's image, scanned the way the release scans it before the
   # push, so a base-image or dependency change is caught on the pull request
-  # rather than at deploy time.
+  # rather than at deploy time. Report-only on main, as in `security`.
   site-image-security:
     needs: [changes]
     if: needs.changes.outputs.docs == 'true'
@@ -480,11 +492,13 @@ jobs:
         run: docker build -f apps/routecraft.dev/Dockerfile -t routecraft-site:scan .
 
       - name: "Gate: the site image"
+        continue-on-error: ${{ github.event_name == 'push' }}
         run: |
           .github/scripts/trivy.sh gate image --scanners vuln,secret \
             routecraft-site:scan
 
       - name: "Gate: the site Dockerfile"
+        continue-on-error: ${{ github.event_name == 'push' }}
         run: |
           .github/scripts/trivy.sh config --quiet --severity HIGH,CRITICAL \
             --exit-code 1 apps/routecraft.dev/Dockerfile
@@ -675,6 +689,17 @@ jobs:
     if: always()
     runs-on: ubuntu-latest
     steps:
+      # always(): without it the `if` is ANDed with success(), which is false
+      # once a needed job was cancelled, and the step is skipped.
       - name: Fail when a job failed or was cancelled
-        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        if: >-
+          always()
+          && (
+            contains(needs.*.result, 'failure')
+            || contains(needs.*.result, 'cancelled')
+            || needs.changes.result != 'success'
+            || needs.validate.result != 'success'
+            || needs.test.result != 'success'
+            || needs.build.result != 'success'
+          )
         run: exit 1

@@ -45,6 +45,7 @@ import { join, resolve, dirname } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { pendingBumps as readPendingBumps } from "./lib/changeset-bumps.mjs";
+import { publishedVersion, registryJson } from "./lib/npm-registry.mjs";
 
 const rootDir = resolve(dirname(fileURLToPath(import.meta.url)), "..");
 const changesetDir = join(rootDir, ".changeset");
@@ -113,28 +114,6 @@ function expandFixedGroups() {
 expandFixedGroups();
 
 /**
- * Fetch JSON from the npm registry. A 404 resolves to null so a package that
- * has never been published reads as absent rather than an error.
- */
-async function registryJson(path, accept) {
-  let res;
-  try {
-    res = await fetch(`https://registry.npmjs.org/${path}`, {
-      headers: accept ? { accept } : {},
-      // Fail loudly instead of letting a stalled connection hang the job.
-      signal: AbortSignal.timeout(10_000),
-    });
-  } catch (err) {
-    throw new Error(`npm registry lookup failed for ${path}`, { cause: err });
-  }
-  if (res.status === 404) return null;
-  if (!res.ok) {
-    throw new Error(`npm registry returned ${res.status} for ${path}`);
-  }
-  return await res.json();
-}
-
-/**
  * The commit the package's newest canary was built from, or null when that
  * cannot be established. npm records `gitHead` on publish, so the published
  * canary carries its own base and no state has to be kept on our side.
@@ -142,9 +121,7 @@ async function registryJson(path, accept) {
 async function publishedCanaryBase(name, meta) {
   const version = meta["dist-tags"]?.canary;
   if (!version) return null;
-  const manifest = await registryJson(
-    `${encodeURIComponent(name)}/${encodeURIComponent(version)}`,
-  );
+  const manifest = await publishedVersion(name, version);
   const sha = manifest?.gitHead;
   if (typeof sha !== "string" || !sha) return null;
   // A shallow or rewritten history cannot resolve it; treat as unknown.

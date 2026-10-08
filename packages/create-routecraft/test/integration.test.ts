@@ -620,11 +620,10 @@ describe(`integration (${pm.id}): scaffolded project compiles`, () => {
     "a URL example is not given the sample capability",
     async () => {
       await withProjectDir(async (projectDir) => {
-        // The download is expected to fail: no network is needed to prove
-        // what the scaffolder writes before it reaches out.
+        // Not a GitHub URL, so the download fails parsing it, before any network call.
         await generateProjectStructure(projectDir, {
           ...makeOptions(),
-          example: "https://github.com/routecraftjs/does-not-exist-ever",
+          example: "https://example.invalid/routecraft-example",
         }).catch(() => undefined);
 
         expect(existsSync(join(projectDir, "capabilities"))).toBe(false);
