@@ -1,4 +1,9 @@
-import { createHmac } from "node:crypto";
+import {
+  createHmac,
+  createPublicKey,
+  verify as verifySignature,
+  type KeyObject,
+} from "node:crypto";
 import { timingSafeStringEqual } from "../../auth/timing-safe";
 
 const SCHEMES = [
@@ -6,6 +11,7 @@ const SCHEMES = [
   "hmac-sha1-hex",
   "stripe-timestamped",
   "standard-webhooks",
+  "ed25519",
 ] as const;
 
 /**
@@ -28,11 +34,32 @@ const SCHEMES = [
  *   matches. Covers the symmetric half of the specification only:
  *   asymmetric `v1a` (ed25519) entries are skipped like any other
  *   non-`v1` version.
+ * - `"ed25519"`: an Ed25519 signature over the raw body, verified against
+ *   the provider's public key rather than a shared secret. Telnyx
+ *   (`telnyx-signature-ed25519` over `<telnyx-timestamp>|<raw body>`) and
+ *   Discord (`x-signature-ed25519` over `<x-signature-timestamp><raw body>`)
+ *   sign this way. The signature header carries the 64-byte signature in
+ *   base64 or hex; the signed payload is `<timestamp><separator><raw body>`
+ *   and the timestamp must be within `toleranceSec` of the server clock.
  */
 export type HttpWebhookSignatureScheme = (typeof SCHEMES)[number];
 
-/** Fields every scheme takes. */
-interface HttpWebhookSignatureOptionsBase {
+/**
+ * The replay bound. Every scheme accepts it; the two bare HMAC schemes carry
+ * no timestamp and ignore it.
+ */
+interface HttpWebhookSignatureToleranceOptions {
+  /**
+   * Maximum allowed clock skew, in seconds, between the signature's
+   * embedded timestamp and the server clock. Used by
+   * `"stripe-timestamped"`, `"standard-webhooks"` and `"ed25519"`.
+   * Defaults to 300.
+   */
+  toleranceSec?: number;
+}
+
+/** Fields every secret-keyed scheme takes. */
+interface HttpWebhookSignatureOptionsBase extends HttpWebhookSignatureToleranceOptions {
   /** Shared secret the provider signs with. */
   secret: string;
   /**
@@ -42,24 +69,55 @@ interface HttpWebhookSignatureOptionsBase {
    * `"standard-webhooks"`, which have their own field formats.
    */
   prefix?: string;
-  /**
-   * Maximum allowed clock skew, in seconds, between the signature's
-   * embedded timestamp and the server clock. Used by
-   * `"stripe-timestamped"` and `"standard-webhooks"`. Defaults to 300.
-   */
-  toleranceSec?: number;
 }
 
 /**
- * The three schemes that read one configured header. `header` is required:
- * nothing in these formats fixes a header name, so there is no default that
- * would be right more often than it is wrong.
+ * The three secret-keyed schemes that read one configured header. `header`
+ * is required: nothing in these formats fixes a header name, so there is no
+ * default that would be right more often than it is wrong.
  */
 export interface HttpWebhookSignatureHeaderOptions extends HttpWebhookSignatureOptionsBase {
   /** Request header carrying the signature (e.g. `"x-hub-signature-256"`). Case-insensitive. */
   header: string;
   /** Signature scheme. See {@link HttpWebhookSignatureScheme}. */
-  scheme: Exclude<HttpWebhookSignatureScheme, "standard-webhooks">;
+  scheme: Exclude<HttpWebhookSignatureScheme, "standard-webhooks" | "ed25519">;
+}
+
+/**
+ * Ed25519. A public key in place of a secret, because the provider signs
+ * with a key it never shares: a leaked verifier configuration lets nobody
+ * forge a delivery. The header names stay configurable because every
+ * provider on this scheme picks its own, and the separator between the
+ * timestamp and the body is the one other thing they disagree on.
+ */
+export interface HttpEd25519SignatureOptions extends HttpWebhookSignatureToleranceOptions {
+  scheme: "ed25519";
+  /**
+   * The provider's Ed25519 public key: the raw 32 bytes in base64 (44
+   * characters) or hex (64 characters), as provider dashboards show it, or
+   * an SPKI `PUBLIC KEY` PEM block. A private key in any form is refused.
+   */
+  publicKey: string;
+  /** Request header carrying the signature, base64 or hex. Case-insensitive. */
+  header: string;
+  /**
+   * Request header carrying the unix-seconds timestamp the provider signed
+   * with the body. The signed payload is `<timestamp><separator><raw body>`
+   * and a timestamp outside `toleranceSec` rejects `signature expired`.
+   * Required: every provider on this scheme signs a timestamp, and a gate
+   * without one would admit a captured delivery forever.
+   */
+  timestampHeader: string;
+  /**
+   * Text between the timestamp and the body in the signed payload. Telnyx
+   * signs `<timestamp>|<body>`; Discord signs `<timestamp><body>`. Defaults
+   * to the empty string.
+   */
+  separator?: string;
+  /** Never set: this scheme verifies against `publicKey`. */
+  secret?: never;
+  /** Never set: the signature header carries the bare signature. */
+  prefix?: never;
 }
 
 /**
@@ -89,7 +147,9 @@ export interface HttpStandardWebhooksSignatureOptions extends HttpWebhookSignatu
  * `routecraft.http.rawBody`.
  */
 export type HttpWebhookSignatureOptions =
-  HttpWebhookSignatureHeaderOptions | HttpStandardWebhooksSignatureOptions;
+  | HttpWebhookSignatureHeaderOptions
+  | HttpStandardWebhooksSignatureOptions
+  | HttpEd25519SignatureOptions;
 
 /**
  * Bounded rejection reasons, returned to clients in the 401 body and emitted
@@ -142,6 +202,84 @@ const HEX_DIGEST_PATTERN = {
 
 /** Base64 of a 32-byte digest: 43 symbols and one pad character. */
 const BASE64_SHA256_PATTERN = /^[A-Za-z0-9+/]{43}=$/;
+
+const HEX_PATTERN = /^[0-9a-fA-F]+$/;
+const PADDED_BASE64_PATTERN = /^[A-Za-z0-9+/]+={0,2}$/;
+
+/**
+ * `text` as exactly `bytes` bytes written in hex or padded base64, decoded;
+ * `null` for anything else. Hex is always twice the byte count long and
+ * padded base64 never is, so a text that fits both alphabets decodes one
+ * way only. The Ed25519 key and signature both arrive in either form.
+ */
+function decodeHexOrBase64(text: string, bytes: number): Buffer | null {
+  if (text.length === bytes * 2 && HEX_PATTERN.test(text)) {
+    return Buffer.from(text, "hex");
+  }
+  if (
+    text.length === Math.ceil(bytes / 3) * 4 &&
+    PADDED_BASE64_PATTERN.test(text)
+  ) {
+    const decoded = Buffer.from(text, "base64");
+    return decoded.length === bytes ? decoded : null;
+  }
+  return null;
+}
+
+const ED25519_KEY_BYTES = 32;
+const ED25519_SIGNATURE_BYTES = 64;
+const SPKI_PEM_HEADER = "-----BEGIN PUBLIC KEY-----";
+
+/**
+ * The SPKI header for an Ed25519 public key (RFC 8410), so a raw 32-byte key
+ * can be handed to `createPublicKey` as DER. Providers publish the raw key;
+ * Node wants the wrapped one.
+ */
+const ED25519_SPKI_PREFIX = Buffer.from("302a300506032b6570032100", "hex");
+
+/**
+ * Key objects by the configured text, built once per configured key rather
+ * than per delivery. Bounded by the number of distinct `publicKey` values a
+ * process configures, which is the number of Ed25519-signed routes it has.
+ */
+const ED25519_KEYS = new Map<string, KeyObject>();
+
+/**
+ * The provider's public key as a `KeyObject`, or `null` when the text is not
+ * an Ed25519 public key in any accepted form. Never throws: the result
+ * decides a construction-time refusal, and a delivery-time miss reads as an
+ * invalid signature.
+ *
+ * Only the `PUBLIC KEY` PEM armour is accepted. `createPublicKey` derives a
+ * public key from a private one without complaint, which would let a pasted
+ * private key construct a working gate and void the promise that the route
+ * holds nothing a leak could sign with.
+ */
+function ed25519PublicKey(text: string): KeyObject | null {
+  const trimmed = text.trim();
+  const cached = ED25519_KEYS.get(trimmed);
+  if (cached !== undefined) return cached;
+  try {
+    let key: KeyObject;
+    if (trimmed.startsWith("-----BEGIN")) {
+      if (!trimmed.startsWith(SPKI_PEM_HEADER)) return null;
+      key = createPublicKey(trimmed);
+    } else {
+      const raw = decodeHexOrBase64(trimmed, ED25519_KEY_BYTES);
+      if (raw === null) return null;
+      key = createPublicKey({
+        key: Buffer.concat([ED25519_SPKI_PREFIX, raw]),
+        format: "der",
+        type: "spki",
+      });
+    }
+    if (key.asymmetricKeyType !== "ed25519") return null;
+    ED25519_KEYS.set(trimmed, key);
+    return key;
+  } catch {
+    return null;
+  }
+}
 
 /**
  * The base64 alphabet a Standard Webhooks secret may use, padding already
@@ -212,7 +350,30 @@ export function invalidSignatureOptionsReason(
   if (options.scheme !== "standard-webhooks" && !isHeaderName(options.header)) {
     return `invalid signature.header ${describeValue(options.header)}. Pass a legal HTTP header name (RFC 7230 token, e.g. "x-hub-signature-256").`;
   }
-  if (typeof options.secret !== "string" || options.secret === "") {
+  if (options.scheme === "ed25519") {
+    // Parsed here, not per delivery: a bad key must fail at the call site.
+    if (
+      typeof options.publicKey !== "string" ||
+      ed25519PublicKey(options.publicKey) === null
+    ) {
+      return `invalid signature.publicKey. Pass the provider's Ed25519 public key: the raw 32 bytes in base64 or hex, or an SPKI "PUBLIC KEY" PEM block.`;
+    }
+    if (!isHeaderName(options.timestampHeader)) {
+      return `invalid signature.timestampHeader ${describeValue(options.timestampHeader)}. Pass the header carrying the signed unix-seconds timestamp (RFC 7230 token, e.g. "telnyx-timestamp").`;
+    }
+    // Header names are case-insensitive on the wire, so one name read as both would reject every delivery.
+    if (
+      options.timestampHeader.toLowerCase() === options.header.toLowerCase()
+    ) {
+      return `invalid signature.timestampHeader ${describeValue(options.timestampHeader)}. The timestamp and the signature travel in different headers.`;
+    }
+    if (
+      options.separator !== undefined &&
+      typeof options.separator !== "string"
+    ) {
+      return `invalid signature.separator ${describeValue(options.separator)}. Pass a string (e.g. "|").`;
+    }
+  } else if (typeof options.secret !== "string" || options.secret === "") {
     return "invalid signature.secret. Pass the provider's non-empty signing secret.";
   }
   if (options.scheme === "standard-webhooks") {
@@ -272,6 +433,9 @@ export function verifyWebhookSignature(
   if (options.scheme === "standard-webhooks") {
     return verifyStandardWebhooks(rawBody, headers, options);
   }
+  if (options.scheme === "ed25519") {
+    return verifyEd25519(rawBody, headers, options);
+  }
 
   const headerValue = headers.get(options.header);
   if (headerValue === null || headerValue.trim() === "") {
@@ -316,7 +480,7 @@ export function verifyWebhookSignature(
 function verifyStripeTimestamped(
   rawBody: Uint8Array,
   headerValue: string,
-  options: HttpWebhookSignatureOptions,
+  options: HttpWebhookSignatureHeaderOptions,
 ): HttpWebhookSignatureResult {
   let rawTimestamp: string | undefined;
   const candidates: string[] = [];
@@ -435,4 +599,61 @@ function verifyStandardWebhooks(
   return viable.some((candidate) => timingSafeStringEqual(expected, candidate))
     ? { ok: true }
     : { ok: false, reason: "invalid signature" };
+}
+
+/**
+ * Verify an Ed25519 signature over `<timestamp><separator><raw body>`.
+ *
+ * A candidate that is not the shape of a 64-byte signature is rejected
+ * before any verification, as the other schemes do before any HMAC. The
+ * timestamp is checked before the signature for the same reason: an expired
+ * delivery pays no public-key operation. The raw header text is what the
+ * sender signed, so it enters the payload unparsed. Signature verification
+ * is not a secret comparison, so no timing-safe equality is involved; the
+ * public key is public.
+ */
+function verifyEd25519(
+  rawBody: Uint8Array,
+  headers: Headers,
+  options: HttpEd25519SignatureOptions,
+): HttpWebhookSignatureResult {
+  const headerValue = headers.get(options.header);
+  if (headerValue === null || headerValue.trim() === "") {
+    return { ok: false, reason: "missing signature header" };
+  }
+  const rawTimestamp = headers.get(options.timestampHeader);
+  if (rawTimestamp === null || rawTimestamp.trim() === "") {
+    return { ok: false, reason: "missing signature header" };
+  }
+  if (!UNIX_SECONDS.test(rawTimestamp)) {
+    return { ok: false, reason: "invalid signature" };
+  }
+
+  const signature = decodeHexOrBase64(
+    headerValue.trim(),
+    ED25519_SIGNATURE_BYTES,
+  );
+  if (signature === null) {
+    return { ok: false, reason: "invalid signature" };
+  }
+
+  if (outsideTolerance(rawTimestamp, options.toleranceSec)) {
+    return { ok: false, reason: "signature expired" };
+  }
+
+  const key = ed25519PublicKey(options.publicKey);
+  if (key === null) {
+    return { ok: false, reason: "invalid signature" };
+  }
+  const message = Buffer.concat([
+    Buffer.from(`${rawTimestamp}${options.separator ?? ""}`, "utf8"),
+    rawBody,
+  ]);
+  let verified = false;
+  try {
+    verified = verifySignature(null, message, key, signature);
+  } catch {
+    // a malformed point in the key or signature reads as an invalid signature
+  }
+  return verified ? { ok: true } : { ok: false, reason: "invalid signature" };
 }

@@ -1,5 +1,5 @@
 import { describe, test, expect, afterEach } from "vitest";
-import { createHmac } from "node:crypto";
+import { createHmac, generateKeyPairSync, sign } from "node:crypto";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
   craft,
@@ -190,6 +190,67 @@ describe("http source rawBody + signature (cross-runtime contract)", () => {
       method: "POST",
       headers,
       body: '{"event":"tampered"}',
+    });
+    expect(bad.status).toBe(401);
+    expect((await bad.json()) as Record<string, unknown>).toEqual({
+      error: "unauthorized",
+      reason: "invalid signature",
+    });
+  });
+
+  /**
+   * @case The public-key scheme decides identically on this runtime's node:crypto
+   * @preconditions Route with an ed25519 gate holding the raw 32-byte key in base64, so the SPKI wrap and verify run on this runtime's crypto; a delivery signed over `<timestamp>|<body>`
+   * @expectedResult Correctly signed delivery returns 200; the same signature over a different body returns 401 with the bounded reason
+   */
+  test("ed25519 accepts valid and rejects tampered deliveries", async () => {
+    const body = '{"data":{"event_type":"message.received"}}';
+    const keys = generateKeyPairSync("ed25519");
+    const publicKey = keys.publicKey
+      .export({ format: "der", type: "spki" })
+      .subarray(-32)
+      .toString("base64");
+    const timestamp = String(Math.floor(Date.now() / 1000));
+    const headers = {
+      "content-type": "application/json",
+      "telnyx-timestamp": timestamp,
+      "telnyx-signature-ed25519": sign(
+        null,
+        Buffer.from(`${timestamp}|${body}`, "utf8"),
+        keys.privateKey,
+      ).toString("base64"),
+    };
+
+    const bound = await bootHttp(
+      craft()
+        .id("xr-ed25519")
+        .from(
+          http({
+            path: "/xr-ed25519",
+            method: "POST",
+            signature: {
+              scheme: "ed25519",
+              publicKey,
+              header: "telnyx-signature-ed25519",
+              timestampHeader: "telnyx-timestamp",
+              separator: "|",
+            },
+          }),
+        )
+        .transform(() => ({ received: true }))
+        .to(noop()),
+    );
+    t = bound.ctx;
+
+    const url = `http://127.0.0.1:${bound.port}/xr-ed25519`;
+    const good = await fetch(url, { method: "POST", headers, body });
+    expect(good.status).toBe(200);
+    expect(await good.json()).toEqual({ received: true });
+
+    const bad = await fetch(url, {
+      method: "POST",
+      headers,
+      body: '{"data":{"event_type":"message.sent"}}',
     });
     expect(bad.status).toBe(401);
     expect((await bad.json()) as Record<string, unknown>).toEqual({
