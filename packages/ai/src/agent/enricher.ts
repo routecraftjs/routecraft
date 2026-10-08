@@ -285,10 +285,11 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
     // Caller identity is appended last (after blocks) so the author's own
     // prompt and any block content frame the model first, with the
     // request-scoped "who am I serving" footer closest to the user turn.
+    const caller = authorityOf(exchange).read(exchange);
     const system = appendPrincipalToSystem(
       withBlocks,
       merged.principal,
-      authorityOf(exchange).read(exchange),
+      caller,
       exchange,
     );
 
@@ -411,7 +412,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
         key: sessionKey,
         agent: agentIdentity,
         exchange,
-        by: authorityOf(exchange).read(exchange)?.subject ?? null,
+        by: caller?.subject ?? null,
         ...(revivedDeferral === undefined ? { message: user } : {}),
         ...(defer !== undefined ? { defer } : {}),
         ...(revivedDeferral !== undefined

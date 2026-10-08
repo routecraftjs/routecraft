@@ -3,6 +3,7 @@ import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { CraftContext } from "../../context.ts";
 import {
   inputValidationFailure,
+  raisedInputValidation,
   validateAgainst,
 } from "../../pipeline/validation.ts";
 import { rcError } from "../../error.ts";
@@ -319,9 +320,11 @@ export async function reviveDeferral(
               result.issues,
               door.routeId,
             );
-      throw rcError("RC5049", cause, {
-        message: `The payload for deferral "${id}" does not satisfy its declared schema: ${result.message}`,
-      });
+      throw raisedInputValidation(
+        rcError("RC5049", cause, {
+          message: `The payload for deferral "${id}" does not satisfy its declared schema: ${result.message}`,
+        }),
+      );
     }
     payload = result.value;
   }

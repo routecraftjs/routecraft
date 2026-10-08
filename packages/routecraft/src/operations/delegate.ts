@@ -88,16 +88,16 @@ export class DelegateStep<T = unknown> implements Step<Adapter> {
 
   async execute(exchange: Exchange<T>): Promise<StepOutcome> {
     const directive = await Promise.resolve(this.resolve(exchange));
-    const authority = authorityOf(exchange);
     if (directive === undefined) {
       if ((this.options.otherwise ?? "drop") === "keep") {
         return { kind: "continue", exchange };
       }
       return {
         kind: "continue",
-        exchange: dropUndelegated(exchange, authority),
+        exchange: dropUndelegated(exchange, authorityOf(exchange)),
       };
     }
+    const authority = authorityOf(exchange);
 
     const subject = authority.read(exchange);
     if (!subject) {

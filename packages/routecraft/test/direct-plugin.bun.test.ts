@@ -122,7 +122,7 @@ describe("default routecraft.direct plugin", () => {
 
   /**
    * @case Sending to an endpoint no channel holds is refused without creating one
-   * @preconditions A started context whose registry holds no channel for "ghost"
+   * @preconditions A context with its plugins installed whose registry holds no channel for "ghost"
    * @expectedResult send() rejects with RC5004 and existing() still finds nothing, so a dead forward leaves no empty channel for later callers to mistake for a listener
    */
   test("send to an absent endpoint is RC5004 and creates no channel", async () => {

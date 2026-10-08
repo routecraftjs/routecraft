@@ -846,7 +846,11 @@ export interface EventDetailsMap {
     key?: string;
     label?: string;
   };
-  /** The exchange was failed fast with `RC5026`; `RC5026` follows. */
+  /**
+   * The exchange was refused a slot. `RC5026` follows a `"busy"` or
+   * `"queue-full"` rejection; an `"abandoned"` wait fails with the outer
+   * position's own error instead.
+   */
   "route:concurrency:rejected": ExchangeScoped & {
     stepLabel: string;
     scope: "route" | "step";

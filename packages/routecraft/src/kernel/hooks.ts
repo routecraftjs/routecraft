@@ -116,9 +116,11 @@ export interface HookRefusal extends Error {
 const KNOWN_KINDS: ReadonlySet<string> = new Set(REFUSAL_KINDS);
 
 /**
- * The refusal details this module raised. Membership cannot be read back or
+ * The `RC5068` errors this module raised. Membership cannot be read back or
  * copied onto another object, so a step throwing an `RC5068` with a
- * hand-built detail cannot dress its own failure up as the caller's.
+ * hand-built detail cannot dress its own failure up as the caller's; and it
+ * is on the error rather than its cause, so a detail lifted out of a genuine
+ * refusal and replayed under a new error buys nothing either.
  */
 const RAISED = new WeakSet<object>();
 
@@ -144,14 +146,19 @@ export function isHookRefusal(value: unknown): value is HookRefusal {
 }
 
 /**
- * Whether `value` is a {@link HookRefusal} detail the kernel raised for a
- * validate hook, as opposed to the same shape built by a step. What a door
- * maps to the caller; {@link isHookRefusal} reads the detail off any error.
+ * Whether `error` is an `RC5068` the kernel raised for a validate hook,
+ * carrying its {@link HookRefusal} detail, as opposed to the same shape
+ * built by a step. What a door maps to the caller; {@link isHookRefusal}
+ * reads the detail off any error.
  *
  * @internal
  */
-export function isRaisedHookRefusal(value: unknown): value is HookRefusal {
-  return isHookRefusal(value) && RAISED.has(value);
+export function isRaisedHookRefusal(
+  error: unknown,
+): error is Error & { cause: HookRefusal } {
+  return (
+    error instanceof Error && RAISED.has(error) && isHookRefusal(error.cause)
+  );
 }
 
 function isRefusal(value: unknown): value is Refusal {
@@ -723,17 +730,20 @@ export async function runExchangeHooks(
         const detail = new Error(result.reason) as Error & {
           refused: HookRefusal["refused"];
         };
-        detail.refused = {
+        // Frozen so a handler between the hook and the door cannot re-point
+        // the refusal at another route before rethrowing it.
+        detail.refused = Object.freeze({
           hook: entry.id,
           slot: info.slot,
           routeId: info.routeId,
           kind: result.kind,
           reason: result.reason,
-        };
-        RAISED.add(detail);
-        throw rcError("RC5068", detail, {
+        });
+        const refusal = rcError("RC5068", detail, {
           message: `${entry.id} refused the exchange in "${info.slot}" (${result.kind}): ${result.reason}`,
         });
+        RAISED.add(refusal);
+        throw refusal;
       }
       throw rcError("RC1115", undefined, {
         message: `Validate hook ${entry.id} in "${info.slot}" returned something other than a refusal. A validate hook allows by returning nothing and refuses with refuse(reason); it never changes the exchange.`,

@@ -116,11 +116,12 @@ A wrapper that is a chain position at route scope (`retry`, `timeout`,
 `circuitBreaker`, `concurrency`, `throttle`, `cache`) holds no behaviour
 of its own: the behaviour is the provider's position, and the wrapper
 resolves the provider through the port when the exchange runs
-(`runStepPosition` for the `RESILIENCE` positions, `positionFor` with the
-`CACHE` port for the cache wrapper, both in `operations/position-run.ts`),
-built once per application and handed a `PositionRun` whose `attempt` is
-the wrapped step and whose `scope` is `"step"`. That is what makes one
-plugin replacing `RESILIENCE` fill both scopes:
+(both helpers live in `operations/position-run.ts` and build once per
+application). `runStepPosition` resolves a `Position` from `RESILIENCE` and
+runs it with a `PositionRun` whose `attempt` is the wrapped step and whose
+`scope` is `"step"`; the cache wrapper resolves its position from `CACHE`
+through `positionFor` and runs it with a `CacheRun`, that port's own run
+shape. That is what makes one plugin replacing a port fill both scopes:
 
 ```ts
 import { runStepPosition } from "./position-run.ts";

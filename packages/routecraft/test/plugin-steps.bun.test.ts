@@ -379,6 +379,22 @@ describe("plugin facets", () => {
   });
 
   /**
+   * @case A facet named `toJSON`, which JSON.stringify reads off every object
+   * @preconditions A plugin with namespace "toJSON" that declares a facet
+   * @expectedResult The context build rejects with RC1114, so serializing an exchange of another application can never hit the getter
+   */
+  test("a facet named toJSON is RC1114", async () => {
+    const serializable = definePlugin({
+      id: "test.serializable",
+      namespace: "toJSON",
+      facet: () => 1,
+    });
+    await expect(
+      new ContextBuilder().with({ plugins: [serializable] }).build(),
+    ).rejects.toMatchObject({ rc: "RC1114" });
+  });
+
+  /**
    * @case A listed plugin that only provides a port, beside one with steps
    * @preconditions A project installing pricing and a plugin with neither steps nor facet
    * @expectedResult pricing's method is still on the project's builder: a plugin contributing nothing hides nothing

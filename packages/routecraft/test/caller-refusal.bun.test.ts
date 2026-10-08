@@ -54,7 +54,7 @@ describe("callerRefusalOf()", () => {
   /**
    * @case An .input() refusal on the dispatched route
    * @preconditions Route "typed" whose .input() rejects the body it receives
-   * @expectedResult An input refusal with the part and each issue's path and message for "typed"; undefined for any other route id
+   * @expectedResult An input refusal with the part and each issue's path and message for "typed"; undefined for any other route id; the detail is frozen, and a new RC5065 replaying it as its cause is the instance's
    */
   test("classifies an input refusal by the route that raised it", async () => {
     t = await testContext()
@@ -77,6 +77,14 @@ describe("callerRefusalOf()", () => {
     ).toHaveProperty(["issues", 0, "path"], "id");
     expect(
       callerRefusalOf(error, { routeId: "other", principal: undefined }),
+    ).toBeUndefined();
+    const cause = (error as Error).cause as { invalid: unknown };
+    expect(Object.isFrozen(cause.invalid)).toBe(true);
+    expect(
+      callerRefusalOf(rcError("RC5065", cause), {
+        routeId: "typed",
+        principal: undefined,
+      }),
     ).toBeUndefined();
   });
 
@@ -201,7 +209,7 @@ describe("callerRefusalOf()", () => {
   /**
    * @case A validate hook refuses the dispatched route
    * @preconditions A plugin whose admitted validate hook refuses route "guarded" with kind "invalid" and a reason
-   * @expectedResult A refused classification carrying the kind and the reason for "guarded"; undefined for any other route id, since a refusal raised by a nested route is that route's caller's doing
+   * @expectedResult A refused classification carrying the kind and the reason for "guarded"; undefined for any other route id, since a refusal raised by a nested route is that route's caller's doing; the detail is frozen, and a new RC5068 replaying it as its cause is the instance's
    */
   test("classifies a hook refusal by the route it was raised on", async () => {
     t = await testContext()
@@ -233,6 +241,14 @@ describe("callerRefusalOf()", () => {
     });
     expect(
       callerRefusalOf(error, { routeId: "outer", principal: undefined }),
+    ).toBeUndefined();
+    const cause = (error as Error).cause as { refused: unknown };
+    expect(Object.isFrozen(cause.refused)).toBe(true);
+    expect(
+      callerRefusalOf(rcError("RC5068", cause), {
+        routeId: "guarded",
+        principal: undefined,
+      }),
     ).toBeUndefined();
   });
 

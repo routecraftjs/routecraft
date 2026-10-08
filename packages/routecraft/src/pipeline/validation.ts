@@ -242,17 +242,35 @@ export function isInputValidationFailure(
 const RAISED = new WeakSet<object>();
 
 /**
- * Whether `value` is an {@link InputValidationFailure} a framework validator
- * raised (`.input()`, the resume door), as opposed to the same shape built
- * by a step. What a door maps to the caller;
- * {@link isInputValidationFailure} reads the detail off any error.
+ * Mark an `RC5065` or `RC5049` a framework validator raised, so a door may
+ * answer it as the caller's. The mark is on the error, never on its cause:
+ * a detail lifted out of a genuine refusal and replayed under a new error
+ * is that new error's own failure.
+ *
+ * @internal
+ */
+export function raisedInputValidation<E extends Error>(error: E): E {
+  RAISED.add(error);
+  return error;
+}
+
+/**
+ * Whether `error` is an `RC5065` or `RC5049` a framework validator raised
+ * (`.input()`, the resume door) carrying its {@link InputValidationFailure}
+ * detail, as opposed to the same shape built by a step. What a door maps to
+ * the caller; {@link isInputValidationFailure} reads the detail off any
+ * error.
  *
  * @internal
  */
 export function isRaisedInputValidationFailure(
-  value: unknown,
-): value is InputValidationFailure {
-  return isInputValidationFailure(value) && RAISED.has(value);
+  error: unknown,
+): error is Error & { cause: InputValidationFailure } {
+  return (
+    error instanceof Error &&
+    RAISED.has(error) &&
+    isInputValidationFailure(error.cause)
+  );
 }
 
 function isValidationDetail(detail: unknown): boolean {
@@ -358,12 +376,14 @@ export async function validateInputOrThrow(
   if (schemas.body) {
     const res = await validateAgainst(schemas.body, current.body);
     if (!res.ok) {
-      throw rcError(
-        "RC5065",
-        inputValidationFailure(res.message, "body", res.issues, deps.routeId),
-        {
-          message: `Body validation failed for route "${deps.routeId}": ${res.message}`,
-        },
+      throw raisedInputValidation(
+        rcError(
+          "RC5065",
+          inputValidationFailure(res.message, "body", res.issues, deps.routeId),
+          {
+            message: `Body validation failed for route "${deps.routeId}": ${res.message}`,
+          },
+        ),
       );
     }
     current = DefaultExchange.rewrap(current, { body: res.value });
@@ -371,17 +391,19 @@ export async function validateInputOrThrow(
   if (schemas.headers) {
     const res = await validateAgainst(schemas.headers, current.headers);
     if (!res.ok) {
-      throw rcError(
-        "RC5065",
-        inputValidationFailure(
-          res.message,
-          "headers",
-          res.issues,
-          deps.routeId,
+      throw raisedInputValidation(
+        rcError(
+          "RC5065",
+          inputValidationFailure(
+            res.message,
+            "headers",
+            res.issues,
+            deps.routeId,
+          ),
+          {
+            message: `Header validation failed for route "${deps.routeId}": ${res.message}`,
+          },
         ),
-        {
-          message: `Header validation failed for route "${deps.routeId}": ${res.message}`,
-        },
       );
     }
     const headerValue = res.value as ExchangeHeaders | undefined;
@@ -409,8 +431,15 @@ export function inputValidationFailure(
 ): Error {
   const cause = new Error(message);
   if (issues.length === 0) return cause;
-  RAISED.add(cause);
-  return Object.assign(cause, { invalid: { in: part, issues, routeId } });
+  // Frozen so a handler between the validator and the door cannot re-point
+  // the refusal at another route before rethrowing it.
+  return Object.assign(cause, {
+    invalid: Object.freeze({
+      in: part,
+      issues: Object.freeze([...issues]),
+      routeId,
+    }),
+  });
 }
 
 /**

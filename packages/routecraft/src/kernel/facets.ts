@@ -21,9 +21,11 @@ const OWN_FIELDS: ReadonlySet<string> = new Set([
  * Names the language reads off every object. A facet getter under `then`
  * would make every exchange a thenable: returning one from an async
  * function would call it, and on an exchange of an application without the
- * plugin that call is the `RC1111` refusal, surfacing as a rejection.
+ * plugin that call is the `RC1111` refusal, surfacing as a rejection. One
+ * under `toJSON` would be read by `JSON.stringify`, so logging or persisting
+ * such an exchange would throw the same way.
  */
-const PROTOCOL_NAMES: ReadonlySet<string> = new Set(["then"]);
+const PROTOCOL_NAMES: ReadonlySet<string> = new Set(["then", "toJSON"]);
 
 /**
  * Whether a facet name is already something every exchange is: one of its

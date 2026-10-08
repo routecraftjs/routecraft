@@ -153,14 +153,14 @@ export interface CallerRefusalOrigin {
  * Attribution is by origin, never by code:
  *
  * - `RC5065` and `RC5049` map only when they carry the
- *   `InputValidationFailure` detail a framework validator raised, for the
- *   dispatched route. One without it was thrown by something other than
+ *   `InputValidationFailure` detail and were themselves raised by a framework
+ *   validator, for the dispatched route. One without it was thrown by something other than
  *   `.input()` or the resume door, one a step built by hand is that step's
  *   failure whatever shape it gave it, and one naming another route came up
  *   through `direct()`, so none of them is the caller's.
- * - `RC5068` maps only when it carries the `HookRefusal` detail the kernel
- *   raised for a validate hook on the dispatched route, for the same
- *   reasons. A hook refusing as
+ * - `RC5068` maps only when it carries the `HookRefusal` detail and the error
+ *   itself was raised by the kernel for a validate hook on the dispatched
+ *   route, for the same reasons. A hook refusing as
  *   `unauthenticated` on a door that reads no credential is answered as
  *   `forbidden`: a challenge would send the caller after a credential the
  *   door never reads.
@@ -185,33 +185,28 @@ export function callerRefusalOf(
 ): CallerRefusal | undefined {
   const code = rcCodeOf(error);
   if (code === "RC5065" || code === "RC5049") {
-    const cause = (error as Error).cause;
     if (
-      !isRaisedInputValidationFailure(cause) ||
-      cause.invalid.routeId !== origin.routeId
+      !isRaisedInputValidationFailure(error) ||
+      error.cause.invalid.routeId !== origin.routeId
     ) {
       return undefined;
     }
-    return {
-      kind: "input",
-      in: cause.invalid.in,
-      ...wireIssues(cause.invalid.issues),
-    };
+    const { invalid } = error.cause;
+    return { kind: "input", in: invalid.in, ...wireIssues(invalid.issues) };
   }
   if (code === "RC5068") {
-    const cause = (error as Error).cause;
     if (
-      !isRaisedHookRefusal(cause) ||
-      cause.refused.routeId !== origin.routeId
+      !isRaisedHookRefusal(error) ||
+      error.cause.refused.routeId !== origin.routeId
     ) {
       return undefined;
     }
+    const { refused } = error.cause;
     const as =
-      cause.refused.kind === "unauthenticated" &&
-      origin.credentialCouldHelp !== true
+      refused.kind === "unauthenticated" && origin.credentialCouldHelp !== true
         ? "forbidden"
-        : cause.refused.kind;
-    return { kind: "refused", as, reason: clip(cause.refused.reason) };
+        : refused.kind;
+    return { kind: "refused", as, reason: clip(refused.reason) };
   }
   if (
     !isAuthorizationRefusal(error, {
