@@ -678,7 +678,7 @@ export const RC: { [K in CoreErrorCode]: RCMeta } = {
     category: "Runtime",
     message: "Deferral result rejected",
     suggestion:
-      "The payload handed to `.resume()` failed the `schema` declared on the deferring `.defer()`. The deferral is left resumable, so a corrected payload still works. Check the mapping function in `.resume((ex) => ({ token, result }))`: it owns the SHAPE of the payload, while validation happens at revival because only the deferral knows the schema. Unlike an expiry or a changed continuation, this is raised in the RESUME INGRESS route only: a malformed payload is a per-request input error, not a change the deferred route has to re-ask about. Handle it with an `.error()` on the ingress route if the caller deserves a reply.",
+      "The payload handed to `.resume()` failed the `schema` declared at the deferring site: the `.defer()` step, or the route-scope `.error(handler, { schema })` or error hook `schema` that parked it. The deferral is left resumable, so a corrected payload still works. Check the mapping function in `.resume((ex) => ({ token, result }))`: it owns the SHAPE of the payload, while validation happens at revival because only the deferral knows the schema. Unlike an expiry or a changed continuation, this is raised in the RESUME INGRESS route only: a malformed payload is a per-request input error, not a change the deferred route has to re-ask about. Handle it with an `.error()` on the ingress route if the caller deserves a reply.",
     docs: `${DOCS_BASE}#rc-5049`,
     retryable: false,
   },

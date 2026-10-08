@@ -1,4 +1,5 @@
 import type { CraftContext } from "../context.ts";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { anySignal } from "../shared/abort.ts";
 import {
   type Exchange,
@@ -626,6 +627,9 @@ export async function runPipeline(
               pendingSourceParse,
               admitted,
               failingStep: failingStepOf(exchange, err) ?? step,
+              ...(deps.route.definition.errorPathSchema
+                ? { schema: deps.route.definition.errorPathSchema }
+                : {}),
             }),
           );
         } catch (handlerError) {
@@ -989,6 +993,7 @@ async function runContextErrorHandlers(
         pendingSourceParse: args.pendingSourceParse,
         admitted: args.admitted,
         ...(args.failingStep ? { failingStep: args.failingStep } : {}),
+        ...(handler.schema ? { schema: handler.schema } : {}),
       });
     } catch (thrown) {
       const handlerErr = processError(thrown);
@@ -1041,6 +1046,8 @@ async function applyErrorDecision(
     pendingSourceParse: boolean;
     admitted: boolean;
     failingStep?: Step<Adapter>;
+    /** The deciding handler's declared resume schema, when it parks. */
+    schema?: StandardSchemaV1;
   },
 ): Promise<ErrorDecision> {
   const strategy =
@@ -1069,6 +1076,7 @@ async function applyErrorDecision(
       pendingSourceParse: args.pendingSourceParse,
       admitted: args.admitted,
       ...(args.failingStep ? { failingStep: args.failingStep } : {}),
+      ...(args.schema ? { schema: args.schema } : {}),
     });
     deps.context.emit("route:error-handler:recovered", {
       routeId: deps.routeId,
@@ -1165,6 +1173,7 @@ async function parkFromErrorPath(
     pendingSourceParse: boolean;
     admitted: boolean;
     failingStep?: Step<Adapter>;
+    schema?: StandardSchemaV1;
   },
 ): Promise<Exchange> {
   const definition = deps.route.definition;
@@ -1218,8 +1227,8 @@ async function parkFromErrorPath(
     });
   }
 
-  const { notify, ttl, schema, meta, callBinding, stepState } =
-    args.directive.request;
+  const { notify, ttl, meta, callBinding, stepState } = args.directive.request;
+  const schema = args.schema;
   const notifySignal = anySignal(deps.route.intakeSignal, deps.abortSignal);
   return await deferExchange(
     deps.context,

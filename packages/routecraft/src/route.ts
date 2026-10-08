@@ -132,6 +132,17 @@ export type ForwardFn = (
  * @param forward - Sends a payload to another route via the direct adapter
  * @returns Static fallback value, result of forward(), or a `Recovery` directive
  */
+/** Options of a route-scope `.error(handler, options)`. */
+export interface RouteErrorOptions {
+  /**
+   * What a resume payload must satisfy when the handler parks the exchange
+   * with `recovery.defer()`. Declared here rather than in the handler so the
+   * resume door can read it back live and validate against it (`RC5049`);
+   * a changed or removed schema refuses the resume (`RC5048`).
+   */
+  readonly schema?: StandardSchemaV1;
+}
+
 export type ErrorHandler = (
   error: unknown,
   exchange: Exchange,
@@ -268,6 +279,13 @@ export type RouteDefinition<T = unknown> = {
    * If not defined, the error is logged and emitted via the error event (current behavior).
    */
   readonly errorHandler?: ErrorHandler;
+
+  /**
+   * The resume-payload schema of a park `errorHandler` raises, from
+   * `.error(handler, { schema })`. On the definition so the resume door
+   * reads it live; a handler's own code cannot be asked.
+   */
+  readonly errorPathSchema?: StandardSchemaV1;
 
   /**
    * What the `authorize` position checks, one entry per `.authorize()`

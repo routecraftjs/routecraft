@@ -31,9 +31,11 @@ import {
 } from "./serialize.ts";
 import type { DetachedKind } from "../../pipeline/chain-policy.ts";
 import type { DeferSite } from "./sites.ts";
+import type { ErrorHook } from "../hooks.ts";
 import type { Principal } from "../../principal.ts";
 import { resumable } from "./types.ts";
 import type {
+  DeferralSchema,
   PrincipalRef,
   SerializedOutcome,
   Deferral,
@@ -266,7 +268,7 @@ export async function reviveDeferral(
     throw error;
   }
 
-  const site = findSite(route, deferral);
+  const site = findSite(context, route, deferral);
   if (!site) {
     return await refuseContinuation(
       context,
@@ -785,6 +787,7 @@ async function runContinuation(
  * @internal
  */
 function findSite(
+  context: CraftContext,
   route: Route,
   deferral: Deferral,
 ):
@@ -793,22 +796,28 @@ function findSite(
       site: DeferSite;
       schema?: StandardSchemaV1;
       /**
-       * The site's schema can be read back off the route TODAY, which is
-       * true only of a static `.defer()`. Every other site raised its
-       * schema inside code the route cannot be asked about: a re-entrant
-       * step's own body, or an error handler's `recovery.defer()` call.
+       * The site's schema can be read back off the route TODAY: a static
+       * `.defer()` declares it on the step, and an error-path park on the
+       * `.error()` or the error hook that parked it. A re-entrant step raised
+       * its schema inside its own body, which the route cannot be asked
+       * about.
        */
       schemaIsLive?: boolean;
     }
   | undefined {
-  if (deferral.errorPath?.origin === "admission") {
-    const site = route.definition.admissionSite;
-    return site ? { site } : undefined;
-  }
   if (deferral.errorPath) {
+    const schema = liveErrorPathSchema(context, route, deferral.schema);
+    const live = {
+      schemaIsLive: true,
+      ...(schema !== undefined ? { schema } : {}),
+    };
+    if (deferral.errorPath.origin === "admission") {
+      const site = route.definition.admissionSite;
+      return site ? { site, ...live } : undefined;
+    }
     const errorPathSite = findErrorPathSite(route, deferral.position);
     if (errorPathSite) {
-      return { site: errorPathSite.site, step: errorPathSite.step };
+      return { site: errorPathSite.site, step: errorPathSite.step, ...live };
     }
     return undefined;
   }
@@ -828,6 +837,31 @@ function findSite(
     }
   }
   return undefined;
+}
+
+/**
+ * The schema an error-path park's resume payload is validated against, read
+ * live off the route: the `.error(handler, { schema })` and every error
+ * hook's `schema`, whichever the record's descriptor identifies. The record
+ * does not say which handler parked, so the hash picks it; with none
+ * matching, the hash comparison that follows refuses the resume as a
+ * changed continuation. A record parked without a schema is refused the
+ * same way once any handler declares one, as a static site is when its
+ * schema appears.
+ */
+function liveErrorPathSchema(
+  context: CraftContext,
+  route: Route,
+  stored: DeferralSchema,
+): StandardSchemaV1 | undefined {
+  const declared = [
+    route.definition.errorPathSchema,
+    ...context
+      .errorHooks(route)
+      .decide.map((entry) => (entry.hook as ErrorHook).schema),
+  ].filter((schema): schema is StandardSchemaV1 => schema !== undefined);
+  if (stored.absent) return declared[0];
+  return declared.find((schema) => describeSchema(schema).hash === stored.hash);
 }
 
 /**

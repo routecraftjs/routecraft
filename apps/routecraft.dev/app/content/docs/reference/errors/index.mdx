@@ -797,7 +797,7 @@ Catch it in the deferred route's route-scope `.error()` and re-ask. Note the has
 Deferral result rejected
 
 **Why it happens**  
-The payload handed to `.resume()` failed the `schema` declared on the deferring `.defer()`.
+The payload handed to `.resume()` failed the `schema` declared at the deferring site: the `.defer()` step, or the route-scope `.error(handler, { schema })` or error hook `schema` that parked it.
 
 **Suggestion**  
 The deferral is left resumable, so a corrected payload still works. Check the mapping function in `.resume((ex) => ({ token, result }))`: it owns the SHAPE of the payload, while validation happens at revival because only the deferral knows the schema.

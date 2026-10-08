@@ -7,6 +7,7 @@ import {
   MemoryDeferralStore,
   authenticate,
   craft,
+  definePlugin,
   direct,
   isDeferred,
   noop,
@@ -208,21 +209,26 @@ describe("recovery.defer: parking an exchange from the error path", () => {
   });
 
   /**
-   * @case An error-path park accepts a schema descriptively and never validates at resume
-   * @preconditions A park declaring a schema, resumed with a payload that violates it
-   * @expectedResult The acknowledgment renders the schema, the resume is accepted rather than refused with RC5049, and the door is left as the validator
+   * @case A route-scope handler's declared schema validates the resume payload
+   * @preconditions .error(handler, { schema: Decision }) parking a failure that clears on the second run; one resume with a payload the schema refuses, then one it accepts
+   * @expectedResult The acknowledgment renders the schema; the first resume is refused with RC5049 in the ingress route and leaves the deferral resumable; the second resumes and the continuation completes
    */
-  test("schema is folded into the acknowledgment but never validated at resume", async () => {
+  test("a handler's declared schema validates the payload at resume", async () => {
     const store = new MemoryDeferralStore();
+    let failOnce = true;
     t = await testContext()
       .with(shared(store))
       .routes([
         craft()
           .id("work")
-          .error(() => recovery.defer({ schema: Decision, ttl: "1h" }))
+          .error(() => recovery.defer({ ttl: "1h" }), { schema: Decision })
           .from(direct())
-          .transform(() => {
-            throw new Error("needs a human");
+          .transform((body) => {
+            if (failOnce) {
+              failOnce = false;
+              throw new Error("needs a human");
+            }
+            return body;
           })
           .to(noop()),
         craft().id("answers").from(direct()).resume(payloadFrom),
@@ -231,17 +237,149 @@ describe("recovery.defer: parking an exchange from the error path", () => {
     await t.startAndWaitReady();
 
     const deferred = asDeferred(await t.client.sendDirect("work", {}));
-    // Rendered descriptively, the same as a re-entrant site's.
     expect(deferred.schema).toBeDefined();
 
-    // Violates the declared schema, and is accepted anyway: the live schema
-    // lives in handler code and cannot be read back off the route, so RC5049
-    // has nothing to run against and the door is the validator.
+    await expect(
+      t.client.sendDirect("answers", {
+        token: deferred.token,
+        result: { approved: "not a boolean" },
+      }),
+    ).rejects.toMatchObject({ rc: "RC5049" });
+
     const ack = (await t.client.sendDirect("answers", {
       token: deferred.token,
-      result: { approved: "not a boolean" },
-    })) as { status: string };
+      result: { approved: true },
+    })) as { status: string; continuation: { status: string } };
     expect(ack.status).toBe("resumed");
+    expect(ack.continuation.status).toBe("completed");
+  });
+
+  /**
+   * @case An error hook's declared schema validates the resume payload
+   * @preconditions No route .error(); a plugin's error hook with mayDefer and schema: Decision parks the failure; a resume with a payload the schema refuses, then one it accepts
+   * @expectedResult RC5049 for the refused payload, then a completed resume: the hook's schema is read back live exactly as a route handler's is
+   */
+  test("an error hook's declared schema validates the payload at resume", async () => {
+    const store = new MemoryDeferralStore();
+    let failOnce = true;
+    t = await testContext()
+      .with({
+        ...shared(store),
+        plugins: [
+          definePlugin({
+            id: "test.park",
+            hooks: {
+              error: {
+                id: "park",
+                phase: "mutate",
+                mayDefer: true,
+                schema: Decision,
+                run: (error) =>
+                  (error as Error).message.includes("needs a human")
+                    ? recovery.defer({ ttl: "1h" })
+                    : undefined,
+              },
+            },
+          }),
+        ],
+      })
+      .routes([
+        craft()
+          .id("work")
+          .from(direct())
+          .transform((body) => {
+            if (failOnce) {
+              failOnce = false;
+              throw new Error("needs a human");
+            }
+            return body;
+          })
+          .to(noop()),
+        craft().id("answers").from(direct()).resume(payloadFrom),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    const deferred = asDeferred(await t.client.sendDirect("work", {}));
+
+    await expect(
+      t.client.sendDirect("answers", {
+        token: deferred.token,
+        result: { approved: 1 },
+      }),
+    ).rejects.toMatchObject({ rc: "RC5049" });
+
+    const ack = (await t.client.sendDirect("answers", {
+      token: deferred.token,
+      result: { approved: false },
+    })) as { status: string; continuation: { status: string } };
+    expect(ack.status).toBe("resumed");
+    expect(ack.continuation.status).toBe("completed");
+  });
+
+  /**
+   * @case The handler's schema changed under a parked exchange
+   * @preconditions An exchange parked by .error(handler, { schema: Decision }); the application restarted with the same route declaring a different schema
+   * @expectedResult The resume is refused with RC5048 before any continuation step runs, as a static .defer() whose schema changed is: the stored descriptor no longer identifies a live schema
+   */
+  test("a changed handler schema refuses the resume as a changed continuation", async () => {
+    const store = new MemoryDeferralStore();
+    const work = (schema: z.ZodTypeAny) =>
+      craft()
+        .id("work")
+        .error(
+          (error) =>
+            (error as Error).message.includes("needs a human")
+              ? recovery.defer({ ttl: "1h" })
+              : recovery.rethrow(),
+          { schema },
+        )
+        .from(direct())
+        .transform(() => {
+          throw new Error("needs a human");
+        })
+        .to(noop());
+
+    const deferContext = await testContext()
+      .with(shared(store))
+      .routes([work(Decision)])
+      .build();
+    await deferContext.startAndWaitReady();
+    const deferred = asDeferred(
+      await deferContext.client.sendDirect("work", {}),
+    );
+    await deferContext.stop();
+
+    t = await testContext()
+      .with(shared(store))
+      .routes([
+        work(z.object({ approved: z.string() })),
+        craft().id("answers").from(direct()).resume(payloadFrom),
+      ])
+      .build();
+    await t.startAndWaitReady();
+
+    await expect(
+      t.client.sendDirect("answers", {
+        token: deferred.token,
+        result: { approved: "yes" },
+      }),
+    ).rejects.toMatchObject({ rc: "RC5048" });
+  });
+
+  /**
+   * @case A step-scope .error() declares a schema
+   * @preconditions .error(handler, { schema }) placed after .from()
+   * @expectedResult RC5003 at the call: a step-scope handler cannot park, so it has no resume payload to describe
+   */
+  test("a step-scope .error() refuses a schema", () => {
+    expect(() =>
+      craft()
+        .id("work")
+        .from(direct())
+        .error(() => "recovered", { schema: Decision })
+        .to(noop()),
+    ).toThrow(expect.objectContaining({ rc: "RC5003" }));
   });
 
   /**

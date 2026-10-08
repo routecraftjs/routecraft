@@ -32,6 +32,9 @@ type NonChainField =
   // instance and by the run that is failing, never carried into one.
   | "errorPathSites"
   | "admissionSite"
+  // What a resume payload must satisfy after an error-path park: read by
+  // the resume door, never a position of the chain.
+  | "errorPathSchema"
   | "usesResume"
   // Metadata mirrored to sources (transport admission), not a chain
   // position: the authorize gates it describes already answer for

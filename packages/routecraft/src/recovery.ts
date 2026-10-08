@@ -39,14 +39,23 @@ export interface RecoveryRethrow {
 
 /**
  * What `recovery.defer()` takes: everything a {@link DeferSignalRequest}
- * declares, plus the notification the framework owns the timing of.
+ * declares except the schema, plus the notification the framework owns the
+ * timing of.
  *
  * The site is deliberately absent. A handler runs outside the step tree and
  * has no position of its own, so the executor resolves the site from
  * whatever failed; a handler that could name one could park a continuation
  * the route never reaches.
+ *
+ * The schema is absent for the opposite reason: a resume payload is
+ * validated against a schema read back live at resume, and handler code
+ * cannot be asked for one. It is declared where the handler is: on the
+ * route-scope `.error(handler, { schema })`, or on the error hook's `schema`.
  */
-export interface ErrorPathDeferRequest extends DeferSignalRequest {
+export interface ErrorPathDeferRequest extends Omit<
+  DeferSignalRequest,
+  "schema"
+> {
   /**
    * Tell someone the exchange parked, once the park is real.
    *
@@ -167,11 +176,11 @@ export const recovery = {
    *     error: {
    *       phase: "mutate",
    *       mayDefer: true,
+   *       schema: decision,
    *       run(error, exchange, { forward }) {
    *         const refusal = insufficientAuthorityOf(error);
    *         if (!refusal) return undefined;
    *         return recovery.defer({
-   *           schema: decision,
    *           ttl: "4h",
    *           notify: (ack) => forward(sendStepUpMail, { token: ack.token }),
    *         });

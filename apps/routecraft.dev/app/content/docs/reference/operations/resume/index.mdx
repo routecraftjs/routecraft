@@ -43,14 +43,14 @@ Any route that uses `.resume()` is a resume ingress: an HTTP webhook, a mail-rep
 
 The mapping function owns **shape**: find the token, build the payload. Only the ingress route knows what its transport looks like.
 
-Revival owns **validation**: only the deferral knows the schema the deferring step declared, so the payload is checked against the live schema read back off the route.
+Revival owns **validation**: only the deferral knows the schema the deferring site declared (a `.defer()` step, or the `.error()` or error hook that parked from the error path), so the payload is checked against the live schema read back off the route.
 
 This route owns **authorization**, through `authorize`. See [Securing resume](#securing-resume).
 
 | Field | Type | Description |
 |-------|------|-------------|
 | `token` | `string` | The signed token minted when the exchange deferred. |
-| `result` | `unknown` | The submitted payload, validated against the deferring step's `schema` when it declared one. |
+| `result` | `unknown` | The submitted payload, validated against the deferring site's `schema` when it declared one. |
 | `resumedBy` | `PrincipalRef` | Who resumed it. Defaults to the ingress exchange's own principal, which is the value worth recording: it was verified live here. Set it explicitly only when the resuming principal is not the caller. |
 
 The door's own options are deliberately not on the mapper's request: the mapper shapes an attacker-controlled payload, so letting it supply the hook or name the principal would let the untrusted half of an ingress choose what the trusted half checks.

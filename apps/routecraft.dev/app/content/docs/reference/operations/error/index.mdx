@@ -7,7 +7,7 @@ title: error
 </Lead>
 
 ```ts skip="signature: a type signature, not a statement"
-error(handler: (error: unknown, exchange: Exchange, forward: ForwardFn) => unknown | Promise<unknown>): this
+error(handler: (error: unknown, exchange: Exchange, forward: ForwardFn) => unknown | Promise<unknown>, options?: { schema?: StandardSchemaV1 }): this
 ```
 
 Define a catch-all error handler for unhandled errors in the route's step pipeline. Must be called before `.from()`. When any step throws an unhandled error, this handler is invoked instead of the default log-and-swallow behavior. The pipeline does not resume after the handler runs; its return value becomes the route's final exchange body.
@@ -83,7 +83,7 @@ Instead of a recovery body the handler may return a branded directive built with
 
 Turns an error into a deferral. This is what lets a failure be waited on rather than reported: a handler that recognises an authorization refusal can park the call, have a human lend the missing scope, and let the continuation finish, without the route that refused knowing any of it happened.
 
-The request takes everything `.defer()` declares (`schema`, `ttl`, `meta`, `callBinding`, `stepState`) plus `notify`.
+The request takes everything `.defer()` declares except the schema (`ttl`, `meta`, `callBinding`, `stepState`) plus `notify`. The schema is declared where the handler is, so the resume door can read it back: `.error(handler, { schema })` at route scope, or `schema` on an [error hook](/docs/reference/plugins#hook-fields).
 
 **Where it parks is the framework's decision, not the handler's.** A handler runs outside the step tree and has no position of its own, so the executor resolves one from the step that actually failed:
 
@@ -96,7 +96,7 @@ A park at a position a deferral cannot be revived from (inside a `.split()` fan-
 An admission park raised while a source-attached parser is still pending is refused with RC5051. A source parser arrives per message and is neither stored with the record nor re-derivable from the route, so the continuation would resume against an unparsed body. Sources that attach one are the file and stream shapes (`json`, `csv`, `xml`, `jsonl`, `html`, `mail`, `carddav`); `http`, `direct` and `mcp` attach none, so an identity-bearing transport is unaffected.
 </Callout>
 
-**Schema is descriptive only.** The request may carry `schema`, and it is folded into the continuation descriptor and rendered onto the acknowledgment, exactly as a re-entrant site's is. No live validation runs at resume and [RC5049](/docs/reference/errors#rc-5049) never fires, because the schema lives in handler code and cannot be read back off the route. The resuming door is the validator.
+**The schema is declared on the handler and validated at resume.** A route-scope `.error(handler, { schema })` and an error hook's `schema` declare what a resume payload must satisfy when that handler parks. The schema is folded into the continuation descriptor and rendered onto the acknowledgment, and at resume the door reads it back live off the route and validates the payload against it: a payload it refuses is [RC5049](/docs/reference/errors#rc-5049) in the ingress route, leaving the deferral resumable, and a schema that changed or disappeared under a parked exchange refuses the resume with [RC5048](/docs/reference/errors#rc-5048), exactly as a `.defer()` step's does. Handler code cannot be asked for a schema, which is why `recovery.defer()` takes none and a step-scope `.error()` (which cannot park) refuses one with `RC5003`.
 
 ### `notify`: telling someone, in the right order \{#notify}
 
@@ -116,6 +116,7 @@ export const stepUp = definePlugin({
       id: 'parkForStepUp',
       phase: 'mutate',
       mayDefer: true,
+      schema: stepUpDecision,
       run(error, exchange, info) {
         const refusal = insufficientAuthorityOf(error)
         if (!refusal || !refusal.effective) return undefined // not mine, next hook
@@ -123,7 +124,6 @@ export const stepUp = definePlugin({
         // would ask for the same scope a second time.
         if (info.execution === 2) return undefined
         return recovery.defer({
-          schema: stepUpDecision,
           ttl: '4h',
           meta: { scopes: refusal.scopes },
           notify: (ack) =>

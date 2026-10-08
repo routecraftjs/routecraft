@@ -1,4 +1,5 @@
 import { engineOwnedHeaderSuggestion } from "../engine-headers.ts";
+import type { StandardSchemaV1 } from "@standard-schema/spec";
 import { rcError } from "../error.ts";
 import { DefaultExchange, type Exchange } from "../exchange.ts";
 import type { ExchangeHeaders } from "../exchange.ts";
@@ -242,6 +243,13 @@ export interface ErrorHook extends HookBase {
    * deferral runtime.
    */
   readonly mayDefer?: boolean;
+  /**
+   * What a resume payload must satisfy when this hook parks the exchange
+   * with `recovery.defer()`. Declared on the hook so the resume door reads
+   * it live and validates against it (`RC5049`); a changed or removed
+   * schema refuses the resume (`RC5048`).
+   */
+  readonly schema?: StandardSchemaV1;
   run(
     error: unknown,
     exchange: Exchange,

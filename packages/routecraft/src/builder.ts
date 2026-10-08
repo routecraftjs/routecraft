@@ -24,6 +24,7 @@ import { shippedCatalogue, type ShippedPlugins } from "./kernel/steps.ts";
 import {
   type RouteDefinition,
   type ErrorHandler,
+  type RouteErrorOptions,
   type RouteDiscovery,
   type RouteSchemas,
   type Tag,
@@ -556,7 +557,7 @@ export interface PreFromStaging<S extends BuilderState = BuilderState> {
    * step-scope variant lives on the post-`.from()` builder; position picks
    * the mode. See {@link RouteBuilder.error}.
    */
-  error(handler: ErrorHandler): this;
+  error(handler: ErrorHandler, options?: RouteErrorOptions): this;
   /**
    * Configure ROUTE-SCOPE caching for the next route (whole-pipeline
    * memoisation); a failed exchange is never stored. After `.from()` only
@@ -682,6 +683,7 @@ export class RouteBuilder<
           options?: unknown;
         };
         errorHandler?: ErrorHandler;
+        errorPathSchema?: StandardSchemaV1;
         cacheConfig?: ResolvedCacheOptions;
         retryConfig?: ResolvedRetryOptions;
         timeoutConfig?: ResolvedTimeoutOptions;
@@ -1018,8 +1020,13 @@ export class RouteBuilder<
    * ```
    *
    * wrapper pattern. See `.standards/resilience-wrappers.md`.
+   *
+   * @param options - Route scope only. `schema`: what a resume payload must
+   *   satisfy when the handler parks the exchange with `recovery.defer()`,
+   *   validated at the resume door. A step-scope handler cannot park, so
+   *   declaring one there is `RC5003`.
    */
-  override error(handler: ErrorHandler): this {
+  override error(handler: ErrorHandler, options: RouteErrorOptions = {}): this {
     if (this.currentRoute === undefined || this.pendingOptions !== undefined) {
       // Pre-`.from()` for the FIRST route, OR staging for the NEXT
       // route in a chained `craft().id(a).from(...).to(...).id(b)
@@ -1029,9 +1036,18 @@ export class RouteBuilder<
       this.pendingOptions = {
         ...(this.pendingOptions ?? {}),
         errorHandler: handler,
+        ...(options.schema !== undefined
+          ? { errorPathSchema: options.schema }
+          : {}),
       };
       logger.trace("Staging route-scope error handler for next route");
       return this;
+    }
+    if (options.schema !== undefined) {
+      throw rcError("RC5003", undefined, {
+        message:
+          "A step-scope .error() cannot park an exchange, so it declares no resume schema. Declare { schema } on the route-scope .error() (before .from()), which is where recovery.defer() parks from.",
+      });
     }
     // Post-`.from()` on the current route: delegate to the base-class
     // step-scope path so the next pushed step is wrapped in
@@ -1395,6 +1411,7 @@ export class RouteBuilder<
       options: undefined,
     };
     const errorHandler = this.pendingOptions?.errorHandler;
+    const errorPathSchema = this.pendingOptions?.errorPathSchema;
     const cacheConfig = this.pendingOptions?.cacheConfig;
     const retryConfig = this.pendingOptions?.retryConfig;
     const timeoutConfig = this.pendingOptions?.timeoutConfig;
@@ -1436,6 +1453,7 @@ export class RouteBuilder<
         options: consumer.options ?? undefined,
       },
       ...(errorHandler ? { errorHandler } : {}),
+      ...(errorPathSchema ? { errorPathSchema } : {}),
       ...(discovery ? { discovery } : {}),
       ...(enablement ? { enablement } : {}),
       // The definition carries what each position should do, never the

@@ -311,6 +311,7 @@ export {
   type RouteDefinition,
   type ErrorContext,
   type ErrorHandler,
+  type RouteErrorOptions,
   type ForwardFn,
   type RouteDiscovery,
   type RouteSchemas,

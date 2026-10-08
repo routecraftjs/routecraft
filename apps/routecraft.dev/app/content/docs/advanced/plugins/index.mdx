@@ -328,7 +328,7 @@ export const staleQuotes = definePlugin({
 
 The hook's `info` carries `routeId`, `tags`, `execution` (`1` on the first run, `2` once the exchange is a resumed continuation) and `forward`, which sends to a `direct()` endpoint under the failing exchange's principal.
 
-A hook that may answer `recovery.defer()` declares `mayDefer: true`, which makes every route it applies to deferrable, so the application refuses to start without a deferral runtime. The error ladder from step to route to slot is described on the [`.error()` reference](/docs/reference/operations/error).
+A hook that may answer `recovery.defer()` declares `mayDefer: true`, which makes every route it applies to deferrable, so the application refuses to start without a deferral runtime. It declares `schema` beside it when the resume payload has a shape: the resume door reads the schema back off the hook and validates the payload against it, exactly as it does for a `.defer()` step. The error ladder from step to route to slot is described on the [`.error()` reference](/docs/reference/operations/error).
 
 ### Settling conflicts
 

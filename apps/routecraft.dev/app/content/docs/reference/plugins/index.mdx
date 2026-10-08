@@ -259,6 +259,7 @@ A slot runs observe, then mutate, then validate. `exit` has no validate phase. I
 | `runs` | all | The run kinds the hook applies to: `normal`, `resume`, `debounce`, `errorChannel`. Defaults to `normal` only, except in `error`, which defaults to every kind. `beforeAuth`, `afterAuth` and `admitted` see admissions only: a normal run, and an admission resume (a park raised before the route admitted the exchange), which runs `afterAuth` and `admitted` around the `authorize` it re-runs. |
 | `writes` | `mutate` | The headers the hook writes, so a conflict is reported at start rather than on the first request. |
 | `mayDefer` | `error` | The hook may answer `recovery.defer()`. Makes every route it applies to deferrable, so the application refuses to start without a deferral runtime ([`RC5052`](/docs/reference/errors#rc-5052)). |
+| `schema` | `error` | What a resume payload must satisfy when the hook parks with `recovery.defer()`. Read back live at the resume door and validated there ([`RC5049`](/docs/reference/errors#rc-5049)); a schema that changed or disappeared under a parked exchange refuses the resume ([`RC5048`](/docs/reference/errors#rc-5048)). |
 
 `info` carries `routeId`, `tags`, `slot` and `kind`. An error hook's `info` also carries `execution` (`1` on the first run, `2` once the exchange is a resumed continuation) and `forward`, which sends to a `direct()` endpoint under the failing exchange's principal.
 
