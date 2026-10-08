@@ -206,11 +206,11 @@ export function freezePrincipal(
   // Preserve authenticity across the snapshot: a snapshot of an authentic
   // principal is exactly as authentic as its source, and a snapshot of a
   // self-asserted (plain-object) principal must stay non-authentic so a
-  // downstream authorize() still rejects it with RC5023. markAuthentic
-  // re-clones and freezes the policy-bearing structures (actor chain,
-  // mayAct, roles/scopes/audience); claims and userinfoClaims stay the
-  // already deep-frozen references from above.
-  return wasAuthentic ? authority.brand(snapshot) : snapshot;
+  // downstream authorize() still rejects it with RC5023. The brand contract
+  // promises a trusted copy, not a frozen one: the default authority freezes
+  // its copy, but a replacement may hand back a mutable one, and the
+  // handler's write-protection must not depend on which authority is bound.
+  return wasAuthentic ? deepFreeze(authority.brand(snapshot)) : snapshot;
 }
 
 const handlerAuthorities = new WeakMap<FnHandlerContext, Authority>();

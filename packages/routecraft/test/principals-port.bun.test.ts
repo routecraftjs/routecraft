@@ -2,8 +2,10 @@ import { afterEach, describe, expect, test } from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
   AUTHORITY,
+  authorityOf,
   authorize,
   craft,
+  CraftContext,
   defaultAuthority,
   definePlugin,
   direct,
@@ -144,5 +146,67 @@ describe("the principals port", () => {
     await expect(t.client.sendDirect("refused", "x")).rejects.toMatchObject({
       rc: "RC5023",
     });
+  });
+
+  /**
+   * @case An application that displaces the principals plugin without providing an authority
+   * @preconditions A plugin with the id routecraft.principals that provides nothing, so the default is not installed; no plugin provides AUTHORITY
+   * @expectedResult authorityOf(context) is RC1104 rather than the default authority, while authorityOf(undefined) still answers the default
+   */
+  test("a displaced principals plugin is RC1104, never the default", async () => {
+    const displacing = definePlugin({ id: "routecraft.principals" });
+    t = await testContext()
+      .with({ plugins: [displacing] })
+      .build();
+    await t.startAndWaitReady();
+
+    expect(() => authorityOf(t!.ctx)).toThrow(
+      expect.objectContaining({ rc: "RC1104" }),
+    );
+    expect(authorityOf(undefined)).toBe(defaultAuthority);
+  });
+
+  /**
+   * @case A context asked for its authority before its plugins are installed
+   * @preconditions A CraftContext that has not started
+   * @expectedResult RC1104, so a custom authority the context will install is never stood in for by the default
+   */
+  test("a context without its plugins is RC1104, never the default", () => {
+    const context = new CraftContext();
+    expect(() => authorityOf(context)).toThrow(
+      expect.objectContaining({ rc: "RC1104" }),
+    );
+  });
+
+  /**
+   * @case A plugin resolves the authority through its own context
+   * @preconditions A replacement authority, and a second plugin declaring AUTHORITY optional whose bind calls authorityOf(c) with its plugin context
+   * @expectedResult The plugin sees the replacement, not the default: a lookup that is not a CraftContext is still a lookup
+   */
+  test("a plugin context resolves the application's authority", async () => {
+    const replacing: Authority = { ...defaultAuthority };
+    const replacement = definePlugin({
+      id: "test.replacing",
+      provides: [AUTHORITY],
+      replaces: [AUTHORITY],
+      bind(c) {
+        c.provide(AUTHORITY, replacing);
+      },
+    });
+    let seen: Authority | undefined;
+    const reader = definePlugin({
+      id: "test.reader",
+      optional: [AUTHORITY],
+      bind(c) {
+        seen = authorityOf(c);
+      },
+    });
+
+    t = await testContext()
+      .with({ plugins: [replacement, reader] })
+      .build();
+    await t.startAndWaitReady();
+
+    expect(seen).toBe(replacing);
   });
 });

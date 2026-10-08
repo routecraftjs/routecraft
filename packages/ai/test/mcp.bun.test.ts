@@ -410,6 +410,41 @@ describe("mcp() DSL function", () => {
   });
 
   /**
+   * @case A registration is bound to the entry as handed over, not to the caller's object
+   * @preconditions One entry object registered, withdrawn, and registered again, with the first withdrawal replayed after the second registration; a second entry whose endpoint the caller rewrites after registering it
+   * @expectedResult The replayed withdrawal leaves the re-registered tool in place; the rewritten entry is still served under, and withdrawn from, the endpoint it was registered with
+   */
+  test("registerLocal keeps its own copy of the entry", () => {
+    const service = createMcpService();
+    const entry: McpLocalToolEntry = {
+      endpoint: "tool",
+      description: "same object twice",
+      handler: () => Promise.reject(new Error("unused")),
+    };
+    const withdrawFirst = service.registerLocal(entry);
+    withdrawFirst();
+    const withdrawSecond = service.registerLocal(entry);
+
+    withdrawFirst();
+    expect(service.local.has("tool")).toBe(true);
+    withdrawSecond();
+    expect(service.local.has("tool")).toBe(false);
+
+    const renamed: McpLocalToolEntry = {
+      endpoint: "before",
+      description: "renamed after registration",
+      handler: () => Promise.reject(new Error("unused")),
+    };
+    const withdrawRenamed = service.registerLocal(renamed);
+    renamed.endpoint = "after";
+
+    expect(service.local.get("before")?.endpoint).toBe("before");
+    expect(service.local.has("after")).toBe(false);
+    withdrawRenamed();
+    expect(service.local.has("before")).toBe(false);
+  });
+
+  /**
    * @case mcp() with McpClientOptions returns McpAdapter (facade) for remote server
    * @preconditions Call mcp({ url, tool })
    * @expectedResult Returns adapter with adapterId routecraft.adapter.mcp and send method

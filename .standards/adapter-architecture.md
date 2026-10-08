@@ -106,7 +106,7 @@ The runtime object must agree with the declared type: expose only the slots the 
 - Keep adapters minimal, focused, and composable.
 - Implement only the role slot(s) you need: `Source.subscribe`, `Destination.send`, `Enricher.fetch`, `Processor.process`, `Transformer.transform`.
 - `Destination<T>` pushes out and is strictly void (`.to()`, `.tap()`); `Enricher<T, R>` pulls in and produces a value (`.enrich()`, and the fetch fallback in `.to()` / `.tap()`). An adapter may carry both slots on one object; `.to()` prefers `send`.
-- Use `CraftContext` stores for shared state; merge options via `MergedOptions` when relevant.
+- Use `CraftContext` stores for the adapter's own per-context state; merge options via `MergedOptions` when relevant.
 - Prefer pure functions for transform-like behavior; keep side effects in `.to(...)` destinations.
 
 ### Identification and logging
@@ -118,8 +118,8 @@ The runtime object must agree with the declared type: expose only the slots the 
 ### Options and configuration
 
 - Use a single constructor with a minimal options object: `myAdapter(options?: Partial<MyOptions>)`.
-- For adapters needing context-level config, implement `MergedOptions<T>`: expose `options` and a `mergedOptions(context)` method that reads from a typed `StoreRegistry` key. The full walkthrough (companion plugin, precedence, rationale) is documented at `apps/routecraft.dev/app/content/docs/advanced/merged-options/index.mdx`.
-- Extend `StoreRegistry` via declaration merging to type your store keys.
+- For adapters needing context-level config, implement `MergedOptions<T>`: expose `options` and a `mergedOptions(context)` method that reads the defaults through a port the companion plugin provides (`context.lookup(MY_DEFAULTS) ?? {}`, as `cron()` reads `CRON_DEFAULTS`) and lets the per-adapter options win. The full walkthrough (port, companion plugin, precedence, rationale) is documented at `apps/routecraft.dev/app/content/docs/advanced/merged-options/index.mdx`.
+- Extend `StoreRegistry` via declaration merging to type your own store keys.
 - A store key is for state private to one module (an adapter's memo, a
   cache keyed per application). State another plugin reads is a port the
   owning plugin provides, never a shared store key; see
@@ -127,7 +127,7 @@ The runtime object must agree with the declared type: expose only the slots the 
 
 ### Store keys: use `Symbol.for`
 
-Use `Symbol.for(...)` so the same key is shared across all copies of your package in a process (e.g., CLI `craft run` vs the version the route imports). Export the Symbol and use it in your `declare module` augmentation and in `getStore()`/`setStore()` calls. Do **not** use a local `Symbol("...")` -- that would create different keys per package/version and break lookups. A port is the opposite by design: its token is the identity, and a second copy of the package presenting its own token is refused with `RC1103` at the lookup rather than tolerated, because two copies of a contract module disagree on more than the key.
+Use `Symbol.for(...)` so the same key is shared across all copies of your package in a process (e.g., CLI `craft run` vs the version the route imports). Export the Symbol and use it in your `declare module` augmentation and in `getStore()`/`setStore()` calls. Do **not** use a local `Symbol("...")` -- that would create different keys per package/version and break lookups. A port is the opposite by design: its token is the identity, and a second copy of the package presenting its own token under a name the application holds is refused with `RC1103` at the lookup rather than tolerated. The check compares token and name only, so two identical copies of the declaring module are refused the same way: a duplicate-token identity mismatch is the fault, whether or not the two copies' contracts differ.
 
 ```ts
 export const EXAMPLE_STORE_KEY = Symbol.for("routecraft.adapter.example.store");

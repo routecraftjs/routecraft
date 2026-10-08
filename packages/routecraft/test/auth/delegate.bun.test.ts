@@ -11,14 +11,18 @@ function thrownString(fn: () => unknown): string {
 }
 import { spy, testContext, type TestContext } from "@routecraft/testing";
 import {
+  AUTHORITY,
   authenticate,
   authorize,
   craft,
   HeadersKeys,
   defaultAuthority,
+  definePlugin,
   simple,
+  type Authority,
   type Principal,
   type PrincipalClaims,
+  type Source,
   principalOf,
 } from "../../src/index.ts";
 import { delegate } from "../helpers/authority.ts";
@@ -909,6 +913,55 @@ describe(".delegate() builder step", () => {
 
     expect(s.receivedBodies()).toEqual(["hello"]);
     expect(principalOf(s.lastReceived())).toBeUndefined();
+  });
+
+  /**
+   * @case No consent against a replacement authority that resolves the principal from a header the strip does not touch
+   * @preconditions A replacement AUTHORITY whose read falls back to an "x-shadow" header; a source emitting a minted principal under that header only; .delegate() resolver returns undefined; default options
+   * @expectedResult The delegate step itself fails with RC5012 and the destination receives nothing: the principal the authority resolves survived the strip, so the exchange cannot continue anonymous
+   */
+  test("the drop fails closed when the authority still resolves a principal", async () => {
+    const shadowing: Authority = {
+      ...defaultAuthority,
+      read: (exchange) =>
+        principalOf(exchange) ??
+        (exchange.headers["x-shadow"] as Principal | undefined),
+    };
+    const replacement = definePlugin({
+      id: "test.shadowing",
+      provides: [AUTHORITY],
+      replaces: [AUTHORITY],
+      bind(c) {
+        c.provide(AUTHORITY, shadowing);
+      },
+    });
+    const shadowed: Source<string> = {
+      subscribe: async (sub) => {
+        await sub.emit({ message: "hello", headers: { "x-shadow": jaco() } });
+      },
+    };
+    const s = spy<string>();
+    const failures: unknown[] = [];
+    t = await testContext()
+      .with({ plugins: [replacement] })
+      .routes(
+        craft()
+          .id("drop-shadowed")
+          .from(shadowed)
+          .delegate(() => undefined)
+          .to(s),
+      )
+      .build();
+    t.ctx.on("route:exchange:failed", ((payload: {
+      details: { error: unknown };
+    }) => {
+      failures.push(payload.details.error);
+    }) as Parameters<typeof t.ctx.on>[1]);
+    await t.test();
+
+    expect(s.receivedBodies()).toEqual([]);
+    expect(String(failures[0])).toContain("RC5012");
+    expect(String(failures[0])).toContain("cannot continue anonymous");
   });
 
   /**

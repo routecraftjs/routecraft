@@ -30,7 +30,7 @@ export interface PortLookup {
   lookup<T>(port: Port<T>): T | undefined;
 }
 
-const PORT_NAME = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)*@[0-9]+$/;
+const PORT_NAME = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)+@[0-9]+$/;
 
 /**
  * Declare a port.
@@ -43,7 +43,9 @@ const PORT_NAME = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)*@[0-9]+$/;
  *
  * @param name - `owner.capability@version`
  * @returns A frozen token
- * @throws RC1103 when the name is not `owner.capability@version`
+ * @throws RC1103 when the name is not `owner.capability@version`; an
+ *   unqualified `capability@version` is refused so two plugins cannot each
+ *   declare one under a name that belongs to nobody
  *
  * @example
  * ```ts
@@ -53,7 +55,7 @@ const PORT_NAME = /^[a-z][a-z0-9-]*(\.[a-z][a-z0-9-]*)*@[0-9]+$/;
 export function port<T>(name: string): Port<T> {
   if (!PORT_NAME.test(name)) {
     throw rcError("RC1103", undefined, {
-      message: `Port name "${name}" must be lowercase dotted segments followed by @ and a version, e.g. "acme.approvals@1".`,
+      message: `Port name "${name}" must be an owner and a capability as lowercase dotted segments, followed by @ and a version, e.g. "acme.approvals@1".`,
     });
   }
   return Object.freeze({ name, key: Symbol(name) });

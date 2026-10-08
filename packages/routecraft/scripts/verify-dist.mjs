@@ -46,8 +46,12 @@ function collectSourceKeys(dir, found = { keys: new Set(), shipped: 0 }) {
 const found = collectSourceKeys(join(pkgRoot, "src"));
 const expected = [...found.keys].sort();
 if (expected.length === 0 || found.shipped === 0) {
+  const empty = [
+    ...(expected.length === 0 ? ["registerConfigApplier()"] : []),
+    ...(found.shipped === 0 ? ["registerShippedPlugin()"] : []),
+  ];
   console.error(
-    "verify-dist: found no registerConfigApplier() calls under src/; the scan is broken.",
+    `verify-dist: found no ${empty.join(" or ")} calls under src/; the scan is broken.`,
   );
   process.exit(1);
 }

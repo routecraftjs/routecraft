@@ -190,6 +190,17 @@ describe("the kernel host", () => {
   });
 
   /**
+   * @case A port name with a version but no owner segment
+   * @preconditions port("approvals@1")
+   * @expectedResult RC1103: a port is owner.capability@version, so two plugins cannot each declare "approvals@1"
+   */
+  test("refuses an unqualified port name", () => {
+    expect(() => port("approvals@1")).toThrow(
+      expect.objectContaining({ rc: "RC1103" }),
+    );
+  });
+
+  /**
    * @case A required port nobody provides
    * @preconditions One plugin requiring STORE, no provider
    * @expectedResult RC1104 naming the plugin and the port

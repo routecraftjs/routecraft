@@ -34,8 +34,9 @@ export interface DirectChannel<T = unknown> {
  * Provided by the default-installed `routecraft.direct` plugin and reached
  * through {@link DIRECT}: the direct adapter, `CraftClient`,
  * `context.capabilities()` and the remotes plugin all read and write the
- * one registry, so a remote route installed here is indistinguishable from
- * a local one to every caller.
+ * one registry, so a remote route installed here is dispatched through the
+ * same path as a local one; its capability still names its origin in
+ * `remote`, for a caller that wants to tell them apart.
  */
 export interface DirectRegistry {
   /** The application-wide channel type from `CraftConfig.direct`, when set. */
@@ -74,11 +75,16 @@ export interface DirectRegistry {
    * Hand an exchange to the route listening on a raw endpoint and resolve
    * with what it produced. How the kernel forwards from an error handler
    * without knowing the transport.
+   *
+   * @throws RC5004 when no channel holds the endpoint; none is created
    */
   send(endpoint: string, exchange: Exchange): Promise<Exchange>;
-  /** The capability advertised on a raw endpoint, if any. */
+  /**
+   * The capability advertised on a raw endpoint, if any, as a snapshot:
+   * mutating it changes nothing in the registry.
+   */
   capability(endpoint: string): Capability | undefined;
-  /** Every advertised capability, as registered. */
+  /** Every advertised capability, each a snapshot like {@link DirectRegistry.capability}. */
   capabilities(): IterableIterator<Capability>;
   /**
    * Advertise a capability on its raw endpoint.

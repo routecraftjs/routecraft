@@ -1,5 +1,5 @@
 import type { PrincipalClaims } from "../principal.ts";
-import { isCraftContext } from "../brand.ts";
+import { isExchange } from "../brand.ts";
 import { getExchangeContext, type Exchange } from "../exchange.ts";
 import type { Principal } from "../principal.ts";
 import { rcError } from "../error.ts";
@@ -61,25 +61,39 @@ export function setFallbackAuthority(authority: Authority): void {
 /**
  * The authority of the application an exchange or context belongs to.
  *
- * Falls back to the default only where there is no application, where
- * nothing could have replaced it.
+ * Falls back to the default only where there is no application at all: a
+ * bare exchange, or no argument. An application whose plugins are not yet
+ * installed, or none of whose plugins provides the port, is `RC1104` rather
+ * than the default, so a replaced authority is never silently stood in for.
+ *
+ * @throws RC1104 when an application is present and provides no authority
  */
 export function authorityOf(
   from: Exchange | PortLookup | undefined,
 ): Authority {
-  // By brand, never by a `lookup` property: a facet of that name would sit
-  // on every exchange's prototype.
+  // By the exchange brand, never by a `lookup` property: a facet of that
+  // name would sit on every exchange's prototype. Anything else is the
+  // lookup itself, a plugin's context included; a hand-built exchange-like
+  // object that is neither has no application.
   const context =
     from === undefined
       ? undefined
-      : isCraftContext(from)
-        ? (from as PortLookup)
-        : getExchangeContext(from as Exchange);
-  const found = context?.lookup(AUTHORITY) ?? fallback;
-  if (found === undefined) {
-    throw rcError("RC1104", undefined, {
-      message: `No plugin provides "${AUTHORITY.name}". The default routecraft.principals plugin provides it unless a plugin replaced it without providing a value.`,
-    });
+      : isExchange(from)
+        ? getExchangeContext(from as Exchange)
+        : typeof (from as PortLookup).lookup === "function"
+          ? (from as PortLookup)
+          : undefined;
+  if (context === undefined) {
+    if (fallback === undefined) throw noAuthority();
+    return fallback;
   }
+  const found = context.lookup(AUTHORITY);
+  if (found === undefined) throw noAuthority();
   return found;
+}
+
+function noAuthority(): Error {
+  return rcError("RC1104", undefined, {
+    message: `No plugin provides "${AUTHORITY.name}", or it was asked for before the application installed its plugins. The default routecraft.principals plugin provides it unless a plugin with that id replaced it without providing a value.`,
+  });
 }

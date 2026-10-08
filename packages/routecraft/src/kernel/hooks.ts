@@ -116,6 +116,13 @@ export interface HookRefusal extends Error {
 const KNOWN_KINDS: ReadonlySet<string> = new Set(REFUSAL_KINDS);
 
 /**
+ * The refusal details this module raised. Membership cannot be read back or
+ * copied onto another object, so a step throwing an `RC5068` with a
+ * hand-built detail cannot dress its own failure up as the caller's.
+ */
+const RAISED = new WeakSet<object>();
+
+/**
  * Whether `value` (an `RC5068` error's `cause`) carries the
  * {@link HookRefusal} detail.
  *
@@ -134,6 +141,17 @@ export function isHookRefusal(value: unknown): value is HookRefusal {
     typeof fields["reason"] === "string" &&
     KNOWN_KINDS.has(fields["kind"] as string)
   );
+}
+
+/**
+ * Whether `value` is a {@link HookRefusal} detail the kernel raised for a
+ * validate hook, as opposed to the same shape built by a step. What a door
+ * maps to the caller; {@link isHookRefusal} reads the detail off any error.
+ *
+ * @internal
+ */
+export function isRaisedHookRefusal(value: unknown): value is HookRefusal {
+  return isHookRefusal(value) && RAISED.has(value);
 }
 
 function isRefusal(value: unknown): value is Refusal {
@@ -712,6 +730,7 @@ export async function runExchangeHooks(
           kind: result.kind,
           reason: result.reason,
         };
+        RAISED.add(detail);
         throw rcError("RC5068", detail, {
           message: `${entry.id} refused the exchange in "${info.slot}" (${result.kind}): ${result.reason}`,
         });

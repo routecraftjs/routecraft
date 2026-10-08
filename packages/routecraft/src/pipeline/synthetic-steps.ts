@@ -478,30 +478,33 @@ const THROTTLE_CHECK_STEP_ADAPTER: Adapter = {
 };
 
 /**
- * Build a route-scope `.throttle()` gate (pre-from chain position #5).
- * Acquires a token from the route's limiter, pacing the exchange when
- * the bucket is empty, then continues the pipeline unchanged. It still
- * runs before the cache check, so a paced request does not consume a
- * cache lookup until it is admitted.
+ * Build a `.throttle()` gate for either scope: the pre-from chain position
+ * #5 at route scope, or what a `.throttle()` placed after `.from()` runs
+ * before its wrapped step. Acquires a token from the limiter, pacing the
+ * exchange when the bucket is empty, then continues unchanged. At route
+ * scope it still runs before the cache check, so a paced request does not
+ * consume a cache lookup until it is admitted.
  *
- * Unlike `.retry()` / `.timeout()`, throttle does not scope OVER the
- * chain tail (it neither re-runs nor bounds it): it is a one-shot gate.
- * The executor places it outside the circuitBreaker / retry / timeout
- * positions, so a retried attempt re-runs only the tail below it and never
- * re-acquires a token. Multiple `.throttle()` calls produce multiple gates
- * that all must admit the exchange.
+ * Unlike `.retry()` / `.timeout()`, throttle does not scope OVER what
+ * follows it (it neither re-runs nor bounds it): it is a one-shot gate.
+ * Where it sits relative to a retry is the scope's call. At route scope the
+ * executor places it outside the circuitBreaker / retry / timeout positions,
+ * so a retried attempt re-runs only the tail below it and never re-acquires
+ * a token. At step scope the gate is one wrapper in the step's stack, so an
+ * enclosing `.retry()` re-enters it on every attempt. Multiple `.throttle()`
+ * calls produce multiple gates that all must admit the exchange.
  *
  * The {@link ThrottleController} keys its buckets by Route, so the same
  * definition registered into several contexts gives each Route its own
  * limiter rather than one shared bucket. Reading route/context through
  * `getExchangeRoute`/`getExchangeContext` (symbol-first, cross-instance
  * safe) keeps the gate consistent with the step-scope wrapper. Emits the
- * `route:throttle:*` family with `scope: "route"`. `skipStepEvents: true`
- * keeps `runPipeline` from emitting generic lifecycle events for this
- * internal step.
+ * `route:throttle:*` family with the `scope` it was built for.
+ * `skipStepEvents: true` keeps `runPipeline` from emitting generic
+ * lifecycle events for this internal step.
  *
  * @internal Exported for the default `RESILIENCE` provider, which fills
- * the `throttle` position with it.
+ * the `throttle` position with it at both scopes.
  */
 export function buildThrottleCheckStep(
   options: ResolvedThrottleOptions,

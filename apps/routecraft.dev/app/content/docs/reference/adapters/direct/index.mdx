@@ -306,4 +306,4 @@ const routes = ctx.capabilities()
 
 A plugin reads the same list with `c.execution.capabilities()`; an adapter that needs the registry itself reads `context.require(DIRECT)`.
 
-The direct registry stores only the direct adapter's own metadata. Other adapters that expose routes externally (such as [`mcp()`](/docs/reference/adapters/mcp) or a future inbound `http()`) maintain their own parallel registries; they are never written to or read from the direct registry.
+The direct registry holds what is reachable in process: the direct adapter's own metadata, and the capabilities the [remotes plugin](/docs/reference/plugins/remotesplugin) imports from other instances, which it registers here so they are called and discovered like local routes. Adapters that expose routes externally (such as [`mcp()`](/docs/reference/adapters/mcp) or a future inbound `http()`) maintain their own parallel registries; they are never written to or read from the direct registry.

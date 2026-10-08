@@ -64,7 +64,7 @@ application needs no barrel file. Each folder is optional; one that is absent is
 | Folder | Produces | Rule |
 | --- | --- | --- |
 | `capabilities/` | Routes | A directory holding `route.ts` is one capability: that file is imported and the directory is not descended into, so colocated tests, fixtures and private helpers are never loaded. Any other module is a single-file capability. Other directories are grouping. |
-| `plugins/` | Plugins | Each module default-exports a plugin descriptor (`definePlugin({ id, ... })`). A factory export is an error: a factory needs arguments the runtime cannot invent, so call it in `craft.config.ts` instead. A plugin whose steps or facet your capabilities use belongs in `craft.config.ts` too, so the project's `craft()` is typed by it. |
+| `plugins/` | Plugins | Each module default-exports a plugin descriptor (`definePlugin({ id, ... })`). A factory export is an error: a factory needs arguments the runtime cannot invent, so call it in `craft.config.ts` instead. A plugin whose steps or facet your capabilities use belongs in `craft.config.ts` instead, so the project's `craft()` is typed by it; a plugin in both places is installed twice. |
 | `agents/` | Registered agents | Loaded by `@routecraft/ai`. See [agents](#agents). |
 | `skills/` | The default skill set for every agent | Loaded by `@routecraft/ai`. See [skills](#skills). |
 | `adapters/` | Nothing | Part of the convention as a place to put code. Importing an adapter module registers nothing, so there is nothing for `start` to load. |
@@ -295,7 +295,8 @@ ships can keep importing `craft` from `@routecraft/routecraft`. See
 [Plugins](/docs/advanced/plugins#installing-plugins-with-defineproject).
 
 A plain config object is still read: a named `craftConfig` export, or a default-exported
-config object. That is the shape `craft run` reads from a single file.
+config object. `craft run` is narrower: its default export is the route (or routes), and
+configuration comes only from the named `craftConfig` export beside it.
 
 Importing this file is also what pulls ecosystem packages into the module graph, which is how
 their config keys and their folder discoverers get registered. An agent project therefore

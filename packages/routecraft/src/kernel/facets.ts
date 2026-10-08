@@ -18,6 +18,14 @@ const OWN_FIELDS: ReadonlySet<string> = new Set([
 ]);
 
 /**
+ * Names the language reads off every object. A facet getter under `then`
+ * would make every exchange a thenable: returning one from an async
+ * function would call it, and on an exchange of an application without the
+ * plugin that call is the `RC1111` refusal, surfacing as a rejection.
+ */
+const PROTOCOL_NAMES: ReadonlySet<string> = new Set(["then"]);
+
+/**
  * Whether a facet name is already something every exchange is: one of its
  * own fields or a member of its prototype.
  *
@@ -25,7 +33,11 @@ const OWN_FIELDS: ReadonlySet<string> = new Set([
  */
 export function isReservedFacet(namespace: string): boolean {
   if (installed.has(namespace)) return false;
-  return OWN_FIELDS.has(namespace) || namespace in DefaultExchange.prototype;
+  return (
+    OWN_FIELDS.has(namespace) ||
+    PROTOCOL_NAMES.has(namespace) ||
+    namespace in DefaultExchange.prototype
+  );
 }
 
 /**
@@ -37,7 +49,8 @@ export function isReservedFacet(namespace: string): boolean {
  * uninstalled plugin gets, rather than reading another application's facet
  * or failing later as a TypeError on `undefined`.
  *
- * @throws RC1114 when the name is already a property every exchange has
+ * @throws RC1114 when the name is already a property every exchange has,
+ *   or one the language reads off every object (`then`)
  * @internal
  */
 export function installFacet(namespace: string): void {

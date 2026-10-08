@@ -180,10 +180,10 @@ export const resilienceProvider: ResiliencePositions = {
           run.exchange,
           run.route,
           {
-            // A queued attempt is released when shutdown begins or an outer
-            // position abandons it, rather than waiting behind a slot that
-            // will never free.
+            // A queued attempt stops waiting when shutdown begins or an outer
+            // position abandons it; only the first of those admits it.
             signal: run.signal,
+            ...(run.abandon ? { abandon: run.abandon } : {}),
             ...concurrencyEmitHooks(run, scoped, true),
           },
           () => run.attempt(run.abandon),

@@ -287,6 +287,48 @@ describe("callerRefusalOf()", () => {
       }),
     ).toBeUndefined();
   });
+
+  /**
+   * @case An RC5068 whose cause carries a well-formed hook detail built by hand
+   * @preconditions rcError("RC5068", cause) where cause names the dispatched route, a hook, a slot, a kind and a reason, but was never raised by the kernel
+   * @expectedResult Undefined: the detail's shape is public, and only a detail the kernel raised for a validate hook is the caller's
+   */
+  test("leaves a forged RC5068 the instance's", () => {
+    const forged = Object.assign(new Error("tenant header missing"), {
+      refused: {
+        hook: "acme.tenancy/check",
+        slot: "validate",
+        routeId: "guarded",
+        kind: "invalid",
+        reason: "tenant header missing",
+      },
+    });
+    expect(
+      callerRefusalOf(rcError("RC5068", forged), {
+        routeId: "guarded",
+        principal: undefined,
+      }),
+    ).toBeUndefined();
+  });
+
+  /**
+   * @case An RC5065 and an RC5049 whose cause carries a well-formed input detail built by hand
+   * @preconditions rcError(code, cause) where cause names the dispatched route, a part and issues, but was raised by neither .input() nor the resume door
+   * @expectedResult Undefined for both: a step cannot have its own failure answered as the caller's bad input by giving it the validator's shape
+   */
+  test("leaves a forged input failure the instance's", () => {
+    const forge = () =>
+      Object.assign(new Error("bad"), {
+        invalid: {
+          in: "body",
+          issues: [{ message: "bad", path: ["id"] }],
+          routeId: "typed",
+        },
+      });
+    const origin = { routeId: "typed", principal: undefined };
+    expect(callerRefusalOf(rcError("RC5065", forge()), origin)).toBeUndefined();
+    expect(callerRefusalOf(rcError("RC5049", forge()), origin)).toBeUndefined();
+  });
 });
 
 describe("wireIssues()", () => {

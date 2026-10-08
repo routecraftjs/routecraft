@@ -45,8 +45,10 @@ As of 0.8 (see [plugin-architecture.md](./plugin-architecture.md) section 3):
   `.authorize()` call), `throttle` (one per call), `circuitBreaker`,
   `retry`, `timeout`, `concurrency` (one per call) and `cache` as
   resolved options, plus `errorHandler` (position #1, the run's catch
-  boundary rather than a step). A definition is plain data, safe to share
-  across applications.
+  boundary rather than a step). The position options are plain data, safe
+  to share across applications; the definition as a whole is not, since it
+  also carries the route's `sources`, its `steps` and the `errorHandler`
+  closure.
 - **Providers fill the positions per application.** When a route compiles
   (before any route starts), `compilePositions()` in
   `packages/routecraft/src/pipeline/positions.ts` asks the application's

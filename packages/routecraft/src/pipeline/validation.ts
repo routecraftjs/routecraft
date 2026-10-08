@@ -233,6 +233,28 @@ export function isInputValidationFailure(
   );
 }
 
+/**
+ * The input failures the framework's validators raised. Membership cannot be
+ * read back or copied onto another object, so a step throwing an `RC5065`
+ * or `RC5049` with a hand-built detail cannot dress its own failure up as
+ * the caller's.
+ */
+const RAISED = new WeakSet<object>();
+
+/**
+ * Whether `value` is an {@link InputValidationFailure} a framework validator
+ * raised (`.input()`, the resume door), as opposed to the same shape built
+ * by a step. What a door maps to the caller;
+ * {@link isInputValidationFailure} reads the detail off any error.
+ *
+ * @internal
+ */
+export function isRaisedInputValidationFailure(
+  value: unknown,
+): value is InputValidationFailure {
+  return isInputValidationFailure(value) && RAISED.has(value);
+}
+
 function isValidationDetail(detail: unknown): boolean {
   if (typeof detail !== "object" || detail === null) return false;
   const fields = detail as Record<string, unknown>;
@@ -373,20 +395,22 @@ export async function validateInputOrThrow(
 }
 
 /**
- * The cause of an RC5065. A schema that failed without issues broke its own
- * contract rather than refused the caller, so it gets no detail and no door
- * answers it as a caller refusal.
+ * The cause of an RC5065, or of the resume door's RC5049. A schema that
+ * failed without issues broke its own contract rather than refused the
+ * caller, so it gets no detail and no door answers it as a caller refusal.
+ *
+ * @internal
  */
-function inputValidationFailure(
+export function inputValidationFailure(
   message: string,
   part: "body" | "headers",
   issues: readonly StandardSchemaV1.Issue[],
   routeId: string,
 ): Error {
   const cause = new Error(message);
-  return issues.length === 0
-    ? cause
-    : Object.assign(cause, { invalid: { in: part, issues, routeId } });
+  if (issues.length === 0) return cause;
+  RAISED.add(cause);
+  return Object.assign(cause, { invalid: { in: part, issues, routeId } });
 }
 
 /**

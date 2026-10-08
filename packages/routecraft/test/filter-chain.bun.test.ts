@@ -4,6 +4,7 @@ import {
   CACHE,
   cacheProvider,
   craft,
+  DefaultExchange,
   definePlugin,
   direct,
   MemoryCacheProvider,
@@ -220,6 +221,57 @@ describe("pre-from filter chain assembly", () => {
       "concurrency:step:transform",
       "throttle:step:transform",
     ]);
+  });
+
+  /**
+   * @case A step-scope throttle gate's outcome is what the wrapper acts on
+   * @preconditions A plugin replacing RESILIENCE whose throttle gate completes the exchange with a substitute body instead of continuing; a route wraps a transform in .throttle()
+   * @expectedResult The wrapped transform never runs and the caller receives the gate's body, as the executor would honour the same outcome from the route-scope gate
+   */
+  test("a step-scope throttle gate's outcome is honoured", async () => {
+    let inner = 0;
+    const completing = definePlugin({
+      id: "test.completing-throttle",
+      provides: [RESILIENCE],
+      replaces: [RESILIENCE],
+      bind(c) {
+        c.provide(RESILIENCE, {
+          ...resilienceProvider,
+          throttle: () => ({
+            operation: OperationType.THROTTLE,
+            label: "throttle",
+            adapter: { adapterId: "test.gate" },
+            skipStepEvents: true,
+            async execute(exchange) {
+              return {
+                kind: "complete",
+                exchange: DefaultExchange.rewrap(exchange, { body: "gated" }),
+              };
+            },
+          }),
+        });
+      },
+    });
+    t = await testContext()
+      .with({ plugins: [completing] })
+      .routes(
+        craft()
+          .id("gated")
+          .from(direct())
+          .throttle({ rate: 100 })
+          .transform((body) => {
+            inner++;
+            return body;
+          })
+          .to(noop()),
+      )
+      .build();
+    await t.startAndWaitReady();
+
+    expect(await t.client.sendDirect<string, string>("gated", "a")).toBe(
+      "gated",
+    );
+    expect(inner).toBe(0);
   });
 
   /**

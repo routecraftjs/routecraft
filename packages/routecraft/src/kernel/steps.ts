@@ -197,13 +197,21 @@ export type DerivedStepMethods<St, S extends BuilderState, This> = {
   ]: StepMethod<St[K], S, This>;
 };
 
+/**
+ * What a plugin without the contribution adds: nothing, as an empty object
+ * rather than `unknown`. The union of every installed plugin's contribution
+ * is intersected, and `unknown` in a union absorbs the rest of it, so one
+ * plugin that only provides a port would hide every other plugin's steps.
+ */
+type Nothing = Record<never, never>;
+
 type MethodsOfPlugin<P, S extends BuilderState, This> = P extends {
   readonly steps: infer St;
 }
   ? NamespaceOf<P> extends keyof StepMethods<S, This>
     ? StepMethods<S, This>[NamespaceOf<P>]
     : DerivedStepMethods<St, S, This>
-  : unknown;
+  : Nothing;
 
 /**
  * The step methods the installed plugins add to a builder at state `S`.
@@ -224,7 +232,7 @@ type FacetOfPlugin<P, S extends BuilderState> = P extends {
         ? FacetTypes<S>[K]
         : F;
     }
-  : unknown;
+  : Nothing;
 
 /**
  * The facets the installed plugins add to an exchange at state `S`:

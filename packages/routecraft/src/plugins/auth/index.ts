@@ -94,7 +94,7 @@ export const authSteps = {
    *   .from(mail("INBOX"))
    *   .authenticate(mailPrincipal)
    *   .delegate((ex) => {
-   *     const grant = grants.find(ex.auth.principal?.subject, "agent:zoe");
+   *     const grant = grants.find(principalOf(ex)?.subject, "agent:zoe");
    *     if (!grant) return undefined;
    *     return { actor: zoeIdentity, scopes: grant.scopes, grantId: grant.id };
    *   })

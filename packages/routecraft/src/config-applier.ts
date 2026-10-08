@@ -107,10 +107,12 @@ export function getConfigAppliers(): ReadonlyMap<string, AnyConfigApplier> {
 }
 
 /**
- * The plugins a configuration installs before the defaults: one per config
- * key that is set, in applier registration order, then `plugins` as listed.
- * The application and `defineProject` both compose from this, so the plugins
- * a project's routes are typed by are the ones its application installs.
+ * The plugins a configuration installs, defaults aside: one per config key
+ * that is set, in applier registration order, then `plugins` as listed.
+ * `applicationPlugins` puts the defaults this list does not displace ahead
+ * of it. The application and `defineProject` both compose from this, so the
+ * plugins a project's routes are typed by are the ones its application
+ * installs.
  *
  * The guard is strictly `value !== undefined`: appliers are an open
  * registry, and a key whose valid value is `false`, `0` or `""` is still set.

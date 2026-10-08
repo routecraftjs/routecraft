@@ -258,7 +258,7 @@ See the [testing guide](/docs/introduction/testing#mocking-external-adapters) fo
 If your adapter has options that users might want to set once for the entire context (connection strings, timeouts, credentials), implement `MergedOptions<T>`. Users then provide defaults through a plugin while still overriding them per adapter. The defaults reach the adapter through a [port](/docs/advanced/plugins#ports):
 
 ```ts skip="fragment: MyOptions are illustrative"
-import { port, type MergedOptions, type CraftContext } from '@routecraft/routecraft'
+import { getExchangeContext, port, rcError, type MergedOptions, type CraftContext } from '@routecraft/routecraft'
 
 export const MY_DEFAULTS = port<Partial<MyOptions>>('acme.my-adapter.defaults@1')
 
@@ -275,7 +275,11 @@ class MyAdapter implements Destination<unknown>, MergedOptions<MyOptions> {
   }
 
   async send(exchange) {
-    const opts = this.mergedOptions(getExchangeContext(exchange))
+    const context = getExchangeContext(exchange)
+    if (!context) {
+      throw rcError('RC5001', undefined, { message: 'exchange has no context' })
+    }
+    const opts = this.mergedOptions(context)
     // ...
   }
 }
@@ -284,6 +288,8 @@ class MyAdapter implements Destination<unknown>, MergedOptions<MyOptions> {
 Then ship a companion plugin that provides the port, so users have a typed, discoverable API:
 
 ```ts skip="fragment: MyOptions, MY_DEFAULTS are illustrative"
+import { definePlugin } from '@routecraft/routecraft'
+
 export function myAdapterPlugin(defaults: Partial<MyOptions>) {
   return definePlugin({
     id: 'acme.my-adapter',

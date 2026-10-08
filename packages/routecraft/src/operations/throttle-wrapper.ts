@@ -540,6 +540,7 @@ export class ThrottleWrapperStep<
   T extends Adapter = Adapter,
 > extends WrapperStep<T> {
   readonly #options: ResolvedThrottleOptions;
+  // Keyed by route: the gate's scope (its route id) is baked in at build.
   readonly #gates = new WeakMap<object, Step<Adapter>>();
 
   constructor(inner: Step<T>, options: ThrottleOptions) {
@@ -563,8 +564,12 @@ export class ThrottleWrapperStep<
       "throttle",
       (provider) =>
         provider.throttle(this.#options, stepScopeOf(this, exchange)),
+      { perRoute: true },
     );
-    await gate.execute(exchange, ctx);
-    return this.inner.execute(exchange, ctx);
+    // The gate's outcome is the executor's to act on at route scope, so it
+    // is here too: a provider may complete or drop instead of continuing.
+    const outcome = await gate.execute(exchange, ctx);
+    if (outcome.kind !== "continue") return outcome;
+    return this.inner.execute(outcome.exchange, ctx);
   }
 }

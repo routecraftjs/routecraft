@@ -21,8 +21,10 @@ export type CallableAuthenticator<T = unknown> = (
 
 /**
  * Step that establishes the authenticated principal for the exchange. Mints a
- * branded principal from the resolver's claims (via `authenticate()`) and
- * writes it onto `headers["routecraft.auth.principal"]`. Body is unchanged.
+ * branded principal from the resolver's claims through the application's
+ * authority (`authorityOf(exchange).mint`, which is `authenticate()` unless
+ * a plugin replaced `AUTHORITY`) and writes it onto
+ * `headers["routecraft.auth.principal"]`. Body is unchanged.
  *
  * When the resolver returns `undefined` the exchange passes through untouched,
  * so a source that cannot identify a given caller simply leaves it anonymous.

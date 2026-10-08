@@ -1,7 +1,8 @@
 import { describe, expect, mock, test } from "bun:test";
 import { z } from "zod";
-import { defaultAuthority } from "@routecraft/routecraft";
+import { defaultAuthority, type Authority } from "@routecraft/routecraft";
 import { buildVercelTools } from "../src/agent/tool-bridge.ts";
+import { freezePrincipal } from "../src/fn/handler-context.ts";
 import type { ResolvedTool } from "../src/agent/tools/selection.ts";
 
 describe("buildVercelTools: execute path", () => {
@@ -197,6 +198,34 @@ describe("buildVercelTools: execute path", () => {
     ).execute({});
 
     expect(captured).toEqual([true, false]);
+  });
+
+  /**
+   * @case The snapshot stays frozen whichever authority brands it
+   * @preconditions A replacement authority whose brand() returns a mutable shallow copy (the contract promises a trusted copy, not a frozen one); freezePrincipal called with an authentic principal
+   * @expectedResult The returned principal and its policy arrays are frozen, so a handler cannot alter what the bridge forwards for downstream authorization
+   */
+  test("freezePrincipal freezes what a replacement authority's brand returns", () => {
+    const mutableBrand: Authority = {
+      ...defaultAuthority,
+      brand: (principal) => ({ ...principal }),
+    };
+    const authentic = defaultAuthority.brand({
+      kind: "jwt" as const,
+      scheme: "bearer" as const,
+      subject: "verified",
+      roles: ["admin"],
+      claims: { perms: { write: true } },
+    });
+
+    const frozen = freezePrincipal(authentic, mutableBrand);
+
+    expect(Object.isFrozen(frozen)).toBe(true);
+    expect(Object.isFrozen(frozen.roles)).toBe(true);
+    expect(Object.isFrozen(frozen.claims)).toBe(true);
+    expect(() => {
+      (frozen as { subject: string }).subject = "forged";
+    }).toThrow();
   });
 
   /**

@@ -1,4 +1,4 @@
-import { describe, expect, test } from "bun:test";
+import { afterAll, beforeAll, describe, expect, test } from "bun:test";
 import {
   CraftContext,
   DefaultExchange,
@@ -6,10 +6,10 @@ import {
   authenticate,
   authorize,
   defaultAuthority,
-  isRestored,
   type Exchange,
   principalOf,
 } from "../src/index.ts";
+import { isRestored } from "../src/auth/restored.ts";
 // The serializer is engine machinery, not public API: it is reached through
 // the intra-package barrel the executor uses, not the package index.
 import {
@@ -23,6 +23,11 @@ import {
 import { BRAND, setBrand } from "../src/brand.ts";
 
 const context = new CraftContext();
+
+// The restorer resolves the application's authority, which only an
+// application with its plugins installed has.
+beforeAll(() => context.initPlugins());
+afterAll(() => context.stop());
 
 function exchangeWith(
   body: unknown,

@@ -77,7 +77,7 @@
       "stopped"
     ],
     "anchor": "plugin-events",
-    "note": "binding / bound bracket bind(); starting / started bracket the optional start(), so a plugin without one emits the binding pair only."
+    "note": "binding / bound bracket bind(); starting / started bracket the optional start(), and stopping / stopped the optional stop(). A plugin without start() skips the starting pair only; its stop() still emits the stopping pair."
   },
   {
     "pattern": "auth:*",

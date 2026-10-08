@@ -1,4 +1,4 @@
-import { describe, test, expect } from "vitest";
+import { afterAll, describe, test, expect } from "vitest";
 import { mkdir, rm, readFile, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -419,21 +419,29 @@ const LOCAL_PACKAGES = [
  * refuses with RC1103. A tarball is what a published install unpacks, and it
  * holds `dist` alone.
  */
-function packLocalPackages(): Record<string, string> {
-  const destination = mkdtempSync(join(tmpdir(), "rc-integ-packs-"));
+function packLocalPackages(): {
+  directory: string;
+  tarballs: Record<string, string>;
+} {
+  const directory = mkdtempSync(join(tmpdir(), "rc-integ-packs-"));
   const tarballs: Record<string, string> = {};
   for (const pkg of LOCAL_PACKAGES) {
-    const tarball = join(destination, `${pkg}.tgz`);
+    const tarball = join(directory, `${pkg}.tgz`);
     execSync(`bun pm pack --quiet --filename ${tarball}`, {
       cwd: join(MONOREPO_ROOT, "packages", pkg),
       stdio: "pipe",
     });
     tarballs[`@routecraft/${pkg}`] = tarball;
   }
-  return tarballs;
+  return { directory, tarballs };
 }
 
-const localTarballs = packagesBuilt ? packLocalPackages() : {};
+const packed = packagesBuilt ? packLocalPackages() : undefined;
+const localTarballs = packed?.tarballs ?? {};
+
+afterAll(async () => {
+  if (packed) await rm(packed.directory, { recursive: true, force: true });
+});
 
 /**
  * Patch the scaffolded package.json to install the packed local packages,

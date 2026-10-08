@@ -217,6 +217,26 @@ describe("deferral runtime resolution", () => {
   });
 
   /**
+   * @case A sweep interval the platform timer cannot schedule is refused at build
+   * @preconditions sweepInterval: "30d", which exceeds setInterval's 2^31-1 ms ceiling
+   * @expectedResult RC5003 naming the ceiling, rather than an interval coerced to 1ms that sweeps the store back to back
+   */
+  test("refuses a sweep interval above the timer ceiling", async () => {
+    await expect(
+      createDeferralRuntime(new CraftContext(), {
+        ...SECRET,
+        store: "memory",
+        sweepInterval: "30d",
+      }),
+    ).rejects.toThrow(
+      expect.objectContaining({
+        rc: "RC5003",
+        message: expect.stringContaining("deferral.sweepInterval"),
+      }),
+    );
+  });
+
+  /**
    * @case A custom backend keeps its own lifecycle
    * @preconditions A caller-supplied store
    * @expectedResult The runtime reports it as custom and disclaims

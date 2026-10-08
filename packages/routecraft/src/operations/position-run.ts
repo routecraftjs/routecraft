@@ -32,8 +32,17 @@ export function stepScopeOf(
  * per application. A wrapper placed after `.from()` is the same position as
  * its route-scope twin, so one plugin replacing the port fills both.
  *
- * @throws RC1111 when no installed plugin provides the port, as a route
- *   configuring the position at route scope refuses to start
+ * `perRoute` builds one per route in the application instead, for a
+ * position whose build bakes the route's scope in (the throttle gate): a
+ * wrapped step shared by two routes would otherwise report the first
+ * route's id on the second route's events.
+ *
+ * The provider is resolved when an exchange first reaches the wrapper, so a
+ * missing one fails that exchange; the route-scope twin is compiled before
+ * the route starts and refuses at startup instead.
+ *
+ * @throws RC1111 when the exchange carries no application, or no installed
+ *   plugin provides the port
  */
 export function positionFor<P, T>(
   built: WeakMap<object, T>,
@@ -42,18 +51,25 @@ export function positionFor<P, T>(
   port: Port<P>,
   method: string,
   build: (provider: P) => T,
+  options: { perRoute?: boolean } = {},
 ): T {
-  const { context, stepLabel } = wrapperEventScope(exchange, step);
-  const provider = context?.lookup(port);
-  if (context === undefined || provider === undefined) {
+  const { context, route, stepLabel } = wrapperEventScope(exchange, step);
+  if (context === undefined) {
+    throw rcError("RC1111", undefined, {
+      message: `Step "${stepLabel}" is wrapped in .${method}(), which runs the "${port.name}" position of the application the exchange belongs to, and this exchange belongs to none. Run the step through a route in a started context.`,
+    });
+  }
+  const provider = context.lookup(port);
+  if (provider === undefined) {
     throw rcError("RC1111", undefined, {
       message: `Step "${stepLabel}" is wrapped in .${method}(), and no installed plugin provides "${port.name}". Install a plugin that provides it, or remove .${method}() from the route.`,
     });
   }
-  let position = built.get(context);
+  const key = options.perRoute ? (route ?? context) : context;
+  let position = built.get(key);
   if (position === undefined) {
     position = build(provider);
-    built.set(context, position);
+    built.set(key, position);
   }
   return position;
 }

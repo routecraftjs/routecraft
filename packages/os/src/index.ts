@@ -17,6 +17,7 @@ export {
 
 export {
   shell,
+  SHELL,
   shellPlugin,
   untrusted,
   type IsolationName,

@@ -8,6 +8,7 @@ import {
   direct,
   noop,
   otherwise,
+  port,
   step,
   when,
   type Body,
@@ -362,6 +363,72 @@ describe("plugin facets", () => {
   });
 
   /**
+   * @case A facet named `then`, which the language reads off every object
+   * @preconditions A plugin with namespace "then" that declares a facet
+   * @expectedResult The context build rejects with RC1114, so no exchange ever becomes a thenable
+   */
+  test("a facet named then is RC1114", async () => {
+    const thenable = definePlugin({
+      id: "test.thenable",
+      namespace: "then",
+      facet: () => 1,
+    });
+    await expect(
+      new ContextBuilder().with({ plugins: [thenable] }).build(),
+    ).rejects.toMatchObject({ rc: "RC1114" });
+  });
+
+  /**
+   * @case A listed plugin that only provides a port, beside one with steps
+   * @preconditions A project installing pricing and a plugin with neither steps nor facet
+   * @expectedResult pricing's method is still on the project's builder: a plugin contributing nothing hides nothing
+   */
+  test("a plugin without steps hides no other plugin's steps", () => {
+    const PORT = port<{ readonly ok: boolean }>("test.nothing@1");
+    const provider = definePlugin({
+      id: "test.provider",
+      provides: [PORT],
+      bind(c) {
+        c.provide(PORT, { ok: true });
+      },
+    });
+    const project = defineProject({ plugins: [pricing, provider] });
+    expectTypeOf(project.craft().id("p").from<Order>(direct())).toHaveProperty(
+      "withTax",
+    );
+  });
+
+  /**
+   * @case A plugin brought through another plugin's installs
+   * @preconditions A project listing only a plugin whose installs bring pricing
+   * @expectedResult pricing's method is on the project's builder, as it is in the application's catalogue
+   */
+  test("a brought plugin's steps are typed on the project", () => {
+    const bringing = definePlugin({ id: "test.bringing", installs: [pricing] });
+    const project = defineProject({ plugins: [bringing] });
+    expectTypeOf(project.craft().id("b").from<Order>(direct())).toHaveProperty(
+      "withTax",
+    );
+  });
+
+  /**
+   * @case A listed plugin with a default plugin's id
+   * @preconditions A project listing a plugin with the id routecraft.auth and no steps
+   * @expectedResult .authenticate() is a compile error, since the application installs the listed plugin in the default's place
+   */
+  test("a listed plugin displaces the default of the same id", () => {
+    const ownAuth = definePlugin({ id: "routecraft.auth" });
+    const project = defineProject({ plugins: [ownAuth] });
+    const route = project.craft().id("a").from<Order>(direct());
+    // Never called: the assertion is the compile error.
+    const typeOnly = () => {
+      // @ts-expect-error the listed routecraft.auth displaces the default auth plugin and brings no authenticate step
+      route.authenticate(() => undefined);
+    };
+    void typeOnly;
+  });
+
+  /**
    * @case ex.auth.principal reads the principal .authenticate() established
    * @preconditions A root craft() route authenticates a fixed subject then reads ex.auth.principal
    * @expectedResult The route returns the subject
@@ -405,6 +472,40 @@ describe("plugin step fingerprints", () => {
     );
     expect(continuationTailHash(tail(0.1), schema)).toBe(
       continuationTailHash(tail(0.1), schema),
+    );
+  });
+
+  /**
+   * @case One plugin step called with undefined and with null
+   * @preconditions A step factory accepting a nullable optional argument; routes calling it with undefined and with null
+   * @expectedResult Their continuation hashes differ: the factory may act differently on the two, so a deferred approval under one must not resume under the other
+   */
+  test("undefined and null factory arguments are different fingerprints", () => {
+    const rounding = definePlugin({
+      id: "test.rounding",
+      steps: {
+        round: (mode: "up" | null | undefined) =>
+          step<Order, Order>((exchange) => ({
+            ...exchange.body,
+            total:
+              mode === "up"
+                ? Math.ceil(exchange.body.total)
+                : Math.round(exchange.body.total),
+          })),
+      },
+    });
+    const { craft: build } = defineProject({ plugins: [rounding] });
+    const tail = (mode: "up" | null | undefined) =>
+      build()
+        .id("rounded")
+        .from<Order>(direct())
+        .round(mode)
+        .to(noop())
+        .build()[0]!.steps;
+    const schema = describeSchema();
+
+    expect(continuationTailHash(tail(undefined), schema)).not.toBe(
+      continuationTailHash(tail(null), schema),
     );
   });
 });

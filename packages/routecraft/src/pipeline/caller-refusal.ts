@@ -6,8 +6,8 @@ import {
   isAuthorizationRefusal,
 } from "../authorization-refusal.ts";
 import type { Principal } from "../principal.ts";
-import { isHookRefusal, type RefusalKind } from "../kernel/hooks.ts";
-import { isInputValidationFailure } from "./validation.ts";
+import { isRaisedHookRefusal, type RefusalKind } from "../kernel/hooks.ts";
+import { isRaisedInputValidationFailure } from "./validation.ts";
 
 /** One schema issue as a door shows it to a caller: where, and what. */
 export interface WireIssue {
@@ -153,12 +153,14 @@ export interface CallerRefusalOrigin {
  * Attribution is by origin, never by code:
  *
  * - `RC5065` and `RC5049` map only when they carry the
- *   `InputValidationFailure` detail for the dispatched route. One without it
- *   was thrown by something other than `.input()` or the resume door, and
- *   one naming another route came up through `direct()`, so neither is the
- *   caller's.
- * - `RC5068` maps only when it carries the `HookRefusal` detail for the
- *   dispatched route, for the same reason. A hook refusing as
+ *   `InputValidationFailure` detail a framework validator raised, for the
+ *   dispatched route. One without it was thrown by something other than
+ *   `.input()` or the resume door, one a step built by hand is that step's
+ *   failure whatever shape it gave it, and one naming another route came up
+ *   through `direct()`, so none of them is the caller's.
+ * - `RC5068` maps only when it carries the `HookRefusal` detail the kernel
+ *   raised for a validate hook on the dispatched route, for the same
+ *   reasons. A hook refusing as
  *   `unauthenticated` on a door that reads no credential is answered as
  *   `forbidden`: a challenge would send the caller after a credential the
  *   door never reads.
@@ -185,7 +187,7 @@ export function callerRefusalOf(
   if (code === "RC5065" || code === "RC5049") {
     const cause = (error as Error).cause;
     if (
-      !isInputValidationFailure(cause) ||
+      !isRaisedInputValidationFailure(cause) ||
       cause.invalid.routeId !== origin.routeId
     ) {
       return undefined;
@@ -198,7 +200,10 @@ export function callerRefusalOf(
   }
   if (code === "RC5068") {
     const cause = (error as Error).cause;
-    if (!isHookRefusal(cause) || cause.refused.routeId !== origin.routeId) {
+    if (
+      !isRaisedHookRefusal(cause) ||
+      cause.refused.routeId !== origin.routeId
+    ) {
       return undefined;
     }
     const as =

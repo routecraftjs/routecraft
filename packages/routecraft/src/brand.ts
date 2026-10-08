@@ -114,14 +114,14 @@ export function isRoute(obj: unknown): boolean {
   return isBranded(obj, BRAND.DefaultRoute);
 }
 
-/**
- * Returns true if the value is a RouteBuilder instance (has .build()).
- */
 /** Whether a value is a project built by `defineProject`. */
 export function isProject(obj: unknown): boolean {
   return isBranded(obj, BRAND.Project);
 }
 
+/**
+ * Returns true if the value is a RouteBuilder instance (has .build()).
+ */
 export function isRouteBuilder(obj: unknown): boolean {
   return isBranded(obj, BRAND.RouteBuilder);
 }

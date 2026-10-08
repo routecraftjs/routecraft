@@ -279,8 +279,9 @@ craft().id("orders").from(source).dedupe({ key: (o) => o.id }).to(sink);
   declares its method type by merging into `StepMethods<S, This>` under its
   namespace. The `steps` entry still provides the runtime.
 - `defineProject({ plugins, ...config })` returns `{ craft, config, plugins }`.
-  It composes the plugins exactly as the application does (config-key
-  plugins, the listed ones, the defaults, and what they bring), so its
+  It composes the plugins exactly as the application does (the defaults
+  first, then the config-key plugins and the listed ones, each brought
+  plugin placed ahead of the first plugin that brings it), so its
   `craft` has exactly the installed steps; its types are the listed plugins,
   the defaults and each set key's `ConfigKeyPlugins` entry. A step or facet
   of an uninstalled plugin is a compile error.
@@ -408,7 +409,7 @@ The rows the design left open, decided:
 | RC1114 | a facet not named by its namespace, or named after a reserved field |
 | RC1115 | a hook broke its phase |
 | RC1116 | two plugins declare one step, or a step shadows a builder method |
-| RC1117 | an invalid plugin descriptor: a missing plugin or hook id, the pre-0.8 `apply` shape, a non-port in a port list, or a repeatable plugin declaring what one install may |
+| RC1117 | an invalid plugin descriptor: a missing plugin or hook id, the pre-0.8 `apply` shape, a non-port in a port list, or a repeatable plugin declaring what only a single install may: `provides`, `replaces`, `hooks`, `points`, `steps` or a `facet` |
 | RC5068 | a `validate` hook refused the exchange |
 
 ## Related

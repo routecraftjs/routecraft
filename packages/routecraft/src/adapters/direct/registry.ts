@@ -73,10 +73,26 @@ export function createDirectRegistry(
     channel,
     send(endpoint, exchange) {
       const key = encodeURIComponent(endpoint);
-      return channel(key).send(key, exchange);
+      // Resolved, never created: a channel nothing subscribes on would sit in
+      // the registry for good and hide the endpoint from every later caller's
+      // "does anyone listen" check.
+      const held = channels.get(key);
+      if (!held) {
+        return Promise.reject(
+          rcError("RC5004", undefined, {
+            message: `No direct channel for endpoint "${endpoint}". Is the context started and does a route subscribe to this endpoint?`,
+          }),
+        );
+      }
+      return held.send(key, exchange);
     },
-    capability: (endpoint) => capabilities.get(endpoint),
-    capabilities: () => capabilities.values(),
+    capability: (endpoint) => {
+      const held = capabilities.get(endpoint);
+      return held && snapshotCapability(held);
+    },
+    *capabilities() {
+      for (const held of capabilities.values()) yield snapshotCapability(held);
+    },
     registerCapability(capability) {
       // Loud, not last-writer-wins: a capability is an external door, and an
       // endpoint that declared itself internal must not have one quietly

@@ -26,7 +26,7 @@ A plugin never receives the `CraftContext`. Its lifecycle functions get a `Plugi
 
 ## What happens at boot
 
-Starting an application runs these stages in order. A fault at any of them names the plugin responsible and stops the application before it reports itself running.
+Starting an application runs these stages in order. A fault in composition, binding, compilation or a plugin's `start` names the plugin responsible and stops the application before it reports itself running. A route that fails to start is the one exception: it is logged, aborted on its own and reported through `context:error`, and the other routes and the plugins keep going.
 
 1. **Compose.** Each config key that is set (`deferral: {}`, `http: {...}`) becomes its plugin, then the plugins listed in `plugins` follow in order. The [default plugins](/docs/advanced/plugins#default-plugins) go ahead of all of them, minus any whose id the application installs itself, and every plugin's `installs` are brought in once per id.
 2. **Identity.** One plugin per id and one per namespace. A repeatable plugin installed several times is numbered `id#1`, `id#2`, ... (`RC1101` to `RC1103`).
@@ -66,7 +66,7 @@ A port's name carries a version (`routecraft.direct@1`). Two different tokens wi
 
 ## The chain around a route
 
-Every route runs inside a fixed chain. Its **positions** belong to the framework and are filled by whichever plugin provides their port: replace `RESILIENCE` and every route-scope `.retry()` (one placed before `.from()`) runs your retry. A step-scope wrapper, placed after `.from()` around one step, keeps the built-in implementation. Its **slots** sit between the positions, and any number of plugins add hooks there. [Filter chain](/docs/advanced/filter-chain) shows the order and [Hooks](/docs/advanced/plugins#hooks) shows how to add to it.
+Every route runs inside a fixed chain. Its **positions** belong to the framework and are filled by whichever plugin provides their port: replace `RESILIENCE` and every `.retry()` runs your retry, whether it is placed before `.from()` at route scope or after `.from()` around one step. A step-scope wrapper is the same position as its route-scope twin and resolves the same provider. Its **slots** sit between the positions, and any number of plugins add hooks there. [Filter chain](/docs/advanced/filter-chain) shows the order and [Hooks](/docs/advanced/plugins#hooks) shows how to add to it.
 
 An exchange is not always on its first run. Each run carries its **kind**, and a hook declares the kinds it applies to with `runs`:
 
@@ -132,7 +132,7 @@ export function approvers(team: string, people: readonly string[]) {
 }
 ```
 
-`plugins: [approvers('finance', [...]), approvers('legal', [...])]` installs the runtime once and both contributions. Every contribution binds before any other plugin that requires `APPROVERS`, so a plugin that builds a route per team sees both teams wherever it is listed. A contribution that arrives after the freeze is refused rather than silently missed. `agentPlugin()` is built exactly this way.
+`plugins: [approvers('finance', [...]), approvers('legal', [...])]` installs the runtime once and both contributions. Every contribution binds before any non-repeatable plugin that requires `APPROVERS`, so a plugin that builds a route per team sees both teams wherever it is listed. Only that ordering is guaranteed: a repeatable plugin that reads the port binds in list order and may run before a later contribution. A contribution that arrives after the freeze is refused rather than silently missed. `agentPlugin()` is built exactly this way.
 
 ## Identity goes through one authority
 

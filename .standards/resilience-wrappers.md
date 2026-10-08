@@ -116,15 +116,18 @@ A wrapper that is a chain position at route scope (`retry`, `timeout`,
 `circuitBreaker`, `concurrency`, `throttle`, `cache`) holds no behaviour
 of its own: the behaviour is the provider's position, and the wrapper
 resolves the provider through the port when the exchange runs
-(`stepPosition` / `stepCache` in `operations/position-run.ts`), built once
-per application and handed a `PositionRun` whose `attempt` is the wrapped
-step and whose `scope` is `"step"`. That is what makes one plugin
-replacing `RESILIENCE` fill both scopes:
+(`runStepPosition` for the `RESILIENCE` positions, `positionFor` with the
+`CACHE` port for the cache wrapper, both in `operations/position-run.ts`),
+built once per application and handed a `PositionRun` whose `attempt` is
+the wrapped step and whose `scope` is `"step"`. That is what makes one
+plugin replacing `RESILIENCE` fill both scopes:
 
 ```ts
-export class TimeoutWrapperStep<T extends Adapter = Adapter>
-  extends WrapperStep<T>
-{
+import { runStepPosition } from "./position-run.ts";
+
+export class TimeoutWrapperStep<
+  T extends Adapter = Adapter,
+> extends WrapperStep<T> {
   readonly #options: ResolvedTimeoutOptions;
   readonly #positions = new WeakMap<object, Position>();
 
@@ -141,14 +144,15 @@ export class TimeoutWrapperStep<T extends Adapter = Adapter>
     exchange: Exchange,
     ctx: StepContext,
   ): Promise<StepOutcome> {
-    const position = stepPosition(
-      this.#positions,
-      exchange,
+    return runStepPosition(
       this,
+      this.inner,
+      this.#positions,
       "timeout",
       (provider) => provider.timeout(this.#options),
+      exchange,
+      ctx,
     );
-    return position.run(stepPositionRun(this, this.inner, exchange, ctx));
   }
 }
 ```

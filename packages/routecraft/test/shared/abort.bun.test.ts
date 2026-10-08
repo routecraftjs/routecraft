@@ -99,4 +99,19 @@ describe("settleOrAbort", () => {
   test("runs unbounded when no signal is supplied", async () => {
     await expect(settleOrAbort(async () => 42)).resolves.toBe(42);
   });
+
+  /**
+   * @case A synchronous hook that aborts the signal while it runs and then returns a value
+   * @preconditions A hook that calls controller.abort() and returns true in the same synchronous run
+   * @expectedResult HOOK_ABORTED: the bound is armed before the hook is invoked, so the abort wins over the value the hook went on to return
+   */
+  test("an abort the hook raises itself beats the value it returns", async () => {
+    const controller = new AbortController();
+    await expect(
+      settleOrAbort(() => {
+        controller.abort();
+        return true;
+      }, controller.signal),
+    ).rejects.toBe(HOOK_ABORTED);
+  });
 });

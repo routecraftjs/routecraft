@@ -1,4 +1,8 @@
 import { describe, expect, test } from "bun:test";
+import { spawnSync } from "node:child_process";
+import { mkdirSync, mkdtempSync, readdirSync, rmSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
 import { testContext } from "@routecraft/testing";
 import { logger, DefaultExchange, craft, simple } from "@routecraft/routecraft";
 import { childBindings, serializeError } from "../src/logger.ts";
@@ -168,5 +172,39 @@ describe("serializeError", () => {
     const wrapped = new Error("thrown", { cause: "a string" });
     const serialized = serializeError(wrapped) as { message: string };
     expect(serialized.message).toBe("thrown");
+  });
+});
+
+describe("log file diversion", () => {
+  /**
+   * @case A log file whose basename is too long for the requested path and for the temp-dir fallback alike
+   * @preconditions A fresh process importing the logger with LOG_FILE naming a 300-character basename and TMPDIR pointing at an empty directory
+   * @expectedResult The process starts (the logs divert to stderr) and the temp directory is still empty: the private craft-log directory made for the fallback file is removed when that file cannot be opened either
+   */
+  test("a fallback that fails leaves no directory behind", () => {
+    const temp = mkdtempSync(join(tmpdir(), "craft-log-test-"));
+    mkdirSync(join(temp, "tmp"));
+    try {
+      const outcome = spawnSync(
+        process.execPath,
+        [
+          "-e",
+          `import ${JSON.stringify(join(import.meta.dir, "../src/logger.ts"))}`,
+        ],
+        {
+          cwd: temp,
+          env: {
+            ...process.env,
+            TMPDIR: join(temp, "tmp"),
+            LOG_FILE: join(temp, "logs", `${"a".repeat(300)}.log`),
+          },
+          encoding: "utf8",
+        },
+      );
+      expect(outcome.status).toBe(0);
+      expect(readdirSync(join(temp, "tmp"))).toEqual([]);
+    } finally {
+      rmSync(temp, { recursive: true, force: true });
+    }
   });
 });

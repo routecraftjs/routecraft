@@ -21,9 +21,12 @@ export interface AgentContribution {
  * default and tool policy in the application, and the session runtime the
  * agents hold their conversations in.
  *
- * Contributions compose rather than overwrite. A duplicate agent or
- * function id, or a default set twice, is refused with `RC5003`; tool
- * policies are kept side by side and a tool must satisfy all of them.
+ * Contributions compose rather than overwrite. Agents and functions are
+ * keyed by id, and a duplicate id is refused with `RC5003`. Defaults merge
+ * field by field across contributions, so one may set the model and
+ * another the blocks; a field set twice, or a block name defined twice, is
+ * refused with `RC5003`. Tool policies are kept side by side and a tool
+ * must satisfy all of them.
  */
 export interface AgentRegistry {
   /** Registered agents, by id, in contribution order. */
@@ -38,7 +41,8 @@ export interface AgentRegistry {
    * Add one contribution, applying the composition rules. In `bind` only:
    * whatever read the contributions during bind has already used them.
    *
-   * @throws RC5003 for an invalid entry, a duplicate id, or a default set twice
+   * @throws RC5003 for an invalid entry, a duplicate id, a default field
+   *   already set by an earlier contribution, or a block name already defined
    * @throws RC1110 once the application froze
    */
   contribute(contribution: AgentContribution): void;

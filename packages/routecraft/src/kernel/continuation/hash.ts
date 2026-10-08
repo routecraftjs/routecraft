@@ -400,6 +400,9 @@ function sourceOf(fn: object): string {
  * @internal
  */
 function canonical(value: unknown): string {
+  // Not JSON's `null`: a step factory may act differently on `f(undefined)`
+  // and `f(null)`, and a deferred approval must not resume under the other.
+  if (value === undefined) return '"[undefined]"';
   if (value === null || typeof value !== "object") {
     return JSON.stringify(value) ?? "null";
   }

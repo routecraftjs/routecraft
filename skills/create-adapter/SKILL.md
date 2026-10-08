@@ -52,7 +52,7 @@ Create the adapter under `packages/routecraft/src/adapters/<concept>/` if you ar
 The remaining authoring rules to keep in mind while writing:
 
 - **Tagging**: every factory return value goes through `tagAdapter(instance, factory, factoryArgs(...))`, at every return path. The eslint plugin and tests rely on this
-- **Store keys**: the adapter's own per-context state goes in the context store under `Symbol.for("routecraft.adapter.<concept>.<key>")`, so keys survive duplicate package copies in the same process. Anything a plugin hands the adapter (defaults, a client manager) is a port, never a store key another package writes
+- **Store keys**: the adapter's own per-context state goes in the context store under an exported module-level `const` key built with `Symbol.for("routecraft.adapter.<concept>.<key>")` and declared in `StoreRegistry` through a `declare module "@routecraft/routecraft"` augmentation (`getStore` / `setStore` accept only registry keys, so an inline `Symbol.for(...)` does not typecheck). `Symbol.for` keeps the key shared across duplicate package copies in the same process. Anything a plugin hands the adapter (defaults, a client manager) is a port, never a store key another package writes
 - **No mutation**: transformers and processors return new objects via spread (`{ ...exchange, body: newBody }`). Do not mutate the incoming exchange
 - **Errors**: throw at adapter boundaries with a stable `rc` error code from `@routecraft/routecraft`. Capabilities catch and surface these via the capability-level error handler
 

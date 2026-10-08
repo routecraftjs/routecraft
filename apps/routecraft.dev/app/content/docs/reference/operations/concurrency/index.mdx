@@ -116,4 +116,4 @@ The bulkhead emits the `route:concurrency:*` family. See the [events reference](
 - `route:concurrency:queued` - all slots were busy; the exchange joined the wait queue (queue mode).
 - `route:concurrency:acquired` - a slot was acquired and the wrapped work began (`waited` tells you whether it had to queue first).
 - `route:concurrency:released` - the held slot was freed when the work settled.
-- `route:concurrency:rejected` - the exchange was fast-failed with `RC5026` (`reason` is `"busy"` or `"queue-full"`).
+- `route:concurrency:rejected` - the exchange was refused a slot: fast-failed with `RC5026` (`reason` is `"busy"` or `"queue-full"`), or queued and then abandoned by an outer `.timeout()` before a slot freed (`reason` is `"abandoned"`; the wrapped work never runs).

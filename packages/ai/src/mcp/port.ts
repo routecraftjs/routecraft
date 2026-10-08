@@ -68,9 +68,16 @@ export function createMcpService(
             "Each MCP tool endpoint must be unique within a context. Rename one of the mcp() routes to a different route id.",
         });
       }
-      local.set(entry.endpoint, entry);
+      // The registration is a copy, so a caller editing its entry afterwards
+      // cannot move the advertised name away from the key it is served
+      // under, and re-registering one object twice yields two withdrawals
+      // that each know only their own registration.
+      const registered: McpLocalToolEntry = { ...entry };
+      local.set(registered.endpoint, registered);
       return () => {
-        if (local.get(entry.endpoint) === entry) local.delete(entry.endpoint);
+        if (local.get(registered.endpoint) === registered) {
+          local.delete(registered.endpoint);
+        }
       };
     },
     tools: seed.tools ?? new McpToolRegistry(),

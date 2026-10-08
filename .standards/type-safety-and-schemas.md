@@ -120,7 +120,7 @@ piece of lifecycle work belongs in is covered in
 
 ### Context store
 
-The context store holds an adapter's own per-context state. It is not how plugins share anything: what crosses a plugin boundary is a port, so no store key is read by a module other than the one that writes it.
+The context store holds an adapter's own per-context state. It is not how plugins share anything: what crosses a plugin boundary is a port, so no store key is read by a plugin other than the one that writes it. Cooperating modules inside one adapter or framework subsystem may share a typed key (the split and aggregate steps and the executor share `SPLIT_PARENT_STORE`); that sharing stays inside the subsystem.
 
 ### Route: named vs inline
 
@@ -141,9 +141,15 @@ Every `declare module` block inside `packages/*/src/**` must target the publishe
 
 ```ts
 // Good: a step method generic at the call site, merged into StepMethods
+// under the plugin's namespace; `S` is the route's state at the call and
+// `This` the builder the method is called on
 declare module "@routecraft/routecraft" {
-  interface StepMethods<Current> {
-    myMethod<T>(schema: StandardSchemaV1<T>): RouteBuilder<T>;
+  interface StepMethods<S extends BuilderState, This> {
+    acme: {
+      pick<K extends keyof S["body"]>(
+        key: K,
+      ): Retyped<This, SetBody<S, S["body"][K]>>;
+    };
   }
 }
 

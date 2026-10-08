@@ -1,6 +1,12 @@
 import type { PluginLogger } from "../../kernel/plugin.ts";
 
 /**
+ * The longest interval `setInterval` schedules as written; above it the
+ * delay is coerced to 1ms and the sweep would run back to back.
+ */
+export const MAX_SWEEP_INTERVAL_MS = 2_147_483_647;
+
+/**
  * When the kernel's sweep runs: on an interval, one pass at a time.
  *
  * The pass is the kernel's (`execution.sweep()`); this only decides when.

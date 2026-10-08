@@ -850,8 +850,12 @@ export interface EventDetailsMap {
   "route:concurrency:rejected": ExchangeScoped & {
     stepLabel: string;
     scope: "route" | "step";
-    /** `"busy"`: reject mode, all slots in use. `"queue-full"`: queue mode, wait line at `maxQueue`. */
-    reason: "busy" | "queue-full";
+    /**
+     * `"busy"`: reject mode, all slots in use. `"queue-full"`: queue mode,
+     * wait line at `maxQueue`. `"abandoned"`: queued, then abandoned by an
+     * outer position (an elapsed `.timeout()`) before a slot freed.
+     */
+    reason: "busy" | "queue-full" | "abandoned";
     key?: string;
     label?: string;
   };

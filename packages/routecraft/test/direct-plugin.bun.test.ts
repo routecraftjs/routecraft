@@ -9,6 +9,7 @@ import {
   DIRECT,
 } from "../src/adapters/direct/registry.ts";
 import { CraftContext } from "../src/context.ts";
+import { DefaultExchange } from "../src/exchange.ts";
 import { definePlugin } from "../src/kernel/plugin.ts";
 import type {
   DirectChannel,
@@ -101,6 +102,38 @@ describe("default routecraft.direct plugin", () => {
     await ctx.initPlugins();
 
     expect(ctx.lookup(DIRECT)).toBe(replacement);
+  });
+
+  /**
+   * @case The registry hands out capability snapshots, never its stored entries
+   * @preconditions A capability with tags registered; a caller mutates the tags on what capability() and capabilities() return
+   * @expectedResult Later reads still see the tags as registered, so a plugin reading DIRECT directly cannot change what others list
+   */
+  test("capability getters return snapshots", () => {
+    const registry = createDirectRegistry();
+    registry.registerCapability({ endpoint: "x", tags: ["one"] });
+
+    registry.capability("x")!.tags!.push("mutated");
+    for (const entry of registry.capabilities()) entry.tags!.push("mutated");
+
+    expect(registry.capability("x")!.tags).toEqual(["one"]);
+    expect([...registry.capabilities()].map((c) => c.tags)).toEqual([["one"]]);
+  });
+
+  /**
+   * @case Sending to an endpoint no channel holds is refused without creating one
+   * @preconditions A started context whose registry holds no channel for "ghost"
+   * @expectedResult send() rejects with RC5004 and existing() still finds nothing, so a dead forward leaves no empty channel for later callers to mistake for a listener
+   */
+  test("send to an absent endpoint is RC5004 and creates no channel", async () => {
+    const ctx = await installedContext();
+    const registry = ctx.lookup(DIRECT)!;
+
+    await expect(
+      registry.send("ghost", new DefaultExchange(ctx, { body: 1 })),
+    ).rejects.toThrow(expect.objectContaining({ rc: "RC5004" }));
+
+    expect(registry.existing("ghost")).toBeUndefined();
   });
 
   /**

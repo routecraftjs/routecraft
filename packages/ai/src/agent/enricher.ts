@@ -1,6 +1,6 @@
 import {
+  authorityOf,
   deferralOf,
-  principalOf,
   getExchangeContext,
   getExchangeRoute,
   markDeferCapable,
@@ -288,7 +288,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
     const system = appendPrincipalToSystem(
       withBlocks,
       merged.principal,
-      principalOf(exchange),
+      authorityOf(exchange).read(exchange),
       exchange,
     );
 
@@ -411,7 +411,7 @@ export class AgentEnricherAdapter<T = unknown> implements Enricher<
         key: sessionKey,
         agent: agentIdentity,
         exchange,
-        by: principalOf(exchange)?.subject ?? null,
+        by: authorityOf(exchange).read(exchange)?.subject ?? null,
         ...(revivedDeferral === undefined ? { message: user } : {}),
         ...(defer !== undefined ? { defer } : {}),
         ...(revivedDeferral !== undefined

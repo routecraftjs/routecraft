@@ -128,6 +128,7 @@ export {
   McpToolRegistry,
   MCP,
   validateWithSchema,
+  type McpClientConfig,
   type McpLocalToolEntry,
   type McpService,
   type McpToolRequest,

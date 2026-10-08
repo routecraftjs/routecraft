@@ -5,10 +5,10 @@ import {
   OperationType,
   DefaultExchange,
   HeadersKeys,
-  principalOf,
 } from "../exchange.ts";
 import type { PrincipalClaims } from "../auth/authenticate.ts";
 import { delegate, type DelegateOptions } from "../auth/delegate.ts";
+import type { Authority } from "../kernel/authority.ts";
 import { rcError } from "../error.ts";
 
 /**
@@ -88,14 +88,17 @@ export class DelegateStep<T = unknown> implements Step<Adapter> {
 
   async execute(exchange: Exchange<T>): Promise<StepOutcome> {
     const directive = await Promise.resolve(this.resolve(exchange));
+    const authority = authorityOf(exchange);
     if (directive === undefined) {
       if ((this.options.otherwise ?? "drop") === "keep") {
         return { kind: "continue", exchange };
       }
-      return { kind: "continue", exchange: dropUndelegated(exchange) };
+      return {
+        kind: "continue",
+        exchange: dropUndelegated(exchange, authority),
+      };
     }
 
-    const authority = authorityOf(exchange);
     const subject = authority.read(exchange);
     if (!subject) {
       throw rcError("RC5012", new Error("No principal to delegate"), {
@@ -134,12 +137,32 @@ export class DelegateStep<T = unknown> implements Step<Adapter> {
  * - already-delegated principals (an earlier hop established consent),
  * - autonomous agent subjects (`subjectProfile: "ai_agent"`), which are
  *   minted deliberately on internal triggers and act as themselves.
+ *
+ * The principal is read through the application's authority, the same read
+ * every downstream `authorize()` makes, and the strip is checked against it:
+ * an authority that still resolves a principal once the header is gone
+ * cannot be made anonymous here, and the step refuses rather than continue
+ * with an identity nobody consented to hand on.
+ *
+ * @throws RC5012 when the authority resolves a principal after the strip
  */
-function dropUndelegated<T>(exchange: Exchange<T>): Exchange<T> {
-  const principal = principalOf(exchange);
+function dropUndelegated<T>(
+  exchange: Exchange<T>,
+  authority: Authority,
+): Exchange<T> {
+  const principal = authority.read(exchange);
   if (!principal || principal.actor) return exchange;
   if (principal.subjectProfile === "ai_agent") return exchange;
   const headers = { ...exchange.headers };
   delete headers[HeadersKeys.AUTH_PRINCIPAL];
-  return DefaultExchange.rewrap<T>(exchange, { headers });
+  const stripped = DefaultExchange.rewrap<T>(exchange, { headers });
+  if (authority.read(stripped) !== undefined) {
+    throw rcError("RC5012", new Error("Principal survived the strip"), {
+      message:
+        "delegate step: no consent was found and the application's authority still resolves a principal after the direct principal was stripped, so the exchange cannot continue anonymous",
+      suggestion:
+        'An authority that reads the principal from somewhere other than headers["routecraft.auth.principal"] cannot be stripped by the delegate step. Resolve the delegation, or use otherwise: "keep" where the caller may act as themselves.',
+    });
+  }
+  return stripped;
 }

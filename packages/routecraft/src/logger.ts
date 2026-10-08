@@ -1,5 +1,11 @@
 import { createRequire } from "node:module";
-import { mkdirSync, mkdtempSync, openSync, existsSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  openSync,
+  existsSync,
+  rmdirSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { dirname, join, resolve, isAbsolute, basename } from "node:path";
 import { homedir } from "node:os";
@@ -145,16 +151,23 @@ function getDestination(fileConfig?: string): NodeJS.WritableStream {
         source,
         reason: error instanceof Error ? error.message : String(error),
       };
+      let privateDir: string | undefined;
       try {
         // A private directory of this process's own: a fixed name under the
         // shared temp dir could be a symlink somebody else planted.
-        const pathToUse = join(
-          mkdtempSync(join(tmpdir(), "craft-log-")),
-          basename(logFile),
-        );
-        const fd = openSync(pathToUse, "a");
+        privateDir = mkdtempSync(join(tmpdir(), "craft-log-"));
+        const fd = openSync(join(privateDir, basename(logFile)), "a");
         return pinoDest.destination(fd);
       } catch {
+        // The directory was made for a file that never came (a basename too
+        // long for the fallback as well); nothing else would ever remove it.
+        if (privateDir !== undefined) {
+          try {
+            rmdirSync(privateDir);
+          } catch {
+            // Best effort: the diversion to stderr below still stands.
+          }
+        }
         // User asked for "not stdout" via --log-file; honour that even when
         // both file paths fail. Fall back to stderr rather than violating the
         // flag's contract (e.g. corrupting an MCP stdio protocol stream).

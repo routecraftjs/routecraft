@@ -119,7 +119,9 @@ export class ErrorWrapperStep<
             // A step-scope wrapper cannot name a park position: refused
             // (resilience-wrappers.md §4).
             throw rcError("RC5051", innerError, {
-              message: `Step "${stepLabel}" has a step-scope .error() handler that answered with recovery.defer(), which the framework cannot place: a step-scope wrapper inside a stack is not a position the defer-site walk addresses, so there is nothing to revive the continuation at. Park from the route-scope .error() handler (declared before .from()) or from an error slot hook declared with mayDefer: true; both see the same failure and the executor resolves the failing step's position for them.`,
+              message: `Step "${stepLabel}" has a step-scope .error() handler that answered with recovery.defer(), which the framework cannot place: a step-scope wrapper inside a stack is not a position the defer-site walk addresses, so there is nothing to revive the continuation at.`,
+              suggestion:
+                "Park from the route-scope .error() handler (declared before .from()) or from an error slot hook declared with mayDefer: true; both see the same failure and the executor resolves the failing step's position for them.",
             });
           }
           // `recovery.drop()`: resolve the error by discarding the

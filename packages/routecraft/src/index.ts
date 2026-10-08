@@ -25,7 +25,6 @@ export {
   type AuthRejectionReason,
 } from "./auth/error-classification.ts";
 export { isPrincipalExpired } from "./auth/expiry.ts";
-export { isRestored, markRestored } from "./auth/restored.ts";
 export { timingSafeStringEqual } from "./auth/timing-safe.ts";
 export type {
   ActorMatcher,

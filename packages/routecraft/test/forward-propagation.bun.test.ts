@@ -6,13 +6,13 @@ import {
   getExchangeRoute,
   HeadersKeys,
   defaultAuthority,
-  markRestored,
   simple,
   type Exchange,
   type Principal,
   type Source,
   principalOf,
 } from "../src/index.ts";
+import { markRestored } from "../src/auth/restored.ts";
 
 /**
  * Source that emits one body carrying a principal the way an authenticating

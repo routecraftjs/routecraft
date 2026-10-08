@@ -36,7 +36,7 @@ import {
   DEFAULT_DEFERRAL_TTL,
 } from "../../kernel/continuation/sweep.ts";
 import { isDevelopmentRuntime } from "../../shared/runtime-env.ts";
-import { SweepCadence } from "./cadence.ts";
+import { MAX_SWEEP_INTERVAL_MS, SweepCadence } from "./cadence.ts";
 
 /**
  * Environment variable naming where deferred exchanges are persisted. Either
@@ -220,6 +220,11 @@ export async function createDeferralRuntime(
     config.sweepInterval ?? DEFAULT_SWEEP_INTERVAL,
     "deferral.sweepInterval",
   );
+  if (sweepIntervalMs > MAX_SWEEP_INTERVAL_MS) {
+    throw rcError("RC5003", undefined, {
+      message: `deferral.sweepInterval must be at most ${MAX_SWEEP_INTERVAL_MS}ms (about 24.8 days), got ${sweepIntervalMs}ms; a longer interval would be scheduled as 1ms.`,
+    });
+  }
   const expiryLeaseMs = parseDuration(
     config.expiryLease ?? DEFAULT_EXPIRY_LEASE,
     "deferral.expiryLease",

@@ -107,7 +107,9 @@ Detection is precise over exhaustive (lint is advisory, not a sandbox): flagged 
 `.authenticate(...)` on chains originating from `craft()` (bare, aliased, or via a
 routecraft namespace import, with dotted or computed string-literal member access),
 and calls to `authenticate` reached through a routecraft import
-(named, aliased, namespace member, or computed member with a string literal). Bindings
+(named, aliased, namespace member, or computed member with a string literal), and
+`mint()` / `brand()` on an authority: `authorityOf(...)`, `require(AUTHORITY)`,
+`lookup(AUTHORITY)`, the exported `defaultAuthority`, or a `const` holding one of them. Bindings
 are resolved through scope, so a same-named function from another module or a
 shadowing local is not flagged. Knowingly uncovered laundering forms, all of which
 require code that is itself review-visible: re-exporting the helpers from a local

@@ -8,13 +8,14 @@ ports and faults; this page owns the phases.
 
 | Hook | Runs | The routes are | Use it for |
 |------|------|----------------|------------|
-| `bind(c)` | While the application is installed, in dependency order, before any route is registered | Not registered yet | Requiring and providing ports, resolving config, opening resources, observing events |
-| `start(c)` | After every route has started | Running | Work that drives routes or depends on them being able to serve |
+| `bind(c)` | While the application is installed, in dependency order, before the builder's routes are registered | Not registered yet, apart from routes an earlier plugin's `bind` registered | Requiring and providing ports, resolving config, opening resources, observing events |
+| `start(c)` | Once the readiness gate settles: every route signalled readiness, failed, or was disabled, or the bound on the wait elapsed | Running, failed, disabled, or still coming up | Work that drives routes or depends on them being able to serve |
 | `stop(c, info)` | During shutdown, or when an install or start failed partway | Stopping, stopped, or never started | Releasing what `bind` opened and stopping what `start` began |
 
 Between `bind` and `start` the kernel does two things a plugin can rely on:
-it **freezes** the application (a `provide`, a route registration or a hook
-contribution after that is `RC1110`) and it **compiles** every route (a
+it **freezes** the application (a `provide` or a route registration after
+that is `RC1110`; hooks come from the descriptors, so there is nothing to
+contribute late) and it **compiles** every route (a
 position or a plugin step nobody provides is `RC1111`, and the application
 does not start).
 
@@ -149,8 +150,13 @@ acquiring, and then needs no `stop` for it.
 A start refused before any route runs (a missing provider, `RC1111`, or an
 unconfigured `.defer()`, `RC5052`) takes the same walk: `build()` succeeded,
 so the plugins hold their resources, and the caller of a failed start has no
-reason to call `stop()` itself. Host faults (`RC1101` to `RC1109`) are
-raised before any plugin binds, so nothing needs releasing at all.
+reason to call `stop()` itself. Host faults detected before the bind walk
+(`RC1101`, `RC1102`, `RC1105` to `RC1107`, and the `RC1103` / `RC1104` the
+host raises while resolving ports) are raised before any plugin binds, so
+nothing needs releasing at all. `RC1108` and `RC1109` are raised inside a
+plugin's `bind` (an undeclared `require` or `lookup`, a `provide` the
+descriptor did not declare, a declared port never provided), so they take
+the install-failure walk above like any other `bind` failure.
 
 ### What `stop` may assume
 

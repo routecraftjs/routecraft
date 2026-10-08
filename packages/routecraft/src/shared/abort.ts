@@ -74,30 +74,24 @@ export async function settleOrAbort<T>(
   run: () => T | Promise<T>,
   signal?: AbortSignal,
 ): Promise<T> {
-  // Before `run` is called at all, not just before the race is settled.
-  // `Promise.race` builds its array left to right, so the hook is invoked
-  // before the executor below can look at the signal, and an already-settled
-  // hook then wins the race against an already-rejected bound. Reaching a
-  // notification hook this way means telling a human about work whose route
-  // is already being torn down.
+  // Before `run` is called at all: the bound below only settles the race,
+  // and reaching a notification hook at all means telling a human about work
+  // whose route is already being torn down.
   if (signal?.aborted) throw HOOK_ABORTED;
 
   let onAbort: (() => void) | undefined;
+  // Armed before the hook is invoked, and first in the race, so an abort the
+  // hook itself raises while running synchronously is still an abort rather
+  // than the value it went on to return.
+  const bound = new Promise<never>((_, reject) => {
+    if (!signal) return;
+    onAbort = () => {
+      reject(HOOK_ABORTED);
+    };
+    signal.addEventListener("abort", onAbort, { once: true });
+  });
   try {
-    return await Promise.race([
-      (async () => run())(),
-      new Promise<never>((_, reject) => {
-        if (!signal) return;
-        if (signal.aborted) {
-          reject(HOOK_ABORTED);
-          return;
-        }
-        onAbort = () => {
-          reject(HOOK_ABORTED);
-        };
-        signal.addEventListener("abort", onAbort, { once: true });
-      }),
-    ]);
+    return await Promise.race([bound, (async () => run())()]);
   } finally {
     if (onAbort && signal) signal.removeEventListener("abort", onAbort);
   }

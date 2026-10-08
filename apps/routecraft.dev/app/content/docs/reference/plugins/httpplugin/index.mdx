@@ -67,7 +67,8 @@ A mount whose responses stream or stay quiet indefinitely (SSE, MCP-style channe
 
 ## Lifecycle
 
-- `bind(c)` validates options, provides the mount table as the `HTTP` port the `http()` source reads, and mounts it on the selected named server. It does not bind a socket.
+- `httpPlugin(options)` validates its options when it is called, before any lifecycle phase.
+- `bind(c)` provides the mount table as the `HTTP` port the `http()` source reads, and mounts it on the selected named server. It does not bind a socket.
 - During context start, all mount claims on all named servers are validated before any listener binds. The server then emits `server:listening { server, port, host }`.
 - On context stop, named servers drain active requests, close idle connections, and emit `server:closed { server }`.
 - A bind failure (`EADDRINUSE` / `EADDRNOTAVAIL`) surfaces as [`RC5019`](/docs/reference/errors#rc-5019).

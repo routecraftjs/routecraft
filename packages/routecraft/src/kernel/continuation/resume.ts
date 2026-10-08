@@ -1,7 +1,10 @@
 import { authorityOf } from "../authority.ts";
 import type { StandardSchemaV1 } from "@standard-schema/spec";
 import type { CraftContext } from "../../context.ts";
-import { validateAgainst } from "../../pipeline/validation.ts";
+import {
+  inputValidationFailure,
+  validateAgainst,
+} from "../../pipeline/validation.ts";
 import { rcError } from "../../error.ts";
 import {
   type Exchange,
@@ -307,12 +310,15 @@ export async function reviveDeferral(
   if (site.schema) {
     const result = await validateAgainst(site.schema, request.result);
     if (!result.ok) {
-      const cause = new Error(result.message);
-      if (door.routeId !== undefined) {
-        Object.assign(cause, {
-          invalid: { in: "body", issues: result.issues, routeId: door.routeId },
-        });
-      }
+      const cause =
+        door.routeId === undefined
+          ? new Error(result.message)
+          : inputValidationFailure(
+              result.message,
+              "body",
+              result.issues,
+              door.routeId,
+            );
       throw rcError("RC5049", cause, {
         message: `The payload for deferral "${id}" does not satisfy its declared schema: ${result.message}`,
       });

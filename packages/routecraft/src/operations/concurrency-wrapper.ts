@@ -210,8 +210,15 @@ export class ConcurrencyLimiter {
  * @internal
  */
 export interface ConcurrencyHooks {
-  /** Route abort signal; cancels the queue wait on shutdown. */
+  /** Cancels the queue wait: route shutdown, or an outer position abandoning the attempt. */
   signal?: AbortSignal;
+  /**
+   * Fires only when an outer position abandoned the attempt (an elapsed
+   * `.timeout()`). A wait cut short by it is refused, never admitted: the
+   * abandoning position has already discarded the result, so running the
+   * work would only exceed `max` for nothing.
+   */
+  abandon?: AbortSignal;
   /** All slots were busy; the exchange joins the wait queue at `queueDepth`. */
   onQueued(queueDepth: number, key?: string): void;
   /**
@@ -222,12 +229,16 @@ export interface ConcurrencyHooks {
   /** The held slot was released; `heldMs` is how long the work held it. */
   onReleased(heldMs: number, key?: string): void;
   /**
-   * The exchange was failed fast (`RC5026`): `reason` is `"busy"` (reject
-   * mode, all slots busy) or `"queue-full"` (queue mode, wait line at
-   * `maxQueue`).
+   * The exchange was refused a slot: `reason` is `"busy"` (reject mode, all
+   * slots busy, `RC5026`), `"queue-full"` (queue mode, wait line at
+   * `maxQueue`, `RC5026`) or `"abandoned"` (queued, then abandoned by an
+   * outer position before a slot freed; the abandon reason is thrown).
    */
-  onRejected(reason: "busy" | "queue-full", key?: string): void;
+  onRejected(reason: ConcurrencyRejection, key?: string): void;
 }
+
+/** Why a slot was refused; the `reason` on `route:concurrency:rejected`. */
+export type ConcurrencyRejection = "busy" | "queue-full" | "abandoned";
 
 /** Event-scope bindings shared by the `route:concurrency:*` payloads. */
 export interface ConcurrencyEventScope {
@@ -420,6 +431,12 @@ export class ConcurrencyController extends RouteScopedController<ConcurrencyLimi
    * `released` pair still fires so the `queued` event has a matching
    * terminal; suppressing them would leave an orphaned `queued` and
    * unbalance queue-depth accounting at teardown.
+   *
+   * An outer position abandoning the attempt while queued is the opposite
+   * case: the result is already discarded, so the exchange is refused with
+   * the abandon reason (`rejected`, reason `"abandoned"`) and the work never
+   * runs. Admitting it would run the step past `max` after a deadline the
+   * caller has already seen fail.
    */
   async #joinWaitLine(
     semaphore: Semaphore,
@@ -433,6 +450,10 @@ export class ConcurrencyController extends RouteScopedController<ConcurrencyLimi
       return { release, ...(key !== undefined ? { key } : {}) };
     } catch (err) {
       if (!(err instanceof SleepAbortedError)) throw err;
+      if (hooks.abandon?.aborted) {
+        hooks.onRejected("abandoned", key);
+        throw hooks.abandon.reason;
+      }
       hooks.onAcquired(true, semaphore.inUse, key);
       return { release: () => {}, ...(key !== undefined ? { key } : {}) };
     }
