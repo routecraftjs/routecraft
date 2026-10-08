@@ -7,6 +7,7 @@ import {
   craft,
   definePlugin,
   direct,
+  isHookRefusal,
   markAuthentic,
   noop,
   refuse,
@@ -447,11 +448,50 @@ describe("chain hooks", () => {
     expect(refused).toMatchObject({ rc: "RC5068" });
     expect((refused as Error).message).toContain("test.guard/tenant");
     expect((refused as Error).message).toContain("no tenant header");
+    const cause = (refused as Error).cause;
+    expect(isHookRefusal(cause)).toBe(true);
+    expect(isHookRefusal(cause) && cause.refused).toEqual({
+      hook: "test.guard/tenant",
+      slot: "beforeAuth",
+      routeId: "work",
+      kind: "forbidden",
+      reason: "no tenant header",
+    });
     expect(heard).toEqual(["RC5068"]);
 
     await expect(
       t.client.sendDirect("work", { ok: true }, { "x-tenant": "acme" }),
     ).resolves.toEqual({ ok: true });
+  });
+
+  /**
+   * @case A validate hook names how a door should answer its refusal
+   * @preconditions An admitted validate hook refusing with refuse(reason, { kind: "not_found" })
+   * @expectedResult The RC5068 carries the kind on its detail and names it in the message
+   */
+  test("a refusal carries the kind the hook chose", async () => {
+    t = await testContext()
+      .with({
+        plugins: [
+          plugin("test.lookup", {
+            admitted: {
+              id: "exists",
+              phase: "validate",
+              run: () => refuse("no such record", { kind: "not_found" }),
+            },
+          }),
+        ],
+      })
+      .routes([craft().id("work").from(direct()).to(noop())])
+      .build();
+    await t.startAndWaitReady();
+
+    const refused = await t.client.sendDirect("work", {}).catch((e) => e);
+
+    expect(refused).toMatchObject({ rc: "RC5068" });
+    expect((refused as Error).message).toContain("(not_found)");
+    const cause = (refused as Error).cause;
+    expect(isHookRefusal(cause) && cause.refused.kind).toBe("not_found");
   });
 
   /**

@@ -238,7 +238,7 @@ The chain around every route runs in a fixed order. **Positions** belong to the 
 | --- | --- | --- |
 | `observe` | read | returning anything but `undefined` is `RC1115` |
 | `mutate` | return `{ headers?, body? }` to change the exchange, or nothing | writing an engine-owned header (`routecraft.id`, `routecraft.route`, `routecraft.operation`, `routecraft.split_hierarchy`) is `RC1115` |
-| `validate` | return nothing to allow, or `refuse(reason)` to refuse | returning anything else is `RC1115`; a refusal fails the run with [`RC5068`](/docs/reference/errors#rc-5068) |
+| `validate` | return nothing to allow, or `refuse(reason, { kind? })` to refuse | returning anything else is `RC1115`; a refusal fails the run with [`RC5068`](/docs/reference/errors#rc-5068), and a door answers the caller with the kind (`invalid`, `unauthenticated`, `forbidden` by default, `not_found`, `conflict`, `gone`, `rate_limited`, `unavailable`) and the reason |
 
 A slot runs observe, then mutate, then validate. `exit` has no validate phase. In the `error` slot the phases are `observe` and `mutate`, and `mutate` is the deciding phase: a hook answers with a recovery body, `recovery.drop()`, `recovery.defer(...)` or `recovery.rethrow()`, or `undefined` to pass, and the first answer decides. Inside a phase, hooks run in the order the application lists the plugins. When two mutate hooks write the same header in one slot, the later wins and the framework warns once per route naming both.
 

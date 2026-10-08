@@ -120,6 +120,8 @@ A mid-pipeline `.validate(authorize(...))` refusal on the dispatched route maps 
 
 The four permission codes collapse to one answer on the wire: the caller's remedy is the same for each, and naming which check failed would tell a prober which part of the policy it tripped. The codes stay distinct in process, on the error and in the logs.
 
+A plugin's validate hook that refuses the dispatched route ([`RC5068`](/docs/reference/errors#rc-5068)) is answered by the same doors with the status its `kind` maps to and the hook's reason, in the shape given under that code.
+
 An `RC5038` from an `anyScope` check names the whole accepted set and adds `"scope_mode": "any"`, since any one entry suffices; its challenge omits `scope`, which RFC 6750 would read as every listed scope being required.
 
 Three cases stay a 500, because the caller could not have changed them:

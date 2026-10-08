@@ -1,5 +1,9 @@
 import type { Principal } from "../../principal.ts";
-import { callerRefusalOf } from "../../pipeline/caller-refusal.ts";
+import type { RefusalKind } from "../../kernel/hooks.ts";
+import {
+  callerRefusalOf,
+  type CallerRefusal,
+} from "../../pipeline/caller-refusal.ts";
 import {
   bearerChallengeHeaders,
   insufficientScopeResponse,
@@ -104,5 +108,39 @@ export function callerRefusalResponse(
         scope: refusal.scopes.join(" "),
         anyOf: refusal.anyOf,
       });
+    case "refused":
+      return hookRefusalResponse(refusal, context);
   }
+}
+
+/** The status and the `error` word each refusal kind answers with. */
+const REFUSAL_STATUS: Record<RefusalKind, { status: number; error: string }> = {
+  invalid: { status: 400, error: "bad request" },
+  unauthenticated: { status: 401, error: "unauthorized" },
+  forbidden: { status: 403, error: "forbidden" },
+  not_found: { status: 404, error: "not found" },
+  conflict: { status: 409, error: "conflict" },
+  gone: { status: 410, error: "gone" },
+  rate_limited: { status: 429, error: "too many requests" },
+  unavailable: { status: 503, error: "service unavailable" },
+};
+
+/**
+ * A validate hook's refusal as the http doors answer it: the status its
+ * kind maps to, the fixed `error` word, the code and the hook's reason.
+ * `unauthenticated` is the door's own challenge, which the classification
+ * guarantees exists by downgrading the kind when no credential is read.
+ */
+function hookRefusalResponse(
+  refusal: Extract<CallerRefusal, { kind: "refused" }>,
+  context: CallerRefusalContext,
+): Response {
+  if (refusal.as === "unauthenticated" && context.unauthenticated) {
+    return context.unauthenticated();
+  }
+  const { status, error } = REFUSAL_STATUS[refusal.as];
+  return jsonResponse(
+    { error, code: "RC5068", reason: refusal.reason },
+    { status },
+  );
 }

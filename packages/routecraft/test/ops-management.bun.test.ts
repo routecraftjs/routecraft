@@ -6,17 +6,20 @@ import {
   apiKey,
   authorize,
   craft,
+  definePlugin,
   jwt,
   cron,
   direct,
   noop,
   opsPlugin,
   rcError,
+  refuse,
   type HttpAuth,
   type OpsPage,
   type OpsRouteDetail,
   type OpsRouteSummary,
   type OpsTiers,
+  type Plugin,
   type Principal,
 } from "../src/index.ts";
 
@@ -107,6 +110,7 @@ describe("the ops management API", () => {
     auth?: HttpAuth | false;
     routes?: Routes;
     deferral?: boolean;
+    plugins?: Plugin[];
   }): Promise<number> {
     const builder = testContext()
       .with({
@@ -124,6 +128,7 @@ describe("the ops management API", () => {
             ...(options.tiers !== undefined ? { tiers: options.tiers } : {}),
             ...(options.auth !== undefined ? { auth: options.auth } : {}),
           }),
+          ...(options.plugins ?? []),
         ],
       })
       .routes(
@@ -376,6 +381,61 @@ describe("the ops management API", () => {
     expect(body["code"]).toBeDefined();
     expect(JSON.stringify(body)).not.toMatch(/db\.internal/);
     expect(body["message"]).toBeUndefined();
+  });
+
+  /**
+   * @case A validate hook refuses a dispatched route
+   * @preconditions An open dispatch tier; a plugin whose admitted validate hook refuses "lookup" with kind "not_found" and route "guarded" with the default kind
+   * @expectedResult 404 and 403 carrying the fixed error word, the RC5068 code and the hook's reason, and never the hook's name
+   */
+  test("answers a hook refusal with the status its kind maps to", async () => {
+    const port = await start({
+      tiers: { dispatch: true },
+      routes: [
+        craft().id("lookup").from(direct()).to(noop()),
+        craft().id("guarded").from(direct()).to(noop()),
+      ],
+      plugins: [
+        definePlugin({
+          id: "test.guard",
+          hooks: {
+            admitted: {
+              id: "exists",
+              phase: "validate",
+              run: (_exchange, info) =>
+                info.routeId === "lookup"
+                  ? refuse("no such record", { kind: "not_found" })
+                  : refuse("not yours"),
+            },
+          },
+        }),
+      ],
+    });
+
+    const missing = await call<Record<string, unknown>>(
+      port,
+      "/ops/routes/lookup/exchanges",
+      { method: "POST", body: {} },
+    );
+    expect(missing.status).toBe(404);
+    expect(missing.body).toEqual({
+      error: "not found",
+      code: "RC5068",
+      reason: "no such record",
+    });
+
+    const refused = await call<Record<string, unknown>>(
+      port,
+      "/ops/routes/guarded/exchanges",
+      { method: "POST", body: {} },
+    );
+    expect(refused.status).toBe(403);
+    expect(refused.body).toEqual({
+      error: "forbidden",
+      code: "RC5068",
+      reason: "not yours",
+    });
+    expect(JSON.stringify(refused.body)).not.toMatch(/test\.guard/);
   });
 
   /**

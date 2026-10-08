@@ -5,10 +5,13 @@ import { testContext, type TestContext } from "@routecraft/testing";
 import {
   callerRefusalOf,
   craft,
+  definePlugin,
+  direct,
   isInputValidationFailure,
   markAuthentic,
   noop,
   rcError,
+  refuse,
   simple,
   wireIssues,
   type Principal,
@@ -192,6 +195,96 @@ describe("callerRefusalOf()", () => {
   test("does not classify an authorization code authorize() did not raise", () => {
     expect(
       callerRefusalOf(rcError("RC5015"), { routeId: "r", principal }),
+    ).toBeUndefined();
+  });
+
+  /**
+   * @case A validate hook refuses the dispatched route
+   * @preconditions A plugin whose admitted validate hook refuses route "guarded" with kind "invalid" and a reason
+   * @expectedResult A refused classification carrying the kind and the reason for "guarded"; undefined for any other route id, since a refusal raised by a nested route is that route's caller's doing
+   */
+  test("classifies a hook refusal by the route it was raised on", async () => {
+    t = await testContext()
+      .with({
+        plugins: [
+          definePlugin({
+            id: "test.guard",
+            hooks: {
+              admitted: {
+                id: "shape",
+                phase: "validate",
+                run: () => refuse("tenant header missing", { kind: "invalid" }),
+              },
+            },
+          }),
+        ],
+      })
+      .routes(craft().id("guarded").from(direct()).to(noop()))
+      .build();
+    await t.startAndWaitReady();
+    const error = await t.client.sendDirect("guarded", {}).catch((e) => e);
+
+    expect(
+      callerRefusalOf(error, { routeId: "guarded", principal: undefined }),
+    ).toEqual({
+      kind: "refused",
+      as: "invalid",
+      reason: "tenant header missing",
+    });
+    expect(
+      callerRefusalOf(error, { routeId: "outer", principal: undefined }),
+    ).toBeUndefined();
+  });
+
+  /**
+   * @case A hook refuses as unauthenticated on a door that reads no credential
+   * @preconditions The same hook refusing with kind "unauthenticated"; one origin where a credential could help and one where it could not
+   * @expectedResult The kind stands where a credential could help, and is answered as forbidden where the door never reads one
+   */
+  test("downgrades an unauthenticated refusal where no credential is read", async () => {
+    t = await testContext()
+      .with({
+        plugins: [
+          definePlugin({
+            id: "test.guard",
+            hooks: {
+              admitted: {
+                id: "who",
+                phase: "validate",
+                run: () => refuse("sign in first", { kind: "unauthenticated" }),
+              },
+            },
+          }),
+        ],
+      })
+      .routes(craft().id("guarded").from(direct()).to(noop()))
+      .build();
+    await t.startAndWaitReady();
+    const error = await t.client.sendDirect("guarded", {}).catch((e) => e);
+
+    expect(
+      callerRefusalOf(error, {
+        routeId: "guarded",
+        principal: undefined,
+        credentialCouldHelp: true,
+      }),
+    ).toMatchObject({ kind: "refused", as: "unauthenticated" });
+    expect(
+      callerRefusalOf(error, { routeId: "guarded", principal: undefined }),
+    ).toMatchObject({ kind: "refused", as: "forbidden" });
+  });
+
+  /**
+   * @case An RC5068 without the hook detail
+   * @preconditions rcError("RC5068") thrown by hand, with no cause
+   * @expectedResult Undefined: only a refusal the kernel raised for a hook on the dispatched route is the caller's
+   */
+  test("leaves a bare RC5068 the instance's", () => {
+    expect(
+      callerRefusalOf(rcError("RC5068"), {
+        routeId: "guarded",
+        principal: undefined,
+      }),
     ).toBeUndefined();
   });
 });

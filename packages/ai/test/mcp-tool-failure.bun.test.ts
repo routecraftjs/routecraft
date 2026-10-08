@@ -2,9 +2,11 @@ import { describe, test, expect, afterEach } from "bun:test";
 import { testContext, type TestContext } from "@routecraft/testing";
 import {
   craft,
+  definePlugin,
   direct,
   noop,
   rcError,
+  refuse,
   type AnyRouteBuilder,
   type Exchange,
   type Principal,
@@ -198,6 +200,42 @@ describe("MCP tool failure text", () => {
 
     expect(result.content[0]!.text).toBe(
       'Error: Tool "outer" failed (RC5065).',
+    );
+  });
+
+  /**
+   * @case A plugin's validate hook refuses the tool's route
+   * @preconditions A plugin whose admitted validate hook refuses "archive" with kind "conflict" and a reason
+   * @expectedResult The refusal text names the kind, the code and the hook's reason, and never the hook
+   */
+  test("answers a validate hook refusal with its kind and reason", async () => {
+    t = await testContext()
+      .routes([
+        craft().id("archive").description("Guarded").from(mcp()).to(noop()),
+      ])
+      .with({
+        plugins: [
+          mcpPort(),
+          definePlugin({
+            id: "test.guard",
+            hooks: {
+              admitted: {
+                id: "once",
+                phase: "validate",
+                run: () => refuse("already archived", { kind: "conflict" }),
+              },
+            },
+          }),
+        ],
+      })
+      .build();
+    await t.startAndWaitReady();
+    server = mcpServerFor(t.ctx);
+
+    const result = await callTool(server, "archive", {});
+
+    expect(result.content[0]!.text).toBe(
+      'Error: Tool "archive" refused the call (conflict, RC5068): already archived',
     );
   });
 

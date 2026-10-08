@@ -104,6 +104,7 @@ export {
 } from "./plugins/principals/index.ts";
 export { directPlugin } from "./plugins/direct/index.ts";
 export {
+  isHookRefusal,
   refuse,
   SLOTS,
   type ErrorHook,
@@ -111,6 +112,7 @@ export {
   type ExchangeHook,
   type ExchangePatch,
   type HookInfo,
+  type HookRefusal,
   type Hooks,
   type HooksConfig,
   type MutateHook,
@@ -118,6 +120,7 @@ export {
   type Phase,
   type PointDeclaration,
   type Refusal,
+  type RefusalKind,
   type RunKind,
   type Slot,
   type ValidateHook,

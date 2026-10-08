@@ -43,10 +43,28 @@ export interface HookInfo {
 
 declare const REFUSAL: unique symbol;
 
+/**
+ * What a validate hook's refusal means to the caller, in a vocabulary no
+ * transport owns. Each door renders it in its own protocol: the http doors as
+ * a status (`invalid` 400, `unauthenticated` 401, `forbidden` 403,
+ * `not_found` 404, `conflict` 409, `gone` 410, `rate_limited` 429,
+ * `unavailable` 503), the MCP server as a tool error naming it.
+ */
+export type RefusalKind =
+  | "invalid"
+  | "unauthenticated"
+  | "forbidden"
+  | "not_found"
+  | "conflict"
+  | "gone"
+  | "rate_limited"
+  | "unavailable";
+
 /** A validate hook's refusal, built with {@link refuse}. */
 export interface Refusal {
   readonly [REFUSAL]: true;
   readonly reason: string;
+  readonly kind: RefusalKind;
 }
 
 const REFUSALS = new WeakSet<object>();
@@ -54,15 +72,72 @@ const REFUSALS = new WeakSet<object>();
 /**
  * Refuse the exchange from a `validate` hook. The run fails with `RC5068`
  * naming the hook and the reason, and the failure reaches the `error` slot
- * like any other.
+ * like any other. A door that dispatched the route answers the caller with
+ * the kind and the reason, so write the reason for the refused party, never
+ * with anything the instance owns.
  *
- * @param reason - Why, in words an operator reads in the log
+ * @param reason - Why, in words the caller reads
+ * @param options - `kind`: how a door answers it; `forbidden` unless given
  * @returns The refusal to return from the hook
  */
-export function refuse(reason: string): Refusal {
-  const refusal = { reason } as Refusal;
+export function refuse(
+  reason: string,
+  options: { readonly kind?: RefusalKind } = {},
+): Refusal {
+  const refusal = { reason, kind: options.kind ?? "forbidden" } as Refusal;
   REFUSALS.add(refusal);
   return Object.freeze(refusal);
+}
+
+/**
+ * Machine-readable detail on the cause of an `RC5068`: which hook refused,
+ * where, on which route, and how a door should answer. A door reads it off
+ * `error.cause` through {@link isHookRefusal} and maps the refusal only when
+ * the route is the one it dispatched, so a refusal raised by a nested
+ * `direct()` call stays the instance's. In-process only, never persisted.
+ */
+export interface HookRefusal extends Error {
+  readonly refused: {
+    /** The hook, as `pluginId/hookId`. */
+    readonly hook: string;
+    /** The slot or point the hook ran in. */
+    readonly slot: string;
+    readonly routeId: string;
+    readonly kind: RefusalKind;
+    readonly reason: string;
+  };
+}
+
+const REFUSAL_KINDS: ReadonlySet<string> = new Set<RefusalKind>([
+  "invalid",
+  "unauthenticated",
+  "forbidden",
+  "not_found",
+  "conflict",
+  "gone",
+  "rate_limited",
+  "unavailable",
+]);
+
+/**
+ * Whether `value` (an `RC5068` error's `cause`) carries the
+ * {@link HookRefusal} detail.
+ *
+ * @param value - Any value, usually `error.cause`
+ * @returns `true` when the value is an Error carrying a well-formed `refused` detail
+ */
+export function isHookRefusal(value: unknown): value is HookRefusal {
+  if (!(value instanceof Error)) return false;
+  const refused = (value as { refused?: unknown }).refused;
+  if (typeof refused !== "object" || refused === null) return false;
+  const fields = refused as Record<string, unknown>;
+  return (
+    typeof fields["hook"] === "string" &&
+    typeof fields["slot"] === "string" &&
+    typeof fields["routeId"] === "string" &&
+    typeof fields["reason"] === "string" &&
+    REFUSAL_KINDS.has(fields["kind"] as string)
+  );
 }
 
 function isRefusal(value: unknown): value is Refusal {
@@ -548,8 +623,18 @@ export async function runExchangeHooks(
     if (hook.phase === "validate") {
       if (result === undefined) continue;
       if (isRefusal(result)) {
-        throw rcError("RC5068", undefined, {
-          message: `${entry.id} refused the exchange in "${info.slot}": ${result.reason}`,
+        const detail = new Error(result.reason) as Error & {
+          refused: HookRefusal["refused"];
+        };
+        detail.refused = {
+          hook: entry.id,
+          slot: info.slot,
+          routeId: info.routeId,
+          kind: result.kind,
+          reason: result.reason,
+        };
+        throw rcError("RC5068", detail, {
+          message: `${entry.id} refused the exchange in "${info.slot}" (${result.kind}): ${result.reason}`,
         });
       }
       throw rcError("RC1115", undefined, {

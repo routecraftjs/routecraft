@@ -189,7 +189,7 @@ hook answers with a recovery (a body, `recovery.drop`, `recovery.defer`) or
 `undefined` to pass, and the first answer decides. Inside a phase, hooks run in
 the order the application lists the plugins.
 
-A refusal throws `RC5068` naming the hook and its reason, which reaches the
+A refusal throws `RC5068` naming the hook, its kind and its reason, which reaches the
 `error` slot like any failure.
 
 Two mutate hooks writing the same header in one slot: the later wins and the

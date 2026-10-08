@@ -6,6 +6,7 @@ import {
   isAuthorizationRefusal,
 } from "../authorization-refusal.ts";
 import type { Principal } from "../principal.ts";
+import { isHookRefusal, type RefusalKind } from "../kernel/hooks.ts";
 import { isInputValidationFailure } from "./validation.ts";
 
 /** One schema issue as a door shows it to a caller: where, and what. */
@@ -97,13 +98,19 @@ export function wireIssues(
  * - `insufficient_scope`: the credential lacks a scope. `scopes` lists the
  *   missing ones, or with `anyOf` the whole accepted set, of which one
  *   suffices.
+ * - `refused`: a plugin's validate hook refused the exchange on the
+ *   dispatched route. `as` is the hook's own say over the answer and
+ *   `reason` its words for the caller, clipped like a schema issue. The hook
+ *   and the slot stay in the log: naming them would tell a prober which
+ *   plugin it tripped.
  */
 export type CallerRefusal =
   | ({ kind: "input"; in: "body" | "headers" } & WireIssues)
   | { kind: "unauthenticated" }
   | { kind: "expired" }
   | { kind: "insufficient_permissions" }
-  | { kind: "insufficient_scope"; scopes: string[]; anyOf: boolean };
+  | { kind: "insufficient_scope"; scopes: string[]; anyOf: boolean }
+  | { kind: "refused"; as: RefusalKind; reason: string };
 
 /** What a door knows about the call whose route failed. */
 export interface CallerRefusalOrigin {
@@ -149,6 +156,11 @@ export interface CallerRefusalOrigin {
  *   for the dispatched route. One without it was thrown by something other
  *   than `.input()`, and one naming another route came up through
  *   `direct()`, so neither is the caller's.
+ * - `RC5068` maps only when it carries the `HookRefusal` detail for the
+ *   dispatched route, for the same reason. A hook refusing as
+ *   `unauthenticated` on a door that reads no credential is answered as
+ *   `forbidden`: a challenge would send the caller after a credential the
+ *   door never reads.
  * - The authorization codes map only when {@link isAuthorizationRefusal}
  *   says `authorize()` raised them on the dispatched route about the
  *   principal the door admitted. The same codes come out of adapters for an
@@ -182,6 +194,18 @@ export function callerRefusalOf(
       in: cause.invalid.in,
       ...wireIssues(cause.invalid.issues),
     };
+  }
+  if (code === "RC5068") {
+    const cause = (error as Error).cause;
+    if (!isHookRefusal(cause) || cause.refused.routeId !== origin.routeId) {
+      return undefined;
+    }
+    const as =
+      cause.refused.kind === "unauthenticated" &&
+      origin.credentialCouldHelp !== true
+        ? "forbidden"
+        : cause.refused.kind;
+    return { kind: "refused", as, reason: clip(cause.refused.reason) };
   }
   if (
     !isAuthorizationRefusal(error, {

@@ -272,7 +272,9 @@ export const tenancy = definePlugin({
 
 ### `validate`: allow or refuse \{#validate}
 
-A validate hook allows the exchange by returning nothing and refuses it by returning `refuse(reason)`. A refusal fails the run with [`RC5068`](/docs/reference/errors#rc-5068) naming the hook and the reason, and that failure reaches the route's `.error()` and the `error` slot like any other. A validate hook that returns anything else is `RC1115`.
+A validate hook allows the exchange by returning nothing and refuses it by returning `refuse(reason, { kind })`. A refusal fails the run with [`RC5068`](/docs/reference/errors#rc-5068) naming the hook and the reason, and that failure reaches the route's `.error()` and the `error` slot like any other. A validate hook that returns anything else is `RC1115`.
+
+The kind is the hook's say over how a door answers the caller, in a vocabulary no transport owns: `forbidden` unless given, or `invalid`, `unauthenticated`, `not_found`, `conflict`, `gone`, `rate_limited` or `unavailable`. The `http()` source and the ops dispatch door map it to a status (403, 400, 401, 404, 409, 410, 429, 503) and the MCP server to a tool error naming it, each carrying the reason and never the hook. Write the reason for the caller: it crosses the wire, clipped like a schema issue.
 
 ```ts
 import { definePlugin, principalOf, refuse } from '@routecraft/routecraft'

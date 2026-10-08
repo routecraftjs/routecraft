@@ -137,7 +137,7 @@ The internal `RouteDefinition` fields `preParseFilters`, `postParseFilters` and 
 
 - **Ports.** Plugins share anything through `port<T>()`, with `requires`, `optional`, `provides` and `replaces`.
 - **Replaceable positions.** `.authorize()`, the resilience operations and `.cache()` are unchanged on the builder, and the default plugins fill them through `ENFORCEMENT`, `RESILIENCE` and `CACHE`. A plugin may replace one.
-- **Hooks.** Plugins add hooks to the slots of the chain (`beforeAuth`, `afterAuth`, `admitted`, `perAttempt`, `exit`, `error`) in the `observe`, `mutate` and `validate` phases. `hooks.order` and `hooks.disable` in config settle conflicts.
+- **Hooks.** Plugins add hooks to the slots of the chain (`beforeAuth`, `afterAuth`, `admitted`, `perAttempt`, `exit`, `error`) in the `observe`, `mutate` and `validate` phases. `hooks.order` and `hooks.disable` in config settle conflicts. A validate hook's `refuse(reason, { kind })` is answered at the door the caller came through with the status its kind maps to.
 - **The `error` slot.** A plugin hook can recover, drop or park (`recovery.defer()`) a failure the route's own `.error()` did not settle.
 - **Facets.** A plugin's facet is readable as `ex.<namespace>`.
 
