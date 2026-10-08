@@ -3915,12 +3915,79 @@ describe("HTTP Source Adapter: raw body and webhook signatures", () => {
     );
     expect(stale.status).toBe(401);
     expect(await stale.text()).toContain("signature expired");
+
+    const staleAndForged = await fetch(
+      `http://127.0.0.1:${bound.port}/hooks/telnyx-reject`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          ...telnyxSigned(body, {
+            timestamp: Math.floor(Date.now() / 1000) - 3600,
+            privateKey: ED_OTHER_KEYS.privateKey,
+          }),
+        },
+        body,
+      },
+    );
+    expect(staleAndForged.status).toBe(401);
+    expect(await staleAndForged.text()).toContain("signature expired");
+  });
+
+  /**
+   * @case A tighter toleranceSec, a key given in hex, and a timestamp that is not unix seconds
+   * @preconditions The Telnyx gate with publicKey as 64 hex digits and toleranceSec: 10; one delivery signed 60 seconds ago, one with telnyx-timestamp "yesterday"
+   * @expectedResult 401 signature expired for the 60-second-old delivery; 401 invalid signature for the non-numeric timestamp; a fresh delivery passes with the hex key
+   */
+  test("ed25519 honours toleranceSec, a hex key, and rejects a non-numeric timestamp", async () => {
+    const body = '{"data":{}}';
+    const bound = await bootSignedHook("/hooks/telnyx-window", {
+      ...telnyxGate,
+      publicKey: ED_PUBLIC_RAW.toString("hex"),
+      toleranceSec: 10,
+    });
+    t = bound.ctx;
+    const url = `http://127.0.0.1:${bound.port}/hooks/telnyx-window`;
+
+    const fresh = await fetch(url, {
+      method: "POST",
+      headers: { "content-type": "application/json", ...telnyxSigned(body) },
+      body,
+    });
+    expect(fresh.status).toBe(200);
+
+    const aMinuteOld = await fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        ...telnyxSigned(body, {
+          timestamp: Math.floor(Date.now() / 1000) - 60,
+        }),
+      },
+      body,
+    });
+    expect(aMinuteOld.status).toBe(401);
+    expect(await aMinuteOld.text()).toContain("signature expired");
+
+    const notSeconds = await fetch(url, {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "telnyx-timestamp": "yesterday",
+        "telnyx-signature-ed25519": signEd25519(`yesterday|${body}`).toString(
+          "base64",
+        ),
+      },
+      body,
+    });
+    expect(notSeconds.status).toBe(401);
+    expect(await notSeconds.text()).toContain("invalid signature");
   });
 
   /**
    * @case The timestamp header is absent, or the signature is not the shape of one
    * @preconditions The Telnyx gate; a delivery without telnyx-timestamp, then one whose signature is 10 base64 characters
-   * @expectedResult 401 missing signature header, then 401 invalid signature, with no verification attempted on the malformed candidate
+   * @expectedResult 401 missing signature header, then 401 invalid signature
    */
   test("ed25519 rejects a missing timestamp and a malformed signature", async () => {
     const body = '{"data":{}}';
@@ -3993,59 +4060,63 @@ describe("HTTP Source Adapter: raw body and webhook signatures", () => {
   });
 
   /**
-   * @case A signature over the body alone, with no timestamp header configured
-   * @preconditions signature: { scheme: "ed25519", publicKey (raw hex), header } and no timestampHeader
-   * @expectedResult 200 for the body's own signature; the route bounds replay itself
+   * @case Key material that is not an Ed25519 public key: garbage, the private half as PKCS#8 PEM, and a P-256 public key PEM
+   * @preconditions http({ signature: { scheme: "ed25519", publicKey, header, timestampHeader } }) with each key text in turn
+   * @expectedResult RC5003 naming signature.publicKey at the http({...}) call site for all three; the private key in particular never constructs a working gate
    */
-  test("ed25519 without a timestamp header signs the body alone", async () => {
-    const body = '{"ping":true}';
-    const bound = await bootSignedHook("/hooks/ed-plain", {
+  test("ed25519 refuses garbage, a private key and a foreign-curve key at construction", () => {
+    const gate = (publicKey: string): HttpWebhookSignatureOptions => ({
       scheme: "ed25519",
-      publicKey: ED_PUBLIC_RAW.toString("hex"),
+      publicKey,
       header: "x-signature",
+      timestampHeader: "x-timestamp",
     });
-    t = bound.ctx;
-
-    const res = await fetch(`http://127.0.0.1:${bound.port}/hooks/ed-plain`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/json",
-        "x-signature": signEd25519(body).toString("base64"),
-      },
-      body,
-    });
-    expect(res.status).toBe(200);
+    const privatePem = ED_KEYS.privateKey.export({
+      format: "pem",
+      type: "pkcs8",
+    }) as string;
+    const p256Pem = generateKeyPairSync("ec", {
+      namedCurve: "P-256",
+    }).publicKey.export({ format: "pem", type: "spki" }) as string;
+    for (const publicKey of ["not a key", privatePem, p256Pem]) {
+      expect(() =>
+        http({
+          path: "/hooks/ed-bad-key",
+          method: "POST",
+          signature: gate(publicKey),
+        }),
+      ).toThrow(/signature\.publicKey/);
+    }
   });
 
   /**
-   * @case An ed25519 gate whose public key or timestamp header cannot be used
-   * @preconditions http({ signature: { scheme: "ed25519", publicKey: "not a key", header } }); then a valid key with timestampHeader "bad header"
-   * @expectedResult RC5003 naming signature.publicKey, then RC5003 naming signature.timestampHeader, both at the http({...}) call site
+   * @case An ed25519 gate without a timestamp header, with an illegal one, or with a separator that is not a string
+   * @preconditions A valid key; timestampHeader omitted (as a JS caller can), then "bad header", then separator: 1
+   * @expectedResult RC5003 naming signature.timestampHeader twice, then signature.separator, all at the http({...}) call site
    */
-  test("ed25519 refuses an unparseable key or timestamp header at construction", () => {
-    expect(() =>
+  test("ed25519 refuses a missing or illegal timestamp header and a non-string separator at construction", () => {
+    const withoutTimestamp = {
+      scheme: "ed25519",
+      publicKey: ED_PUBLIC_BASE64,
+      header: "x-signature",
+    };
+    const attempt = (signature: unknown) => () =>
       http({
-        path: "/hooks/ed-bad-key",
+        path: "/hooks/ed-bad-options",
         method: "POST",
-        signature: {
-          scheme: "ed25519",
-          publicKey: "not a key",
-          header: "x-signature",
-        },
-      }),
-    ).toThrow(/signature\.publicKey/);
-    expect(() =>
-      http({
-        path: "/hooks/ed-bad-ts",
-        method: "POST",
-        signature: {
-          scheme: "ed25519",
-          publicKey: ED_PUBLIC_BASE64,
-          header: "x-signature",
-          timestampHeader: "bad header",
-        },
-      }),
+        signature: signature as HttpWebhookSignatureOptions,
+      });
+    expect(attempt(withoutTimestamp)).toThrow(/signature\.timestampHeader/);
+    expect(
+      attempt({ ...withoutTimestamp, timestampHeader: "bad header" }),
     ).toThrow(/signature\.timestampHeader/);
+    expect(
+      attempt({
+        ...withoutTimestamp,
+        timestampHeader: "x-timestamp",
+        separator: 1,
+      }),
+    ).toThrow(/signature\.separator/);
   });
 });
 
