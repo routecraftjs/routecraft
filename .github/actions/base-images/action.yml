@@ -14,9 +14,9 @@ inputs:
     default: ""
   dockerfiles:
     description: >-
-      Dockerfiles whose FROM lines name the images to restore, one per
-      line. A stage alias or a reference built from a build argument is
-      skipped.
+      Dockerfiles whose FROM lines and syntax directive name the images
+      to restore, one per line. A stage alias or a reference built from a
+      build argument is skipped.
     default: ""
   dockerhub-username:
     description: Docker Hub username for a pull on a cache miss; optional.
@@ -36,12 +36,16 @@ runs:
         set -euo pipefail
         {
           printf '%s\n' "$IMAGES"
+          # BuildKit fetches the frontend a syntax directive names from the
+          # registry like any base image, and uses a local copy when one is
+          # loaded, so it is restored with the FROM images.
           while IFS= read -r file; do
             [ -n "$file" ] || continue
             awk 'toupper($1) == "FROM" {
               if (toupper($3) == "AS") names[$4] = 1
               if (!($2 in names) && index($2, "$") == 0) print $2
             }' "$file"
+            sed -nE 's/^#[[:space:]]*[Ss][Yy][Nn][Tt][Aa][Xx][[:space:]]*=[[:space:]]*([^[:space:]]+).*/\1/p' "$file"
           done <<< "$DOCKERFILES"
         } | sed '/^[[:space:]]*$/d' | sort -u > "$RUNNER_TEMP/base-images.txt"
         if [ ! -s "$RUNNER_TEMP/base-images.txt" ]; then
@@ -78,8 +82,11 @@ runs:
         # address other repositories have spent.
         mirrors_of() {
           case "$1" in
-            */*) printf 'mirror.gcr.io/%s\\n' "$1" ;;
-            *) printf 'mirror.gcr.io/library/%s\\npublic.ecr.aws/docker/library/%s\\n' "$1" "$1" ;;
+            */*) echo "mirror.gcr.io/$1" ;;
+            *)
+              echo "mirror.gcr.io/library/$1"
+              echo "public.ecr.aws/docker/library/$1"
+              ;;
           esac
         }
         pull_direct() {
