@@ -78,11 +78,8 @@ runs:
         # address other repositories have spent.
         mirrors_of() {
           case "$1" in
-            */*) printf 'mirror.gcr.io/%s
-' "$1" ;;
-            *) printf 'mirror.gcr.io/library/%s
-public.ecr.aws/docker/library/%s
-' "$1" "$1" ;;
+            */*) printf 'mirror.gcr.io/%s\\n' "$1" ;;
+            *) printf 'mirror.gcr.io/library/%s\\npublic.ecr.aws/docker/library/%s\\n' "$1" "$1" ;;
           esac
         }
         pull_direct() {
