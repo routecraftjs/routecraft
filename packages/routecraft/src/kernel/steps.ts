@@ -187,7 +187,10 @@ type SubstIn<T, B, F, D extends number> = [D] extends [never]
         ? B
         : B & Subst<Omit<T, typeof BODY>, B, F, Depth[D]>
       : T extends Exchange<infer X>
-        ? Exchange<Subst<X, B, F, Depth[D]>> & F
+        ? // `Exchange<Body> & { trace: string }` keeps what it adds to the exchange.
+          Exchange<Subst<X, B, F, Depth[D]>> &
+            Subst<Omit<T, keyof Exchange<X>>, B, F, Depth[D]> &
+            F
         : T extends (...args: infer A) => infer R
           ? (...args: Subst<A, B, F, Depth[D]>) => Subst<R, B, F, Depth[D]>
           : T extends object

@@ -96,10 +96,7 @@ describe("the type budget of plugin steps", () => {
       expect(overrides.output).toContain(
         "Property 'authenticate' does not exist",
       );
-      expect(overrides.output).not.toContain(
-        "Property 'current' does not exist",
-      );
-      expect(overrides.output).not.toContain("excessively deep");
+      expect(overrides.output.match(/error TS/g)).toHaveLength(2);
     },
     { timeout: 120_000 },
   );

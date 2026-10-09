@@ -7,6 +7,7 @@ import {
   craft,
   definePlugin,
   direct,
+  insufficientAuthorityOf,
   isInputValidationFailure,
   defaultAuthority,
   noop,
@@ -193,6 +194,37 @@ describe("callerRefusalOf()", () => {
         principal: { ...principal },
       }),
     ).toBeUndefined();
+  });
+
+  /**
+   * @case A handler widens or replaces a genuine scope refusal's cause before rethrowing
+   * @preconditions A genuine RC5038 from .authorize({ scopes }); its cause.missing.scopes is pushed to and then the whole cause replaced
+   * @expectedResult The scopes the door sends and insufficientAuthorityOf() reads stay the ones the gate raised
+   */
+  test("a widened or replaced scope detail cannot change a genuine refusal", async () => {
+    t = await testContext()
+      .routes(
+        craft()
+          .id("writer")
+          .authorize({ scopes: ["orders:write"] })
+          .from(principalSource("hello", principal))
+          .to(noop()),
+      )
+      .build();
+    await t.test();
+    const error = t.errors.find((e) => e.rc === "RC5038") as Error & {
+      cause: { missing: { scopes: string[] } };
+    };
+    const origin = { routeId: "writer", principal };
+    const raised = callerRefusalOf(error, origin);
+
+    error.cause.missing.scopes.push("orders:admin");
+    expect(callerRefusalOf(error, origin)).toEqual(raised);
+    expect(insufficientAuthorityOf(error)?.scopes).toEqual(["orders:write"]);
+
+    error.cause = { missing: { scopes: [] } };
+    expect(callerRefusalOf(error, origin)).toEqual(raised);
+    expect(insufficientAuthorityOf(error)?.scopes).toEqual(["orders:write"]);
   });
 
   /**

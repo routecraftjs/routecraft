@@ -83,6 +83,12 @@ export interface InsufficientAuthority extends Error {
 interface RefusalOrigin {
   routeId: string | undefined;
   principal: Principal | undefined;
+  /**
+   * The scope detail as the gate raised it, for an `RC5038`. Read in place
+   * of the error's public cause, which whoever holds the error can replace
+   * or widen before rethrowing; the door and the deferral record read this.
+   */
+  missing: InsufficientAuthority["missing"] | undefined;
 }
 
 const refusals = new WeakMap<object, RefusalOrigin>();
@@ -98,6 +104,10 @@ export function refusal(
   refusals.set(error, {
     routeId: typeof routeId === "string" ? routeId : undefined,
     principal: headers?.[HeadersKeys.AUTH_PRINCIPAL] as Principal | undefined,
+    missing:
+      rcCodeOf(error) === "RC5038"
+        ? missingOf((error as { cause?: unknown }).cause)
+        : undefined,
   });
   return error;
 }
@@ -144,6 +154,11 @@ export function isAuthorizationRefusal(
  * same way an application's handler does, or the bound and the ask could
  * describe different sets.
  *
+ * For a refusal `authorize()` raised, the detail is the one the gate bound
+ * to the error at the throw, so a handler that widens or replaces the
+ * public cause before rethrowing changes neither the bound nor what a door
+ * sends. A hand-thrown `RC5038` is read off its cause.
+ *
  * @param error - Anything thrown; a non-error and a non-`RC5038` both answer
  *   `undefined`
  * @returns The refusal detail, or `undefined`
@@ -159,7 +174,15 @@ export function insufficientAuthorityOf(
 ): InsufficientAuthority["missing"] | undefined {
   // By brand: a remote payload shaped like a refusal must not name a lend bound.
   if (rcCodeOf(error) !== "RC5038") return undefined;
-  const cause = (error as { cause?: unknown }).cause;
+  const origin = refusals.get(error as object);
+  if (origin !== undefined) return origin.missing;
+  return missingOf((error as { cause?: unknown }).cause);
+}
+
+/** The detail a cause carries, as a frozen copy, or `undefined` for any other shape. */
+function missingOf(
+  cause: unknown,
+): InsufficientAuthority["missing"] | undefined {
   if (typeof cause !== "object" || cause === null) return undefined;
   const missing = (cause as Partial<InsufficientAuthority>).missing;
   if (typeof missing !== "object" || missing === null) return undefined;

@@ -1382,18 +1382,15 @@ describe("insufficientAuthorityOf", () => {
 
   /**
    * @case A malformed optional field refuses the whole detail
-   * @preconditions A real RC5038 whose cause is given a bad mode, then a bad effective
+   * @preconditions A hand-thrown branded RC5038 whose cause is given a bad mode, then a bad effective; a refusal authorize() raised reads the detail it bound at the throw, so the shape check is for a hand-thrown one
    * @expectedResult undefined for each, rather than the field being dropped and the rest trusted
    */
-  test("refuses a detail whose mode or effective is not the documented shape", async () => {
-    const real = await refuse(
-      { scopes: ["payout:write"] },
-      defaultAuthority.brand({
-        subject: "agent",
-        scopes: [],
-      } as unknown as Principal),
+  test("refuses a detail whose mode or effective is not the documented shape", () => {
+    const detail: Record<string, unknown> = { scopes: ["payout:write"] };
+    const real = rcError(
+      "RC5038",
+      Object.assign(new Error("lacks payout:write"), { missing: detail }),
     );
-    const detail = real.cause.missing as unknown as Record<string, unknown>;
 
     detail["mode"] = "either";
     expect(insufficientAuthorityOf(real)).toBeUndefined();
@@ -1411,26 +1408,22 @@ describe("insufficientAuthorityOf", () => {
 
   /**
    * @case The shape an application throws by hand, carrying scopes and nothing else
-   * @preconditions A branded RC5038 whose cause has `missing` with only `scopes`, which the helper documents as supported: `authorize()` always sets `mode`, an application need not
+   * @preconditions A hand-thrown branded RC5038 whose cause has `missing` with only `scopes`, which the helper documents as supported: `authorize()` always sets `mode`, an application need not
    * @expectedResult A detail with the scopes copied and the optionals absent, rather than the whole thing refused
    */
-  test("accepts a detail carrying only scopes, as an application may throw", async () => {
-    const real = await refuse(
-      { scopes: ["payout:write"] },
-      defaultAuthority.brand({
-        subject: "agent",
-        scopes: [],
-      } as unknown as Principal),
+  test("accepts a detail carrying only scopes, as an application may throw", () => {
+    const missing = { scopes: ["payout:write"] };
+    const real = rcError(
+      "RC5038",
+      Object.assign(new Error("lacks payout:write"), { missing }),
     );
-    delete (real.cause.missing as { mode?: unknown }).mode;
-    delete (real.cause.missing as { effective?: unknown }).effective;
 
     const detail = insufficientAuthorityOf(real);
     expect(detail?.scopes).toEqual(["payout:write"]);
     expect(detail?.mode).toBeUndefined();
     expect(detail?.effective).toBeUndefined();
     // Copied rather than handed back, same as every other accepted shape.
-    expect(detail?.scopes).not.toBe(real.cause.missing.scopes);
+    expect(detail?.scopes).not.toBe(missing.scopes);
   });
 
   /**

@@ -300,7 +300,7 @@ export function raisedInputValidationOf(
 /** A plain frozen copy of one issue: the message, and the path segment by segment. */
 function snapshotIssue(issue: StandardSchemaV1.Issue): StandardSchemaV1.Issue {
   const message = typeof issue.message === "string" ? issue.message : "invalid";
-  if (issue.path === undefined) return Object.freeze({ message });
+  if (!Array.isArray(issue.path)) return Object.freeze({ message });
   const path = issue.path.map((segment) =>
     typeof segment === "object" && segment !== null
       ? Object.freeze({ key: segment.key })

@@ -1,4 +1,4 @@
-| RC1103 | a port name is malformed, or a hand-built token carries a port's name |# Plugin Architecture
+# Plugin Architecture
 
 Routecraft is a small kernel and a set of plugins. Every feature we ship is a
 plugin that reaches the kernel through the same sockets a third party uses,
@@ -411,7 +411,7 @@ The rows the design left open, decided:
 |---|---|
 | RC1101 | two plugins share an id |
 | RC1102 | two plugins share a namespace |
-| RC1103 | two port tokens share a name |
+| RC1103 | a port name is malformed, or a hand-built token carries a port's name |
 | RC1104 | a required port has no provider |
 | RC1105 | two providers of one port, neither a replacement |
 | RC1106 | an invalid replacement |
