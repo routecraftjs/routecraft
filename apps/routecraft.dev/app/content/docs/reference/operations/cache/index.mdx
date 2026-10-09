@@ -75,6 +75,8 @@ craft()
 
 **Concurrency:** When multiple exchanges race against the same key, the provider's `getOrCompute` is responsible for deduplication. The bundled `MemoryCacheProvider` runs the wrapped step at most once per key per TTL window; concurrent waiters share the result.
 
+**Values are copied, never shared.** The bundled `MemoryCacheProvider` keeps a structured clone of what it stores and hands every reader its own clone, concurrent waiters included, so an exchange that changes a body it received, or the one that produced it, never changes what the next hit reads. A value `structuredClone` cannot copy (a function, a class instance with methods) is refused with `RC5028` rather than shared by reference; cache plain data. A custom provider that serialises (Redis, a file) copies by construction; one that keeps references in memory must copy the same way.
+
 **Caching semantics:**
 - Only successful executions are cached. A wrapped step that throws propagates the error and writes nothing. At step scope, a step that returns an error reply instead of throwing has that reply cached (see the warning above).
 - `null` is a valid cached value; `undefined` is treated as "no value" and is never cached (the step recomputes next time).
@@ -93,6 +95,8 @@ With no `key`, the key is a SHA-256 over:
 1. **The scope.** At route scope, the route id plus a fingerprint of the whole pipeline a hit skips: every step's definition, the kind and options of every wrapper, and every `.choice()` branch with its predicate. At step scope, the route id plus the cache's site: the step's pre-order index in the route, the cache's position in the step's stack of wrappers (`.error()`, `.retry()`, and so on), the kind and a fingerprint of the options of each wrapper inside it, and a fingerprint of the step's definition (operation, label, adapter and options, callable source). Two cached steps in one route never share entries.
 2. **The principal**, when the exchange carries one: its `issuer` and `subject`, and those of every delegation `actor`. Two callers sending the same body get separate entries, and so do two delegates acting for the same subject.
 3. **The body**, as a SHA-256 of `JSON.stringify(body)`.
+
+Nothing else is in it. A header that selects the answer, such as a tenant or a locale the application reads from `routecraft.http.headers` without establishing it as the principal, is invisible to the default key, so two callers that differ only in that header share an entry. Establish identity with `.authenticate()` so it reaches the principal, or put the header into a custom `key`.
 
 Every part is derived from the route definition and the exchange, so processes running the same built route code compute the same keys and can share an external provider. Callable source is read verbatim, as for the [deferral hash](/docs/reference/configuration#deferral): a formatting pass, a checkout with different line endings, or a build that changes emitted code (a different minifier, new bundler settings, a TypeScript target bump) changes the keys. That only ever causes misses, never a hit on another entry, so run one build everywhere that shares a provider and expect a cold cache after such a change. The route id is part of the key: give every cached route an `.id()`, because an unnamed route gets a fresh id on every start and its entries stop matching after a restart (the route logs a warning when this applies).
 

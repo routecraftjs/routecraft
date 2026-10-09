@@ -3,6 +3,26 @@ import { LRUCache } from "lru-cache";
 import { rcError } from "../error.ts";
 
 /**
+ * A copy of a value with nothing shared: what the cache keeps and what it
+ * hands out. An entry held by reference would let the exchange that stored
+ * it, or any exchange that hit it, change what every later hit reads; a
+ * value the structured clone cannot copy (a function, a class instance
+ * with methods) is refused rather than shared.
+ *
+ * @throws RC5028 when the value cannot be copied
+ */
+function detached<T>(value: T): T {
+  try {
+    return structuredClone(value);
+  } catch (error) {
+    throw rcError("RC5028", error, {
+      message:
+        "A cached value must be copyable with structuredClone: a cache hands every caller its own copy, and this value holds something a copy cannot carry (a function, a class instance with methods, a symbol). Cache plain data, or derive the uncopyable part after the cache.",
+    });
+  }
+}
+
+/**
  * Internal storage envelope. Wrapping the value keeps `lru-cache`'s
  * non-nullable value constraint satisfied while still allowing `null`
  * to be a legitimate cached value (a bare `null` cannot be stored in
@@ -140,7 +160,7 @@ export class MemoryCacheProvider implements CacheProvider {
 
   async get(key: string): Promise<unknown> {
     const entry = this.#lru.get(key);
-    return entry === undefined ? undefined : entry.v;
+    return entry === undefined ? undefined : detached(entry.v);
   }
 
   async set(key: string, value: unknown, ttl?: number): Promise<void> {
@@ -168,10 +188,10 @@ export class MemoryCacheProvider implements CacheProvider {
     ttl?: number,
   ): Promise<T> {
     const cached = this.#lru.get(key);
-    if (cached !== undefined) return cached.v as T;
+    if (cached !== undefined) return detached(cached.v) as T;
 
     const existing = this.#inFlight.get(key);
-    if (existing) return existing as Promise<T>;
+    if (existing) return existing.then(detached) as Promise<T>;
 
     const promise = (async () => {
       try {
@@ -190,7 +210,7 @@ export class MemoryCacheProvider implements CacheProvider {
   }
 
   #store(key: string, value: unknown, ttl?: number): void {
-    const entry: CacheEnvelope = { v: value };
+    const entry: CacheEnvelope = { v: detached(value) };
     if (ttl !== undefined) {
       this.#lru.set(key, entry, { ttl });
     } else {
