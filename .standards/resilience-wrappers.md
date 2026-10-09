@@ -128,7 +128,7 @@ shape. A step-scope wrapper declares the port it depends on through
 for it is installed (`RC1111` otherwise, nested sub-pipelines and wrapper
 stacks included) and resolves the provider on first use, so the position's
 state stays per application. A wrapper that resolves no provider (`.error()`,
-`.delay()`) returns `undefined`. That is what makes one plugin replacing a
+`.delay()`) has an undefined `requiredPosition`. That is what makes one plugin replacing a
 port fill both scopes:
 
 ```ts

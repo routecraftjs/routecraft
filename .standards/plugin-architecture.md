@@ -292,10 +292,11 @@ craft().id("orders").from(source).dedupe({ key: (o) => o.id }).to(sink);
   by literal id, and what all of those bring through `installs` unless the
   application already holds that id. A plugin typed with a plain `string`
   id displaces nothing and keeps nothing out, the way an unknown id does at
-  runtime; two brought plugins with one id remain a union in the types,
-  where the application installs the first it meets. A step or facet of an
-  uninstalled plugin is a compile error; a plugin step's callables see the
-  route's facets, as the built-in callables do.
+  runtime; two brought single plugins with one id remain a union in the
+  types, where the application installs the first it meets (repeatable
+  descriptors each install). A step or facet of an uninstalled plugin is a
+  compile error; a plugin step's callables typed with `Exchange<Body>` see
+  the route's facets, as the built-in callables do.
 - The root `craft()` export is typed by the catalogue `@routecraft/routecraft`
   ships. A route using an uninstalled plugin's step refuses to start
   (`RC1111`); reading an uninstalled plugin's facet fails with `RC1111` at

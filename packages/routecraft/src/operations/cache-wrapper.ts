@@ -391,16 +391,16 @@ export class CacheWrapperStep<
     return this.#options.usesDefaultKey;
   }
 
+  override get requiredPosition(): RequiredPosition {
+    return { port: CACHE, method: "cache" };
+  }
+
   /**
    * Record this wrapper's position in its route. Called by
    * {@link assignCacheSites}; see {@link CacheKeyScope}.
    *
    * @internal
    */
-  override get requiredPosition(): RequiredPosition {
-    return { port: CACHE, method: "cache" };
-  }
-
   assignSite(site: string): void {
     this.#site = site;
   }
