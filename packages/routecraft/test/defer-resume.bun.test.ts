@@ -1335,8 +1335,10 @@ describe("a claimed continuation at a step-scope bulkhead", () => {
   test("queues the second continuation instead of refusing it", async () => {
     const entered = Promise.withResolvers<void>();
     const release = Promise.withResolvers<void>();
+    const queued = Promise.withResolvers<void>();
     let calls = 0;
     t = await testContext()
+      .on("route:concurrency:queued", () => queued.resolve())
       .with(deferring())
       .routes([
         craft()
@@ -1366,7 +1368,9 @@ describe("a claimed continuation at a step-scope bulkhead", () => {
       token: second.token,
       result: null,
     });
-    await new Promise<void>((resolve) => setTimeout(resolve, 0));
+    // The second continuation is at the bulkhead, waiting, before the first
+    // is released: what the test is about.
+    await queued.promise;
     release.resolve();
     const answers = (await Promise.all([resumeFirst, resumeSecond])) as Array<{
       status: string;

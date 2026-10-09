@@ -79,7 +79,9 @@ export interface CacheOptions<Current = unknown> {
    */
   ttl?: Duration;
   /**
-   * Cache backend. Defaults to a process-wide in-memory provider. Pass
+   * Cache backend. Defaults to the application's own in-memory provider,
+   * one per context kept by the default `CACHE` plugin, so two applications
+   * in one process never share entries by accident. Pass
    * a custom provider (Redis, multi-tier, file-backed, etc.) by
    * constructing an implementation of {@link CacheProvider} and
    * handing it in here.

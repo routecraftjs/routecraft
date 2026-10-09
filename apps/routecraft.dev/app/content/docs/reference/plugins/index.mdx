@@ -72,7 +72,7 @@ A plain config object still loads: `craft start` accepts a default-exported `def
 | `optional` | `Port[]` | Ports the plugin uses when present, read with `lookup()`. |
 | `provides` | `Port[]` | Ports the plugin provides in `bind`. Two providers of one port is `RC1105`. |
 | `replaces` | `Port[]` | Ports whose other provider this plugin displaces. Each must also be in `provides` (`RC1106`). The displaced plugin still binds. |
-| `installs` | `Plugin[]` | Plugins this one brings along, installed ahead of it and once per id, unless the application lists that id itself. Two bundles bringing different descriptors under one id the application does not list is `RC1101`. |
+| `installs` | `Plugin[]` | Plugins this one brings along, installed ahead of it and once per id, unless the application lists that id itself. Two bundles bringing different descriptors under one single id the application does not list is `RC1101`; repeatable descriptors under one id each install, numbered. |
 | `repeatable` | `boolean` | Several installs may coexist, named `id#1`, `id#2`, ... in list order. A repeatable plugin may not provide or replace a port, or declare hooks, points, steps or a facet. It binds ahead of every other plugin that uses the ports it uses, so a reader sees every contribution, unless that order would contradict the declared dependencies. |
 | `keepsAlive` | `boolean` | The plugin owns a lifetime past the routes (a listener, a subscription): when every route has completed, the application keeps running until stopped. |
 | `hooks` | `Hooks` | Hooks in the chain's [slots](#slots), or at a point another plugin declares. |
