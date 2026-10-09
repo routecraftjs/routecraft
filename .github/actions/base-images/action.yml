@@ -3,10 +3,11 @@ description: >-
   Loads the images a job builds from or pulls out of the Actions cache, and
   pulls them from a registry only when the cache has no copy. A steady
   run never contacts a registry. Docker Hub's anonymous pull quota is
-  shared by every repository on a runner's address, so a miss takes a
-  Docker official image from its AWS public ECR mirror, and pulls the rest
-  from Docker Hub with retries, with the Docker Hub credentials when the
-  workflow passes them and anonymously otherwise.
+  shared by every repository on a runner's address, so a miss is served
+  from Google's pull-through mirror of Docker Hub first, from AWS public
+  ECR for a Docker official image next, and from Docker Hub itself last,
+  with retries, with the Docker Hub credentials when the workflow passes
+  them and anonymously otherwise.
 inputs:
   images:
     description: Image references to restore, one per line.
@@ -69,18 +70,27 @@ runs:
         mkdir -p ~/.cache/base-images
         logged_in=false
         pulled=false
-        # A Docker official image (one path segment) is mirrored on AWS public
-        # ECR without Docker Hub's anonymous quota; anything else has Docker Hub
-        # alone. A pull is retried with backoff because the seed runs on a
-        # runner address other repositories may have spent.
-        mirror_of() {
+        # Google's pull-through mirror of Docker Hub fetches with its own
+        # credentials, so it carries none of the anonymous quota a runner
+        # address shares with every other repository; AWS public ECR mirrors
+        # the Docker official images (one path segment). Docker Hub itself is
+        # the last resort, with retries, because the seed may run on an
+        # address other repositories have spent.
+        mirrors_of() {
           case "$1" in
-            */*) printf '' ;;
-            *) printf 'public.ecr.aws/docker/library/%s' "$1" ;;
+            */*) printf 'mirror.gcr.io/%s
+' "$1" ;;
+            *) printf 'mirror.gcr.io/library/%s
+public.ecr.aws/docker/library/%s
+' "$1" "$1" ;;
           esac
         }
-        pull() {
+        pull_direct() {
           local attempt
+          if [ -n "$DOCKERHUB_TOKEN" ] && [ "$logged_in" = false ]; then
+            printf '%s' "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
+            logged_in=true
+          fi
           for attempt in 1 2 3 4 5; do
             if docker pull "$1"; then return 0; fi
             echo "pull of $1 failed (attempt $attempt of 5); waiting $((attempt * 20))s"
@@ -94,15 +104,17 @@ runs:
             docker load -i "$tar"
             continue
           fi
-          mirror=$(mirror_of "$image")
-          if [ -n "$mirror" ] && docker pull "$mirror"; then
-            docker tag "$mirror" "$image"
-          else
-            if [ -n "$DOCKERHUB_TOKEN" ] && [ "$logged_in" = false ]; then
-              printf '%s' "$DOCKERHUB_TOKEN" | docker login -u "$DOCKERHUB_USERNAME" --password-stdin
-              logged_in=true
+          fetched=false
+          for mirror in $(mirrors_of "$image"); do
+            if docker pull "$mirror"; then
+              docker tag "$mirror" "$image"
+              fetched=true
+              break
             fi
-            pull "$image"
+            echo "mirror $mirror has no copy of $image; trying the next source"
+          done
+          if [ "$fetched" = false ]; then
+            pull_direct "$image"
           fi
           docker save -o "$tar" "$image"
           pulled=true
