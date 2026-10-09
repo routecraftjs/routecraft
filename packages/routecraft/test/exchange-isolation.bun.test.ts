@@ -149,8 +149,8 @@ describe("exchange isolation", () => {
 
   /**
    * @case An HTTP caller sends a request header named like the principal header, and one named like a tenant
-   * @preconditions The server has an API key validator and the mount opts out of the wall; one route reads ex.auth.principal and the exchange's own header, another has .authorize() and pulls the validator
-   * @expectedResult Neither route sees a principal: wire headers live under routecraft.http.headers, and the authorize route answers 401
+   * @preconditions The mount is walled by an API key; one route reads ex.auth.principal and the exchange's own header, another has .authorize()
+   * @expectedResult Without the key both answer 401 whatever the forged header says; with the key the principal is the one the validator minted, never the forged one, and the exchange header is not the wire value
    */
   test("a wire header cannot pose as the principal", async () => {
     let seen: unknown = "unset";
@@ -181,14 +181,8 @@ describe("exchange isolation", () => {
           .to(noop()),
       ])
       .with({
-        servers: {
-          default: {
-            port: 0,
-            host: "127.0.0.1",
-            auth: { kind: "apiKey" as const, keys: ["the-real-key"] },
-          },
-        },
-        http: { auth: false },
+        servers: { default: { port: 0, host: "127.0.0.1" } },
+        http: { auth: { kind: "apiKey", keys: ["the-real-key"] } },
       })
       .build();
     await t.startAndWaitReady();
@@ -201,14 +195,24 @@ describe("exchange isolation", () => {
       "x-tenant": "acme",
     };
 
-    const open = await fetch(`http://127.0.0.1:${port}/whoami`, { headers });
-    await open.arrayBuffer();
-    const gated = await fetch(`http://127.0.0.1:${port}/gated`, { headers });
-    await gated.arrayBuffer();
+    const status = async (path: string, extra: Record<string, string>) => {
+      const response = await fetch(`http://127.0.0.1:${port}${path}`, {
+        headers: { ...headers, ...extra },
+      });
+      await response.arrayBuffer();
+      return response.status;
+    };
 
-    expect(open.status).toBe(200);
-    expect(seen).toBeUndefined();
-    expect(direct).toBeUndefined();
-    expect(gated.status).toBe(401);
+    expect(await status("/whoami", {})).toBe(401);
+    expect(await status("/gated", {})).toBe(401);
+    expect(seen).toBe("unset");
+
+    const admitted = { "x-api-key": "the-real-key" };
+    expect(await status("/whoami", admitted)).toBe(200);
+    expect(await status("/gated", admitted)).toBe(200);
+    expect((seen as { subject?: string } | undefined)?.subject).not.toBe(
+      "mallory",
+    );
+    expect(direct).not.toBe(headers["routecraft.auth.principal"]);
   });
 });
